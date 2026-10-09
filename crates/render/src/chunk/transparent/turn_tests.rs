@@ -81,7 +81,7 @@ fn expected_refs(
         world.resource::<ChunkBiomeTints>(),
     )
     .unwrap();
-    sort_transparent_groups(camera, &[Arc::new(group)], &[]).refs
+    sort_group(TransparentFaceMetric::new(camera), &group).to_vec()
 }
 
 /// Asserts that exactly the visible water is drawn and that each draw is in order.

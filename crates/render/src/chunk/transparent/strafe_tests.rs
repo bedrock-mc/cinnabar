@@ -222,6 +222,55 @@ impl Fixture {
         }
     }
 
+    /// Streams `out` away and `into` in through one upload pass, returning how many of the
+    /// new sub-chunks were admitted.
+    pub(super) fn stream(&mut self, out: &[SubChunkKey], into: &[(SubChunkKey, bool)]) -> usize {
+        for key in out {
+            let index = self
+                .surfaces
+                .iter()
+                .position(|(_, surface)| surface == key)
+                .unwrap();
+            let (entity, _) = self.surfaces.remove(index);
+            let world = self.app.world_mut();
+            world.despawn(entity);
+            world
+                .resource_mut::<ChunkGpuArena>()
+                .pending_removals
+                .insert(entity);
+        }
+        let spawned = into
+            .iter()
+            .map(|&(key, shore)| {
+                let entity = self.app.world_mut().spawn(ocean_surface(key, shore)).id();
+                self.surfaces.push((entity, key));
+                entity
+            })
+            .collect::<Vec<_>>();
+        self.app
+            .world_mut()
+            .run_system_once(prepare_gpu_chunks)
+            .unwrap();
+        let arena = self.app.world().resource::<ChunkGpuArena>();
+        spawned
+            .iter()
+            .filter(|entity| arena.allocations.contains_key(entity))
+            .count()
+    }
+
+    /// Arms the retirements no snapshot reads and completes their fence, as a frame the GPU
+    /// has finished does.
+    pub(super) fn complete_gpu_frame(&mut self) {
+        let world = self.app.world_mut();
+        let fence = world.resource::<TransparentRetirementFence>().clone();
+        world.resource_scope(|world, mut arena: Mut<ChunkGpuArena>| {
+            let state = &world.resource::<TransparentSortRuntime>().state;
+            if let Some(epoch) = arm_transparent_retirements(&mut arena, state, &fence) {
+                assert!(fence.complete(epoch));
+            }
+        });
+    }
+
     /// Water sub-chunks the coarse frustum admits from `camera` looking along `forward`.
     pub(super) fn visible_water(&self, camera: Vec3, forward: Vec3) -> BTreeSet<SubChunkKey> {
         self.surfaces
@@ -259,10 +308,9 @@ impl Fixture {
             let result = runtime.result_receiver.lock().unwrap().recv().unwrap();
             self.jobs += 1;
             self.sorted_refs += result
-                .fresh
-                .iter()
-                .map(|order| order.refs.len())
-                .sum::<usize>();
+                .output
+                .as_ref()
+                .map_or(0, |output| output.sorted_refs);
             runtime.result_sender.send(result).unwrap();
         }
     }

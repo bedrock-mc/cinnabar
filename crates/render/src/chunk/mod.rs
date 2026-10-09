@@ -270,10 +270,10 @@ use transparent::residents::{TransparentLiquidResidents, select_sorted_residents
 #[allow(unused_imports)]
 use transparent::retirement::{
     TransparentPresentationFence, TransparentRetirementBudget, TransparentRetirementFence,
-    TransparentRetirementFenceState, record_encoded_transparent_generation,
-    record_gpu_completed_transparent_generation, transparent_allocation_is_exact,
-    transparent_resident_allocation_contains, transparent_retirement_can_arm,
-    transparent_snapshot_references_allocation,
+    TransparentRetirementFenceState, arm_transparent_retirements,
+    record_encoded_transparent_generation, record_gpu_completed_transparent_generation,
+    transparent_allocation_is_exact, transparent_resident_allocation_contains,
+    transparent_retirement_can_arm, transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
 pub use transparent::sort::{
@@ -287,11 +287,11 @@ pub use transparent::sort::{
 #[allow(unused_imports)]
 use transparent::sort::{
     INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
-    MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
-    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, TransparentLiquidPhaseGroup,
-    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    MAX_TRANSPARENT_RETIRED_BYTES, TransparentGroupInput, TransparentGroups, TransparentLayoutBase,
+    TransparentLiquidPhaseGroup, TransparentRefPatch, TransparentSnapshotLayout,
+    TransparentSortOutput, TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
     TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
-    ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
+    ensure_transparent_ref_capacity, plan_transparent_slot, prepare_transparent_sorts, sort_group,
     spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
     transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,

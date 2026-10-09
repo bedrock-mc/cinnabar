@@ -653,9 +653,8 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
         key: key.clone(),
         camera: Vec3::ZERO,
         groups: Arc::from([]),
-        cached: Vec::new(),
         base: None,
-        distinct_tint_count: 0,
+        upload_cap: usize::MAX,
     };
     assert!(runtime.gate.submit(pending_generation, work).is_some());
     runtime
@@ -742,9 +741,8 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         key: moved,
         camera: Vec3::ZERO,
         groups: Arc::from([]),
-        cached: Vec::new(),
         base: None,
-        distinct_tint_count: 0,
+        upload_cap: usize::MAX,
     };
     assert!(runtime.gate.submit(pending, work).is_some());
     runtime.requested_at.insert(staged, Instant::now());
@@ -799,70 +797,6 @@ fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
         ),
         Duration::from_millis(5)
     );
-}
-
-#[test]
-fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failure() {
-    let identity =
-        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 16..20, 32..36, 5);
-    let key = |camera: [f32; 3], assets: usize| {
-        ViewSortKey::try_new(
-            camera,
-            vec![identity.clone()],
-            ChunkTextureAssetIdentity::new(assets, 1),
-            ChunkBiomeTintIdentity::new(1, 1),
-        )
-        .unwrap()
-    };
-    let group = |identity: &TransparentAllocationIdentity| {
-        Ok(TransparentGroupInput {
-            identity: identity.clone(),
-            tint_identity: ChunkBiomeTintIdentity::new(1, 1),
-            centroids: Box::new([Vec3::splat(0.5)]),
-            tint_colors: Box::new([[1, 2, 3], [4, 5, 6]]),
-        })
-    };
-    let mut runtime = TransparentSortRuntime::default();
-    let (first, first_tints) = runtime
-        .resolve_candidate_cache(&key([0.0; 3], 1), group)
-        .unwrap();
-    let (camera_reuse, camera_tints) = runtime
-        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 1), |_| {
-            panic!("camera-only key rebuilt candidates")
-        })
-        .unwrap();
-    assert!(Arc::ptr_eq(&first, &camera_reuse));
-    assert_eq!((first_tints, camera_tints), (2, 2));
-
-    // A new address set reuses the unchanged group's input instead of rebuilding it.
-    let (rebuilt, _) = runtime
-        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 2), |_| {
-            panic!("unchanged group rebuilt")
-        })
-        .unwrap();
-    assert!(!Arc::ptr_eq(&first, &rebuilt));
-    assert!(Arc::ptr_eq(&first[0], &rebuilt[0]));
-
-    let mut moved = identity.clone();
-    moved.mesh_generation += 1;
-    let failed = ViewSortKey::try_new(
-        [0.0; 3],
-        vec![moved],
-        ChunkTextureAssetIdentity::new(3, 1),
-        ChunkBiomeTintIdentity::new(1, 1),
-    )
-    .unwrap();
-    let ceiling = TransparentSortError::ReferenceCeiling {
-        requested: MAX_TRANSPARENT_DRAW_REFS + 1,
-        ceiling: MAX_TRANSPARENT_DRAW_REFS,
-    };
-    assert_eq!(
-        runtime
-            .resolve_candidate_cache(&failed, |_| Err(ceiling))
-            .err(),
-        Some(ceiling)
-    );
-    assert!(runtime.candidate_cache.is_none());
 }
 
 #[test]

@@ -3,8 +3,7 @@
 //! A sub-chunk's faces sort by camera position alone and each sub-chunk is its own phase
 //! item, so a sorted snapshot of every resident stays valid however the camera turns. The
 //! queue then draws whichever of its groups are visible.
-use super::MAX_TRANSPARENT_DRAW_REFS;
-use super::groups::{TransparentGroupInput, build_transparent_group};
+use super::groups::{TransparentGroupInput, TransparentGroups, build_transparent_group};
 use super::state::{TransparentAllocationIdentity, TransparentSortRuntime, ViewSortKey};
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::transparent::residents::{TransparentLiquidResident, select_sorted_residents};
@@ -21,6 +20,8 @@ pub(in crate::chunk) struct TransparentManifest {
     /// The camera's sub-chunk, kept only while the ref ceiling makes the choice depend on it.
     camera_chunk: Option<[i32; 3]>,
     allocations: Arc<[TransparentAllocationIdentity]>,
+    /// Each allocation's sort input, parallel to `allocations`.
+    groups: TransparentGroups,
     /// Whether any allocation lies in the cached near box.
     near: Option<(([i32; 3], [i32; 3]), bool)>,
 }
@@ -112,28 +113,34 @@ impl TransparentSortRuntime {
                 .sortable(include_order_independent),
             tint_identity,
             camera_chunk,
-            MAX_TRANSPARENT_DRAW_REFS,
+            self.ref_ceiling,
         );
+        // Both lists are in key order, so the previous inputs are reused by a merge.
+        let previous = self.manifest.take();
+        let (previous_allocations, previous_groups) =
+            previous.as_ref().map_or((&[][..], &[][..]), |manifest| {
+                (&manifest.allocations[..], &manifest.groups[..])
+            });
+        let mut cursor = 0;
         let mut allocations = Vec::with_capacity(selection.residents.len());
+        let mut groups = Vec::with_capacity(selection.residents.len());
         for resident in &selection.residents {
             let key = resident.identity.key;
-            let cached = self.group_inputs.get(&key).is_some_and(|group| {
-                group.identity == resident.identity && group.tint_identity == tint_identity
-            });
-            if !cached {
-                let Some(group) = build(resident) else {
-                    continue;
-                };
-                self.group_inputs.insert(key, Arc::new(group));
+            while cursor < previous_allocations.len() && previous_allocations[cursor].key < key {
+                cursor += 1;
             }
+            let reused = previous_groups
+                .get(cursor)
+                .filter(|group| {
+                    group.identity == resident.identity && group.tint_identity == tint_identity
+                })
+                .map(Arc::clone);
+            let Some(group) = reused.or_else(|| build(resident).map(Arc::new)) else {
+                continue;
+            };
             allocations.push(resident.identity.clone());
+            groups.push(group);
         }
-        let live = allocations
-            .iter()
-            .map(|identity| identity.key)
-            .collect::<HashSet<_>>();
-        self.group_inputs.retain(|key, _| live.contains(key));
-        self.group_orders.retain(|key, _| live.contains(key));
         if selection.excluded != 0 {
             metrics.update(|snapshot| {
                 snapshot.ceiling_reject_count = snapshot.ceiling_reject_count.saturating_add(1);
@@ -158,9 +165,17 @@ impl TransparentSortRuntime {
             tint_identity,
             camera_chunk: selection.camera_dependent.then_some(camera_chunk),
             allocations: Arc::clone(&allocations),
+            groups: groups.into(),
             near: None,
         });
         allocations
+    }
+
+    /// The sort inputs of the current manifest, parallel to its allocations.
+    pub(in crate::chunk) fn manifest_groups(&self) -> TransparentGroups {
+        self.manifest
+            .as_ref()
+            .map_or_else(|| Arc::from([]), |manifest| Arc::clone(&manifest.groups))
     }
 
     /// Whether any manifest allocation is near `metric`'s camera, rescanned only when the

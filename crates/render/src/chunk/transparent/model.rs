@@ -146,10 +146,8 @@ impl Default for TransparentSortRuntime {
             staged_distinct_tint_counts: HashMap::new(),
             committed_distinct_tint_count: 0,
             last_indirect_identity: None,
-            candidate_cache: None,
-            group_inputs: HashMap::new(),
-            group_orders: HashMap::new(),
             manifest: None,
+            ref_ceiling: MAX_TRANSPARENT_DRAW_REFS,
             last_ceiling_log: None,
             direct_order_independent: false,
         }
@@ -158,9 +156,10 @@ impl Default for TransparentSortRuntime {
 
 impl TransparentSortRuntime {
     pub(in crate::chunk) fn reset_for_view(&mut self, view_entity: Option<Entity>) {
-        let next_generation = self.state.next_generation;
+        let (next_generation, ref_ceiling) = (self.state.next_generation, self.ref_ceiling);
         *self = Self::default();
         self.state.next_generation = next_generation;
+        self.ref_ceiling = ref_ceiling;
         self.view_entity = view_entity;
     }
 
@@ -192,73 +191,6 @@ impl TransparentSortRuntime {
     ) -> bool {
         self.state.staged_generation() != Some(generation)
             && !self.gate.contains_generation(generation)
-    }
-
-    /// Reuses each visible group's input unless its allocation or tint table changed.
-    pub(in crate::chunk) fn resolve_candidate_cache(
-        &mut self,
-        key: &ViewSortKey,
-        mut build: impl FnMut(
-            &TransparentAllocationIdentity,
-        ) -> Result<TransparentGroupInput, TransparentSortError>,
-    ) -> Result<(TransparentGroups, usize), TransparentSortError> {
-        let address_identity = key.address_identity();
-        if let Some(cache) = self
-            .candidate_cache
-            .as_ref()
-            .filter(|cache| cache.address_identity == address_identity)
-        {
-            return Ok((Arc::clone(&cache.groups), cache.distinct_tint_count));
-        }
-        self.candidate_cache = None;
-        let mut total = 0_usize;
-        let groups = key
-            .sorted_allocations
-            .iter()
-            .map(|identity| {
-                let group = match self.group_inputs.get(&identity.key).filter(|group| {
-                    &group.identity == identity && group.tint_identity == key.tint_identity
-                }) {
-                    Some(group) => Arc::clone(group),
-                    None => {
-                        let group = Arc::new(build(identity)?);
-                        self.group_inputs.insert(identity.key, Arc::clone(&group));
-                        group
-                    }
-                };
-                total = total.saturating_add(group.centroids.len());
-                Ok(group)
-            })
-            .collect::<Result<Vec<_>, TransparentSortError>>()?;
-        validate_transparent_sort_ref_count(total)?;
-        // Keep groups that briefly leave the view, but never more than a bounded multiple.
-        let retained = groups.len().saturating_mul(2).saturating_add(64);
-        if self.group_inputs.len() > retained || self.group_orders.len() > retained {
-            let live = groups
-                .iter()
-                .map(|group| group.identity.key)
-                .collect::<HashSet<_>>();
-            self.group_inputs.retain(|key, _| live.contains(key));
-            self.group_orders.retain(|key, _| live.contains(key));
-        }
-        let groups = Arc::<[Arc<TransparentGroupInput>]>::from(groups);
-        let distinct_tint_count = distinct_tint_count(&groups);
-        self.candidate_cache = Some(TransparentCandidateCache {
-            address_identity,
-            groups: Arc::clone(&groups),
-            distinct_tint_count,
-        });
-        Ok((groups, distinct_tint_count))
-    }
-
-    pub(in crate::chunk) fn cached_group_orders(
-        &self,
-        groups: &[Arc<TransparentGroupInput>],
-    ) -> Vec<Option<TransparentGroupOrder>> {
-        groups
-            .iter()
-            .map(|group| self.group_orders.get(&group.identity.key).cloned())
-            .collect()
     }
 }
 

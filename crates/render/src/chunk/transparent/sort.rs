@@ -244,26 +244,31 @@ impl PackedTransparentDrawRef {
 pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
 mod groups;
+mod layout;
 mod manifest;
 mod prepare;
 mod state;
 
 pub(in crate::chunk) use groups::{
-    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, build_transparent_group,
-    distinct_tint_count, sort_transparent_groups, spawn_transparent_sort,
+    TransparentGroupInput, TransparentGroups, build_transparent_group, distinct_tint_count,
+    sort_group, spawn_transparent_sort,
+};
+pub(in crate::chunk) use layout::{
+    TransparentLayoutBase, TransparentRefPatch, TransparentSnapshotLayout, TransparentSortOutput,
+    plan_transparent_slot,
 };
 pub(in crate::chunk) use manifest::view_displaces_water;
 pub(in crate::chunk) use prepare::{
     prepare_transparent_sorts, transparent_snapshot_addresses_are_resident,
 };
-pub(in crate::chunk) use state::{
-    TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRuntime,
-    TransparentSortWork, TransparentStagedSnapshot, TransparentWorkerResult, changed_ref_spans,
-};
 pub use state::{
     TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
     TransparentSortJobGate, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
     ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
+};
+pub(in crate::chunk) use state::{
+    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    TransparentWorkerResult, changed_ref_spans,
 };
 
 #[cfg(test)]

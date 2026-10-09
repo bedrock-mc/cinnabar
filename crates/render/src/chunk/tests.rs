@@ -189,10 +189,14 @@ mod presentation_required_columns;
 mod transparent;
 #[path = "transparent/incremental_tests.rs"]
 mod transparent_incremental;
+#[path = "transparent/manifest_tests.rs"]
+mod transparent_manifest;
 #[path = "transparent/residency_tests.rs"]
 mod transparent_residency;
 #[path = "transparent/strafe_tests.rs"]
 mod transparent_strafe;
+#[path = "transparent/streaming_tests.rs"]
+mod transparent_streaming;
 #[path = "transparent/turn_tests.rs"]
 mod transparent_turn;
 

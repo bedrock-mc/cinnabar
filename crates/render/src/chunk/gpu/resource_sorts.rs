@@ -123,16 +123,16 @@ pub(super) fn prepare(
         .ok()?;
     liquids.view_entity = Some(view.entity);
     let generation = liquids.state.request(&key);
-    let sorted = sort_transparent_groups(translation, &groups, &[]);
-    let refs = sorted.refs;
-    liquids.group_orders = sorted
-        .fresh
-        .into_iter()
-        .map(|order| (order.identity.key, order))
-        .collect();
+    let output = plan_transparent_slot(
+        translation,
+        &key.sorted_allocations,
+        &groups,
+        None,
+        usize::MAX,
+    );
     liquids
         .state
-        .complete(TransparentSortResult::new(generation, key, refs).ok()?)
+        .complete(TransparentSortResult::planned(generation, key, output).ok()?)
         .ok()?;
     while let Some(batch) = liquids.state.next_upload_batch() {
         let offset = transparent_ref_offset(

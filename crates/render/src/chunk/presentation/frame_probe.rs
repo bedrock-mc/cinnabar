@@ -662,28 +662,8 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         && transparent_snapshot.encoded_generation != transparent_snapshot.presented_generation
         && transparent_fence.try_reserve(transparent_snapshot.encoded_generation))
     .then_some(transparent_snapshot.encoded_generation);
-    let has_releasable_retirement = arena.retired_allocations.iter().any(|retirement| {
-        retirement.release_epoch.is_none()
-            && transparent_retirement_can_arm(
-                transparent_runtime.state.retained_keys(),
-                &retirement.identity,
-            )
-    });
-    let retirement_epoch = has_releasable_retirement
-        .then(|| retirement_fence.try_reserve())
-        .flatten();
-    if let Some(epoch) = retirement_epoch {
-        for retirement in &mut arena.retired_allocations {
-            if retirement.release_epoch.is_none()
-                && transparent_retirement_can_arm(
-                    transparent_runtime.state.retained_keys(),
-                    &retirement.identity,
-                )
-            {
-                retirement.release_epoch = Some(epoch);
-            }
-        }
-    }
+    let retirement_epoch =
+        arm_transparent_retirements(&mut arena, &transparent_runtime.state, &retirement_fence);
     let witness_generation = transparent_runtime
         .state
         .committed()

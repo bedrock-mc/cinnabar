@@ -243,6 +243,31 @@ pub(in crate::chunk) fn transparent_view_missing_witness_keys(
         .collect()
 }
 
+/// Arms every retired allocation that no committed or staged snapshot reads with one new
+/// fence epoch and returns it; `None` when nothing is releasable or an epoch is in flight.
+///
+/// The allocations are released once the GPU completes the frame submitted with the epoch.
+pub(in crate::chunk) fn arm_transparent_retirements(
+    arena: &mut ChunkGpuArena,
+    state: &TransparentSortState,
+    fence: &TransparentRetirementFence,
+) -> Option<u64> {
+    let releasable = |retirement: &RetiredArenaAllocation| {
+        retirement.release_epoch.is_none()
+            && transparent_retirement_can_arm(state.retained_keys(), &retirement.identity)
+    };
+    if !arena.retired_allocations.iter().any(releasable) {
+        return None;
+    }
+    let epoch = fence.try_reserve()?;
+    for retirement in &mut arena.retired_allocations {
+        if releasable(retirement) {
+            retirement.release_epoch = Some(epoch);
+        }
+    }
+    Some(epoch)
+}
+
 /// Whether no snapshot a frame may still draw, committed or staged, reads `retired`.
 pub(in crate::chunk) fn transparent_retirement_can_arm<'a>(
     retained: impl IntoIterator<Item = &'a ViewSortKey>,

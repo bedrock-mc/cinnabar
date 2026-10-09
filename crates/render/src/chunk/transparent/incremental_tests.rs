@@ -127,27 +127,58 @@ fn scene() -> Scene {
 
 #[derive(Default)]
 struct Incremental {
-    orders: HashMap<SubChunkKey, TransparentGroupOrder>,
+    base: Option<TransparentLayoutBase>,
 }
 
 impl Incremental {
-    /// Sorts like a worker job and returns the re-sorted keys.
+    /// Sorts like a worker job against the last slot, returning every group's refs in key
+    /// order and the classes of the groups it sorted again.
     fn sort(
         &mut self,
         scene: &Scene,
         camera: Vec3,
     ) -> (Vec<PackedTransparentDrawRef>, Vec<FaceOrderClass>) {
-        let cached = scene
+        let allocations = scene
             .groups
             .iter()
-            .map(|group| self.orders.get(&group.identity.key).cloned())
-            .collect::<Vec<_>>();
-        let sorted = sort_transparent_groups(camera, &scene.groups, &cached);
-        let classes = sorted.fresh.iter().map(|order| order.class).collect();
-        for order in sorted.fresh {
-            self.orders.insert(order.identity.key, order);
+            .map(|group| group.identity.clone())
+            .collect::<Arc<[_]>>();
+        let output = plan_transparent_slot(
+            camera,
+            &allocations,
+            &scene.groups,
+            self.base.as_ref(),
+            usize::MAX,
+        );
+        let previous = self.base.as_ref().map(|base| &base.layout);
+        let mut refs = Vec::new();
+        let mut resorted = Vec::new();
+        for (group, class) in output
+            .layout
+            .groups
+            .iter()
+            .zip(output.layout.classes.iter())
+        {
+            refs.extend_from_slice(
+                &output.refs[group.ref_range.start as usize..group.ref_range.end as usize],
+            );
+            let kept = previous.is_some_and(|layout| {
+                layout
+                    .groups
+                    .iter()
+                    .zip(layout.classes.iter())
+                    .any(|(old, old_class)| old.key == group.key && old_class == class)
+            });
+            if !kept {
+                resorted.push(class.expect("worker groups carry their class"));
+            }
         }
-        (sorted.refs, classes)
+        self.base = Some(TransparentLayoutBase {
+            refs: output.refs,
+            allocations,
+            layout: output.layout,
+        });
+        (refs, resorted)
     }
 }
 
@@ -273,20 +304,19 @@ fn unchanged_orders_upload_nothing_and_near_motion_patches_only_its_group() {
         )
         .unwrap()
     };
-    let mut incremental = Incremental::default();
     let mut state =
         TransparentSortState::with_upload_cap(DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME);
-    let commit = |camera: Vec3, incremental: &mut Incremental, state: &mut TransparentSortState| {
+    let commit = |camera: Vec3, state: &mut TransparentSortState| {
         let key = key(camera);
         let generation = state.request(&key);
-        let base = state.committed().map(|snapshot| Arc::clone(&snapshot.refs));
-        let (refs, _) = incremental.sort(&scene, camera);
-        let refs = Arc::<[PackedTransparentDrawRef]>::from(refs);
-        let patch = base.map(|base| {
-            let spans = changed_ref_spans(&base, &refs);
-            (base, spans)
-        });
-        let result = TransparentSortResult::with_patch(generation, key, refs, patch).unwrap();
+        let output = plan_transparent_slot(
+            camera,
+            &key.sorted_allocations,
+            &scene.groups,
+            state.base_for(&key).as_ref(),
+            DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
+        );
+        let result = TransparentSortResult::planned(generation, key, output).unwrap();
         let committed = state.complete(result).unwrap();
         if !committed {
             while state.next_upload_batch().is_some() {
@@ -296,7 +326,7 @@ fn unchanged_orders_upload_nothing_and_near_motion_patches_only_its_group() {
         state.take_patch()
     };
     let start = Vec3::new(4.2, 68.0, 4.2);
-    commit(start, &mut incremental, &mut state);
+    commit(start, &mut state);
     let slot = state.committed().unwrap().buffer_slot();
 
     let near = scene
@@ -309,11 +339,7 @@ fn unchanged_orders_upload_nothing_and_near_motion_patches_only_its_group() {
         .map(|group| group.centroids.len())
         .sum::<usize>();
     let near_range = near_start..near_start + scene.groups[near].centroids.len();
-    let patch = commit(
-        start + Vec3::new(2.5, 0.0, 3.0),
-        &mut incremental,
-        &mut state,
-    );
+    let patch = commit(start + Vec3::new(2.5, 0.0, 3.0), &mut state);
     assert!(!patch.is_empty());
     assert!(
         patch
@@ -324,14 +350,7 @@ fn unchanged_orders_upload_nothing_and_near_motion_patches_only_its_group() {
     assert_eq!(state.committed().unwrap().buffer_slot(), slot);
 
     let high = Vec3::new(4.5, 200.0, 4.5);
-    commit(high, &mut incremental, &mut state);
-    assert!(
-        commit(
-            high + Vec3::new(3.0, 1.0, 2.0),
-            &mut incremental,
-            &mut state
-        )
-        .is_empty()
-    );
+    commit(high, &mut state);
+    assert!(commit(high + Vec3::new(3.0, 1.0, 2.0), &mut state).is_empty());
     assert!(state.next_upload_batch().is_none());
 }

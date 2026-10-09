@@ -1,8 +1,8 @@
 use super::groups::spawn_transparent_sort;
 use super::manifest::{build_resident_group, sorted_addresses_are_resident, view_displaces_water};
 use super::state::{
-    TransparentSortError, TransparentSortResult, TransparentSortRuntime, TransparentSortWork,
-    ViewSortKey,
+    TransparentOrderedSnapshot, TransparentSortError, TransparentSortResult,
+    TransparentSortRuntime, TransparentSortState, TransparentSortWork, ViewSortKey,
 };
 use super::{
     MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, ensure_transparent_ref_capacity,
@@ -61,6 +61,34 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
         }
         remaining == 0
     })
+}
+
+/// Writes the committed slot's `spans` from its CPU refs and returns the bytes written.
+fn write_committed_spans(
+    render_queue: &RenderQueue,
+    arena: &ChunkGpuArena,
+    state: &TransparentSortState,
+    spans: Vec<Range<usize>>,
+    upload_budget: &mut TransparentUploadBudget,
+) -> u64 {
+    let Some(snapshot) = state.committed() else {
+        return 0;
+    };
+    let mut bytes = 0;
+    for span in spans {
+        // Urgent spans are written whatever the budget; the worker bounds them by it.
+        if !upload_budget.consume(span.len()) {
+            upload_budget.consume(upload_budget.remaining());
+        }
+        bytes += write_transparent_refs(
+            render_queue,
+            arena,
+            snapshot.buffer_slot(),
+            span.start,
+            &snapshot.refs()[span],
+        );
+    }
+    bytes
 }
 
 fn write_transparent_refs(
@@ -126,52 +154,41 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     };
     if let Some(result) = completed {
         let next = runtime.gate.complete(result.generation);
-        // A fresh order is valid for its allocation and class whether or not it commits.
-        for order in result.fresh {
-            runtime.group_orders.insert(order.identity.key, order);
-        }
         metrics.update(|snapshot| {
             snapshot.result_generation = result.generation.get();
             snapshot.cpu_duration = result.cpu_duration;
         });
-        match result.refs {
-            Ok(refs) => {
-                let ref_bytes =
-                    refs.len() as u64 * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
-                let sort_result = TransparentSortResult::with_patch(
-                    result.generation,
-                    result.key,
-                    refs,
-                    result.patch,
-                )
-                .expect("worker prevalidates the hard transparent reference ceiling");
+        match result.output {
+            Ok(output) => {
+                bevy::log::debug!(
+                    generation = result.generation.get(),
+                    sorted_refs = output.sorted_refs,
+                    slot_refs = output.refs.len(),
+                    in_place = output.patch.is_some(),
+                    "transparent water sort result"
+                );
+                let ref_bytes = output.refs.len() as u64
+                    * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
+                // A patch may extend the committed slot, so the slot grows before it commits.
+                if ensure_transparent_ref_capacity(
+                    &mut arena,
+                    &render_device,
+                    &render_queue,
+                    output.refs.len(),
+                    &runtime.state,
+                ) {
+                    runtime.last_indirect_identity = None;
+                }
+                let sort_result =
+                    TransparentSortResult::planned(result.generation, result.key, output)
+                        .expect("worker prevalidates the hard transparent reference ceiling");
                 match runtime.state.complete(sort_result) {
                     Ok(true) => {
-                        let patch = runtime.state.take_patch();
-                        if let Some(snapshot) = runtime.state.committed()
-                            && !patch.is_empty()
-                        {
-                            let mut patched_bytes = 0;
-                            for span in patch {
-                                upload_budget.consume(span.len());
-                                patched_bytes += write_transparent_refs(
-                                    &render_queue,
-                                    &arena,
-                                    snapshot.buffer_slot(),
-                                    span.start,
-                                    &snapshot.refs()[span],
-                                );
-                            }
-                            metrics.update(|snapshot| {
-                                snapshot.upload_bytes =
-                                    snapshot.upload_bytes.saturating_add(patched_bytes);
-                            });
-                        }
                         runtime.committed_distinct_tint_count = result.distinct_tint_count;
                         let ref_count = runtime
                             .state
                             .committed()
-                            .map_or(0, |snapshot| snapshot.refs().len());
+                            .map_or(0, TransparentOrderedSnapshot::live_ref_count);
                         runtime.requested_at.remove(&result.generation);
                         let latency = transparent_request_to_commit_latency(
                             result.requested_at,
@@ -232,10 +249,26 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             Err(TransparentSortError::ConflictingAllocation { .. }) => {}
             Err(TransparentSortError::InvalidCameraTransform) => {}
         }
-        if let Some((_generation, work)) = next {
+        if let Some((_generation, mut work)) = next {
+            // The queued job plans against whatever this result just committed.
+            work.base = runtime.state.base_for(&work.key);
             spawn_transparent_sort(runtime.result_sender.clone(), work, worker_profiler.clone());
         }
         runtime.prune_request_metadata();
+    }
+    // Ranges a draw would otherwise misread land before anything else this frame.
+    let urgent = runtime.state.take_urgent_patch();
+    let patched_bytes = write_committed_spans(
+        &render_queue,
+        &arena,
+        &runtime.state,
+        urgent,
+        &mut upload_budget,
+    );
+    if patched_bytes != 0 {
+        metrics.update(|snapshot| {
+            snapshot.upload_bytes = snapshot.upload_bytes.saturating_add(patched_bytes);
+        });
     }
 
     let mut visible_views = views.iter().collect::<Vec<_>>();
@@ -398,62 +431,32 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         metrics.update(|snapshot| snapshot.request_generation = generation.get());
         if runtime.generation_needs_sort_job(generation) {
             let requested_at = Instant::now();
-            let arena_view: &ChunkGpuArena = &arena;
-            match runtime.resolve_candidate_cache(&key, |identity| {
-                arena_view
-                    .transparent_liquids
-                    .get(identity.key)
-                    .filter(|resident| &resident.identity == identity)
-                    .and_then(|resident| {
-                        build_resident_group(resident, &instances, arena_view, &biome_tints)
-                    })
-                    .ok_or(TransparentSortError::ConflictingAllocation { key: identity.key })
-            }) {
-                Ok((groups, distinct_tint_count)) => {
-                    let cached = runtime.cached_group_orders(&groups);
-                    let base = runtime
-                        .state
-                        .committed()
-                        .filter(|snapshot| snapshot.key.address_identity_eq(&key))
-                        .map(|snapshot| Arc::clone(&snapshot.refs));
-                    let work = TransparentSortWork {
-                        generation,
-                        requested_at,
-                        key,
-                        camera,
-                        groups,
-                        cached,
-                        base,
-                        distinct_tint_count,
-                    };
-                    runtime.requested_at.insert(generation, requested_at);
-                    let (start, replaced) = runtime.gate.submit_with_replacement(generation, work);
-                    if let Some(replaced) = replaced {
-                        runtime.requested_at.remove(&replaced);
-                        runtime.staged_distinct_tint_counts.remove(&replaced);
-                    }
-                    if let Some((_generation, work)) = start {
-                        spawn_transparent_sort(
-                            runtime.result_sender.clone(),
-                            work,
-                            worker_profiler.clone(),
-                        );
-                    }
-                    runtime.prune_request_metadata();
-                }
-                Err(TransparentSortError::ReferenceCeiling { .. }) => {
-                    metrics.update(|snapshot| {
-                        snapshot.ceiling_reject_count =
-                            snapshot.ceiling_reject_count.saturating_add(1);
-                    });
-                }
-                Err(TransparentSortError::ConflictingAllocation { .. }) => {}
-                Err(TransparentSortError::InvalidCameraTransform) => {}
+            let work = TransparentSortWork {
+                generation,
+                requested_at,
+                base: runtime.state.base_for(&key),
+                key,
+                camera,
+                groups: runtime.manifest_groups(),
+                upload_cap: runtime.state.upload_cap,
+            };
+            runtime.requested_at.insert(generation, requested_at);
+            let (start, replaced) = runtime.gate.submit_with_replacement(generation, work);
+            if let Some(replaced) = replaced {
+                runtime.requested_at.remove(&replaced);
+                runtime.staged_distinct_tint_counts.remove(&replaced);
             }
+            if let Some((_generation, work)) = start {
+                spawn_transparent_sort(
+                    runtime.result_sender.clone(),
+                    work,
+                    worker_profiler.clone(),
+                );
+            }
+            runtime.prune_request_metadata();
         }
     }
 
-    let mut uploaded_bytes = 0_u64;
     let staged_refs = runtime.state.staged_ref_count();
     if ensure_transparent_ref_capacity(
         &mut arena,
@@ -464,31 +467,44 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     ) {
         runtime.last_indirect_identity = None;
     }
+    let mut staged_bytes = 0;
     if let Some(batch) = runtime.state.next_upload_batch() {
-        if !upload_budget.consume(batch.refs().len()) {
+        if upload_budget.consume(batch.refs().len()) {
+            staged_bytes = write_transparent_refs(
+                &render_queue,
+                &arena,
+                batch.buffer_slot(),
+                batch.ref_range().start,
+                batch.refs(),
+            );
+        } else {
             bevy::log::error!(
                 "transparent water sort batch exceeds the shared per-frame reference upload budget"
             );
-            return;
         }
-        uploaded_bytes = write_transparent_refs(
+    }
+    // Lagging orders of committed groups take whatever budget the staged slot left.
+    let lagging = runtime.state.take_patch_within(upload_budget.remaining());
+    let uploaded_bytes = staged_bytes
+        + write_committed_spans(
             &render_queue,
             &arena,
-            batch.buffer_slot(),
-            batch.ref_range().start,
-            batch.refs(),
+            &runtime.state,
+            lagging,
+            &mut upload_budget,
         );
-    }
     if uploaded_bytes != 0 {
-        let committed = runtime.state.acknowledge_upload();
         metrics.update(|snapshot| {
             snapshot.upload_bytes = snapshot.upload_bytes.saturating_add(uploaded_bytes);
         });
+    }
+    if staged_bytes != 0 {
+        let committed = runtime.state.acknowledge_upload();
         if committed
             && let Some((generation, ref_count)) = runtime
                 .state
                 .committed()
-                .map(|snapshot| (snapshot.generation(), snapshot.refs().len()))
+                .map(|snapshot| (snapshot.generation(), snapshot.live_ref_count()))
         {
             runtime.committed_distinct_tint_count = runtime
                 .staged_distinct_tint_counts
