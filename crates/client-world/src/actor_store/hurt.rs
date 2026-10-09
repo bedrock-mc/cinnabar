@@ -63,6 +63,8 @@ pub struct ActorStatus {
     pub hurt_direction: Option<f32>,
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
+    /// Signed death ticks for native camera effects, independent of body animation progress.
+    pub(crate) native_death_ticks: i16,
     pub(crate) dragon_death_time: u16,
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
@@ -84,6 +86,12 @@ pub struct ActorStatus {
 }
 
 impl ActorStatus {
+    /// Returns the signed death counter sampled by native camera effects.
+    #[must_use]
+    pub fn native_death_ticks(&self) -> i16 {
+        self.native_death_ticks
+    }
+
     /// Death ticks presented to animations, including the dragon's longer sequence.
     #[must_use]
     pub fn death_ticks(&self) -> u16 {
@@ -122,8 +130,9 @@ impl ActorStatus {
         if self.shake_time > 0 {
             self.shake_time -= 1;
         }
-        if self.dead && self.death_time < DEATH_DURATION_TICKS {
-            self.death_time += 1;
+        if self.dead {
+            self.native_death_ticks = self.native_death_ticks.wrapping_add(1);
+            self.death_time = self.death_time.saturating_add(1).min(DEATH_DURATION_TICKS);
         }
     }
 
@@ -146,6 +155,7 @@ impl ActorStatus {
         self.hurt_time = 0;
         self.hurt_direction = None;
         self.death_time = 0;
+        self.native_death_ticks = 0;
         self.dragon_death_time = 0;
         self.dead = false;
     }
@@ -330,6 +340,22 @@ mod tests {
         assert_eq!(status.death_time, DEATH_DURATION_TICKS);
         assert_eq!(status.death_progress(0.9), Some(1.0));
         assert!(status.overlay_active());
+    }
+
+    #[test]
+    fn native_death_clock_continues_after_the_body_finishes_falling() {
+        let mut status = ActorStatus::default();
+        status.die();
+        for _ in 0..125 {
+            status.tick();
+        }
+        assert_eq!(status.native_death_ticks(), 125);
+        assert_eq!(status.death_time, DEATH_DURATION_TICKS);
+        status.revive();
+        assert_eq!(status.native_death_ticks(), 0);
+        status.die();
+        status.tick();
+        assert_eq!(status.native_death_ticks(), 1);
     }
 
     fn spawn() -> protocol::ActorEvent {
