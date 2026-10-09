@@ -336,6 +336,8 @@ pub(crate) fn update_block_entity_scene(
     let mut scans = std::mem::take(&mut runtime.columns);
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
+    let mut rescans_left = columns::MAX_COLUMN_RESCANS_PER_FRAME;
+    let eye_column = [eye.x, eye.z].map(|axis| (axis / SUB_CHUNK_SIDE as f32).floor() as i32);
     let chunk_range = |center: f32| {
         ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
             ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
@@ -346,9 +348,10 @@ pub(crate) fn update_block_entity_scene(
             let Some(chunk) = store.chunk(chunk_key) else {
                 continue;
             };
-            let mut scan = match scans.remove(&chunk_key) {
-                Some(scan) if scan.is_current(chunk) => scan,
-                previous => {
+            let previous = scans.remove(&chunk_key);
+            let near = columns::is_near_column(eye_column, chunk_x, chunk_z);
+            let Some(mut scan) =
+                columns::frame_scan(previous, chunk, near, &mut rescans_left, |previous| {
                     let portals = portals::column_cells(chunk_key, chunk, |id| {
                         portal_kind(runtime, &collisions, mode, id)
                     });
@@ -364,7 +367,9 @@ pub(crate) fn update_block_entity_scene(
                         },
                     );
                     columns::ColumnScan::new(chunk, portals, entities)
-                }
+                })
+            else {
+                continue;
             };
             scan.seen_frame = frame_stamp;
             portals::submit(&mut submissions, &scan.portals, eye);

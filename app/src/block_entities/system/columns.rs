@@ -52,6 +52,41 @@ impl ColumnScan {
     }
 }
 
+/// Column rescans one frame may run beyond the player's own columns. Joining a lobby streams
+/// in every nearby column at once, and each rescan reads all of a column's sub-chunk palettes
+/// and new block entities.
+pub(super) const MAX_COLUMN_RESCANS_PER_FRAME: usize = 8;
+/// Columns within this many columns of the eye's rescan on every change outside the budget,
+/// so blocks the player edits within reach never wait for streaming elsewhere.
+const NEAR_COLUMN_REACH: i32 = 1;
+
+/// Whether column (`chunk_x`, `chunk_z`) is one of the eye column's near neighbours.
+pub(super) fn is_near_column(eye_column: [i32; 2], chunk_x: i32, chunk_z: i32) -> bool {
+    (chunk_x - eye_column[0]).abs() <= NEAR_COLUMN_REACH
+        && (chunk_z - eye_column[1]).abs() <= NEAR_COLUMN_REACH
+}
+
+/// This frame's scan of `chunk`: the cached scan while current, a fresh one from `rescan` for a
+/// near column or while the frame's budget lasts, else the stale previous scan until a later
+/// frame rescans it, or `None` for a column not yet scanned.
+pub(super) fn frame_scan(
+    previous: Option<ColumnScan>,
+    chunk: &Chunk,
+    near: bool,
+    rescans_left: &mut usize,
+    rescan: impl FnOnce(Option<ColumnScan>) -> ColumnScan,
+) -> Option<ColumnScan> {
+    match previous {
+        Some(scan) if scan.is_current(chunk) => Some(scan),
+        previous if near => Some(rescan(previous)),
+        previous if *rescans_left > 0 => {
+            *rescans_left -= 1;
+            Some(rescan(previous))
+        }
+        stale => stale,
+    }
+}
+
 /// An edit replaces the map or detaches its weak references, so either check sees it.
 fn same<T>(weak: &Weak<T>, current: &Arc<T>) -> bool {
     weak.upgrade()

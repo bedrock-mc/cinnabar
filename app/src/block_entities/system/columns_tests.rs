@@ -157,3 +157,87 @@ fn rebuilding_a_column_describes_only_the_entities_that_changed() {
         .collect();
     assert_eq!(drawn, [first, second]);
 }
+
+/// Streaming a lobby in invalidates every nearby column at once: a frame rescans a bounded
+/// number, the rest keep their previous scan or wait, and later frames finish the rest.
+#[test]
+fn a_frame_rescans_a_bounded_number_of_columns() {
+    let columns = 3 * MAX_COLUMN_RESCANS_PER_FRAME;
+    let mut store = ChunkStore::new();
+    let commit_all = |store: &mut ChunkStore, id: u8| {
+        for x in 0..columns as i32 {
+            store
+                .commit_sub_chunk(SubChunkKey::new(0, x, 4, 0), uniform_sub_chunk(id))
+                .unwrap();
+        }
+    };
+    commit_all(&mut store, 1);
+    let mut scans: Vec<Option<ColumnScan>> = (0..columns).map(|_| None).collect();
+    let rescans = Cell::new(0);
+    let frame = |store: &ChunkStore, scans: &mut Vec<Option<ColumnScan>>| {
+        let mut left = MAX_COLUMN_RESCANS_PER_FRAME;
+        for (x, scan) in scans.iter_mut().enumerate() {
+            let chunk = store.chunk(world::ChunkKey::new(0, x as i32, 0)).unwrap();
+            *scan = frame_scan(scan.take(), chunk, false, &mut left, |previous| {
+                rescans.set(rescans.get() + 1);
+                ColumnScan::new(
+                    chunk,
+                    Vec::new(),
+                    routed_entities(chunk, previous, |_, _, _, _| None),
+                )
+            });
+        }
+        rescans.replace(0)
+    };
+    assert_eq!(frame(&store, &mut scans), MAX_COLUMN_RESCANS_PER_FRAME);
+    assert_eq!(scans.iter().flatten().count(), MAX_COLUMN_RESCANS_PER_FRAME);
+    assert_eq!(frame(&store, &mut scans), MAX_COLUMN_RESCANS_PER_FRAME);
+    assert_eq!(frame(&store, &mut scans), MAX_COLUMN_RESCANS_PER_FRAME);
+    assert_eq!(frame(&store, &mut scans), 0, "every column is current");
+    commit_all(&mut store, 2);
+    assert_eq!(frame(&store, &mut scans), MAX_COLUMN_RESCANS_PER_FRAME);
+    assert!(
+        scans.iter().all(Option::is_some),
+        "stale columns keep their scan"
+    );
+}
+
+/// The player's own columns rescan on every change even after streaming spent the budget, so an
+/// edit within reach shows in the frame it commits.
+#[test]
+fn near_columns_rescan_past_a_spent_budget() {
+    let mut store = ChunkStore::new();
+    store
+        .commit_sub_chunk(SECTION, uniform_sub_chunk(1))
+        .unwrap();
+    let key = world::ChunkKey::new(0, 0, 0);
+    let rescan = |chunk: &Chunk, previous| {
+        ColumnScan::new(
+            chunk,
+            Vec::new(),
+            routed_entities(chunk, previous, |_, _, _, _| None),
+        )
+    };
+    let mut spent = 0;
+    let chunk = store.chunk(key).unwrap();
+    let scan = frame_scan(None, chunk, true, &mut spent, |previous| {
+        rescan(chunk, previous)
+    })
+    .expect("a near column scans without budget");
+    store
+        .commit_sub_chunk(SECTION, uniform_sub_chunk(2))
+        .unwrap();
+    let chunk = store.chunk(key).unwrap();
+    assert!(!scan.is_current(chunk));
+    let scan = frame_scan(Some(scan), chunk, true, &mut spent, |previous| {
+        rescan(chunk, previous)
+    })
+    .unwrap();
+    assert!(scan.is_current(chunk), "the edited near column rescans");
+    let far = frame_scan(None, chunk, false, &mut spent, |previous| {
+        rescan(chunk, previous)
+    });
+    assert!(far.is_none(), "a far column waits for budget");
+    assert!(is_near_column([0, 0], 1, -1));
+    assert!(!is_near_column([0, 0], 2, 0));
+}
