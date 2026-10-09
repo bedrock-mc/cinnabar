@@ -7,3 +7,5 @@ mod resource_sorts;
 pub(in crate::chunk) mod telemetry;
 pub(in crate::chunk) mod types;
 pub(in crate::chunk) mod upload;
+#[cfg(test)]
+mod alpha_edge_tests;

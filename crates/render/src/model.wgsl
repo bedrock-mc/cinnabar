@@ -37,7 +37,8 @@ struct AtmosphereUniform {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    // Partially covered MSAA pixels must sample inside the authored quad.
+    @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
