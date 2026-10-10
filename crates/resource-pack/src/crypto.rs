@@ -21,6 +21,11 @@ impl ContentKey {
         matches!(trimmed.len(), 16 | 24 | 32).then(|| Self(trimmed.into()))
     }
 
+    /// Whether both keys decrypt identically; used only to compare admitted packs in memory.
+    pub(crate) fn same_key(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
     /// Decrypts `data` in place.
     pub(crate) fn decrypt(&self, data: &mut [u8]) {
         match self.0.len() {

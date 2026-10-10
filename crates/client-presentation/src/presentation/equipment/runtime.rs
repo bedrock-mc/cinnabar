@@ -38,7 +38,7 @@ pub use types::{
 use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
 use super::{
-    armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
+    armor::{bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{Placement, SpriteAtlas},
     attachable::{self, BoneChannels},
     blocks::{self, BlockSheets},

@@ -95,12 +95,7 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
-        (
-            render::begin_stage_span::<{ render::RuntimeStage::Particles as usize }>,
-            drive_particles,
-            render::end_stage_span::<{ render::RuntimeStage::Particles as usize }>,
-        )
-            .chain()
+        drive_particles
             .after(crate::camera::FlyCameraUpdateSet)
             .after(crate::app::ClientFrameSet::ActorPreparation)
             .after(crate::environment::update_seasonal_foliage),
@@ -370,7 +365,12 @@ fn drive_particles(
     mut block_cues: MessageReader<crate::audio::LocalBlockCue>,
     mut break_echoes: Local<crate::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    // Timed inside the system: a span around it would also count systems ordered in between.
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Particles));
     let Some(stream) = client_world.stream.as_mut() else {
         if system.emitter_count() > 0 {
             system.clear();

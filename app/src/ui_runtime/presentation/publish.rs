@@ -142,7 +142,7 @@ pub(crate) fn prepare_ui_runtime(
             menu_visible: menu_runtime.is_visible(),
             snapshot: visibility_diagnostics.snapshot(),
             visible_rendered: visibility.visible_rendered,
-            cohort: frame_poll.cohort,
+            cohort: frame_poll.cohort_progress,
             render_work_drained: render_queue.retained_len() == 0
                 && upload_acknowledgements.is_empty(),
             pipelines_ready: actor_pipelines

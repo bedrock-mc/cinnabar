@@ -48,6 +48,7 @@ pub(super) fn prepare_publication_removals(
             .allocations
             .remove(&entity)
             .expect("pending removal retains its arena allocation");
+        arena.transparent_liquids.forget(entity, allocation_key);
         physically_removed_keys.insert(allocation_key);
         assert!(arena.retirement_budget.try_reserve(1, bytes));
         arena.retired_allocations.push(retirement);

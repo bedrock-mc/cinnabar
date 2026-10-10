@@ -10,6 +10,7 @@ mod layout;
 mod palette;
 mod parse;
 mod single_line;
+mod units;
 
 pub use palette::FormattingPalette;
 
@@ -210,6 +211,9 @@ pub struct TextWrap {
     /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
     /// snaps each line to the pixel grid; zero keeps them exact.
     pub align_grid_65536: u32,
+    /// Device pixels per output pixel in 1/65536 units; zero means unknown.
+    /// Half-device-pixel font texels use exact device units to prevent fractional-scale stroke drift.
+    pub device_scale_65536: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

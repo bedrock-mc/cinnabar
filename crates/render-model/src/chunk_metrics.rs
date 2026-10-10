@@ -7,7 +7,7 @@ pub struct TransparentSortMetricsSnapshot {
     pub committed_generation: u64,
     /// Generation whose draw command was encoded into a render pass.
     pub encoded_generation: u64,
-    /// Generation proven by the submitted-work completion sentinel.
+    /// Generation proven by the frame's GPU-completion callback.
     pub presented_generation: u64,
     pub ref_count: usize,
     pub cpu_duration: std::time::Duration,

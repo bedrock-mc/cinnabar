@@ -118,35 +118,14 @@ impl ActorTexturePage {
 
     /// This page box-filtered down by the smallest power of two that fits `limit` per side.
     pub(crate) fn fit_within(&self, limit: u32) -> std::borrow::Cow<'_, Self> {
-        let longest = u32::from(self.width.max(self.height));
-        if longest <= limit || limit == 0 {
+        let Some(([width, height], rgba8)) =
+            render_model::fit_rgba_within(self.width, self.height, &self.rgba8, limit)
+        else {
             return std::borrow::Cow::Borrowed(self);
-        }
-        let factor = longest.div_ceil(limit).next_power_of_two() as usize;
-        let (width, height) = (usize::from(self.width), usize::from(self.height));
-        let (out_width, out_height) = (width.div_ceil(factor), height.div_ceil(factor));
-        let mut rgba8 = Vec::with_capacity(out_width * out_height * 4 * self.layers as usize);
-        for layer in self.rgba8.chunks_exact(width * height * 4) {
-            for y in 0..out_height {
-                for x in 0..out_width {
-                    let mut sum = [0u32; 4];
-                    let mut count = 0;
-                    for source_y in y * factor..((y + 1) * factor).min(height) {
-                        for source_x in x * factor..((x + 1) * factor).min(width) {
-                            let at = (source_y * width + source_x) * 4;
-                            for (total, value) in sum.iter_mut().zip(&layer[at..at + 4]) {
-                                *total += u32::from(*value);
-                            }
-                            count += 1;
-                        }
-                    }
-                    rgba8.extend(sum.map(|total| (total / count) as u8));
-                }
-            }
-        }
+        };
         std::borrow::Cow::Owned(Self {
-            width: out_width as u16,
-            height: out_height as u16,
+            width,
+            height,
             layers: self.layers,
             rgba8: rgba8.into(),
             color_mask: self.color_mask,

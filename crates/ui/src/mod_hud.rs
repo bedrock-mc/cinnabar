@@ -40,6 +40,9 @@ pub enum RowLayout {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
+    /// Suppresses the ordinary status-effect icons while this HUD is published.
+    #[serde(default)]
+    pub hide_effect_icons: bool,
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,

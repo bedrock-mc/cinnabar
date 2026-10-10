@@ -17,6 +17,7 @@ struct Cached {
 struct CatalogCache(Mutex<Option<Cached>>);
 
 impl CatalogCache {
+    /// Reuses a live catalog for identical source and base allocations, preparing a changed pair.
     fn prepare(
         &self,
         source: &Arc<ServerUiPack>,
@@ -54,7 +55,9 @@ impl CatalogCache {
     }
 }
 
-pub(super) fn prepare(
+/// `source` resolved against `base`, shared with the last caller that prepared the same pair
+/// while that result is still alive.
+pub(in crate::runtime::network) fn prepare(
     source: &Arc<ServerUiPack>,
     base: &Arc<json_ui::Catalog>,
 ) -> Arc<ServerUiPack> {

@@ -70,6 +70,11 @@ pub fn base_terrain_catalog() -> HashMap<String, String> {
     BASE_TERRAIN_CATALOG.get().cloned().unwrap_or_default()
 }
 
+/// Whether the carrier's aliases are installed; once installed they never change.
+pub fn base_terrain_catalog_installed() -> bool {
+    BASE_TERRAIN_CATALOG.get().is_some()
+}
+
 /// Reads valid entries independently, preserving lower aliases for malformed entries.
 fn merge_texture_catalog(paths: &mut HashMap<String, String>, bytes: &[u8]) {
     let Some(Value::Object(data)) =

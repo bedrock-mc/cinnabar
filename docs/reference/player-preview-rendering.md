@@ -16,7 +16,12 @@ from this extra silhouette/downsampling artifact.
 | Actor dispatch | Set UI-rendering state and dispatch the actual actor geometry. |
 
 Current live rendering takes `min(control_width, control_height)` as the model scale, translates
-to the control's center, and applies the actor's eye offset. The pointer offset is measured in
+to the control's center, and applies the actor's eye offset. A player's actor position is its
+eye position, so that offset returns the drawn model to the actor's own origin. In UI rendering
+that origin is the model-part origin, 24 model pixels (times the 0.9375 player scale) above the
+feet, so it lands on the control's center as on the HUD doll; the eyes do not. In the pinned
+inventory layout this centers the model in its 52 by 70 black panel instead of standing the
+feet on its bottom edge. No matched vanilla capture confirms the placement yet. The pointer offset is measured in
 GUI coordinates. Its body yaw is `atan(dx / 40) * 20` degrees, head yaw
 `atan(dx / 40) * 40`, and head/model pitch `atan(dy / 40) * -20`.
 The paper doll uses `min(width / 20, height / 39)` per model pixel, with the renderer's
@@ -81,7 +86,16 @@ skin's original allocation/dimensions and uses the shared Bedrock limb expansion
 legacy half-height skins. It does not resample to the world-renderer skin array's fixed side.
 Atlas UV coordinates remain floating point, preserving original edges and native extrusion
 side texel centers without rounding or clamping. Non-finite/out-of-range mappings are rejected.
-Armor keeps its own texture dimensions/dye.
+Armor keeps its own texture dimensions. Every preview (inventory, pause and HUD dolls) resolves
+armor as the world player does: the session pack's attachable first, else the base catalog's.
+Only a leather material applies a stack's `customColor` dye, through its color mask; diamond and
+other tiers keep their authored texture even when a server dyes them for a team. Only the pack
+textures the preview wears take GUI model pages, each placed on its own, so a pack with more
+attachable art than the model atlas holds stays usable. Art longer than a model page side, or
+past the page budget, is box-filtered down by powers of two, the rule world actor art follows
+past its budget; worn art that still has no room falls back to the item's base art.
+Incomplete: the preview draws every worn binding on the humanoid armor boxes, so pack
+attachables with their own geometry do not yet match the world player.
 One isolated depth interval is shared by skin, armor and held carriers, preserving part
 occlusion without inheriting terrain depth or quantizing the silhouette to preview pixels.
 

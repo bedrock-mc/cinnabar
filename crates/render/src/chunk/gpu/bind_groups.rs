@@ -236,7 +236,7 @@ pub struct ChunkTextureUploadStats {
 pub(in crate::chunk) fn prepare_chunk_texture_assets(
     mut commands: Commands,
     instances: Query<(Entity, &ChunkRenderInstance)>,
-    views: Query<(Entity, &ExtractedView), With<ExtractedCamera>>,
+    views: Query<(Entity, &ExtractedView, Has<crate::EnhancedRendering>), With<ExtractedCamera>>,
     mut arena: ResMut<ChunkGpuArena>,
     assets: Res<ChunkTextureAssets>,
     render_device: Res<RenderDevice>,
@@ -321,11 +321,14 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let geometry = reload.geometry();
     let view = views
         .iter()
-        .min_by_key(|(entity, _)| *entity)
-        .map(|(entity, view)| super::resource_sorts::ResourceView {
-            entity,
-            transform: view.world_from_view,
-        });
+        .min_by_key(|(entity, ..)| *entity)
+        .map(
+            |(entity, view, enhanced)| super::resource_sorts::ResourceView {
+                entity,
+                transform: view.world_from_view,
+                sort_order_independent: view_displaces_water(enhanced),
+            },
+        );
     std::thread::spawn(move || {
         let result =
             build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {

@@ -134,7 +134,15 @@ fn frame(stream: &WorldStream, local: bool, alpha: f32) -> ThirdPerson<'_> {
     let rig = stream.authority().actor_rig(1).unwrap();
     let actor = stream.authority().actor(1).unwrap();
     let equipment = ActorEquipmentInput::default();
-    third_person(stream, &rig, actor, local.then_some(&equipment), alpha).unwrap()
+    third_person(
+        stream,
+        &rig,
+        actor,
+        local.then_some(&equipment),
+        alpha,
+        &mut PoseScratch::default(),
+    )
+    .unwrap()
 }
 
 fn degrees_near(actual: f32, expected: f32) {
@@ -241,7 +249,7 @@ fn remote_mounted_head_interpolates_tick_angles_and_ignores_the_pending_target()
     assert_eq!(actor.pitch, 35.0);
     assert_ne!(actor.head_yaw, actor.received_pose.head_yaw);
     let rig = stream.authority().actor_rig(2).unwrap();
-    let posed = third_person(&stream, &rig, actor, None, 0.5).unwrap();
+    let posed = third_person(&stream, &rig, actor, None, 0.5, &mut PoseScratch::default()).unwrap();
     degrees_near(posed.rig.body_yaw, 112.0);
     head_pose_near(&posed, 68.0, 30.0);
     degrees_near(
@@ -387,7 +395,15 @@ fn local_java_torso_frame_uses_physics_alpha_for_heading_and_cape_rotation() {
     rig.java.cape = [[0.0; 3], [10.0, 20.0, 30.0]];
     let actor = stream.authority().actor(1).unwrap();
     let equipment = ActorEquipmentInput::default();
-    let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.1).unwrap();
+    let posed = third_person(
+        &stream,
+        &rig,
+        actor,
+        Some(&equipment),
+        0.1,
+        &mut PoseScratch::default(),
+    )
+    .unwrap();
     degrees_near(
         lerp_degrees(posed.rig.previous_body_yaw, posed.rig.body_yaw, 0.1),
         25.0,

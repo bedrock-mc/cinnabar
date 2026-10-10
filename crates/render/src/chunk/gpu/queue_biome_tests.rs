@@ -229,6 +229,7 @@ fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
                     has_depth_liquid: false,
                     has_transparent_liquid: false,
                     depth_liquid_range: None,
+                    order_independent_liquid: false,
                     metadata_index: index as u32,
                 },
             )

@@ -108,6 +108,15 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
+# Pin the wgpu family to bedrock-mc/wgpu cinnabar-v27, based on upstream af91efa9, with one shared wgpu-types.
+# This adds FIFO-only Windows acquire waits, batched indirect validation and lazy trace arguments; remove when Bevy supports them upstream.
+[patch.crates-io]
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+
 [profile.dev]
 opt-level = 1
 

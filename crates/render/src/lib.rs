@@ -73,6 +73,7 @@ mod primitive_shapes;
 pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod render_bounds;
 mod runtime_profile;
+mod runtime_profile_phases;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
 mod scene_sampling;
@@ -215,6 +216,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
+pub use runtime_profile_phases::install_main_phase_spans;
 pub use runtime_profile_slow::{FrameBudgets, SlowFrameCounts};
 pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{

@@ -625,6 +625,11 @@ in the component's registration/set grants. Neither operation reads player data,
 changes input, nor sends packets. Existing `set-label` remains available without
 this grant. All HUD writes share an eight-call callback budget.
 
+HUD data may set `hide_effect_icons: true` to replace the ordinary status-effect
+icons. This hides their visibility binding and native renderer without changing
+the player's effects. It remains active with empty `cards`; clearing the HUD,
+omitting the flag or setting it to false restores the ordinary icons.
+
 Card data contains `cards`, each with a unique `id`, `rows`, and optional
 `title`, `anchor`, `offset`, `scale`, `position`, and `background_opacity`. Anchors are `top_left`, `top_right`, `bottom_left`,
 and `bottom_right`; offsets are GUI pixels from that corner. Negative offsets
