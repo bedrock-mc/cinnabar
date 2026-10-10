@@ -446,3 +446,17 @@ function Stop-BoundedProcess {
         }
     }
 }
+
+# Waits on the current core's stderr publication signal without assuming an endpoint path.
+function Wait-CoreReady {
+    param(
+        [Parameter(Mandatory = $true)]$Handle,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+    )
+
+    $logHandle = [pscustomobject]@{ Process = $Handle.Process; StdoutPath = $Handle.StderrPath }
+    $line = Wait-ProcessOutputMarker -Handle $logHandle `
+        -Marker 'msg="listener ready; waiting for local Rust client"' -TimeoutSeconds $TimeoutSeconds
+    if ($Handle.Process.HasExited) { throw 'core exited while publishing its endpoint' }
+    return $line
+}

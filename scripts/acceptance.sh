@@ -315,6 +315,12 @@ for dependency in ("valentine", "jolyne"):
 PY
 }
 
+# Wait for the core's own publication signal, including hashed Unix endpoints.
+wait_for_core_ready() {
+    local log=$1 pid=$2 timeout=${3:-30}
+    wait_for_marker "$log" 'msg="listener ready; waiting for local Rust client"' "$timeout" "$pid"
+}
+
 wait_for_marker() {
     local log=$1 marker=$2 timeout=$3 pid=$4
     local deadline=$(( $(date +%s) + timeout ))
@@ -1009,13 +1015,7 @@ mkfifo -- "$core_stdin"
 core_pid=$!
 exec 8>"$core_stdin"
 core_fd_open=true
-endpoint="$socket_dir/session.sock"
-endpoint_deadline=$(( $(date +%s) + 30 ))
-while [[ ! -S $endpoint ]]; do
-    kill -0 "$core_pid" 2>/dev/null || die "core exited before endpoint publication (log: $run_dir/core.stderr.log)"
-    (( $(date +%s) < endpoint_deadline )) || die "timed out waiting for core endpoint: $endpoint"
-    sleep 0.1
-done
+wait_for_core_ready "$run_dir/core.stderr.log" "$core_pid"
 
 (cd "$project_root" && RUST_MCBE_BUILD_COMMIT="$repo_commit" exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
 app_pid=$!

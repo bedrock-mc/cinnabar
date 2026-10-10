@@ -7,7 +7,7 @@ import (
 
 // packArchiveCache can lend an on-disk archive until the session releases its pin.
 type packArchiveCache interface {
-	Reference(*resource.Pack) (path string, release func(), err error)
+	Reference(*resource.Pack) (path string, checksum [32]byte, release func(), err error)
 }
 
 // referenceSessionPacks replaces cached archive streams with references, retaining stack indices.
@@ -16,11 +16,11 @@ func referenceSessionPacks(cache minecraft.ResourcePackCache, selected []session
 	var releases []func()
 	if cache, ok := cache.(packArchiveCache); ok {
 		for index, pack := range packs {
-			path, release, err := cache.Reference(pack)
+			path, checksum, release, err := cache.Reference(pack)
 			if err != nil {
 				continue
 			}
-			selected[index].Cache = &sessionCachedArchive{Path: path, SHA256: pack.Checksum()}
+			selected[index].Cache = &sessionCachedArchive{Path: path, SHA256: checksum}
 			packs[index] = nil
 			releases = append(releases, release)
 		}

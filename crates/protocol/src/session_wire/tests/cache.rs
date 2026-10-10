@@ -3,7 +3,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use super::handoff_with_sizes;
-use crate::session_wire::{CachedArchive, HandoffPackReceiver, SessionHandoff};
+use crate::session_wire::{CachedArchive, HandoffPack, HandoffPackReceiver, SessionHandoff};
 
 /// Builds one cache reference to bytes written under the supplied trusted root.
 fn cached_handoff(root: &Path, bytes: &[u8]) -> SessionHandoff {
@@ -121,4 +121,19 @@ fn cached_archive_accepts_the_go_caches_folded_windows_path() {
             .unwrap()
             .is_complete()
     );
+}
+
+/// Decodes the exact cached-pack JSON checked against the Go encoder.
+#[test]
+fn go_cached_pack_fixture_preserves_path_and_hash() {
+    let pack: HandoffPack =
+        serde_json::from_slice(include_bytes!("../../../fixtures/session/cached_pack.json"))
+            .unwrap();
+    assert_eq!(
+        (pack.uuid.as_str(), pack.version.as_str(), pack.size),
+        ("00112233-4455-6677-8899-aabbccddeeff", "1.0.0", 3)
+    );
+    let cache = pack.cache.expect("Go cache reference");
+    assert_eq!(cache.path, Path::new("/cache/fixture.mcpack"));
+    assert_eq!(cache.sha256, <[u8; 32]>::from(Sha256::digest(b"abc")));
 }

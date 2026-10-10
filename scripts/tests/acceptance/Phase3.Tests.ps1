@@ -312,26 +312,6 @@ Describe 'Phase 3 production marker evidence validation' {
         { Initialize-Phase3RunDirectory -Path $nonempty } | Should Throw
     }
 
-    It 'attributes a fresh bridge endpoint publication to the current core' {
-        $socket = Join-Path $script:TempRoot 'fresh-endpoint-socket'
-        New-Item -ItemType Directory -Path $socket | Out-Null
-        $guard = New-Phase3EndpointPublicationGuard -SocketDirectory $socket
-        Set-Content -LiteralPath $guard.EndpointPath -Value '127.0.0.1:19133'
-        $handle = [pscustomobject]@{
-            Process = [pscustomobject]@{ Id = 41; HasExited = $false; ExitCode = 0 }
-        }
-        $witness = Wait-Phase3BridgeEndpoint -Guard $guard -CoreHandle $handle -TimeoutSeconds 1
-        $witness.Endpoint | Should Be '127.0.0.1:19133'
-        $witness.CoreProcessId | Should Be 41
-    }
-
-    It 'rejects a stale bridge endpoint before launching the core' {
-        $staleSocket = Join-Path $script:TempRoot 'stale-endpoint-socket'
-        New-Item -ItemType Directory -Path $staleSocket | Out-Null
-        Set-Content -LiteralPath (Join-Path $staleSocket 'session.addr') -Value '127.0.0.1:19134'
-        { New-Phase3EndpointPublicationGuard -SocketDirectory $staleSocket } | Should Throw
-    }
-
     It 'accepts a tick reanchor only at an exactly correlated dimension transition' {
         $script:Frames[2].physics_tick = 0
         $script:Frames[3].physics_tick = 1
@@ -768,4 +748,41 @@ Describe 'Phase 3 production marker evidence validation' {
 
     . (Join-Path $PSScriptRoot 'Phase3.EventCases.ps1')
     . (Join-Path $PSScriptRoot 'Phase3.BoundaryCases.ps1')
+}
+
+Describe 'Core endpoint readiness' {
+    BeforeAll {
+        $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+        . (Join-Path $repo 'scripts\acceptance\Process.ps1')
+        . (Join-Path $repo 'scripts\acceptance\Phase3Launch.ps1')
+        $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:TempRoot | Out-Null
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:TempRoot -Recurse -Force
+    }
+
+    It 'attributes the core ready signal to its actual endpoint without a publication file' {
+        foreach ($endpoint in @('127.0.0.1:19133', '/tmp/cinnabar-0123456789abcdef0123456789abcdef.sock', '/tmp/socket with spaces.sock')) {
+            $log = Join-Path $script:TempRoot ([guid]::NewGuid().ToString('N') + '.log')
+            $guard = New-Phase3CoreReadyGuard -LogPath $log
+            $network = if ($endpoint.StartsWith('/')) { 'unix' } else { 'tcp' }
+            $encoded = if ($endpoint.Contains(' ')) { '"' + $endpoint + '"' } else { $endpoint }
+            Set-Content -LiteralPath $log -Value ('msg="listener ready; waiting for local Rust client" network=' + $network + ' endpoint=' + $encoded)
+            $handle = [pscustomobject]@{
+                Process = [pscustomobject]@{ Id = 41; HasExited = $false; ExitCode = 0 }
+                StderrPath = $log
+            }
+            $witness = Wait-Phase3BridgeEndpoint -Guard $guard -CoreHandle $handle -TimeoutSeconds 1
+            $witness.Endpoint | Should Be $endpoint
+            $witness.CoreProcessId | Should Be 41
+        }
+    }
+
+    It 'rejects stale core readiness evidence before launch' {
+        $log = Join-Path $script:TempRoot 'stale-core.log'
+        Set-Content -LiteralPath $log -Value 'old run'
+        { New-Phase3CoreReadyGuard -LogPath $log } | Should Throw
+    }
+
 }

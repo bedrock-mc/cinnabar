@@ -241,19 +241,21 @@ function Initialize-Phase3RunDirectory {
     return $fullPath
 }
 
-function New-Phase3EndpointPublicationGuard {
-    param([Parameter(Mandatory = $true)][string]$SocketDirectory)
+# Rejects stale readiness evidence before launching the core for this run.
+function New-Phase3CoreReadyGuard {
+    param([Parameter(Mandatory = $true)][string]$LogPath)
 
-    $endpointPath = Join-Path ([IO.Path]::GetFullPath($SocketDirectory)) 'session.addr'
-    if (Test-Path -LiteralPath $endpointPath) {
-        throw "Phase 3 refuses a stale bridge endpoint: $endpointPath"
+    $path = [IO.Path]::GetFullPath($LogPath)
+    if (Test-Path -LiteralPath $path) {
+        throw "Phase 3 refuses a stale core readiness log: $path"
     }
     return [pscustomobject][ordered]@{
-        EndpointPath = $endpointPath
+        ReadyLogPath = $path
         ObservedAbsentAtUtc = [DateTime]::UtcNow.ToString('o')
     }
 }
 
+# Records the endpoint actually published by this core, including hashed Unix sockets.
 function Wait-Phase3BridgeEndpoint {
     param(
         [Parameter(Mandatory = $true)]$Guard,
@@ -261,26 +263,23 @@ function Wait-Phase3BridgeEndpoint {
         [Parameter(Mandatory = $true)][ValidateRange(1, 300)][int]$TimeoutSeconds
     )
 
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    while (-not (Test-Path -LiteralPath $Guard.EndpointPath -PathType Leaf)) {
-        if ($CoreHandle.Process.HasExited) {
-            throw "core exited before fresh endpoint publication with code $($CoreHandle.Process.ExitCode)"
-        }
-        if ([DateTime]::UtcNow -ge $deadline) {
-            throw "timed out waiting for fresh endpoint $($Guard.EndpointPath)"
-        }
-        Start-Sleep -Milliseconds 100
+    if ([IO.Path]::GetFullPath($CoreHandle.StderrPath) -cne $Guard.ReadyLogPath) {
+        throw 'core readiness log differs from the guarded path'
     }
-    if ($CoreHandle.Process.HasExited) {
-        throw "core exited while publishing bridge endpoint with code $($CoreHandle.Process.ExitCode)"
+    $line = Wait-CoreReady -Handle $CoreHandle -TimeoutSeconds $TimeoutSeconds
+    if ($line -cnotmatch ' network=(unix|tcp) endpoint=(.+)$') {
+        throw 'core readiness signal has no valid endpoint'
     }
-    $endpoint = (Get-Content -Raw -LiteralPath $Guard.EndpointPath).Trim()
-    if ($endpoint -cnotmatch '^[^\s:]+:([1-9][0-9]{0,4})$' -or [int]$Matches[1] -gt 65535) {
-        throw 'core published an invalid fresh bridge endpoint'
+    $network = $Matches[1]
+    $encoded = $Matches[2]
+    $endpoint = if ($encoded.StartsWith('"')) { $encoded | ConvertFrom-Json } else { $encoded }
+    if ($network -ceq 'tcp' -and
+        ($endpoint -cnotmatch '^127\.0\.0\.1:([1-9][0-9]{0,4})$' -or [int]$Matches[1] -gt 65535)) {
+        throw 'core published an invalid loopback endpoint'
     }
     return [pscustomobject][ordered]@{
-        Endpoint = $endpoint
-        EndpointPath = [string]$Guard.EndpointPath
+        Endpoint = [string]$endpoint
+        ReadyLogPath = [string]$Guard.ReadyLogPath
         CoreProcessId = [int]$CoreHandle.Process.Id
         ObservedAbsentAtUtc = [string]$Guard.ObservedAbsentAtUtc
         PublishedAtUtc = [DateTime]::UtcNow.ToString('o')

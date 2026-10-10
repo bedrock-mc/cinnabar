@@ -217,12 +217,18 @@ async fn connect_unix(
 /// below the target never fails the connection.
 #[cfg(unix)]
 async fn connect_unix_stream(path: &Path) -> io::Result<UnixStream> {
+    let stream = UnixStream::connect(path).await?;
+    tune_unix_stream(&stream);
+    Ok(stream)
+}
+
+/// Enlarges either end of a Unix connection without failing when the kernel limits buffers.
+#[cfg(unix)]
+fn tune_unix_stream(stream: &UnixStream) {
     use rustix::net::sockopt::{
         set_socket_recv_buffer_size, set_socket_send_buffer_size, socket_recv_buffer_size,
         socket_send_buffer_size,
     };
-
-    let stream = UnixStream::connect(path).await?;
     let send = best_effort_buffer_size(
         |size| set_socket_send_buffer_size(&stream, size).map_err(io::Error::from),
         socket_send_buffer_size(&stream).unwrap_or(0),
@@ -233,7 +239,6 @@ async fn connect_unix_stream(path: &Path) -> io::Result<UnixStream> {
     );
     static LOGGED: std::sync::Once = std::sync::Once::new();
     LOGGED.call_once(|| tracing::debug!(?send, ?receive, "local socket buffer sizes"));
-    Ok(stream)
 }
 
 /// Applies the largest size from the target, halving down to `default`, that `set` accepts.

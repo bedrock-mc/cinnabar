@@ -144,7 +144,7 @@ try {
     $pregSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $pregPath).Hash.ToLowerInvariant()
     $bregSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $bregPath).Hash.ToLowerInvariant()
     $failurePhase = 'endpoint_guard'
-    $endpointGuard = New-Phase3EndpointPublicationGuard -SocketDirectory $socketDirectory
+    $endpointGuard = New-Phase3CoreReadyGuard -LogPath (Join-Path $runDirectory 'core.stderr.log')
     $failurePhase = 'scenario_manifest'
 $scenarioManifest = if ($Scenario -ceq 'CandidatePhysics') {
     [ordered]@{

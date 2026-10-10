@@ -128,13 +128,7 @@ try {
         -Arguments @('-socket-dir', $socketDirectory, '-upstream', $upstream, '-auth-cache', $AuthCacheFull) `
         -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') `
         -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-    $endpoint = Join-Path $socketDirectory 'session.addr'
-    $endpointDeadline = [DateTime]::UtcNow.AddSeconds(30)
-    while (-not (Test-Path -LiteralPath $endpoint -PathType Leaf)) {
-        if ($coreHandle.Process.HasExited) { throw 'core exited before publishing its bridge endpoint' }
-        if ([DateTime]::UtcNow -ge $endpointDeadline) { throw 'core did not publish its bridge endpoint within 30 seconds' }
-        Start-Sleep -Milliseconds 100
-    }
+    $null = Wait-CoreReady -Handle $coreHandle -TimeoutSeconds 30
     $joinStopwatch = [Diagnostics.Stopwatch]::StartNew()
     $clientHandle = Start-LoggedProcess -Executable $ClientExecutableFull -Arguments $clientArguments `
         -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'client.stdout.log') `

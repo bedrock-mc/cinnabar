@@ -81,7 +81,10 @@ impl SessionListener {
             PlatformStream::Tcp(stream)
         };
         #[cfg(unix)]
-        let stream = PlatformStream::Unix(stream);
+        let stream = {
+            super::tune_unix_stream(&stream);
+            PlatformStream::Unix(stream)
+        };
         Ok(FramedStream::with_max(stream, MAX_FRAME_LEN))
     }
 }

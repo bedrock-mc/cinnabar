@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -127,5 +128,25 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 				t.Fatal("cache selection changed pack metadata")
 			}
 		})
+	}
+}
+
+// The cached archive's JSON representation is shared with the Rust decoder.
+func TestCachedPackMatchesRustFixture(t *testing.T) {
+	encoded, err := json.Marshal(sessionPack{
+		UUID: "00112233-4455-6677-8899-aabbccddeeff", Version: "1.0.0", Size: 3,
+		Cache: &sessionCachedArchive{Path: "/cache/fixture.mcpack", SHA256: sha256.Sum256([]byte("abc"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("CINNABAR_UPDATE_SESSION_FIXTURES") == "1" {
+		path := filepath.Join("..", "..", "crates", "protocol", "fixtures", "session", "cached_pack.json")
+		if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(encoded, bytes.TrimSpace(sessionFixture(t, "cached_pack.json"))) {
+		t.Fatalf("cached pack = %s", encoded)
 	}
 }

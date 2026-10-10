@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -880,4 +882,51 @@ func negotiatedOfferUpstream(t *testing.T, packs []*resource.Pack, required bool
 		t.Fatal(err)
 	}
 	return conn
+}
+
+// Acceptance waits on readiness even when the endpoint lives outside a long socket directory.
+func TestBashAcceptanceObservesHashedSessionReadiness(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Bash Unix endpoint test")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("missing fixture: bash executable")
+	}
+	root, err := os.MkdirTemp("/tmp", "acceptance-ready-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	for _, length := range []int{91, 92, 93} {
+		dir := filepath.Join(root, strings.Repeat("x", length-len(root)-1))
+		listener, err := streamnet.ListenSession(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer listener.Close()
+			_, endpoint, err := streamnet.ResolveSession(dir)
+			if err != nil || filepath.Dir(endpoint) == dir {
+				t.Fatalf("expected hashed endpoint: %s, %v", endpoint, err)
+			}
+			logPath := filepath.Join(dir, "core.stderr.log")
+			file, err := os.Create(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reportListenerReady(slog.New(slog.NewTextHandler(file, nil)), dir)
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			script, err := filepath.Abs(filepath.Join("..", "..", "scripts", "acceptance.sh"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := exec.CommandContext(t.Context(), bash, "-c", `export RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY=1; source "$1"; wait_for_core_ready "$2" $$ 1`, "acceptance", script, logPath)
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("readiness wait: %v: %s", err, output)
+			}
+		}()
+	}
 }

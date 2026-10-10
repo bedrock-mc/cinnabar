@@ -293,17 +293,7 @@ $script:AcceptanceExecutionPhase = {
             -TimeoutSeconds 120 `
             -ReadinessProbe $bdsReadinessProbe
         $coreHandle = Start-LoggedProcess -Executable $CoreExecutable -Arguments $CoreArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-        $endpointPath = Join-Path $SocketDirectory 'session.addr'
-        $endpointDeadline = [DateTime]::UtcNow.AddSeconds(30)
-        while (-not (Test-Path -LiteralPath $endpointPath -PathType Leaf)) {
-            if ($coreHandle.Process.HasExited) {
-                throw "core exited before endpoint publication with code $($coreHandle.Process.ExitCode)"
-            }
-            if ([DateTime]::UtcNow -ge $endpointDeadline) {
-                throw "timed out waiting for core endpoint: $endpointPath"
-            }
-            Start-Sleep -Milliseconds 100
-        }
+        $null = Wait-CoreReady -Handle $coreHandle -TimeoutSeconds 30
         $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT; if (-not $SkipClientBuild) { $env:RUST_MCBE_BUILD_COMMIT = $repoCommit }; try { $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log') } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
         $worldReadyMarkerLine = $null
         if ($isModelWitnessGallery) {

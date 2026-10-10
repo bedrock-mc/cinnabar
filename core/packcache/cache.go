@@ -67,8 +67,10 @@ type keyLock struct {
 }
 
 type entry struct {
-	size uint64
-	used time.Time
+	size     uint64
+	used     time.Time
+	checksum [32]byte
+	verified bool // scanned objects acquire their checksum on the first verified load or store
 }
 
 type config struct{ quota uint64 }
@@ -229,15 +231,16 @@ func (c *Cache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*
 	}
 	processMu.Lock()
 	defer processMu.Unlock()
-	if !ok {
+	recorded := c.index[name]
+	if !ok || (recorded.verified && recorded.checksum != pack.Checksum()) {
 		c.drop(name, path)
 		return nil, nil
 	}
-	c.touch(name, path, key.Size)
+	c.touch(name, path, key.Size, pack.Checksum())
 	return pack, nil
 }
 
-// Store admits a matching pack without replacing an existing valid object.
+// Store reuses identical bytes or replaces an unpinned object with the selected archive.
 func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, pack *resource.Pack) error {
 	name, release, err := c.acquire(key)
 	if err != nil {
@@ -251,15 +254,21 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 		return errors.New("packcache: object exceeds quota")
 	}
 	dest := filepath.Join(c.root, name)
-	if _, ok, err := readVerified(ctx, dest, key); err != nil {
+	existing, ok, err := readVerified(ctx, dest, key)
+	if err != nil {
 		return err
-	} else if ok {
-		processMu.Lock()
-		c.touch(name, dest, key.Size)
+	}
+	processMu.Lock()
+	recorded := c.index[name]
+	if ok && existing.Checksum() == pack.Checksum() && (!recorded.verified || recorded.checksum == pack.Checksum()) {
+		c.touch(name, dest, key.Size, pack.Checksum())
 		processMu.Unlock()
 		return nil
 	}
-	processMu.Lock()
+	if _, exists := c.index[name]; exists && c.pins[name] != 0 {
+		processMu.Unlock()
+		return errors.New("packcache: replacement deferred while archive is pinned")
+	}
 	c.drop(name, dest)
 	if err := c.evict(key.Size); err != nil {
 		processMu.Unlock()
@@ -274,7 +283,7 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 		return err
 	}
 	processMu.Lock()
-	c.touch(name, dest, key.Size)
+	c.touch(name, dest, key.Size, pack.Checksum())
 	processMu.Unlock()
 	return nil
 }
@@ -307,19 +316,20 @@ func (c *Cache) writeObject(ctx context.Context, key minecraft.ResourcePackCache
 		if !errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("packcache: publish object: %w", err)
 		}
-		if _, ok, verifyErr := readVerified(ctx, dest, key); verifyErr != nil {
+		if existing, ok, verifyErr := readVerified(ctx, dest, key); verifyErr != nil {
 			return verifyErr
-		} else if !ok {
-			return errors.New("packcache: existing object is invalid")
+		} else if !ok || existing.Checksum() != pack.Checksum() {
+			return errors.New("packcache: existing object differs from selected archive")
 		}
 	}
 	return nil
 }
 
-func (c *Cache) touch(name, path string, size uint64) {
+// touch records the verified archive's hash and refreshes its eviction age.
+func (c *Cache) touch(name, path string, size uint64, checksum [32]byte) {
 	now := c.clock()
 	_ = os.Chtimes(path, now, now)
-	c.record(name, entry{size: size, used: now})
+	c.record(name, entry{size: size, used: now, checksum: checksum, verified: true})
 }
 
 func (c *Cache) checkOpen() error {
@@ -448,7 +458,11 @@ func (c *Cache) evict(incoming uint64) error {
 	return nil
 }
 
+// drop removes an invalid object only when no session holds its bytes.
 func (c *Cache) drop(name, path string) {
+	if c.pins[name] != 0 {
+		return
+	}
 	c.forget(name)
 	if info, err := os.Lstat(path); err == nil && (regularNoLink(info) || hasLinkAttribute(info)) {
 		_ = os.Remove(path)
