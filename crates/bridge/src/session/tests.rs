@@ -153,6 +153,22 @@ fn handoff_requires_startup_packets_and_known_fields() {
     frame.extend_from_slice(metadata);
     assert!(decode_core_message(Bytes::from(frame.clone())).is_err());
 
+    let mut wrong_last = frame.clone();
+    wrong_last.extend_from_slice(&[1, 0x0b, 1, 0x09]);
+    assert!(
+        matches!(
+            decode_core_message(Bytes::from(wrong_last)),
+            Err(BridgeError::InvalidSessionMessage { .. })
+        ),
+        "startup must end with StartGame"
+    );
+    let mut sub_client = frame.clone();
+    sub_client.extend_from_slice(&[2, 0x0b | 0x80, 0x10]);
+    assert!(
+        decode_core_message(Bytes::from(sub_client)).is_ok(),
+        "sub-client bits do not change the packet ID"
+    );
+
     frame.extend_from_slice(&[1, 0x0b]);
     let CoreMessage::Handoff(handoff) = decode_core_message(Bytes::from(frame)).unwrap() else {
         panic!("handoff expected")

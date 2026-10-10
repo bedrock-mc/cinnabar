@@ -19,6 +19,8 @@ const KIND_HANDOFF: u8 = 3;
 const KIND_PACK_DATA: u8 = 4;
 const KIND_TRANSFER: u8 = 5;
 const KIND_DISCONNECT: u8 = 6;
+/// The StartGame packet ID, which ends a handoff's startup packets.
+const START_GAME_PACKET_ID: u32 = 11;
 
 /// Connects to the core's session endpoint published in `socket_dir`.
 pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
@@ -212,6 +214,10 @@ fn decode_handoff(body: Bytes) -> Result<SessionHandoff, BridgeError> {
         return Err(invalid("handoff without StartGame"));
     }
     handoff.startup = split_batch(&body.slice(4 + length..))?;
+    let last = handoff.startup.last().expect("a batch holds a packet");
+    if read_varuint32(last).is_none_or(|(header, _)| header & 0x3ff != START_GAME_PACKET_ID) {
+        return Err(invalid("handoff startup does not end with StartGame"));
+    }
     Ok(handoff)
 }
 
