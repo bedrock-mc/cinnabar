@@ -8,7 +8,7 @@ use std::{
 use crate::actor::gpu::ActorDrawSpan;
 use crate::actor::{ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity};
 
-/// Flat draw plans avoid per-item allocations while keeping dependent passes adjacent.
+/// Stores sorted draw ranges in flat storage and keeps dependent passes adjacent.
 #[derive(Default)]
 pub(super) struct SortedDraws {
     pub(super) indices: Vec<usize>,

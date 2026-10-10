@@ -310,7 +310,8 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
             range.clone()
         })
         .collect::<Vec<_>>();
-    assert_eq!(ranges, [0..1], "the pair remains one item while sorting");
+    assert_eq!(ranges.len(), 1, "the pair remains one item while sorting");
+    assert_eq!(ranges[0], 0..1);
     assert_eq!(world.resource::<ActorGpu>().sorted.indices, [0, 1]);
 }
 
@@ -377,22 +378,23 @@ fn a_depth_writing_blend_cannot_split_a_sorted_dissolve_pair() {
         "mask and color must be one draw item before the equal-distance blend"
     );
     use bevy::render::render_phase::SortedPhaseItem;
-    let mut phases = world.resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
-    Transparent3d::sort(&mut phases.get_mut(&retained).unwrap().items);
-    let order = phases
-        .get(&retained)
-        .unwrap()
-        .items
-        .iter()
-        .map(|item| {
-            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
-            else {
-                panic!("missing draw plan");
-            };
-            range.start as usize
-        })
-        .collect::<Vec<_>>();
-    drop(phases);
+    let order = {
+        let mut phases = world.resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
+        Transparent3d::sort(&mut phases.get_mut(&retained).unwrap().items);
+        phases
+            .get(&retained)
+            .unwrap()
+            .items
+            .iter()
+            .map(|item| {
+                let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
+                else {
+                    panic!("missing draw plan");
+                };
+                range.start as usize
+            })
+            .collect::<Vec<_>>()
+    };
     let gpu = world.resource::<ActorGpu>();
     let spans = order
         .iter()
