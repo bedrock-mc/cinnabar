@@ -228,6 +228,14 @@ fn write_string(out: &mut Vec<u8>, text: &str) {
 }
 
 impl BlockEntityNbt {
+    /// Returns a shared parsed snapshot, refreshed automatically with each new source.
+    #[must_use]
+    pub fn parsed(&self) -> Option<std::sync::Arc<NbtCompound>> {
+        self.parsed
+            .get_or_init(|| self.parse().map(std::sync::Arc::new))
+            .clone()
+    }
+
     /// Decodes the retained root compound; `None` when the bytes do not parse.
     #[must_use]
     pub fn parse(&self) -> Option<NbtCompound> {
@@ -366,6 +374,28 @@ mod tests {
     fn string(out: &mut Vec<u8>, text: &str) {
         out.push(text.len() as u8);
         out.extend_from_slice(text.as_bytes());
+    }
+
+    #[test]
+    fn parsed_block_entity_snapshot_is_shared_and_new_bytes_refresh_it() {
+        let mut bytes = vec![10, 0, 8];
+        string(&mut bytes, "CustomName");
+        string(&mut bytes, "old");
+        bytes.push(0);
+        let (source, _) = BlockEntityNbt::decode_prefix(&bytes).unwrap();
+        let equal = source.clone();
+        let first = source.parsed().unwrap();
+        assert_eq!(first.string("CustomName"), Some("old"));
+        assert!(std::sync::Arc::ptr_eq(&first, &source.parsed().unwrap()));
+        assert!(std::sync::Arc::ptr_eq(&first, &equal.parsed().unwrap()));
+        assert_eq!(source, equal);
+        let start = bytes.len() - 4;
+        bytes[start..start + 3].copy_from_slice(b"new");
+        let (updated, _) = BlockEntityNbt::decode_prefix(&bytes).unwrap();
+        let refreshed = updated.parsed().unwrap();
+        assert_eq!(refreshed.string("CustomName"), Some("new"));
+        assert!(!std::sync::Arc::ptr_eq(&first, &refreshed));
+        assert_ne!(source, updated);
     }
 
     #[test]

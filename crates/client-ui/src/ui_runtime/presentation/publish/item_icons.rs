@@ -21,11 +21,11 @@ pub(super) fn stack_icon(
     identifier: &str,
     animation_frame: Option<u32>,
 ) -> Option<IconRef> {
-    let projectile = protocol::item_charged_projectile(&stack.extra_data);
+    let facts = runtime.stack_facts(stack, Some(identifier));
     let (icon_identifier, variant) = UiPresentationRuntime::item_icon_key(
         identifier,
         stack.metadata,
-        projectile.as_deref(),
+        facts.charged_projectile.as_deref(),
         animation_frame,
     );
     let icon = presentation.item_icon(icon_identifier, variant)?;

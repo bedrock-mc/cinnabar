@@ -483,7 +483,35 @@ impl UiRuntime {
     }
 
     pub fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
-        super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
+        super::item_facts::glint_for_facts(
+            self.stack_facts(stack, Some(identifier))
+                .has_enchantment_list,
+            identifier,
+            self.item_components(identifier),
+        )
+    }
+
+    /// Returns shared immutable NBT facts; descriptor and language generations are resolved separately.
+    pub fn stack_facts(
+        &self,
+        stack: &protocol::NetworkItemStack,
+        identifier: Option<&str>,
+    ) -> Arc<protocol::ItemStackFacts> {
+        self.stack_facts
+            .get(&stack.extra_data, identifier == Some("minecraft:crossbow"))
+    }
+
+    /// Resolves a cell's bar from cached damage and the latest authority correction.
+    pub fn stack_durability(
+        &self,
+        stack: &protocol::NetworkItemStack,
+        maximum: Option<u32>,
+        correction: Option<i32>,
+    ) -> Option<f32> {
+        let damage = correction
+            .and_then(|damage| u32::try_from(damage).ok())
+            .or_else(|| self.stack_facts(stack, None).damage)?;
+        super::item_facts::durability_fraction_for_damage(maximum, damage)
     }
 
     /// A damageable item's maximum: the server's durability component, else the vanilla table.

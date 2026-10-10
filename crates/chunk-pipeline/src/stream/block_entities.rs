@@ -3,14 +3,14 @@ use super::*;
 impl WorldStream {
     /// The decoded NBT of the block entity at `position` in the current dimension.
     #[must_use]
-    pub fn block_entity_compound(&self, position: [i32; 3]) -> Option<world::NbtCompound> {
+    pub fn block_entity_compound(&self, position: [i32; 3]) -> Option<Arc<world::NbtCompound>> {
         let key = BlockEntityKey::new(
             self.authority.current_dimension(),
             position[0],
             position[1],
             position[2],
         );
-        self.authority.terrain().block_entity(key)?.parse()
+        self.authority.terrain().block_entity(key)?.parsed()
     }
 
     /// The `CustomName` of the block entity at `position`, if it has one.

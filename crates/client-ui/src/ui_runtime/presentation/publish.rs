@@ -125,7 +125,7 @@ pub fn capture_hud_frame(
         let ledger = runtime.inventory_ledger(player_runtime);
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
             let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-            item_facts::cell_durability_fraction(stack, maximum, correction)
+            runtime.stack_durability(stack, maximum, correction)
         };
         for (slot, bar) in durability.player.iter_mut().enumerate() {
             if let Some(stack) = ledger.displayed_stack(slot as u8) {
@@ -459,7 +459,7 @@ pub fn capture_hud_frame(
             let overlay = runtime
                 .inventory_ledger(player_runtime)
                 .presented_slot_overlay(slot);
-            *durability = item_facts::cell_durability_fraction(
+            *durability = runtime.stack_durability(
                 stack,
                 runtime.item_max_durability(identifier.as_deref()),
                 overlay.and_then(|overlay| overlay.durability_correction),
@@ -478,7 +478,7 @@ pub fn capture_hud_frame(
     presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-        item_facts::durability_fraction(stack, maximum)
+        runtime.stack_durability(stack, maximum, None)
     });
     let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
@@ -514,12 +514,12 @@ pub fn capture_hud_frame(
     let selected_item_name = selected_stack.and_then(|stack| {
         let identifier = resolve_identifier(stack);
         let stated_name = player_runtime.selected_stack_custom_name();
-        let display = protocol::item_display(&stack.extra_data);
+        let facts = runtime.stack_facts(stack, identifier.as_deref());
         super::inventory_tooltip::name_line(
             runtime,
             identifier.as_deref(),
             stated_name.as_deref(),
-            &display,
+            &facts.display,
         )
         .map(|line| Arc::from(line.text))
     });

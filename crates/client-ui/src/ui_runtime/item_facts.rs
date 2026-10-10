@@ -135,7 +135,20 @@ pub fn is_glint(
     identifier: &str,
     components: Option<&ItemComponents>,
 ) -> bool {
-    protocol::item_has_enchantment_list(&stack.extra_data)
+    glint_for_facts(
+        protocol::item_has_enchantment_list(&stack.extra_data),
+        identifier,
+        components,
+    )
+}
+
+/// Combines cached NBT glint with the current item definition's intrinsic traits.
+pub(super) fn glint_for_facts(
+    has_enchantment_list: bool,
+    identifier: &str,
+    components: Option<&ItemComponents>,
+) -> bool {
+    has_enchantment_list
         || components.is_some_and(|components| components.glint)
         || matches!(
             identifier,

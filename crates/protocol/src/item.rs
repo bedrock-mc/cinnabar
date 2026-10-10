@@ -22,7 +22,9 @@ mod animation_tests;
 mod attack;
 mod components;
 mod display;
+mod facts;
 mod icons;
+pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
@@ -259,14 +261,14 @@ fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8
 /// `1` follows and then the compound in *fixed* little-endian NBT. The
 /// `canPlaceOn` / `canBreak` lists and the shield blocking tick trail the
 /// compound, which is why only the root level is walked.
-fn decode_extra_nbt(extra: &[u8]) -> Option<Bytes> {
+fn decode_extra_nbt(extra: &[u8]) -> Option<&[u8]> {
     const HEADER_LEN: usize = 3;
     let header = extra.get(..HEADER_LEN)?;
     let marker = i16::from_le_bytes([header[0], header[1]]);
     if marker != -1 || header[2] != 1 {
         return None;
     }
-    Some(Bytes::copy_from_slice(&extra[HEADER_LEN..]))
+    Some(&extra[HEADER_LEN..])
 }
 
 /// Walks one fixed little-endian NBT compound root for an integer `Damage`.
