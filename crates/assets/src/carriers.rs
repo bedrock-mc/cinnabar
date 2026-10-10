@@ -12,9 +12,11 @@ pub const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
 pub const FONT_MANIFEST: &str = "assets/cinnangles-sans-source.json";
 pub const FONT_TEN_MANIFEST: &str = "assets/cinnangles-ten-source.json";
 pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
+pub const FONT_FIVE_MANIFEST: &str = "assets/cinnangles-five-source.json";
+pub const FONT_FIVE_BOLD_MANIFEST: &str = "assets/cinnangles-five-bold-source.json";
 
 mod fonts;
-pub use fonts::FontFace;
+pub use fonts::{AsciiBearing, FontFace};
 const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
 const BLOCK_REGISTRY: &str = "crates/assets/data/block-registry-v2193.bin";
 const LIGHT_REGISTRY: &str = "crates/assets/data/block-light-registry-v2193.bin";
@@ -136,6 +138,15 @@ pub const ENTITY: Carrier = carrier(
     true,
 );
 pub const FONT: Carrier = Carrier {
+    font_face: Some(FontFace {
+        name: "Cinnangles Sans",
+        ascii_bearing: None,
+        space_em_1000: None,
+        manifest: include_bytes!("../../../assets/cinnangles-sans-source.json"),
+        units_per_em: 1152,
+        ascent: 896,
+        descent: 128,
+    }),
     inputs: &[
         Input::Manifest(FONT_MANIFEST),
         Input::FontFile(FONT_MANIFEST),
@@ -152,6 +163,11 @@ pub const FONT: Carrier = Carrier {
 pub const FONT_TEN: Carrier = Carrier {
     font_face: Some(FontFace {
         name: "Cinnangles Ten",
+        ascii_bearing: Some(AsciiBearing {
+            regular: 1,
+            closing: 1,
+        }),
+        space_em_1000: Some(245),
         manifest: include_bytes!("../../../assets/cinnangles-ten-source.json"),
         units_per_em: 1280,
         ascent: 1267,
@@ -165,7 +181,7 @@ pub const FONT_TEN: Carrier = Carrier {
         "font-ten",
         "Compiling Cinnangles Ten",
         Recipe::Font,
-        "ui-cinnangles-ten-v1.mcbefont",
+        "ui-cinnangles-ten-v2.mcbefont",
         Some("ui-cinnangles-ten-font-assets.json"),
         false,
     )
@@ -173,6 +189,11 @@ pub const FONT_TEN: Carrier = Carrier {
 pub const FONT_SEVEN: Carrier = Carrier {
     font_face: Some(FontFace {
         name: "Cinnangles Seven",
+        ascii_bearing: Some(AsciiBearing {
+            regular: 1,
+            closing: 3,
+        }),
+        space_em_1000: Some(300),
         manifest: include_bytes!("../../../assets/cinnangles-seven-source.json"),
         units_per_em: 1280,
         ascent: 1024,
@@ -186,8 +207,54 @@ pub const FONT_SEVEN: Carrier = Carrier {
         "font-seven",
         "Compiling Cinnangles Seven",
         Recipe::Font,
-        "ui-cinnangles-seven-v1.mcbefont",
+        "ui-cinnangles-seven-v2.mcbefont",
         Some("ui-cinnangles-seven-font-assets.json"),
+        false,
+    )
+};
+pub const FONT_FIVE: Carrier = Carrier {
+    font_face: Some(FontFace {
+        name: "Cinnangles Five",
+        ascii_bearing: None,
+        space_em_1000: Some(420),
+        manifest: include_bytes!("../../../assets/cinnangles-five-source.json"),
+        units_per_em: 1280,
+        ascent: 1434,
+        descent: 358,
+    }),
+    inputs: &[
+        Input::Manifest(FONT_FIVE_MANIFEST),
+        Input::FontFile(FONT_FIVE_MANIFEST),
+    ],
+    ..carrier(
+        "font-five",
+        "Compiling Cinnangles Five",
+        Recipe::Font,
+        "ui-cinnangles-five-v1.mcbefont",
+        Some("ui-cinnangles-five-font-assets.json"),
+        false,
+    )
+};
+pub const FONT_FIVE_BOLD: Carrier = Carrier {
+    font_face: Some(FontFace {
+        name: "Cinnangles Five Bold",
+        ascii_bearing: None,
+        space_em_1000: Some(420),
+        manifest: include_bytes!("../../../assets/cinnangles-five-bold-source.json"),
+        units_per_em: 1280,
+        ascent: 1457,
+        descent: 392,
+    }),
+    inputs: &[
+        Input::Manifest(FONT_FIVE_BOLD_MANIFEST),
+        Input::FontFile(FONT_FIVE_BOLD_MANIFEST),
+    ],
+    ..carrier(
+        "font-five-bold",
+        "Compiling Cinnangles Five Bold",
+        Recipe::Font,
+        "ui-cinnangles-five-bold-v1.mcbefont",
+        Some("ui-cinnangles-five-bold-font-assets.json"),
         false,
     )
 };
@@ -350,6 +417,8 @@ pub const CARRIERS: &[Carrier] = &[
     FONT,
     FONT_TEN,
     FONT_SEVEN,
+    FONT_FIVE,
+    FONT_FIVE_BOLD,
     HUD,
     LANG,
     LANGUAGES,
@@ -484,7 +553,10 @@ mod tests {
 
     #[test]
     fn shipped_fonts_are_optional_and_independent_of_the_game_pack() {
-        for carrier in [FONT, FONT_SEVEN, FONT_TEN] {
+        for carrier in CARRIERS
+            .iter()
+            .filter(|carrier| carrier.recipe == Recipe::Font)
+        {
             assert!(!carrier.required);
             assert!(carrier.installed);
             assert_eq!(carrier.recipe, Recipe::Font);

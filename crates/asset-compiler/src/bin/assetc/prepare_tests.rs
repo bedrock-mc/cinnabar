@@ -132,7 +132,10 @@ fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
 fn font_carriers_with_one_recipe_are_selected_and_stamped_independently() {
     let dir = checkout();
     build_all(dir.path());
-    for carrier in [carriers::FONT_SEVEN, carriers::FONT_TEN] {
+    for carrier in CARRIERS
+        .iter()
+        .filter(|carrier| carrier.recipe == carriers::Recipe::Font)
+    {
         let only = [carrier.name.to_owned()];
         let plan = plan_for(dir.path(), COMPILER, &only);
         assert_eq!(plan.selected.len(), 1);

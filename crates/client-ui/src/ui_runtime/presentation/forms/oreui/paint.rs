@@ -490,6 +490,8 @@ impl<'a> Canvas<'a> {
         );
         let mut request = self.metrics.request(value, width_64, font);
         if let Some(source) = font.line_metrics() {
+            request.wrap.snap_glyphs_to_device_pixels =
+                font.rendering() == assets::FontRendering::Coverage && !font.linear_sampling();
             request.scale = UiScale::new_display(self.r(style.size) * 64.0 / source.em_64 as f32)
                 .map_err(UiPresentationError::Geometry)?;
             let line = source.em_64 as f32 * style.line / style.size;

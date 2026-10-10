@@ -24,6 +24,9 @@ pub(super) fn compile(
         .get("rasterization")
         .ok_or("missing font rasterization policy")?;
     let config = OutlineFontConfig {
+        synthesize_mathematical_letters: false,
+        space_advance_64: None,
+        ascii_bearing: None,
         pixel_height: required_u32(raster, "pixel_height")?,
         atlas_side: required_u32(raster, "atlas_side")?,
         replacement_codepoint: char::from_u32(required_u32(raster, "replacement_codepoint")?)
@@ -48,17 +51,9 @@ pub(super) fn compile(
         return Err("declared fallback source must be supplied exactly once".into());
     }
     let secondary = if let Some(path) = fallback {
-        if source.get("fallback_ranges")
-            != Some(&serde_json::json!([
-                [8592, 9215],
-                [9312, 10175],
-                [12288, 12543],
-                [13312, 19903],
-                [19968, 40959]
-            ]))
-            || required_u32(&source, "fallback_pixel_height")? != 18
-            || required_u32(&source, "fallback_atlas_side")? != 2048
-            || required_u32(&source, "fallback_max_pages")? != 3
+        // Legacy range and page-count hints no longer exclude mapped source characters.
+        if required_u32(&source, "fallback_pixel_height")? != config.pixel_height
+            || required_u32(&source, "fallback_atlas_side")? != config.fallback_atlas_side()
         {
             return Err("unsupported fallback rasterization policy".into());
         }
@@ -125,22 +120,31 @@ pub(super) fn compile(
     )
 }
 
-/// Rasterizes an outline font whose size and hash `source` pins, keeping its own advances.
-/// The font carries its own CJK pages, so it is also its own fallback provider.
+/// Rasterizes every mapped character at the shipped face's exact source pixel grid.
 pub(super) fn compile_pinned(
     font: &Path,
     source: &serde_json::Value,
     manifest_hash: [u8; 32],
 ) -> Result<CompiledFontCarrier, Box<dyn std::error::Error>> {
-    // Both providers read these bytes, within the two-provider 32 MiB source budget.
     let bytes = verified(font, source, "font", 16 * 1024 * 1024)?;
-    Ok(compile_outline_font_with_fallback(
-        font,
-        &bytes,
+    let face = assets::carriers::CARRIERS
+        .iter()
+        .filter_map(|carrier| carrier.font_face)
+        .find(|face| assets::canonical_source_manifest_sha256(face.manifest) == manifest_hash);
+    Ok(compile_outline_font(
         font,
         &bytes,
         manifest_hash,
-        OutlineFontConfig::default(),
+        OutlineFontConfig {
+            pixel_height: face.map_or(assets::FONT_RASTER_EM_PIXELS, |face| {
+                face.raster_em_pixels()
+            }),
+            atlas_side: 2048,
+            synthesize_mathematical_letters: face.is_some(),
+            space_advance_64: face.and_then(|face| face.space_advance_64()),
+            ascii_bearing: face.and_then(|face| face.ascii_bearing),
+            ..OutlineFontConfig::default()
+        },
     )?)
 }
 
