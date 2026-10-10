@@ -209,24 +209,21 @@ unsafe extern "C" {
     ) -> std::os::raw::c_int;
 }
 
-// Linux open flags are per-architecture: x86 and MIPS use their own values, every other
-// architecture (aarch64, arm, riscv, powerpc, s390x, loongarch) uses the asm-generic ABI, where
-// 0x1_0000 is `O_DIRECT` and would make every read of an unaligned buffer fail with EINVAL.
+// Linux open flags are per-architecture: arm, aarch64 and powerpc use their own values, where
+// 0x1_0000 is `O_DIRECT`; every other Linux target uses the generic ones.
 #[cfg(all(
     unix,
     any(target_os = "linux", target_os = "android"),
     any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "mips",
-        target_arch = "mips32r6",
-        target_arch = "mips64",
-        target_arch = "mips64r6"
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
     )
 ))]
 mod unix_flags {
-    pub const DIRECTORY: i32 = 0x1_0000;
-    pub const NOFOLLOW: i32 = 0x2_0000;
+    pub const DIRECTORY: i32 = 0x4000;
+    pub const NOFOLLOW: i32 = 0x8000;
     pub const CLOEXEC: i32 = 0x8_0000;
 }
 
@@ -234,17 +231,15 @@ mod unix_flags {
     unix,
     any(target_os = "linux", target_os = "android"),
     not(any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "mips",
-        target_arch = "mips32r6",
-        target_arch = "mips64",
-        target_arch = "mips64r6"
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
     ))
 ))]
 mod unix_flags {
-    pub const DIRECTORY: i32 = 0x4000;
-    pub const NOFOLLOW: i32 = 0x8000;
+    pub const DIRECTORY: i32 = 0x1_0000;
+    pub const NOFOLLOW: i32 = 0x2_0000;
     pub const CLOEXEC: i32 = 0x8_0000;
 }
 
@@ -312,14 +307,14 @@ mod tests {
             .custom_flags(unix_flags::DIRECTORY)
             .open(&file)
             .expect_err("DIRECTORY must reject a regular file");
-        assert_eq!(not_a_directory.raw_os_error(), Some(20), "expected ENOTDIR");
+        assert_eq!(not_a_directory.kind(), std::io::ErrorKind::NotADirectory);
 
         let followed_link = OpenOptions::new()
             .read(true)
             .custom_flags(unix_flags::NOFOLLOW)
             .open(&link)
             .expect_err("NOFOLLOW must reject a symlink leaf");
-        assert_eq!(followed_link.raw_os_error(), Some(40), "expected ELOOP");
+        assert_eq!(followed_link.kind(), std::io::ErrorKind::FilesystemLoop);
 
         let opened = OpenOptions::new()
             .read(true)
