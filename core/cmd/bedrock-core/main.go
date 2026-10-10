@@ -367,6 +367,7 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var sessionTarget func(context.Context, string, string) error
 	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
@@ -409,6 +410,7 @@ func runWithResourcePackCacheFactory(
 		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
+		sessionTarget = service.Connect
 		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)
@@ -460,6 +462,7 @@ func runWithResourcePackCacheFactory(
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 		ConnectProgress:             connectProgress,
 		ServerTrust:                 serverTrust,
+		SessionTarget:               sessionTarget,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

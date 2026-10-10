@@ -1,0 +1,372 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
+)
+
+// sessionConnectTimeout bounds the wait for Connect; a client sends it as soon as it connects.
+const sessionConnectTimeout = 10 * time.Second
+
+// errSessionEnded marks a session ended by a terminal message; it classifies as an ordinary close.
+var errSessionEnded = fmt.Errorf("proxy: session ended: %w", net.ErrClosed)
+
+// sessionServer serves the session endpoint, where the core makes the only Minecraft login.
+// Each connection carries one upstream session: Connect, the handoff, then raw batches both ways.
+type sessionServer struct {
+	listener     net.Listener
+	prepared     *preparedConnections
+	transfers    *TransferState
+	onDisconnect func(DisconnectInfo)
+	selectTarget func(ctx context.Context, kind, value string) error // nil rejects targeted Connects
+	delay        *PacketDelay
+	logger       *slog.Logger
+
+	acceptDone chan struct{}
+	sessions   sync.WaitGroup
+	mu         sync.Mutex
+	closed     bool
+	conns      map[net.Conn]struct{}
+}
+
+// start accepts sessions until close; ctx ends every session.
+func (server *sessionServer) start(ctx context.Context) {
+	server.conns = make(map[net.Conn]struct{})
+	server.acceptDone = make(chan struct{})
+	go server.accept(ctx)
+}
+
+func (server *sessionServer) accept(ctx context.Context) {
+	defer close(server.acceptDone)
+	for {
+		conn, err := server.listener.Accept()
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) && ctx.Err() == nil {
+				server.logger.Warn("session accept failed", "error", err)
+			}
+			return
+		}
+		server.mu.Lock()
+		if server.closed {
+			server.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		server.conns[conn] = struct{}{}
+		server.sessions.Add(1)
+		server.mu.Unlock()
+		go func() {
+			defer server.sessions.Done()
+			err := server.serveConn(ctx, conn)
+			server.mu.Lock()
+			delete(server.conns, conn)
+			server.mu.Unlock()
+			_ = conn.Close()
+			if err != nil && !streamnet.IsClosed(err) {
+				server.logger.Warn("session ended", "error", err)
+			}
+		}()
+	}
+}
+
+// close stops accepting, ends every session and waits for them.
+func (server *sessionServer) close() error {
+	server.mu.Lock()
+	server.closed = true
+	conns := make([]net.Conn, 0, len(server.conns))
+	for conn := range server.conns {
+		conns = append(conns, conn)
+	}
+	server.mu.Unlock()
+	err := server.listener.Close()
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+	<-server.acceptDone
+	server.sessions.Wait()
+	return err
+}
+
+func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error {
+	framed := streamnet.NewFramedConn(raw)
+	if err := raw.SetReadDeadline(time.Now().Add(sessionConnectTimeout)); err != nil {
+		return err
+	}
+	frame, err := framed.ReadPacket()
+	if err != nil {
+		return err
+	}
+	if err := raw.SetReadDeadline(time.Time{}); err != nil {
+		return err
+	}
+	request, err := decodeSessionConnect(frame)
+	if err != nil {
+		return err
+	}
+	downstream, err := newSessionDownstream(request)
+	if err != nil {
+		return err
+	}
+	sessionCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	session := newSessionConn(framed)
+	defer func() { _ = session.Close() }()
+
+	if request.Target != nil {
+		if server.selectTarget == nil {
+			err = errors.New("proxy: session targets are unavailable")
+		} else {
+			err = server.selectTarget(sessionCtx, request.Target.Kind, request.Target.Value)
+		}
+		if err != nil {
+			_ = session.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)})
+			return err
+		}
+	}
+	plan, prepared, err := server.prepare(sessionCtx, cancel, session, downstream)
+	if err != nil {
+		if sessionCtx.Err() == nil {
+			relayPreLoginDisconnect(session, err)
+			reportDisconnect(server.onDisconnect, err)
+		}
+		return err
+	}
+	return handOffSession(sessionCtx, session, prepared, plan)
+}
+
+// sessionPlan is what the handoff carries, taken from a prepared upstream.
+type sessionPlan struct {
+	handoff sessionHandoff
+	packs   []*resource.Pack // content of handoff.Packs, in the same order
+	startup [][]byte         // packets through StartGame
+	rest    [][]byte         // the rest of StartGame's batch
+}
+
+// prepare joins upstream while watching the client, then reads startup and selects the packs.
+// The returned connection owns the upstream leg; the caller still owns session.
+func (server *sessionServer) prepare(
+	ctx context.Context,
+	cancel context.CancelCauseFunc,
+	session *sessionConn,
+	downstream *sessionDownstream,
+) (plan sessionPlan, prepared *preparedConnection, err error) {
+	stopWatch := session.watchPeer(cancel)
+	defer stopWatch()
+	err = server.prepared.tracked(ctx, func(prepareCtx context.Context) error {
+		connected, err := server.prepared.connectPrepared(prepareCtx, downstream)
+		if err != nil {
+			return errors.Join(err, connected.close())
+		}
+		prepared = connected
+		return nil
+	})
+	if err != nil {
+		return plan, nil, err
+	}
+	prepared.packetDelay = server.delay
+	prepared.upstream = observeTransfers(prepared.upstream, server.transfers, server.logger)
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, prepared.close())
+			prepared = nil
+		}
+	}()
+	owner := prepared
+	stopRead := context.AfterFunc(ctx, func() { _ = owner.close() })
+	plan.startup, plan.rest, err = readSessionStartup(prepared.upstream)
+	if !stopRead() && err == nil {
+		err = context.Cause(ctx)
+	}
+	if err != nil {
+		return plan, prepared, err
+	}
+	// The caller reports a disconnect read above, so the disconnect observer wraps only the relay.
+	prepared.upstream = observeDisconnects(prepared.upstream, server.onDisconnect)
+	selected, packs, err := selectSessionPacks(prepared.packStack)
+	prepared.packAdmission.observePolicyOutcome(prepared.packStack, err == nil)
+	if err != nil {
+		return plan, prepared, err
+	}
+	stopWatch()
+	if err = context.Cause(ctx); err != nil {
+		return plan, prepared, err
+	}
+	identity := prepared.upstream.IdentityData()
+	plan.handoff = sessionHandoff{
+		Identity:      sessionIdentity{DisplayName: identity.DisplayName, XUID: identity.XUID, UUID: identity.Identity},
+		ClientCache:   server.prepared.upstreamClientCache && downstream.clientCache,
+		PacksRequired: prepared.packStack.required,
+		Packs:         selected,
+	}
+	plan.packs = packs
+	return plan, prepared, nil
+}
+
+// handOffSession writes the handoff, the pack archives and the rest of StartGame's batch, then relays.
+func handOffSession(ctx context.Context, session *sessionConn, prepared *preparedConnection, plan sessionPlan) error {
+	if err := writeSessionHandoff(session, plan); err != nil {
+		if errors.Is(err, errSessionEnded) {
+			err = nil
+		}
+		return errors.Join(err, prepared.close())
+	}
+	prepared.packAdmission.observeLocalHandoff(prepared.packStack)
+	return servePreparedConnection(ctx, session, prepared)
+}
+
+func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
+	frame, err := encodeSessionHandoff(plan.handoff, plan.startup)
+	if err != nil {
+		return err
+	}
+	if err := session.writeFrame(frame); err != nil {
+		return err
+	}
+	if err := writeSessionPacks(session, plan.packs); err != nil {
+		return err
+	}
+	for _, data := range plan.rest {
+		if err := session.WritePacketRaw(data); err != nil {
+			return err
+		}
+	}
+	return session.Flush()
+}
+
+// writeSessionPacks streams each archive in PackData frames of at most sessionPackChunkBytes.
+func writeSessionPacks(session *sessionConn, packs []*resource.Pack) error {
+	var frame []byte
+	for index, pack := range packs {
+		size := pack.Size()
+		for offset := 0; offset < size; {
+			n := min(sessionPackChunkBytes, size-offset)
+			if cap(frame) < 5+n {
+				frame = make([]byte, 5+n)
+			}
+			frame = frame[:5+n]
+			putSessionPackHeader(frame, uint32(index))
+			if read, err := pack.ReadAt(frame[5:], int64(offset)); read != n {
+				return errors.Join(io.ErrUnexpectedEOF, err)
+			}
+			if err := session.writeFrame(frame); err != nil {
+				return err
+			}
+			offset += n
+		}
+	}
+	return nil
+}
+
+// readSessionStartup reads upstream batches through StartGame, which a HandoffAtStartGame dial has
+// already received. The packets up to StartGame travel in the handoff; the rest of its batch follows.
+func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err error) {
+	size := 0
+	for {
+		batch, err := upstream.ReadBatchRaw(nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		for index, raw := range batch {
+			if size += len(raw.Data); size > streamnet.MaxFrameLen {
+				return nil, nil, errors.New("proxy: session startup packets exceed one frame")
+			}
+			startup = append(startup, raw.Data)
+			if raw.ID == packet.IDStartGame {
+				for _, after := range batch[index+1:] {
+					rest = append(rest, after.Data)
+				}
+				return startup, rest, nil
+			}
+		}
+	}
+}
+
+// selectSessionPacks lists the archives to apply in stack order, as the client's own selection did:
+// entries without content are client built-ins, and a repeated identity or a sub-pack that differs
+// from the offer is skipped, or refuses the join when the packs are required.
+func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*resource.Pack, error) {
+	if stack == nil {
+		return nil, nil, errResourcePackStackUnavailable
+	}
+	offered := stack.offer.TexturePacks()
+	offers := make(map[string]int, len(offered))
+	for index, entry := range offered {
+		info := entry.Info()
+		offers[resourcePackIdentity(info.UUID.String(), info.Version)] = index
+	}
+	var selected []sessionPack
+	var packs []*resource.Pack
+	seen := make(map[string]bool)
+	for _, entry := range stack.snapshot.Entries() {
+		id := resourcePackIdentity(entry.UUID(), entry.Version())
+		index, ok := offers[id]
+		pack := entry.Pack()
+		if !ok || pack == nil {
+			continue
+		}
+		info := offered[index].Info()
+		if seen[id] || info.SubPackName != entry.SubPackName() {
+			if stack.required {
+				return nil, nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offered)}
+			}
+			continue
+		}
+		seen[id] = true
+		selected = append(selected, sessionPack{
+			UUID: info.UUID.String(), Version: info.Version, SubPack: entry.SubPackName(),
+			ContentKey: info.ContentKey, Size: uint64(max(pack.Size(), 0)),
+		})
+		packs = append(packs, pack)
+	}
+	return selected, packs, nil
+}
+
+// sessionDownstream is the login a Connect asks the core to make upstream.
+type sessionDownstream struct {
+	identity    login.IdentityData
+	clientData  login.ClientData
+	clientCache bool
+}
+
+// sessionCacheDownstream narrows the core's static upstream blob-cache opt-in to the client's answer.
+type sessionCacheDownstream interface {
+	sessionClientCache() bool
+}
+
+func (downstream *sessionDownstream) IdentityData() login.IdentityData { return downstream.identity }
+func (downstream *sessionDownstream) ClientData() login.ClientData     { return downstream.clientData }
+func (downstream *sessionDownstream) Proto() minecraft.Protocol        { return minecraft.DefaultProtocol }
+func (downstream *sessionDownstream) sessionClientCache() bool         { return downstream.clientCache }
+
+// newSessionDownstream accepts only the pinned protocol and valid login client data.
+func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, error) {
+	var clientData login.ClientData
+	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	pinned := minecraft.DefaultProtocol
+	if request.Protocol != pinned.ID() || clientData.GameVersion != pinned.Ver() {
+		return nil, fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())
+	}
+	if err := clientData.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	return &sessionDownstream{
+		identity:    login.IdentityData{DisplayName: request.DisplayName},
+		clientData:  clientData,
+		clientCache: request.ClientCache,
+	}, nil
+}

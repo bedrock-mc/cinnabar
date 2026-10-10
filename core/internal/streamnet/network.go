@@ -77,6 +77,16 @@ func ListenControl(socketDir string) (net.Listener, error) {
 	return &rawEndpointListener{Listener: inner, cleanup: cleanup, lease: lease}, nil
 }
 
+// ListenSession opens the distinct session endpoint, whose frames carry session messages
+// rather than gophertunnel packets. The caller owns the accepted connections.
+func ListenSession(socketDir string) (net.Listener, error) {
+	inner, cleanup, lease, err := openEndpoint(socketDir, sessionEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	return &rawEndpointListener{Listener: inner, cleanup: cleanup, lease: lease}, nil
+}
+
 func openEndpoint(socketDir string, names endpointNames) (net.Listener, func() error, io.Closer, error) {
 	if err := ensureSocketDir(socketDir); err != nil {
 		return nil, nil, nil, err
