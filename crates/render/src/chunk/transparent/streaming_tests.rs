@@ -177,3 +177,79 @@ fn lagging_ranges_survive_the_next_in_place_commit() {
     assert_eq!(state.take_patch_within(usize::MAX), [1..4]);
     assert_eq!(state.committed().unwrap().refs(), refs([3, 2, 1, 0]));
 }
+
+/// Removing a slot's tail preserves valid deferred writes and drops obsolete ones.
+#[test]
+fn deferred_uploads_stay_within_a_shrinking_committed_slot() {
+    let identities = [
+        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 0..16, 0..8, 0),
+        TransparentAllocationIdentity::new(SubChunkKey::new(0, 1, 0, 0), 1, 16..32, 8..16, 1),
+    ];
+    let key = |x, allocations| {
+        ViewSortKey::try_new(
+            [x, 0.0, 0.0],
+            allocations,
+            ChunkTextureAssetIdentity::new(1, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap()
+    };
+    let first = (0..8)
+        .map(|record| PackedTransparentDrawRef::new(record, record / 4))
+        .collect::<Vec<_>>();
+    let reordered =
+        [3, 2, 1, 0, 7, 6, 5, 4].map(|record| PackedTransparentDrawRef::new(record, record / 4));
+    for remaining in [4, 0] {
+        for uploaded in [1, 5] {
+            let mut state = TransparentSortState::with_upload_cap(64);
+            let initial = key(0.0, identities.to_vec());
+            let generation = state.request(&initial);
+            state
+                .complete(TransparentSortResult::new(generation, initial, first.clone()).unwrap())
+                .unwrap();
+            assert!(state.acknowledge_upload());
+
+            let moved = key(20.0, identities.to_vec());
+            let generation = state.request(&moved);
+            assert_eq!(
+                state.complete(
+                    TransparentSortResult::new(generation, moved, reordered.to_vec()).unwrap()
+                ),
+                Ok(true)
+            );
+            assert_eq!(state.take_patch_within(uploaded), [0..uploaded]);
+            let before = state.committed().unwrap().clone();
+            let next = key(20.0, identities[..remaining / 4].to_vec());
+            let generation = state.request_retaining_resident_snapshot(&next, true, false);
+            let patch = TransparentRefPatch {
+                base: Arc::clone(&before.refs),
+                urgent: Vec::new(),
+                deferred: Vec::new(),
+            };
+            assert_eq!(
+                state.complete(
+                    TransparentSortResult::with_patch(
+                        generation,
+                        next,
+                        reordered[..remaining].to_vec().into(),
+                        Some(patch),
+                    )
+                    .unwrap()
+                ),
+                Ok(true)
+            );
+            assert!(state.take_urgent_patch().is_empty());
+            let snapshot = state.committed().unwrap().clone();
+            assert_eq!(snapshot.buffer_slot(), before.buffer_slot());
+            let mut written = Vec::new();
+            for span in state.take_patch_within(usize::MAX) {
+                written.extend_from_slice(&snapshot.refs()[span]);
+            }
+            let expected = &reordered[uploaded.min(remaining)..remaining];
+            assert_eq!(
+                written, expected,
+                "uploaded={uploaded}, remaining={remaining}"
+            );
+        }
+    }
+}

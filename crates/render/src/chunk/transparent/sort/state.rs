@@ -563,8 +563,14 @@ impl TransparentSortState {
                     committed.refs = result.refs;
                     committed.layout = LayoutCache::with(result.layout);
                 }
-                // Lagging ranges of the previous commit still read from the current slot.
-                let lagging = std::mem::take(&mut self.pending_patch);
+                // Keep deferred writes only where the resized slot still has refs.
+                let refs_len = committed.refs.len();
+                let lagging = std::mem::take(&mut self.pending_patch)
+                    .into_iter()
+                    .filter_map(|span| {
+                        let end = span.end.min(refs_len);
+                        (span.start < end).then_some(span.start..end)
+                    });
                 self.urgent_patch = urgent.len();
                 self.pending_patch = urgent.into_iter().chain(deferred).chain(lagging).collect();
                 self.staged = None;
