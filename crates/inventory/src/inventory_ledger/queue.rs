@@ -83,6 +83,19 @@ impl PendingRequest {
     }
 }
 
+/// Bounds abandoned requests remembered for a late rejection.
+const MAX_ABANDONED_REQUESTS: usize = 16;
+
+/// An admitted request dropped unanswered.
+#[derive(Debug, Clone)]
+pub(super) struct AbandonedRequest {
+    request_id: i32,
+    /// Every surface the request touched.
+    touched: Vec<CellSurface>,
+    /// The touched surfaces whose recovery this request answers for.
+    recovering: Vec<CellSurface>,
+}
+
 impl PlayerInventoryLedger {
     /// Backing truth covered by the latest active absolute sparse cells.
     pub(super) fn view(&self) -> &Cells {
@@ -371,6 +384,70 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Recovers an admitted request dropped unanswered, remembering which
+    /// surfaces that put into recovery for [`Self::settle_abandoned_rejection`].
+    fn recover_abandoned(&mut self, request: &PendingRequest) {
+        let mut touched: Vec<CellSurface> = Vec::new();
+        for surface in request.touched().map(|cell| cell.surface()) {
+            if !touched.contains(&surface) {
+                touched.push(surface);
+            }
+        }
+        let mut recovering: Vec<CellSurface> = touched
+            .iter()
+            .copied()
+            .filter(|surface| !self.surface_recovering(*surface))
+            .collect();
+        self.recover_request(request);
+        recovering.retain(|surface| self.surface_recovering(*surface));
+        if self.abandoned.len() >= MAX_ABANDONED_REQUESTS {
+            self.abandoned.pop_front();
+        }
+        self.abandoned.push_back(AbandonedRequest {
+            request_id: request.request_id,
+            touched,
+            recovering,
+        });
+    }
+
+    /// A late rejection of an abandoned request settles its ambiguity: the
+    /// server applied none of it, so the state confirmed before it stands and
+    /// the recovery it caused is lifted. A server that closes a window from
+    /// inside the request it then rejects (a menu button) restates nothing,
+    /// and every later gesture stayed refused. A surface another abandoned
+    /// request also touched stays in recovery, now on that request's account.
+    pub(super) fn settle_abandoned_rejection(&mut self, request_id: i32) {
+        let Some(index) = self
+            .abandoned
+            .iter()
+            .position(|abandoned| abandoned.request_id == request_id)
+        else {
+            return;
+        };
+        let settled = self.abandoned.remove(index).expect("index observed");
+        for surface in settled.recovering {
+            if let Some(other) = self
+                .abandoned
+                .iter_mut()
+                .find(|abandoned| abandoned.touched.contains(&surface))
+            {
+                if !other.recovering.contains(&surface) {
+                    other.recovering.push(surface);
+                }
+                continue;
+            }
+            match surface {
+                CellSurface::Player => self.player_resync_required = false,
+                CellSurface::Cursor => self.cursor_resync_required = false,
+                CellSurface::Armor => self.armor_resync_required = false,
+                CellSurface::Offhand => self.offhand_resync_required = false,
+                CellSurface::Crafting => self.crafting_resync_required = false,
+                // The window the request addressed is gone or replaced.
+                CellSurface::Storage => {}
+            }
+        }
+    }
+
     /// Drops matching requests. Unsent ones roll back together with every later
     /// unsent request built on them; admitted ones become ambiguous and mark
     /// their cells for authoritative recovery.
@@ -385,7 +462,7 @@ impl PlayerInventoryLedger {
                 if unsent {
                     rolling_back = true;
                 } else {
-                    self.recover_request(&request);
+                    self.recover_abandoned(&request);
                 }
                 continue;
             }
