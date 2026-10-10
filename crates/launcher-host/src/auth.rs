@@ -457,9 +457,7 @@ fn safe_message(value: &str) -> String {
 mod tests {
     use std::{
         fs,
-        path::PathBuf,
-        process::Child,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant},
     };
 
     use super::test_support::{event_child, event_child_holding};

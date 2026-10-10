@@ -35,5 +35,5 @@ fn session_controller_binding_replaces_releases_and_drops_cleanly() {
         !third_directory.exists(),
         "dropping the session controller removes its session directory"
     );
-    let _ = fs::remove_dir_all(root.path().join(".local"));
+    let _ = std::fs::remove_dir_all(&layout.runtime_root);
 }

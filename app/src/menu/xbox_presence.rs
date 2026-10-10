@@ -1,5 +1,6 @@
 //! Xbox activity follows committed world state independently of Discord activity.
-use protocol::{PlayerGameMode, bridge::XboxPresenceState};
+use bridge::XboxPresenceState;
+use protocol::PlayerGameMode;
 
 /// Reports menus until the world default is known, with generic featured/experience activity.
 pub(super) fn state(

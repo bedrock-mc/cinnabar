@@ -11,7 +11,6 @@ use launcher_host::{core_process::CoreProcessGuard, session_cleanup::SessionDire
 use std::path::PathBuf;
 #[cfg(test)]
 use std::{
-    path::Path,
     process::{Command, Stdio},
     time::Duration,
 };

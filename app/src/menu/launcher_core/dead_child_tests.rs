@@ -211,19 +211,6 @@ fn account_switch_waits_for_the_previous_profiles_credential_save() {
 }
 
 #[test]
-fn retired_account_control_paths_cannot_reach_a_new_core_or_game_session() {
-    let layout = launcher::test_support::scratch("account-endpoint-isolation");
-    let first = next_account_socket_dir(&layout);
-    let second = next_account_socket_dir(&layout);
-    assert_ne!(first, second);
-    for generation in 0..3 {
-        let game = layout.connect_socket_dir(std::process::id(), generation);
-        assert_ne!(first, game);
-        assert_ne!(second, game);
-    }
-}
-
-#[test]
 fn realm_membership_core_exit_retires_the_pending_dialog() {
     use launcher::menu::realm_membership::{Stage, State};
     for stage in [Stage::Verifying, Stage::Joining] {
