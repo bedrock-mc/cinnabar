@@ -550,7 +550,37 @@ func (connections *preparedConnections) prepareConnection(
 	ctx context.Context,
 	key *minecraft.Conn,
 	downstream resourcePackOfferConnection,
-) (err error) {
+) error {
+	return connections.tracked(ctx, func(prepareCtx context.Context) (err error) {
+		prepared, err := connections.connectPrepared(prepareCtx, downstream)
+		if err != nil {
+			return errors.Join(err, prepared.close())
+		}
+		owned := true
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = errors.Join(err, panicTypeError("configuring downstream resource-pack offer", recovered))
+			}
+			if owned {
+				err = errors.Join(err, prepared.close())
+			}
+		}()
+		if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
+			prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
+			return err
+		}
+		prepared.packAdmission.observePolicyOutcome(prepared.packStack, true)
+		if err = connections.store(ctx, key, prepared); err != nil {
+			return err
+		}
+		owned = false
+		return nil
+	})
+}
+
+// tracked runs prepare so shutdown cancels and joins it; a failure after ctx or shutdown
+// cancellation becomes a preparationCancellationError. prepareCtx ends when prepare returns.
+func (connections *preparedConnections) tracked(ctx context.Context, prepare func(prepareCtx context.Context) error) (err error) {
 	connections.mu.Lock()
 	if connections.stopping {
 		connections.mu.Unlock()
@@ -572,30 +602,7 @@ func (connections *preparedConnections) prepareConnection(
 		stopShutdownCancellation()
 		cancel()
 	}()
-
-	prepared, err := connections.connectPrepared(prepareCtx, downstream)
-	if err != nil {
-		return errors.Join(err, prepared.close())
-	}
-	owned := true
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errors.Join(err, panicTypeError("configuring downstream resource-pack offer", recovered))
-		}
-		if owned {
-			err = errors.Join(err, prepared.close())
-		}
-	}()
-	if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
-		prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
-		return err
-	}
-	prepared.packAdmission.observePolicyOutcome(prepared.packStack, true)
-	if err = connections.store(ctx, key, prepared); err != nil {
-		return err
-	}
-	owned = false
-	return nil
+	return prepare(prepareCtx)
 }
 
 func (connections *preparedConnections) connect(ctx context.Context, downstream dialerDownstream) (result *preparedConnection, err error) {
@@ -628,7 +635,12 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		err = errors.Join(err, finishPreparedResources(upstream, releaseTarget))
 	}()
 
-	target, err = connections.resolveTarget(withConnectProgress(ctx, report))
+	resolve := connections.resolveTarget
+	session, isSession := downstream.(sessionJoinDownstream)
+	if isSession && session.sessionResolveTarget() != nil {
+		resolve = session.sessionResolveTarget()
+	}
+	target, err = resolve(withConnectProgress(ctx, report))
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +657,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if target.offline {
 		tokenSource = nil
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, connections.upstreamClientCache)
+	clientCache := connections.upstreamClientCache
+	if isSession {
+		clientCache = clientCache && session.sessionClientCache()
+	}
+	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}

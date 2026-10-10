@@ -15,10 +15,14 @@ use crate::BridgeError;
 const GAME_UNIX_ENDPOINT_NAME: &str = "game.sock";
 #[cfg(unix)]
 const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
+#[cfg(unix)]
+const SESSION_UNIX_ENDPOINT_NAME: &str = "session.sock";
 #[cfg(windows)]
 const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
 #[cfg(windows)]
 const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
+#[cfg(windows)]
+const SESSION_WINDOWS_ENDPOINT_NAME: &str = "session.addr";
 #[cfg(any(windows, test))]
 const MAX_WINDOWS_PUBLICATION_BYTES: usize = 128;
 /// Lets one large batch cross the local Unix socket in a single write; macOS defaults to 8 KiB,
@@ -30,6 +34,8 @@ const LOCAL_SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 pub(crate) enum EndpointKind {
     Game,
     Control,
+    /// Carries session messages: the core-owned login's handoff and raw batches.
+    Session,
 }
 
 impl EndpointKind {
@@ -38,6 +44,7 @@ impl EndpointKind {
         match self {
             Self::Game => GAME_UNIX_ENDPOINT_NAME,
             Self::Control => CONTROL_UNIX_ENDPOINT_NAME,
+            Self::Session => SESSION_UNIX_ENDPOINT_NAME,
         }
     }
 
@@ -46,6 +53,7 @@ impl EndpointKind {
         match self {
             Self::Game => GAME_WINDOWS_ENDPOINT_NAME,
             Self::Control => CONTROL_WINDOWS_ENDPOINT_NAME,
+            Self::Session => SESSION_WINDOWS_ENDPOINT_NAME,
         }
     }
 }
@@ -619,6 +627,28 @@ mod tests {
         assert_ne!(game, control);
         assert!(control.to_string_lossy().starts_with("/tmp/cinnabar-"));
         assert!(control.to_string_lossy().ends_with(".sock"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_endpoint_is_distinct_and_length_safe() {
+        let direct = Path::new("/tmp/cinnabar-session-test");
+        assert_eq!(
+            super::endpoint_path(direct, super::EndpointKind::Session),
+            direct.join("session.sock")
+        );
+
+        let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
+        let session = super::endpoint_path(&directory, super::EndpointKind::Session);
+        assert_ne!(
+            session,
+            super::endpoint_path(&directory, super::EndpointKind::Game)
+        );
+        assert_ne!(
+            session,
+            super::endpoint_path(&directory, super::EndpointKind::Control)
+        );
+        assert!(session.to_string_lossy().starts_with("/tmp/cinnabar-"));
     }
 
     #[cfg(windows)]
