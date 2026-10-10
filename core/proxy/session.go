@@ -223,7 +223,7 @@ func (server *sessionServer) prepare(
 	}
 	// The caller reports a disconnect read above, so the disconnect observer wraps only the relay.
 	prepared.upstream = observeDisconnects(prepared.upstream, server.onDisconnect)
-	selected, packs, err := selectSessionPacks(prepared.packStack)
+	selected, packs, err := selectSessionPacks(prepared.packStack, server.logger)
 	prepared.packAdmission.observePolicyOutcome(prepared.packStack, err == nil)
 	if err != nil {
 		return plan, prepared, err
@@ -326,7 +326,7 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 }
 
 // selectSessionPacks lists the archives to apply from the projected offer and the server's stack.
-func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*resource.Pack, error) {
+func selectSessionPacks(stack *selectedResourcePackStack, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	if stack == nil {
 		return nil, nil, errResourcePackStackUnavailable
 	}
@@ -338,7 +338,7 @@ func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*res
 	for _, entry := range stack.snapshot.Entries() {
 		entries = append(entries, sessionStackEntry{uuid: entry.UUID(), version: entry.Version(), subPack: entry.SubPackName()})
 	}
-	return chooseSessionPacks(offers, entries, stack.required)
+	return chooseSessionPacks(offers, entries, stack.required, logger)
 }
 
 // sessionOffer is one offered pack with its acquired content.
@@ -352,19 +352,24 @@ type sessionStackEntry struct {
 	uuid, version, subPack string
 }
 
-// chooseSessionPacks selects archives in stack order, as the client's own selection did: an offer
-// repeating an identity is ambiguous and refuses the join; built-in packs need no archive; and an
-// unavailable pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or
-// refuses the join when the packs are required.
-func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool) ([]sessionPack, []*resource.Pack, error) {
+// chooseSessionPacks selects archives in stack order: an offer repeating an identity keeps its first
+// entry, as vanilla requests each identity once; built-in packs need no archive; and an unavailable
+// pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or refuses the
+// join when the packs are required. A nil logger drops the skip count.
+func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	refuse := &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offers)}
 	byIdentity := make(map[string]sessionOffer, len(offers))
+	repeated := 0
 	for _, offer := range offers {
 		id := resourcePackIdentity(offer.info.UUID.String(), offer.info.Version)
-		if _, repeated := byIdentity[id]; repeated {
-			return nil, nil, refuse
+		if _, ok := byIdentity[id]; ok {
+			repeated++
+			continue
 		}
 		byIdentity[id] = offer
+	}
+	if repeated != 0 && logger != nil {
+		logger.Warn("ignoring repeated resource-pack offer entries", "count", repeated)
 	}
 	var selected []sessionPack
 	var packs []*resource.Pack
