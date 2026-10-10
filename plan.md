@@ -173,6 +173,14 @@
 
 ## Held block placement
 
+- A steep downward look past a ledge can acquire nearby support before a placement
+  line exists. Use and selection share the downward support and preserve its click
+  point; mining keeps the direct ray. The support selection shape is outlined.
+- Indirect support admits the first press, while unlined held repeats require a
+  direct hit. Locked lines still test the segment to the picked intercept.
+- Incomplete: the reported floating outline in an empty destination cell has not
+  been verified for the matched version and control settings.
+
 - Ordinary block holds now retain successful destinations, establish an adjacent
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,

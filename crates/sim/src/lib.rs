@@ -30,7 +30,8 @@ pub use simulator::{
     VerticalPhysics, pose_fits, sample_liquid_submersion, sample_water_head,
 };
 pub use world::{
-    BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CameraBlockHit,
+    BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, BlockPhysicsFacts, BlockPhysicsFlags,
+    BlockPhysicsSample, CameraBlockHit,
     CollisionIdSpace, CollisionQuery, CollisionRegistry, CollisionRegistryIdentity,
     CollisionSnapshot, CollisionWorld, DoorFacing, DoorState, FlowBlockFacts,
     LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,

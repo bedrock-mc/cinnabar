@@ -4,12 +4,14 @@ use protocol::wire::valentine::bedrock::version::v1_26_51::{
     InventoryTransactionPacketTransaction, McpePacketData,
 };
 
-fn spawn(world: &mut World, z: f32) {
+/// Adds a selectable actor after the fixture's latest terrain update.
+pub(super) fn spawn(world: &mut World, z: f32) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
+    let sequence = stream.committed_sequence() + 1;
     stream
         .submit(
-            3,
+            sequence,
             protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
                 dimension: 0,
                 unique_id: 99,
@@ -32,7 +34,7 @@ fn spawn(world: &mut World, z: f32) {
         )
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while stream.committed_sequence() < 3 {
+    while stream.committed_sequence() < sequence {
         stream.poll([4.5, 2.620_01, 8.5], 0);
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
