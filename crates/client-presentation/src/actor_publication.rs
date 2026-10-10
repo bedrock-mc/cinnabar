@@ -239,6 +239,7 @@ pub fn prepare_actor_render_frame(
         layer_poses,
         hand_revision,
         java_hand,
+        java_poses,
         input,
         step,
         hand_source: ready_hand_source,
@@ -369,7 +370,14 @@ pub fn prepare_actor_render_frame(
                             && !(local && (first_person || input.custom_emote.is_some())))
                         .then(|| {
                             let local = local.then_some(&input.local_equipment);
-                            java::third_person(stream, &rig, actor, local, step.partial_tick)
+                            java::third_person(
+                                stream,
+                                &rig,
+                                actor,
+                                local,
+                                step.partial_tick,
+                                java_poses,
+                            )
                         })
                         .flatten();
                         crate::presentation::actors::actor_rig_presentation_cached(

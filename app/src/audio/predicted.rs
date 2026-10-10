@@ -18,7 +18,11 @@ pub(crate) fn drive_block_cues(
     survival: Option<Res<SurvivalMiningRuntime>>,
     engine: ResMut<AudioEngine>,
     mining: Local<MiningAudio>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     client_presentation::audio::predicted::drive_block_cues(
         cues,
         time,
@@ -46,7 +50,11 @@ pub(crate) fn drive_consume_audio(
     view: Res<LocalViewPose>,
     engine: ResMut<AudioEngine>,
     state: Local<ConsumeAudio>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     client_presentation::audio::predicted::drive_consume_audio(
         &player_runtime,
         time,
@@ -66,7 +74,11 @@ pub(crate) fn drive_actor_audio(
     world: Res<ClientWorld>,
     mut inbox: Option<ResMut<ParticleInbox>>,
     engine: ResMut<AudioEngine>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     client_presentation::audio::predicted::drive_actor_audio(
         client_presentation::observations::WorldObservation {
             stream: world.stream.as_ref(),

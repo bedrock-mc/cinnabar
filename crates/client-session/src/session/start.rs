@@ -72,18 +72,16 @@ pub fn spawn_network<P: Send + 'static>(
                 // remains a live base-assets session, a required one ends it.
                 let handoff = session.take_resource_pack_handoff();
                 let cancelled = shutdown_rx.clone();
-                let Some((preparation, game_data, packs)) = run_blocking_or_cancel(
+                let Some((session_packs, game_data, packs)) = run_blocking_or_cancel(
                     move || {
-                        let preparation = crate::prepare_session_packs(
+                        let (session_packs, packs) = prepare_session(
                             handoff,
                             &game_data,
                             config.physical_memory_bytes,
+                            &cancelled,
+                            prepare_presentation,
                         );
-                        let packs = unless_cancelled(&cancelled, || {
-                            prepare_presentation(&preparation, &game_data, &|| *cancelled.borrow())
-                        })
-                        .flatten();
-                        (preparation, game_data, packs)
+                        (session_packs, game_data, packs)
                     },
                     &mut shutdown_rx,
                 )
@@ -100,8 +98,10 @@ pub fn spawn_network<P: Send + 'static>(
                         return;
                     }
                 };
-                let custom_blocks = preparation.inputs.blocks.clone();
-                let packs_applied = preparation.has_applied_packs();
+                let SessionPacks {
+                    custom_blocks,
+                    applied: packs_applied,
+                } = session_packs;
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let server_authoritative_block_breaking =
                     protocol::server_authoritative_block_breaking(&game_data);
@@ -195,6 +195,37 @@ pub fn spawn_network<P: Send + 'static>(
         experience_gate,
         unflushed: AtomicBool::new(false),
     })
+}
+
+/// What a session keeps of its pack preparation once presentation is prepared.
+struct SessionPacks {
+    custom_blocks: protocol::CustomBlocks,
+    applied: bool,
+}
+
+/// Validates and prepares the login handoff unless cancelled, retaining needed session facts.
+/// Reused presentation carries the retained archives so equivalent packs have one copy.
+fn prepare_session<P>(
+    handoff: protocol::ResourcePackHandoff,
+    game_data: &protocol::GameData,
+    physical_memory_bytes: u64,
+    cancelled: &watch::Receiver<bool>,
+    prepare_presentation: impl FnOnce(
+        &PackPreparation,
+        &protocol::GameData,
+        &(dyn Fn() -> bool + Sync),
+    ) -> Option<Result<P, crate::RequiredPackRejected>>,
+) -> (SessionPacks, Option<Result<P, crate::RequiredPackRejected>>) {
+    let preparation = crate::prepare_session_packs(handoff, game_data, physical_memory_bytes);
+    let packs = unless_cancelled(cancelled, || {
+        prepare_presentation(&preparation, game_data, &|| *cancelled.borrow())
+    })
+    .flatten();
+    let session_packs = SessionPacks {
+        custom_blocks: preparation.inputs.blocks.clone(),
+        applied: preparation.has_applied_packs(),
+    };
+    (session_packs, packs)
 }
 
 /// Drives the session without waiting on a cancelled preparation that is still compiling.
@@ -350,6 +381,44 @@ mod tests {
         assert_eq!(worker.join().unwrap(), Some(true));
         notifier.join().unwrap();
         returned.expect("shutdown blocked behind the running compile");
+    }
+
+    // A presentation that reuses an earlier compile holds its own copy of the archives, so the
+    // session must not also keep the copy this login validated.
+    #[test]
+    fn preparing_a_session_releases_the_archives_it_validated() {
+        let archive = protocol::ResourcePackArchive::unencrypted(
+            "11111111-2222-3333-4444-555555555555".parse().unwrap(),
+            "1.2.3".into(),
+            String::new(),
+            vec![0; 32],
+        );
+        let game_data = protocol::GameData {
+            start_game: Default::default(),
+            item_registry: Default::default(),
+            biome_definitions: None,
+            entity_identifiers: None,
+            creative_content: None,
+        };
+        let (_shutdown, cancelled) = watch::channel(false);
+        let mut validated = None;
+        let (session_packs, packs) = prepare_session(
+            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+            &game_data,
+            u64::MAX,
+            &cancelled,
+            |preparation, _, _| {
+                let resource_pack::PackAdmission::Validated(stack) = &preparation.admission else {
+                    panic!("the handoff admits a stack");
+                };
+                validated = Some(Arc::downgrade(stack));
+                Some(Ok(()))
+            },
+        );
+        assert!(matches!(packs, Some(Ok(()))));
+        assert!(!session_packs.applied, "the only pack was rejected");
+        assert!(session_packs.custom_blocks.blocks.is_empty());
+        assert!(validated.unwrap().upgrade().is_none());
     }
 
     #[tokio::test]

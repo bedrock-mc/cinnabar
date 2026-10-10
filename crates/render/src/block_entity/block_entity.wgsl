@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::world_projection::{camera_offset_clip, world_clip}
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
 #ifdef ALPHA_TO_COVERAGE
 #import cinnabar::lighting::{cutout_alpha_2d}
@@ -20,7 +21,7 @@ struct PortalParameters {
 @group(0) @binding(4) var<uniform> portal: PortalParameters;
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) native_lighting: vec3<f32>,
@@ -32,15 +33,18 @@ fn vertex_f32(index: u32) -> f32 { return bitcast<f32>(vertex_words[index]); }
 
 fn block_vertex(vertex_index: u32, overlay_bias: bool) -> VertexOutput {
     let base = vertex_index * BLOCK_ENTITY_VERTEX_WORDS;
-    var position = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
+    let position = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
     let actor_light = vertex_words[base + 12u];
     let normal = vec3(vertex_f32(base + 9u), vertex_f32(base + 10u), vertex_f32(base + 11u));
+    // Lift overlays off the face after leaving world coordinates, where the
+    // small offset would round away far from the origin.
+    var lift = vec3(0.0);
     if (overlay_bias && actor_light == 0u && any(normal != vec3(0.0))) {
         let direction = select(-1.0, 1.0, dot(view.world_position - position, normal) >= 0.0);
-        position += normal * (direction * BLOCK_OVERLAY_FACE_OFFSET);
+        lift = normal * (direction * BLOCK_OVERLAY_FACE_OFFSET);
     }
     var out: VertexOutput;
-    out.position = view.clip_from_world * vec4(position, 1.0);
+    out.position = camera_offset_clip(view.clip_from_world, view.world_position, position - view.world_position + lift);
     out.uv = vec2(vertex_f32(base + 3u), vertex_f32(base + 4u));
     out.color = vec4(
         vertex_f32(base + 5u),
@@ -48,7 +52,7 @@ fn block_vertex(vertex_index: u32, overlay_bias: bool) -> VertexOutput {
         vertex_f32(base + 7u),
         vertex_f32(base + 8u),
     );
-    out.world_position = position;
+    out.world_position = position + lift;
     out.actor_light = actor_light;
     out.native_lighting = actor_lighting(out.actor_light, normal, 0.0);
     return out;
@@ -65,7 +69,7 @@ fn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutpu
 }
 
 struct SelectionLineOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) color: vec4<f32>,
 }
 
@@ -74,7 +78,7 @@ const SELECTION_STROKE_PIXELS: f32 = 2.0;
 fn selection_endpoint(index: u32) -> vec4<f32> {
     let base = index * BLOCK_ENTITY_VERTEX_WORDS;
     let world = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
-    var clip = view.clip_from_world * vec4(world, 1.0);
+    var clip = world_clip(view.clip_from_world, view.world_position, world);
     clip.z += 0.00005;
     return clip;
 }
@@ -168,7 +172,7 @@ fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 struct PortalOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) @interpolate(perspective, centroid) color_uv: vec2<f32>,
     @location(1) @interpolate(perspective, centroid) parallax_uv: vec2<f32>,
     @location(2) phase: f32,
@@ -197,7 +201,7 @@ fn portal_vertex(@builtin(vertex_index) vertex_index: u32) -> PortalOutput {
     // Native fmod keeps the sign; atlas wrapping happens after interpolation.
     uv -= trunc(uv / 64.0) * 64.0;
     var out: PortalOutput;
-    out.position = view.clip_from_world * vec4(world_position, 1.0);
+    out.position = world_clip(view.clip_from_world, view.world_position, world_position);
     out.color_uv = vec2(vertex_f32(base + 3u), vertex_f32(base + 4u));
     out.parallax_uv = uv;
     out.phase = phase;

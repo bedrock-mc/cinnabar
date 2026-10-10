@@ -76,7 +76,7 @@ fn label_request<'a>(
         } else {
             WordChop::Hyphen
         },
-        ..TextWrap::default()
+        ..request.wrap
     };
     request
 }
@@ -292,3 +292,6 @@ pub(in super::super) fn active_codes(text: &str) -> String {
     }
     codes
 }
+
+#[cfg(test)]
+mod tests;

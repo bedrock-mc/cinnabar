@@ -29,7 +29,7 @@ pub use pack::{apply_atlas_tint, parse_atlas_tint};
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorPackCompilation, ActorTextureEvidence,
-    CompiledActorCarrier, compile_actor_assets, compile_actor_pack,
+    CompiledActorCarrier, compile_actor_assets, compile_actor_pack, compile_actor_pack_unless,
 };
 pub use animation::AnimationInventory;
 pub use assets::BlockFace;
