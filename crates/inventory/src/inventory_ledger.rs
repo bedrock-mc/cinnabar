@@ -912,14 +912,14 @@ impl PlayerInventoryLedger {
     /// Requires a refresh independently of any abandoned request's eventual answer.
     fn mark_cell_recovery(&mut self, cell: Cell) {
         self.disown_abandoned_recovery(cell.surface());
-        self.require_cell_recovery(cell);
-    }
-
-    /// Marks a cell unverified and clears its response overlay.
-    fn require_cell_recovery(&mut self, cell: Cell) {
         if let Some(held) = self.confirmed.get_mut(cell) {
             held.overlay = None;
         }
+        self.require_cell_recovery(cell);
+    }
+
+    /// Marks a cell unverified while retaining its confirmed metadata.
+    fn require_cell_recovery(&mut self, cell: Cell) {
         match cell.surface() {
             CellSurface::Player => self.player_resync_required = true,
             CellSurface::Cursor => self.cursor_resync_required = true,

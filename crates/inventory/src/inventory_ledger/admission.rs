@@ -246,12 +246,15 @@ impl PlayerInventoryLedger {
             None if protocol::is_personal_ui_inventory(&content.container)
                 && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
             {
+                self.set_authoritative_cell(Cell::Cursor, Held::new(&content.slots[0]));
                 for slot in 0..protocol::UI_SLOT_COUNT as u8 {
                     if let Some(cell) = ui_cell(slot) {
                         let stack = &content.slots[usize::from(slot)];
                         self.set_authoritative_cell(cell, Held::new(stack));
                     }
                 }
+                self.cursor_resync_required = false;
+                self.surface_refreshed(CellSurface::Cursor);
                 self.crafting_resync_required = false;
                 self.surface_refreshed(CellSurface::Crafting);
             }
