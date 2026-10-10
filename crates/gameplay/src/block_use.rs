@@ -287,6 +287,18 @@ impl LocalUse {
         }
     }
 
+    /// An actor use consumes the press only when the target offers an interaction;
+    /// otherwise the press falls through to item use after the interact transaction.
+    /// Players have no client-side interaction, so the server's interact text alone
+    /// decides; other actors' component interactions are not modelled and always interact.
+    pub const fn for_actor(target: &protocol::ActorKind, interact_text: bool) -> Self {
+        if interact_text || !matches!(target, protocol::ActorKind::Player { .. }) {
+            Self::Interact
+        } else {
+            Self::Nothing
+        }
+    }
+
     const fn swing(self) -> Option<SwingSource> {
         match self {
             Self::Interact => Some(SwingSource::Interact),

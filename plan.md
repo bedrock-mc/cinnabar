@@ -2285,6 +2285,15 @@ box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
 
+2026-10-10 actor use: a use press on an actor always sends the Interact
+transaction, then falls through to item use (a throw, for example) unless the
+target offers an interaction. Players offer one only while the server's interact
+text (actor data 100) on the local player is non-empty. Provisional, incomplete:
+other actors' component interactions (trading, taming, leashing, riding and so on)
+are not modelled, so a use on any non-player actor still consumes the press; the
+local can-ride-target flag and the target's prevent-default flag, which suppress
+the fall-through, are not modelled. Not live-accepted.
+
 2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
 without withdrawing its whole namespace. Regressions reproduce top-left chat and
 item-name overlap while preserving explicit server anchor overrides. Live Hive
