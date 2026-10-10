@@ -110,3 +110,42 @@ fn worn_attachable_reads_its_static_owners_synced_property() {
     owner.int_properties.insert(0, 1);
     assert_eq!(translation(true, &context, &owner), -16.0);
 }
+
+#[test]
+fn worn_attachable_recognizes_its_local_player_owner() {
+    let mut compiled = owner_reference_tests::compiled_fixture(true);
+    compiled.molang_symbols[1].identifier = "query.is_local_player".into();
+    compiled.molang_ops = [
+        MolangOp::LoadVariable(3),
+        MolangOp::Arrow(3),
+        MolangOp::LoadQuery(1),
+    ]
+    .into();
+    compiled.molang_expressions[0].op_count = 3;
+    compiled.molang_expressions[0].max_stack = 1;
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    owner.kind = protocol::ActorKind::Player {
+        uuid: [0; 16],
+        username: "fixture".into(),
+    };
+    let context = ActorTickContext {
+        is_local_player: true,
+        ..Default::default()
+    };
+    let store = owner_store(&assets, &owner, &context);
+    let rig = store.snapshots().next().unwrap();
+    let mut runtime = AttachablesRuntime::new(assets);
+    let worn = runtime
+        .evaluate(
+            "minecraft:test_item",
+            &owner,
+            &rig,
+            AttachableAnimationInput {
+                worn: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(worn.pose[0].translation_scale[0], -16.0);
+}

@@ -376,7 +376,8 @@
   `context.owning_entity` and draws the texture its render controller selects,
   such as owner-driven team variants. Each worn slot keeps its own retained state
   and native model binding name. Owner item-use timing and frame delta are passed
-  to the worn scripts.
+  to the worn scripts. Equipment, properties and local-player identity also
+  remain available to owner queries when the body pose is static.
 - Incomplete: worn armour still uses the binding's default geometry on remapped
   body bones. Attachable animations and controller-selected geometry or
   materials are not applied, and vanilla armour keeps its static binding.

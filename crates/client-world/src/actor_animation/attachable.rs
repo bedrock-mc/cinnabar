@@ -327,22 +327,21 @@ impl AttachablesRuntime {
         };
         let (main_hand_kinetic, main_hand_swing_seconds) =
             owner_rig.animation_variables.item_timings();
+        let owner_context = owner_rig.animation_variables.owner_context();
         let mut context = ActorTickContext {
             main_hand_kinetic,
             main_hand_swing_seconds,
             main_hand_is_spear: owner_rig.animation_variables.is_spear(),
             is_local_first_person: input.first_person,
-            is_local_player: input.is_local_player || input.first_person,
+            is_local_player: input.is_local_player
+                || input.first_person
+                || owner_context.is_some_and(|owner| owner.is_local_player),
             hand_charged: input.hand_charged,
             main_hand_max_use_ticks: input.max_use_ticks,
             attachable: Some(query_context),
             main_hand: input.owner_main_hand.map(Arc::from),
             off_hand: input.owner_off_hand.map(Arc::from),
-            ..owner_rig
-                .animation_variables
-                .owner_context()
-                .cloned()
-                .unwrap_or_default()
+            ..owner_context.cloned().unwrap_or_default()
         };
         if !input.worn && input.off_hand {
             context
