@@ -202,7 +202,7 @@ impl Decoder {
     /// Reserves encoded bytes until a worker finishes or discards the job.
     fn reserve(&self, bytes: usize) -> Option<EncodedPermit> {
         self.encoded_bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
                 held.checked_add(bytes)
                     .filter(|total| *total <= MAX_QUEUED_DECODE_BYTES)
             })

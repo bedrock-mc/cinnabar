@@ -307,8 +307,8 @@ impl RetainedDraw {
     /// Places the dirty subtrees again from their parents' bounds and clips.
     fn relayout(&mut self, nodes: &[UiNode], dirty: &[bool]) -> Result<(), UiError> {
         let scale = self.frame.scale.get();
-        for position in 0..self.placed.len() {
-            if !dirty[position] {
+        for (position, &is_dirty) in dirty.iter().enumerate() {
+            if !is_dirty {
                 continue;
             }
             let place = &self.placed[position];

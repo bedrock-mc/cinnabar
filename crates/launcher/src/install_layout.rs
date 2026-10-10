@@ -150,7 +150,12 @@ impl InstallLayout {
         let layout = Self::resolve(
             platform,
             &InstallEnvironment {
-                executable: std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                executable: cargo_artifact_path(
+                    std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                    std::env::var_os("CARGO_MANIFEST_DIR")
+                        .map(PathBuf::from)
+                        .as_deref(),
+                ),
                 user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
@@ -344,6 +349,23 @@ impl InstallLayout {
     }
 }
 
+/// Cargo runs tests from its build directory, which a shared `build-dir` puts outside the
+/// checkout; such a binary resolves as if it ran from its workspace's `target/debug`.
+fn cargo_artifact_path(executable: PathBuf, manifest_dir: Option<&Path>) -> PathBuf {
+    if development_root(&executable).is_some() {
+        return executable;
+    }
+    let workspace = manifest_dir.and_then(|manifest| {
+        manifest
+            .ancestors()
+            .find(|directory| directory.join("Cargo.lock").is_file())
+    });
+    match (workspace, executable.file_name()) {
+        (Some(root), Some(name)) => root.join("target/debug/deps").join(name),
+        _ => executable,
+    }
+}
+
 fn development_root(executable: &Path) -> Option<(PathBuf, PathBuf)> {
     for ancestor in executable.ancestors() {
         if ancestor.file_name().is_some_and(|name| name == "target") {
@@ -528,8 +550,26 @@ const fn current_platform() -> Platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform};
-    use std::path::PathBuf;
+    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path};
+    use std::path::{Path, PathBuf};
+
+    /// A test binary in a shared build dir outside the checkout still resolves the checkout.
+    #[test]
+    fn shared_build_dir_tests_resolve_their_workspace() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest.ancestors().nth(2).unwrap();
+        let shared = PathBuf::from("/cache/build/cinnabar/debug/deps/launcher-0123");
+        assert_eq!(
+            cargo_artifact_path(shared.clone(), Some(manifest)),
+            root.join("target/debug/deps/launcher-0123")
+        );
+        assert_eq!(cargo_artifact_path(shared.clone(), None), shared);
+        let checkout = PathBuf::from("/work/cinnabar/target/debug/bedrock-client");
+        assert_eq!(
+            cargo_artifact_path(checkout.clone(), Some(manifest)),
+            checkout
+        );
+    }
 
     fn environment(executable: &str, home: &str) -> InstallEnvironment {
         InstallEnvironment {

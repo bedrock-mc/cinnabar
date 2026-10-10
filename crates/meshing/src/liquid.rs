@@ -826,11 +826,9 @@ fn corner_heights<S: LiquidSampler + ?Sized>(
                 }
             }
         }
-        if weight == 0 {
-            0
-        } else {
-            ((total + weight / 2) / weight) as u8
-        }
+        (total + weight / 2)
+            .checked_div(weight)
+            .map_or(0, |level| level as u8)
     })
 }
 

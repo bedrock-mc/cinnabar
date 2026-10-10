@@ -15,3 +15,6 @@ syn = { version = "2", features = ["full", "visit"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

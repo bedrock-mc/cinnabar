@@ -244,6 +244,7 @@ pub struct CollisionBox {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CollisionSeed {
+    /// Carrier-local shape key; compare boxes when deciding whether geometry matches.
     pub shape_id: u16,
     pub confidence: CollisionConfidence,
     pub boxes: Box<[CollisionBox]>,

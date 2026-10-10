@@ -25,8 +25,11 @@ fn ledge_miss_support_keeps_downward_click_and_chooses_horizontal_faces() {
             .unwrap()
             .unwrap();
         assert_eq!((hit.block_pos, hit.face, hit.runtime_id), ([0; 3], face, 7));
-        assert_eq!(hit.hit_local, Vec3::new(0.5, 1.0, 0.5));
-        assert!((hit.distance - 1.62).abs() < 1.0e-9);
+        // Ray intercepts use f32 vector arithmetic before widening to f64.
+        let precision = f64::from(f32::EPSILON) * 2.0;
+        assert_eq!((hit.hit_local.x, hit.hit_local.z), (0.5, 0.5));
+        assert!((hit.hit_local.y - 1.0).abs() <= precision);
+        assert!((hit.distance - 1.62).abs() <= precision);
         assert!(
             hit.identity
                 .chunks

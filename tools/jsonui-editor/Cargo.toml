@@ -21,3 +21,6 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.126"
+
+[lints]
+workspace = true

@@ -40,7 +40,6 @@ pub(in crate::compiler) fn is_mineral_cube_record(record: &RegistryRecord) -> bo
         && record.flags.is_empty()
         && record.model_state.mask() == 0
         && record.face_coverage == 0
-        && record.collision_seed.shape_id == 1
         && record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
         && record.collision_seed.boxes.as_ref()
             == [assets::CollisionBox {

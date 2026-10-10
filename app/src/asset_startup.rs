@@ -769,7 +769,7 @@ impl LoadTimes {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        times.sort_by(|a, b| b.1.cmp(&a.1));
+        times.sort_by_key(|time| std::cmp::Reverse(time.1));
         let each = times
             .iter()
             .map(|(carrier, time)| format!("{carrier} {:.1}", time.as_secs_f64() * 1e3))

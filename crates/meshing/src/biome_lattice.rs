@@ -173,7 +173,7 @@ impl PackedBiomeRecord {
                             }
                         }
                     }
-                    counts[..count_len].sort_by(|a, b| b.1.cmp(&a.1));
+                    counts[..count_len].sort_by_key(|&(_, count)| std::cmp::Reverse(count));
                     let start = lattice_index(position) * LATTICE_POINT_WORDS;
                     cache[start] = count_len.min(LATTICE_BIOME_LIMIT) as u32;
                     for (i, &(tint, count)) in counts[..count_len]

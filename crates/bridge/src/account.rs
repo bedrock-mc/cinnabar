@@ -367,7 +367,7 @@ pub enum ConnectTarget {
 }
 
 impl ConnectTarget {
-    fn params(&self) -> ConnectParams<'_> {
+    pub(crate) fn params(&self) -> ConnectParams<'_> {
         let (kind, value) = match self {
             Self::RakNet(value) => ("raknet", value),
             Self::Realm(value) => ("realm", value),
@@ -379,7 +379,7 @@ impl ConnectTarget {
 }
 
 #[derive(Serialize)]
-struct ConnectParams<'a> {
+pub(crate) struct ConnectParams<'a> {
     kind: &'static str,
     value: &'a str,
 }

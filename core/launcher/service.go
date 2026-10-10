@@ -202,33 +202,60 @@ func (s *Service) Ping(ctx context.Context, addresses []string) []catalog.PingRe
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.
-// A gathering is joined now, so its server assignment is fresh.
 func (s *Service) Connect(ctx context.Context, kind, value string) error {
-	target, err := upstreamTarget(kind, value)
+	target, err := s.Target(ctx, kind, value)
 	if err != nil {
 		return err
-	}
-	if kind != control.TargetRakNet {
-		account, err := s.source()
-		if err != nil {
-			return err
-		}
-		if kind == control.TargetGathering {
-			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
-				return err
-			}
-		}
 	}
 	if s.cfg.Selector != nil {
 		s.cfg.Selector.Set(target)
 	}
+	s.clearTransfer()
+	return nil
+}
+
+// SessionTarget returns the proxy target for one session's explicit Connect and, like Connect, drops
+// any pending transfer; it leaves the shared selection alone. A cancelled resolution changes nothing.
+func (s *Service) SessionTarget(ctx context.Context, kind, value string) (string, error) {
+	target, err := s.Target(ctx, kind, value)
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		return "", err
+	}
+	s.clearTransfer()
+	return target, nil
+}
+
+func (s *Service) clearTransfer() {
 	if s.cfg.Transfers != nil {
 		s.cfg.Transfers.Clear()
 	}
 	if s.cfg.Store != nil {
 		s.cfg.Store.ClearTransfer()
 	}
-	return nil
+}
+
+// Target returns the proxy target for a connect.v1 target without selecting it. A gathering is
+// joined now, so its server assignment is fresh.
+func (s *Service) Target(ctx context.Context, kind, value string) (string, error) {
+	target, err := upstreamTarget(kind, value)
+	if err != nil {
+		return "", err
+	}
+	if kind != control.TargetRakNet {
+		account, err := s.source()
+		if err != nil {
+			return "", err
+		}
+		if kind == control.TargetGathering {
+			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
+				return "", err
+			}
+		}
+	}
+	return target, nil
 }
 
 // upstreamTarget maps a connect.v1 target to the proxy's target syntax.

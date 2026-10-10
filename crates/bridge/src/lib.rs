@@ -5,6 +5,7 @@ mod endpoint;
 mod error;
 mod framed;
 mod packet_delay;
+mod session;
 mod status;
 mod store;
 mod worlds;
@@ -27,6 +28,11 @@ pub(crate) use framed::FramedStream;
 pub use framed::{FrameQueue, FramedReader};
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
+};
+pub use session::{
+    ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
+    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, connect_session,
+    decode_core_message, encode_batch, encode_connect,
 };
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,

@@ -24,14 +24,13 @@ pub(crate) fn sign_states(
             return None;
         }
         prefix
-    } else if let Some(prefix) = identifier.strip_suffix("wall_sign") {
+    } else {
+        let prefix = identifier.strip_suffix("wall_sign")?;
         if !only_keys(&states, &["facing_direction"]) {
             return None;
         }
         integer_in(&states, "facing_direction", &[2, 3, 4, 5])?;
         prefix
-    } else {
-        return None;
     };
     let (suffix, key, direction) = if input.face == 1 {
         if !input.yaw.is_finite() {

@@ -90,7 +90,7 @@ pub struct ChunkAnimationClock {
     pub(in crate::chunk) _padding_1: u32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<ChunkAnimationClock>() == 16);
+const _: () = assert!(std::mem::size_of::<ChunkAnimationClock>() == 16);
 
 impl Default for ChunkAnimationClock {
     fn default() -> Self {
