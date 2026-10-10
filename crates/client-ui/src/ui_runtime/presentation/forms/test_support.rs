@@ -100,6 +100,9 @@ pub fn snapshot_menu_with_catalog(
         eprintln!("skipping: UI carrier absent");
         return;
     };
+    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images() {
+        presentation.enable_oreui_originals(images).unwrap();
+    }
     if let Some(catalog) = catalog {
         presentation
             .form_presentation
@@ -118,10 +121,11 @@ pub fn snapshot_menu_with_catalog(
     {
         runtime.set_lang_catalog(Arc::new(lang));
     }
-    presentation.sync_menu_artwork(crate::ui_runtime::presentation::menu_artwork::view_paths(
-        view,
-    ));
-    presentation.finish_menu_artwork();
+    let artwork = crate::ui_runtime::presentation::menu_artwork::view_paths(view);
+    if !artwork.is_empty() {
+        presentation.sync_menu_artwork(artwork);
+        presentation.finish_menu_artwork();
+    }
     let dpi = DpiScale::new(2.0).unwrap();
     // Warm frames run up to `now_millis` so screen entry animations have played.
     for frame in 0..warm {
