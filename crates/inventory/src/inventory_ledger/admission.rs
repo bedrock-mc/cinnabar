@@ -122,10 +122,7 @@ impl PlayerInventoryLedger {
                         && close.window_type == storage.window_type
                 }) {
                     self.acknowledge_storage_close(close.server_initiated);
-                    // The native client confirms a server's close with a close of
-                    // its own. Geyser opens the next window only on that
-                    // confirmation: without it a menu that closes one chest to
-                    // open another closed and never reopened.
+                    // Confirm the server's close so Geyser can open the next menu window.
                     if close.server_initiated
                         && let Some(window_id) = close.container.window_id
                     {
@@ -338,9 +335,7 @@ impl PlayerInventoryLedger {
             self.apply_bundle_slot(dynamic_id, identity.slot, stack);
             return;
         }
-        // A slot update for slot 0 of the personal UI inventory is the cursor,
-        // whatever name rides along: Geyser sets and clears the cursor this way,
-        // under the default name.
+        // Geyser updates the cursor through personal UI slot 0 under the default name.
         let cell = if identity.slot == 0 && protocol::is_personal_ui_inventory(&identity.container)
         {
             Some(CanonicalCell::Cursor)

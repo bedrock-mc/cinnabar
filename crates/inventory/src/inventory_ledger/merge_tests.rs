@@ -643,3 +643,58 @@ fn session_replacement_drops_registry_rules() {
         Err(InventoryGestureError::InvalidRequest)
     );
 }
+
+/// Registry invalidation still needs authoritative content after a rejection.
+#[test]
+fn late_rejection_preserves_registry_identity_recovery() {
+    let mut ledger = player_ledger(Some(apple_registry()), stack(6, 60, 60), stack(6, 33, 33));
+    let request = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply_registry(&registry(vec![entry(
+        6,
+        "minecraft:stick",
+        Some(64),
+        true,
+        false,
+    )]));
+    assert!(ledger.resync_required());
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    assert!(
+        ledger.resync_required(),
+        "rejection did not restate item identity"
+    );
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::ResyncRequired)
+    );
+}
+
+/// Discarding a confirmed cursor needs recovery even when the request was rejected.
+#[test]
+fn late_rejection_preserves_discarded_personal_cursor_recovery() {
+    for target_count in [0, 60] {
+        let target = if target_count == 0 {
+            NetworkItemStack::default()
+        } else {
+            stack(6, 60, target_count)
+        };
+        let mut ledger = player_ledger(Some(apple_registry()), target, stack(6, 33, 33));
+        let request = ledger.begin_click(0).unwrap();
+        assert!(ledger.mark_transport_enqueued(10));
+        ledger.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+            server_initiated: true,
+        }));
+        assert_eq!(ledger.cursor_stack(), None);
+        ledger.apply(&response(request, StackResponseStatus::Rejected));
+        assert!(
+            ledger.resync_required(),
+            "the confirmed cursor was discarded"
+        );
+        assert_eq!(
+            ledger.begin_world_drop(0, Some(1)),
+            Err(InventoryGestureError::ResyncRequired)
+        );
+    }
+}

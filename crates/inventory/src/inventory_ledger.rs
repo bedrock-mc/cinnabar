@@ -701,6 +701,8 @@ impl PlayerInventoryLedger {
     /// Clears a held cursor that no window vouches for any more.
     fn drop_confirmed_cursor(&mut self) {
         if self.confirmed.take(Cell::Cursor).is_some() {
+            self.disown_abandoned_recovery(CellSurface::Player);
+            self.disown_abandoned_recovery(CellSurface::Cursor);
             self.player_resync_required = true;
             self.cursor_resync_required = true;
         }
@@ -811,6 +813,8 @@ impl PlayerInventoryLedger {
     fn clear_storage_inputs(&mut self) {
         self.clear_crafting();
         if self.confirmed.get(Cell::Cursor).is_some() {
+            self.disown_abandoned_recovery(CellSurface::Player);
+            self.disown_abandoned_recovery(CellSurface::Cursor);
             self.player_resync_required = true;
             self.cursor_resync_required = true;
         }
@@ -857,6 +861,7 @@ impl PlayerInventoryLedger {
             .occupied()
             .any(|(cell, _)| matches!(cell, Cell::Craft(_)))
         {
+            self.disown_abandoned_recovery(CellSurface::Crafting);
             self.crafting_resync_required = true;
             return;
         }
@@ -904,7 +909,14 @@ impl PlayerInventoryLedger {
             .retain(|close| close.window_id != window_id || close.window_type != window_type);
     }
 
+    /// Requires a refresh independently of any abandoned request's eventual answer.
     fn mark_cell_recovery(&mut self, cell: Cell) {
+        self.disown_abandoned_recovery(cell.surface());
+        self.require_cell_recovery(cell);
+    }
+
+    /// Marks a cell unverified and clears its response overlay.
+    fn require_cell_recovery(&mut self, cell: Cell) {
         if let Some(held) = self.confirmed.get_mut(cell) {
             held.overlay = None;
         }

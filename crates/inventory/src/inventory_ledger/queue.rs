@@ -90,7 +90,7 @@ const MAX_ABANDONED_REQUESTS: usize = 16;
 #[derive(Debug, Clone)]
 pub(super) struct AbandonedRequest {
     request_id: i32,
-    /// Every surface the request touched.
+    /// Touched surfaces not yet authoritatively refreshed.
     touched: Vec<CellSurface>,
     /// The touched surfaces whose recovery this request answers for.
     recovering: Vec<CellSurface>,
@@ -398,7 +398,9 @@ impl PlayerInventoryLedger {
             .copied()
             .filter(|surface| !self.surface_recovering(*surface))
             .collect();
-        self.recover_request(request);
+        for cell in request.touched() {
+            self.require_cell_recovery(cell);
+        }
         recovering.retain(|surface| self.surface_recovering(*surface));
         if self.abandoned.len() >= MAX_ABANDONED_REQUESTS {
             self.abandoned.pop_front();
@@ -410,12 +412,8 @@ impl PlayerInventoryLedger {
         });
     }
 
-    /// A late rejection of an abandoned request settles its ambiguity: the
-    /// server applied none of it, so the state confirmed before it stands and
-    /// the recovery it caused is lifted. A server that closes a window from
-    /// inside the request it then rejects (a menu button) restates nothing,
-    /// and every later gesture stayed refused. A surface another abandoned
-    /// request also touched stays in recovery, now on that request's account.
+    /// Releases only the ambiguity owned by the rejected request, preserving
+    /// independent recovery and unanswered requests on the same surface.
     pub(super) fn settle_abandoned_rejection(&mut self, request_id: i32) {
         let Some(index) = self
             .abandoned
@@ -445,6 +443,13 @@ impl PlayerInventoryLedger {
                 // The window the request addressed is gone or replaced.
                 CellSurface::Storage => {}
             }
+        }
+    }
+
+    /// Independent invalidation cannot be settled by an abandoned request's rejection.
+    pub(super) fn disown_abandoned_recovery(&mut self, surface: CellSurface) {
+        for abandoned in &mut self.abandoned {
+            abandoned.recovering.retain(|owned| *owned != surface);
         }
     }
 
@@ -516,6 +521,11 @@ impl PlayerInventoryLedger {
     /// Records a complete refresh of `surface`, retiring timed-out requests
     /// once every surface they touched has been refreshed.
     pub(super) fn surface_refreshed(&mut self, surface: CellSurface) {
+        self.abandoned.retain_mut(|abandoned| {
+            abandoned.touched.retain(|touched| *touched != surface);
+            abandoned.recovering.retain(|owned| *owned != surface);
+            !abandoned.touched.is_empty()
+        });
         let mut retired = false;
         self.queue.retain_mut(|request| {
             request

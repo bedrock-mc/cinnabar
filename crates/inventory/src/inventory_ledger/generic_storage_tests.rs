@@ -608,9 +608,7 @@ fn authoritative_close_settles_a_closing_window_immediately() {
     assert!(!ledger.resync_required());
 }
 
-/// A server may close the window from inside the request it then rejects (a
-/// menu button). The rejection carries no restatement, and none is needed:
-/// nothing was applied.
+/// A menu may close its window before rejecting the click without restating any cells.
 #[test]
 fn late_rejection_of_a_request_abandoned_by_a_server_close_lifts_its_recovery() {
     let (mut ledger, request) = closing_with_pending(960);
@@ -765,4 +763,37 @@ fn settling_chest_request_never_touches_the_next_chest() {
         (3, 91)
     );
     assert_eq!(ledger.pending_state(), None);
+}
+
+/// A cursor refresh retires the earlier abandonment before another window closes.
+#[test]
+fn late_rejection_ignores_refreshed_abandonment() {
+    for reject_earlier_first in [false, true] {
+        let (mut ledger, a) = closing_with_pending(960);
+        let close = InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(1),
+            window_type: 0,
+            server_initiated: true,
+        });
+        ledger.apply(&close);
+        ledger.apply(&cursor_content());
+        assert!(!ledger.resync_required());
+        ledger.apply(&open(1, 0));
+        ledger.apply(&content(1, 961, 27));
+        let b = ledger.begin_storage_click(2).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        ledger.apply(&close);
+        if reject_earlier_first {
+            ledger.apply(&response(a, StackResponseStatus::Rejected));
+            assert!(ledger.resync_required(), "B still needs an answer");
+        }
+        ledger.apply(&response(b, StackResponseStatus::Rejected));
+        assert!(
+            !ledger.resync_required(),
+            "A was already refreshed before B"
+        );
+        ledger.apply(&open(1, 0));
+        ledger.apply(&content(1, 962, 27));
+        assert!(ledger.begin_storage_click(2).is_ok());
+    }
 }
