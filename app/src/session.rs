@@ -326,6 +326,7 @@ pub(crate) struct SessionResources<'w> {
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
+    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
 }
 
 impl SessionResources<'_> {
@@ -495,12 +496,14 @@ fn poll_join(
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
             }
+            let login_settings = login_settings(menu, session.input.as_deref());
             if let Err(error) = start_network(
                 commands,
                 menu,
                 controller.generation,
                 cache,
                 socket_dir,
+                login_settings,
                 session.actor_artwork.as_deref(),
                 session.ui_catalog.as_deref(),
             ) {
@@ -520,6 +523,22 @@ fn poll_join(
     }
 }
 
+/// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
+pub(crate) fn login_settings(
+    menu: &MenuRuntime,
+    input: Option<&crate::semantic_controls::SemanticInputSnapshot>,
+) -> protocol::LoginSettings {
+    protocol::LoginSettings {
+        language_code: client_session::pack_language::active_language_code(),
+        input_mode: input
+            .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
+            .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
+                crate::mining::protocol_input_mode(snapshot.input_mode)
+            }),
+        gui_scale_offset: menu.gui_scale_offset(),
+    }
+}
+
 /// Starts the network session against the core serving `socket_dir`.
 fn start_network(
     commands: &mut Commands,
@@ -527,6 +546,7 @@ fn start_network(
     session_generation: u64,
     cache: &BlobCache,
     socket_dir: PathBuf,
+    login_settings: protocol::LoginSettings,
     actor_artwork: Option<&render::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
@@ -536,6 +556,7 @@ fn start_network(
         display_name: menu.display_name().to_owned(),
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
+        login_settings,
         actor_artwork: actor_artwork.cloned(),
         ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
@@ -736,6 +757,28 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A hidden-menu direct launch must still report the player's saved GUI scale.
+    #[test]
+    fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
+        let layout = crate::install_layout::scratch("login-settings");
+        std::fs::create_dir_all(&layout.user_config_root).unwrap();
+        std::fs::write(
+            layout.user_config_root.join("video-settings.json"),
+            r#"{"gui_scale_offset":-1}"#,
+        )
+        .unwrap();
+        let menu = MenuRuntime::new_with_layout(
+            false,
+            None,
+            "Direct".to_owned(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+        );
+        let settings = login_settings(&menu, None);
+        assert_eq!(settings.gui_scale_offset, -1);
+        assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
 
     #[test]
     fn joinable_destinations_and_ids_stay_off_the_card() {

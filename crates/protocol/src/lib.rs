@@ -32,7 +32,7 @@ pub use skin_change::{
     DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION, cape_content_id, player_skin_packet,
     set_skin_packet_engine_version, set_skin_packet_uuid,
 };
-mod socket_transport;
+mod session_transport;
 pub mod store_control;
 mod transfer;
 mod translation_parameter;
@@ -175,10 +175,7 @@ pub use item::{
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
 pub use jolyne::stream::client::{ClientCape, ClientSkin, ClientSkinGeometry};
-pub use jolyne::stream::{
-    ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
-    ResourcePackStore,
-};
+pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
@@ -189,7 +186,8 @@ pub mod wire {
     pub use valentine;
 }
 pub use login::{
-    LoginSequence, PacketIdTraceSnapshot, PlayOutbound, PlaySession, network_stack_latency_reply,
+    LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
+    network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -217,8 +215,10 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+pub use session_transport::{
+    SessionTransport, bridge_endpoint_path, core_endpoint_paths, report_pack_application,
+};
 pub use settings::request_chunk_radius_packet;
-pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;
 pub use ui::{

@@ -16,7 +16,8 @@ use crate::error::{JolyneError, ProtocolError};
 use crate::valentine::BorrowedMcpePacket;
 use crate::valentine::mcpe::{GameHeader, McpePacket, McpePacketData, McpePacketName};
 
-pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
+/// Most packets one raw batch may hold.
+pub const MAX_RAW_BATCH_PACKETS: usize = 1_600;
 
 /// A packet with only the header parsed, body kept as raw bytes.
 ///

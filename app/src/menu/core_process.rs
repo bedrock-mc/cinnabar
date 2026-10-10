@@ -180,6 +180,8 @@ pub(super) fn core_command_for_address(
         .arg(address)
         .arg("-resource-pack-cache-dir")
         .arg(layout.resource_pack_cache_dir())
+        .arg("-device-file")
+        .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
