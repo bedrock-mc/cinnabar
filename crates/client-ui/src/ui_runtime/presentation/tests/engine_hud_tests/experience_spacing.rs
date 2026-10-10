@@ -1,4 +1,4 @@
-//! The level's painted glyphs stay above the experience bar at every GUI scale.
+//! The level's painted glyphs stay above the bar across GUI and DPI scales.
 
 use super::*;
 
