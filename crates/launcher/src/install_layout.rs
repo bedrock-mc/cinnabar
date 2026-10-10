@@ -252,6 +252,12 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// The install's one login device profile, whichever account's token the core holds.
+    #[must_use]
+    pub fn device_profile_file(&self) -> PathBuf {
+        self.auth_cache().with_file_name("device.json")
+    }
+
     /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
     #[must_use]
     pub fn launcher_artwork_dir(&self) -> PathBuf {

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -35,6 +36,7 @@ type sessionServer struct {
 	onDisconnect func(DisconnectInfo)
 	selectTarget func(ctx context.Context, kind, value string) (string, error) // nil rejects targeted Connects
 	dialTarget   func(ctx context.Context, address string) (*resolvedUpstreamTarget, error)
+	device       *device.Profile // nil keeps the client's claimed device
 	delay        *PacketDelay
 	logger       *slog.Logger
 
@@ -136,7 +138,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 	request, err := decodeSessionConnect(frame)
 	var downstream *sessionDownstream
 	if err == nil {
-		downstream, err = newSessionDownstream(request)
+		downstream, err = newSessionDownstream(request, server.device)
 	}
 	if err != nil {
 		return errors.Join(err, refuseSessionConnect(raw, framed, err))
@@ -223,7 +225,7 @@ func (server *sessionServer) prepare(
 	}
 	// The caller reports a disconnect read above, so the disconnect observer wraps only the relay.
 	prepared.upstream = observeDisconnects(prepared.upstream, server.onDisconnect)
-	selected, packs, err := selectSessionPacks(prepared.packStack)
+	selected, packs, err := selectSessionPacks(prepared.packStack, server.logger)
 	prepared.packAdmission.observePolicyOutcome(prepared.packStack, err == nil)
 	if err != nil {
 		return plan, prepared, err
@@ -326,7 +328,7 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 }
 
 // selectSessionPacks lists the archives to apply from the projected offer and the server's stack.
-func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*resource.Pack, error) {
+func selectSessionPacks(stack *selectedResourcePackStack, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	if stack == nil {
 		return nil, nil, errResourcePackStackUnavailable
 	}
@@ -338,7 +340,7 @@ func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*res
 	for _, entry := range stack.snapshot.Entries() {
 		entries = append(entries, sessionStackEntry{uuid: entry.UUID(), version: entry.Version(), subPack: entry.SubPackName()})
 	}
-	return chooseSessionPacks(offers, entries, stack.required)
+	return chooseSessionPacks(offers, entries, stack.required, logger)
 }
 
 // sessionOffer is one offered pack with its acquired content.
@@ -352,19 +354,24 @@ type sessionStackEntry struct {
 	uuid, version, subPack string
 }
 
-// chooseSessionPacks selects archives in stack order, as the client's own selection did: an offer
-// repeating an identity is ambiguous and refuses the join; built-in packs need no archive; and an
-// unavailable pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or
-// refuses the join when the packs are required.
-func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool) ([]sessionPack, []*resource.Pack, error) {
+// chooseSessionPacks selects archives in stack order: an offer repeating an identity keeps its first
+// entry, as vanilla requests each identity once; built-in packs need no archive; and an unavailable
+// pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or refuses the
+// join when the packs are required. A nil logger drops the skip count.
+func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	refuse := &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offers)}
 	byIdentity := make(map[string]sessionOffer, len(offers))
+	repeated := 0
 	for _, offer := range offers {
 		id := resourcePackIdentity(offer.info.UUID.String(), offer.info.Version)
-		if _, repeated := byIdentity[id]; repeated {
-			return nil, nil, refuse
+		if _, ok := byIdentity[id]; ok {
+			repeated++
+			continue
 		}
 		byIdentity[id] = offer
+	}
+	if repeated != 0 && logger != nil {
+		logger.Warn("ignoring repeated resource-pack offer entries", "count", repeated)
 	}
 	var selected []sessionPack
 	var packs []*resource.Pack
@@ -446,11 +453,15 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	return err
 }
 
-// newSessionDownstream accepts only the pinned protocol and valid login client data.
-func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, error) {
+// newSessionDownstream accepts only the pinned protocol and valid login client data; a device
+// replaces the client's claimed device, so the claim matches the core's sign-in.
+func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	if claimed != nil {
+		claimed.Apply(&clientData)
 	}
 	pinned := minecraft.DefaultProtocol
 	if request.Protocol != pinned.ID() || clientData.GameVersion != pinned.Ver() {

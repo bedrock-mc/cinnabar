@@ -22,6 +22,8 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
@@ -68,9 +70,12 @@ func TestProxyHelperProcess(t *testing.T) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		cancel()
 	}()
+	// The client claims no device; production cores claim the install's.
+	claimed := device.New(protocol.DeviceAndroid)
 	if err := Serve(ctx, Config{
 		SocketDir: os.Getenv("RUST_MCBE_PROXY_SOCKET_DIR"),
 		Upstream:  os.Getenv("RUST_MCBE_PROXY_UPSTREAM"),
+		Device:    &claimed,
 	}); err != nil {
 		t.Fatal(err)
 	}

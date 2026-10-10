@@ -386,6 +386,16 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        // Packs may replace the native cursor renderer with ordinary image controls.
+        // Gate the whole overlay so these controls obey the same camera and HUD settings.
+        if crosshair && paint.crosshair.is_none() {
+            return Ok(true);
+        }
+        if !crosshair {
+            // Legacy HUDs embed this renderer; the separate overlay already draws it.
+            // Inverting the same pixels twice restores the world behind the cursor.
+            paint.crosshair = None;
+        }
         if self.mod_effect_icons_hidden() {
             paint.effects.clear();
         }

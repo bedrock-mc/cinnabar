@@ -113,10 +113,8 @@ pub enum CommittedControlEvent {
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
-        /// Effective `minecraft:movement` current.
-        current: Option<f64>,
-        /// Total/current factor for the vanilla sprint modifier.
-        sprint_modifier: Option<f32>,
+        /// Effective `minecraft:movement` current and its sprint recalculation facts.
+        movement: Option<MovementSpeedAttribute>,
         underwater: Option<f64>,
         lava: Option<f64>,
         /// Finite `minecraft:air_drag_modifier` current.

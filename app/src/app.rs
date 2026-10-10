@@ -662,6 +662,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
     let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let screenshots_dir = layout.screenshots_dir();
+    let menu = MenuRuntime::new_with_layout(
+        !connection_requested,
+        args.gui_scale,
+        args.display_name.clone(),
+        layout,
+        local_player_skin.clone(),
+    )
+    .with_language_assets(
+        loaded_assets.selected_path.clone(),
+        args.language.as_deref(),
+    );
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
             session_generation: 1,
@@ -669,6 +681,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
+            login_settings: crate::session::login_settings(&menu, None),
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
         })
@@ -747,7 +760,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
-        screenshots_dir: layout.screenshots_dir(),
+        screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
@@ -806,21 +819,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         PhysicsAuthorityGate::ProductionEnabled
     })
-    .insert_resource(local_player_skin.clone())
-    .insert_resource(
-        MenuRuntime::new_with_layout(
-            !connection_requested,
-            args.gui_scale,
-            args.display_name.clone(),
-            layout,
-            local_player_skin,
-        )
-        .with_language_assets(
-            loaded_assets.selected_path.clone(),
-            args.language.as_deref(),
-        )
-        .with_vsync_override(vsync_override),
-    )
+    .insert_resource(local_player_skin)
+    .insert_resource(menu.with_vsync_override(vsync_override))
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
     .insert_resource(named_audio)

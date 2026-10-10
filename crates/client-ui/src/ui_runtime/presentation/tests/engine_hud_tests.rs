@@ -16,6 +16,7 @@ mod boss_removal_tests;
 mod crosshair_options;
 mod experience_spacing;
 mod geometry;
+mod pack_snapshots;
 
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
