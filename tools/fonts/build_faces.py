@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Derive Cinnangles Ten and Seven from Cinnangles Sans on its pixel grid.
+"""Derive Cinnangles Ten, Seven, Five and Five Bold from Cinnangles Sans on its pixel grid.
 
 Sans is rectilinear on a 64-unit texel grid, and its Latin set uses 2-texel design pixels.
 Caps faces embolden Sans bitmaps and draw lowercase with capitals. Seven only changes
 the em and line metrics. The 1280 em makes cap height 0.7 em. Reference faces supply only vertical metrics and target stroke weight.
 Needs Python 3.14 (Unicode 16.0.0), numpy, scipy and fontTools. Regenerate the shipped faces with:
 python3 tools/fonts/build_faces.py --sans assets/fonts/CinnanglesSans.ttf \
-    --out assets/fonts --manifests assets ten seven
+    --out assets/fonts --manifests assets --reviewed assets/fonts ten seven five five-bold
 The source manifests pin the Sans SHA-256.
 """
 import argparse
@@ -39,7 +39,16 @@ FACES = {
         condense=True,
         hhea=(990, -250), typo=(750, -250), win=(990, 250), reference="Minecraft Ten v2",
     ),
-
+    "five": dict(
+        family="Cinnangles Five", style="Regular", file="CinnanglesFive.ttf", ps="CinnanglesFive-Regular",
+        weight=400, bold=False, latin_bold=False, latin_v=False, texel_h=False, texel_v=False, space=None,
+        hhea=(1120, -280), typo=(750, -250), win=(1120, 280), reference="Minecraft Five v2",
+    ),
+    "five-bold": dict(
+        family="Cinnangles Five", style="Bold", file="CinnanglesFive-Bold.ttf", ps="CinnanglesFive-Bold",
+        weight=700, bold=True, latin_bold=True, latin_v=False, texel_h=True, texel_v=False, space=None,
+        hhea=(1138, -306), typo=(750, -250), win=(1138, 306), reference="Minecraft Five v2 Bold",
+    ),
 }
 
 # Sans outlines unchanged; only the em and line metrics move to Minecraft Seven v2's.
@@ -664,17 +673,35 @@ def write_manifest(face, font_path, sans_path, out_path):
     Path(out_path).write_text(json.dumps(doc, indent=2) + "\n")
 
 
+def preserve_reviewed_metadata(font_path, reviewed):
+    """Keep reviewed names and timestamps without changing any generated glyph or metric table."""
+    generated = TTFont(font_path, recalcTimestamp=False)
+    generated["name"] = reviewed["name"]
+    for field in ("created", "modified"):
+        setattr(generated["head"], field, getattr(reviewed["head"], field))
+    generated.save(font_path)
+    checked = TTFont(font_path, recalcTimestamp=False)
+    tags = (set(checked.keys()) | set(reviewed.keys())) - {"GlyphOrder"}
+    differences = [tag for tag in sorted(tags) if tag not in checked or tag not in reviewed
+                   or checked.getTableData(tag) != reviewed.getTableData(tag)]
+    if differences:
+        raise ValueError(f"regenerated tables differ from reviewed face: {differences}")
+
+
 def main():
     """Generate the requested faces and optional source manifests."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sans", required=True)
     ap.add_argument("--out", required=True, help="directory for the .ttf files")
     ap.add_argument("--manifests", help="directory for source manifests")
+    ap.add_argument("--reviewed", help="preserve and verify metadata from existing reviewed faces")
     ap.add_argument("faces", nargs="*", default=[*FACES, "seven"])
     args = ap.parse_args()
     if unicodedata.unidata_version != "16.0.0":
         ap.error("regeneration requires Unicode 16.0.0 (Python 3.14) for the pinned caps mappings")
     for face in args.faces:
+        cfg = SEVEN if face == "seven" else FACES[face]
+        reviewed = TTFont(Path(args.reviewed) / cfg["file"], recalcTimestamp=False) if args.reviewed else None
         if face == "seven":
             path = build_seven(args.sans, args.out)
             print(f"seven: {path} bytes={path.stat().st_size}")
@@ -682,6 +709,9 @@ def main():
             path, cps, glyphs, composed = build(face, args.sans, args.out)
             print(f"{face}: {path} codepoints={cps} glyphs={glyphs} composed={composed} "
                   f"bytes={path.stat().st_size}")
+        if reviewed is not None:
+            preserve_reviewed_metadata(path, reviewed)
+            print(f"{face}: every table matches the reviewed face")
         if args.manifests:
             stem = (SEVEN if face == "seven" else FACES[face])["file"].removesuffix(".ttf").removeprefix("Cinnangles").lower()
             write_manifest(face, path, args.sans, Path(args.manifests) / f"cinnangles-{stem}-source.json")
