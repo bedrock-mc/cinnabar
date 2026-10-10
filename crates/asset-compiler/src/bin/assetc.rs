@@ -248,10 +248,6 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             pack_compiler::compile_hud_extras_to_file(&pack, &out)?;
             println!("compiled HUD extras to {}", out.display());
         }
-        Command::OreUiPanoramaAssets { pack, out } => {
-            pack_compiler::compile_oreui_panoramas_to_file(&pack, &out)?;
-            println!("compiled OreUI panoramas to {}", out.display());
-        }
         Command::StarterSkinAssets { pack, out } => {
             pack_compiler::compile_starter_skins_to_file(&pack, &out)?;
             println!("compiled starter skins to {}", out.display());

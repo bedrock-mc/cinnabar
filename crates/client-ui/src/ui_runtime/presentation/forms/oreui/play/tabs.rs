@@ -5,7 +5,9 @@ use super::super::{
     theme::{BODY, BORDER, EDGE, NEUTRAL, NEUTRAL80, OUTLINE, TEXT},
 };
 use super::{MenuAction, MenuScreen, MenuView, UiPresentationError};
-use crate::ui_runtime::oreui_assets::{PLAY_TAB_ICONS, SETTINGS_ICON_HIGHLIGHT_IMAGE};
+use crate::ui_runtime::oreui_assets::{
+    PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE,
+};
 
 #[cfg(test)]
 mod tests;
@@ -43,32 +45,34 @@ pub(super) fn draw(
         let down = motion.depression();
         let face = [cell[0], cell[1] + canvas.r(0.4) * down, cell[2], cell[3]];
         let strip = canvas.r(0.4) * (1.0 - down);
-        canvas.fill(face, BORDER)?;
-        let border = canvas.r(0.4);
-        let inner = [
-            face[0] + border,
-            face[1] + border,
-            face[2] - border,
-            face[3] - border,
-        ];
-        canvas.fill(inner, NEUTRAL80.fill)?;
-        let front = [inner[0], inner[1], inner[2], inner[3] - strip];
-        canvas.fill(
-            front,
-            mix(mix(role.fill, role.hovered, motion.hover), panel.fill, down),
-        )?;
-        canvas.specular(front, role.specular[0], role.specular[1])?;
-        if motion.focus > 0.0 {
-            canvas.frame(
-                [
-                    face[0] - edge,
-                    face[1] - edge,
-                    face[2] + edge,
-                    face[3] + edge,
-                ],
-                EDGE,
-                opacity(OUTLINE, motion.focus),
+        if !artwork(canvas, face, motion, down)? {
+            canvas.fill(face, BORDER)?;
+            let border = canvas.r(0.4);
+            let inner = [
+                face[0] + border,
+                face[1] + border,
+                face[2] - border,
+                face[3] - border,
+            ];
+            canvas.fill(inner, NEUTRAL80.fill)?;
+            let front = [inner[0], inner[1], inner[2], inner[3] - strip];
+            canvas.fill(
+                front,
+                mix(mix(role.fill, role.hovered, motion.hover), panel.fill, down),
             )?;
+            canvas.specular(front, role.specular[0], role.specular[1])?;
+            if motion.focus > 0.0 {
+                canvas.frame(
+                    [
+                        face[0] - edge,
+                        face[1] - edge,
+                        face[2] + edge,
+                        face[3] + edge,
+                    ],
+                    EDGE,
+                    opacity(OUTLINE, motion.focus),
+                )?;
+            }
         }
         let side = icons::native_side(canvas);
         let has_icon = canvas
@@ -119,4 +123,73 @@ pub(super) fn draw(
         }
     }
     Ok(())
+}
+
+fn artwork(
+    canvas: &mut Canvas<'_>,
+    face: Bounds,
+    motion: Feedback,
+    down: f32,
+) -> Result<bool, UiPresentationError> {
+    if canvas.appearance == super::super::theme::Appearance::Dark {
+        return Ok(false);
+    }
+    if canvas.originals.is_none_or(|art| {
+        PLAY_TAB_IMAGES
+            .iter()
+            .any(|key| !art.sprites.contains_key(*key))
+    }) {
+        return Ok(false);
+    }
+    let widths = [0.4, 0.4, 0.8 - 0.4 * down, 0.4];
+    canvas.nine_slice(
+        PLAY_TAB_IMAGES[0],
+        face,
+        [2, 2, 4, 2],
+        widths,
+        true,
+        [255; 4],
+    )?;
+    canvas.nine_slice(
+        PLAY_TAB_IMAGES[1],
+        face,
+        [2, 2, 4, 2],
+        widths,
+        true,
+        opacity([255; 4], motion.hover * (1.0 - down)),
+    )?;
+    canvas.nine_slice(
+        PLAY_TAB_IMAGES[2],
+        face,
+        [2; 4],
+        [0.4; 4],
+        true,
+        opacity([255; 4], down),
+    )?;
+    if motion.focus > 0.0 {
+        let outset = canvas.r(EDGE) * motion.focus;
+        let focused = [
+            face[0] - outset,
+            face[1] - outset,
+            face[2] + outset,
+            face[3] + outset,
+        ];
+        canvas.nine_slice(
+            PLAY_TAB_IMAGES[3],
+            focused,
+            [3, 3, 5, 3],
+            [0.6, 0.6, 1.0 - 0.4 * down, 0.6],
+            true,
+            opacity([255; 4], motion.focus * (1.0 - down)),
+        )?;
+        canvas.nine_slice(
+            PLAY_TAB_IMAGES[4],
+            focused,
+            [3; 4],
+            [0.6; 4],
+            true,
+            opacity([255; 4], motion.focus * down),
+        )?;
+    }
+    Ok(true)
 }

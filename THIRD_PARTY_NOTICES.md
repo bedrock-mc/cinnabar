@@ -11,15 +11,6 @@ directory. This notice is checked in and is not rewritten by the acquisition scr
 - Files: `assets/panorama/` (`panorama_0.jpg` .. `panorama_5.jpg`)
 - Provenance: original, generated for Cinnabar; not Mojang content.
 
-## OreUI artwork
-
-- Files: `assets/oreui/`, authored by the reproducible generators in `tools/oreui-art/`.
-- Provenance: original Cinnabar pixel art; not Mojang content. It uses the repository's
-  PolyForm Noncommercial 1.0.0 license. Manifest game keys identify replacement targets only.
-- Optional profile banners and the world preview are prepared locally from the panorama
-  textures in the pinned Mojang `bedrock-samples` pack, like other runtime game assets.
-  These crops and their compiled carrier are not committed or distributed as Cinnabar art.
-
 ## Launcher title logo
 
 - Files: `assets/branding/` (`title.png`)

@@ -23,6 +23,7 @@ fn paint(view: &MenuView, gamerpic: Option<IconRef>) -> Vec<ui::UiNode> {
             sprites: sprites.clone(),
             loading_frames: Default::default(),
             animations: Default::default(),
+            source: None,
         },
         sprites,
         masks: HashMap::new(),

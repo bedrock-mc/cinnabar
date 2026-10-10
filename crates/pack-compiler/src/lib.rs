@@ -20,7 +20,6 @@ mod hud_extras;
 mod icon;
 mod image;
 mod lang;
-mod oreui_panorama;
 mod pack;
 mod particle;
 mod starter_skins;
@@ -79,7 +78,6 @@ pub use lang::{
     CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets,
     compile_language, vanilla_language_codes,
 };
-pub use oreui_panorama::{compile_oreui_panoramas, compile_oreui_panoramas_to_file};
 pub use pack::{
     BlockTextureMap, DEFAULT_BLEND_FRAMES, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS,
     PackSources, TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,

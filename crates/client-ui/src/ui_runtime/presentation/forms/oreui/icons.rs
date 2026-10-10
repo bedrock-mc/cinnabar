@@ -1,8 +1,10 @@
 //! OreUI icons as our own pixel art (one texel = 0.2rem), matched to the
-//! originals' sizes.
+//! originals' sizes; installed artwork supplies each icon's exact alpha shape.
+
+use crate::ui_runtime::oreui_assets::ACTION_ICONS;
 
 use super::super::super::UiPresentationError;
-use super::paint::Canvas;
+use super::paint::{Bounds, Canvas};
 use super::theme::{EDGE, Rgba};
 
 /// Native category sprites round their 24-texel squares down at odd GUI scales.
@@ -28,6 +30,19 @@ pub(super) enum Icon {
 }
 
 impl Icon {
+    /// The install's atlas key for the local-originals mode.
+    fn original(self) -> &'static str {
+        match self {
+            Self::ArrowBack => ACTION_ICONS[0],
+            Self::Cross => ACTION_ICONS[1],
+            Self::Search => ACTION_ICONS[2],
+            Self::Player => ACTION_ICONS[3],
+            Self::Pencil => ACTION_ICONS[4],
+            Self::Check => ACTION_ICONS[5],
+            Self::Filter => ACTION_ICONS[6],
+        }
+    }
+
     /// Our pixel art: one row per string, `#` for a lit texel.
     fn pixels(self) -> &'static [&'static str] {
         match self {
@@ -116,6 +131,16 @@ pub(super) fn draw(
 ) -> Result<(), UiPresentationError> {
     let color = canvas.appearance.ink(color);
     let texel = canvas.r(EDGE);
+    let [width, height] = icon.texels();
+    let bounds: Bounds = [
+        at[0],
+        at[1],
+        at[0] + width as f32 * texel,
+        at[1] + height as f32 * texel,
+    ];
+    if canvas.masked_sprite(icon.original(), bounds, color)? {
+        return Ok(());
+    }
     for (row, line) in icon.pixels().iter().enumerate() {
         // Runs of lit texels become one fill each.
         let bytes = line.as_bytes();

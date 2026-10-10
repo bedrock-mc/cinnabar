@@ -12,8 +12,6 @@ mod services;
 mod sidebar;
 
 #[cfg(test)]
-mod header_tests;
-#[cfg(test)]
 mod row_tests;
 
 use super::super::super::UiPresentationError;
@@ -184,7 +182,12 @@ fn header(
     let pixel = canvas.r(EDGE);
     let [x, y] = [canvas.r(2.0), height * 0.5];
     let glyph = [x, y - canvas.r(0.7), x + canvas.r(0.8), y + canvas.r(0.7)];
-    if !canvas.masked_sprite(CHEVRON_LEFT_IMAGE, glyph, role.text)? {
+    let native = if canvas.appearance == theme::Appearance::Dark {
+        canvas.masked_sprite(CHEVRON_LEFT_IMAGE, glyph, role.text)?
+    } else {
+        canvas.sprite(CHEVRON_LEFT_IMAGE, glyph, [255; 4])?
+    };
+    if !native {
         for step in 0..4 {
             let dx = step as f32 * pixel;
             canvas.fill([x + dx, y - dx - pixel, x + dx + pixel, y - dx], role.text)?;

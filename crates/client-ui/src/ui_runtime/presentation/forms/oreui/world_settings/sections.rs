@@ -2,7 +2,7 @@
 
 use super::super::theme::{BORDER, DISABLED, EDGE, NEUTRAL};
 use super::*;
-use crate::ui_runtime::oreui_assets::HARDCORE_ICON;
+use crate::ui_runtime::oreui_assets::{HARDCORE_ICON, SWITCH_OFF_IMAGE};
 
 pub(super) fn row(
     canvas: &mut Canvas<'_>,
@@ -56,14 +56,14 @@ pub(super) fn hardcore(canvas: &mut Canvas<'_>, area: Bounds) -> Result<f32, UiP
     ];
     canvas.fill(inner, DISABLED.fill)?;
     let side = canvas.r(1.6);
-    canvas.frame(
+    canvas.sprite(
+        SWITCH_OFF_IMAGE,
         [
             inner[2] - canvas.r(2.0),
             at[1] + canvas.r(0.8),
             inner[2] - canvas.r(0.4),
             at[1] + canvas.r(2.4),
         ],
-        EDGE,
         [255; 4],
     )?;
     let thumb = [at[0], at[1], at[0] + canvas.r(3.2), at[1] + canvas.r(3.2)];

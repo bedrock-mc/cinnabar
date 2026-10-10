@@ -129,6 +129,7 @@ fn overworld_loading_keeps_the_installed_grass_block_square_and_static() {
             ),
             loading_frames: Default::default(),
             animations: Default::default(),
+            source: None,
         })
         .unwrap();
     let page = presentation

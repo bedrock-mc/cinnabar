@@ -41,7 +41,6 @@ pub enum Recipe {
     Weather,
     HudExtras,
     StarterSkins,
-    OreUiPanoramas,
     AudioPcm,
 }
 
@@ -329,15 +328,6 @@ pub const STARTER_SKINS: Carrier = Carrier {
         false,
     )
 };
-/// Optional landscape crops prepared from the fetched pack for OreUI screens.
-pub const OREUI_PANORAMAS: Carrier = carrier(
-    "oreui-panoramas",
-    "Compiling OreUI panorama banners",
-    Recipe::OreUiPanoramas,
-    "vanilla-v1.mcbeopa",
-    None,
-    false,
-);
 /// Development-only finite predecode of one reviewed sample.
 pub const AUDIO_PCM: Carrier = Carrier {
     installed: false,
@@ -374,7 +364,6 @@ pub const CARRIERS: &[Carrier] = &[
     WEATHER,
     HUD_EXTRAS,
     STARTER_SKINS,
-    OREUI_PANORAMAS,
     AUDIO_PCM,
 ];
 

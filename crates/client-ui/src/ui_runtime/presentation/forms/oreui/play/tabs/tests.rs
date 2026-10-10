@@ -1,6 +1,6 @@
 use super::*;
 use crate::ui_runtime::{
-    oreui_assets::shipped_oreui_images,
+    oreui_assets::load_optional_oreui_images,
     presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font},
 };
 use ui::UiVisual;
@@ -40,8 +40,13 @@ fn focused_middle_play_tab_keeps_its_right_outline_above_the_next_tab() {
 }
 
 #[test]
-fn shipped_play_tabs_keep_fixed_targets_while_pressed() {
-    let images = shipped_oreui_images();
+fn installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed() {
+    let Some(images) = load_optional_oreui_images() else {
+        eprintln!(
+            "skipping installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed: installed OreUI bundle unavailable"
+        );
+        return;
+    };
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     runtime.enable_oreui_originals(images).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
@@ -72,11 +77,21 @@ fn shipped_play_tabs_keep_fixed_targets_while_pressed() {
     assert_eq!(rest_hits, press_hits);
     assert_eq!(rest_hits, settled_hits);
     let originals = runtime.form_presentation.oreui_originals.as_ref().unwrap();
-    for key in PLAY_TAB_ICONS {
+    for key in [PLAY_TAB_IMAGES[0], PLAY_TAB_IMAGES[2]] {
         let sprite = originals.sprites[key];
-        assert!(rest.iter().any(
-            |node| matches!(node.visual(), UiVisual::Sprite { texture_page, uv, .. }
-            if *texture_page == originals.page + sprite.page && *uv == sprite.bounds)
-        ));
+        let bottom = if key == PLAY_TAB_IMAGES[0] { 4 } else { 2 };
+        let center = [
+            sprite.bounds[0] + 2,
+            sprite.bounds[1] + 2,
+            sprite.bounds[2] - 2,
+            sprite.bounds[3] - bottom,
+        ];
+        assert!(
+            rest.iter().any(
+                |node| matches!(node.visual(), UiVisual::Sprite { texture_page, uv, .. }
+            if *texture_page == originals.page + sprite.page && *uv == center)
+            ),
+            "missing native tab face {key}"
+        );
     }
 }

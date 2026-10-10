@@ -33,6 +33,7 @@ fn dimension_backgrounds_cover_each_window_without_stretching_or_bleeding_into_t
             ),
             loading_frames: Default::default(),
             animations: Default::default(),
+            source: None,
         })
         .unwrap();
     let first_page = presentation

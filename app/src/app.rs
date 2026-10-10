@@ -583,10 +583,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .context("JSON-UI engine is missing its carrier catalog")?,
     );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    // Shipped OreUI art uses optional panorama crops from this install's prepared pack.
-    if let Err(reason) = ui_presentation.enable_oreui_originals(
-        client_ui::ui_runtime::oreui_assets::load_oreui_images(&layout.compiled_assets),
-    ) {
+    // Installed OreUI artwork is discovered and decoded once for every native screen.
+    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
+        && let Err(reason) = ui_presentation.enable_oreui_originals(images)
+    {
         eprintln!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);

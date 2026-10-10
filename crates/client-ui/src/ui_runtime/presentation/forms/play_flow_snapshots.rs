@@ -85,7 +85,7 @@ fn snapshot_settings_signing_in_and_progress() {
     snapshot_at(&player_runtime, &connecting, "flow-connecting-1", 1_350);
 }
 
-// The connecting screen advances the shipped loader without rebuilding text
+// The connecting screen advances the installed loader without rebuilding text
 // layouts or moving the status card.
 #[test]
 fn the_connecting_loader_animates_over_its_cached_layout() {
@@ -97,8 +97,14 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
         );
         return;
     };
-    let images = crate::ui_runtime::oreui_assets::shipped_oreui_images();
-    assert!(!images.loading_frames.is_empty());
+    let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+        .filter(|images| !images.loading_frames.is_empty())
+    else {
+        eprintln!(
+            "skipping the_connecting_loader_animates_over_its_cached_layout: fixture unavailable; requires the installed OreUI loading animation"
+        );
+        return;
+    };
     let mut elapsed = 0_u64;
     let frames: Vec<_> = images
         .loading_frames
@@ -111,12 +117,12 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
         .collect();
     let first_frame = frames
         .first()
-        .expect("shipped loading animation has positive frame durations");
+        .expect("installed loading animation has positive frame durations");
     let first_sprite = first_frame.1;
     let later_frame = frames
         .iter()
         .find(|(_, sprite)| *sprite != first_sprite)
-        .expect("shipped loading animation has distinct frames");
+        .expect("installed loading animation has distinct frames");
     let page = presentation.textures.dynamic_start() as u16;
     presentation.enable_oreui_originals(images).unwrap();
     let mut view = crate::menu::MenuView::new(true, "Test".into());
@@ -145,7 +151,7 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
                     }
                     _ => None,
                 })
-                .expect("the selected shipped loader frame is painted")
+                .expect("the selected installed loader frame is painted")
         };
     let text_layouts = |presentation: &super::super::UiPresentationRuntime| {
         super::pack_harness::menu_nodes(presentation)
@@ -196,7 +202,7 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
     assert_ne!(
         (uvs(&first), pages(&first)),
         (uvs(&later), pages(&later)),
-        "another frame of the shipped loader"
+        "another frame of the installed loader"
     );
 }
 
@@ -451,116 +457,3 @@ pub(super) use crate::test_support::{
 
 pub(super) use crate::test_support::fixture_view;
 use crate::test_support::play_flow::{art, server};
-
-/// Captures each implemented OreUI route with deterministic, anonymous service data.
-#[test]
-fn snapshot_oreui_art_gallery() {
-    use crate::menu::{InboxItem, ProfileTab};
-    let player = player_state::PlayerState::new(1);
-    let dir = tempfile::tempdir().unwrap();
-    let mut base = fixture_view(dir.path());
-    base.servers.clear();
-    base.realms.clear();
-    base.friends.clear();
-    base.feeds.details.clear();
-    base.feeds.home.live_event = None;
-    let pings = std::mem::take(&mut base.feeds.pings);
-    for (index, server) in base.featured.iter_mut().enumerate() {
-        let ping = pings[&server.address].clone();
-        server.name = format!("Example server {}", index + 1);
-        server.address = format!("server{index}.example.invalid:19132");
-        base.feeds.pings.insert(server.address.clone(), ping);
-    }
-    let shot = |view: &crate::menu::MenuView, name: &str| {
-        snapshot_at(&player, view, name, 2_000);
-    };
-    for (screen, name) in [
-        (MenuScreen::Home, "home"),
-        (MenuScreen::Play, "play-worlds"),
-        (MenuScreen::Servers, "play-servers"),
-        (MenuScreen::Social, "play-realms"),
-        (MenuScreen::Friends, "friends"),
-        (MenuScreen::DressingRoom, "dressing-room"),
-        (MenuScreen::AddServer, "add-server"),
-        (MenuScreen::Pause, "pause"),
-    ] {
-        let mut view = base.clone();
-        view.screen = screen;
-        view.over_world = screen == MenuScreen::Pause;
-        shot(&view, name);
-    }
-    for (index, category) in crate::menu::inbox::CATEGORIES.iter().enumerate() {
-        let mut view = base.clone();
-        view.screen = MenuScreen::Inbox;
-        view.feeds.inbox_state.category = index;
-        shot(&view, &format!("inbox-empty-{index}"));
-        view.feeds.home.inbox.push(InboxItem {
-            instance_id: "fixture-message".into(),
-            category: category.to_string(),
-            header: "A new adventure awaits".into(),
-            body: "Explore a world with your friends.".into(),
-            unread: true,
-            ..Default::default()
-        });
-        shot(&view, &format!("inbox-items-{index}"));
-    }
-    for section in [
-        "accessibility",
-        "keyboard_and_mouse",
-        "video",
-        "sound",
-        "global_texture_pack",
-    ] {
-        let mut view = base.clone();
-        view.screen = MenuScreen::Settings;
-        view.settings_section =
-            super::test_support::settings_section_index(&format!("{section}_forced_index"))
-                .unwrap();
-        shot(&view, &format!("settings-{section}"));
-    }
-    let mut profile = base.clone();
-    profile.screen = MenuScreen::Profile;
-    profile.feeds.profile.loaded = true;
-    profile.feeds.profile.avatar_loaded = true;
-    profile.feeds.profile.featured_screenshot_loaded = true;
-    profile.feeds.profile.statistics_loaded = true;
-    profile.feeds.profile.achievements_loaded = true;
-    profile.feeds.profile.friends = Some(17);
-    profile.feeds.profile.followers = Some(24);
-    profile.feeds.profile.statistics = Some(protocol::launcher_control::ProfileStatistics {
-        minutes_played: Some("120".into()),
-        blocks_broken: Some("12345".into()),
-        mobs_defeated: Some("42".into()),
-        distance_travelled: Some("54321".into()),
-    });
-    for index in 0..assets::oreui_panorama::BANNER_COUNT {
-        profile.feeds.profile.xuid = index.to_string();
-        shot(&profile, &format!("profile-overview-{index}"));
-    }
-    profile.profile_tab = ProfileTab::Stats;
-    shot(&profile, "profile-stats");
-    profile.feeds.profile.unavailable = true;
-    shot(&profile, "profile-error");
-    let mut worlds = crate::local_worlds::WorldsMenu::default();
-    worlds.update(crate::local_worlds::Input::BeginCreate);
-    for (tab, name) in [
-        (crate::local_worlds::Tab::General, "create-general"),
-        (crate::local_worlds::Tab::Advanced, "create-advanced"),
-    ] {
-        worlds.update(crate::local_worlds::Input::SelectTab(tab));
-        let mut view = base.clone();
-        view.screen = MenuScreen::Play;
-        view.local = worlds.view();
-        shot(&view, name);
-    }
-    let mut loading = base;
-    loading.connecting = true;
-    shot(&loading, "loading");
-    loading.feeds.join.stage = crate::menu::JoinStage::Packs {
-        done: 1,
-        total: 2,
-        received_bytes: 40,
-        total_bytes: 100,
-    };
-    shot(&loading, "progress");
-}

@@ -160,6 +160,7 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
             sprites: Default::default(),
             loading_frames: Default::default(),
             animations: Default::default(),
+            source: None,
         })
         .unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));

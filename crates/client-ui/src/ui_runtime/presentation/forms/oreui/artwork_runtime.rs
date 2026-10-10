@@ -7,7 +7,7 @@ use super::{Look, Originals};
 use crate::ui_runtime::oreui_assets::OreUiImages;
 
 impl UiPresentationRuntime {
-    /// Registers shipped artwork as immutable static texture pages.
+    /// Registers the installed artwork as immutable static texture pages.
     pub fn enable_oreui_originals(&mut self, images: OreUiImages) -> Result<(), String> {
         if self
             .form_presentation
@@ -83,5 +83,33 @@ impl UiPresentationRuntime {
             animations: images.animations,
         }));
         Ok(())
+    }
+
+    /// Prepares additional native art before drawing; unchanged requests retain texture pages.
+    pub fn prepare_oreui_artwork(&mut self, keys: &[&str]) -> Result<(), String> {
+        if self
+            .form_presentation
+            .oreui_originals
+            .as_ref()
+            .is_some_and(|old| keys.iter().all(|key| old.sprites.contains_key(*key)))
+        {
+            return Ok(());
+        }
+        let images = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+            .ok_or("OreUI installed artwork is unavailable")?;
+        let old_start = self
+            .form_presentation
+            .oreui_originals
+            .as_ref()
+            .map_or(self.textures.dynamic_start(), |old| usize::from(old.page));
+        let previous_artwork = self.textures.pages()[old_start..self.textures.dynamic_start()]
+            .iter()
+            .map(|page| page.pixels().len())
+            .sum::<usize>();
+        let resident = self.textures.fixed_budget_bytes() - previous_artwork;
+        let available = render_model::MAX_UI_FIXED_TEXTURE_BYTES
+            .checked_sub(resident)
+            .ok_or("Resident UI textures exceed the texture budget")?;
+        self.enable_oreui_originals(images.with_artwork_budget(keys, available)?)
     }
 }

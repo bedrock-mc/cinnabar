@@ -1,5 +1,5 @@
 //! The OreUI canvas: fills, one-texel edges, speculars and bevels, scaled text,
-//! and original sprites embedded with the client.
+//! and original sprites from the installed bundle.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ const MEASUREMENT_WIDTH_64: u32 = 65_536 * 64;
 /// A logical-pixel rect `[left, top, right, bottom]`.
 pub(super) type Bounds = [f32; 4];
 
-/// The shipped sprite catalog addresses immutable texture pages.
+/// The installed sprite catalog addresses immutable texture pages.
 pub struct Originals {
     pub(super) page: u16,
     pub(super) images: crate::ui_runtime::oreui_assets::OreUiImages,

@@ -1,5 +1,5 @@
 //! The OreUI design system, drawn in our own code, and the screens vanilla shows
-//! with OreUI by default (`docs/oreui.md`). Shipped icon artwork
+//! with OreUI by default (`docs/oreui.md`). Installed icon and control artwork
 //! is read at runtime.
 
 mod accounts;
