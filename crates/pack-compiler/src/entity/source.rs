@@ -314,7 +314,7 @@ mod tests {
             .custom_flags(unix_flags::NOFOLLOW)
             .open(&link)
             .expect_err("NOFOLLOW must reject a symlink leaf");
-        // ELOOP is 90 on MIPS and 40 on every other Linux architecture.
+        // ELOOP is 90 on MIPS, 62 on SPARC and 40 on every other Linux architecture.
         let eloop = if cfg!(any(
             target_arch = "mips",
             target_arch = "mips32r6",
@@ -322,6 +322,8 @@ mod tests {
             target_arch = "mips64r6"
         )) {
             90
+        } else if cfg!(any(target_arch = "sparc", target_arch = "sparc64")) {
+            62
         } else {
             40
         };
