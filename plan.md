@@ -380,9 +380,15 @@
   action bar; a multi-line tip keeping its last line on the tip position with
   earlier lines above it; and a pack retargeting `hud_tip_text` moving it to the
   top right. Text routing and localization tests assert the tip's own slot.
-- Incomplete: no rendered-frame pass on the target platform has been taken, so
-  the live tip placement above the hotbar is unverified. Two pre-existing
-  failures are unrelated: `incremental_bind::hud_changes_rebuild_only_their_subtree`
+- A captured offline frame pass renders a real HUD frame at 1920x1080 under the
+  Lumine UI pack and without it. Without the pack the multi-line tip sits just
+  above the status row, its last line on the tip position; with the pack the
+  same block moves to the screen's top right, right-aligned, exactly where
+  vanilla draws it. See `docs/evidence/hud-tip-text-pack.md`.
+- Incomplete: the frame pass uses the offline CPU raster of the real pack, not
+  the GPU path on the target platform; no native parity or frame-budget gate
+  closes. Two pre-existing failures are unrelated:
+  `incremental_bind::hud_changes_rebuild_only_their_subtree`
   and `engine_hud_tests::java_pack_geometry_on_a_real_viewport`.
 
 ## Server-pack actors and conditional forms

@@ -94,6 +94,12 @@ fn session(player_runtime: &mut player_state::PlayerState, objective: &str) -> U
             .unwrap();
     }
     runtime.hud.set_title(Arc::from("Round 1"), 20, 0);
+    // The tip text: the Lumine array list rides it, on its own slot.
+    runtime.hud.set_tip(
+        Arc::from("LUMINE PROXY\nAnti Forced Packs\nJava\nJava"),
+        21,
+        0,
+    );
     runtime
 }
 
