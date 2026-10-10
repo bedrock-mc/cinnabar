@@ -102,6 +102,8 @@ impl<'a> ActorRenderFrame<'a> {
 pub(super) struct FrameState {
     pub motion: SwellMotion,
     pub samples_camera_poses: bool,
+    /// Body swing dependencies exclude alternate geometry and render-only expressions.
+    pub samples_swing_poses: bool,
     /// Completed channel writes survive frames that retain ordinary pose endpoints.
     pub retained_pose_effects: evaluation::MolangEffects,
     pub previous_motion: Option<SwellMotion>,
@@ -475,7 +477,7 @@ impl ActorAnimationStore {
             };
             Some(local)
         } else if (frame.samples_camera_poses && pose_inputs_changed)
-            || swing_changed
+            || (frame.samples_swing_poses && swing_changed)
             || swell_changed
         {
             let Ok(local) = pose::sample_clips(
@@ -611,7 +613,13 @@ impl ActorAnimationStore {
                     if pose.is_some()
                         || previous.is_none()
                         || (pose_inputs_changed
-                            && camera::layer_needs_camera_sampling(assets, clips, geometry)) =>
+                            && camera::layer_needs_pose_sampling(
+                                assets, clips, geometry, false,
+                            ))
+                        || (swing_changed
+                            && camera::layer_needs_pose_sampling(
+                                assets, clips, geometry, true,
+                            )) =>
                 {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)

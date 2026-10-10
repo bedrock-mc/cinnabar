@@ -395,6 +395,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
         samples_camera_poses: false,
+        samples_swing_poses: false,
         retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::swell_endpoint::SwellMotion {
             variables: variables.clone(),
@@ -539,12 +540,22 @@ pub(super) fn evaluate_state(
     };
     if let Some(frame) = render_frame.as_mut() {
         frame.samples_camera_poses = state.samples_camera_poses
-            && super::render_frame::camera::needs_active_camera_sampling(
+            && super::render_frame::camera::needs_active_pose_sampling(
                 assets,
                 state.rig_binding,
                 state.geometry_binding,
                 &controllers,
                 &weighted_clips,
+                false,
+            );
+        frame.samples_swing_poses = state.samples_swing_poses
+            && super::render_frame::camera::needs_active_pose_sampling(
+                assets,
+                state.rig_binding,
+                state.geometry_binding,
+                &controllers,
+                &weighted_clips,
+                true,
             );
         frame.motion.clips.clone_from(&weighted_clips);
         frame.motion.journal = journal;

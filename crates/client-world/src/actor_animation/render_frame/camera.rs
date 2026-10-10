@@ -18,19 +18,20 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
 }
 
 /// Contributing body clips sample presentation input; layer variants follow render selection.
-pub(in crate::actor_animation) fn needs_active_camera_sampling(
+pub(in crate::actor_animation) fn needs_active_pose_sampling(
     assets: &RuntimeEntityAssets,
     rig_binding: usize,
     geometry_binding: usize,
     controllers: &[ControllerState],
     clips: &[tick::WeightedClip],
+    swing: bool,
 ) -> bool {
     needs_pose_sampling(
         assets,
         rig_binding,
         geometry_binding,
         controllers,
-        false,
+        swing,
         Some(clips),
     )
 }
@@ -72,17 +73,20 @@ fn needs_pose_sampling(
         active_clips.is_none() && camera_clip_with_layers(assets, rig_binding, clip, swing)
     };
     if swing
+        && active_clips.is_none()
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
             .any(|expression| camera_expression(assets, expression as usize, true))
     {
         return true;
     }
-    if assets.render_layers(rig_binding).iter().any(|layer| {
-        layer
-            .light_color_multiplier
-            .is_some_and(|expression| camera_expression(assets, expression as usize, swing))
-    }) {
+    if (!swing || active_clips.is_none())
+        && assets.render_layers(rig_binding).iter().any(|layer| {
+            layer
+                .light_color_multiplier
+                .is_some_and(|expression| camera_expression(assets, expression as usize, swing))
+        })
+    {
         return true;
     }
     if assets
@@ -159,15 +163,16 @@ fn needs_pose_sampling(
     })
 }
 
-/// Selected layers sample their own mapped camera channels without changing the body endpoints.
-pub(super) fn layer_needs_camera_sampling(
+/// Selected layers sample their mapped presentation channels without changing body endpoints.
+pub(super) fn layer_needs_pose_sampling(
     assets: &RuntimeEntityAssets,
     clips: &[tick::WeightedClip],
     geometry: u32,
+    swing: bool,
 ) -> bool {
     clips.iter().any(|active| {
         render::clip_for_layer(assets, *active, geometry)
-            .is_some_and(|mapped| camera_clip(assets, mapped.clip, false))
+            .is_some_and(|mapped| camera_clip(assets, mapped.clip, swing))
     })
 }
 
