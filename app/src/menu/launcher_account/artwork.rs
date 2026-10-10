@@ -65,15 +65,19 @@ const MAX_RECENT: usize = 1024;
 /// feed is woken to publish again once any of it arrives.
 pub(super) struct FeedArt {
     images: ImageDirectory,
-    batches: Sender<Vec<String>>,
+    batches: Option<Sender<Vec<String>>>,
     /// When this feed last downloaded each URL.
     recent: Arc<Mutex<HashMap<String, Instant>>>,
+    /// Dropping it cancels the worker's current batch and the ones still queued.
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl FeedArt {
-    /// Starts the worker; it ends once this is dropped and its queue drains.
+    /// Starts the worker; dropping this stops it without finishing queued downloads.
     pub(super) fn start(images: ImageDirectory, wake: Sender<()>) -> Self {
         let (batches, queue) = crossbeam_channel::bounded::<Vec<String>>(QUEUED_BATCHES);
+        let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
         let downloads = images.clone();
         let recent = Arc::new(Mutex::new(HashMap::new()));
         let fetched_at = Arc::clone(&recent);
@@ -84,8 +88,18 @@ impl FeedArt {
                     return;
                 };
                 for urls in queue {
-                    let fetched =
-                        runtime.block_on(downloads.fetch_all(urls.clone(), ARTWORK_BUDGET));
+                    if stopped.try_recv() != Err(tokio::sync::oneshot::error::TryRecvError::Empty) {
+                        return;
+                    }
+                    let fetched = runtime.block_on(async {
+                        tokio::select! {
+                            _ = &mut stopped => None,
+                            fetched = downloads.fetch_all(urls.clone(), ARTWORK_BUDGET) => Some(fetched),
+                        }
+                    });
+                    let Some(fetched) = fetched else {
+                        return;
+                    };
                     let arrived: Vec<String> = urls
                         .into_iter()
                         .zip(&fetched)
@@ -98,13 +112,15 @@ impl FeedArt {
                     }
                 }
             });
-        if let Err(error) = spawned {
-            bevy::log::warn!("feed artwork worker unavailable: {error}");
-        }
+        let worker = spawned
+            .inspect_err(|error| bevy::log::warn!("feed artwork worker unavailable: {error}"))
+            .ok();
         Self {
             images,
-            batches,
+            batches: Some(batches),
             recent,
+            stop: Some(stop),
+            worker,
         }
     }
 
@@ -123,8 +139,10 @@ impl FeedArt {
                 None => {}
             }
         }
-        if !missing.is_empty() {
-            let _ = self.batches.try_send(missing);
+        if !missing.is_empty()
+            && let Some(batches) = &self.batches
+        {
+            let _ = batches.try_send(missing);
         }
     }
 
@@ -136,6 +154,17 @@ impl FeedArt {
             .unwrap_or_else(|poison| poison.into_inner())
             .get(url)
             .is_some_and(|at| at.elapsed() < REFETCH_AFTER)
+    }
+}
+
+impl Drop for FeedArt {
+    /// Stops the worker and waits for it, so a retired feed never competes for download slots.
+    fn drop(&mut self) {
+        self.stop.take();
+        self.batches.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -368,8 +397,10 @@ mod tests {
         let (batches, queued) = crossbeam_channel::bounded(QUEUED_BATCHES);
         let feed = FeedArt {
             images: feed_images(dir.path()),
-            batches,
+            batches: Some(batches),
             recent: Arc::default(),
+            stop: None,
+            worker: None,
         };
         let url = "https://a.test/evicted.png";
         let mut home = Home {
@@ -393,5 +424,40 @@ mod tests {
             remember(&recent, urls);
         }
         assert!(recent.lock().unwrap().len() <= MAX_RECENT);
+    }
+
+    // A retired feed's worker kept downloading its queue, competing for the folder's slots.
+    #[test]
+    fn dropping_a_feed_stops_its_downloads() {
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        // Accepts and never answers, like a stalled host.
+        std::thread::spawn(move || {
+            let held: Vec<_> = listener.incoming().flatten().collect();
+            drop(held);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let local = client_ui::remote_images::Surface {
+            https_only: false,
+            public_hosts: false,
+            ..LAUNCHER_ART
+        };
+        let (wake, _woken) = crossbeam_channel::bounded(1);
+        let feed = FeedArt::start(ImageDirectory::new(dir.path().to_path_buf(), local), wake);
+        for batch in 0..QUEUED_BATCHES {
+            let mut home = Home {
+                persona_head: art(&format!("{base}/{batch}.png"), ""),
+                ..Default::default()
+            };
+            feed.fill_cached(home_slots(&mut home));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let started = Instant::now();
+        drop(feed);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "worker outlived its feed"
+        );
     }
 }
