@@ -148,7 +148,7 @@ jobs:
   verify:
     needs: [changes, preflight]
     if: >-
-      always() && needs.changes.result == 'success'
+      !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
       && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ubuntu-latest
@@ -197,7 +197,7 @@ jobs:
     name: Rust tests (${{ matrix.os }})
     needs: [changes, preflight]
     if: >-
-      always() && needs.changes.result == 'success'
+      !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
       && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
@@ -257,7 +257,7 @@ jobs:
     name: Go (${{ matrix.os }})
     needs: [changes, preflight]
     if: >-
-      always() && needs.changes.result == 'success'
+      !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
       && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
@@ -329,7 +329,7 @@ jobs:
     name: Platform (${{ matrix.name }})
     needs: [changes, preflight]
     if: >-
-      always() && needs.changes.result == 'success'
+      !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
       && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
       && needs.changes.outputs.full != 'true'
