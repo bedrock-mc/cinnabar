@@ -48,7 +48,6 @@ impl FromWorld for EnhancedShadowPipelines {
                     shader_defs: vec!["ENHANCED_SHADOW".into()],
                     entry_point: Some("vertex".into()),
                     buffers: vec![offsets.clone()],
-                    ..default()
                 },
                 fragment: Some(FragmentState {
                     shader,

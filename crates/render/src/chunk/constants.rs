@@ -30,3 +30,6 @@ pub(super) const FALLBACK_BIOME_WORDS: usize = meshing::biome::FALLBACK_BIOME_WO
 pub(super) const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] =
     meshing::biome::FALLBACK_BIOME_WORDS;
 pub(super) const INDEXED_INDIRECT_BYTES: u64 = 20;
+
+/// Sorted transparent draw refs in the world bind group.
+pub(crate) const TRANSPARENT_REFS_BINDING: u32 = 14;

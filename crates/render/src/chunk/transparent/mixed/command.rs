@@ -55,7 +55,7 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
             mixed.frame.get(range.start as usize),
             allocation,
             water.state.committed(),
-            &arena.bind_group,
+            &arena.transparent_bind_group,
         ) else {
             return RenderCommandResult::Skip;
         };

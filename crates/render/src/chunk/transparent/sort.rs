@@ -344,7 +344,7 @@ mod growth_tests {
         let args = transparent_draw_args(1, arena.transparent_slot_refs, 3).unwrap();
         assert_eq!(
             args.first_instance,
-            INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2 | TRANSPARENT_WATER_DRAW_FLAG
+            (INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2) | TRANSPARENT_WATER_DRAW_FLAG
         );
 
         ensure_transparent_ref_capacity(&mut arena, &device, &queue, usize::MAX, &state);

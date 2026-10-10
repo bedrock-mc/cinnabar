@@ -37,11 +37,13 @@ pub(in crate::chunk) struct ChunkPipeline {
     pub(in crate::chunk) transparent_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) depth_liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) bind_group_layout: BindGroupLayoutDescriptor,
+    pub(in crate::chunk) transparent_bind_group_layout: BindGroupLayoutDescriptor,
 }
 
 impl FromWorld for ChunkPipeline {
     fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = chunk_bind_group_layout();
+        let transparent_bind_group_layout = chunk_bind_group_layout();
+        let bind_group_layout = opaque_chunk_bind_group_layout();
         let descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
@@ -105,6 +107,7 @@ impl FromWorld for ChunkPipeline {
         transparent_descriptor.vertex.entry_point = Some("vertex".into());
         // Sorted transparency is never GPU-culled and indexes its refs by instance.
         transparent_descriptor.vertex.buffers.clear();
+        transparent_descriptor.layout[0] = transparent_bind_group_layout.clone();
         let transparent_fragment = transparent_descriptor
             .fragment
             .as_mut()
@@ -132,6 +135,7 @@ impl FromWorld for ChunkPipeline {
             transparent_variants: Variants::new(ChunkPipelineSpecializer, transparent_descriptor),
             depth_liquid_variants: Variants::new(ChunkPipelineSpecializer, depth_liquid_descriptor),
             bind_group_layout,
+            transparent_bind_group_layout,
         }
     }
 }
@@ -218,6 +222,15 @@ pub(crate) fn draw_offsets_layout() -> bevy::mesh::VertexBufferLayout {
             shader_location: 0,
         }],
     }
+}
+
+/// Omits sorted transparency refs so Metal has room for vertex offsets and buffer sizes.
+pub(crate) fn opaque_chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
+    let mut layout = chunk_bind_group_layout();
+    layout
+        .entries
+        .retain(|entry| entry.binding != TRANSPARENT_REFS_BINDING);
+    layout
 }
 
 /// Shared vertex-pulling bindings used by world rendering and shadow casters.
@@ -362,7 +375,7 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
-                binding: 14,
+                binding: TRANSPARENT_REFS_BINDING,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },

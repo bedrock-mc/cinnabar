@@ -140,7 +140,7 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
 
 #[test]
 fn world_bindings_are_visible_to_the_stages_that_use_them() {
-    let layout = chunk_bind_group_layout();
+    let layout = opaque_chunk_bind_group_layout();
     for source in [
         include_str!("../../chunk.wgsl"),
         include_str!("../../model.wgsl"),
@@ -152,6 +152,11 @@ fn world_bindings_are_visible_to_the_stages_that_use_them() {
             &layout,
         );
     }
+    crate::shader_test_support::assert_binding_visibility(
+        &crate::shader_source::composed(include_str!("../../transparent_terrain.wgsl"), &[]),
+        0,
+        &chunk_bind_group_layout(),
+    );
 }
 
 /// Whether `function` or anything it calls can discard.

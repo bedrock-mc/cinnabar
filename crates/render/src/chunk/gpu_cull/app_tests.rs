@@ -250,3 +250,23 @@ fn dx12_debug_runs_two_phase_count_gpu_culling() {
         "the DX12 depth target admits the late Hi-Z phase"
     );
 }
+
+/// Every terrain variant must compile with vertex offsets on a real backend.
+#[test]
+fn native_devices_compile_opaque_and_transparent_terrain_variants() {
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        let Some(render) = render_plugin(wgpu::Backends::PRIMARY, WgpuFeatures::empty()) else {
+            eprintln!("skipping terrain pipeline compilation: missing native GPU adapter fixture");
+            return;
+        };
+        let (mut app, _) = chunk_app(render, msaa, camera_transform());
+        for _ in 0..4 {
+            frame(&mut app);
+        }
+        assert!(
+            app.world()
+                .resource::<crate::PipelineWarmupReadiness>()
+                .is_ready()
+        );
+    }
+}

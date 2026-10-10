@@ -96,6 +96,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     /// Per-slot capacity of `transparent_ref_buffer`, which is also the second slot's offset.
     pub(in crate::chunk) transparent_slot_refs: usize,
     pub(in crate::chunk) bind_group: Option<BindGroup>,
+    pub(in crate::chunk) transparent_bind_group: Option<BindGroup>,
     pub(in crate::chunk) bind_group_buffers: Option<ChunkBindGroupBuffers>,
     pub(in crate::chunk) quad_capacity: usize,
     pub(in crate::chunk) geometry_stream_capacity: usize,
@@ -176,6 +177,7 @@ impl ChunkGpuArena {
             ),
             transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
             bind_group: None,
+            transparent_bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,
             geometry_stream_capacity: 1,

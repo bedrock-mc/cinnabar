@@ -442,7 +442,8 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         if runtime.view_entity != Some(item.entity()) {
             return RenderCommandResult::Skip;
         }
-        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        let (Some(bind_group), Some(snapshot)) =
+            (&arena.transparent_bind_group, runtime.state.committed())
         else {
             return RenderCommandResult::Skip;
         };
@@ -504,7 +505,7 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquidDirect {
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let frame_probe = frame_probe.into_inner();
-        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation) else {
             return RenderCommandResult::Skip;
         };
         let identity = FrameAllocationIdentity {
@@ -558,7 +559,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
         if runtime.view_entity != Some(item.entity()) {
             return RenderCommandResult::Skip;
         }
-        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        let (Some(bind_group), Some(snapshot)) =
+            (&arena.transparent_bind_group, runtime.state.committed())
         else {
             return RenderCommandResult::Skip;
         };
@@ -699,7 +701,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let frame_probe = frame_probe.into_inner();
-        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation) else {
             return RenderCommandResult::Skip;
         };
         let identity = FrameAllocationIdentity {
