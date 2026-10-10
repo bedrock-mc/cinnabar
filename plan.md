@@ -608,9 +608,10 @@
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
 - Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
-  drawn; the breathing point, item and local volume culling and
-  camera-inside behaviour are provisional. Native side-by-side
-  comparison is pending.
+  drawn; the breathing point, item and local volume culling remain provisional.
+- Volumes containing the camera draw no shadow. Camera-inside and ordinary outside
+  footprints have GPU regression coverage. Exact near-plane clipping and depth-bias
+  edges remain incomplete parity checks.
 
 ## Configured inventory hotbar swaps
 

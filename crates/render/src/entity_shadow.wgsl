@@ -31,7 +31,12 @@ fn shadow_vertex(
 ) -> VertexOutput {
     let caster = casters[instance];
     var out: VertexOutput;
-    out.position = view.clip_from_world * vec4(caster.xyz + corner * caster.w, 1.0);
+    // An eye inside this convex volume has no visible entry face to mark a receiver.
+    if inside_volume((view.world_position - caster.xyz) / caster.w) {
+        out.position = vec4(0.0, 0.0, 2.0, 1.0);
+    } else {
+        out.position = view.clip_from_world * vec4(caster.xyz + corner * caster.w, 1.0);
+    }
     out.caster = instance;
     return out;
 }

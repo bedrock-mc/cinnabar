@@ -1,5 +1,5 @@
-//! Vanilla entity shadows: a polygonal volume hanging under each caster's feet, darkening every
-//! opaque surface inside it. Rules are tabulated in `docs/reference/entity-shadows.md`.
+//! Entity shadows darken visible opaque surfaces inside a polygonal volume under each caster.
+//! A volume containing the camera draws no shadow. See `docs/reference/entity-shadows.md`.
 use std::sync::Arc;
 
 /// Sides of the volume's cross-section.
