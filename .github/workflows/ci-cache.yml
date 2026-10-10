@@ -71,7 +71,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref_name }}
-        run: gh workflow run ci.yml --repo "$REPO" --ref "$REF"
+        run: |
+          # Dispatch uses the branch's current tip, which may have advanced since this warmer began.
+          sha=$(gh api "repos/$REPO/commits/$REF" --jq '.sha')
+          covered=$(gh api --paginate "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=100" \
+            --jq '[.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")
+              | select(.conclusion == "success" or .status == "queued" or .status == "in_progress"
+                or .status == "requested" or .status == "waiting" or .status == "pending")] | length' \
+            | awk '{ total += $1 } END { print total + 0 }')
+          if [ "$covered" -eq 0 ]; then
+            gh workflow run ci.yml --repo "$REPO" --ref "$REF"
+          else
+            echo "Full CI already passed or is pending on $sha; skipping dispatch."
+          fi
 
   linux:
     permissions:
@@ -83,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy

@@ -55,13 +55,13 @@ jobs:
       ref: ${{ steps.release.outputs.ref }}
       commit: ${{ steps.release.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || github.ref_name) || github.sha }}
           path: source
       - name: Check out release tooling from the workflow revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -92,12 +92,12 @@ jobs:
           - { arch: arm64, runner: macos-15 }
           - { arch: x86_64, runner: macos-15-intel }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -196,7 +196,7 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
@@ -214,12 +214,12 @@ jobs:
         shell: bash
         working-directory: source
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -308,7 +308,7 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
@@ -331,12 +331,12 @@ jobs:
       APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
       APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -404,7 +404,7 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
@@ -426,17 +426,17 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.ref }}
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: source/dist
           merge-multiple: true
