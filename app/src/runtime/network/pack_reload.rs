@@ -274,6 +274,7 @@ pub(crate) fn reload_resource_packs(
     presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     environment_base: Option<Res<EnvironmentBase>>,
     mut atmosphere: Option<ResMut<render::AtmosphereTextureAssets>>,
+    mut fog_bindings: Option<ResMut<crate::environment::FogBindings>>,
     mut particles: Option<ResMut<render::ParticleSimulation>>,
     mut entity_artwork: Option<ResMut<render::ActorArtworkPages>>,
     gpu_reload: Option<Res<render::ChunkTextureReload>>,
@@ -396,6 +397,12 @@ pub(crate) fn reload_resource_packs(
                     {
                         particles.0 = next;
                     }
+                }
+                if let Some(bindings) = fog_bindings.as_mut() {
+                    bindings.refresh(
+                        &world.runtime_assets,
+                        atmosphere.as_deref().and_then(|assets| assets.runtime()),
+                    );
                 }
                 let packs = prepared.application;
                 if let (Some(current), Some(next)) =

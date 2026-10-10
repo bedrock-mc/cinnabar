@@ -788,6 +788,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .init_resource::<environment::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
     .insert_resource(environment::LightningFlashState::default())
+    .insert_resource({
+        let mut bindings = environment::FogBindings::default();
+        bindings.refresh(&runtime_assets, Some(&atmosphere_runtime));
+        bindings
+    })
     .insert_resource(EnvironmentContext::default())
     .insert_resource(EnvironmentProfileRoute::default())
     .insert_resource(movement_ticker)

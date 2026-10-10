@@ -25,14 +25,24 @@ fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
+    let bindings = FogBindings::for_profiles(
+        &assets.biome_assets().rules,
+        &[assets::BiomeVisualProfile {
+            biome_identifier: "minecraft:hell".into(),
+            fog_identifier: "test:fog".into(),
+            atmosphere_identifier: "test:atmosphere".into(),
+            lighting_identifier: "test:lighting".into(),
+            sky_rgb8: None,
+        }],
+        &[assets::FogProfile {
+            identifier: "test:fog".into(),
+            distances: Box::new([]),
+        }],
+    );
     for height in [129.0, -1.0] {
-        let samples = fog_biome_samples(&stream, &assets, [0.5, height, 0.5]);
-        assert!(!samples.is_empty());
-        assert!(
-            samples
-                .iter()
-                .all(|name| name.as_deref() == Some("minecraft:hell")),
-            "missing biome cells must retain the dimension's default: {samples:?}"
+        assert_eq!(
+            fog_biome_samples(&stream, [0.5, height, 0.5], &bindings),
+            [Some(FogProfileIndex(0)); render::PRECIPITATION_SAMPLE_OFFSETS.len()]
         );
     }
 }
