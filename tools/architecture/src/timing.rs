@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use syn::{punctuated::Punctuated, spanned::Spanned, visit::Visit};
 
 use crate::{ArchitectureError, paths::relative_slash, policy::Policy, read};
@@ -130,13 +131,18 @@ fn is_rust_test(relative: &str) -> bool {
             .any(|dir| dir == "tests" || dir.ends_with("_tests"))
 }
 
-/// Whether an attribute excludes every configuration without `test`.
+/// Recognizes test entry attributes and cfg predicates that require `test`.
 fn test_attributes(attributes: &[syn::Attribute]) -> bool {
     attributes.iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
-            && attribute
-                .parse_args::<syn::Meta>()
-                .is_ok_and(|meta| requires_test(&meta))
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|part| part.ident == "test")
+            || (attribute.path().is_ident("cfg")
+                && attribute
+                    .parse_args::<syn::Meta>()
+                    .is_ok_and(|meta| requires_test(&meta)))
     })
 }
 
@@ -262,6 +268,59 @@ impl RustScan {
             }
         }
     }
+
+    /// Resolves imports and records supported calls with their enclosing scope and token line.
+    fn record_call(&mut self, mut path: Vec<String>, span: Span) {
+        if let Some(import) = path.first().and_then(|name| self.imports.get(name)) {
+            path = import
+                .iter()
+                .cloned()
+                .chain(path.into_iter().skip(1))
+                .collect();
+        }
+        let sleep = path == ["std", "thread", "sleep"]
+            || path == ["thread", "sleep"]
+            || path == ["tokio", "time", "sleep"];
+        let clock = path.len() >= 2
+            && path.last().is_some_and(|name| name == "now")
+            && matches!(path[path.len() - 2].as_str(), "Instant" | "SystemTime");
+        if sleep || clock {
+            self.calls.push((span.start().line, self.in_test, sleep));
+        }
+    }
+
+    /// Finds call paths followed by parentheses in macro tokens, descending into every group.
+    fn scan_macro_tokens(&mut self, tokens: TokenStream) {
+        let tokens: Vec<_> = tokens.into_iter().collect();
+        let mut remaining = tokens.as_slice();
+        while let Some((token, tail)) = remaining.split_first() {
+            remaining = tail;
+            match token {
+                TokenTree::Group(group) => self.scan_macro_tokens(group.stream()),
+                TokenTree::Ident(first) => {
+                    let mut path = vec![first.to_string()];
+                    while let [
+                        TokenTree::Punct(left),
+                        TokenTree::Punct(right),
+                        TokenTree::Ident(next),
+                        rest @ ..,
+                    ] = remaining
+                    {
+                        if left.as_char() != ':' || right.as_char() != ':' {
+                            break;
+                        }
+                        path.push(next.to_string());
+                        remaining = rest;
+                    }
+                    if matches!(remaining.first(), Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Parenthesis)
+                    {
+                        self.record_call(path, first.span());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl<'ast> Visit<'ast> for RustScan {
@@ -362,32 +421,21 @@ impl<'ast> Visit<'ast> for RustScan {
         self.imports = previous;
     }
 
+    /// Scans macro arguments using the same scope and import rules as parsed expressions.
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        self.scan_macro_tokens(mac.tokens.clone());
+    }
+
     /// Records supported sleep and clock calls with their span line and current test scope.
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(function) = &*call.func {
-            let mut path: Vec<_> = function
+            let path = function
                 .path
                 .segments
                 .iter()
                 .map(|part| part.ident.to_string())
                 .collect();
-            if let Some(import) = path.first().and_then(|name| self.imports.get(name)) {
-                path = import
-                    .iter()
-                    .cloned()
-                    .chain(path.into_iter().skip(1))
-                    .collect();
-            }
-            let sleep = path == ["std", "thread", "sleep"]
-                || path == ["thread", "sleep"]
-                || path == ["tokio", "time", "sleep"];
-            let clock = path.len() >= 2
-                && path.last().is_some_and(|name| name == "now")
-                && matches!(path[path.len() - 2].as_str(), "Instant" | "SystemTime");
-            if sleep || clock {
-                self.calls
-                    .push((call.span().start().line, self.in_test, sleep));
-            }
+            self.record_call(path, call.span());
         }
         syn::visit::visit_expr_call(self, call);
     }
@@ -554,6 +602,75 @@ fn live() {
             .into_iter()
             .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_attributes_set_scope_without_cfg() {
+        let found = diagnostics(&[(
+            "crates/a/src/lib.rs",
+            "#[test] fn sync() { Instant::now(); thread::sleep(Duration::ZERO); }\n#[tokio::test] async fn asynchronous() { SystemTime::now(); tokio::time::sleep(Duration::ZERO).await; }\n#[custom::test(option)] fn custom() { Instant::now(); std::thread::sleep(Duration::ZERO); }\n#[custom::testing] fn other_attribute() { Instant::now(); }\nfn live() { SystemTime::now(); }",
+        )]);
+        assert_eq!(
+            found,
+            [
+                format!("crates/a/src/lib.rs:1: {SLEEP_HELP}"),
+                format!("crates/a/src/lib.rs:2: {SLEEP_HELP}"),
+                format!("crates/a/src/lib.rs:3: {SLEEP_HELP}"),
+                format!("crates/a/src/lib.rs:4: {CLOCK_HELP}"),
+                format!("crates/a/src/lib.rs:5: {CLOCK_HELP}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn macro_arguments_reject_production_clocks() {
+        let found = diagnostics(&[(
+            "crates/a/src/lib.rs",
+            r#"use std::time::Instant as Clock;
+fn live() {
+    format!("{:?}", Instant::now());
+    outer!({ [nested!(SystemTime::now())] });
+    format!("{:?}", Clock::now());
+    outer!("Instant::now() thread::sleep()", Instant::now);
+    format!("{:?}", thread::sleep(Duration::ZERO));
+}
+#[cfg(test)] fn helper() { format!("{:?}", Instant::now()); }
+"#,
+        )]);
+        assert_eq!(
+            found,
+            (3..=5)
+                .map(|line| format!("crates/a/src/lib.rs:{line}: {CLOCK_HELP}"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn macro_arguments_reject_test_sleeps() {
+        let found = diagnostics(&[(
+            "crates/a/src/lib.rs",
+            r#"#[cfg(test)] mod checks {
+    use std::thread::sleep;
+    use tokio::time;
+    use tokio::time::sleep as pause;
+    async fn helper() {
+        assert_eq!(sleep(Duration::ZERO), ());
+        outer!({ [thread::sleep(Duration::ZERO)] });
+        assert!(tokio::time::sleep(Duration::ZERO).await);
+        assert!(time::sleep(Duration::ZERO).await);
+        assert!(pause(Duration::ZERO).await);
+        outer!("thread::sleep()", thread::sleep);
+        // assert!(thread::sleep(Duration::ZERO));
+        { use other::sleep; assert_eq!(sleep(), ()); }
+    }
+}
+"#,
+        )]);
+        let mut expected: Vec<_> = (6..=10)
+            .map(|line| format!("crates/a/src/lib.rs:{line}: {SLEEP_HELP}"))
+            .collect();
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     #[test]

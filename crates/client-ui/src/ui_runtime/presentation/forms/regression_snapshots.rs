@@ -176,13 +176,12 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
             .unwrap();
         let engine = presentation.form_presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
-        let resident = [
+        [
             "textures/ui/common/dark_field",
             "textures/ui/common/buttons/green/default",
         ]
         .iter()
-        .all(|key| atlas.placement(key).is_some());
-        resident
+        .all(|key| atlas.placement(key).is_some())
     });
     presentation.finish_menu_artwork();
     let settled = presentation
