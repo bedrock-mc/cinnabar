@@ -65,7 +65,7 @@ fn slow_inbox_report_does_not_block_join_polling() {
             }
         }
     });
-    let mut account = LauncherAccount::new(dir.clone());
+    let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
     account.set_joining(true);
     account.report_message(MessageEvent {
         event_type: "Delete".into(),

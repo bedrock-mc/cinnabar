@@ -590,12 +590,18 @@ pub(super) fn mip_layer(compiled: &CompiledAssets, mip_index: usize, layer: u32)
 
 pub(super) fn alpha_survivors(rgba: &[u8]) -> usize {
     assert_eq!(rgba.len() % 4, 0);
-    rgba.chunks_exact(4).filter(|pixel| pixel[3] >= 128).count()
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] >= 128)
+        .count()
 }
 
 pub(super) fn scaled_survivors(raw_rgba: &[u8], scale: u32) -> usize {
     raw_rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| {
             let alpha = ((u32::from(pixel[3]) * scale + 0x8000) >> 16).min(255) as u8;
             alpha >= 128
@@ -607,7 +613,7 @@ pub(super) fn reference_nearest_scale(raw_rgba: &[u8], target: usize) -> u32 {
     const SCALE_MAX: u32 = 16 << 16;
     const SURVIVOR_NUMERATOR: u32 = (128 << 16) - 0x8000;
     let mut candidates = vec![0];
-    for alpha in raw_rgba.chunks_exact(4).map(|pixel| pixel[3]) {
+    for alpha in raw_rgba.as_chunks::<4>().0.iter().map(|pixel| pixel[3]) {
         if alpha == 0 {
             continue;
         }

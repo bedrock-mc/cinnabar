@@ -3,7 +3,7 @@ use assets::{BlockEntityPlacement, RuntimeBlockEntityAssets, encode_block_entity
 use bevy::math::Vec3;
 
 fn assert_outward_winding(vertices: &[super::super::mesh::BlockEntityVertex]) {
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         let [a, b, c] =
             std::array::from_fn::<_, 3, _>(|index| Vec3::from_array(triangle[index].position));
         let encoded = triangle[0].color;
@@ -53,7 +53,7 @@ fn portal_surface_uses_all_seventeen_coplanar_native_layers_and_byte_depths() {
     let phases = [
         255, 239, 223, 207, 191, 175, 159, 143, 127, 111, 95, 79, 63, 47, 31, 15, 0,
     ];
-    for (layer, quad) in builder.portal.chunks_exact(6).enumerate() {
+    for (layer, quad) in builder.portal.as_chunks::<6>().0.iter().enumerate() {
         assert!(quad.iter().all(|vertex| vertex.position[1] == -2.25));
         for vertex in quad {
             assert_eq!(
@@ -89,7 +89,7 @@ fn gateway_surface_has_six_full_cube_planes_without_flat_texture_or_lighting() {
     emit(&mut builder, &atlas, [2, 3, 4], true, SceneClock::default());
     assert_eq!(builder.portal.len(), 17 * 6 * 6);
     assert_outward_winding(&builder.portal);
-    for (layer, faces) in builder.portal.chunks_exact(6 * 6).enumerate() {
+    for (layer, faces) in builder.portal.as_chunks::<{ 6 * 6 }>().0.iter().enumerate() {
         let expected = [
             [127, 255, 127],
             [127, 0, 127],
@@ -98,7 +98,7 @@ fn gateway_surface_has_six_full_cube_planes_without_flat_texture_or_lighting() {
             [127, 127, 0],
             [127, 127, 255],
         ];
-        for (quad, normal) in faces.chunks_exact(6).zip(expected) {
+        for (quad, normal) in faces.as_chunks::<6>().0.iter().zip(expected) {
             for vertex in quad {
                 assert_eq!(vertex.color[..3], normal.map(|value| value as f32 / 255.0));
                 assert_eq!(vertex.color[3], layer_phase(layer));

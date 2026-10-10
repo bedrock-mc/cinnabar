@@ -162,7 +162,12 @@ fn minified_dropped_item_transparent_texels_leave_colour_and_depth_uncovered() {
                 "nonzero mip alpha still produces partial coverage"
             );
         } else {
-            assert!(four.chunks_exact(4).all(|pixel| pixel[..3] == [0, 255, 0]));
+            assert!(
+                four.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[..3] == [0, 255, 0])
+            );
         }
     }
 }

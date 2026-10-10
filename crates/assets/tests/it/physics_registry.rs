@@ -240,7 +240,9 @@ fn committed_protocol_2193_artifact_decodes_against_its_own_breg() {
     for (index, byte) in PREG_V2193_SHA256_HEX
         .trim()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
     {
         pinned[index] = u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 16).unwrap();

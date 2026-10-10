@@ -41,7 +41,7 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&materials) {
         template
     } else {
-        let mut sections = STEPS.chunks_exact(STEPS.len() / 2);
+        let mut sections = STEPS.as_chunks::<{ STEPS.len() / 2 }>().0.iter();
         let mut emit = |sections: &[([i16; 3], [i16; 3])], flags| {
             push_model_template(
                 sections

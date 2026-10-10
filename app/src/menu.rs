@@ -10,6 +10,7 @@ mod account;
 mod account_control;
 mod accounts;
 pub(crate) mod auth;
+mod catalog_art;
 mod construction;
 pub(crate) mod core_process;
 mod death;
@@ -154,6 +155,7 @@ pub(crate) struct MenuRuntime {
     catalog_started: bool,
     catalog_path: PathBuf,
     catalog_process: Option<crate::lifecycle::children::Spawned>,
+    catalog_art: Option<catalog_art::CatalogArt>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,

@@ -12,14 +12,22 @@ modifier when that modifier is absent or present. The sprint modifier has UUID
 shared simulator sprint multiplier. Server metadata adopts the flag without
 installing a local modifier.
 
-Cinnabar now retains effective current and the identified packet modifier factor.
-An incoming attribute replaces any locally predicted modifier, including when its
-modifier list is empty. Local sprint edges add or remove only an installed sprint
-modifier; repeated sprint requests cannot boost an effective server value again.
-The simulator's pre-sprint input is adapted using its shared multiplier exactly
-once. Custom Speed values are never inferred from the attribute's default.
-Retained attribute corrections replay actual subsequent sprint transitions, and
-authoritative flag rewrites preserve current rather than inventing a local edge.
+Cinnabar retains effective current, the packet default, and the result of the
+other movement modifiers. An incoming attribute replaces any locally predicted
+sprint modifier, including when its modifier list is empty. An unchanged sprint
+flag leaves current alone. Starting sprint adds its modifier only when absent;
+stopping removes it only when present. Each modifier change recalculates speed
+from defaults and the remaining modifiers, within the attribute bounds. It does
+not multiply or divide the previous effective current.
+
+For example, a resend with current `0.13`, default `0.1`, and no modifiers keeps
+current `0.13` through a sprint stop, because no modifier exists to remove.
+Restarting sprint recalculates `0.1 * 1.3`, keeping the ordinary FOV multiplier at
+`1.28`. Multiplying the resent current instead would produce speed `0.169` and
+FOV multiplier `1.514`. Repeated resends and restarts must not compound speed.
+The simulator's pre-sprint input is adapted using its shared multiplier once.
+Retained corrections replay the same attribute recalculation through subsequent
+sprint transitions; authoritative flag rewrites preserve current.
 
 The Zeno witness had current `0.1` when walking, `0.13` when sprinting, and empty
 modifier lists for both. Before this correction it moved at 4.3173 and 7.2959

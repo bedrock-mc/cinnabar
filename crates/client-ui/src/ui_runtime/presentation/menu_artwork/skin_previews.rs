@@ -294,7 +294,14 @@ mod tests {
             .values()
             .next()
             .expect("skin raster is cached");
-        assert!(artwork.pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(
+            artwork
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] > 0)
+        );
         let mut changed = set.clone();
         changed.skins[0].skin.rgba8 = vec![100; 64 * 64 * 4].into();
         assert!(!set.same(&changed));

@@ -152,6 +152,10 @@ pub(in crate::compiler) fn farmland_source_alpha_is_exact(root: &Path, pack: &Pa
         let Ok(rgba8) = decode_static_texture(&path, key) else {
             return false;
         };
-        rgba8.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX)
+        rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == u8::MAX)
     })
 }

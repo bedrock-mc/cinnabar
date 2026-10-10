@@ -302,7 +302,14 @@ mod tests {
         let wide = render_skin_thumbnail(&skin(4.0)).unwrap();
         let slim = render_skin_thumbnail(&skin(3.0)).unwrap();
         assert!(wide != slim, "the selected model changes the rendered arms");
-        let opaque = |image: &[u8]| image.chunks_exact(4).filter(|pixel| pixel[3] != 0).count();
+        let opaque = |image: &[u8]| {
+            image
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel[3] != 0)
+                .count()
+        };
         assert!(opaque(&slim) < opaque(&wide));
     }
 

@@ -117,12 +117,16 @@ fn template_words() -> Vec<u32> {
         let positions: [i16; 12] = [0, 0, 128, 256, 0, 128, 256, 512, 128, 0, 512, 128];
         words.extend(
             positions
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0] as u16) | (u32::from(pair[1] as u16) << 16)),
         );
         let uvs: [u16; 8] = [0, 4096, 4096, 4096, 4096, 0, 0, 0];
         words.extend(
-            uvs.chunks_exact(2)
+            uvs.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0]) | (u32::from(pair[1]) << 16)),
         );
         words.extend([
@@ -453,8 +457,10 @@ fn model_tint_pixels_match_fragment_biome_reference() {
                 let actual = raster(&gpu, &candidate, "raster_model_vertex", &draws);
                 // The flat vertex tint and the per-fragment reference may round one unit apart.
                 let mismatch = expected
-                    .chunks_exact(4)
-                    .zip(actual.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(actual.as_chunks::<4>().0.iter())
                     .filter(|(left, right)| {
                         left.iter().zip(*right).any(|(l, r)| l.abs_diff(*r) > 1)
                     })

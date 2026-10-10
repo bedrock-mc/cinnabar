@@ -194,7 +194,9 @@ fn template_words() -> Vec<u32> {
     let positions: [i16; 12] = [128, 0, 128, 128, 0, 176, 128, 256, 176, 128, 256, 128];
     words.extend(
         positions
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u32::from(p[0] as u16) | u32::from(p[1] as u16) << 16),
     );
     words.extend([0; 4]);

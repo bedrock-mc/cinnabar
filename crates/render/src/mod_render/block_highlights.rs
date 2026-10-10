@@ -45,7 +45,7 @@ mod tests {
         let position = [-17, 23, 91];
         let vertices = build(&[position], PINK);
         assert_eq!(vertices.len(), VERTICES_PER_BLOCK);
-        for face in vertices.chunks_exact(6) {
+        for face in vertices.as_chunks::<6>().0 {
             let points: Vec<_> = face
                 .iter()
                 .map(|v| Vec3::from_array(v.anchor[..3].try_into().unwrap()))

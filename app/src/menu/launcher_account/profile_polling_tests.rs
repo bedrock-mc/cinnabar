@@ -55,7 +55,7 @@ fn profile_with_stalled_home(fail: bool) -> Option<MenuProfile> {
             }
         }
     });
-    let mut account = LauncherAccount::new(dir.clone());
+    let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
     account.refresh_profile();
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut profile = None;
@@ -150,7 +150,7 @@ fn profile_loading_restarts_for_new_account_and_rejects_old_reply() {
 #[test]
 fn profile_loading_ends_when_endpoint_is_missing() {
     let dir = std::env::temp_dir().join(format!("profile-missing-{}", std::process::id()));
-    let mut account = LauncherAccount::new(dir);
+    let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut profile = None;
     while Instant::now() < deadline {

@@ -31,6 +31,7 @@ use launcher::menu::{
 #[cfg(test)]
 mod home_promo;
 
+mod artwork;
 mod feeds;
 use feeds::{CoreFeeds, catalog_round};
 mod invites;
@@ -54,6 +55,8 @@ const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
 const FEED_INTERVAL: Duration = Duration::from_secs(30);
 /// How soon a feed that failed is asked again.
 const FEED_RETRY: Duration = Duration::from_secs(15);
+/// The longest one feed waits for its artwork downloads, as the core bounded a refresh.
+pub(super) const ARTWORK_BUDGET: Duration = Duration::from_secs(40);
 /// How often shown server rows are pinged.
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -148,25 +151,30 @@ pub(crate) struct LauncherAccount {
 }
 
 impl LauncherAccount {
-    /// Start polling the control endpoint under `socket_dir`; the workers stop
-    /// when this is dropped. Events, the slow catalog and the screen feeds each
-    /// poll on their own worker, publishing every answer as it arrives.
-    pub(crate) fn new(socket_dir: PathBuf) -> Self {
+    /// Start polling the control endpoint under `socket_dir`, caching artwork under `artwork`;
+    /// the workers stop when this is dropped. Events, the slow catalog and the screen feeds
+    /// each poll on their own worker, publishing every answer as it arrives.
+    pub(crate) fn new(socket_dir: PathBuf, artwork: PathBuf) -> Self {
         let (catalog_wake, catalog_changes) = bounded(1);
         let (feed_wake, feed_changes) = bounded(1);
         let (home_wake, home_changes) = bounded(1);
         let (profile_refresh, profile_requests) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
             catalog_wake: Some(catalog_wake),
-            feed_wake: Some(feed_wake),
-            home_wake: Some(home_wake),
+            feed_wake: Some(feed_wake.clone()),
+            home_wake: Some(home_wake.clone()),
             profile_wake: Some(profile_refresh.clone()),
             ..Default::default()
         }));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
-        let invites = invites::start(socket_dir.clone(), Arc::clone(&snapshot), stop.clone());
+        let invites = invites::start(
+            socket_dir.clone(),
+            artwork.clone(),
+            Arc::clone(&snapshot),
+            stop.clone(),
+        );
         let realm_membership = realm_membership::start(socket_dir.clone(), Arc::clone(&snapshot));
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
@@ -174,11 +182,17 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || feeds::poll_featured(&dir, &shared, &until, &feed_changes));
+        let (art, wake) = (artwork.clone(), feed_wake.clone());
+        thread::spawn(move || {
+            feeds::poll_featured(&dir, &art, wake, &shared, &until, &feed_changes)
+        });
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || feeds::poll_home(&dir, &shared, &until, &home_changes));
+        let (art, wake) = (artwork.clone(), home_wake.clone());
+        thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
-        thread::spawn(move || profile_worker::poll(&dir, &shared, &stop, &profile_requests));
+        thread::spawn(move || {
+            profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)
+        });
         Self {
             snapshot,
             sign_out,
@@ -366,7 +380,11 @@ fn poll_catalog(
                 .map(|_| snapshot.auth_generation)
         };
         if let Some(generation) = generation {
-            runtime.block_on(catalog_round(&CoreFeeds(socket_dir), shared, generation));
+            let feeds = CoreFeeds {
+                socket_dir,
+                art: None,
+            };
+            runtime.block_on(catalog_round(&feeds, shared, generation));
         }
         if !wait_catalog(stop, changes) {
             return;

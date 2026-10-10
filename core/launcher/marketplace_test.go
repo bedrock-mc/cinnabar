@@ -43,7 +43,6 @@ func TestRetainedMarketplaceRejectsEndedAccountLifetime(t *testing.T) {
 				"balances":     func() error { _, err := market.Balances(ctx); return err },
 				"entitlements": func() error { _, err := market.Entitlements(ctx, 0, 0, false); return err },
 				"more offers":  func() error { _, err := market.MoreOffers(ctx, ""); return err },
-				"image":        func() error { _, err := market.Image(ctx, ""); return err },
 				"purchase":     func() error { _, err := market.Purchase(ctx, store.PurchaseRequest{}); return err },
 			}
 			for name, call := range calls {

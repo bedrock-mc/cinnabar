@@ -693,7 +693,11 @@ fn compile_runtime_animation_plan(
             Err(_) if fallback_only => continue,
             Err(error) => return Err(error),
         };
-        let has_alpha = rgba8.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX);
+        let has_alpha = rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != u8::MAX);
         let supports_alpha = descriptor_keys
             .keys()
             .filter(|candidate| candidate.path == source_path)
@@ -719,7 +723,9 @@ fn compile_runtime_animation_plan(
         let decoded = decode_texture(&path, &source_path)?;
         if decoded
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] != u8::MAX)
         {
             alpha_paths.insert(source_path.clone());

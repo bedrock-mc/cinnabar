@@ -377,12 +377,16 @@ fn spatial_smaa_preserves_texels_and_filters_depth_silhouettes() {
         let checker_off = pixels(&mut app, &image);
         assert!(
             checker_off
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[0] > 240 && pixel[1] < 10)
         );
         assert!(
             checker_off
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[1] > 240 && pixel[0] < 10)
         );
         app.world_mut().entity_mut(camera).insert(Smaa::default());
@@ -424,8 +428,10 @@ fn spatial_smaa_preserves_texels_and_filters_depth_silhouettes() {
         capture("silhouette-off", msaa.samples(), &silhouette_off);
         capture("silhouette-smaa", msaa.samples(), &silhouette_on);
         let changed = silhouette_off
-            .chunks_exact(4)
-            .zip(silhouette_on.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(silhouette_on.as_chunks::<4>().0.iter())
             .filter(|(before, after)| before != after)
             .count();
         assert!(
@@ -435,7 +441,9 @@ fn spatial_smaa_preserves_texels_and_filters_depth_silhouettes() {
         );
         assert!(
             silhouette_on
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[0] > 0 && pixel[0] < 255),
             "SMAA silhouette lacks intermediate coverage"
         );

@@ -285,6 +285,8 @@
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
   The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Sprint transitions recalculate movement speed from attribute defaults and other
+  modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
@@ -5849,7 +5851,7 @@ first-run experience.
 **Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
 AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, local crash
 records (never uploaded), signed-manifest update checks, and the core log/backoff helpers are in
-`app/src/{first_run,lifecycle}` and `core/update`. Unverified until compiled and run on a clean machine: every
+`app/src/{first_run,lifecycle}` and `crates/update-manifest`. Unverified until compiled and run on a clean machine: every
 recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).

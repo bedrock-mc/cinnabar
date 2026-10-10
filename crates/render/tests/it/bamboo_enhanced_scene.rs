@@ -370,8 +370,10 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     save("bamboo-enhanced-front", &first);
     assert!(
         first
-            .chunks_exact(4)
-            .zip(empty.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(empty.as_chunks::<4>().0.iter())
             .filter(|(a, b)| a != b)
             .count()
             > 100

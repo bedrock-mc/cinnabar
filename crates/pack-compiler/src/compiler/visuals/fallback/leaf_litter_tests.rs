@@ -53,7 +53,7 @@ fn current_registry_leaf_litter_takes_dry_foliage_tint_on_its_fallback_envelope(
     .unwrap();
     for (name, alpha) in [("leaf_litter", 0), ("stone", 255)] {
         let mut rgba = [160; 16 * 16 * 4];
-        for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             pixel[3] = if index % 2 == 0 { 255 } else { alpha };
         }
         let mut png = Vec::new();

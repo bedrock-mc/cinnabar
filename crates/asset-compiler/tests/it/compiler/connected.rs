@@ -140,7 +140,7 @@ fn compiler_routes_all_generated_wall_connections_to_exact_compact_cuboids() {
         assert_eq!(template.quad_count as usize, expected.len() * 6);
         assert!(template.quad_count <= 30);
         let quads = compiled_model_quads(&compiled, id);
-        for (cuboid, bounds) in quads.chunks_exact(6).zip(expected) {
+        for (cuboid, bounds) in quads.as_chunks::<6>().0.iter().zip(expected) {
             assert_eq!(model_bounds(cuboid), bounds, "{}", record.canonical_state);
             for (face, quad) in cuboid.iter().enumerate() {
                 assert_eq!(quad.material, visual.faces[face]);
@@ -327,7 +327,10 @@ fn compiler_emits_bounded_seventeen_template_fence_groups_by_connection_class() 
             assert_eq!(arms.flags, expected_flag, "id={id} mask={mask:#06b}");
             assert_eq!(arms.quad_count, mask.count_ones() * 8);
             assert!(arms.quad_count <= 32);
-            for rail in template_quads(&compiled, base + 1 + mask).chunks_exact(4) {
+            for rail in template_quads(&compiled, base + 1 + mask)
+                .as_chunks::<4>()
+                .0
+            {
                 let (min, max) = model_bounds(rail);
                 assert!(matches!((min[1], max[1]), (96, 144) | (192, 240)));
             }

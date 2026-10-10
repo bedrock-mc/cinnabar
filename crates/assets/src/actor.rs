@@ -342,7 +342,9 @@ fn validate(
                 && !dissolve_masks.contains(&texture.source)
                 && texture
                     .rgba8
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|pixel| !matches!(pixel[3], 0 | 255)))
             || !seen_sources.insert(texture.source)
         {

@@ -160,7 +160,13 @@ fn production_cloud_box_culls_hidden_faces_at_each_angle_and_preserves_target_al
         let culled = draw(&gpu, &all, eye, Some(wgpu::Face::Back), false);
         let expected = draw(&gpu, &facing, eye, Some(wgpu::Face::Back), false);
         assert_eq!(culled, expected, "{label}: hidden face contributed pixels");
-        assert!(culled.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(
+            culled
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         let unculled = draw(&gpu, &all, eye, None, false);
         assert_ne!(culled, unculled, "{label}: culling was not exercised");
         // Writing a fixture surface once followed by the identical production

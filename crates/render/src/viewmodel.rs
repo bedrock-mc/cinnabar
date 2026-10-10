@@ -80,7 +80,9 @@ impl ViewmodelSkin {
         (identity != [0; 32]
             && rgba8.len() == VIEWMODEL_TEXTURE_BYTES
             && rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| matches!(pixel[3], 0 | 255)))
         .then_some(Self { rgba8, identity })
     }
@@ -247,7 +249,7 @@ impl ViewmodelScene {
                 self.clear(gate);
                 return false;
             };
-            for (quad, values) in indices.chunks_exact(6).enumerate() {
+            for (quad, values) in indices.as_chunks::<6>().0.iter().enumerate() {
                 if values[0] != values[3] || values[2] != values[4] {
                     continue;
                 }

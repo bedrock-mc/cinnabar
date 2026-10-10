@@ -338,6 +338,14 @@ impl EquipmentRuntime {
         let mut layers = std::mem::take(&mut self.layers);
         layers.clear();
         self.fill_layers(body, input, animation, &mut layers);
+        if input.java.is_some() {
+            // The Java animation option includes worn equipment in the body's hurt flash.
+            for layer in &mut layers {
+                if layer.submission.input.identity.layer >= LAYER_HELMET {
+                    layer.submission.overlay_rgba8 = body.overlay_rgba8;
+                }
+            }
+        }
         self.layers = layers;
         &mut self.layers
     }
@@ -423,10 +431,7 @@ impl EquipmentRuntime {
                         None,
                     )
                 });
-            if let Some(mut animated) = animated {
-                if input.java.is_some() {
-                    animated.presentation.submission.overlay_rgba8 = 0;
-                }
+            if let Some(animated) = animated {
                 layers.push(animated.presentation);
                 continue;
             }
@@ -440,11 +445,6 @@ impl EquipmentRuntime {
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
-            } else if input.java.is_some() {
-                // Java draws held items after its red hurt flash.
-                for held in &mut layers[before..] {
-                    held.submission.overlay_rgba8 = 0;
-                }
             }
         }
         let slots = [
@@ -845,6 +845,7 @@ impl PoseMemo {
 }
 
 /// An equipment instance that shares `body`'s identity, transform, and generations.
+/// Keeps its own tint and the body's lighting without inheriting the body's hurt overlay.
 pub(super) fn layer_presentation(
     body: &ActorRigSubmission,
     layer: u8,
@@ -873,7 +874,7 @@ pub(super) fn layer_presentation(
             tint,
             uv_anim: render::IDENTITY_UV_ANIM,
             light: body.light,
-            overlay_rgba8: body.overlay_rgba8,
+            overlay_rgba8: 0,
         },
         location,
     }

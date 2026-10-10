@@ -294,7 +294,12 @@ fn cutout_mips_preserve_each_layer_coverage_without_cross_layer_bleed() {
                 reference_nearest_survivors(raw, target),
                 "coverage mismatch for record {record_id} mip {mip_index}"
             );
-            for (actual, raw) in actual.chunks_exact(4).zip(raw.chunks_exact(4)) {
+            for (actual, raw) in actual
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(raw.as_chunks::<4>().0.iter())
+            {
                 assert_eq!(&actual[..3], &raw[..3], "coverage scaling changed RGB");
                 let expected_alpha = if mip_index == 0 {
                     raw[3]
@@ -307,9 +312,9 @@ fn cutout_mips_preserve_each_layer_coverage_without_cross_layer_bleed() {
                 );
             }
             if record_id == 0 {
-                assert!(actual.chunks_exact(4).all(|pixel| pixel[2] == 0));
+                assert!(actual.as_chunks::<4>().0.iter().all(|pixel| pixel[2] == 0));
             } else if record_id == 1 {
-                assert!(actual.chunks_exact(4).all(|pixel| pixel[0] == 0));
+                assert!(actual.as_chunks::<4>().0.iter().all(|pixel| pixel[0] == 0));
             }
             if no_tie {
                 assert_eq!(alpha_survivors(raw), target, "no-tie fixture missed target");

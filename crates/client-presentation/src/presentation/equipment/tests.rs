@@ -121,7 +121,7 @@ fn tint_packs_rgb_into_abgr_with_the_enabled_alpha() {
 }
 
 #[test]
-fn equipment_layer_shares_the_body_identity_transform_and_generations() {
+fn equipment_layer_keeps_body_placement_without_its_hurt_overlay() {
     let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(&[EquipmentRaster {
         width: 2,
         height: 2,
@@ -180,7 +180,8 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     assert_eq!(submission.world_from_actor, body.world_from_actor);
     assert_eq!(submission.texture_layer, location.layer());
     assert_eq!(submission.tint, 0xff00_00ff);
-    assert_eq!(submission.overlay_rgba8, 0x6600_00ff);
+    assert_eq!(submission.overlay_rgba8, 0);
+    assert_eq!(body.overlay_rgba8, 0x6600_00ff);
 }
 
 #[test]
@@ -853,4 +854,81 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
         assert!((actual - expected).abs() < 1e-5, "{held:?} vs {expected:?}");
     }
     assert_eq!(layers[0].submission.overlay_rgba8, 0);
+}
+
+#[test]
+fn sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let mut body = player_body(&mut runtime);
+    body.overlay_rgba8 = 0x6600_00ff;
+    let item = WornItem {
+        identifier: Arc::from("test:gem"),
+        metadata: 0,
+        damage: None,
+        kind: HeldKind::Other,
+        dye_rgb: None,
+        enchanted: false,
+    };
+    let items = session_items(
+        vec![
+            ("test:gem", Default::default()),
+            (
+                "test:crown",
+                protocol::ItemComponents {
+                    wearable_slot: Some("slot.armor.head".into()),
+                    ..Default::default()
+                },
+            ),
+        ],
+        vec!["test:gem"],
+    );
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let input = ActorEquipmentInput {
+        main: Some(item.clone()),
+        off: Some(item.clone()),
+        armor: [
+            Some(WornItem {
+                identifier: Arc::from("test:crown"),
+                ..item.clone()
+            }),
+            None,
+            None,
+            None,
+        ],
+        ..Default::default()
+    };
+    let layers = runtime.layers_for(&body, &input, None);
+    assert_eq!(layers.len(), 3);
+    assert!(
+        layers
+            .iter()
+            .all(|layer| layer.submission.overlay_rgba8 == 0)
+    );
+    let main = runtime
+        .first_person_item(&body, &item, client_world::ItemAnimationState::default())
+        .unwrap();
+    let off = runtime.first_person_offhand(&body, &item).unwrap();
+    assert_eq!(main.presentation.submission.overlay_rgba8, 0);
+    assert_eq!(off.presentation.submission.overlay_rgba8, 0);
+    let arm = runtime
+        .mask_first_person(&body, FirstPersonArms::for_hands(None, None))
+        .unwrap();
+    assert_eq!(arm.overlay_rgba8, body.overlay_rgba8);
+    let java_input = ActorEquipmentInput {
+        java: Some(super::JavaGrip { blocking: false }),
+        ..input
+    };
+    let layers = runtime.layers_for(&body, &java_input, None);
+    assert_eq!(layers.len(), 3);
+    for layer in layers {
+        let expected = if layer.submission.input.identity.layer == super::display::LAYER_HELMET {
+            body.overlay_rgba8
+        } else {
+            0
+        };
+        assert_eq!(layer.submission.overlay_rgba8, expected);
+    }
 }

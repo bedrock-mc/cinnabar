@@ -76,7 +76,6 @@ pub mod play_flow_snapshots;
 pub mod play_screen;
 mod player_list;
 pub mod recipe_book;
-pub mod remote_images;
 pub mod scene_policy;
 pub mod server_pack;
 pub mod settings_account;

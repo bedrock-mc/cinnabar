@@ -41,7 +41,9 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
         // origin formula. Headers are checked separately, including shadows.
         let cards = input
             .vertices
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|quad| quad[0].color == [33, 42, 56, 252])
             .map(|quad| {
                 quad.iter().fold(
@@ -75,7 +77,9 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
             );
             let body: Vec<_> = input
                 .vertices
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|quad| {
                     let min_x = quad
                         .iter()
@@ -104,7 +108,9 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
             );
             let title_bottom = input
                 .vertices
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|quad| {
                     let min_x = quad
                         .iter()
@@ -139,7 +145,9 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
             );
             let text_and_shadow = input
                 .vertices
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|quad| {
                     let min_x = quad
                         .iter()
@@ -163,7 +171,9 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
             // before it. This catches the old two-row heading overlap directly.
             let header_bottom = input
                 .vertices
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|quad| {
                     let min_y = quad
                         .iter()
@@ -345,7 +355,9 @@ fn long_launcher_status_keeps_only_complete_rows_inside_a_narrow_safe_viewport()
 
     let text = &status[8..];
     let lowest_row_top = text
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| {
             quad.iter()
                 .map(|vertex| vertex.position[1])
