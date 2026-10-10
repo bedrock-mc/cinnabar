@@ -488,7 +488,7 @@ fn crafter_slots_toggle_through_their_buttons() {
         return;
     };
     let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_CRAFTER, 9);
-    runtime.screen_state_mut().crafter.observe(0b101, true, 0);
+    runtime.screen_state_mut().crafter.observe(0b101, Some(true), 0);
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
         presentation
