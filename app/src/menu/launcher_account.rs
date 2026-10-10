@@ -158,8 +158,8 @@ impl LauncherAccount {
         let (profile_refresh, profile_requests) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
             catalog_wake: Some(catalog_wake),
-            feed_wake: Some(feed_wake),
-            home_wake: Some(home_wake),
+            feed_wake: Some(feed_wake.clone()),
+            home_wake: Some(home_wake.clone()),
             profile_wake: Some(profile_refresh.clone()),
             ..Default::default()
         }));
@@ -179,11 +179,13 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        let art = artwork.clone();
-        thread::spawn(move || feeds::poll_featured(&dir, &art, &shared, &until, &feed_changes));
+        let (art, wake) = (artwork.clone(), feed_wake.clone());
+        thread::spawn(move || {
+            feeds::poll_featured(&dir, &art, wake, &shared, &until, &feed_changes)
+        });
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        let art = artwork.clone();
-        thread::spawn(move || feeds::poll_home(&dir, &art, &shared, &until, &home_changes));
+        let (art, wake) = (artwork.clone(), home_wake.clone());
+        thread::spawn(move || feeds::poll_home(&dir, &art, wake, &shared, &until, &home_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || {
             profile_worker::poll(&dir, &artwork, &shared, &stop, &profile_requests)
@@ -377,7 +379,7 @@ fn poll_catalog(
         if let Some(generation) = generation {
             let feeds = CoreFeeds {
                 socket_dir,
-                images: None,
+                art: None,
             };
             runtime.block_on(catalog_round(&feeds, shared, generation));
         }

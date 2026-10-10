@@ -2,11 +2,10 @@
 
 use std::{collections::HashSet, path::Path, sync::Mutex};
 
-use client_ui::remote_images::ImageDirectory;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use protocol::launcher_control::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
 
-use super::artwork;
+use super::artwork::{self, FeedArt};
 use super::{FEED_INTERVAL, FEED_RETRY, Snapshot, publish_account, settle};
 
 /// The launcher requests the menu workers make: the core in production, fakes in tests.
@@ -20,17 +19,18 @@ pub(super) trait FeedSource {
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError>;
 }
 
-/// The core's feeds; with `images`, Home and featured artwork is cached before they return.
+/// The core's feeds; with `art`, Home and featured artwork already on disk is filled in and the
+/// rest is queued, so a slow image host never delays a publish.
 pub(super) struct CoreFeeds<'a> {
     pub(super) socket_dir: &'a Path,
-    pub(super) images: Option<&'a ImageDirectory>,
+    pub(super) art: Option<&'a FeedArt>,
 }
 
 impl FeedSource for CoreFeeds<'_> {
     async fn home(&self) -> Result<Home, BridgeError> {
         let mut home = launcher_control::home(self.socket_dir).await?;
-        if let Some(images) = self.images {
-            artwork::fill(images, artwork::home_slots(&mut home)).await;
+        if let Some(art) = self.art {
+            art.fill_cached(artwork::home_slots(&mut home));
         }
         Ok(home)
     }
@@ -43,8 +43,8 @@ impl FeedSource for CoreFeeds<'_> {
         } else {
             launcher_control::list_featured_servers(self.socket_dir).await
         }?;
-        if let Some(images) = self.images {
-            artwork::fill(images, artwork::featured_slots(&mut servers)).await;
+        if let Some(art) = self.art {
+            art.fill_cached(artwork::featured_slots(&mut servers));
         }
         Ok(servers)
     }
@@ -60,6 +60,7 @@ impl FeedSource for CoreFeeds<'_> {
 pub(super) fn poll_featured(
     socket_dir: &Path,
     artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
@@ -67,10 +68,10 @@ pub(super) fn poll_featured(
     let Some(runtime) = super::runtime() else {
         return;
     };
-    let images = artwork::feed_images(artwork_dir);
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
     let feeds = CoreFeeds {
         socket_dir,
-        images: Some(&images),
+        art: Some(&art),
     };
     loop {
         while changes.try_recv().is_ok() {}
@@ -89,6 +90,7 @@ pub(super) fn poll_featured(
 pub(super) fn poll_home(
     socket_dir: &Path,
     artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
@@ -97,10 +99,10 @@ pub(super) fn poll_home(
         return;
     };
     let mut reported = HashSet::new();
-    let images = artwork::feed_images(artwork_dir);
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
     let feeds = CoreFeeds {
         socket_dir,
-        images: Some(&images),
+        art: Some(&art),
     };
     loop {
         while changes.try_recv().is_ok() {}
