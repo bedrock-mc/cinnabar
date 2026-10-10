@@ -483,7 +483,15 @@ impl EquipmentRuntime {
                     continue;
                 }
                 let before = layers.len();
-                self.push_armor(body, &bones, geometry, (slot, layer), item, layers);
+                self.push_armor(
+                    body,
+                    &bones,
+                    geometry,
+                    (slot, layer),
+                    item,
+                    (input, animation),
+                    layers,
+                );
                 if layers.len() == before {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }

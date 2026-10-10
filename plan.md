@@ -366,6 +366,15 @@
   running after the requested restart. Changes are local and uncommitted;
   nothing is pushed.
 
+## Worn server-pack armour textures
+
+- Worn armour from server packs runs its attachable scripts with the wearer as
+  `context.owning_entity` and draws the texture its render controller selects,
+  such as owner-driven team variants. Each worn slot keeps its own retained state.
+- Incomplete: worn armour still uses the binding's default geometry on remapped
+  body bones. Attachable animations and controller-selected geometry or
+  materials are not applied, and vanilla armour keeps its static binding.
+
 ## Server-pack actors and conditional forms
 
 - Captured CubeCraft definitions exposed rejected actor queries that discarded

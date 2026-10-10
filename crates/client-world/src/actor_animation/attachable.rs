@@ -4,10 +4,10 @@ use super::*;
 mod preview;
 pub(super) mod static_draw;
 use preview::Preview;
-type AttachableKey = (ActorLifetimeId, bool, bool, bool);
+type AttachableKey = (ActorLifetimeId, bool, bool, bool, u8);
 
-// Every hand, perspective and worn-state key fits for all admitted owners.
-const STATES_PER_OWNER: usize = 1 << 3;
+// Every hand, perspective, worn-state and worn-slot key fits for all admitted owners.
+const STATES_PER_OWNER: usize = 1 << 5;
 const MAX_ATTACHABLE_STATES: usize = crate::actor_store::MAX_TRACKED_ACTORS * STATES_PER_OWNER;
 
 /// Native item-render inputs; duration values are ticks, not the actor VM's seconds.
@@ -17,8 +17,10 @@ pub struct AttachableAnimationInput<'a> {
     /// Whether the owner belongs to the current game window.
     pub is_local_player: bool,
     pub off_hand: bool,
-    /// A chest-slot model has independent controller state from either held item.
+    /// A worn model has independent controller state from either held item.
     pub worn: bool,
+    /// Armour slot index of a worn model, so each worn piece keeps its own state.
+    pub worn_slot: u8,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     /// Elapsed render time for clip application; absent inputs use the actor timestep.
@@ -202,11 +204,12 @@ impl AttachablesRuntime {
             input.off_hand,
             input.first_person,
             input.worn,
+            if input.worn { input.worn_slot } else { 0 },
         );
         if self
             .states
             .first_key_value()
-            .is_some_and(|((actor, _, _, _), _)| actor.session_id != owner_rig.actor.session_id)
+            .is_some_and(|((actor, ..), _)| actor.session_id != owner_rig.actor.session_id)
         {
             self.states.clear();
             self.previewed.clear();
@@ -223,7 +226,7 @@ impl AttachablesRuntime {
             let mut stale = [None; STATES_PER_OWNER];
             for (slot, (&key, _)) in stale.iter_mut().zip(
                 self.states
-                    .range((first, false, false, false)..=(last, true, true, true)),
+                    .range((first, false, false, false, 0)..=(last, true, true, true, u8::MAX)),
             ) {
                 if key.0 != owner_rig.actor {
                     *slot = Some(key);
