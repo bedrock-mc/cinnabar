@@ -194,12 +194,16 @@ fn honors_binary_attributes_and_owned_art_without_allowing_executables() {
 }
 
 #[test]
-fn follows_private_globs_without_mistaking_local_definitions_for_forwarders() {
+fn follows_private_globs_and_rejects_uncertain_namespace_ownership() {
     for source in [
         "use other::*; pub use Thing;",
         "use other as alias; use alias::*; pub(crate) use Thing;",
         "mod facade { use other::*; pub use Thing; } pub use facade::Thing;",
         "mod facade { pub use other::Thing; } use facade::*; pub use Thing;",
+        "use std::fmt::*; pub fn Debug() {} pub use self::Debug as Exported;",
+        "mod local { pub fn Debug() {} } use local::Debug; use std::fmt::*; pub use Debug as Exported;",
+        "use std::mem::*; pub struct drop {} pub use self::drop as Exported;",
+        "use std::fmt::*; pub fn local_function() {} pub use self::local_function as Exported;",
     ] {
         let temp = tempfile::tempdir().unwrap();
         fixture(temp.path(), source, "");
@@ -208,7 +212,7 @@ fn follows_private_globs_without_mistaking_local_definitions_for_forwarders() {
     let temp = tempfile::tempdir().unwrap();
     fixture(
         temp.path(),
-        "use other::*; pub struct Thing; pub use self::Thing as Local;",
+        "use other::Unrelated; pub struct Thing; pub use self::Thing as Local;",
         "",
     );
     assert!(findings(temp.path()).is_empty());
@@ -276,10 +280,10 @@ fn resolves_forwarding_types_after_expanding_local_module_aliases() {
 }
 
 #[test]
-fn confirmed_local_glob_bindings_win_over_external_glob_guesses() {
+fn explicit_dependency_imports_do_not_taint_local_glob_exports() {
     for imports in [
-        "use std::fmt::*; use local::*;",
-        "use local::*; use std::fmt::*;",
+        "use std::fmt::Debug; use local::*;",
+        "use local::*; use std::fmt::Debug;",
     ] {
         for local in [
             "pub struct Thing;",
@@ -367,7 +371,7 @@ fn mutually_exclusive_external_imports_do_not_taint_local_exports() {
             #[cfg(feature = "external")] use other::Thing;
             #[cfg(not(feature = "external"))] use local::Thing;
             #[cfg(not(feature = "external"))] pub use self::Thing as Exported;"#,
-        r#"use other::*;
+        r#"use other::Unrelated;
             #[cfg(feature = "local")] pub struct Thing;
             #[cfg(not(feature = "local"))] pub struct Thing;
             pub use self::Thing as Exported;"#,
@@ -491,7 +495,7 @@ fn local_glob_modules_shadow_dependency_names() {
     for source in [
         "mod local { pub mod other { pub struct Thing; } } use local::*; pub use other::Thing;",
         "mod local { pub mod other { pub struct Thing; } } mod nested { use crate::local::*; pub use other::Thing; }",
-        "mod local { pub mod other { pub struct Thing; } } use std::fmt::*; use local::*; pub use other::Thing;",
+        "mod local { pub mod other { pub struct Thing; } } use std::fmt::Debug; use local::*; pub use other::Thing;",
     ] {
         let temp = tempfile::tempdir().unwrap();
         fixture(temp.path(), source, "");
@@ -546,10 +550,10 @@ fn inaccessible_glob_items_do_not_hide_external_exports() {
 #[test]
 fn accessible_local_glob_items_keep_their_owner() {
     for source in [
-        "mod local { pub(super) struct Arc; } use local::*; use std::fmt::*; pub(crate) use Arc as Exported;",
-        "mod local { pub(in crate) struct Arc; } use local::*; use std::fmt::*; pub(crate) use Arc as Exported;",
-        "mod local { pub enum Values { Arc } } use local::Values::*; use std::fmt::*; pub use Arc as Exported;",
-        "mod owned { pub struct Arc; } mod local { pub use crate::owned::Arc; } use local as alias; use alias::*; use std::fmt::*; pub use Arc as Exported;",
+        "mod local { pub(super) struct Arc; } use local::*; use std::fmt::Debug; pub(crate) use Arc as Exported;",
+        "mod local { pub(in crate) struct Arc; } use local::*; use std::fmt::Debug; pub(crate) use Arc as Exported;",
+        "mod local { pub enum Values { Arc } } use local::Values::*; use std::fmt::Debug; pub use Arc as Exported;",
+        "mod owned { pub struct Arc; } mod local { pub use crate::owned::Arc; } use local as alias; use alias::*; use std::fmt::Debug; pub use Arc as Exported;",
         "mod parent { struct Arc; mod child { use super::*; pub(super) use Arc as Exported; } }",
     ] {
         let temp = tempfile::tempdir().unwrap();

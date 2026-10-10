@@ -2,15 +2,30 @@
 //! over the scene, reusing the actor rig's packed buffers with a hand-local view and lighting.
 //! The rendered content is the player's own skin on the standard samples player geometry.
 use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
+#[cfg(test)]
+use bevy::prelude::{Entity, GlobalTransform, UVec4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, graph::Core3d},
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Handle, IntoScheduleConfigs, Mat4, Msaa, Plugin, Query, Res,
+        ResMut, Resource, Result, Shader, Vec3, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
-        render_resource::*,
+        render_resource::{
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
+            BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Texture, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewDimension, VertexState,
+        },
         renderer::{RenderDevice, RenderQueue},
         view::{ExtractedView, ViewTarget},
     },

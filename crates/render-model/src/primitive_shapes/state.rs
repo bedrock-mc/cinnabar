@@ -1,7 +1,11 @@
 //! Packet patches become immutable GPU instance values only when a field changes.
 
 use glam::{Mat4, Quat, Vec3};
-use render_api::primitive_shapes::*;
+use render_api::primitive_shapes::{
+    PRIMITIVE_ALL_DIMENSIONS, PRIMITIVE_DEFAULT_ARROW_SEGMENTS, PRIMITIVE_DEFAULT_SEGMENTS,
+    PRIMITIVE_MAX_ARROW_SEGMENTS, PRIMITIVE_MIN_ARROW_SEGMENTS, PrimitiveShapeData,
+    PrimitiveShapeKind, PrimitiveShapeUpdate, PrimitiveText,
+};
 
 /// Shared geometry is selected by kind and the server's segment count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -8,7 +8,9 @@ use crate::{
     server_position::resolve_server_position,
 };
 use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets};
-use protocol::*;
+use protocol::{
+    BiomeDefinitionEvent, DimensionRange, MovePlayerEvent, PrimitiveShapesEvent, WorldBootstrap,
+};
 use std::{
     collections::BTreeSet,
     collections::VecDeque,

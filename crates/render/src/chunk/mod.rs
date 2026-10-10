@@ -14,6 +14,11 @@ use assets::{
 };
 #[cfg(any(test, feature = "publication-test-support"))]
 use bevy::render::renderer::RenderInstance;
+#[cfg(test)]
+use bevy::prelude::{
+    Assets, Camera, Fixed, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4,
+    Vec3A,
+};
 use bevy::{
     asset::{AssetId, load_internal_asset},
     camera::visibility::{self, VisibilityClass},
@@ -26,7 +31,13 @@ use bevy::{
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
-    prelude::*,
+    prelude::{
+        App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
+        FromWorld, GlobalTransform, Handle, Has, InheritedVisibility, IntoScheduleConfigs, Last,
+        Local, Mat4, Msaa, ParamSet, Plugin, Query, RemovedComponents, Res, ResMut, Resource,
+        Result, Schedule, SubApp, SystemSet, Time, Transform, Update, Vec3, Visibility, With,
+        World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,

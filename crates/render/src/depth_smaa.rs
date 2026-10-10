@@ -6,16 +6,34 @@ mod pipelines;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use bevy::prelude::{
+    AssetApp, Camera, Image, IntoSystem, MinimalPlugins, Mut, Transform, TransformPlugin,
+};
+#[cfg(test)]
+use bevy::render::render_resource::{BufferUsages, Extent3d, TextureUsages};
 use bevy::{
     anti_alias::smaa::{Smaa, SmaaPlugin, SmaaTextures},
     asset::load_internal_asset,
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::system::RunSystemOnce,
-    prelude::*,
+    prelude::{
+        App, AssetServer, BevyError, Camera3d, Commands, Component, Entity, Handle,
+        IntoScheduleConfigs, Local, Msaa, Plugin, Query, QueryState, Res, ResMut, Resource, Result,
+        Shader, With, Without, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
-        render_resource::*,
+        render_resource::{
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            BindGroupLayoutEntry, BindingType, BufferId, CachedRenderPipelineId, ColorTargetState,
+            ColorWrites, CompareFunction, DepthStencilState, FragmentState, LoadOp, Operations,
+            PipelineCache, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
+            RenderPassDescriptor, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
+            StencilFaceState, StencilOperation, StencilState, StoreOp, TextureFormat,
+            TextureSampleType, TextureViewDimension, TextureViewId, VertexState,
+        },
         renderer::RenderDevice,
         view::{ViewDepthTexture, ViewTarget},
     },

@@ -119,7 +119,7 @@ pub(super) fn check_reexports(
                 });
                 if !allowed && let Some(target) = external_target(export, &symbols) {
                     diagnostics.push(format!(
-                        "{}: cross-crate re-export `{}` is forbidden; import from `{}` directly",
+                        "{}: cross-crate or unresolved glob re-export `{}` is forbidden (candidate owner `{}`); use explicit imports",
                         export.file,
                         export.name,
                         target.join("::")
@@ -645,6 +645,15 @@ fn resolve(
     for length in (2..=absolute.len()).rev() {
         let prefix = absolute[..length].to_vec();
         if let Some(imports) = symbols.imports.get(&prefix) {
+            if length == absolute.len() && !seen.contains(&prefix) {
+                let mut glob_seen = seen.clone();
+                glob_seen.insert(prefix.clone());
+                let from_globs =
+                    resolve_globs(absolute.clone(), symbols, &mut glob_seen, configuration)?;
+                if from_globs.first().is_some_and(|name| name != "crate") {
+                    return Ok(from_globs);
+                }
+            }
             if seen.insert(prefix) {
                 let mut local = None;
                 for import in imports {
@@ -679,7 +688,7 @@ fn resolve(
     resolve_globs(absolute, symbols, seen, configuration)
 }
 
-/// Resolves names supplied by private globs while preserving explicit local definitions.
+/// Rejects uncertain namespace ownership instead of guessing what external globs contain.
 fn resolve_globs(
     absolute: Name,
     symbols: &Symbols,
@@ -691,15 +700,12 @@ fn resolve_globs(
     }
     for index in 1..absolute.len() {
         let binding = &absolute[..=index];
-        if active_name(&symbols.definitions, binding, configuration)? {
-            return Ok(absolute);
-        }
-        if active_name(&symbols.modules, binding, configuration)? {
+        if index + 1 < absolute.len() && active_name(&symbols.modules, binding, configuration)? {
             continue;
         }
         let module = &absolute[..index];
         if let Some(globs) = symbols.globs.get(module) {
-            let mut external = None;
+            let mut local = None;
             for glob in globs {
                 if !glob.condition.enabled(configuration)? {
                     continue;
@@ -735,13 +741,13 @@ fn resolve_globs(
                 }
                 let resolved = resolve(module, &target, symbols, &mut branch_seen, configuration)?;
                 if resolved.first().is_some_and(|name| name != "crate") {
-                    external.get_or_insert(resolved);
-                } else if known_local(&resolved, symbols, configuration)? {
                     return Ok(resolved);
+                } else if known_local(&resolved, symbols, configuration)? {
+                    local.get_or_insert(resolved);
                 }
             }
-            if let Some(external) = external {
-                return Ok(external);
+            if let Some(local) = local {
+                return Ok(local);
             }
         }
         break;

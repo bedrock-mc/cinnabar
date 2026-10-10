@@ -9,8 +9,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+use bevy::prelude::Messages;
 use bevy::{
-    prelude::*,
+    prelude::{
+        App, AppExit, ButtonInput, Commands, Image, IntoScheduleConfigs, KeyCode, Last,
+        MessageWriter, MouseButton, On, Real, Res, ResMut, Resource, Result, SystemSet, Time,
+        Update,
+    },
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
 use crossbeam_channel::{Receiver, Sender};

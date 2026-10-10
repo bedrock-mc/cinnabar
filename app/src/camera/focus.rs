@@ -1,10 +1,16 @@
 //! Desktop focus arbitration before input sampling and before OS cursor updates.
+#[cfg(test)]
+use bevy::prelude::{Local, MessageWriter, Mut, Time, Update, default};
 use bevy::{
     input::{
         InputSystems,
         mouse::{AccumulatedMouseMotion, MouseButtonInput},
     },
-    prelude::*,
+    prelude::{
+        App, ButtonInput, Entity, Gamepad, IntoScheduleConfigs, KeyCode, MessageReader,
+        MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches, Vec2, Window,
+        With,
+    },
     window::{CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
 use client_presentation::camera::CursorFocus;

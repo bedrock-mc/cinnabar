@@ -3,7 +3,10 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
-use bevy::prelude::*;
+use bevy::prelude::{
+    App, IntoScheduleConfigs, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time,
+    Transform, Update, Vec3, With,
+};
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
     BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace,

@@ -2,12 +2,17 @@
 //! Rules: `docs/reference/entity-shadows.md`.
 use std::num::NonZeroU64;
 
+#[cfg(test)]
+use bevy::prelude::IntoSystem;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::query::QueryItem,
     mesh::VertexBufferLayout,
-    prelude::*,
+    prelude::{
+        App, Camera3d, Commands, Component, Entity, Handle, IntoScheduleConfigs, Last, Msaa,
+        Plugin, Query, Res, ResMut, Resource, Result, Shader, With, World, default,
+    },
     render::{
         Render, RenderApp, RenderSystems,
         camera::ExtractedCamera,

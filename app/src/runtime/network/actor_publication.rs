@@ -5,7 +5,12 @@ use crate::{
     runtime::world::ClientWorld,
 };
 use bevy::time::Real;
-use bevy::{ecs::system::SystemParam, prelude::*};
+#[cfg(test)]
+use bevy::prelude::{App, IntoScheduleConfigs, Mut, Update};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Local, Projection, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+};
 use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};

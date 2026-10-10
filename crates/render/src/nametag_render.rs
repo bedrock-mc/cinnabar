@@ -9,7 +9,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Deref, DerefMut, Entity, FromWorld, Handle, IntoScheduleConfigs,
+        Msaa, Query, Res, ResMut, Resource, Result, Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

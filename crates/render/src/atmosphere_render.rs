@@ -10,7 +10,10 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
+        Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,

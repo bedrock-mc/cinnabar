@@ -24,7 +24,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
+        Plugin, Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,

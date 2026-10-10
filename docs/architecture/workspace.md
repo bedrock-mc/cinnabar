@@ -77,6 +77,8 @@ plan is in `docs/architecture/`.
 | `update` | Signed update checks. |
 
 Cross-crate re-exports are forbidden: consumers import the owning crate directly.
+Named exports must also have unambiguous ownership across Rust namespaces. Use
+explicit dependency imports where external globs could supply an exported name.
 The architecture gate also rejects glob re-exports with restricted visibility and
 executable file headers regardless of extension. Files marked `binary` in Git
 need a named ownership record; executable files cannot use that exemption.

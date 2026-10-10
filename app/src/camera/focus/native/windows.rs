@@ -1,6 +1,8 @@
 use super::NativeFocus;
 use bevy::{
-    prelude::*,
+    prelude::{
+        App, IntoScheduleConfigs, NonSendMut, PreUpdate, Query, Res, ResMut, Resource, With, error,
+    },
     window::{PrimaryWindow, RawHandleWrapper},
 };
 use raw_window_handle::RawWindowHandle;

@@ -2,6 +2,8 @@
 
 use std::{ops::Range, sync::Arc};
 
+#[cfg(test)]
+use bevy::prelude::Mut;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -9,7 +11,11 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Deref, DerefMut, Entity, FromWorld, GlobalTransform, Handle,
+        IntoScheduleConfigs, Msaa, Plugin, Projection, Query, Res, ResMut, Resource, Result,
+        Shader, Vec3, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

@@ -1,6 +1,14 @@
 use std::path::PathBuf;
 
-use bevy::{prelude::*, window::PrimaryWindow};
+#[cfg(test)]
+use bevy::prelude::{Entity, Mut, default};
+use bevy::{
+    prelude::{
+        App, ButtonInput, IntoScheduleConfigs, KeyCode, MessageReader, MouseButton, NonSendMut,
+        Query, Real, Res, ResMut, Resource, Time, Update, Window, With,
+    },
+    window::PrimaryWindow,
+};
 use server_experience::{
     session::State,
     trust::{Choice, Settings},

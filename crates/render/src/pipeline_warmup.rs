@@ -8,8 +8,13 @@ use std::{
     },
 };
 
+#[cfg(test)]
+use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
-    prelude::*,
+    prelude::{
+        App, BevyError, IntoScheduleConfigs, Local, Msaa, Query, Res, ResMut, Resource, Result,
+        SubApp, SystemSet, error,
+    },
     render::{
         Render, RenderApp, RenderSystems,
         render_resource::{
