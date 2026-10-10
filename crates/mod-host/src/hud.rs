@@ -85,6 +85,34 @@ pub(super) fn read_editor_result(
         }
     })))
 }
+/// Returns the same host result until a successful callback consumes it.
+pub(super) fn read_editor_layout(
+    state: &mut State,
+) -> Result<Result<Option<super::cinnabar::extension::hud::LayoutResult>, String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    state.hud.result_read = true;
+    Ok(Ok(state.hud.editor_result.as_ref().map(|result| {
+        use super::cinnabar::extension::hud::{LayoutPlacement, LayoutResult, Point};
+        LayoutResult {
+            saved: result.saved,
+            reset: result.reset,
+            placements: result
+                .placements
+                .iter()
+                .map(|p| LayoutPlacement {
+                    id: p.id.clone(),
+                    scale: p.scale,
+                    position: p.position.map(|[x, y]| Point { x, y }),
+                })
+                .collect(),
+        }
+    })))
+}
 fn admit(state: &mut State) -> Result<Result<(), String>> {
     state.writes += 1;
     if state.writes > MAX_IMPORT_WRITES {
@@ -212,9 +240,13 @@ mod tests {
             reset: true,
             placements: vec![ui::mod_hud::Placement {
                 id: "equipment".into(),
+                scale: 1.5,
                 position: Some([0.25, 0.75]),
             }],
         });
+        let layout = read_editor_layout(&mut state).unwrap().unwrap().unwrap();
+        assert_eq!(layout.placements[0].scale, 1.5);
+        assert_eq!(layout.placements[0].position.as_ref().unwrap().x, 0.25);
         for _ in 0..2 {
             let result = read_editor_result(&mut state).unwrap().unwrap().unwrap();
             assert!(result.saved && result.reset);

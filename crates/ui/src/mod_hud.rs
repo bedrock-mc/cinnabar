@@ -43,6 +43,9 @@ pub struct Hud {
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
+    /// Enables host-owned corner handles for uniform card resizing.
+    #[serde(default)]
+    pub resizable: bool,
     /// Hides editor labels while preserving native draggable outlines.
     #[serde(default)]
     pub hide_editor_labels: bool,
@@ -89,6 +92,9 @@ pub struct Card {
     pub reset_anchor: Option<Anchor>,
     #[serde(default)]
     pub reset_offset: Option<[f32; 2]>,
+    /// Optional factory scale restored by the layout editor.
+    #[serde(default)]
+    pub reset_scale: Option<f32>,
     pub rows: Vec<Row>,
 }
 
@@ -110,6 +116,7 @@ impl Default for Card {
             text_scale: text_scale(),
             reset_anchor: None,
             reset_offset: None,
+            reset_scale: None,
             rows: Vec::new(),
         }
     }
@@ -118,6 +125,7 @@ impl Default for Card {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     pub id: String,
+    pub scale: f32,
     pub position: Option<[f32; 2]>,
 }
 
@@ -265,7 +273,10 @@ impl Hud {
             }
             text(&card.title)?;
             text(&card.editor_label)?;
-            if !card.scale.is_finite()
+            if card
+                .reset_scale
+                .is_some_and(|scale| !scale.is_finite() || !(0.5..=2.).contains(&scale))
+                || !card.scale.is_finite()
                 || !(0.5..=2.).contains(&card.scale)
                 || card
                     .offset
@@ -336,6 +347,7 @@ impl EditorResult {
                 .map(|p| Card {
                     id: p.id.clone(),
                     position: p.position,
+                    scale: p.scale,
                     ..Default::default()
                 })
                 .collect(),
@@ -467,10 +479,16 @@ mod tests {
             reset: false,
             placements: vec![Placement {
                 id: "equipment".into(),
+                scale: 1.,
                 position: Some([0.5, 0.5]),
             }],
         };
         assert!(saved.validate().is_ok());
+        for scale in [f32::NAN, 0.49, 2.01] {
+            let mut malformed = saved.clone();
+            malformed.placements[0].scale = scale;
+            assert!(malformed.validate().is_err());
+        }
         assert!(
             EditorResult {
                 saved: false,

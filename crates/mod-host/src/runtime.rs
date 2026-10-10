@@ -168,6 +168,11 @@ impl cinnabar::extension::hud::Host for State {
     ) -> Result<Result<Option<cinnabar::extension::hud::EditorResult>, String>> {
         hud::read_editor_result(self)
     }
+    fn read_editor_layout(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::LayoutResult>, String>> {
+        hud::read_editor_layout(self)
+    }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_content(self, json)
     }
