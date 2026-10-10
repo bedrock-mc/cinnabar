@@ -108,23 +108,24 @@ fn gathering_details_without_a_ping_strip_can_be_retained() {
     );
 }
 
-/// Supplies synthetic ping cells so temporal output is tested without installed Mojang images.
+/// Supplies one-texel ping cells shaped like the shipped sheet, so temporal output is observable.
 fn install_ping_cells(presentation: &mut UiPresentationRuntime) {
     use crate::ui_runtime::oreui_assets::{
-        OreUiImages, OreUiPage, OreUiSprite, SERVER_PING_IMAGES,
+        OreUiImages, OreUiPage, OreUiSprite, SERVER_PING_IMAGES, embedded::PING_PENDING,
     };
+    let cells = PING_PENDING.frames;
     let sprites = std::collections::HashMap::from([(
         SERVER_PING_IMAGES[3].into(),
         OreUiSprite {
             page: 0,
-            bounds: [0, 0, 6, 1],
+            bounds: [0, 0, cells, 1],
         },
     )]);
     presentation
         .enable_oreui_originals(OreUiImages {
             pages: vec![OreUiPage {
-                dimensions: [6, 1],
-                pixels: vec![255; 24].into(),
+                dimensions: [u32::from(cells), 1],
+                pixels: vec![255; usize::from(cells) * 4].into(),
             }],
             sprites: Arc::new(sprites),
             loading_frames: Default::default(),
