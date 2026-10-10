@@ -1,6 +1,5 @@
-//! The join progress screen: vanilla's world (or Realms) loading progress screen,
-//! titled and filled per join stage as vanilla's connect, Realms, resource pack
-//! and world generation progress handlers word them.
+//! World and Realms join progress screens, with titles and messages
+//! for connection, resource pack downloads, and world generation.
 
 use json_ui::{DataSource, Scalar};
 
@@ -82,12 +81,9 @@ pub(super) fn shown(join: &JoinProgress, tr: &impl Fn(&str, &str) -> String) -> 
             let base = format!("[{} / {}]", size(received_bytes), size(total_bytes));
             let message = match (join.bytes_per_sec(), join.eta_secs()) {
                 (Some(rate), Some(eta)) if total_bytes > received_bytes => {
-                    let stats = tr(
-                        "progressScreen.message.downloadStats",
-                        "%1/s, %2 left",
-                    )
-                    .replace("%1", &size(rate))
-                    .replace("%2", &format_eta(eta));
+                    let stats = tr("progressScreen.message.downloadStats", "%1/s, %2 left")
+                        .replace("%1", &size(rate))
+                        .replace("%2", &format_eta(eta));
                     format!("{base}\n{stats}")
                 }
                 _ => base,

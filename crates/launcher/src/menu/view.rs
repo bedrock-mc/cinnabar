@@ -236,7 +236,9 @@ pub struct JoinProgress {
 const DOWNLOAD_RATE_MIN_ELAPSED: Duration = Duration::from_millis(500);
 /// How far back the rate averages, so a stall fades instead of sticking.
 const DOWNLOAD_WINDOW: Duration = Duration::from_secs(3);
-/// Samples retained for the window; polling every 250 ms keeps ~12 in 3 s.
+/// Minimum spacing between samples, independent of rendering frequency.
+const DOWNLOAD_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+/// Sample capacity, with room for the full averaging window.
 const DOWNLOAD_SAMPLES: usize = 16;
 
 /// Rolling average for the current pack download, owned by the join it measures.
@@ -249,16 +251,22 @@ struct DownloadTracker {
 }
 
 impl DownloadTracker {
+    /// Clears the sample history and estimates for a new download.
     fn reset(&mut self) {
         *self = Self::default();
     }
 
+    /// Samples download progress at a bounded rate and updates its estimates.
     fn observe(&mut self, received_bytes: u64, total_bytes: u64, now: Instant) {
         if self.len > 0 {
-            let (last_bytes, _) = self.samples[self.len - 1].expect("tracked sample");
+            let (last_bytes, last_time) = self.samples[self.len - 1].expect("tracked sample");
             if received_bytes < last_bytes {
                 // A retry restarts its bytes, so the old window no longer applies.
                 self.reset();
+            } else if now.checked_duration_since(last_time).unwrap_or_default()
+                < DOWNLOAD_SAMPLE_INTERVAL
+            {
+                return;
             }
         }
         if self.len < DOWNLOAD_SAMPLES {
@@ -271,11 +279,7 @@ impl DownloadTracker {
         // Keep only the trailing window so a stall ages out instead of sticking.
         while self.len > 1 {
             let (_, oldest_time) = self.samples[0].expect("tracked sample");
-            if now
-                .checked_duration_since(oldest_time)
-                .unwrap_or_default()
-                <= DOWNLOAD_WINDOW
-            {
+            if now.checked_duration_since(oldest_time).unwrap_or_default() <= DOWNLOAD_WINDOW {
                 break;
             }
             self.samples.copy_within(1..self.len, 0);
@@ -343,6 +347,7 @@ impl JoinProgress {
         }
     }
 
+    /// Updates the download measurement or clears it when acquisition ends.
     fn observe_download(&mut self, now: Instant) {
         if let JoinStage::Packs {
             received_bytes,
@@ -360,7 +365,7 @@ impl JoinProgress {
         }
     }
 
-    /// Average pack download speed since the current download began, once it steadies.
+    /// Average pack download speed over the trailing window, once it steadies.
     pub fn bytes_per_sec(&self) -> Option<u64> {
         self.download.rate_bytes_per_sec
     }
@@ -787,6 +792,7 @@ mod tests {
 
     const MIB: u64 = 1 << 20;
 
+    /// Builds a pack download report with the requested byte counts.
     fn packs(received: u64, total: u64) -> JoinStage {
         JoinStage::Packs {
             done: 0,
@@ -819,6 +825,26 @@ mod tests {
         assert_eq!(join.eta_secs(), Some(6));
     }
 
+    #[test]
+    fn pack_download_tracks_rate_at_render_frame_frequencies() {
+        for fps in [60_u64, 120] {
+            let mut join = JoinProgress::new(JoinKind::External);
+            let start = Instant::now();
+            for frame in 0..=fps * 8 {
+                let elapsed = Duration::from_nanos(frame * 1_000_000_000 / fps);
+                let received = (frame * 4 / fps) * (MIB / 4);
+                join.observe_at(Some(packs(received, 100 * MIB)), start + elapsed);
+                if elapsed >= Duration::from_secs(1) {
+                    let rate = join.bytes_per_sec().unwrap_or_else(|| {
+                        panic!("missing download rate at {fps} FPS, frame {frame}")
+                    });
+                    assert!(rate.abs_diff(MIB) < MIB / 10);
+                    assert!(join.eta_secs().is_some_and(|eta| eta > 0));
+                }
+            }
+        }
+    }
+
     // A stalled or restarted download clears its rate rather than showing stale math.
     #[test]
     fn pack_download_resets_when_stalled_or_restarted() {
@@ -838,10 +864,7 @@ mod tests {
         assert_eq!(join.bytes_per_sec(), None);
         assert_eq!(join.eta_secs(), None);
         // Fewer bytes means a new download, restarting the average.
-        join.observe_at(
-            Some(packs(MIB, 20 * MIB)),
-            start + Duration::from_secs(7),
-        );
+        join.observe_at(Some(packs(MIB, 20 * MIB)), start + Duration::from_secs(7));
         assert_eq!(join.bytes_per_sec(), None);
         // Leaving the download clears its rate for the next join.
         join.observe_at(Some(JoinStage::Generating), start + Duration::from_secs(8));
