@@ -146,7 +146,7 @@ fn draw_mesh(
     to_view: impl Fn(&ActorRigVertex) -> Vec3,
     texture: &Image,
 ) {
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         let placed = std::array::from_fn(|corner| Placed {
             view: to_view(&triangle[corner]),
             uv: triangle[corner].uv,

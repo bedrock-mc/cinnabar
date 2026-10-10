@@ -32,7 +32,7 @@ fn write_resin_clump_render_pack(root: &Path, cube_name: &str) {
         .expect("write resin empty flipbooks");
     for (index, name) in ["resin_clump", "water", "cube"].into_iter().enumerate() {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (pixel_index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let alpha = if name == "resin_clump" && pixel_index % 5 != 0 {
                 0
             } else {

@@ -513,7 +513,7 @@ fn upscaled_skin(seed: u8, side: usize) -> render_api::SkinRgba8 {
     let standard = render_model::STANDARD_SKIN_SIDE;
     let scale = standard / side;
     let mut out = vec![0; render_model::STANDARD_SKIN_BYTES];
-    for (index, texel) in out.chunks_exact_mut(4).enumerate() {
+    for (index, texel) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (index % standard / scale, index / standard / scale);
         texel.copy_from_slice(&[seed, x as u8, y as u8, 255]);
     }

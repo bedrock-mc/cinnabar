@@ -72,7 +72,9 @@ fn celestial_time_moves_the_star_mesh_on_the_gpu() {
         );
         gpu_snapshot::save(name, &pixels);
         let lit = pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(_, p)| p[0] == 255)
             .map(|(index, _)| [index % 256, index / 256])

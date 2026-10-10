@@ -53,7 +53,7 @@ mod tests {
             ([-89.447_38, 42.337_2, 14.378_074], 0.197_087_02, 191),
             ([96.904_35, 23.478_968, 7.634_454_7], 0.185_844_88, 240),
         ];
-        for (quad, (expected, size, alpha)) in vertices.chunks_exact(6).zip(fixtures) {
+        for (quad, (expected, size, alpha)) in vertices.as_chunks::<6>().0.iter().zip(fixtures) {
             for (axis, coordinate) in expected.into_iter().enumerate() {
                 assert!(((quad[0][axis] + quad[2][axis]) * 0.5 - coordinate).abs() < 0.0001);
             }
@@ -63,7 +63,7 @@ mod tests {
             assert!((edge_squared.sqrt() - 2.0 * size).abs() < 0.0001);
             assert_eq!(quad[0][3], alpha as f32 / 255.0);
         }
-        for quad in vertices.chunks_exact(6) {
+        for quad in vertices.as_chunks::<6>().0 {
             let center: [f32; 3] = std::array::from_fn(|i| (quad[0][i] + quad[2][i]) * 0.5);
             assert!((center.iter().map(|x| x * x).sum::<f32>().sqrt() - 100.0).abs() < 0.0001);
             assert!((178.0 / 255.0..=1.0).contains(&quad[0][3]));

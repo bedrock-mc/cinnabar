@@ -300,8 +300,10 @@ fn terrain_override_static_vertical_strip_admits_its_first_square() {
     assert!(
         page.mips[0]
             .rgba8
-            .chunks_exact(4)
-            .all(|pixel| pixel == [255, 0, 0, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [255, 0, 0, 255])
     );
 }
 
@@ -390,7 +392,9 @@ fn terrain_override_quad_admits_the_declared_uv_pixel_rectangle() {
     assert!(
         icons.icons[0]
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| pixel[0] <= 112),
         "inventory model samples only the exposed half-width grid rectangle"
     );
@@ -398,7 +402,9 @@ fn terrain_override_quad_admits_the_declared_uv_pixel_rectangle() {
     assert!(
         icons.block_sheets[0]
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| pixel[0] <= 112),
         "held cube faces use the same grid rectangle as terrain"
     );

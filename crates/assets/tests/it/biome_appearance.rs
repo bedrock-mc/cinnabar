@@ -3,7 +3,7 @@ use assets::{BIOME_RULE_FLAG_GRASS_SHADED, BiomeRule, CompiledBiomeAssets, TintM
 /// Builds a constant-byte palette so the shading operation is independent of climate lookup.
 fn fixture(grass: TintSource) -> CompiledBiomeAssets {
     let mut assets = CompiledBiomeAssets::diagnostic();
-    for pixel in assets.tint_maps_rgb8.chunks_exact_mut(3) {
+    for pixel in assets.tint_maps_rgb8.as_chunks_mut::<3>().0 {
         pixel.copy_from_slice(&[100, 200, 40]);
     }
     assets.rules = vec![BiomeRule {

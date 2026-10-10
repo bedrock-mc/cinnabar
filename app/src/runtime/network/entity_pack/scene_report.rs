@@ -383,7 +383,7 @@ pub(super) fn draw_actors(
         let Some(vertices) = rig.geometry_vertices.span(span) else {
             continue;
         };
-        for corners in vertices.chunks_exact(3) {
+        for corners in vertices.as_chunks::<3>().0 {
             let placed = std::array::from_fn(|corner| {
                 let vertex = corners[corner];
                 let bone =

@@ -306,7 +306,7 @@ fn write_flowerbed_pack(root: &Path) {
 
     for (index, name) in ["wildflowers", "wildflowers_stem"].into_iter().enumerate() {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (pixel_index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             pixel.copy_from_slice(&[
                 20 + index as u8,
                 80 + (pixel_index % 16) as u8,

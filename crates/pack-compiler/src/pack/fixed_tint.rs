@@ -61,7 +61,7 @@ pub fn parse_atlas_tint(source: &str) -> Option<[u8; 3]> {
 
 /// Multiplies straight-alpha texture RGB in atlas space, preserving every alpha byte.
 pub fn apply_atlas_tint(pixels: &mut [u8], tint: [u8; 3]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         for (component, tint) in pixel[..3].iter_mut().zip(tint) {
             *component = (f32::from(*component) * (f32::from(tint) / 255.0)) as u8;
         }

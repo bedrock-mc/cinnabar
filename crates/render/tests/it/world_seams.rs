@@ -168,11 +168,15 @@ fn slab_top_template() -> Vec<u32> {
     let mut words = vec![1, 0, 1, 0];
     words.extend(
         positions
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u32::from(pair[0] as u16) | (u32::from(pair[1] as u16) << 16)),
     );
     words.extend(
-        uvs.chunks_exact(2)
+        uvs.as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u32::from(pair[0]) | (u32::from(pair[1]) << 16)),
     );
     // Material zero; upward normal, two-sided.
@@ -435,7 +439,10 @@ fn floor_cracks(
     );
     let background = sky[..4].to_vec();
     assert!(
-        sky.chunks_exact(4).all(|pixel| pixel == background),
+        sky.as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel.as_slice() == background),
         "the sky view must miss every quad"
     );
     let mut cracked = Vec::new();

@@ -446,8 +446,10 @@ fn render_fixture(cache_admission: bool) {
             let expected = gpu.render_srgb(&reference, "tint_cube_vertex", &[draw(fragment)]);
             let actual = gpu.render_srgb(&candidate, "tint_cube_vertex", &[draw(fragment)]);
             let mismatched = expected
-                .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<4>().0.iter())
                 .filter(|(left, right)| left != right)
                 .count();
             assert_eq!(
@@ -455,7 +457,11 @@ fn render_fixture(cache_admission: bool) {
                 "{fragment}: cached and per-fragment tint must be identical"
             );
             assert!(
-                actual.chunks_exact(4).any(|pixel| pixel != &actual[..4]),
+                actual
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel != &actual[..4]),
                 "fixture must draw coloured terrain"
             );
         }

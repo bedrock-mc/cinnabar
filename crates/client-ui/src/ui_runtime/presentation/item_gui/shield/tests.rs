@@ -93,7 +93,7 @@ fn gui_mesh_uses_bound_sheet_white_color_alpha_test_and_no_depth() {
             .iter()
             .all(|vertex| vertex.color == [255; 4] && vertex.alpha_test)
     );
-    for triangle in mesh.indices().chunks_exact(3) {
+    for triangle in mesh.indices().as_chunks::<3>().0 {
         let points: [[f32; 2]; 3] =
             std::array::from_fn(|index| mesh.vertices()[triangle[index] as usize].position);
         assert!(signed_area(points[0], points[1], points[2]) > 0.0);

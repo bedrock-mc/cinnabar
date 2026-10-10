@@ -95,7 +95,7 @@ impl Canvas {
         for y in y0.max(0)..y1.min(i64::from(self.height)) {
             let start = (y as usize * self.width as usize + left) * 4;
             let end = (y as usize * self.width as usize + right) * 4;
-            for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+            for pixel in self.pixels[start..end].as_chunks_mut::<4>().0 {
                 for channel in 0..3 {
                     pixel[channel] = channels[channel][pixel[channel] as usize];
                 }
