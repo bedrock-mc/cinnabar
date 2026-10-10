@@ -33,6 +33,9 @@ fn dedicated_graphics_bytes(
     adapter: &RenderAdapter,
     _device: Option<&RenderDevice>,
 ) -> Option<u64> {
+    if adapter.get_info().backend == wgpu::Backend::Vulkan {
+        return vulkan_graphics_bytes(adapter);
+    }
     // SAFETY: the borrowed adapter stays alive and only a read-only DXGI description is queried.
     unsafe {
         let native = adapter.as_hal::<wgpu::hal::api::Dx12>()?;
@@ -44,15 +47,18 @@ fn dedicated_graphics_bytes(
     }
 }
 
-/// Uses device-local heaps only when they belong to a discrete Vulkan adapter.
+/// Uses the selected Vulkan adapter's dedicated memory on Linux.
 #[cfg(target_os = "linux")]
 fn dedicated_graphics_bytes(
     adapter: &RenderAdapter,
     _device: Option<&RenderDevice>,
 ) -> Option<u64> {
-    if adapter.get_info().device_type != wgpu::DeviceType::DiscreteGpu {
-        return Some(0);
-    }
+    vulkan_graphics_bytes(adapter)
+}
+
+/// Reads the selected Vulkan device's heaps on either supported desktop platform.
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn vulkan_graphics_bytes(adapter: &RenderAdapter) -> Option<u64> {
     // SAFETY: the borrowed adapter retains its instance and physical device for this read-only query.
     unsafe {
         let native = adapter.as_hal::<wgpu::hal::api::Vulkan>()?;
@@ -60,14 +66,27 @@ fn dedicated_graphics_bytes(
             .shared_instance()
             .raw_instance()
             .get_physical_device_memory_properties(native.raw_physical_device());
-        Some(
-            memory.memory_heaps[..memory.memory_heap_count as usize]
-                .iter()
-                .filter(|heap| heap.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
-                .map(|heap| heap.size)
-                .sum(),
-        )
+        Some(dedicated_vulkan_heap_bytes(
+            adapter.get_info().device_type,
+            &memory.memory_heaps[..memory.memory_heap_count as usize],
+        ))
     }
+}
+
+/// Counts device-local heaps as dedicated memory only for a discrete adapter.
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn dedicated_vulkan_heap_bytes(
+    device_type: wgpu::DeviceType,
+    heaps: &[ash::vk::MemoryHeap],
+) -> u64 {
+    if device_type != wgpu::DeviceType::DiscreteGpu {
+        return 0;
+    }
+    heaps
+        .iter()
+        .filter(|heap| heap.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
+        .map(|heap| heap.size)
+        .sum()
 }
 
 /// Unified Metal devices have no dedicated VRAM; discrete devices report it through their registry entry.
@@ -93,4 +112,38 @@ fn dedicated_graphics_bytes(
     _device: Option<&RenderDevice>,
 ) -> Option<u64> {
     None
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vulkan_dedicated_heaps_choose_the_discrete_recommendation() {
+        let heaps = [
+            ash::vk::MemoryHeap::default()
+                .size(2 << 30)
+                .flags(ash::vk::MemoryHeapFlags::DEVICE_LOCAL),
+            ash::vk::MemoryHeap::default()
+                .size(2 << 30)
+                .flags(ash::vk::MemoryHeapFlags::DEVICE_LOCAL),
+            ash::vk::MemoryHeap::default().size(16 << 30),
+        ];
+        let dedicated = dedicated_vulkan_heap_bytes(wgpu::DeviceType::DiscreteGpu, &heaps);
+        assert_eq!(dedicated, 4 << 30);
+        assert_eq!(
+            ui::RenderDistanceDevice {
+                physical_memory_bytes: 16 << 30,
+                dedicated_graphics_memory_bytes: dedicated,
+                use_full_graphics_memory: false,
+            }
+            .defaults()
+            .recommended,
+            35
+        );
+        assert_eq!(
+            dedicated_vulkan_heap_bytes(wgpu::DeviceType::IntegratedGpu, &heaps),
+            0
+        );
+    }
 }

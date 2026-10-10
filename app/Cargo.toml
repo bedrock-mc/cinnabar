@@ -93,8 +93,10 @@ libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ash = "0.38"
+
+[target.'cfg(target_os = "linux")'.dependencies]
 async-io = "2"
 futures-lite = "2"
 zbus = "5"

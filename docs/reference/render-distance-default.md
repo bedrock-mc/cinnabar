@@ -21,8 +21,8 @@ recommendation is not stored as a user choice; unrelated settings saves leave
 it automatic. Missing RAM uses 5. Missing graphics memory uses the shared-memory
 recommendation and logs the unavailable probe.
 
-The native adapter probes use DXGI dedicated memory on Windows, discrete Vulkan
-memory heaps on Linux, and the selected Metal device's registry VRAM on macOS.
+The native adapter probes use DXGI dedicated memory for Windows DX12, discrete Vulkan
+memory heaps on Windows and Linux, and the selected Metal device's registry VRAM on macOS.
 Unified Metal memory is shared. Other rendering backends use the logged fallback.
 This table covers ordinary rendering; experimental low-memory overrides and
 advanced graphics preset policies are not yet verified.
