@@ -384,6 +384,8 @@
   Rigs with always-passing depth layers bypass terrain occlusion while retaining
   the candidate distance and frustum bounds. Admission checks the same sampled
   frame layers that the draw consumes, including frame-conditioned controllers.
+  A capability cached from all compiled layers keeps ordinary occluded rigs from
+  consuming the shared frame-evaluation budget.
 - Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
   states are ignored. The sorted-pass order approximates native entity order and
   is unverified against a native capture.

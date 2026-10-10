@@ -70,8 +70,12 @@ impl<'a> ActorRenderFrame<'a> {
             .map(|layers| layers.render)
     }
 
-    /// Samples depth eligibility and retains the same frame layers for the eventual draw.
+    /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
+    /// Ordinary materials do not spend the shared frame budget during occlusion checks.
     pub fn has_always_depth_material(&mut self, runtime_id: u64) -> bool {
+        if !self.store.may_use_always_depth_material(runtime_id) {
+            return false;
+        }
         self.sampled_layers
             .entry(runtime_id)
             .or_insert_with(|| {
@@ -267,6 +271,15 @@ impl SwellPoses {
 }
 
 impl ActorAnimationStore {
+    /// Checks the resolved rig's compiled layers, including inactive controller branches.
+    pub(crate) fn may_use_always_depth_material(&self, actor: &ActorSnapshot) -> bool {
+        self.runtime_to_lifetime
+            .get(&actor.runtime_id)
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+            .is_some_and(|state| state.may_use_always_depth_material)
+    }
+
     /// Whether admission needs a frame scale rather than the completed tick's scale.
     pub(crate) fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
         self.runtime_to_lifetime

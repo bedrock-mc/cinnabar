@@ -229,6 +229,8 @@ struct ActorRigState {
     bone_names: Vec<Box<str>>,
     /// This tick's render-controller result.
     render: Vec<RenderTextureLayer>,
+    /// Includes dormant controller layers, so admission need not sample ordinary rigs.
+    may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
     scale: Option<[f32; 4]>,
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
