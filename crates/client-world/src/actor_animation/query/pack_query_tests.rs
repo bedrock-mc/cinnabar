@@ -203,7 +203,13 @@ fn trade_tier_queries_read_their_own_metadata_keys() {
 #[test]
 fn position_reads_each_world_axis_and_rejects_others() {
     let context = ActorTickContext::default();
-    for (axis, expected) in [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 0.0)] {
+    for (axis, expected) in [
+        (0.0, 1.0),
+        (1.0, 2.0),
+        (2.0, 3.0),
+        (3.0, 0.0),
+        (f32::NAN, 0.0),
+    ] {
         assert_eq!(
             read(&context, "query.position", &[MolangValue::Number(axis)]),
             expected

@@ -377,7 +377,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             _ => 0.0,
         }),
         // Native actor-state position, before the actor store removes collision offsets.
-        "position" if arguments.len() == 1 => argument(0).map_or(0.0, |axis| match axis as i32 {
+        "position" if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
             0 => input.position[0],
             1 => input.position[1] + actor.network_position_offset(),
             2 => input.position[2],
