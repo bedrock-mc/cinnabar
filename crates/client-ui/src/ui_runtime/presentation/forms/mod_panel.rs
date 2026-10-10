@@ -8,6 +8,9 @@ mod edit_tests;
 mod icons;
 mod input;
 mod layout;
+mod scrolling;
+#[cfg(test)]
+mod scrolling_tests;
 pub(in super::super) mod surface;
 #[cfg(test)]
 mod surface_tests;
@@ -48,6 +51,7 @@ pub(super) struct ModPanel {
     pages: usize,
     rows: usize,
     drag: Option<usize>,
+    scroll_drag: Option<(String, f64)>,
     view: ViewState,
     data: Arc<DataSource>,
     pointer: Option<[f32; 2]>,
@@ -63,6 +67,7 @@ impl UiPresentationRuntime {
             panel.screen = CachedScreen::default();
             panel.frame = None;
             panel.drag = None;
+            panel.scroll_drag = None;
             panel.pointer = None;
         }
     }
@@ -84,6 +89,7 @@ impl UiPresentationRuntime {
                 current.catalog = None;
                 current.frame = None;
                 current.drag = None;
+                current.scroll_drag = None;
                 if current.panel.sections != panel.sections
                     || current.panel.controls.len() != panel.controls.len()
                 {
@@ -111,6 +117,7 @@ impl UiPresentationRuntime {
                 pages: 1,
                 rows: 1,
                 drag: None,
+                scroll_drag: None,
                 view: ViewState::default(),
                 data: Arc::new(control_data(panel)),
                 pointer: None,
@@ -131,6 +138,7 @@ impl UiPresentationRuntime {
                 panel.cancel_edit();
                 panel.frame = None;
                 panel.drag = None;
+                panel.scroll_drag = None;
                 panel.view = ViewState::default();
                 panel.pointer = None;
             }
@@ -228,6 +236,7 @@ impl UiPresentationRuntime {
             panel.frame = None;
             panel.open = false;
             panel.drag = None;
+            panel.scroll_drag = None;
             panel.pointer = None;
             return;
         }
@@ -243,6 +252,7 @@ impl UiPresentationRuntime {
             panel.catalog = None;
             panel.frame = None;
             panel.drag = None;
+            panel.scroll_drag = None;
             panel.pointer = None;
         }
         if panel.catalog.is_none() {
@@ -300,7 +310,14 @@ impl UiPresentationRuntime {
                 &panel.view,
             )
         }) {
-            Ok(Some(frame)) => panel.frame = Some(frame),
+            Ok(Some(frame)) => {
+                for (key, metrics) in &frame.report.scrolls {
+                    if let Some(offset) = panel.view.scroll.get_mut(key) {
+                        *offset = metrics.offset;
+                    }
+                }
+                panel.frame = Some(frame);
+            }
             result => {
                 out_of_render(panel, nodes, next, rollback);
                 if let Err(error) = result {
@@ -322,6 +339,7 @@ fn out_of_render(
     panel.cancel_edit();
     panel.frame = None;
     panel.drag = None;
+    panel.scroll_drag = None;
     panel.open = false;
     panel.pointer = None;
 }
