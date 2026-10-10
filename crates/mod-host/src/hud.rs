@@ -141,7 +141,7 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         if let Err(error) = hud.validate() {
             return Ok(Err(error));
         }
-        (!hud.cards.is_empty()).then_some(hud)
+        (!hud.cards.is_empty() || hud.hide_effect_icons).then_some(hud)
     };
     state.hud.pending_content = Some(content);
     Ok(Ok(()))
@@ -173,6 +173,57 @@ pub(super) fn set_crosshair(state: &mut State, json: String) -> Result<Result<()
 mod tests {
     use super::*;
     use crate::ModGrants;
+    #[test]
+    fn effect_icon_replacement_commits_without_cards_and_clears_transactionally() {
+        let mut state = State::new(
+            ModGrants {
+                hud: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        let replacement = r#"{"cards":[],"hide_effect_icons":true}"#;
+        assert!(set_content(&mut state, replacement.into()).unwrap().is_ok());
+        assert!(
+            state.hud.content.is_none(),
+            "publication waits for a successful callback"
+        );
+        state.hud.commit();
+        assert!(state.hud.content.as_ref().unwrap().hide_effect_icons);
+        assert!(
+            set_content(
+                &mut state,
+                r#"{"cards":[],"hide_effect_icons":"true"}"#.into()
+            )
+            .unwrap()
+            .is_err()
+        );
+        state.hud.commit();
+        assert!(
+            state.hud.content.as_ref().unwrap().hide_effect_icons,
+            "invalid writes retain the committed HUD"
+        );
+        assert!(
+            set_content(
+                &mut state,
+                r#"{"cards":[],"hide_effect_icons":false}"#.into()
+            )
+            .unwrap()
+            .is_ok()
+        );
+        state.hud.commit();
+        assert!(state.hud.content.is_none());
+        assert!(set_content(&mut state, replacement.into()).unwrap().is_ok());
+        state.hud.commit();
+        assert!(set_content(&mut state, String::new()).unwrap().is_ok());
+        state.hud.commit();
+        assert!(
+            state.hud.content.is_none(),
+            "clearing restores normal effect icons"
+        );
+    }
+
     #[test]
     fn editor_requests_require_both_grants_focused_panel_and_successful_commit() {
         let preview = r#"{"cards":[{"id":"equipment","rows":[]}]}"#;

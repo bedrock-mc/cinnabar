@@ -38,6 +38,13 @@ fn label(key: &str, size: [f64; 2], offset: [f64; 2], scale: f64, right: bool) -
         "text":key,"bindings":[{"binding_name":key}],"localize":false,"shadow":true,"hide_hyphen":true,
         "text_alignment": if right {"right"} else {"left"},"font_scale_factor":0.8*scale,"color":[1,1,1,1],"clip_children":true})
 }
+/// Centers the measured text height on an icon row instead of its reserved band.
+fn center_on_row(label: &mut Value, center_y: f64) {
+    label["max_size"] = label["size"].clone();
+    label["size"][1] = json!("default");
+    label["anchor_to"] = json!("left_middle");
+    label["offset"][1] = json!(center_y);
+}
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
     let k = f64::from(card.scale);
@@ -164,16 +171,13 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
         } else {
             2.
         };
-        controls.push(named(
-            &format!("label_{index}"),
-            label(
-                &format!("#row_{index}_label"),
-                [label_width * k, line_height * k],
-                [left * k, y + text_top * k],
-                text_scale,
-                false,
-            ),
-        ));
+        let mut row_label = label(
+            &format!("#row_{index}_label"),
+            [label_width * k, line_height * k],
+            [left * k, y + text_top * k],
+            text_scale,
+            false,
+        );
         let mut value = label(
             &format!("#row_{index}_value"),
             [value_width * k, line_height * k],
@@ -184,6 +188,12 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
             text_scale,
             !stacked,
         );
+        if card.row_layout == RowLayout::IconRight && !reserve_progress {
+            let center_y = y + row_height * k * 0.5;
+            center_on_row(&mut row_label, center_y);
+            center_on_row(&mut value, center_y);
+        }
+        controls.push(named(&format!("label_{index}"), row_label));
         value["bindings"].as_array_mut().unwrap().push(
             json!({"binding_name":format!("#row_{index}_color"),"binding_name_override":"#color"}),
         );
