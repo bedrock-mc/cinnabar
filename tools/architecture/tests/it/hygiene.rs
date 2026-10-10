@@ -252,3 +252,41 @@ fn resolves_modules_beside_a_custom_cargo_target_root() {
             .any(|line| line.starts_with("custom/entry.rs:"))
     );
 }
+
+#[test]
+fn resolves_forwarding_types_after_expanding_local_module_aliases() {
+    for exports in [
+        "use facade as alias; pub use alias::Thing;",
+        "use facade as alias; use alias::*; pub use Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(
+            temp.path(),
+            &format!("mod facade {{ pub use other::Thing; }} {exports}"),
+            "\n[[reexport_allowances]]\npath='src/lib.rs'\nexports=['other::Thing']\n",
+        );
+        assert_eq!(findings(temp.path()).len(), 1, "missed {exports}");
+    }
+}
+
+#[test]
+fn confirmed_local_glob_bindings_win_over_external_glob_guesses() {
+    for imports in [
+        "use std::fmt::*; use local::*;",
+        "use local::*; use std::fmt::*;",
+    ] {
+        for local in [
+            "pub struct Thing;",
+            "pub enum Items { Thing } pub use Items::Thing;",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            fixture(
+                temp.path(),
+                &format!("mod local {{ {local} }} {imports} pub use self::Thing as Exported;"),
+                "",
+            );
+            let diagnostics = findings(temp.path());
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+    }
+}

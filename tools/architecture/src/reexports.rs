@@ -448,6 +448,9 @@ fn resolve(
             if seen.insert(prefix) {
                 let mut target = resolve(&import.module, &import.target, symbols, seen);
                 target.extend_from_slice(&absolute[length..]);
+                if length < absolute.len() && target.first().is_some_and(|name| name == "crate") {
+                    return resolve(module, &target, symbols, seen);
+                }
                 return target;
             }
         }
@@ -470,22 +473,29 @@ fn resolve_globs(absolute: Name, symbols: &Symbols, seen: &mut BTreeSet<Name>) -
         }
         let module = &absolute[..index];
         if let Some(globs) = symbols.globs.get(module) {
+            let mut external = None;
             for glob in globs {
                 let mut target = glob.clone();
                 target.extend_from_slice(&absolute[index..]);
                 let mut key = module.to_vec();
                 key.push("*".into());
                 key.extend(target.iter().cloned());
-                if !seen.insert(key) {
+                let mut branch_seen = seen.clone();
+                if !branch_seen.insert(key) {
                     continue;
                 }
-                let resolved = resolve(module, &target, symbols, seen);
-                if resolved.first().is_some_and(|name| name != "crate")
-                    || symbols.definitions.contains(&resolved)
-                    || symbols.modules.contains(&resolved)
+                let resolved = resolve(module, &target, symbols, &mut branch_seen);
+                if resolved.first().is_some_and(|name| name != "crate") {
+                    external.get_or_insert(resolved);
+                } else if symbols.modules.contains(&resolved)
+                    || (1..=resolved.len())
+                        .any(|length| symbols.definitions.contains(&resolved[..length]))
                 {
                     return resolved;
                 }
+            }
+            if let Some(external) = external {
+                return external;
             }
         }
         break;
