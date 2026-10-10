@@ -83,14 +83,25 @@ jobs:
       actions: write
     name: macOS ${{ matrix.arch }}
     needs: prepare
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { arch: arm64, runner: macos-15 }
-          - { arch: x86_64, runner: macos-15-intel }
+          - { arch: arm64, target: aarch64-apple-darwin, goarch: arm64 }
+          - { arch: x86_64, target: x86_64-apple-darwin, goarch: amd64 }
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      GOOS: darwin
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "1"
+      CC: clang
+      CXX: clang++
+      # Keep Go's native cgo behavior when compiling the Intel helpers on arm64.
+      CGO_CFLAGS: -O2 -g -arch ${{ matrix.arch }}
+      CGO_CXXFLAGS: -O2 -g -arch ${{ matrix.arch }}
+      CGO_LDFLAGS: -O2 -g -arch ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,7 +116,9 @@ jobs:
       - name: Resolve the downloadable artifact name
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          rustup target add "$CARGO_BUILD_TARGET"
       - name: Restore Rust release build cache
         id: rust-cache
         uses: ./release-tools/.github/actions/build-cache
@@ -159,9 +172,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          make package-binaries
+          bin="$PWD/target/$CARGO_BUILD_TARGET/release"
+          make package-binaries DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
+          for binary in bedrock-client bedrock-core bedrock-local-server assetc; do
+            lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
+          done
           tools="$GITHUB_WORKSPACE/release-tools/packaging/macos"
-          bash "$tools/build-app.sh"
+          CLIENT="$bin/bedrock-client" CORE="$bin/bedrock-core" \
+            LOCAL_SERVER="$bin/bedrock-local-server" ASSETC="$bin/assetc" bash "$tools/build-app.sh"
           bash "$tools/sign-notarize.sh" .local/dist/macos-release/Cinnabar.app
           version="${{ needs.prepare.outputs.version }}"
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
