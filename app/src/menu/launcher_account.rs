@@ -63,6 +63,7 @@ struct Snapshot {
     home_wake: Option<Sender<()>>,
     /// Wakes Profile independently when its account identity changes.
     profile_wake: Option<Sender<()>>,
+    xbox_presence: launcher_control::XboxPresenceState,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     /// Prevents a catalog request started before acceptance from removing the new membership.
@@ -185,6 +186,11 @@ impl LauncherAccount {
         }
     }
 
+    /// Publishes the newest committed world activity for the control worker.
+    pub(super) fn set_xbox_presence(&self, state: launcher_control::XboxPresenceState) {
+        publish(&self.snapshot, |snapshot| snapshot.xbox_presence = state);
+    }
+
     /// The control endpoint directory this link polls.
     pub(crate) fn socket_dir(&self) -> &std::path::Path {
         &self.socket_dir
@@ -247,6 +253,8 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     let Some(runtime) = runtime() else {
         return;
     };
+    let mut sent_presence = None;
+    let mut presence_failed = false;
     let mut ping_due = Instant::now();
     let mut pinged: Vec<String> = Vec::new();
     loop {
@@ -265,6 +273,24 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+        }
+        let presence = shared
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .xbox_presence
+            .clone();
+        if sent_presence.as_ref() != Some(&presence) {
+            let sent = runtime.block_on(tokio::time::timeout(
+                Duration::from_secs(2),
+                launcher_control::report_xbox_presence(socket_dir, &presence),
+            ));
+            if matches!(sent, Ok(Ok(()))) {
+                sent_presence = Some(presence);
+                presence_failed = false;
+            } else if !presence_failed {
+                bevy::log::warn!("Xbox presence control unavailable; retrying");
+                presence_failed = true;
+            }
         }
         let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {

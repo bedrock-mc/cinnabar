@@ -383,6 +383,9 @@ func runWithResourcePackCacheFactory(
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
+		presence := service.StartPresence(ctx)
+		defer presence.Close()
+		controlServer.SetPresence(presence.Set)
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace())

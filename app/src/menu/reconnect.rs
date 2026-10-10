@@ -12,6 +12,13 @@ pub(super) struct RetryTarget {
 }
 
 impl MenuRuntime {
+    /// Returns the selected destination retained across the current join.
+    pub(super) fn presence_address(&self) -> Option<&str> {
+        self.retry_target
+            .as_ref()
+            .map(|target| target.address.as_str())
+    }
+
     /// Prevents retrying the old server when a transfer cannot be followed safely.
     pub(crate) fn clear_retry_target(&mut self) {
         self.retry_target = None;

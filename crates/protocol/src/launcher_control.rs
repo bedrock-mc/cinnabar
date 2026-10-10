@@ -12,3 +12,4 @@ pub use bridge::{
     sign_out,
 };
 pub use bridge::{PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay};
+pub use bridge::{XboxPresenceState, report_xbox_presence};

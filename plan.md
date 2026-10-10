@@ -1,3 +1,16 @@
+## Xbox Minecraft activity
+
+- The Rust client reports menus and the committed world default, Realm and experience
+  identity to the account core. Go publishes through the existing Xbox presence API;
+  offline accounts do no service work and failures never block joins or gameplay.
+- Fake-client tests cover joins, default-mode changes, leaving, cancellation and title
+  cleanup. The control regression failed on the previous implementation. Rust state
+  tests distinguish the world default from an individual player's mode.
+- Exact heartbeat cadence, platform-specific service configuration selection, server
+  activity overrides and permission gates remain incomplete. The current heartbeat
+  fallback is provisional. Signed-in friends-visible validation is incomplete, and no
+  Xbox presence parity gate closes. Discord presence is unchanged.
+
 ## Small-surface render safety
 
 - Explicit render scissors and viewports intersect their physical attachments; empty

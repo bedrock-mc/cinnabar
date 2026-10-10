@@ -22,6 +22,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
+	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
@@ -65,6 +66,7 @@ type Config struct {
 type Service struct {
 	cfg       Config
 	logger    *slog.Logger
+	presence  *xboxpresence.Worker
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
@@ -318,6 +320,9 @@ func (s *Service) SignOut() error {
 	s.signedOut.Store(true)
 	s.snap = snapshot{}
 	s.mu.Unlock()
+	if s.presence != nil {
+		s.presence.Close()
+	}
 	_ = s.cfg.Account.Close()
 	s.disk.Lock()
 	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
