@@ -2,12 +2,11 @@
 
 use std::num::NonZeroU16;
 
-/// How fast the client may render; `Automatic` lets the presentation policy choose per display.
+/// The player's FPS cap; presentation and variable refresh may impose a lower rate.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum FrameRateLimit {
-    #[default]
-    Automatic,
     /// Frames per second.
     Fixed(NonZeroU16),
+    #[default]
     Unlimited,
 }

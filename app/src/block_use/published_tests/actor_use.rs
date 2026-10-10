@@ -6,6 +6,16 @@ use {super::*, gameplay::block_use::RepeatClock};
 
 /// Adds a selectable actor after the fixture's latest terrain update.
 pub(super) fn spawn(world: &mut World, z: f32) {
+    spawn_kind(
+        world,
+        z,
+        protocol::ActorKind::Entity {
+            identifier: "minecraft:villager_v2".into(),
+        },
+    );
+}
+
+fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
     let sequence = stream.committed_sequence() + 1;
@@ -16,9 +26,7 @@ pub(super) fn spawn(world: &mut World, z: f32) {
                 dimension: 0,
                 unique_id: 99,
                 runtime_id: 99,
-                kind: protocol::ActorKind::Entity {
-                    identifier: "minecraft:villager_v2".into(),
-                },
+                kind,
                 position: [4.5, 1.5, z],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -114,4 +122,62 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(captured.drain().len(), 1);
     assert!(world.resource::<BlockUseRuntime>().press_interacted());
+}
+
+/// Uses a snowball on a player after the server set `interact_text`, returning the packet kinds.
+fn throw_at_player(interact_text: &str) -> Vec<&'static str> {
+    let (mut world, mut captured) = fixture();
+    super::item_use_tests::hold_snowball(&mut world);
+    spawn_kind(
+        &mut world,
+        7.5,
+        protocol::ActorKind::Player {
+            uuid: [7; 16],
+            username: "target".into(),
+        },
+    );
+    world
+        .resource_mut::<UiRuntime>()
+        .apply_local_metadata(
+            7,
+            u64::MAX,
+            &[protocol::ActorMetadata {
+                key: 100,
+                value: protocol::ActorMetadataValue::String(interact_text.into()),
+            }],
+        )
+        .unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+    captured
+        .drain()
+        .into_iter()
+        .filter_map(|packet| match &packet.data {
+            McpePacketData::InventoryTransactionPacket(packet) => match &packet.transaction {
+                InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(tx) => {
+                    assert_eq!(tx.action_type, ActorAction::Interact);
+                    assert_eq!(tx.runtime_id.actor_runtime_id, 99);
+                    Some("interact")
+                }
+                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(_) => {
+                    Some("use")
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// A throwable used on a player with no interaction must still throw, after the interact.
+#[test]
+fn a_throwable_used_on_a_player_without_an_interaction_still_throws() {
+    assert_eq!(throw_at_player(""), ["interact", "use"]);
+}
+
+#[test]
+fn a_server_offered_player_interaction_consumes_the_use() {
+    assert_eq!(throw_at_player("action.interact.ride.horse"), ["interact"]);
 }

@@ -27,3 +27,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 protocol = { path = "../protocol", features = ["wire-test-support"] }
+
+[lints]
+workspace = true

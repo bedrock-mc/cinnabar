@@ -164,6 +164,16 @@ fn exact_families_compile_from_target_registry() {
         let records = target_records(names);
         assert!(!records.is_empty(), "{names:?} absent from target registry");
         let compiled = compile_pack(directory.path(), &records).expect("compile target family");
+        let mut renumbered = records.clone();
+        for record in &mut renumbered {
+            record.collision_seed.shape_id ^= u16::MAX;
+        }
+        let same_geometry = compile_pack(directory.path(), &renumbered)
+            .expect("compile family with carrier-local shape keys");
+        assert_eq!(
+            encode_blob(&compiled).unwrap(),
+            encode_blob(&same_geometry).unwrap()
+        );
         for record in &records {
             let visual = compiled.visuals[record.sequential_id as usize];
             assert_ne!(

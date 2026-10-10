@@ -211,9 +211,6 @@ fn compiler_cactus_admission_fails_closed_atomically() {
     let mut wrong_coverage = records.clone();
     wrong_coverage[0].face_coverage = 1;
     families.push(("wrong coverage", wrong_coverage));
-    let mut wrong_shape = records.clone();
-    wrong_shape[0].collision_seed.shape_id = 1;
-    families.push(("wrong shape", wrong_shape));
     let mut wrong_confidence = records.clone();
     wrong_confidence[0].collision_seed.confidence = CollisionConfidence::ReviewedVisibleBounds;
     families.push(("wrong confidence", wrong_confidence));

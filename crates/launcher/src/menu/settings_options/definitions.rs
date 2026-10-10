@@ -131,9 +131,11 @@ pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
     (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
 );
 
-/// Frame-rate slider stops: Automatic, whole caps in frames per second, then Unlimited.
-pub const FRAME_RATE_AUTOMATIC: i32 = 0;
+/// Lowest selectable frame-rate cap, in frames per second.
+pub const MIN_FIXED_FRAME_RATE: i32 = 1;
+/// Highest selectable frame-rate cap, in frames per second.
 pub const MAX_FIXED_FRAME_RATE: i32 = 240;
+/// Unlimited follows the numeric caps on the frame-rate slider.
 pub const FRAME_RATE_UNLIMITED: i32 = MAX_FIXED_FRAME_RATE + 1;
 
 /// Defines one boolean binding with an integral persisted value.
@@ -330,9 +332,9 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider(
         "max_framerate",
         "options.framerateLimit",
-        FRAME_RATE_AUTOMATIC,
+        MIN_FIXED_FRAME_RATE,
         FRAME_RATE_UNLIMITED,
-        FRAME_RATE_AUTOMATIC,
+        FRAME_RATE_UNLIMITED,
     ),
     slider(
         "msaa",

@@ -630,6 +630,27 @@ fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
     assert_eq!(runtime.gameplay_hud().freezing_strength(), 0.0);
 }
 
+/// The server's interact text is retained until an empty update withdraws it.
+#[test]
+fn interact_text_tracks_the_latest_server_value() {
+    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
+    let text = |value: &str| ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::String(value.into()),
+    };
+    assert!(!state.has_interact_text());
+    state.apply_metadata(&[text("action.interact.ride.horse")]);
+    assert!(state.has_interact_text());
+    state.apply_metadata(&[ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::Int(1),
+    }]);
+    assert!(state.has_interact_text());
+    assert_eq!(state.diagnostics().odd_metadata_values, 1);
+    state.apply_metadata(&[text("")]);
+    assert!(!state.has_interact_text());
+}
+
 #[test]
 fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     let mut player_runtime = player_state::PlayerState::new(1);

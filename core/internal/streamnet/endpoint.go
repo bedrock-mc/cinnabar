@@ -17,6 +17,8 @@ const (
 	windowsEndpointName        = "game.addr"
 	controlUnixEndpointName    = "control.sock"
 	controlWindowsEndpointName = "control.addr"
+	sessionUnixEndpointName    = "session.sock"
+	sessionWindowsEndpointName = "session.addr"
 )
 
 type endpointNames struct {
@@ -26,6 +28,7 @@ type endpointNames struct {
 var (
 	gameEndpoint    = endpointNames{unix: unixEndpointName, windows: windowsEndpointName, lease: "game.lock"}
 	controlEndpoint = endpointNames{unix: controlUnixEndpointName, windows: controlWindowsEndpointName, lease: "control.lock"}
+	sessionEndpoint = endpointNames{unix: sessionUnixEndpointName, windows: sessionWindowsEndpointName, lease: "session.lock"}
 )
 
 // Resolve discovers the local bridge endpoint in socketDir. On Unix it
@@ -38,6 +41,11 @@ func Resolve(socketDir string) (network, address string, err error) {
 // ResolveControl discovers the separately published control endpoint.
 func ResolveControl(socketDir string) (network, address string, err error) {
 	return resolveEndpoint(socketDir, controlEndpoint)
+}
+
+// ResolveSession discovers the separately published session endpoint.
+func ResolveSession(socketDir string) (network, address string, err error) {
+	return resolveEndpoint(socketDir, sessionEndpoint)
 }
 
 func resolveEndpoint(socketDir string, names endpointNames) (network, address string, err error) {

@@ -22,3 +22,6 @@ sha2.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+
+[lints]
+workspace = true

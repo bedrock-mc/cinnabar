@@ -235,9 +235,6 @@ fn compiler_resin_clump_admission_fails_closed_as_a_complete_family() {
     let mut wrong_coverage = records.clone();
     wrong_coverage[0].face_coverage = 1;
     families.push(("wrong face coverage", wrong_coverage));
-    let mut wrong_shape = records.clone();
-    wrong_shape[0].collision_seed.shape_id = 1;
-    families.push(("wrong collision shape", wrong_shape));
     let mut wrong_confidence = records.clone();
     wrong_confidence[0].collision_seed.confidence = CollisionConfidence::ReviewedVisibleBounds;
     families.push(("wrong collision confidence", wrong_confidence));

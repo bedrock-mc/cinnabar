@@ -122,12 +122,12 @@ impl WorldAuthority {
                 .expect("validated runtime biome assets resolve without live definitions"),
         );
         let biome_tint_stream_id = NEXT_BIOME_TINT_STREAM_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .expect("biome tint stream identity space exhausted");
         let actor_session_id = NEXT_ACTOR_SESSION_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .expect("actor session identity space exhausted");
