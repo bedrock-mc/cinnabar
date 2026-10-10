@@ -61,10 +61,14 @@ fn needs_pose_sampling(
     swing: bool,
     active_clips: Option<&[tick::WeightedClip]>,
 ) -> bool {
-    let samples_clip = |clip: usize| {
-        active_clips.is_none_or(|clips| clips.iter().any(|active| active.clip == clip))
-            && camera_clip(assets, clip, swing)
-    };
+    if active_clips.is_some_and(|clips| {
+        clips
+            .iter()
+            .any(|active| camera_clip(assets, active.clip, swing))
+    }) {
+        return true;
+    }
+    let samples_clip = |clip: usize| active_clips.is_none() && camera_clip(assets, clip, swing);
     if swing
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()

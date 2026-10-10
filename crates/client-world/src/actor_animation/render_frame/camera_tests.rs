@@ -233,8 +233,8 @@ fn unchanged_camera_and_frame_input_retains_completed_geometry_poses_without_res
     }
 }
 
-#[test]
-fn inactive_camera_animation_preserves_walking_pose_interpolation() {
+/// Provides moving body/layer clips alongside a dormant camera-sensitive weapon clip.
+fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
     let mut compiled = camera_compiled();
     let mut symbols = compiled.molang_symbols.into_vec();
     symbols.insert(
@@ -309,8 +309,13 @@ fn inactive_camera_animation_preserves_walking_pose_interpolation() {
     });
     compiled.rig_animations = bindings.into_boxed_slice();
     compiled.rig_geometries[0].animation_count = 2;
+    compiled
+}
+
+#[test]
+fn inactive_camera_animation_preserves_walking_pose_interpolation() {
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(inactive_camera_compiled()).unwrap(),
     ));
     store.apply(
         1,
@@ -341,6 +346,74 @@ fn inactive_camera_animation_preserves_walking_pose_interpolation() {
             assert_eq!(layer.pose, completed.pose);
         }
     }
+}
+
+#[test]
+fn server_camera_animation_outside_rig_bindings_samples_between_ticks() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.symbols.into_vec();
+    symbols.insert(
+        5,
+        EntityAssetSymbol {
+            kind: EntityAssetKind::Animation,
+            identifier: "animation.zz_server_camera".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        },
+    );
+    compiled.symbols = symbols.into_boxed_slice();
+    compiled.rig_bindings[0].render_controller += 1;
+    let mut keyframes = compiled.animation_keyframes.into_vec();
+    let first_keyframe = keyframes.len() as u32;
+    keyframes.push(keyframes[compiled.animation_channels[2].first_keyframe as usize]);
+    compiled.animation_keyframes = keyframes.into_boxed_slice();
+    let mut channels = compiled.animation_channels.into_vec();
+    let first_channel = channels.len() as u32;
+    channels.push(EntityAnimationChannel {
+        first_keyframe,
+        ..channels[2].clone()
+    });
+    compiled.animation_channels = channels.into_boxed_slice();
+    let mut clips = compiled.animation_clips.into_vec();
+    clips.push(EntityAnimationClip {
+        symbol: 5,
+        first_channel,
+        override_previous: true,
+        ..clips[2]
+    });
+    compiled.animation_clips = clips.into_boxed_slice();
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.apply_item_actor(
+        1,
+        2,
+        protocol::ItemActorEvent::Action(protocol::ActorActionEvent {
+            actor_runtime_ids: Arc::from([1]),
+            kind: protocol::ActorActionKind::Custom {
+                animation: "animation.zz_server_camera".into(),
+                controller: "fixture.server".into(),
+                next_state: "".into(),
+                stop_expression: "".into(),
+                stop_expression_version: 0,
+            },
+            data: 0.0,
+            swing_source: None,
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+    let completed_pose = store.actor_rig(1).unwrap().current[0];
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        let actual = layers[0].pose.first().unwrap_or(&completed_pose);
+        assert_rotation(
+            actual.rotation,
+            pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]),
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
 }
 
 #[test]
