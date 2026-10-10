@@ -15,7 +15,10 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_FEATURES ?=
+RENDER_MODE ?=
+CLIENT_CARGO_FEATURES = $(if $(strip $(CLIENT_FEATURES)),--features "$(CLIENT_FEATURES)") $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_RENDER_MODE_ARGS = $(if $(strip $(RENDER_MODE)),--render-mode "$(RENDER_MODE)")
 # Passed to the client at launch only; it is never a compile input.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
@@ -141,7 +144,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_CARGO_FEATURES) -- $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"

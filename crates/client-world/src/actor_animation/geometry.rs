@@ -161,6 +161,7 @@ pub(super) fn resolve_binding(
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
+        world_body: None,
         view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
@@ -557,6 +558,7 @@ fn reselect_geometry_with_checkpoint(
     state.bones = bones;
     state.bone_names = bone_names;
     state.controllers = controllers;
+    state.world_body = None;
     state.reset_to_skeleton(pose);
     checkpoint
 }

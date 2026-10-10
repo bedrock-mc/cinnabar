@@ -4,7 +4,7 @@ use crate::shader_source;
 type Variant = (&'static str, String, &'static str, &'static str, bool);
 
 /// All forward, shadow-caster and fullscreen variants used by the extension.
-fn variants() -> Vec<Variant> {
+pub(super) fn variants() -> Vec<Variant> {
     let mut result = Vec::new();
     for (name, source) in [
         ("chunk", include_str!("../chunk.wgsl")),
@@ -44,9 +44,53 @@ fn variants() -> Vec<Variant> {
                 "fragment_shadow",
                 true,
             ));
+            let motion_name = match name {
+                "chunk" => "chunk_motion",
+                "model" => "model_motion",
+                _ => unreachable!(),
+            };
+            result.push((
+                motion_name,
+                shader_source::composed(source, &["ENHANCED_SHADOW", "ENHANCED_MOTION"]),
+                "vertex",
+                "fragment_motion",
+                true,
+            ));
         }
     }
-    for fragment in ["light_shafts", "composite"] {
+    let actor = variant_shader("actor");
+    let bevy::shader::Source::Wgsl(actor_source) = actor.source else {
+        panic!("actor shader source must remain WGSL");
+    };
+    for (definition, fragment, shadow) in [
+        ("ENHANCED", "actor_fragment", false),
+        ("ENHANCED_SHADOW", "actor_fragment_shadow", true),
+    ] {
+        result.push((
+            "actor",
+            shader_source::composed(&actor_source, &[definition]),
+            "actor_vertex",
+            fragment,
+            shadow,
+        ));
+    }
+    result.push((
+        "actor_motion",
+        shader_source::composed(&actor_source, &["ENHANCED_SHADOW", "ENHANCED_MOTION"]),
+        "actor_vertex",
+        "actor_fragment_motion",
+        true,
+    ));
+    for fragment in [
+        "light_shafts",
+        "sky_lut",
+        "sky_background",
+        "cloud_shadows",
+        "effects",
+        "composite",
+        "temporal_resolve",
+        "present",
+    ] {
         result.push((
             fragment,
             shader_source::composed(include_str!("../enhanced/post.wgsl"), &[]),
@@ -55,7 +99,48 @@ fn variants() -> Vec<Variant> {
             false,
         ));
     }
+    for fragment in [
+        "capture_probe",
+        "filter_mip",
+        "cloud_environment",
+        "resolve_reflections",
+    ] {
+        result.push((
+            fragment,
+            shader_source::composed(include_str!("probe.wgsl"), &[]),
+            "fullscreen",
+            fragment,
+            false,
+        ));
+    }
+    result.push((
+        "resolve_local_shadows",
+        shader_source::composed(include_str!("local_shadow_history.wgsl"), &[]),
+        "fullscreen",
+        "resolve_local_shadows",
+        false,
+    ));
+    result.push((
+        "prefilter_environment",
+        shader_source::composed(include_str!("probe_filter.wgsl"), &[]),
+        "fullscreen",
+        "prefilter_environment",
+        false,
+    ));
     result
+}
+
+#[test]
+fn enhanced_exposure_shader_validates() {
+    let source = shader_source::composed(include_str!("exposure.wgsl"), &[]);
+    let module = naga::front::wgsl::parse_str(&source)
+        .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
 }
 
 #[test]
@@ -73,20 +158,145 @@ fn enhanced_shaders_validate() {
 }
 
 #[test]
-#[ignore = "Enhanced disabled after GPU faults and system freezes"]
 fn enhanced_pipelines_build_on_native_adapter() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let adapter =
+    let pool = bevy::tasks::TaskPoolBuilder::new()
+        .num_threads(1)
+        .thread_name("Enhanced shader compilation".to_owned())
+        .build();
+    bevy::tasks::block_on(pool.spawn(async { build_native_pipelines() }));
+}
+
+pub(super) fn variant_shader(name: &str) -> bevy::prelude::Shader {
+    let source = match name {
+        "chunk" | "chunk_motion" => include_str!("../chunk.wgsl"),
+        "model" | "model_motion" => include_str!("../model.wgsl"),
+        "liquid" => include_str!("../liquid.wgsl"),
+        "actor" | "actor_motion" => include_str!("../actor.wgsl"),
+        "capture_probe" | "filter_mip" | "resolve_reflections" | "cloud_environment" => {
+            include_str!("probe.wgsl")
+        }
+        "prefilter_environment" => include_str!("probe_filter.wgsl"),
+        "resolve_local_shadows" => include_str!("local_shadow_history.wgsl"),
+        _ => include_str!("post.wgsl"),
+    };
+    if matches!(name, "actor" | "actor_motion") {
+        crate::shader_safety::from_actor_wgsl(
+            source,
+            name,
+            crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+            render_model::ACTOR_RIG_VERTEX_WORDS,
+        )
+    } else {
+        crate::shader_safety::from_wgsl(crate::material_shader::source(source), name)
+    }
+}
+
+pub(super) fn variant_definitions(name: &str, shadow: bool) -> &'static [&'static str] {
+    if matches!(name, "chunk_motion" | "model_motion" | "actor_motion") {
+        &["ENHANCED_SHADOW", "ENHANCED_MOTION"]
+    } else if shadow {
+        &["ENHANCED_SHADOW"]
+    } else if matches!(name, "chunk" | "model" | "liquid" | "actor") {
+        &["ENHANCED"]
+    } else {
+        &[]
+    }
+}
+
+pub(super) fn actor_descriptor(
+    shadow: bool,
+) -> bevy::render::render_resource::RenderPipelineDescriptor {
+    use bevy::render::view::ViewTarget;
+    if shadow {
+        crate::actor_render::actor_shadow_pipeline_descriptor(
+            super::gpu::enhanced_caster_layout(),
+            super::gpu::SHADOW_FORMAT,
+        )
+    } else {
+        let mut descriptor = crate::actor_render::actor_pipeline_descriptor(
+            crate::actor_render::actor_bind_group_layout(),
+        );
+        descriptor.layout.push(super::gpu::enhanced_view_layout());
+        descriptor.vertex.shader_defs = vec!["ENHANCED".into()];
+        descriptor.fragment.as_mut().unwrap().shader_defs = vec!["ENHANCED".into()];
+        descriptor.fragment.as_mut().unwrap().targets[0]
+            .as_mut()
+            .unwrap()
+            .format = ViewTarget::TEXTURE_FORMAT_HDR;
+        descriptor
+    }
+}
+
+pub(super) fn actor_motion_descriptor() -> bevy::render::render_resource::RenderPipelineDescriptor {
+    super::depth::camera_depth(crate::actor_render::actor_motion_pipeline_descriptor(
+        super::gpu::enhanced_caster_layout(),
+        super::gpu::SHADOW_FORMAT,
+    ))
+}
+
+fn native_module(name: &str, shadow: bool) -> naga::Module {
+    let shader = variant_shader(name);
+    let bevy::shader::Source::Wgsl(source) = shader.source else {
+        panic!("Enhanced shader source must remain WGSL");
+    };
+    shader_source::composed_module(&source, variant_definitions(name, shadow))
+}
+
+pub(super) fn native_instance() -> wgpu::Instance {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut settings = bevy::render::settings::WgpuSettings::default();
+    #[cfg(target_os = "windows")]
+    super::configure_enhanced_shader_compiler(&mut settings);
+    wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: settings.backends.unwrap_or(wgpu::Backends::PRIMARY),
+        flags: wgpu::InstanceFlags::VALIDATION,
+        backend_options: wgpu::BackendOptions {
+            dx12: wgpu::Dx12BackendOptions {
+                shader_compiler: settings.dx12_shader_compiler,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+fn build_native_pipelines() {
+    let instance = native_instance();
+    let Ok(adapter) =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("this fixture requires a native GPU adapter");
+    else {
+        eprintln!("missing fixture: native GPU adapter for Enhanced pipeline validation");
+        return;
+    };
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("enhanced smoke"),
         required_limits: adapter.limits(),
         ..Default::default()
     }))
     .expect("Enhanced smoke device");
-    for (name, source, vertex, fragment, shadow) in variants() {
-        let descriptors = if vertex == "fullscreen" {
+    for (name, _, vertex, fragment, shadow) in variants() {
+        eprintln!("compiling Enhanced native pipeline {name}/{fragment}");
+        let motion = fragment.ends_with("_motion");
+        let actor = match name {
+            "actor" => Some(actor_descriptor(shadow)),
+            "actor_motion" => Some(actor_motion_descriptor()),
+            _ => None,
+        };
+        let descriptors = if let Some(actor) = &actor {
+            actor.layout.clone()
+        } else if matches!(
+            fragment,
+            "capture_probe" | "filter_mip" | "cloud_environment"
+        ) {
+            vec![super::probes::layout()]
+        } else if fragment == "resolve_local_shadows" {
+            vec![super::local_shadow_history::layout()]
+        } else if fragment == "prefilter_environment" {
+            vec![super::probes::environment_filter_layout()]
+        } else if fragment == "resolve_reflections" {
+            vec![super::probes::reflection_resolve_layout()]
+        } else if vertex == "fullscreen" {
             vec![super::gpu::enhanced_post_layout()]
         } else {
             vec![
@@ -116,13 +326,51 @@ fn enhanced_pipelines_build_on_native_adapter() {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
+            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(native_module(name, shadow))),
         });
-        let targets = [Some(wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba16Float,
-            blend: None,
-            write_mask: wgpu::ColorWrites::ALL,
-        })];
+        let targets = if fragment == "resolve_local_shadows" {
+            vec![
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ]
+        } else if motion {
+            [
+                wgpu::TextureFormat::Rgba16Float,
+                wgpu::TextureFormat::Rg16Float,
+            ]
+            .into_iter()
+            .map(|format| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })
+            })
+            .collect()
+        } else {
+            vec![Some(if fragment == "resolve_reflections" {
+                super::probes::reflection_resolve_target()
+            } else {
+                wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }
+            })]
+        };
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(name),
             layout: Some(&layout),
@@ -136,16 +384,27 @@ fn enhanced_pipelines_build_on_native_adapter() {
                 module: &shader,
                 entry_point: Some(fragment),
                 compilation_options: Default::default(),
-                targets: if shadow { &[] } else { &targets },
+                targets: if shadow && !motion { &[] } else { &targets },
             }),
-            primitive: Default::default(),
-            depth_stencil: shadow.then_some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
+            primitive: actor
+                .as_ref()
+                .map_or_else(Default::default, |actor| actor.primitive),
+            depth_stencil: actor
+                .as_ref()
+                .and_then(|actor| actor.depth_stencil.clone())
+                .or_else(|| {
+                    shadow.then_some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: true,
+                        depth_compare: if motion {
+                            wgpu::CompareFunction::GreaterEqual
+                        } else {
+                            wgpu::CompareFunction::LessEqual
+                        },
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    })
+                }),
             multisample: Default::default(),
             multiview: None,
             cache: None,
@@ -153,16 +412,75 @@ fn enhanced_pipelines_build_on_native_adapter() {
         let error = bevy::tasks::block_on(device.pop_error_scope());
         assert!(error.is_none(), "{name}/{fragment}: {error:?}");
     }
+    let descriptor = super::exposure::layout();
+    let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(descriptor.label.as_ref()),
+        entries: &descriptor.entries,
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Enhanced exposure production layout"),
+        bind_group_layouts: &[&group],
+        push_constant_ranges: &[],
+    });
+    let source = shader_source::composed_module(include_str!("exposure.wgsl"), &[]);
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Enhanced exposure"),
+        source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(source)),
+    });
+    for entry in ["build_histogram", "adapt_exposure"] {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(entry),
+            layout: Some(&layout),
+            module: &shader,
+            entry_point: Some(entry),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let error = bevy::tasks::block_on(device.pop_error_scope());
+        assert!(error.is_none(), "{entry}: {error:?}");
+    }
+    let descriptor = super::multiple_scattering::generation_layout();
+    let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(descriptor.label.as_ref()),
+        entries: &descriptor.entries,
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Enhanced atmospheric transfer production layout"),
+        bind_group_layouts: &[&group],
+        push_constant_ranges: &[],
+    });
+    let source = shader_source::composed_module(
+        &super::multiple_scattering::shader_source(include_str!("multiple_scattering.wgsl")),
+        &[],
+    );
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Enhanced atmospheric transfer"),
+        source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(source)),
+    });
+    let _pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("generate_multiple_scattering"),
+        layout: Some(&layout),
+        module: &shader,
+        entry_point: Some("generate_multiple_scattering"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let error = bevy::tasks::block_on(device.pop_error_scope());
+    assert!(error.is_none(), "atmospheric transfer: {error:?}");
 }
 
 // Night and brightness darken the lightmap, never the open-sky gate on direct moonlight.
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let adapter =
+    let instance = native_instance();
+    let Ok(adapter) =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("this fixture requires a native GPU adapter");
+    else {
+        eprintln!("missing fixture: native GPU adapter for full-sky night-lightmap validation");
+        return;
+    };
     let (device, queue) =
         bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let source = shader_source::composed(

@@ -517,6 +517,7 @@ pub struct MenuView {
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    pub enhanced_quality: render_api::EnhancedQuality,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
@@ -736,6 +737,7 @@ impl MenuView {
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            enhanced_quality: render_api::EnhancedQuality::default(),
             vsync_override: None,
             display_name,
             servers: Vec::new(),

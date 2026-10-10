@@ -21,5 +21,14 @@ impl VisualTimeOverride {
     }
 }
 
+/// Local renderer-only time used by the Enhanced-mode lighting probe.
+///
+/// This stays separate from mod output so a local component cannot accidentally
+/// claim ownership of the built-in debug control.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DebugTimeOverride {
+    pub(crate) ticks: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests;

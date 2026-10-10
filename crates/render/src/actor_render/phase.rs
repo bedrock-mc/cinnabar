@@ -34,7 +34,7 @@ pub(super) fn queue_actors(
         .executed_instances
         .store(0, std::sync::atomic::Ordering::Relaxed);
     let view_count = params.views.iter().count();
-    if params.gpu.instance_count == 0 {
+    if params.gpu.instance_count == 0 || params.gpu.spans.is_empty() {
         params.witness.observe_queue(ActorQueueWitness {
             prepared_instances: params.gpu.instance_count,
             bind_group: params.gpu.bind_group.is_some(),
@@ -65,7 +65,8 @@ pub(super) fn queue_actors(
         let this_tick = next_tick.get() + 1;
         next_tick.set(this_tick);
         let mut view_queued = false;
-        if params.gpu.spans.iter().any(|span| !blended(span.material)) {
+        let spans = view_spans(&params.gpu.main_spans, &params.gpu.spans, enhanced);
+        if spans.iter().any(|span| !blended(span.material)) {
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function,
@@ -90,9 +91,7 @@ pub(super) fn queue_actors(
             .get_mut(&view.retained_view_entity)
         {
             let rangefinder = view.rangefinder3d();
-            for (index, span) in params
-                .gpu
-                .spans
+            for (index, span) in spans
                 .iter()
                 .enumerate()
                 .filter(|(_, span)| blended(span.material))
@@ -132,11 +131,13 @@ pub(super) fn queue_actors(
             continue;
         }
         queued = true;
-        intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
-            current.min(view_entity.to_bits())
-        }));
+        if enhanced.is_none_or(|settings| !settings.reflection_capture) {
+            intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
+                current.min(view_entity.to_bits())
+            }));
+        }
     }
-    if queued {
+    if let Some(intended_view) = intended_view {
         let Some(draw_generation) = next_draw_generation.checked_add(1) else {
             return;
         };
@@ -148,10 +149,10 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
-            intended_view.expect("queued view exists"),
-            &params.gpu.spans,
+            intended_view,
+            &params.gpu.main_spans,
         );
     }
     params.witness.observe_queue(ActorQueueWitness {
@@ -167,6 +168,7 @@ pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<false>,
     ),
 >;
@@ -176,6 +178,7 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<true>,
     ),
 >;
@@ -217,17 +220,18 @@ impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED>
         let cache = cache.into_inner();
         let mut executed_instances = 0;
         let mut bound_page = None;
+        let view_spans = view_spans(&gpu.main_spans, &gpu.spans, view.4);
         let spans = if BLENDED {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index()
             else {
                 return RenderCommandResult::Skip;
             };
-            let Some(spans) = gpu.spans.get(range.start as usize..range.end as usize) else {
+            let Some(spans) = view_spans.get(range.start as usize..range.end as usize) else {
                 return RenderCommandResult::Skip;
             };
             spans
         } else {
-            gpu.spans.as_slice()
+            view_spans
         };
         for span in spans
             .iter()
@@ -275,3 +279,20 @@ impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED>
         RenderCommandResult::Success
     }
 }
+
+/// Chooses camera-visible spans while preserving the main view's shadow-only exclusion.
+fn view_spans<'a>(
+    main: &'a [crate::actor::gpu::ActorDrawSpan],
+    all: &'a [crate::actor::gpu::ActorDrawSpan],
+    settings: Option<&crate::EnhancedRendering>,
+) -> &'a [crate::actor::gpu::ActorDrawSpan] {
+    if settings.is_some_and(|settings| settings.reflection_capture) {
+        all
+    } else {
+        main
+    }
+}
+
+#[cfg(test)]
+#[path = "phase_tests.rs"]
+mod tests;

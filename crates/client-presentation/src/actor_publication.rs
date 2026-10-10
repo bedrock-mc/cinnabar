@@ -1,4 +1,5 @@
 mod commit;
+mod culling;
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
 mod emote_geometry;
@@ -23,8 +24,8 @@ use bevy::{
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
+    ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission, HandItemAtlas,
+    HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
     RuntimeStageProfiler,
 };
 
@@ -35,7 +36,7 @@ use crate::{
     dropped_items::DroppedItemPublisher,
     presentation::actors::{
         ActorRigPresentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
+        local_diagnostic_presentation, rig_world_from_actor,
     },
     presentation::equipment::{
         EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem, StagedSessionIcons,
@@ -75,7 +76,16 @@ pub struct ActorPresentationState<'w, 's> {
     settings: Res<'w, CameraSettingsAuthority>,
     server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
-    camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+    camera: Query<
+        'w,
+        's,
+        (
+            &'static Transform,
+            &'static Projection,
+            Option<&'static render::EnhancedRendering>,
+        ),
+        With<FlyCamera>,
+    >,
 }
 
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
@@ -236,6 +246,7 @@ pub fn prepare_actor_render_frame(
         skin_rigs,
         skin_layers,
         poses,
+        shadow_poses,
         layer_poses,
         hand_revision,
         java_hand,
@@ -264,6 +275,19 @@ pub fn prepare_actor_render_frame(
     let first_person = *first_person;
     let java_mode = *java_mode;
     let view = *captured_view;
+    let actor_views = camera
+        .single()
+        .ok()
+        .map(|(transform, projection, enhanced)| {
+            culling::ActorPublicationViews::new(
+                transform,
+                projection,
+                render_model::ENHANCED_RENDERING_ENABLED
+                    && enhanced
+                        .is_some_and(|settings| settings.shadows && !settings.reflection_capture),
+            )
+        });
+    let local_shadows = first_person && actor_views.is_some_and(|views| views.casts_shadows);
     let mut java_posed = Vec::new();
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(progress) = swing_progress {
@@ -283,18 +307,11 @@ pub fn prepare_actor_render_frame(
     let hand_camera_fov = camera
         .single()
         .ok()
-        .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
+        .and_then(|(_, projection, _)| crate::camera::first_person_hand_fov(projection));
     let preparation = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
+    let cull_view = actor_views.map(|views| views.publication);
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
     let local_emote_pose = (!first_person)
@@ -338,7 +355,7 @@ pub fn prepare_actor_render_frame(
                             rig,
                             actor,
                             step.partial_tick,
-                            cull_view,
+                            actor_views.map(|views| views.publication),
                             sample_scale,
                         ) else {
                             continue;
@@ -347,11 +364,11 @@ pub fn prepare_actor_render_frame(
                     };
                     // Cull at the sampled frame scale; the local rig also drives the hand.
                     if rig.actor.runtime_id != local_runtime_id
-                        && !crate::presentation::actors::rig_may_be_visible(
+                        && !culling::rig_may_be_published(
                             &rig,
                             actor,
                             step.partial_tick,
-                            cull_view,
+                            actor_views,
                             |low, high| {
                                 cull_view.is_some_and(|view| {
                                     hides_box(stream, view.camera_position.to_array(), low, high)
@@ -539,6 +556,18 @@ pub fn prepare_actor_render_frame(
             });
         (visibility.visible(), local)
     });
+    let local = if local_shadows {
+        local.and_then(|local| {
+            culling::local_shadow_body(
+                local,
+                client_world.stream.as_deref(),
+                shadow_poses,
+                step.partial_tick,
+            )
+        })
+    } else {
+        local
+    };
     // The visibility override rebuilds the local transform, so re-apply the death tip-over.
     let local_death = client_world
         .stream
@@ -586,12 +615,15 @@ pub fn prepare_actor_render_frame(
     let camera_position = cull_view
         .as_ref()
         .map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    let mut batch = crate::presentation::actors::select_actor_presentations_for_shadow_view(
         local_runtime_id,
         local_visible,
         local,
         remotes,
-        cull_view,
+        actor_views.map(|views| views.main),
+        actor_views
+            .filter(|views| views.casts_shadows)
+            .map(|views| views.publication),
     );
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::actors::light_bodies(&mut batch, stream);
@@ -625,7 +657,7 @@ pub fn prepare_actor_render_frame(
             &mut batch,
             cape,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows).map(|rig| {
                     if runtime_id == local_runtime_id
                         && let Some(pose) = &local_emote_pose
                     {
@@ -657,6 +689,12 @@ pub fn prepare_actor_render_frame(
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
+                if local_shadows && runtime_id == local_runtime_id {
+                    return client_world.stream.as_ref().and_then(|stream| {
+                        culling::world_rig(stream, runtime_id, local_runtime_id, true)
+                            .map(|rig| std::borrow::Cow::Borrowed(rig.render))
+                    });
+                }
                 if runtime_id == local_runtime_id
                     && let Some(pose) = &local_emote_pose
                 {
@@ -674,7 +712,7 @@ pub fn prepare_actor_render_frame(
             &mut batch,
             artwork,
             |runtime_id| {
-                let rig = stream.authority().actor_rig(runtime_id)?;
+                let rig = culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows)?;
                 let emote = (runtime_id == local_runtime_id)
                     .then_some(local_emote_pose.as_ref())
                     .flatten();
@@ -695,6 +733,9 @@ pub fn prepare_actor_render_frame(
         )
     {
         scene.configure_artwork(pages);
+    }
+    if actor_views.is_some_and(|views| views.casts_shadows) {
+        culling::shadow_only_caster_layers(&mut batch);
     }
     // Hiding skin layers keeps armor and held items visible.
     if let Some(stream) = client_world.stream.as_ref() {

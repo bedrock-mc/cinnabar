@@ -234,3 +234,46 @@ fn frames_between_ticks_only_re_place_the_tick_presentation() {
     assert_eq!(format!("{cached:?}"), format!("{fresh:?}"));
     assert_ne!(cached.skin_rgba8, last_player.unwrap().skin_rgba8);
 }
+
+#[test]
+fn world_shadow_pose_replaces_context_scales_and_keeps_sampled_feet_and_death() {
+    let mut world = world();
+    world.advance_actor_interpolation_frame(1);
+    let mut actor = world.actor(PLAYER).unwrap().clone();
+    actor.status.dead = true;
+    actor.status.death_time = 4;
+    let rig = world.actor_rig(PLAYER).unwrap();
+    for axes in [[0.5, 1.5, 2.0], [0.0, 1.5, 2.0]] {
+        let first = client_world::ActorRigSnapshot {
+            scale: 0.25,
+            axis_scale: axes,
+            ..rig
+        };
+        let body = client_world::ActorRigSnapshot {
+            scale: 2.0,
+            axis_scale: [1.5, 0.5, 3.0],
+            ..rig
+        };
+        let alpha = 0.5;
+        let feet = [10.0, 70.0, -12.0];
+        let mut local = actor_rig_presentation(&first, &actor, None, alpha).unwrap();
+        for (row, coordinate) in local.submission.world_from_actor.iter_mut().zip(feet) {
+            row[3] = coordinate;
+        }
+        let mut expected = actor_rig_presentation(&body, &actor, None, alpha).unwrap();
+        for (row, coordinate) in expected.submission.world_from_actor.iter_mut().zip(feet) {
+            row[3] = coordinate;
+        }
+        assert!(PoseConversions::default().apply_pose(&mut local, &body, &actor, alpha));
+        assert_eq!(local.authored_scale, body.scale);
+        for (actual, expected) in local
+            .submission
+            .world_from_actor
+            .into_iter()
+            .flatten()
+            .zip(expected.submission.world_from_actor.into_iter().flatten())
+        {
+            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+    }
+}

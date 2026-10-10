@@ -16,6 +16,7 @@ pub struct ActorFrameState {
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
     pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
+    pub(super) shadow_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
@@ -103,6 +104,7 @@ pub fn advance_actor_frame(
         skin_rigs,
         skin_layers,
         poses,
+        shadow_poses,
         layer_poses,
         java_hand,
         java_poses,
@@ -213,6 +215,22 @@ pub fn advance_actor_frame(
     let first_person = server_camera.as_deref().map_or(first_person, |camera| {
         camera.renders_first_person(first_person)
     });
+    let actor_views = camera
+        .single()
+        .ok()
+        .map(|(transform, projection, enhanced)| {
+            culling::ActorPublicationViews::new(
+                transform,
+                projection,
+                render_model::ENHANCED_RENDERING_ENABLED
+                    && enhanced
+                        .is_some_and(|settings| settings.shadows && !settings.reflection_capture),
+            )
+        });
+    let local_shadows = first_person && actor_views.is_some_and(|views| views.casts_shadows);
+    if local_shadows {
+        shadow_poses.begin_frame();
+    }
     let java_mode = settings.feel().java_animations;
     let mut local_feed = input.local_feed.take();
     if let Some(feed) = local_feed.as_mut() {
@@ -248,15 +266,15 @@ pub fn advance_actor_frame(
             stream.sync_local_swing(progress);
         }
         stream.set_actor_camera_rotation(actor_camera_rotation(view.camera_rotation()));
-        if let Ok((transform, _)) = camera.single() {
+        if let Ok((transform, _, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
-        stream.set_actor_animation_view(
-            camera
-                .single()
-                .ok()
-                .and_then(|(transform, projection)| animation_view(transform, projection)),
-        );
+        stream.set_actor_world_body_enabled(local_shadows);
+        stream.set_actor_animation_view(camera.single().ok().and_then(
+            |(transform, projection, _)| {
+                culling::animation_view(transform, projection, actor_views)
+            },
+        ));
         let _animation = profiler
             .as_deref()
             .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
@@ -294,7 +312,7 @@ pub fn advance_actor_frame(
         &mut local_visibility,
     );
 
-    let sampling_camera = camera.single().ok().map(|(transform, _)| {
+    let sampling_camera = camera.single().ok().map(|(transform, _, _)| {
         (
             actor_camera_rotation(view.camera_rotation()),
             transform.translation.to_array(),
@@ -382,7 +400,7 @@ pub fn advance_actor_frame(
     let fov = camera
         .single()
         .ok()
-        .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
+        .and_then(|(_, projection, _)| crate::camera::first_person_hand_fov(projection));
     *hand_ready = hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov);
     *captured_view = *view;
     *captured_sampling_camera = sampling_camera;

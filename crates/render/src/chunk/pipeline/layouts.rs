@@ -345,12 +345,14 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
-                binding: 11,
-                visibility: ShaderStages::VERTEX,
+                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: Some(ChunkAnimationClock::min_size()),
+                    min_binding_size: std::num::NonZeroU64::new(
+                        crate::material_shader::WORLD_UNIFORM_BYTES,
+                    ),
                 },
                 count: None,
             },
@@ -421,14 +423,124 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
-                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
+                binding: crate::material_shader::PBR_NORMAL_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::PBR_NORMAL_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::PBR_MER_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::PBR_MER_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::PBR_SAMPLER_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_NORMAL_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_NORMAL_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_MER_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_MER_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_SAMPLER_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::ENHANCED_TEXTURE_REF_BINDING,
+                visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
+                    ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: std::num::NonZeroU64::new(
-                        (meshing::biome_lattice::BIOME_QUERY_TABLE_WORDS * 4) as u64,
-                    ),
+                    min_binding_size: None,
                 },
                 count: None,
             },
@@ -466,32 +578,38 @@ mod enhanced_tests {
     }
 
     #[test]
-    fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
+    fn camera_opt_in_alone_selects_enhanced_without_changing_vanilla_targets() {
+        let enabled = render_model::ENHANCED_RENDERING_ENABLED;
         for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
             for hdr in [false, true] {
-                let mut before = vanilla_descriptor(Msaa::Off, false);
-                ChunkPipelineSpecializer
-                    .specialize(
-                        ChunkPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced: false,
-                        },
-                        &mut before,
-                    )
-                    .unwrap();
-                let mut after = vanilla_descriptor(Msaa::Off, false);
-                ChunkPipelineSpecializer
-                    .specialize(
-                        ChunkPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced: true,
-                        },
-                        &mut after,
-                    )
-                    .unwrap();
-                assert_eq!(format!("{before:?}"), format!("{after:?}"));
+                for opted_in in [false, true] {
+                    let mut descriptor = vanilla_descriptor(Msaa::Off, false);
+                    let initial_layouts = descriptor.layout.len();
+                    ChunkPipelineSpecializer
+                        .specialize(
+                            ChunkPipelineKey {
+                                msaa,
+                                hdr,
+                                enhanced: opted_in,
+                            },
+                            &mut descriptor,
+                        )
+                        .unwrap();
+                    let enhanced = enabled && opted_in;
+                    assert_eq!(descriptor.multisample.count, msaa.samples());
+                    assert_eq!(
+                        descriptor.layout.len(),
+                        initial_layouts + usize::from(enhanced)
+                    );
+                    assert_eq!(
+                        descriptor.vertex.shader_defs.contains(&"ENHANCED".into()),
+                        enhanced
+                    );
+                    let fragment = descriptor.fragment.as_ref().unwrap();
+                    assert_eq!(fragment.shader_defs.contains(&"ENHANCED".into()), enhanced);
+                    let expected = vanilla_descriptor(msaa, hdr);
+                    assert_eq!(fragment.targets, expected.fragment.unwrap().targets);
+                }
             }
         }
     }
@@ -500,6 +618,30 @@ mod enhanced_tests {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+    #[test]
+    fn terrain_layout_keeps_biome_uniform_and_authored_maps_at_unique_bindings() {
+        let layout = chunk_bind_group_layout();
+        let bindings: std::collections::BTreeSet<_> =
+            layout.entries.iter().map(|entry| entry.binding).collect();
+        assert_eq!(bindings.len(), layout.entries.len());
+        let biome = layout
+            .entries
+            .iter()
+            .find(|entry| entry.binding == crate::material_shader::BIOME_QUERY_TABLES_BINDING)
+            .expect("biome tables remain bound");
+        assert!(matches!(
+            biome.ty,
+            BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                ..
+            }
+        ));
+        assert_eq!(
+            bindings.last().copied(),
+            Some(crate::material_shader::LAST_CHUNK_BINDING)
+        );
+    }
+
     #[test]
     fn review_render_storage_budget_covers_the_actual_layout() {
         let count = chunk_bind_group_layout()

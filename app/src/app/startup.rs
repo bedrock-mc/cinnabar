@@ -5,6 +5,7 @@ use crate::asset_startup::{
     LoadedIconAssets, LoadedLangAssets, join,
 };
 use crate::movement::PhysicsCollisionRegistries;
+use crate::{args, session_cleanup::ScopedSessionDirectory};
 use anyhow::{Context, Result, bail};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
@@ -12,6 +13,27 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, sync::Arc, time::Instant};
+
+/// Owns app-derived direct-session directories; explicit socket paths remain operator-owned.
+/// The caller must stop the core before releasing this guard.
+pub(super) fn bind_direct_session_directory(
+    args: &args::ClientArgs,
+    socket_dir: std::path::PathBuf,
+) -> Result<ScopedSessionDirectory> {
+    if args.address.is_some() && !args.socket_dir_explicit {
+        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
+            format!(
+                "prepare direct-connect session directory {}",
+                socket_dir.display()
+            )
+        });
+    }
+    if args.address.is_some() {
+        fs::create_dir_all(&socket_dir)
+            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
+    }
+    Ok(ScopedSessionDirectory::none())
+}
 
 /// Every carrier startup reads, each read and decoded exactly once. Results are checked by the
 /// caller in the serial order startup always used, so the first failure reported never changes.

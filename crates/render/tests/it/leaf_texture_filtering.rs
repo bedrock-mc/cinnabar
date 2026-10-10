@@ -192,7 +192,7 @@ fn terrain_unorm_views_filter_both_pages_layers_and_frame_mix() {
                     resource: wgpu::BindingResource::Sampler(&native_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 19,
+                    binding: 34,
                     resource: data.as_entire_binding(),
                 },
             ],
@@ -343,7 +343,7 @@ const MIP_FIXTURE: &str = r#"
 
 const FIXTURE: &str = r#"
 struct FilterCase { refs_flags: vec4<u32>, uv_grad_blend: vec4<f32>, }
-@group(0) @binding(19) var<storage, read> filter_cases: array<FilterCase>;
+@group(0) @binding(34) var<storage, read> filter_cases: array<FilterCase>;
 @vertex fn filter_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let p = array(vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
     return vec4(p[index], 0.5, 1.0);

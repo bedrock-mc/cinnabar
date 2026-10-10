@@ -143,3 +143,35 @@ fn nondrawing_actors_do_not_reserve_skin_residency() {
         ActorRigRoute::NoDraw
     );
 }
+
+#[test]
+fn offscreen_shadow_casters_cannot_evict_visible_actors_during_scene_build() {
+    let main = view(Vec3::NEG_Z);
+    let radius = main.max_distance;
+    let shadow = ActorCullView {
+        clip_from_world: Mat4::orthographic_rh(-radius, radius, -radius, radius, -radius, radius),
+        ..main
+    };
+    let visible_id = render::MAX_ACTOR_RENDER_INSTANCES as u64 + 1;
+    let remotes = (1..visible_id)
+        .map(|id| presentation(id, [0.0, 64.0, 5.0]))
+        .chain([presentation(visible_id, [0.0, 64.0, -5.0])]);
+    let batch = select_actor_presentations_for_shadow_view(
+        0,
+        false,
+        None,
+        remotes,
+        Some(main),
+        Some(shadow),
+    );
+    let mut scene = ActorRenderScene::default();
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+    assert!(
+        frame
+            .rig
+            .manifest
+            .iter()
+            .any(|entry| entry.identity.runtime_id == visible_id),
+        "offscreen casters must not consume a visible actor's instance capacity"
+    );
+}

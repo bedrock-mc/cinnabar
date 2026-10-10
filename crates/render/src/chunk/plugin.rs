@@ -1,7 +1,9 @@
+#[cfg(feature = "enhanced")]
+use super::resident_coverage::ChunkResidentCoverage;
 use crate::RuntimeStageProfiler;
 use crate::chunk::gpu::graphics_metadata::{
     GraphicsMetadataPublication, GraphicsMetadataPublicationState,
-    configure_graphics_metadata_publication,
+    configure_graphics_metadata_publication, publish_graphics_runtime_metadata,
 };
 use crate::chunk::*;
 
@@ -72,6 +74,8 @@ impl Plugin for ChunkRenderPlugin {
                 ),
             );
 
+        #[cfg(feature = "enhanced")]
+        app.init_resource::<ChunkResidentCoverage>();
         if app.get_sub_app(RenderApp).is_none() {
             return;
         }
@@ -91,7 +95,7 @@ impl Plugin for ChunkRenderPlugin {
                 path
             )
         );
-        crate::enhanced::load_shader_imports(app);
+        crate::enhanced::plugin::load_shader_imports(app);
         load_internal_asset!(
             app,
             CHUNK_BINDINGS_SHADER_HANDLE,

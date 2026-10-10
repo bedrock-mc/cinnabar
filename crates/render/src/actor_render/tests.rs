@@ -376,6 +376,22 @@ fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
 }
 
 #[test]
+fn actor_plugin_without_renderer_keeps_publication_state_without_shader_assets() {
+    let mut app = App::new();
+    app.add_plugins(ActorRenderPlugin);
+    app.finish();
+    assert!(
+        app.world()
+            .contains_resource::<crate::actor::ActorRenderFrame>()
+    );
+    assert!(
+        app.world()
+            .contains_resource::<crate::actor::ActorPresentationGate>()
+    );
+    assert!(app.get_sub_app(RenderApp).is_none());
+}
+
+#[test]
 fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
     use bevy::prelude::Msaa;
     use bevy::render::{render_resource::Specializer, view::ViewTarget};
@@ -413,6 +429,44 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
     let app = app_with_noop_render_sub_app();
     let render_device = app.sub_app(RenderApp).world().resource::<RenderDevice>();
     render_device.create_bind_group_layout("actor layout validation", &layout.entries);
+}
+
+#[test]
+fn camera_marker_selects_actor_enhanced_variant_without_changing_vanilla_depth() {
+    use bevy::{
+        prelude::Msaa,
+        render::render_resource::{CompareFunction, Specializer},
+    };
+    for enhanced in [false, true] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: true,
+                    enhanced,
+                    material: assets::EntityRenderMaterial::Default as u32,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(
+            descriptor.layout.len(),
+            if enhanced && render_model::ENHANCED_RENDERING_ENABLED {
+                3
+            } else {
+                2
+            }
+        );
+        assert_eq!(
+            descriptor.vertex.shader_defs.len(),
+            usize::from(enhanced && render_model::ENHANCED_RENDERING_ENABLED)
+        );
+        assert_eq!(
+            descriptor.depth_stencil.unwrap().depth_compare,
+            CompareFunction::GreaterEqual
+        );
+    }
 }
 
 #[test]

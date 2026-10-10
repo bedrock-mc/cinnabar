@@ -1,10 +1,10 @@
 //! The optional Video-section extension, separate from vanilla settings wiring.
 
-use json_ui::{Catalog, DataSource, HitRegion, Scalar};
+use json_ui::{Catalog, DataSource, HitKind, HitRegion, Scalar};
 
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 
-/// Add one control using the existing JSON-UI option template.
+/// Add Enhanced controls using the existing JSON-UI settings templates.
 pub(super) fn install(catalog: &mut Catalog) {
     if !render_model::ENHANCED_RENDERING_ENABLED {
         return;
@@ -12,27 +12,40 @@ pub(super) fn install(catalog: &mut Catalog) {
     catalog.overlay_text("ui/cinnabar_enhanced.json", OVERLAY);
 }
 
-/// Publish the extension toggle without changing vanilla option bindings.
+/// Publish the extension toggle and the current quality choice.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
-    data.set_global(
-        "#cinnabar_enhanced",
-        Scalar::Bool(
-            render_model::ENHANCED_RENDERING_ENABLED
-                && view.render_mode == ui::RenderMode::Enhanced,
-        ),
-    );
+    let enhanced =
+        render_model::ENHANCED_RENDERING_ENABLED && view.render_mode == ui::RenderMode::Enhanced;
+    data.set_global("#cinnabar_enhanced", Scalar::Bool(enhanced));
     data.set_global(
         "#cinnabar_enhanced_enabled",
         Scalar::Bool(render_model::ENHANCED_RENDERING_ENABLED),
     );
+    data.set_global("#cinnabar_enhanced_quality_enabled", Scalar::Bool(enhanced));
+    data.set_global(
+        "#cinnabar_enhanced_quality_label",
+        Scalar::Text(format!(
+            "Enhanced quality: {}",
+            view.enhanced_quality.label()
+        )),
+    );
 }
 
-/// Route only the extension control to its retained setting request.
+/// Route the extension controls to their retained setting requests.
 pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    (render_model::ENHANCED_RENDERING_ENABLED
-        && view.screen == MenuScreen::Settings
-        && region.control_name.as_deref() == Some("cinnabar_enhanced"))
-    .then_some(MenuAction::ToggleRenderMode)
+    if !render_model::ENHANCED_RENDERING_ENABLED
+        || view.screen != MenuScreen::Settings
+        || !region.enabled
+    {
+        return None;
+    }
+    if region.kind == HitKind::Toggle && region.control_name.as_deref() == Some("cinnabar_enhanced")
+    {
+        return Some(MenuAction::ToggleRenderMode);
+    }
+    (view.render_mode == ui::RenderMode::Enhanced
+        && region.pressed.as_deref() == Some("button.cinnabar_enhanced_quality"))
+    .then_some(MenuAction::CycleEnhancedQuality)
 }
 
 const OVERLAY: &str = r##"{
@@ -41,14 +54,27 @@ const OVERLAY: &str = r##"{
     "modifications": [{
       "array_name": "controls",
       "operation": "insert_front",
-      "value": [{
-        "cinnabar_enhanced@settings_common.option_toggle": {
-          "$option_label": "Enhanced rendering (Cinnabar extension)",
-          "$option_binding_name": "#cinnabar_enhanced",
-          "$option_enabled_binding_name": "#cinnabar_enhanced_enabled",
-          "$toggle_name": "cinnabar_enhanced"
+      "value": [
+        {
+          "cinnabar_enhanced@settings_common.option_toggle": {
+            "$option_label": "Enhanced rendering (Cinnabar extension)",
+            "$option_binding_name": "#cinnabar_enhanced",
+            "$option_enabled_binding_name": "#cinnabar_enhanced_enabled",
+            "$toggle_name": "cinnabar_enhanced"
+          }
+        },
+        {
+          "cinnabar_enhanced_quality@settings_common.action_button": {
+            "$button_text": "#cinnabar_enhanced_quality_label",
+            "$button_text_binding_type": "global",
+            "$pressed_button_name": "button.cinnabar_enhanced_quality",
+            "bindings": [{
+              "binding_name": "#cinnabar_enhanced_quality_enabled",
+              "binding_name_override": "#enabled"
+            }]
+          }
         }
-      }]
+      ]
     }]
   }
 }"##;
@@ -57,9 +83,9 @@ const OVERLAY: &str = r##"{
 mod tests {
     use super::*;
 
-    /// The disabled extension leaves the vanilla video settings unchanged.
+    /// The video toggle appears only in builds with the Enhanced feature.
     #[test]
-    fn disabled_enhanced_adds_no_video_control() {
+    fn enhanced_toggle_visibility_matches_build_feature() {
         let mut catalog = Catalog::default();
         catalog.overlay_text(
             "ui/general_section.json",
@@ -67,7 +93,7 @@ mod tests {
         );
         catalog.overlay_text(
             "ui/settings_common.json",
-            r#"{"namespace":"settings_common","option_toggle":{"type":"toggle"}}"#,
+            r#"{"namespace":"settings_common","option_toggle":{"type":"toggle"},"action_button":{"type":"button"}}"#,
         );
         install(&mut catalog);
         assert!(catalog.diagnostics().is_empty());
@@ -78,6 +104,9 @@ mod tests {
         );
         assert!(resolution.diagnostics.is_empty());
         let resolved = resolution.control.expect("video section");
-        assert!(resolved.children.is_empty());
+        assert_eq!(
+            resolved.children.is_empty(),
+            !render_model::ENHANCED_RENDERING_ENABLED
+        );
     }
 }

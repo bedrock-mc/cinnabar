@@ -1,5 +1,34 @@
 use super::*;
 
+#[cfg(feature = "enhanced")]
+#[test]
+fn enhanced_liquid_retains_surface_depth_for_underwater_transport_and_history() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+    let mut pipelines = ChunkPipeline::from_world(&mut World::new());
+    let id = pipelines
+        .transparent_variants
+        .specialize(
+            &cache,
+            ChunkPipelineKey {
+                msaa: Msaa::Off,
+                hdr: true,
+                enhanced: true,
+            },
+        )
+        .unwrap();
+    let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
+    let depth = descriptor.depth_stencil.as_ref().unwrap();
+    assert!(
+        depth.depth_write_enabled,
+        "history and underwater extinction need the visible water surface"
+    );
+    assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+    let fragment = descriptor.fragment.as_ref().unwrap();
+    assert!(fragment.shader_defs.contains(&"ENHANCED".into()));
+    assert!(!fragment.shader_defs.contains(&"NATIVE_GAMMA_BLEND".into()));
+}
+
 #[test]
 fn vanilla_base_pipeline_construction_matches_baseline() {
     let (mut app, _) = crate::queue_review_support::app();

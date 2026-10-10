@@ -8,9 +8,9 @@ publish = false
 [features]
 tracy = ["bevy/trace", "dep:tracy-client"]
 publication-test-support = []
-# Compiles the hard-disabled Enhanced renderer.
-enhanced = []
-# Enables bounded development captures while the production switch stays disabled.
+# Compiles the experimental Enhanced renderer; default builds keep it disabled.
+enhanced = ["render-model/enhanced"]
+# Adds bounded capture controls to the experimental Enhanced build.
 enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics"]
 
 [dependencies]

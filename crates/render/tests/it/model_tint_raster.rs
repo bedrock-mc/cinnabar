@@ -247,7 +247,7 @@ fn fixture_source(definitions: &[&str], reference: bool) -> String {
 }
 
 /// Walks the executable call graph, including control flow nested inside helper functions.
-fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
+pub(crate) fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
     block.iter().any(|statement| match statement {
         naga::Statement::Call { function, .. } => {
             let function = &module.functions[*function];
@@ -269,8 +269,8 @@ fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
 }
 
 #[test]
-fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
-    for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
+fn vanilla_and_enhanced_models_compute_flat_biome_tint_only_in_vertices() {
+    for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..], &["ENHANCED"][..]] {
         let source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
@@ -318,15 +318,20 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
                 ..
             })
         ));
+        let expected_size = if definitions.contains(&"ENHANCED") {
+            naga::VectorSize::Quad
+        } else {
+            naga::VectorSize::Tri
+        };
         assert!(matches!(
             module.types[tint.ty].inner,
             naga::TypeInner::Vector {
-                size: naga::VectorSize::Tri,
+                size,
                 scalar: naga::Scalar {
                     kind: naga::ScalarKind::Float,
                     width: 4,
                 },
-            }
+            } if size == expected_size
         ));
     }
 }
@@ -372,14 +377,13 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     let materials = gpu.words(&material_words(), storage);
     let records = gpu.words(&record_words, storage);
     let tints = gpu.words(bytemuck::cast_slice(&tint_rows()), storage);
-    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let animations = gpu.words(
         &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
         storage,
     );
     let frames = gpu.words(&[0, 1], storage);
     let clock = gpu.words(
-        &[1, 0.25_f32.to_bits(), 0, 0],
+        &crate::material_shader::world_uniform_words(&[1, 0.25_f32.to_bits(), 0, 0]),
         uniform | wgpu::BufferUsages::COPY_DST,
     );
     let templates = gpu.words(&template_words(), storage);
@@ -416,14 +420,13 @@ fn model_tint_pixels_match_fragment_biome_reference() {
         (8, tints.as_entire_binding()),
         (9, animations.as_entire_binding()),
         (10, frames.as_entire_binding()),
-        (11, clock.as_entire_binding()),
+        (
+            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            clock.as_entire_binding(),
+        ),
         (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),
-        (
-            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
-        ),
         (20, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });

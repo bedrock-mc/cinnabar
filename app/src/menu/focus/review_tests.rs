@@ -1,5 +1,6 @@
 use super::*;
 
+/// Installs native row bounds and refreshes the menu focus geometry.
 fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
     let rect = |[left, top, right, bottom]: [f32; 4]| {
         ui::UiRect::new(

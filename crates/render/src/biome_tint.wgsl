@@ -21,12 +21,20 @@ struct BiomeTintGpu {
 
 // Query kernel tables live in a uniform block: a dynamically indexed `const` array is copied
 // into per-invocation scratch by several compilers, once per tinted fragment.
+struct AnimationClockGpu { tick: u32, partial_tick: f32, unused_a: u32, unused_b: u32 }
+
 struct BiomeQueryTables {
+    clock: AnimationClockGpu,
     stencils: array<vec4<u32>, BIOME_STENCIL_VEC4S>,
     weights: array<vec4<f32>, BIOME_WEIGHT_VEC4S>,
     permutation: array<vec4<u32>, GRASS_PERMUTATION_VEC4S>,
 }
 @group(0) @binding(BIOME_QUERY_TABLES_BINDING) var<uniform> biome_query_tables: BiomeQueryTables;
+
+// Reads the small clock prefix without copying the immutable query tables.
+fn world_animation_clock() -> AnimationClockGpu {
+    return biome_query_tables.clock;
+}
 
 fn query_stencil(index: u32) -> vec2<u32> {
     let pair = biome_query_tables.stencils[index / 2u];

@@ -104,6 +104,8 @@ impl MenuRuntime {
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            enhanced_quality: initial.enhanced_quality,
+            enhanced_quality_request: None,
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers,

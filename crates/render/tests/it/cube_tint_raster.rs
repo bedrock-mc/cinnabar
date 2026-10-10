@@ -189,82 +189,81 @@ fn calls(module: &naga::Module, statement: &naga::Statement, name: &str) -> bool
 
 #[test]
 fn uniform_cube_tints_return_before_fragment_biome_work() {
-    let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[]);
-    let module = naga::front::wgsl::parse_str(&source).unwrap();
-    let helper = module
-        .functions
-        .iter()
-        .find(|(_, function)| function.name.as_deref() == Some("ordinary_cube_tint_gamma"))
-        .expect("ordinary cubes must reuse their admitted vertex tint")
-        .1;
-    let (gate, accept) = helper
-        .body
-        .iter()
-        .enumerate()
-        .find_map(|(index, statement)| {
-            if let naga::Statement::If { accept, .. } = statement {
-                Some((index, accept))
-            } else {
-                None
-            }
-        })
-        .expect("cached tint must return before the fallback lookup");
-    assert!(
-        !helper.body.iter().take(gate).any(|statement| calls(
-            &module,
-            statement,
-            "blended_biome_tint"
-        )),
-        "the cached branch must not follow an unconditional biome query"
-    );
-    assert!(
-        accept
+    for definitions in [&[][..], &["ENHANCED"][..]] {
+        let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), definitions);
+        let module = naga::front::wgsl::parse_str(&source).unwrap();
+        let helper = module
+            .functions
             .iter()
-            .any(|statement| matches!(statement, naga::Statement::Return { .. }))
-    );
-    assert!(
-        !accept
-            .iter()
-            .any(|statement| calls(&module, statement, "blended_biome_tint"))
-    );
-    assert!(
-        helper
+            .find(|(_, function)| function.name.as_deref() == Some("ordinary_cube_tint_gamma"))
+            .expect("ordinary cubes must reuse their admitted vertex tint")
+            .1;
+        let (gate, accept) = helper
             .body
             .iter()
-            .any(|statement| calls(&module, statement, "blended_biome_tint")),
-        "mixed records retain the shared blender"
-    );
-    let vertex = module
-        .entry_points
-        .iter()
-        .find(|entry| entry.stage == naga::ShaderStage::Vertex)
-        .unwrap();
-    assert!(vertex.function.body.iter().any(|statement| calls(
-        &module,
-        statement,
-        "uniform_biome_tint_gamma"
-    )));
-    let result = vertex.function.result.as_ref().unwrap();
-    let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
-        panic!("cube vertex outputs");
-    };
-    assert!(members.iter().any(|member| matches!(
-        member.binding,
-        Some(naga::Binding::Location {
-            location: 12,
-            interpolation: Some(naga::Interpolation::Flat),
-            ..
-        })
-    )));
+            .enumerate()
+            .find_map(|(index, statement)| {
+                if let naga::Statement::If { accept, .. } = statement {
+                    Some((index, accept))
+                } else {
+                    None
+                }
+            })
+            .expect("cached tint must return before the fallback lookup");
+        assert!(
+            !helper.body.iter().take(gate).any(|statement| calls(
+                &module,
+                statement,
+                "blended_biome_tint"
+            )),
+            "the cached branch must not follow an unconditional biome query"
+        );
+        assert!(
+            accept
+                .iter()
+                .any(|statement| matches!(statement, naga::Statement::Return { .. }))
+        );
+        assert!(
+            !accept
+                .iter()
+                .any(|statement| calls(&module, statement, "blended_biome_tint"))
+        );
+        assert!(
+            helper
+                .body
+                .iter()
+                .any(|statement| calls(&module, statement, "blended_biome_tint")),
+            "mixed records retain the shared blender"
+        );
+        let vertex = module
+            .entry_points
+            .iter()
+            .find(|entry| entry.stage == naga::ShaderStage::Vertex)
+            .unwrap();
+        assert!(vertex.function.body.iter().any(|statement| calls(
+            &module,
+            statement,
+            "uniform_biome_tint_gamma"
+        )));
+        let result = vertex.function.result.as_ref().unwrap();
+        let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+            panic!("cube vertex outputs");
+        };
+        let expected_location = if definitions.is_empty() { 12 } else { 14 };
+        assert!(members.iter().any(|member| matches!(
+            member.binding,
+            Some(naga::Binding::Location {
+                location,
+                interpolation: Some(naga::Interpolation::Flat),
+                ..
+            }) if location == expected_location
+        )));
+    }
 }
 
 #[test]
-fn enhanced_and_shadow_cube_vertices_do_not_resolve_biome_tint() {
-    for definitions in [
-        &["ENHANCED"][..],
-        &["ENHANCED_SHADOW"][..],
-        &["OPAQUE_OVERDRAW"][..],
-    ] {
+fn shadow_and_overdraw_cube_vertices_do_not_resolve_biome_tint() {
+    for definitions in [&["ENHANCED_SHADOW"][..], &["OPAQUE_OVERDRAW"][..]] {
         let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), definitions);
         let module = naga::front::wgsl::parse_str(&source).unwrap();
         let vertex = module
@@ -379,13 +378,15 @@ fn render_fixture(cache_admission: bool) {
     let materials = gpu.words(&materials, storage);
     let records = gpu.words(&biome_words, storage);
     let tints = gpu.words(&tint_words(), storage);
-    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let animations = gpu.words(
         &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
         storage,
     );
     let frames = gpu.words(&[0, 1], storage);
-    let clock = gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform);
+    let clock = gpu.words(
+        &crate::material_shader::world_uniform_words(&[1, 0.25_f32.to_bits(), 0, 0]),
+        uniform,
+    );
     let streams = gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage);
     let mut atmosphere = [0.0; 32];
     atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
@@ -410,13 +411,12 @@ fn render_fixture(cache_admission: bool) {
         (8, tints.as_entire_binding()),
         (9, animations.as_entire_binding()),
         (10, frames.as_entire_binding()),
-        (11, clock.as_entire_binding()),
-        (13, streams.as_entire_binding()),
-        (15, atmosphere.as_entire_binding()),
         (
             crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
+            clock.as_entire_binding(),
         ),
+        (13, streams.as_entire_binding()),
+        (15, atmosphere.as_entire_binding()),
         (20, lightmap.as_entire_binding()),
         (
             material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

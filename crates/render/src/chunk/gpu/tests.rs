@@ -253,6 +253,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
     )
     .expect("aligned streams fit exactly");
     let instance = ChunkRenderInstance {
+        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),

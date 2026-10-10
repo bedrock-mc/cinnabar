@@ -683,6 +683,7 @@ impl<'a> Neighbourhood<'a> {
 /// Packed greedy geometry plus visibility metadata for one sub-chunk.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkMesh {
+    pub(crate) light_emitters: Box<[crate::BlockLightEmitter]>,
     pub(crate) cube_streams: Box<CubeStreams>,
     pub(crate) model_refs: Box<[PackedModelRef]>,
     pub(crate) model_lighting: Box<[PackedQuadLighting]>,
@@ -785,6 +786,7 @@ impl ChunkMesh {
             });
         }
         Ok(Self {
+            light_emitters: Box::new([]),
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
@@ -913,5 +915,16 @@ impl ChunkMesh {
             self.liquid_quads,
             self.liquid_lighting,
         )
+    }
+
+    pub fn light_emitters(&self) -> &[crate::BlockLightEmitter] {
+        &self.light_emitters
+    }
+
+    pub fn into_streams_with_emitters(
+        mut self,
+    ) -> (ChunkMeshStreams, Box<[crate::BlockLightEmitter]>) {
+        let emitters = std::mem::take(&mut self.light_emitters);
+        (self.into_streams(), emitters)
     }
 }

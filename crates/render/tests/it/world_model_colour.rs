@@ -123,7 +123,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
                 resource: atmosphere.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 19,
+                binding: 34,
                 resource: cases.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
@@ -198,7 +198,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
 
 const VERTEX: &str = r#"
 struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
-@group(0) @binding(19) var<storage, read> model_witness_cases: array<ModelWitnessCase>;
+@group(0) @binding(34) var<storage, read> model_witness_cases: array<ModelWitnessCase>;
 @vertex fn model_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0));
     let case_index = index / 6u;

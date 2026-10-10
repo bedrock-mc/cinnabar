@@ -103,7 +103,12 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     let templates = gpu.words(&templates(), storage);
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 64], storage);
-    let clock = gpu.words(&[0; 4], uniform);
+    let clock = gpu.words(
+        &crate::material_shader::world_uniform_words(
+            &[0; crate::material_shader::WORLD_CLOCK_WORDS],
+        ),
+        uniform,
+    );
     let lightmap = gpu.buffer(
         bytemuck::cast_slice(&render::LightmapInputs::default().build()),
         uniform,
@@ -141,10 +146,6 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    let query_tables = gpu.words(
-        &meshing::biome_lattice::query_table_words(),
-        wgpu::BufferUsages::UNIFORM,
-    );
     let bindings = [
         (0, view.as_entire_binding()),
         (2, origins.as_entire_binding()),
@@ -155,13 +156,12 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         (8, empty.as_entire_binding()),
         (9, empty.as_entire_binding()),
         (10, empty.as_entire_binding()),
-        (11, clock.as_entire_binding()),
-        (12, templates.as_entire_binding()),
-        (13, geometry.as_entire_binding()),
         (
             crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
+            clock.as_entire_binding(),
         ),
+        (12, templates.as_entire_binding()),
+        (13, geometry.as_entire_binding()),
         (20, lightmap.as_entire_binding()),
         (21, expected.as_entire_binding()),
     ]

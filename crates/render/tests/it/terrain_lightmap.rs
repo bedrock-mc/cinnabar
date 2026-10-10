@@ -77,7 +77,9 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
         wgpu::BufferUsages::STORAGE,
     );
     let query_tables = gpu.words(
-        &meshing::biome_lattice::query_table_words(),
+        &crate::material_shader::world_uniform_words(
+            &[0; crate::material_shader::WORLD_CLOCK_WORDS],
+        ),
         wgpu::BufferUsages::UNIFORM,
     );
     let mut atmosphere = [0.0; 36];

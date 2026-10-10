@@ -149,7 +149,7 @@ pub(super) fn prepare_actor_pipelines(
     readiness.publish(has_view && ready);
 }
 
-pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
+pub(crate) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "instanced actor bind group layout",
         &[
@@ -291,7 +291,7 @@ pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
     )
 }
 
-pub(super) fn actor_pipeline_descriptor(
+pub(crate) fn actor_pipeline_descriptor(
     bind_group_layout: BindGroupLayoutDescriptor,
 ) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
@@ -336,6 +336,7 @@ pub(super) struct ActorPipelineKey {
 pub(super) struct ActorPipelineContract {
     msaa: Msaa,
     format: TextureFormat,
+    enhanced: bool,
     kind: assets::EntityRenderMaterial,
     cull: bool,
     blend: bool,
@@ -378,6 +379,7 @@ impl ActorPipelineKey {
         ActorPipelineContract {
             msaa: self.msaa,
             format,
+            enhanced: render_model::ENHANCED_RENDERING_ENABLED && self.enhanced,
             kind,
             cull: state.cull,
             blend: state.blend,
@@ -409,6 +411,19 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         let contract = key.contract();
+        #[cfg(feature = "enhanced")]
+        if contract.enhanced {
+            descriptor
+                .layout
+                .push(crate::enhanced::enhanced_view_layout());
+            descriptor.vertex.shader_defs.push("ENHANCED".into());
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .push("ENHANCED".into());
+        }
         descriptor.multisample.count = contract.msaa.samples();
         crate::alpha_coverage::apply(descriptor, contract.alpha_to_coverage);
         if let Some(state) = crate::actor::material::state(key.material) {
@@ -446,4 +461,55 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         }
         Ok(contract)
     }
+}
+
+#[cfg(feature = "enhanced")]
+pub(crate) fn actor_shadow_pipeline_descriptor(
+    caster_layout: BindGroupLayoutDescriptor,
+    depth_format: TextureFormat,
+) -> RenderPipelineDescriptor {
+    use bevy::render::render_resource::PrimitiveState;
+
+    let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+    descriptor.label = Some("enhanced animated actor shadow caster".into());
+    descriptor.layout.push(caster_layout);
+    descriptor.vertex.shader_defs = vec!["ENHANCED_SHADOW".into()];
+    descriptor.fragment = Some(FragmentState {
+        shader: ACTOR_SHADER_HANDLE,
+        shader_defs: vec!["ENHANCED_SHADOW".into()],
+        entry_point: Some("actor_fragment_shadow".into()),
+        targets: vec![],
+    });
+    // Actor planes carry independent front/back UVs and one-sided coverage sentinels.
+    descriptor.primitive = PrimitiveState {
+        cull_mode: None,
+        ..default()
+    };
+    descriptor.depth_stencil = Some(DepthStencilState {
+        format: depth_format,
+        depth_write_enabled: true,
+        depth_compare: CompareFunction::LessEqual,
+        stencil: default(),
+        bias: crate::enhanced::shadow_raster_bias(),
+    });
+    descriptor
+}
+
+#[cfg(feature = "enhanced")]
+pub(crate) fn actor_motion_pipeline_descriptor(
+    caster_layout: BindGroupLayoutDescriptor,
+    depth_format: TextureFormat,
+) -> RenderPipelineDescriptor {
+    let mut descriptor = actor_shadow_pipeline_descriptor(caster_layout, depth_format);
+    descriptor.layout.push(super::motion::actor_motion_layout());
+    descriptor.vertex.shader_defs.push("ENHANCED_MOTION".into());
+    let fragment = descriptor.fragment.as_mut().unwrap();
+    fragment.shader_defs.push("ENHANCED_MOTION".into());
+    fragment.entry_point = Some("actor_fragment_motion".into());
+    fragment.targets = vec![Some(ColorTargetState {
+        format: TextureFormat::Rgba16Float,
+        blend: None,
+        write_mask: ColorWrites::ALL,
+    })];
+    descriptor
 }

@@ -489,37 +489,76 @@ pub fn select_actor_presentations_for_view(
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
     view: Option<ActorCullView>,
 ) -> ActorPresentationBatch {
+    select_actor_presentations_for_shadow_view(
+        local_runtime_id,
+        local_visible,
+        local,
+        remotes,
+        view,
+        None,
+    )
+}
+
+/// Visible actors retain their capacity priority over additional off-screen shadow casters.
+pub fn select_actor_presentations_for_shadow_view(
+    local_runtime_id: u64,
+    local_visible: bool,
+    local: Option<ActorRigPresentation>,
+    remotes: impl IntoIterator<Item = ActorRigPresentation>,
+    view: Option<ActorCullView>,
+    shadow_view: Option<ActorCullView>,
+) -> ActorPresentationBatch {
     // The newest identity of each remote actor wins; equal identities keep the first.
-    let mut latest: Vec<ActorRigPresentation> = remotes
+    let mut latest: Vec<(ActorRigPresentation, bool)> = remotes
         .into_iter()
         .filter(|remote| {
             let runtime_id = remote.submission.input.identity.runtime_id;
             runtime_id != 0 && runtime_id != local_runtime_id
         })
+        .map(|remote| {
+            let visible =
+                shadow_view.is_none() || actor_rig_submission_is_visible(&remote.submission, view);
+            (remote, visible)
+        })
         .collect();
     latest.sort_by(|a, b| {
-        let (a, b) = (a.submission.input.identity, b.submission.input.identity);
+        let (a, b) = (a.0.submission.input.identity, b.0.submission.input.identity);
         a.runtime_id.cmp(&b.runtime_id).then(b.cmp(&a))
     });
-    latest.dedup_by_key(|remote| remote.submission.input.identity.runtime_id);
+    latest.dedup_by_key(|remote| remote.0.submission.input.identity.runtime_id);
+    if shadow_view.is_some() {
+        latest.sort_unstable_by_key(|(remote, visible)| {
+            (!visible, remote.submission.input.identity.runtime_id)
+        });
+    }
 
-    let local = local_visible
-        .then_some(local)
-        .flatten()
-        .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
-    let mut selected = Vec::with_capacity(latest.len() + usize::from(local.is_some()));
+    let local =
+        local.filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
+    let (local, shadow_local) = match local {
+        Some(local) if local.submission.route == ActorRigRoute::ShadowOnly => (None, Some(local)),
+        local => (local_visible.then_some(local).flatten(), None),
+    };
+    let mut selected = Vec::with_capacity(
+        latest.len() + usize::from(local.is_some()) + usize::from(shadow_local.is_some()),
+    );
     if let Some(local) = local {
         selected.push(local);
     }
-    for remote in latest {
+    for (mut remote, visible) in latest {
         if remote.submission.route == ActorRigRoute::NoDraw {
             selected.push(remote);
             continue;
         }
-        if !actor_rig_submission_is_visible(&remote.submission, view) {
+        if !actor_rig_submission_is_visible(&remote.submission, shadow_view.or(view)) {
             continue;
         }
+        if !visible {
+            remote.submission.make_shadow_only();
+        }
         selected.push(remote);
+    }
+    if let Some(local) = shadow_local {
+        selected.push(local);
     }
 
     let mut artwork = HashMap::with_capacity(selected.len());

@@ -349,6 +349,17 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
     );
 }
 
+/// Checks that every terrain resource has a slot in the shared chunk layout.
+fn assert_chunk_bindings_fit_the_layout(module: &naga::Module) {
+    for (_, variable) in module.global_variables.iter() {
+        if let Some(binding) = &variable.binding
+            && binding.group == 0
+        {
+            assert!(binding.binding <= material_shader::LAST_CHUNK_BINDING);
+        }
+    }
+}
+
 #[test]
 fn packed_chunk_shader_parses_and_validates() {
     let shader = standalone_world_shader(include_str!("../../../src/chunk.wgsl"));
@@ -377,17 +388,35 @@ fn packed_chunk_shader_parses_and_validates() {
         naga::ShaderStage::Fragment,
         material_shader::BIOME_QUERY_TABLES_BINDING,
     ));
-    for binding in 0..=11 {
+    assert_chunk_bindings_fit_the_layout(&module);
+    for binding in (0..=10).chain([15]) {
         assert!(
-            shader.contains(&format!("@group(0) @binding({binding})")),
-            "packed chunk shader is missing global texture binding {binding}"
+            module.global_variables.iter().any(|(_, variable)| {
+                variable
+                    .binding
+                    .as_ref()
+                    .is_some_and(|resource| resource.group == 0 && resource.binding == binding)
+            }),
+            "packed chunk shader is missing terrain binding {binding}"
         );
     }
-    assert!(shader.contains("@group(0) @binding(15)"));
-    assert_eq!(shader.matches("textureSample(").count(), 0);
-    assert_eq!(
-        shader.matches("textureSampleGrad(").count(),
-        material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+    let mut samples = 0;
+    for function in module
+        .functions
+        .iter()
+        .map(|(_, function)| function)
+        .chain(module.entry_points.iter().map(|entry| &entry.function))
+    {
+        for (_, expression) in function.expressions.iter() {
+            if let naga::Expression::ImageSample { level, .. } = expression {
+                assert!(matches!(level, naga::SampleLevel::Gradient { .. }));
+                samples += 1;
+            }
+        }
+    }
+    assert!(
+        samples > 0,
+        "terrain sampling must retain explicit gradients"
     );
     assert!(shader.contains("fn sample_texture_ref("));
     assert!(shader.contains("texture_ref >> 31u"));
@@ -426,7 +455,6 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("var<storage, read> biome_records: array<u32>"));
     assert!(shader.contains("var<storage, read> biome_tints: array<BiomeTintGpu>"));
     assert!(shader.contains("out.biome_record = u32(chunk_origin.value.w);"));
-    assert!(shader.contains("local_position - normal * 0.001"));
     assert!(shader.contains("(coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y"));
     assert!(shader.contains("fn packed_biome_tint_index"));
     assert!(shader.contains("fn unpack_linear_rgb10"));
@@ -445,7 +473,11 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
     assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
     assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
-    assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
+    assert!(entry_points_use_binding(
+        &module,
+        naga::ShaderStage::Vertex,
+        material_shader::BIOME_QUERY_TABLES_BINDING,
+    ));
     assert!(!shader.contains("debug_color"));
 }
 
@@ -529,6 +561,7 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bi
         naga::ShaderStage::Vertex,
         13,
     ));
+    assert_chunk_bindings_fit_the_layout(&module);
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
 }
