@@ -4977,8 +4977,11 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   one-call/one-20-Hz fixed ticks, feet-origin player AABBs, bedsim-order swept collision and
   stepping, basic walk/sprint/jump/sneak forces, packed-palette `crates/world` collision queries,
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
-  collision shapes, and failed replay queries stop prediction instead of guessing. A generator
-  pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
+  collision shapes, and failed replay queries stop prediction instead of guessing.
+  Collision scans floor their inclusive upper bounds so fractional queries do not suspend
+  movement over an extra, unavailable cell. Required missing collision data still stops
+  prediction; full unloaded-boundary behavior remains incomplete.
+  A generator pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
   matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim
   movement strata, expanded terrain/correction traces, and live vanilla/Lunar verification
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
