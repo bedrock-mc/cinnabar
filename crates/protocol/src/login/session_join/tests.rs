@@ -294,6 +294,37 @@ async fn a_startup_longer_than_one_batch_still_joins() {
     assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
 }
 
+/// Startup batches respect both of Jolyne's bounds and keep every packet in order.
+#[test]
+fn startup_batches_stay_within_the_packet_and_byte_bounds() {
+    let small: Vec<Bytes> = (0..3_500u32)
+        .map(|index| Bytes::from(index.to_le_bytes().to_vec()))
+        .collect();
+    let large: Vec<Bytes> = (0..5u8)
+        .map(|index| Bytes::from(vec![index; 5 << 20]))
+        .collect();
+    for packets in [small, large] {
+        let batches = startup_batches(&packets);
+        let mut decoded = Vec::new();
+        for batch in &batches {
+            assert!(
+                batch.len() <= MAX_DECOMPRESSED_BATCH_SIZE + 1,
+                "{} bytes",
+                batch.len()
+            );
+            let CoreMessage::Batch(inner) =
+                bridge::decode_core_message(bridge::batch_frame_from_bedrock(batch).unwrap())
+                    .unwrap()
+            else {
+                unreachable!("a Batch frame decodes as a batch")
+            };
+            assert!(inner.len() <= jolyne::raw::MAX_RAW_BATCH_PACKETS);
+            decoded.extend(inner);
+        }
+        assert_eq!(decoded, packets);
+    }
+}
+
 /// A join the core could not make ends with the server's disconnect screen text.
 #[tokio::test]
 async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {

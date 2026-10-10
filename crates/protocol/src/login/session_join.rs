@@ -164,27 +164,42 @@ fn resource_pack_handoff(
 }
 
 /// Groups the startup packets, which may span many upstream batches, into uncompressed Bedrock
-/// batches that each stay within Jolyne's per-batch packet bound.
+/// batches that each stay within Jolyne's per-batch packet and byte bounds; a packet larger than
+/// the byte bound keeps a batch of its own, which Jolyne refuses as it would from the server.
 fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
-    packets
-        .chunks(jolyne::raw::MAX_RAW_BATCH_PACKETS)
-        .map(|chunk| {
-            let mut batch = BytesMut::with_capacity(
-                1 + chunk.iter().map(|packet| 5 + packet.len()).sum::<usize>(),
-            );
+    let mut batches = Vec::new();
+    let mut batch = BytesMut::new();
+    let mut count = 0;
+    for packet in packets {
+        let length = u32::try_from(packet.len()).expect("a frame bounds its packets");
+        let entry = varuint32_len(length) + packet.len();
+        if count != 0
+            && (count == jolyne::raw::MAX_RAW_BATCH_PACKETS
+                || batch.len() + entry > MAX_DECOMPRESSED_BATCH_SIZE)
+        {
+            batches.push(std::mem::take(&mut batch).freeze());
+            count = 0;
+        }
+        if count == 0 {
             batch.put_u8(0xfe);
-            for packet in chunk {
-                let mut length = u32::try_from(packet.len()).expect("a frame bounds its packets");
-                while length >= 0x80 {
-                    batch.put_u8(length as u8 | 0x80);
-                    length >>= 7;
-                }
-                batch.put_u8(length as u8);
-                batch.extend_from_slice(packet);
-            }
-            batch.freeze()
-        })
-        .collect()
+        }
+        let mut length = length;
+        while length >= 0x80 {
+            batch.put_u8(length as u8 | 0x80);
+            length >>= 7;
+        }
+        batch.put_u8(length as u8);
+        batch.extend_from_slice(packet);
+        count += 1;
+    }
+    if count != 0 {
+        batches.push(batch.freeze());
+    }
+    batches
+}
+
+fn varuint32_len(value: u32) -> usize {
+    (32 - value.max(1).leading_zeros() as usize).div_ceil(7)
 }
 
 /// The Transfer packet a core Transfer message stands for.
