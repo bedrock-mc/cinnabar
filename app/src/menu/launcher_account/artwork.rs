@@ -426,16 +426,21 @@ mod tests {
         assert!(recent.lock().unwrap().len() <= MAX_RECENT);
     }
 
-    // A retired feed's worker kept downloading its queue, competing for the folder's slots.
+    // A retired feed's worker kept its stalled download open, holding the folder's slot.
     #[test]
-    fn dropping_a_feed_stops_its_downloads() {
+    fn dropping_a_feed_closes_its_downloads() {
+        use std::io::Read;
         use std::time::Duration;
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
-        // Accepts and never answers, like a stalled host.
+        let url = format!("http://{}/stalled.png", listener.local_addr().unwrap());
+        // Accepts and never answers, like a stalled host, handing each connection to the test.
+        let (accepted, connections) = crossbeam_channel::unbounded();
         std::thread::spawn(move || {
-            let held: Vec<_> = listener.incoming().flatten().collect();
-            drop(held);
+            for stream in listener.incoming().flatten() {
+                if accepted.send(stream).is_err() {
+                    return;
+                }
+            }
         });
         let dir = tempfile::tempdir().unwrap();
         let local = client_ui::remote_images::Surface {
@@ -445,19 +450,23 @@ mod tests {
         };
         let (wake, _woken) = crossbeam_channel::bounded(1);
         let feed = FeedArt::start(ImageDirectory::new(dir.path().to_path_buf(), local), wake);
-        for batch in 0..QUEUED_BATCHES {
-            let mut home = Home {
-                persona_head: art(&format!("{base}/{batch}.png"), ""),
-                ..Default::default()
-            };
-            feed.fill_cached(home_slots(&mut home));
-        }
-        std::thread::sleep(Duration::from_millis(200));
-        let started = Instant::now();
+        let mut home = Home {
+            persona_head: art(&url, ""),
+            ..Default::default()
+        };
+        feed.fill_cached(home_slots(&mut home));
+        let mut stream = connections
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the download never connected");
         drop(feed);
+        // Shorter than the surface timeout, so only a cancelled download closes in time.
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
         assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "worker outlived its feed"
+            stream.read_to_end(&mut request).is_ok(),
+            "the retired feed kept its download open"
         );
     }
 }
