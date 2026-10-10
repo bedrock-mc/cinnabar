@@ -65,12 +65,13 @@ pub fn update_actor_rig_scene(
 }
 
 /// Checks distance and frustum bounds before building a rig's presentation.
-/// Terrain occlusion receives the box corners, except for layers with an always-passing depth test.
+/// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     partial_tick: f32,
     view: Option<ActorCullView>,
+    frame: Option<&mut client_world::ActorRenderFrame<'_>>,
     occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
     if !actor_within_render_distance(actor, partial_tick, view) {
@@ -93,10 +94,15 @@ pub fn rig_may_be_visible(
         return false;
     }
     let (low, high) = bounds.at(feet, scale);
-    rig.render
-        .iter()
-        .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
-        || !occluded(low, high)
+    !occluded(low, high)
+        || frame.map_or_else(
+            || {
+                rig.render
+                    .iter()
+                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+            },
+            |frame| frame.has_always_depth_material(rig.actor.runtime_id),
+        )
 }
 
 #[cfg(any(test, feature = "test-support"))]

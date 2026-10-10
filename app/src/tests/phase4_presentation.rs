@@ -653,6 +653,7 @@ fn authored_skin_bounds_reach_frustum_and_cave_admission() {
         &actor,
         1.0,
         Some(view),
+        None,
         |_, _| false,
     ));
     assert!(crate::presentation::actors::rig_may_be_visible(
@@ -660,6 +661,7 @@ fn authored_skin_bounds_reach_frustum_and_cave_admission() {
         &actor,
         1.0,
         Some(view),
+        None,
         |low, high| {
             assert_eq!(low, [0.5, 64.0, -1.5]);
             assert_eq!(high, [3.5, 68.0, 1.5]);
