@@ -241,7 +241,7 @@ fn fetch_all_keeps_order_and_bounds_concurrent_downloads() {
         .map(|index| format!("{}/{index}", server.base))
         .collect();
     urls[3] = format!("{}/bad", server.base);
-    let results = runtime().block_on(cache.fetch_all(urls.clone()));
+    let results = runtime().block_on(cache.fetch_all(urls.clone(), Duration::from_secs(30)));
     assert_eq!(results.len(), urls.len());
     assert!(results[3].is_none());
     for (index, url) in urls.iter().enumerate().filter(|(index, _)| *index != 3) {
@@ -253,6 +253,28 @@ fn fetch_all_keeps_order_and_bounds_concurrent_downloads() {
     }
     let peak = server.peak.load(Ordering::SeqCst);
     assert!((2..=MAX_IN_FLIGHT).contains(&peak), "peak {peak}");
+}
+
+// Stalled hosts held a feed past its deadline; finished images must survive the cut-off.
+#[test]
+fn fetch_all_abandons_downloads_past_its_budget_but_keeps_finished_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = serve(Duration::ZERO, |path| {
+        if path == "/stall" {
+            std::thread::sleep(Duration::from_secs(5));
+        }
+        ("200 OK", String::new(), PNG.to_vec())
+    });
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(LAUNCHER_ART));
+    let urls = vec![
+        format!("{}/fast", server.base),
+        format!("{}/stall", server.base),
+    ];
+    let started = std::time::Instant::now();
+    let results = runtime().block_on(cache.fetch_all(urls, Duration::from_millis(500)));
+    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(results[0].is_some());
+    assert!(results[1].is_none());
 }
 
 #[test]

@@ -6,6 +6,7 @@ use client_ui::remote_images::{ImageDirectory, LAUNCHER_ART};
 use crossbeam_channel::Receiver;
 use launcher::menu::view::CatalogServer;
 
+use super::launcher_account::ARTWORK_BUDGET;
 use super::{MenuRuntime, MenuServerCard};
 
 /// Cached thumbnail paths by server address, delivered once.
@@ -53,7 +54,7 @@ fn start(directory: PathBuf, wanted: Vec<(String, String)>) -> Option<CatalogArt
             };
             let images = ImageDirectory::new(directory, LAUNCHER_ART);
             let (addresses, urls): (Vec<String>, Vec<String>) = wanted.into_iter().unzip();
-            let paths = runtime.block_on(images.fetch_all(urls));
+            let paths = runtime.block_on(images.fetch_all(urls, ARTWORK_BUDGET));
             let cached = addresses
                 .into_iter()
                 .zip(paths)

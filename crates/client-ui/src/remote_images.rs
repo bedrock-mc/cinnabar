@@ -162,7 +162,8 @@ pub(crate) fn client(surface: &Surface) -> Option<reqwest::Client> {
         builder = builder.user_agent(agent);
     }
     if surface.public_only {
-        builder = builder.dns_resolver(Arc::new(PublicResolver));
+        // A proxy would resolve the host itself, past the public-address check.
+        builder = builder.dns_resolver(Arc::new(PublicResolver)).no_proxy();
     }
     builder.build().ok()
 }

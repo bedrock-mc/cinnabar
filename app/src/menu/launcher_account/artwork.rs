@@ -4,6 +4,8 @@
 use std::path::Path;
 
 use client_ui::remote_images::{ImageDirectory, LAUNCHER_ART};
+
+use super::ARTWORK_BUDGET;
 use launcher::menu::profile_achievements::visible_achievements;
 use protocol::launcher_control::{Artwork, FeaturedServer, Home, Person, Profile};
 
@@ -27,14 +29,18 @@ fn slot(art: &mut Artwork) -> Slot<'_> {
     (&art.url, &mut art.path)
 }
 
-/// Downloads each slot's URL that has no path yet; a failed image keeps its empty path.
+/// Downloads each slot's URL that has no path yet within [`ARTWORK_BUDGET`]; a failed image keeps
+/// its empty path.
 pub(super) async fn fill(images: &ImageDirectory, slots: Vec<Slot<'_>>) {
     let (urls, paths): (Vec<String>, Vec<&mut String>) = slots
         .into_iter()
         .filter(|(url, path)| path.is_empty() && !url.is_empty())
         .map(|(url, path)| (url.to_owned(), path))
         .unzip();
-    for (path, cached) in paths.into_iter().zip(images.fetch_all(urls).await) {
+    for (path, cached) in paths
+        .into_iter()
+        .zip(images.fetch_all(urls, ARTWORK_BUDGET).await)
+    {
         if let Some(cached) = cached {
             *path = cached.to_string_lossy().into_owned();
         }

@@ -9,7 +9,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use sha2::{Digest, Sha256};
@@ -75,8 +75,10 @@ impl ImageDirectory {
         self.store(&stem, inner.surface.extension.unwrap_or(extension), &body)
     }
 
-    /// Fetches every URL with at most [`MAX_IN_FLIGHT`] downloads running; results keep input order.
-    pub async fn fetch_all(&self, urls: Vec<String>) -> Vec<Option<PathBuf>> {
+    /// Fetches every URL with at most [`MAX_IN_FLIGHT`] downloads running, in input order;
+    /// downloads still unfinished after `budget` are abandoned and left `None`.
+    pub async fn fetch_all(&self, urls: Vec<String>, budget: Duration) -> Vec<Option<PathBuf>> {
+        let deadline = tokio::time::Instant::now() + budget;
         let mut results = vec![None; urls.len()];
         let mut pending = urls.into_iter().enumerate();
         let mut running = tokio::task::JoinSet::new();
@@ -87,7 +89,8 @@ impl ImageDirectory {
                 let directory = self.clone();
                 running.spawn(async move { (index, directory.fetch(&url).await) });
             }
-            let Some(done) = running.join_next().await else {
+            let Ok(Some(done)) = tokio::time::timeout_at(deadline, running.join_next()).await
+            else {
                 return results;
             };
             if let Ok((index, path)) = done {

@@ -52,6 +52,8 @@ const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
 const FEED_INTERVAL: Duration = Duration::from_secs(30);
 /// How soon a feed that failed is asked again.
 const FEED_RETRY: Duration = Duration::from_secs(15);
+/// The longest one feed waits for its artwork downloads, as the core bounded a refresh.
+pub(super) const ARTWORK_BUDGET: Duration = Duration::from_secs(40);
 /// How often shown server rows are pinged.
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
