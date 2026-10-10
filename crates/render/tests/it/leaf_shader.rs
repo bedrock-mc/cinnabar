@@ -83,11 +83,11 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     assert!(!material_shader::chunk_atlas_views_fit(&limits));
     limits.max_sampled_textures_per_shader_stage = required;
     assert!(material_shader::chunk_atlas_views_fit(&limits));
-    limits.max_bindings_per_bind_group = material_shader::NATIVE_LEAF_SAMPLER_BINDING;
+    limits.max_bindings_per_bind_group = material_shader::BIOME_QUERY_TABLES_BINDING;
     assert!(!material_shader::chunk_atlas_views_fit(&limits));
     limits.max_bindings_per_bind_group += 1;
     assert!(material_shader::chunk_atlas_views_fit(&limits));
-    limits.max_samplers_per_shader_stage = 1;
+    limits.max_samplers_per_shader_stage = material_shader::CHUNK_SAMPLER_COUNT - 1;
     assert!(!material_shader::chunk_atlas_views_fit(&limits));
     let sampler = material_shader::native_leaf_sampler_descriptor();
     assert_eq!(sampler.min_filter, wgpu::FilterMode::Nearest);

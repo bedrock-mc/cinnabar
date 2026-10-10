@@ -254,7 +254,7 @@ impl WorldStream {
                 let mesh = if cancelled.load(Ordering::Acquire) {
                     ChunkMesh::default()
                 } else {
-                    snapshot.mesh(classifier, &runtime_assets, network_id_mode)
+                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome)
                 };
                 let dependency_mask = if cancelled.load(Ordering::Acquire) {
                     MeshDependencyMask::default()

@@ -2,6 +2,7 @@
 
 pub(crate) const NATIVE_LEAF_TEXTURE_BINDINGS: [u32; assets::MAX_TEXTURE_PAGES] = [16, 17];
 pub(crate) const NATIVE_LEAF_SAMPLER_BINDING: u32 = 18;
+pub(crate) const BIOME_QUERY_TABLES_BINDING: u32 = 19;
 pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2;
 pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
     (assets::MAX_TEXTURE_PAGES + NATIVE_LEAF_TEXTURE_BINDINGS.len()) as u32;
@@ -43,10 +44,18 @@ pub(crate) fn gpu_grid_texture_ref(
     reference.raw() | (width << TEXTURE_WIDTH_SHIFT) | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
 }
 
+/// Resolves the generated biome tint module's table binding, shared by every chunk shader.
+pub(crate) fn bind_biome_tables(source: &str) -> String {
+    source.replace(
+        "BIOME_QUERY_TABLES_BINDING",
+        &BIOME_QUERY_TABLES_BINDING.to_string(),
+    )
+}
+
 pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
     limits.max_sampled_textures_per_shader_stage >= CHUNK_SAMPLED_TEXTURE_BINDINGS
         && limits.max_samplers_per_shader_stage >= CHUNK_SAMPLER_COUNT
-        && limits.max_bindings_per_bind_group > NATIVE_LEAF_SAMPLER_BINDING
+        && limits.max_bindings_per_bind_group > BIOME_QUERY_TABLES_BINDING
 }
 
 /// Terrain samples nearest texels and interpolates only between mip levels.

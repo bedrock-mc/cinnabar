@@ -68,7 +68,6 @@ fn tint_table() -> [TintRow; 2] {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         // FXC's unoptimized debug shader exceeds its temporary-register limit for the
@@ -77,13 +76,18 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
         flags: wgpu::InstanceFlags::debugging() & !wgpu::InstanceFlags::DEBUG,
         ..Default::default()
     });
-    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-        .expect("this fixture requires a native GPU adapter");
-    assert_ne!(
-        adapter.get_info().backend,
-        wgpu::Backend::Noop,
-        "native GPU required"
-    );
+    let adapter = match finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
+        Ok(adapter) => adapter,
+        Err(error @ wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("skipping biome tint bounds: missing native GPU adapter fixture ({error})");
+            return;
+        }
+        Err(error) => panic!("biome tint bounds: GPU fixture adapter request failed: {error}"),
+    };
+    if adapter.get_info().backend == wgpu::Backend::Noop {
+        eprintln!("skipping biome tint bounds: missing native GPU adapter fixture (Noop adapter)");
+        return;
+    }
     eprintln!("biome tint bounds GPU fixture: {:?}", adapter.get_info());
     let (device, queue) =
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
@@ -131,6 +135,11 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
         bytemuck::cast_slice(&tint_table()),
         wgpu::BufferUsages::empty(),
     );
+    let query_tables = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("biome query tables"),
+        contents: bytemuck::cast_slice(&meshing::biome_lattice::query_table_words()),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
     let inputs = storage(bytemuck::cast_slice(&queries), wgpu::BufferUsages::empty());
     let result_bytes = (queries.len() * size_of::<[f32; 4]>()) as u64;
     let outputs = storage(
@@ -146,12 +155,20 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
-        entries: &[(0, &inputs), (1, &outputs), (7, &records), (8, &tints)].map(
-            |(binding, buffer)| wgpu::BindGroupEntry {
-                binding,
-                resource: buffer.as_entire_binding(),
-            },
-        ),
+        entries: &[
+            (0, &inputs),
+            (1, &outputs),
+            (7, &records),
+            (8, &tints),
+            (
+                crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                &query_tables,
+            ),
+        ]
+        .map(|(binding, buffer)| wgpu::BindGroupEntry {
+            binding,
+            resource: buffer.as_entire_binding(),
+        }),
     });
     let mut encoder = device.create_command_encoder(&Default::default());
     {

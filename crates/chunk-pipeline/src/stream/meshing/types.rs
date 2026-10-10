@@ -95,18 +95,23 @@ impl MeshSnapshot {
         neighbourhood
     }
 
+    /// Meshes with tinted faces split per block when `biome` is a mixed record.
     pub(in crate::stream) fn mesh(
         &self,
         classifier: BlockClassifier,
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
+        biome: &PackedBiomeRecord,
     ) -> ChunkMesh {
-        mesh_sub_chunk_in_neighbourhood_with_lighting(
+        ::meshing::mesh_sub_chunk_in_neighbourhood_with_options(
             &classifier,
             runtime_assets,
             network_id_mode,
             &self.neighbourhood(),
             &self.light_halo,
+            ::meshing::MeshOptions {
+                split_tinted_faces: biome.uniform_tint_index().is_none(),
+            },
         )
     }
 

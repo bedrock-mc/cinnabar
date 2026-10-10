@@ -424,6 +424,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         BlockClassifier::new(0),
         &RuntimeAssets::diagnostic(),
         NetworkIdMode::Sequential,
+        &PackedBiomeRecord::fallback(),
     );
 
     assert!(!mesh.cube_lighting().is_empty());

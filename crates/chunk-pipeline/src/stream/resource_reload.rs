@@ -31,10 +31,11 @@ impl ResourceMeshSnapshot {
         self.chunks
             .into_iter()
             .map(|(key, snapshot)| {
+                let biome = pack_biome_record(&snapshot.biomes, &resolved);
                 Some((
                     key,
-                    snapshot.mesh(self.classifier, assets, self.mode),
-                    pack_biome_record(&snapshot.biomes, &resolved),
+                    snapshot.mesh(self.classifier, assets, self.mode, &biome),
+                    biome,
                 ))
             })
             .collect()
