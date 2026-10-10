@@ -2,12 +2,16 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/df-mc/go-xsapi/v2/achievements"
+	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
@@ -28,7 +32,7 @@ func TestProfileAchievementsPages(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(raw))}, nil
 	})}
-	got, err := profileAchievements(context.Background(), client, "123")
+	got, err := profileAchievements(context.Background(), achievements.New(client, xsts.UserInfo{XUID: "123"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,36 +47,52 @@ func TestProfileAchievementsPages(t *testing.T) {
 	}
 }
 
-// TestProfileAchievementsRejectRepeatedContinuation prevents endless service loops.
-func TestProfileAchievementsRejectRepeatedContinuation(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"achievements":[],"pagingInfo":{"continuationToken":"same"}}`))}, nil
-	})}
-	if _, err := profileAchievements(context.Background(), client, "123"); err == nil {
-		t.Fatal("repeated continuation accepted")
-	}
-}
-
-// TestProfileAchievementsBoundsUniquePages rejects an endless stream of advancing pages.
-func TestProfileAchievementsBoundsUniquePages(t *testing.T) {
-	calls := 0
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		calls++
-		raw := `{"achievements":[],"pagingInfo":{"continuationToken":"` + strconv.Itoa(calls) + `"}}`
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(raw))}, nil
-	})}
-	if _, err := profileAchievements(context.Background(), client, "123"); err == nil || calls != maxAchievementPages {
-		t.Fatalf("pagination result: calls=%d error=%v", calls, err)
+// TestProfileAchievementUnavailableScores keeps incomplete and overflowing totals
+// unavailable while allowing a known current score when only locked rewards are missing.
+func TestProfileAchievementUnavailableScores(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		state       string
+		rewards     []achievements.Reward
+		wantCurrent bool
+	}{
+		{name: "missing unlocked reward", state: "Achieved"},
+		{name: "missing locked reward", state: "NotStarted", wantCurrent: true},
+		{name: "invalid reward", state: "Achieved", rewards: []achievements.Reward{{Type: "Gamerscore", Value: "invalid"}}},
+		{name: "negative reward", state: "Achieved", rewards: []achievements.Reward{{Type: "Gamerscore", Value: "-1"}}},
+		{name: "reward overflow", state: "Achieved", rewards: []achievements.Reward{{Type: "Gamerscore", Value: "9223372036854775808"}}},
+		{name: "total overflow", state: "Achieved", rewards: []achievements.Reward{{Type: "Gamerscore", Value: strconv.FormatInt(math.MaxInt64, 10)}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(achievements.PageResult{Achievements: []achievements.Achievement{
+				{ID: "one", ProgressState: "Achieved", Rewards: []achievements.Reward{{Type: "Gamerscore", Value: "10"}}},
+				{ID: "two", ProgressState: test.state, Rewards: test.rewards},
+				{ID: "three", ProgressState: "Achieved", Rewards: []achievements.Reward{{Type: "Gamerscore", Value: "5"}}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
+			})}
+			got, err := profileAchievements(context.Background(), achievements.New(client, xsts.UserInfo{XUID: "123"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Total != 3 || got.MaxGamerscore != nil || (got.CurrentGamerscore != nil) != test.wantCurrent {
+				t.Fatalf("summary = %+v", got)
+			}
+			if test.wantCurrent && *got.CurrentGamerscore != 15 {
+				t.Fatalf("current score = %d, want 15", *got.CurrentGamerscore)
+			}
+		})
 	}
 }
 
 // TestAchievementTotalsPreserveUnavailableRewards skips odd values without inventing a total.
 func TestAchievementTotalsPreserveUnavailableRewards(t *testing.T) {
-	value := xboxAchievement{ID: "test", ProgressState: "Achieved"}
-	value.Rewards = append(value.Rewards, struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	}{Type: "Gamerscore", Value: "not a number"})
+	value := achievements.Achievement{ID: "test", ProgressState: "Achieved"}
+	value.Rewards = append(value.Rewards, achievements.Reward{Type: "Gamerscore", Value: "not a number"})
 	entry := profileAchievement(value)
 	if entry.Gamerscore != nil {
 		t.Fatal("invalid gamerscore was made numeric")

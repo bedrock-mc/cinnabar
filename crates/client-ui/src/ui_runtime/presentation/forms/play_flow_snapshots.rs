@@ -477,9 +477,11 @@ fn snapshot_shipped_font_routes_parity() {
             (MenuScreen::Play, "play"),
             (MenuScreen::Servers, "servers"),
             (MenuScreen::Settings, "settings"),
+            (MenuScreen::Pause, "pause"),
         ] {
             let mut view = base.clone();
             view.screen = screen;
+            view.over_world = screen == MenuScreen::Pause;
             if screen == MenuScreen::Servers {
                 view.feeds.selected_featured = Some(0);
             }

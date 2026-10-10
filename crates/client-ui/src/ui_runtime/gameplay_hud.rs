@@ -15,6 +15,8 @@ pub const MAX_HUD_EFFECTS: usize = 32;
 const METADATA_KEY_AIR_SUPPLY: u32 = 7;
 const METADATA_KEY_MAX_AIR_SUPPLY: u32 = 42;
 const METADATA_KEY_FREEZING_EFFECT_STRENGTH: u32 = 120;
+/// The interact text the server sets on the local player for the entity it can interact with.
+const METADATA_KEY_INTERACT_TEXT: u32 = 100;
 
 /// Pinned vanilla Bedrock effect ids whose hearts recolor (poison family and
 /// wither). Fatal poison shares poison's presentation.
@@ -122,6 +124,7 @@ pub struct GameplayHudState {
     show_coordinates: bool,
     show_days_played: bool,
     mount_unique_id: Option<i64>,
+    interact_text: bool, // the server's interact text is non-empty
     diagnostics: GameplayHudDiagnostics,
 }
 
@@ -173,6 +176,12 @@ impl GameplayHudState {
     #[must_use]
     pub const fn mount_unique_id(&self) -> Option<i64> {
         self.mount_unique_id
+    }
+
+    /// Whether the server currently offers the local player an entity interaction.
+    #[must_use]
+    pub const fn has_interact_text(&self) -> bool {
+        self.interact_text
     }
 
     /// The heart recolor derived from authoritative effects and freezing.
@@ -365,10 +374,14 @@ impl GameplayHudState {
                             self.diagnostics.odd_metadata_values.saturating_add(1);
                     }
                 }
+                (METADATA_KEY_INTERACT_TEXT, ActorMetadataValue::String(text)) => {
+                    self.interact_text = !text.is_empty();
+                }
                 (
                     METADATA_KEY_AIR_SUPPLY
                     | METADATA_KEY_MAX_AIR_SUPPLY
-                    | METADATA_KEY_FREEZING_EFFECT_STRENGTH,
+                    | METADATA_KEY_FREEZING_EFFECT_STRENGTH
+                    | METADATA_KEY_INTERACT_TEXT,
                     _,
                 ) => {
                     // A known key with an unexpected wire type is odd remote

@@ -79,11 +79,17 @@ pub(super) fn produce(
     let admitted = packet
         .ok()
         .is_some_and(|packet| context.network.send_inventory_packets(vec![packet]).is_ok());
+    let local_use = stream
+        .authority()
+        .actor(hit.runtime_id)
+        .map_or(LocalUse::Interact, |actor| {
+            LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
+        });
     runtime.admit(
         trigger,
         due,
         state.tick.saturating_add(1),
-        LocalUse::Interact,
+        local_use,
         clock,
         admitted,
     );

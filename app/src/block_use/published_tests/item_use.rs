@@ -1,9 +1,8 @@
 use super::*;
 use gameplay::melee::{ActorHit, Crosshair, PressContext};
 
-/// Supplies a throwable, both mouse buttons, and an attack accepted in this frame.
-fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPackets) {
-    let (mut world, captured) = fixture();
+/// Selects a stack of snowballs in hotbar slot 0 and returns the world scope.
+pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
     let network_id = 300;
     let scope = {
         let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
@@ -53,6 +52,15 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
                 storage_item: None,
             }));
     });
+    world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
+    world.init_resource::<crate::camera::ServerCameraView>();
+    scope
+}
+
+/// Supplies a throwable, both mouse buttons, and an attack accepted in this frame.
+fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPackets) {
+    let (mut world, captured) = fixture();
+    let scope = hold_snowball(&mut world);
     let mut input = crate::semantic_controls::SemanticInputRuntime::default();
     let snapshot = input
         .route_and_finalize(semantic_input::DeviceFrame {
@@ -71,8 +79,6 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
     if enabled {
         world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
     }
-    world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
-    world.init_resource::<crate::camera::ServerCameraView>();
     let press = PressContext {
         tick: 101,
         player_position: [4.5, 2.620_01, 8.5],
