@@ -5,6 +5,8 @@ use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu};
 
+const WITNESS_BINDING: u32 = 21;
+
 /// Samples the byte-quantized reference table at interpolated terrain light levels.
 fn native_sample(table: &[[f32; 4]], levels: [f32; 2]) -> [f32; 3] {
     let side = table.len().isqrt();
@@ -74,6 +76,10 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
         &[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4],
         wgpu::BufferUsages::STORAGE,
     );
+    let query_tables = gpu.words(
+        &meshing::biome_lattice::query_table_words(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let mut atmosphere = [0.0; 32];
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -114,7 +120,8 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
             "{}\n{VERTEX}\n{vertex}",
             shader_source::standalone(shader, &[])
         )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
+        .replace("WITNESS_BINDING", &WITNESS_BINDING.to_string());
         for (lower, upper) in [
             ([0.0, 13.0], [0.0, 15.0]),
             ([0.0, 0.0], [15.0, 15.0]),
@@ -148,7 +155,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
                     resource: atmosphere.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 19,
+                    binding: WITNESS_BINDING,
                     resource: case.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
@@ -164,6 +171,10 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
             }
             if kind == "cube" {
                 bindings.extend([
+                    wgpu::BindGroupEntry {
+                        binding: material_shader::BIOME_QUERY_TABLES_BINDING,
+                        resource: query_tables.as_entire_binding(),
+                    },
                     wgpu::BindGroupEntry {
                         binding: 7,
                         resource: records.as_entire_binding(),
@@ -213,7 +224,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
 
 const VERTEX: &str = r#"
 struct TerrainWitness { lower: vec4<f32>, upper: vec4<f32> }
-@group(0) @binding(19) var<storage, read> terrain_witness: TerrainWitness;
+@group(0) @binding(WITNESS_BINDING) var<storage, read> terrain_witness: TerrainWitness;
 fn witness_corner(index: u32) -> vec2<f32> {
     return array(vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0))[index];
 }

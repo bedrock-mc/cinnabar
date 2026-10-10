@@ -13,8 +13,7 @@ use std::{
 use ::meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord,
-    chunk_publication_byte_len, mesh_dependency_mask,
-    mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
+    chunk_publication_byte_len, mesh_dependency_mask, sample_camera_medium,
 };
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,

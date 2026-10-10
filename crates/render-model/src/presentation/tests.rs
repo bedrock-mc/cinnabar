@@ -171,3 +171,38 @@ fn capability_bits_round_trip_and_always_include_fifo() {
         SurfacePresentModes::FIFO_ONLY
     );
 }
+
+#[test]
+fn vrr_preference_preserves_refresh_and_resolves_every_reported_state() {
+    use render_api::VrrPreference;
+    for status in [VrrStatus::Active, VrrStatus::Inactive, VrrStatus::Unknown] {
+        for refresh in [None, FrameRate::from_hz(120)] {
+            let timing = DisplayTiming {
+                refresh,
+                vrr: status,
+            };
+            for (preference, expected) in [
+                (VrrPreference::Automatic, status),
+                (VrrPreference::On, VrrStatus::Active),
+                (VrrPreference::Off, VrrStatus::Inactive),
+            ] {
+                let selected = timing.with_vrr_preference(preference);
+                assert_eq!(
+                    selected,
+                    DisplayTiming {
+                        refresh,
+                        vrr: expected
+                    }
+                );
+                assert_eq!(
+                    frame_rate_target(LowLatency, Automatic, selected),
+                    if expected == VrrStatus::Active && refresh.is_some() {
+                        Some(hz(116))
+                    } else {
+                        None
+                    }
+                );
+            }
+        }
+    }
+}

@@ -1023,3 +1023,32 @@ fn settings_language_scroll_reveals_the_last_language() {
         .expect("scrolling must reveal the last language");
     assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
 }
+
+#[test]
+fn native_video_settings_exposes_all_vrr_choices() {
+    use crate::menu::settings_options::VRR_OPTION;
+    let view = settings_view("video_forced_index");
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == VRR_OPTION.name)
+        .unwrap() as u16;
+    let mut frame = paint(&view, [1280.0, 720.0], HashMap::new());
+    let mut scrolls = MenuScrolls::default();
+    for _ in 0..64 {
+        let viewport = panel(&frame, false).viewport;
+        if (VRR_OPTION.min..=VRR_OPTION.max).all(|choice| {
+            frame.hits.iter().any(|(action, bounds)| {
+                *action == MenuAction::SettingsOption(index, choice) && contains(viewport, *bounds)
+            })
+        }) {
+            return;
+        }
+        scrolls.set_areas(frame.areas.clone());
+        assert!(
+            scrolls.wheel(centre(viewport), -1.0, false),
+            "VRR choices must be reachable"
+        );
+        frame = paint(&view, [1280.0, 720.0], scrolls.offsets().clone());
+    }
+    panic!("VRR choices were not visible after scrolling");
+}

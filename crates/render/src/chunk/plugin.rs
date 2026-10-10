@@ -85,7 +85,9 @@ impl Plugin for ChunkRenderPlugin {
             BIOME_TINT_SHADER_HANDLE,
             "../biome_tint.wgsl",
             |source, path| crate::shader_safety::from_wgsl(
-                meshing::biome_lattice::shader_source(source),
+                crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
+                    source
+                )),
                 path
             )
         );

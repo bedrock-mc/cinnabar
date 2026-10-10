@@ -671,3 +671,36 @@ fn an_unknown_tearing_key_is_ignored() {
     let saved = String::from_utf8(serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(!saved.contains("allow_tearing"), "{saved}");
 }
+
+#[test]
+fn vrr_preference_persists_and_old_settings_remain_automatic() {
+    use render_api::VrrPreference;
+    assert_eq!(
+        SettingsOptions::default().user_settings().video.vrr,
+        VrrPreference::Automatic
+    );
+    assert_eq!(
+        SettingsOptions::decode(b"{}")
+            .unwrap()
+            .user_settings()
+            .video
+            .vrr,
+        VrrPreference::Automatic
+    );
+    for preference in [
+        VrrPreference::Automatic,
+        VrrPreference::On,
+        VrrPreference::Off,
+    ] {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "schema": SETTINGS_SCHEMA, "values": { "vrr": preference as i32 }
+        }))
+        .unwrap();
+        let settings = SettingsOptions::decode(&bytes).unwrap();
+        assert_eq!(settings.user_settings().video.vrr, preference);
+        let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.user_settings().video.vrr, preference);
+        loaded.reset_group(super::SettingsGroup::Video);
+        assert_eq!(loaded.user_settings().video.vrr, VrrPreference::Automatic);
+    }
+}

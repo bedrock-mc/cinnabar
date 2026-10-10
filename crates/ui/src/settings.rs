@@ -1,4 +1,4 @@
-use render_api::FrameRateLimit;
+use render_api::{FrameRateLimit, VrrPreference};
 use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
@@ -173,6 +173,7 @@ pub struct VideoSettings {
     pub fullscreen: bool,
     pub frame_rate_limit: FrameRateLimit,
     pub vsync: bool,
+    pub vrr: VrrPreference,
     pub anti_aliasing_samples: u32,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
@@ -200,6 +201,7 @@ impl Default for VideoSettings {
             fullscreen: false,
             frame_rate_limit: FrameRateLimit::Automatic,
             vsync: true,
+            vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
@@ -270,6 +272,14 @@ impl RenderMode {
 #[cfg(test)]
 mod tests {
     use super::{RenderMode, UserSettings};
+
+    #[test]
+    fn vrr_defaults_to_automatic_detection() {
+        assert_eq!(
+            UserSettings::default().video.vrr,
+            render_api::VrrPreference::Automatic
+        );
+    }
 
     #[test]
     fn default_block_selection_uses_an_outline() {

@@ -2,6 +2,7 @@
 
 import json
 import os
+import plistlib
 from pathlib import Path
 import shlex
 import shutil
@@ -16,6 +17,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipUnless(shutil.which("make"), "GNU make is required")
 class PackageBinariesTests(unittest.TestCase):
+    def test_macos_bundle_declares_game_mode(self):
+        template = (ROOT / "packaging/macos/Info.plist.in").read_text()
+        rendered = template.replace("@BUNDLE_ID@", "app.cinnabar.test").replace("@VERSION@", "1.0.0")
+        plist = plistlib.loads(rendered.encode())
+        self.assertIs(plist.get("LSSupportsGameMode"), True)
+        self.assertEqual(plist["LSApplicationCategoryType"], "public.app-category.games")
+
     def test_release_clients_enable_local_mods_on_every_platform(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

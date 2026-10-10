@@ -22,6 +22,7 @@ impl SettingsGroup {
                 super::MOTION_BLUR_OPTION,
                 super::CHAT_POSITION_OPTION,
                 SMAA_OPTION,
+                super::VRR_OPTION,
             ]
             .iter()
             .any(|option| option.name == name)

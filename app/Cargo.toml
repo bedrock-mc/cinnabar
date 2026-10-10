@@ -23,7 +23,7 @@ enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/e
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
+developer-control = ["dep:developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
 # Live CPU attribution through Bevy and the owned streaming/render hot paths.
@@ -87,8 +87,8 @@ rustix = { version = "1", default-features = false, features = ["fs", "process",
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication"], optional = true }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-io = "2"

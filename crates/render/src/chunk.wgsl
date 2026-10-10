@@ -356,6 +356,17 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
 #ifndef ENHANCED_SHADOW
 #ifndef OPAQUE_OVERDRAW
     out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+    // A one-block face owns a single block's blend, so evaluate it here once rather than per
+    // fragment. Mixed records mesh tinted faces one block wide for exactly this.
+    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
+        out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
+            material.flags & 0x30u,
+            material.flags,
+            out.biome_record,
+            local_origin + vec3(0.5),
+            vec3<f32>(chunk_origin.value.xyz),
+        ).rgb, 1.0);
+    }
 #endif
 #endif
 #endif

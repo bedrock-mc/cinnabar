@@ -102,6 +102,7 @@ mod template_screen;
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;
+pub mod vrr_setting;
 pub mod vsync_setting;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};

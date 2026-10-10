@@ -384,3 +384,31 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
         }
     }
 }
+
+/// Captures the persisted VRR choices with the control scrolled into view.
+#[test]
+fn settings_vrr_choices_snapshot() {
+    use crate::menu::{
+        MenuAction,
+        settings_options::{SETTINGS_OPTIONS, VRR_OPTION},
+    };
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == VRR_OPTION.name)
+        .unwrap();
+    for choice in [
+        render_api::VrrPreference::Automatic,
+        render_api::VrrPreference::On,
+        render_api::VrrPreference::Off,
+    ] {
+        section_with(
+            "video_forced_index",
+            &format!("settings-vrr-{}", choice.label()),
+            |view| {
+                std::sync::Arc::make_mut(&mut view.settings_options).set(index, choice as i32);
+                view.focused_action = Some(MenuAction::SettingsOption(index as u16, choice as i32));
+                view.settings_advanced_graphics = true;
+            },
+        );
+    }
+}

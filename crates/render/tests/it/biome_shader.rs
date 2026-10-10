@@ -11,7 +11,7 @@ fn shader(name: &str) -> String {
     )
     .unwrap_or_else(|error| panic!("read {name}: {error}"));
     if name == "biome_tint.wgsl" {
-        meshing::biome_lattice::shader_source(&source)
+        crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(&source))
     } else {
         source
     }
@@ -34,7 +34,7 @@ fn seasonal_shader_uses_bounded_species_cells_and_direct_biome_lookup() {
     assert!(!source.contains("unpack_linear_rgb10(tint.seasonal_foliage"));
     assert!(source.contains("min(species + exposed, SEASONAL_FOLIAGE_COUNT - 1u)"));
     let direct = source
-        .find("safe_biome_tint(packed_biome_tint_index(record, coordinate))")
+        .find("safe_tint_index(packed_biome_tint_index(record, coordinate))")
         .unwrap();
     assert!(direct < source.find("let lattice_words").unwrap());
     assert!(source.contains(&format!(
@@ -83,9 +83,18 @@ fn every_tinted_pipeline_calls_the_shared_blender() {
 fn foliage_variants_select_their_palette_inside_the_shared_average() {
     let source = shader("biome_tint.wgsl");
     assert!(source.contains("fn special_foliage_tint("));
-    assert!(source.contains("case 0x200u: { return unpack_linear_rgb10(tint.birch); }"));
-    assert!(source.contains("case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }"));
-    assert!(source.contains("case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }"));
+    assert!(
+        source.contains("case 0x200u: { return unpack_linear_rgb10(biome_tints[tint].birch); }")
+    );
+    assert!(
+        source
+            .contains("case 0x400u: { return unpack_linear_rgb10(biome_tints[tint].evergreen); }")
+    );
+    assert!(
+        source.contains(
+            "case 0x600u: { return unpack_linear_rgb10(biome_tints[tint].dry_foliage); }"
+        )
+    );
     assert!(source.contains(
         "tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))"
     ));

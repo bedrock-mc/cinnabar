@@ -1,7 +1,7 @@
 //! Bedrock grass-noise permutation.
 
 const MT_WORDS: usize = 624;
-const PERMUTATION_SIZE: usize = 256;
+pub const GRASS_PERMUTATION_SIZE: usize = 256;
 
 /// Reproduces the client's seeded MT stream without platform RNG dependencies.
 pub struct ClientRandom {
@@ -47,14 +47,14 @@ impl ClientRandom {
 }
 
 /// Builds the one-octave seed-2345 permutation, including its three offset draws.
-pub fn grass_noise_permutation() -> [u32; PERMUTATION_SIZE] {
+pub fn grass_noise_permutation() -> [u32; GRASS_PERMUTATION_SIZE] {
     let mut random = ClientRandom::new(2345);
     for _ in 0..3 {
         random.next_float();
     }
     let mut permutation = std::array::from_fn(|i| i as u32);
     for i in 0..permutation.len() {
-        let selected = i + random.next_u32() as usize % (PERMUTATION_SIZE - i);
+        let selected = i + random.next_u32() as usize % (GRASS_PERMUTATION_SIZE - i);
         permutation.swap(i, selected);
     }
     permutation

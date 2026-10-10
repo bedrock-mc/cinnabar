@@ -215,3 +215,45 @@ fn diagnostic_limits_survive_recording_and_unlimited_settings() {
     app.update();
     assert_eq!(pacing(&app).rate, hz(30));
 }
+
+#[test]
+fn vrr_preference_controls_low_latency_pacing_for_each_reported_state() {
+    use render_api::VrrPreference;
+    for status in [VrrStatus::Active, VrrStatus::Inactive, VrrStatus::Unknown] {
+        for preference in [
+            VrrPreference::Automatic,
+            VrrPreference::On,
+            VrrPreference::Off,
+        ] {
+            let (mut app, _) = pacing_app_with((None, false), FrameRateLimit::Automatic, |video| {
+                video.vsync = false;
+                video.vrr = preference;
+            });
+            app.world_mut().resource_mut::<DisplayRefresh>().0.vrr = status;
+            app.update();
+            let active = preference == VrrPreference::On
+                || (preference == VrrPreference::Automatic && status == VrrStatus::Active);
+            assert_eq!(
+                pacing(&app).rate,
+                if active { hz(116) } else { None },
+                "{status:?} {preference:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn missing_primary_display_clears_stale_vrr_and_refresh() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(DisplayRefresh(DisplayTiming {
+            refresh: hz(120),
+            vrr: VrrStatus::Active,
+        }))
+        .add_systems(Update, track_display_refresh);
+    app.update();
+    assert_eq!(
+        app.world().resource::<DisplayRefresh>().0,
+        DisplayTiming::default()
+    );
+}

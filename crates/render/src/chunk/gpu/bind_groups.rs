@@ -108,6 +108,8 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
 pub(in crate::chunk) struct PreparedChunkBiomeTints {
     pub(in crate::chunk) identity: ChunkBiomeTintResourceIdentity,
     pub(in crate::chunk) buffer: Buffer,
+    /// The blend kernel's constant lookup tables; see `biome_lattice::query_table_words`.
+    pub(in crate::chunk) query_tables: Buffer,
 }
 
 #[derive(Resource, Default)]
@@ -148,8 +150,20 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         contents: bytemuck::cast_slice(&entries),
         usage: BufferUsages::STORAGE,
     });
+    let query_tables = match gpu.prepared.take() {
+        Some(prepared) => prepared.query_tables,
+        None => render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("packed chunk biome query tables"),
+            contents: bytemuck::cast_slice(&meshing::biome_lattice::query_table_words()),
+            usage: BufferUsages::UNIFORM,
+        }),
+    };
     gpu._retained_entries = Some(Arc::clone(&source.entries));
-    gpu.prepared = Some(PreparedChunkBiomeTints { identity, buffer });
+    gpu.prepared = Some(PreparedChunkBiomeTints {
+        identity,
+        buffer,
+        query_tables,
+    });
 }
 
 pub(in crate::chunk) struct PreparedChunkTextureAssets {
@@ -215,7 +229,7 @@ pub struct ChunkTextureUploadStats {
     pub animation_bytes: u64,
     pub animation_frame_bytes: u64,
     pub texture_bytes_including_mips: u64,
-    pub padded_upload_bytes: u64,
+    pub queue_upload_bytes: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -396,14 +410,13 @@ fn build_chunk_texture_assets(
                 return None;
             }
         };
-        let plans =
-            match plan_texture_mip_uploads(&texture, RenderDevice::align_copy_bytes_per_row(1)) {
-                Ok(plans) => plans,
-                Err(error) => {
-                    bevy::log::error!(?error, "invalid chunk texture-page upload layout");
-                    return None;
-                }
-            };
+        let plans = match plan_queue_texture_mips(&texture) {
+            Ok(plans) => plans,
+            Err(error) => {
+                bevy::log::error!(?error, "invalid chunk texture-page upload layout");
+                return None;
+            }
+        };
         upload_plans.push(plans);
         terrain_pages.push(texture);
     }
@@ -504,14 +517,14 @@ fn build_chunk_texture_assets(
         contents: bytemuck::cast_slice(&model_template_words),
         usage: BufferUsages::STORAGE,
     });
-    let (texture_0, view_0, padded_0) = upload_texture_page(
+    let (texture_0, view_0, uploaded_0) = upload_texture_page(
         render_device,
         render_queue,
         bound_pages[0],
         &upload_plans[0],
         "global chunk texture page 0",
     );
-    let (texture_1, view_1, padded_1) = upload_texture_page(
+    let (texture_1, view_1, uploaded_1) = upload_texture_page(
         render_device,
         render_queue,
         bound_pages[1],
@@ -545,7 +558,7 @@ fn build_chunk_texture_assets(
         .flat_map(|texture| texture.mips.iter())
         .map(|mip| mip.rgba8.len() as u64)
         .sum();
-    stats.padded_upload_bytes = padded_0.saturating_add(padded_1);
+    stats.queue_upload_bytes = uploaded_0.saturating_add(uploaded_1);
     let prepared = PreparedChunkTextureAssets {
         identity,
         material_buffer,
@@ -608,6 +621,7 @@ pub(in crate::chunk) fn storage_table_fits(
         .is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= u64::from(max_binding_size))
 }
 
+/// Uploads validated mip bytes directly, without application-side row padding.
 pub(in crate::chunk) fn upload_texture_page(
     render_device: &RenderDevice,
     render_queue: &RenderQueue,
@@ -632,10 +646,7 @@ pub(in crate::chunk) fn upload_texture_page(
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[TextureFormat::Rgba8Unorm],
     });
-    let mut padded_upload_bytes = 0_u64;
-    for (mip, plan) in texture_array.mips.iter().zip(upload_plans) {
-        let staging = padded_mip_bytes(mip.rgba8.as_ref(), texture_array.layers, plan);
-        padded_upload_bytes = padded_upload_bytes.saturating_add(staging.len() as u64);
+    let queue_upload_bytes = write_texture_mips(texture_array, upload_plans, |plan, bytes| {
         render_queue.write_texture(
             TexelCopyTextureInfo {
                 texture: &texture,
@@ -643,7 +654,7 @@ pub(in crate::chunk) fn upload_texture_page(
                 origin: Origin3d::default(),
                 aspect: Default::default(),
             },
-            &staging,
+            bytes,
             TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(plan.bytes_per_row),
@@ -655,7 +666,7 @@ pub(in crate::chunk) fn upload_texture_page(
                 depth_or_array_layers: texture_array.layers,
             },
         );
-    }
+    });
     let view = texture.create_view(&TextureViewDescriptor {
         label: Some(label),
         dimension: Some(TextureViewDimension::D2Array),
@@ -663,28 +674,7 @@ pub(in crate::chunk) fn upload_texture_page(
         array_layer_count: Some(texture_array.layers),
         ..Default::default()
     });
-    (texture, view, padded_upload_bytes)
-}
-
-pub(in crate::chunk) fn padded_mip_bytes(
-    rgba8: &[u8],
-    layers: u32,
-    plan: &TextureMipUploadPlan,
-) -> Vec<u8> {
-    let mut staging = vec![0; plan.staging_bytes];
-    let row_bytes = plan.size as usize * 4;
-    let padded_row_bytes = plan.bytes_per_row as usize;
-    for layer in 0..layers as usize {
-        let source_layer = plan.layer_source_offsets[layer];
-        let staging_layer = plan.layer_staging_offsets[layer];
-        for row in 0..plan.size as usize {
-            let source = source_layer + row * row_bytes;
-            let destination = staging_layer + row * padded_row_bytes;
-            staging[destination..destination + row_bytes]
-                .copy_from_slice(&rgba8[source..source + row_bytes]);
-        }
-    }
-    staging
+    (texture, view, queue_upload_bytes)
 }
 
 pub(in crate::chunk) fn bind_group_needs_rebuild<K: PartialEq>(
@@ -837,6 +827,10 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
                 binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
                 resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
             },
+            BindGroupEntry {
+                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                resource: biome_tints.query_tables.as_entire_binding(),
+            },
         ],
     );
     arena.bind_group = Some(bind_group);
@@ -859,3 +853,29 @@ fn gpu_texture_reference(assets: &assets::RuntimeAssets, reference: assets::Text
         grid,
     )
 }
+
+/// Validates tightly packed queue writes; encoder buffer copies still use aligned plans.
+fn plan_queue_texture_mips(
+    texture: &TextureArray,
+) -> Result<Vec<TextureMipUploadPlan>, TextureUploadPlanError> {
+    plan_texture_mip_uploads(texture, 1)
+}
+
+/// Sends each validated mip to the queue writer and counts the submitted bytes.
+fn write_texture_mips(
+    texture: &TextureArray,
+    plans: &[TextureMipUploadPlan],
+    mut write: impl FnMut(&TextureMipUploadPlan, &[u8]),
+) -> u64 {
+    let mut uploaded_bytes = 0_u64;
+    for (mip, plan) in texture.mips.iter().zip(plans) {
+        let bytes = mip.rgba8.as_ref();
+        uploaded_bytes = uploaded_bytes.saturating_add(bytes.len() as u64);
+        write(plan, bytes);
+    }
+    uploaded_bytes
+}
+
+#[cfg(test)]
+#[path = "texture_upload_tests.rs"]
+mod texture_upload_tests;
