@@ -37,6 +37,7 @@ type sessionServer struct {
 	logger       *slog.Logger
 
 	acceptDone chan struct{}
+	closing    chan struct{} // closed by close, ending an accept retry wait
 	sessions   sync.WaitGroup
 	mu         sync.Mutex
 	closed     bool
@@ -47,19 +48,33 @@ type sessionServer struct {
 func (server *sessionServer) start(ctx context.Context) {
 	server.conns = make(map[net.Conn]struct{})
 	server.acceptDone = make(chan struct{})
+	server.closing = make(chan struct{})
 	go server.accept(ctx)
 }
 
+// sessionAcceptRetryLimit caps the backoff after a failed Accept, such as one out of file descriptors.
+const sessionAcceptRetryLimit = time.Second
+
 func (server *sessionServer) accept(ctx context.Context) {
 	defer close(server.acceptDone)
+	var retry time.Duration
 	for {
 		conn, err := server.listener.Accept()
 		if err != nil {
-			if !errors.Is(err, net.ErrClosed) && ctx.Err() == nil {
-				server.logger.Warn("session accept failed", "error", err)
+			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+				return
+			}
+			retry = min(max(2*retry, 5*time.Millisecond), sessionAcceptRetryLimit)
+			server.logger.Warn("session accept failed; retrying", "error", err, "retry", retry)
+			select {
+			case <-time.After(retry):
+				continue
+			case <-ctx.Done():
+			case <-server.closing:
 			}
 			return
 		}
+		retry = 0
 		server.mu.Lock()
 		if server.closed {
 			server.mu.Unlock()
@@ -86,6 +101,9 @@ func (server *sessionServer) accept(ctx context.Context) {
 // close stops accepting, ends every session and waits for them.
 func (server *sessionServer) close() error {
 	server.mu.Lock()
+	if !server.closed {
+		close(server.closing)
+	}
 	server.closed = true
 	conns := make([]net.Conn, 0, len(server.conns))
 	for conn := range server.conns {

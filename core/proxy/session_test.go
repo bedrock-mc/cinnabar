@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -484,6 +485,74 @@ func TestSessionClientLeavingCancelsTargetResolution(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(2 * time.Second):
 		t.Fatal("target resolution outlived its client")
+	}
+}
+
+// flakyListener fails its first Accept as a process out of file descriptors would, then hands out conns.
+type flakyListener struct {
+	failed bool
+	conns  chan net.Conn
+	closed chan struct{}
+}
+
+func (listener *flakyListener) Accept() (net.Conn, error) {
+	if !listener.failed {
+		listener.failed = true
+		return nil, &net.OpError{Op: "accept", Net: "unix", Err: syscall.EMFILE}
+	}
+	select {
+	case conn := <-listener.conns:
+		return conn, nil
+	case <-listener.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+func (listener *flakyListener) Close() error {
+	select {
+	case <-listener.closed:
+	default:
+		close(listener.closed)
+	}
+	return nil
+}
+
+func (*flakyListener) Addr() net.Addr { return &net.UnixAddr{Name: "session.sock", Net: "unix"} }
+
+// A transient Accept failure keeps the published endpoint serving instead of leaving it dead.
+func TestSessionServerKeepsAcceptingAfterTransientFailure(t *testing.T) {
+	listener := &flakyListener{conns: make(chan net.Conn), closed: make(chan struct{})}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	connections := newPreparedConnections("", nil, logger)
+	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
+		return nil, errors.New("served after the failed accept")
+	}
+	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: logger}
+	ctx, cancel := context.WithCancel(context.Background())
+	server.start(ctx)
+	defer func() {
+		cancel()
+		connections.beginShutdown()
+		_ = server.close()
+		_ = connections.finishShutdown()
+	}()
+	local, peer := net.Pipe()
+	defer peer.Close()
+	select {
+	case listener.conns <- local:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the session endpoint stopped accepting after one failure")
+	}
+	client := streamnet.NewFramedConn(peer)
+	frame, err := encodeSessionJSON(sessionKindConnect, testSessionConnect(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(frame); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := client.ReadPacket(); err != nil || reply[0] != sessionKindDisconnect {
+		t.Fatalf("reply = %q, %v", reply, err)
 	}
 }
 
