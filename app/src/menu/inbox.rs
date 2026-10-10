@@ -1,5 +1,5 @@
 //! Host adapter for the launcher's optimistic inbox state.
-pub(crate) use launcher::menu::inbox::*;
+use launcher::menu::inbox::*;
 
 impl super::MenuRuntime {
     /// Applies an inbox action before the account worker collects its queued reports.
@@ -10,12 +10,12 @@ impl super::MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::menu::{MenuHome, MenuRuntime};
+    use {super::*, launcher::menu::inbox::Action};
+    use {crate::menu::MenuRuntime, launcher::menu::view::MenuHome};
 
     #[test]
     fn inbox_settings_focus_excludes_the_hidden_category_list() {
-        use super::super::{MenuAction, MenuScreen};
+        use launcher::menu::{MenuAction, MenuScreen};
         let mut menu = MenuRuntime::new(true, 2, "Test".into());
         menu.screen = MenuScreen::Inbox;
         menu.feeds.inbox_state.filters = true;
@@ -31,7 +31,7 @@ mod tests {
     /// Builds a partial inbox page with a service total larger than its loaded rows.
     fn partial_feed() -> MenuHome {
         MenuHome {
-            inbox: vec![super::super::InboxItem {
+            inbox: vec![launcher::menu::view::InboxItem {
                 instance_id: "old".into(),
                 category: "News".into(),
                 unread: true,
@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn expired_opened_message_restores_inbox_keyboard_navigation() {
-        use super::super::{MenuAction, MenuScreen};
+        use launcher::menu::{MenuAction, MenuScreen};
         let mut menu = MenuRuntime::new(true, 2, "Test".into());
         menu.screen = MenuScreen::Inbox;
         menu.feeds.home = partial_feed();

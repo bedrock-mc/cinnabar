@@ -15,9 +15,9 @@ use super::theme::{
     NEUTRAL100, OUTLINE, OVERLAY_MODAL, Rgba, TEXT,
 };
 use super::widgets::{MenuItem, Variant, button, menu_item};
-use crate::local_worlds::{PromptButton, Screen, WorldsView};
-use crate::menu::view::SettingsFocusAxis;
-use crate::menu::{LocalWorldAction, MenuAction, MenuView};
+use launcher::local_worlds::{PromptButton, Screen, WorldsView};
+use launcher::menu::view::SettingsFocusAxis;
+use launcher::menu::{LocalWorldAction, MenuAction, MenuView};
 
 /// One modal; a button without an action draws disabled.
 pub(super) struct Modal<'a> {

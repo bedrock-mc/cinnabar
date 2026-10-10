@@ -7,7 +7,10 @@ use client_ui::ui_runtime::UiRuntime;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use semantic_input::PerspectiveMode;
 
-use crate::runtime::{network::actor_publication::*, world::ClientWorld};
+use {
+    crate::runtime::{network::actor_publication::*, world::ClientWorld},
+    client_presentation::actor_publication::{ActorFramePartialTick, HandRigBuilder},
+};
 
 pub(super) fn fixture() -> World {
     fixture_with_skin(false)
@@ -110,7 +113,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     client.stream = Some(stream);
     let mut physics = crate::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(anchor, 0, true);
-    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(1, 1);
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
@@ -134,8 +137,8 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
     world.insert_resource(PreparedActorPublication::default());
     world.insert_resource(avatar);
-    world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
-    world.init_resource::<crate::camera::CameraSettingsAuthority>();
+    world.init_resource::<client_presentation::local_player::LocalAvatarVisibilityCarrier>();
+    world.init_resource::<client_presentation::camera::CameraSettingsAuthority>();
     world.insert_resource(physics);
     world.insert_resource(artwork);
     world.insert_resource(equipment);
@@ -152,9 +155,9 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.spawn((
         camera,
         Projection::Perspective(PerspectiveProjection::default()),
-        crate::camera::FlyCamera::default(),
+        client_presentation::camera::FlyCamera::default(),
     ));
-    world.insert_resource(crate::local_player::LocalViewPose::new(
+    world.insert_resource(client_presentation::local_player::LocalViewPose::new(
         Vec3::from_array(anchor),
         camera.rotation,
     ));
@@ -165,7 +168,7 @@ fn perspective(world: &mut World, mode: PerspectiveMode, generation: u64) {
     let mut settings = ui::UserSettings::default();
     settings.gameplay.default_perspective = mode;
     world
-        .resource_mut::<crate::camera::CameraSettingsAuthority>()
+        .resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
         .replace(generation, &settings)
         .unwrap();
 }
@@ -318,7 +321,7 @@ fn emotes_keep_vanilla_bones_with_java_enabled() {
             settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonBack;
             settings.video.java_animations = java;
             world
-                .resource_mut::<crate::camera::CameraSettingsAuthority>()
+                .resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
                 .replace(1, &settings)
                 .unwrap();
             if custom {

@@ -1,5 +1,8 @@
 //! Menu flows at the session boundary: death and respawn, local worlds, disconnect wording.
-use super::{MenuAction, MenuRuntime, MenuScreen};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 #[test]
 fn death_controls_wait_before_accepting_input() {
@@ -59,7 +62,7 @@ fn settings_background_follows_the_world_or_launcher_below() {
     );
     let player = crate::player_runtime::PlayerRuntime::new(1);
     let ui = client_ui::ui_runtime::UiRuntime::new(1);
-    let presentation = crate::ui_runtime::presentation::forms::tests::mini_engine_presentation();
+    let presentation = client_ui::test_support::mini_engine_presentation();
     assert!(crate::screen_policy::renders_game(
         &player,
         Some(&ui),
@@ -160,7 +163,10 @@ fn death_main_menu_requires_confirmation_and_cancel_preserves_death() {
     menu.open_death();
     menu.advance_death_controls(super::death::DEATH_CONTROLS_DELAY_SECONDS);
     menu.activate(MenuAction::OpenDeathQuit);
-    assert_eq!(menu.view().dialog, Some(super::MenuDialog::DeathQuit));
+    assert_eq!(
+        menu.view().dialog,
+        Some(launcher::menu::MenuDialog::DeathQuit)
+    );
     assert!(!menu.take_disconnect_request());
     menu.go_back();
     assert_eq!(menu.view().dialog, None);
@@ -185,7 +191,7 @@ fn local_world_choices_reach_the_worlds_module() {
         None,
         "no world at that index"
     );
-    menu.set_local_worlds(vec![super::LocalWorldCard::default()]);
+    menu.set_local_worlds(vec![launcher::menu::view::LocalWorldCard::default()]);
     menu.activate(MenuAction::PlayLocalWorld(0));
     assert_eq!(menu.take_local_world_request(), Some(0));
 }
@@ -198,7 +204,7 @@ fn server_draft_joins_the_separate_port_box() {
     assert_eq!(menu.view().port, "19132");
     assert_eq!(menu.draft_endpoint(), "", "an empty host stays empty");
     menu.activate(MenuAction::AddPort);
-    assert_eq!(menu.view().field, Some(super::MenuField::Port));
+    assert_eq!(menu.view().field, Some(launcher::menu::MenuField::Port));
     menu.address.set_text("play.example");
     menu.port.set_text("19133");
     assert_eq!(menu.draft_endpoint(), "play.example:19133");
@@ -269,13 +275,13 @@ fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
                     focus_control_disabled: false,
                 }],
             );
-            for dialog in [None, Some(super::MenuDialog::Accounts)] {
+            for dialog in [None, Some(launcher::menu::MenuDialog::Accounts)] {
                 menu.dialog = dialog;
                 menu.feeds.account_adding = dialog.is_some();
                 menu.sign_in_requested = true;
-                menu.control_auth = Some(super::AuthState::Checking);
+                menu.control_auth = Some(launcher::menu::auth::AuthState::Checking);
                 assert_eq!(menu.focus_actions(), vec![MenuAction::CancelSignIn]);
-                menu.control_auth = Some(super::AuthState::AwaitingCode {
+                menu.control_auth = Some(launcher::menu::auth::AuthState::AwaitingCode {
                     uri: "https://example.invalid".into(),
                     code: "TEST-CODE".into(),
                 });
@@ -288,7 +294,7 @@ fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
                 menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, 1);
                 assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
                 menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1);
-                menu.control_auth = Some(super::AuthState::Failed(
+                menu.control_auth = Some(launcher::menu::auth::AuthState::Failed(
                     "Your sign-in code expired. Try again.".into(),
                 ));
                 assert_eq!(menu.view().focused_action, Some(MenuAction::StartSignIn));
@@ -300,7 +306,7 @@ fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
 #[test]
 fn disconnect_controls_keep_focus_over_a_pending_sign_in() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    menu.control_auth = Some(super::AuthState::AwaitingCode {
+    menu.control_auth = Some(launcher::menu::auth::AuthState::AwaitingCode {
         uri: "https://example.invalid".into(),
         code: "TEST-CODE".into(),
     });
@@ -312,7 +318,7 @@ fn disconnect_controls_keep_focus_over_a_pending_sign_in() {
 #[test]
 fn back_cancels_the_device_prompt_before_screen_navigation() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    menu.control_auth = Some(super::AuthState::AwaitingCode {
+    menu.control_auth = Some(launcher::menu::auth::AuthState::AwaitingCode {
         uri: "https://example.invalid".into(),
         code: "TEST-CODE".into(),
     });
@@ -348,7 +354,7 @@ fn death_respawn_requests_cannot_cross_session_replacement() {
 
 #[test]
 fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
-    use super::disconnect::{DisconnectBody, describe};
+    use launcher::menu::disconnect::{DisconnectBody, describe};
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
     assert!(menu.absorb_session_failure(KICK));
     let error = menu.view().disconnect_message.unwrap();
@@ -360,7 +366,7 @@ fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
 
 #[test]
 fn launcher_words_a_transport_failure_as_vanilla_does() {
-    use super::disconnect::{DisconnectBody, describe};
+    use launcher::menu::disconnect::{DisconnectBody, describe};
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
     assert!(menu.absorb_session_failure("network session failed: closed"));
     let error = menu.view().disconnect_message.unwrap();
@@ -373,9 +379,9 @@ fn launcher_words_a_transport_failure_as_vanilla_does() {
 // Saving, editing, cancelling or deleting a server keeps the Servers tab, as vanilla pops the form.
 #[test]
 fn server_form_returns_to_the_servers_tab() {
-    let root = crate::ui_runtime::presentation::forms::pack_harness::scratch_dir("server-tab");
-    use crate::install_layout::{InstallEnvironment, Platform};
-    let layout = super::InstallLayout::resolve(
+    let root = client_ui::test_support::pack_harness::scratch_dir("server-tab");
+    use launcher::install_layout::{InstallEnvironment, Platform};
+    let layout = launcher::install_layout::InstallLayout::resolve(
         Platform::Linux,
         &InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
@@ -437,7 +443,7 @@ fn server_form_returns_to_the_servers_tab() {
 #[test]
 fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
     let realms = MenuAction::Navigate(MenuScreen::Social);
-    let marketplace = MenuAction::Store(crate::store::OPEN);
+    let marketplace = MenuAction::Store(client_ui::store::OPEN);
     for directional in [false, true] {
         let mut menu = MenuRuntime::new(true, 2, "Tester".into());
         menu.focus_pointer(realms);
@@ -450,7 +456,7 @@ fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
         assert_eq!(menu.view().focused_action, Some(marketplace));
         menu.activate_focused();
         assert_eq!(menu.screen(), MenuScreen::Store);
-        assert_eq!(menu.take_store_actions(), vec![crate::store::OPEN]);
+        assert_eq!(menu.take_store_actions(), vec![client_ui::store::OPEN]);
         menu.show_home();
         menu.focus_pointer(realms);
         menu.activate_focused();

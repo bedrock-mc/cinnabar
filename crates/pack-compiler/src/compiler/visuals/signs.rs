@@ -1,4 +1,3 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, SignState, SignTemplateKey, diagnostic_visual, push_model_template,
     set_model_visual,
@@ -9,6 +8,7 @@ use super::{
     carpets::typed_model_state_value,
     gates::rotate_gate_face,
 };
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignState> {
     const ORIENTATION_MASK: u8 = 1 << (ModelStateField::Orientation as u8 - 1);

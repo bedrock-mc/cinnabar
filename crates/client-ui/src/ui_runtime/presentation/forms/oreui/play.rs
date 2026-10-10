@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 mod tabs;
 
-use super::super::super::{IconRef, UiPresentationError};
 use super::grid::{Grid, space};
 use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas};
@@ -16,7 +15,8 @@ use super::theme::{
 };
 use super::widgets::{Variant, button, header, panel, row, screen_overlay, tag};
 use super::{play_realms, play_servers};
-use crate::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
+use launcher::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
+use {super::super::super::UiPresentationError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

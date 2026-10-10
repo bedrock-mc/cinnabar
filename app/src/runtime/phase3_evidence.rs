@@ -1,23 +1,20 @@
 //! Converts gameplay observations into the optional evidence plugin's input records.
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 #[cfg(test)]
-use crate::movement::{MovementOutboxReconciliation, MovementSource};
-use crate::{
-    acceptance::{AcceptanceRun, mutation::write_stdout_marker},
-    movement::{
-        MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault, PhysicsAuthorityFaultRecord,
-        PhysicsCollisionRegistries, PhysicsCorrectionOutcome, PhysicsTickEvidence,
+use acceptance::phase3_evidence::Phase3EvidenceIdentity;
+use acceptance::phase3_evidence::{Phase3EvidenceFrame, Phase3EvidenceIdentityError};
+use bevy::prelude::{Res, ResMut, Resource};
+#[cfg(test)]
+use gameplay::movement::{MovementOutboxReconciliation, MovementSource};
+use semantic_input::InputMode;
+use {
+    crate::movement::{MovementTicker, PhysicsAuthorityFaultRecord, PhysicsCollisionRegistries},
+    diagnostics::write_stdout_marker,
+    gameplay::movement::{
+        OUTBOX_CAPACITY, PhysicsAuthorityFault, PhysicsCorrectionOutcome, PhysicsTickEvidence,
     },
 };
-#[cfg(test)]
-pub(crate) use acceptance::phase3_evidence::{
-    MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
-    Phase3EvidenceIdentity, validate_phase3_build_source,
-};
-pub(crate) use acceptance::phase3_evidence::{
-    Phase3EvidenceEventKind, Phase3EvidenceFrame, Phase3EvidenceIdentityError,
-};
-use bevy::prelude::{Res, ResMut, Resource};
-use semantic_input::InputMode;
 
 /// Owns the emitter while translating gameplay's existing domain records at the boundary.
 #[derive(Resource, Default)]

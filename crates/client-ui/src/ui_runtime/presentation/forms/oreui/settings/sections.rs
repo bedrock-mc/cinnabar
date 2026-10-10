@@ -4,7 +4,7 @@ use super::super::super::super::UiPresentationError;
 use super::super::theme::{self, BODY, EDGE, NEUTRAL80, TEXT};
 use super::super::widgets::Interaction;
 use super::{Content, button};
-use crate::menu::{
+use launcher::menu::{
     MenuAction,
     settings_options::{
         ANIMATIONS_OPTION, CHAT_POSITION_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS,
@@ -126,7 +126,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 "gamma",
                 "max_framerate",
                 "vsync",
-                crate::menu::settings_options::VRR_OPTION.name,
+                launcher::menu::settings_options::VRR_OPTION.name,
                 "msaa",
                 SMAA_OPTION.name,
                 MOTION_BLUR_OPTION.name,
@@ -158,8 +158,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
             "ingame_player_names",
             "interface_opacity",
             "show_auto_save_icon",
-            crate::menu::settings_options::SHOW_EXACT_SERVER_PING,
-            crate::menu::settings_options::OREUI_DARK_MODE,
+            launcher::menu::settings_options::SHOW_EXACT_SERVER_PING,
+            launcher::menu::settings_options::OREUI_DARK_MODE,
         ],
     )?;
     content.heading(

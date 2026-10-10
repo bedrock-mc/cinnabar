@@ -16,7 +16,12 @@ impl MenuRuntime {
 
     /// Changes the language selected by the vanilla radio collection.
     pub(in crate::menu) fn set_language(&mut self, index: u16) {
-        let Some((code, _)) = self.language_choices.get(usize::from(index)) else {
+        let Some((code, _)) =
+            self.language_choices
+                .get(launcher::menu::settings_options::language::usize::from(
+                    index,
+                ))
+        else {
             return;
         };
         if Arc::make_mut(&mut self.settings_options).set_language(code) {
@@ -41,7 +46,7 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use launcher::menu::settings_options::language::*;
     #[test]
     fn selecting_a_language_updates_runtime_text_and_english_restores_the_base() {
         let directory =

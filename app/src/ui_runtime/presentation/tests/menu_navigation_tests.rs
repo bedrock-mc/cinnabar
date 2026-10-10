@@ -1,9 +1,12 @@
 //! Launcher actions remain app-owned while UI consumes their views.
-use crate::{
-    global_resources::{Action, Snapshot},
-    menu::{MenuAction, MenuRuntime, MenuScreen},
-};
 use std::sync::Arc;
+use {
+    crate::menu::MenuRuntime,
+    launcher::{
+        global_resources::{Action, Snapshot},
+        menu::{MenuAction, MenuScreen},
+    },
+};
 
 #[test]
 fn back_closes_pack_settings_before_leaving_global_resources() {

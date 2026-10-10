@@ -1,4 +1,8 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::camera::{CameraSettingsAuthority, PITCH_LIMIT},
+    client_presentation::local_player::LocalViewPose,
+};
 
 #[test]
 fn front_orbit_follows_pitch_and_yaw_without_rolling_at_the_pitch_limits() {

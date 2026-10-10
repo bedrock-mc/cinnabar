@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, mod_api::MAX_LOADED_MODS};
 
 const EMPTY_COMPONENT: &str = r#"(component
     (core module $m (func (export "init")) (func (export "frame")))

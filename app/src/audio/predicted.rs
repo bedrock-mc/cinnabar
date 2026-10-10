@@ -1,12 +1,15 @@
 //! Borrows gameplay observations for predicted sound presentation.
-use super::AudioEngine;
-use crate::{
-    local_player::LocalViewPose, movement::PhysicsCollisionRegistries, particles::ParticleInbox,
-    runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime,
-};
 use bevy::prelude::{Local, MessageReader, Res, ResMut, Time};
+use client_presentation::audio::AudioEngine;
 use client_presentation::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        movement::PhysicsCollisionRegistries, particles::ParticleInbox,
+        runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime,
+    },
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]

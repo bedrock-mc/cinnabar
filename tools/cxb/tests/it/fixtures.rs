@@ -5,18 +5,21 @@ use std::{
 
 use cinnabar_cxb::fixtures;
 use serde::de::DeserializeOwned;
-use server_experience::{
-    bundle::VerifiedBundle,
-    crypto::{self, KeyPair, SignedDocument},
-    manifest::{Manifest, Offer, implemented_permissions},
-    negotiation::{Accept, Grant, Limits, Marker, VerifiedOffer, Wire},
-    policy::{
-        INITIAL_BUNDLE_GENERATION, MAX_EXPANDED_BYTES, MAX_MARKER_BYTES, MAX_PAYLOAD_BYTES,
-        MAX_WIRE_VERSION, WIRE_VERSION,
+use {
+    ring::signature::KeyPair,
+    server_experience::{
+        bundle::VerifiedBundle,
+        crypto::{self, SignedDocument},
+        manifest::{Manifest, Offer, implemented_permissions},
+        negotiation::{Accept, Grant, Limits, Marker, VerifiedOffer, Wire},
+        policy::{
+            INITIAL_BUNDLE_GENERATION, MAX_EXPANDED_BYTES, MAX_MARKER_BYTES, MAX_PAYLOAD_BYTES,
+            MAX_WIRE_VERSION, WIRE_VERSION,
+        },
+        runtime::Capabilities,
+        session::Control,
+        wire::{self, Channel, Direction, Envelope, Fragment, Ingress},
     },
-    runtime::Capabilities,
-    session::Control,
-    wire::{self, Channel, Direction, Envelope, Fragment, Ingress},
 };
 
 const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/extension/testdata`";
@@ -81,7 +84,7 @@ fn fixtures_pass_the_client_verifiers() {
     let digests: BTreeMap<String, String> = serde_json::from_slice(&read("digests.json")).unwrap();
     for role in ["server", "publisher"] {
         let seed = crypto::fixed_hex::<32>(seeds[role]["seed"].as_str().unwrap()).unwrap();
-        let key = crypto::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+        let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
         assert_eq!(
             seeds[role]["public_key"],
             crypto::hex(key.public_key().as_ref())

@@ -10,12 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    install_layout::InstallLayout,
-    lifecycle::children::{self, Spawned, StopOutcome},
-    runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
-};
 use anyhow::{Context, Result, bail};
+use {
+    crate::{
+        lifecycle::children::{self, Spawned, StopOutcome},
+        runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
+    },
+    launcher::install_layout::InstallLayout,
+};
 
 /// Bounds the graceful-stop wait before SIGTERM, then SIGKILL, fire.
 ///

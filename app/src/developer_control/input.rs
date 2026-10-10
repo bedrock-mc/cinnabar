@@ -20,11 +20,16 @@ use developer_control::{
 use semantic_input::PhysicalControl;
 use serde_json::{Value, json};
 
-use crate::{
-    camera::{DrivenInput, FlyCameraUpdateSet, PITCH_LIMIT},
-    local_player::{LocalPlayerFrameSet, LocalViewPose},
-    runtime::telemetry::bedrock_camera_rotation,
-    semantic_controls::physical::{KEYBOARD_USAGES, mouse_button_code},
+use {
+    crate::{
+        camera::DrivenInput,
+        runtime::telemetry::bedrock_camera_rotation,
+        semantic_controls::physical::{KEYBOARD_USAGES, mouse_button_code},
+    },
+    client_presentation::{
+        camera::{FlyCameraUpdateSet, PITCH_LIMIT},
+        local_player::{LocalPlayerFrameSet, LocalViewPose},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,27 +180,29 @@ fn resolve(menu: Option<&crate::menu::MenuRuntime>, control: &Control) -> Result
             ControlButton::Back => MouseButton::Back,
             ControlButton::Forward => MouseButton::Forward,
         })),
-        Control::Binding(name) => match crate::menu::settings_options::named_control(menu, name) {
-            Some(PhysicalControl::KeyboardUsage(usage)) => KEYBOARD_USAGES
-                .iter()
-                .find(|(_, candidate)| *candidate == usage)
-                .map(|(key, _)| Physical::Key(*key))
-                .ok_or_else(|| format!("`{name}` is bound to an unmapped key")),
-            Some(PhysicalControl::MouseButton(code)) => [
-                MouseButton::Left,
-                MouseButton::Right,
-                MouseButton::Middle,
-                MouseButton::Back,
-                MouseButton::Forward,
-                MouseButton::Other(u16::from(code.saturating_sub(1))),
-            ]
-            .into_iter()
-            .find(|button| mouse_button_code(*button) == Some(code))
-            .map(Physical::Mouse)
-            .ok_or_else(|| format!("`{name}` is bound to an unknown mouse button")),
-            Some(other) => Err(format!("`{name}` is bound to {other:?}, not a key")),
-            None => Err(format!("unknown binding `{name}`")),
-        },
+        Control::Binding(name) => {
+            match launcher::menu::settings_options::control_bindings::named_control(menu, name) {
+                Some(PhysicalControl::KeyboardUsage(usage)) => KEYBOARD_USAGES
+                    .iter()
+                    .find(|(_, candidate)| *candidate == usage)
+                    .map(|(key, _)| Physical::Key(*key))
+                    .ok_or_else(|| format!("`{name}` is bound to an unmapped key")),
+                Some(PhysicalControl::MouseButton(code)) => [
+                    MouseButton::Left,
+                    MouseButton::Right,
+                    MouseButton::Middle,
+                    MouseButton::Back,
+                    MouseButton::Forward,
+                    MouseButton::Other(u16::from(code.saturating_sub(1))),
+                ]
+                .into_iter()
+                .find(|button| mouse_button_code(*button) == Some(code))
+                .map(Physical::Mouse)
+                .ok_or_else(|| format!("`{name}` is bound to an unknown mouse button")),
+                Some(other) => Err(format!("`{name}` is bound to {other:?}, not a key")),
+                None => Err(format!("unknown binding `{name}`")),
+            }
+        }
     }
 }
 
@@ -229,10 +236,10 @@ fn inject(
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
-        crate::camera::release_cursor(&mut cursor);
+        client_presentation::camera::release_cursor(&mut cursor);
     } else if std::mem::take(&mut *was_driven) {
         window.bypass_change_detection().focused = driver.real_focus.unwrap_or(false);
-        crate::camera::release_cursor(&mut cursor);
+        client_presentation::camera::release_cursor(&mut cursor);
     }
     *was_driven = driving;
     let expired: Vec<_> = driver

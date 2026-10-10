@@ -7,7 +7,10 @@ use bevy::math::{Mat4, Vec3};
 use client_world::ItemAnimationState;
 use render_model::RenderBoneTransform;
 
-use super::display::{FirstPersonShape, ItemDisplay, first_person_display, view_bone};
+use {
+    super::display::{FirstPersonShape, first_person_display, view_bone},
+    render_model::equipment::ItemDisplay,
+};
 
 #[cfg(test)]
 mod tests;

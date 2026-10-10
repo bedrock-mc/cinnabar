@@ -13,7 +13,7 @@ fn press(input_mode: PlayerInputMode) -> PressContext {
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,
         local_runtime_id: 42,
-        selection: Some(crate::mining::FrozenMiningSelection {
+        selection: Some(gameplay::mining::FrozenMiningSelection {
             slot: 3,
             item: protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
                 .unwrap(),
@@ -73,7 +73,7 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
         if outcome.missed_swing {
             ticker.mark_missed_swing(tick);
         }
-        crate::movement::flush_player_auth_inputs_guarded(
+        gameplay::movement::flush_player_auth_inputs_guarded(
             &mut ticker,
             8,
             Some(gameplay::test_support::survival_mining::evidence()),

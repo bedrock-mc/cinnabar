@@ -3,7 +3,7 @@
 use assets::ParticleTexture;
 
 use super::{MODEL_PAGE, MODEL_PAGES, UiPresentationError, UiPresentationRuntime, atlas};
-use crate::ui_runtime::presentation::{IconRef, player_preview};
+use {crate::ui_runtime::presentation::player_preview, ui::IconRef};
 
 #[derive(Default)]
 pub(super) struct FireAtlas {

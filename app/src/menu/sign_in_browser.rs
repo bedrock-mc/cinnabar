@@ -13,7 +13,7 @@ impl SignInBrowser {
     /// Starts a handoff without waiting for the desktop, using an injectable opener.
     pub(super) fn open(
         &mut self,
-        auth: &super::AuthState,
+        auth: &launcher::menu::auth::AuthState,
         explicit: bool,
         opener: fn(&str) -> bool,
     ) {
@@ -30,8 +30,10 @@ impl SignInBrowser {
             spawned
         };
         match auth {
-            super::AuthState::AwaitingCode { code, .. } => self.link.open(code, explicit, dispatch),
-            super::AuthState::AwaitingXboxSignup { uri } => {
+            launcher::menu::auth::AuthState::AwaitingCode { code, .. } => {
+                self.link.open(code, explicit, dispatch)
+            }
+            launcher::menu::auth::AuthState::AwaitingXboxSignup { uri } => {
                 self.link.open_signup(uri, explicit, dispatch)
             }
             _ => {}
@@ -49,10 +51,10 @@ impl SignInBrowser {
     }
 
     /// Returns the status belonging to the visible auth prompt.
-    pub(super) fn state(&self, auth: &super::AuthState) -> BrowserState {
+    pub(super) fn state(&self, auth: &launcher::menu::auth::AuthState) -> BrowserState {
         match auth {
-            super::AuthState::AwaitingCode { code, .. } => self.link.state_for(code),
-            super::AuthState::AwaitingXboxSignup { uri } => self.link.state_for(uri),
+            launcher::menu::auth::AuthState::AwaitingCode { code, .. } => self.link.state_for(code),
+            launcher::menu::auth::AuthState::AwaitingXboxSignup { uri } => self.link.state_for(uri),
             _ => BrowserState::Waiting,
         }
     }
@@ -65,7 +67,7 @@ mod tests {
     #[test]
     fn injected_opener_reports_failure_and_an_explicit_press_can_succeed() {
         let mut browser = SignInBrowser::default();
-        let auth = super::super::AuthState::AwaitingCode {
+        let auth = launcher::menu::auth::AuthState::AwaitingCode {
             uri: "https://example.invalid".into(),
             code: "TEST-CODE".into(),
         };

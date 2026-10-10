@@ -1,4 +1,11 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, CollisionSeed, DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK,
+        ModelFamily, ModelStateField, RegistryRecord, VisualKind, encode_blob, read_registry,
+    },
+    std::{collections::HashSet, path::Path},
+};
 
 fn generated_pressure_plate_records(name: &str) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(

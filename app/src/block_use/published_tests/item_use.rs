@@ -72,7 +72,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
     }
     world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
-    world.init_resource::<crate::camera::ServerCameraView>();
+    world.init_resource::<client_presentation::camera::ServerCameraView>();
     let press = PressContext {
         tick: 101,
         player_position: [4.5, 2.620_01, 8.5],

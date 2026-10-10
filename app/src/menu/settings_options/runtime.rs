@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::ResMut;
 
-use super::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
 use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
 
 /// Limits disk retries after a failed write without discarding pending preferences.
 const SETTINGS_RETRY: Duration = Duration::from_secs(1);
@@ -32,7 +32,7 @@ impl MenuRuntime {
     /// Persists slot equipment without republishing unrelated video/input preferences.
     pub(crate) fn set_emote_slot_preferences(
         &mut self,
-        slots: [Option<String>; super::EMOTE_SLOT_COUNT],
+        slots: [Option<String>; launcher::menu::settings_options::EMOTE_SLOT_COUNT],
     ) {
         if Arc::make_mut(&mut self.settings_options).set_emote_slots(slots) {
             self.settings_dirty = true;
@@ -59,9 +59,13 @@ impl MenuRuntime {
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
         // A real edit replaces any session override and is saved.
-        self.session_overrides
-            .retain(|(overridden, _)| *overridden != usize::from(index));
-        if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
+        self.session_overrides.retain(|(overridden, _)| {
+            *overridden != launcher::menu::settings_options::runtime::usize::from(index)
+        });
+        if Arc::make_mut(&mut self.settings_options).set(
+            launcher::menu::settings_options::runtime::usize::from(index),
+            value,
+        ) {
             self.settings_dirty = true;
             self.settings_apply = true;
         }

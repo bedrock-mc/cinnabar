@@ -1,7 +1,6 @@
 //! Filled world-space unit blocks; no edge strips or outlines.
 use mod_render::geometry::{KIND_GROUND, ModVertex, STYLE_BILLBOARD};
 
-pub use mod_api::MAX_BLOCK_HIGHLIGHTS;
 pub(super) const VERTICES_PER_BLOCK: usize = 36;
 
 pub(super) fn build(positions: &[[i32; 3]], color: [f32; 4]) -> Vec<ModVertex> {

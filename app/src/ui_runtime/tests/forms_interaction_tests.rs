@@ -1,10 +1,4 @@
 use super::forms_fixture::retained;
-use crate::{
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_server_form_input, presentation::tests::fixture_font,
-    },
-};
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet, graph::DiGraph},
     input::{
@@ -17,6 +11,13 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
+    },
+    client_ui::test_support::fixture_font,
+};
 
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
@@ -421,8 +422,11 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
 fn clicking_an_engine_drawn_button_answers_its_index() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
     use bevy::input::mouse::MouseButtonInput;
+    use {
+        crate::ui_runtime::presentation::forms::pack_harness,
+        client_ui::test_support::mini_engine_presentation,
+    };
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let mut presentation = mini_engine_presentation();
     let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
@@ -891,7 +895,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         let mut focus = client_presentation::camera::CursorFocus::default();
         focus.begin_frame(false);
         app.insert_resource(focus)
-            .insert_resource(crate::camera::AutoFly::new(false))
+            .insert_resource(client_presentation::camera::AutoFly::new(false))
             .add_systems(
                 Update,
                 crate::camera::update_cursor_capture.after(drive_menu_input),

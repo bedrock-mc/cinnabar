@@ -6,12 +6,15 @@ use player_state::PlayerState;
 use protocol::{TextCategory, TextEvent, TextKind, UiEvent};
 use ui::DpiScale;
 
-use super::*;
 use crate::test_support::engine_presentation;
 use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
+use {
+    super::*,
+    launcher::menu::settings_options::{CHAT_POSITION_OPTION, SettingsOptions},
+};
 
 fn option_index() -> usize {
-    crate::menu::settings_options::SETTINGS_OPTIONS
+    launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == CHAT_POSITION_OPTION.name)
         .unwrap()

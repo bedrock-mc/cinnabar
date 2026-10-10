@@ -1,14 +1,14 @@
 use chunk_pipeline::{
-    BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
-    RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
+    BuildProfileIdentity, CohortManifestIdentity, PresentModeIdentity, PresentationSnapshot,
+    PublicationSnapshot, PublicationStageCounters, RequestClass, RequestQueueEvidence,
+    StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use world::ChunkKey;
 
-use crate::markers::PHASE2_TIMING;
+use diagnostics::markers::PHASE2_TIMING;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerColumnPresentationEvidence {
@@ -22,8 +22,8 @@ pub struct PlayerColumnPresentationEvidence {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CombinedPhase2Snapshot {
-    pub publication: Phase2PublicationSnapshot,
-    pub presentation: Phase2PresentationSnapshot,
+    pub publication: PublicationSnapshot,
+    pub presentation: PresentationSnapshot,
     pub player_column_presentation: PlayerColumnPresentationEvidence,
     pub present_mode_proven: bool,
     pub client_blob_cache_enabled: bool,
@@ -332,7 +332,7 @@ pub fn generation_manifest_identity(
         publisher_epoch,
         required_cohort_count,
         required_cohort_hash,
-        generation_manifest_hash: crate::metrics::deterministic_manifest_hash(manifest),
+        generation_manifest_hash: diagnostics::metrics::deterministic_manifest_hash(manifest),
         entry_count: manifest.len(),
     }
 }

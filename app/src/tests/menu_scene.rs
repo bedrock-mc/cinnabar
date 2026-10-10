@@ -2,19 +2,20 @@
 use crate::player_runtime::PlayerRuntime;
 use std::sync::Arc;
 
-use crate::{
-    menu::{MenuAction, MenuRuntime, MenuScreen},
-    runtime::{
-        network::{HandRigBuilder, prepare_actor_render_frame},
-        world::ClientWorld,
-    },
-    ui_runtime::presentation::forms::tests::mini_engine_presentation,
-};
 use bevy::prelude::*;
 use client_ui::ui_runtime::{UiRuntime, presentation::forms::ServerUiPack};
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
     StandardSkin, WorldBootstrap, WorldEvent,
+};
+use {
+    crate::{
+        menu::MenuRuntime,
+        runtime::{network::prepare_actor_render_frame, world::ClientWorld},
+    },
+    client_presentation::actor_publication::HandRigBuilder,
+    client_ui::test_support::mini_engine_presentation,
+    launcher::menu::{MenuAction, MenuScreen},
 };
 
 mod hud_visibility;
@@ -104,14 +105,15 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         )
         .unwrap(),
     );
-    let (equipment, artwork, _) = crate::presentation::equipment::EquipmentRuntime::build(
-        entities.clone(),
-        None,
-        icons,
-        None,
-        None,
-        render::ActorArtworkPages::default(),
-    );
+    let (equipment, artwork, _) =
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
+            entities.clone(),
+            None,
+            icons,
+            None,
+            None,
+            render::ActorArtworkPages::default(),
+        );
     let mut world = super::actor_frame_allocations::actor_frame_world(
         player_world(entities.clone()),
         scene,

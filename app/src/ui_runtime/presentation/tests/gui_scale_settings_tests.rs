@@ -4,12 +4,12 @@ use bevy::{
 };
 use ui::{DpiScale, UiPoint};
 
-use super::{engine_hud_tests::engine_presentation, fixture_font, fixture_hud};
-use crate::{
-    menu::{MenuAction, MenuRuntime, MenuScreen},
-    ui_runtime::presentation::apply_gui_scale_setting,
-};
+use client_ui::test_support::{engine_presentation, fixture_font, fixture_hud};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{menu::MenuRuntime, ui_runtime::presentation::apply_gui_scale_setting},
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let mut menu = MenuRuntime::new(visible, 2, "Player".to_owned());
@@ -87,8 +87,8 @@ fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
         .iter()
         .find(|(action, _)| {
             matches!(action, MenuAction::SettingsOption(index, _)
-            if matches!(crate::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
-                crate::menu::settings_options::SettingKind::Toggle))
+            if matches!(launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
+                launcher::menu::settings_options::SettingKind::Toggle))
         })
         .expect("the initial native Settings category renders a toggle");
     let physical_centre = [

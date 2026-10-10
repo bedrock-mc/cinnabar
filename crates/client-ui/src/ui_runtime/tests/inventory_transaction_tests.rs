@@ -1,8 +1,8 @@
-use super::*;
 use protocol::{
     InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
     PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID,
 };
+use {super::*, inventory::inventory_ledger};
 
 fn pickup() -> InventoryEvent {
     let batch: Vec<_> =
@@ -80,7 +80,7 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
     );
     assert_eq!(
         player_runtime.selected_stack_snapshot().unwrap().state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&update.stack)
+        inventory::inventory_ledger::PlayerInventorySlot::Present(&update.stack)
     );
     let request = runtime
         .inventory_ledger_mut(&mut player_runtime)

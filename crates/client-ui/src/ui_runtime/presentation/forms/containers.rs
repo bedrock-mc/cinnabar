@@ -13,17 +13,22 @@ use serde_json::Value;
 use std::sync::Arc;
 use ui::UiNode;
 
-use super::super::{HudFrame, IconRef, TextMetrics, UiPresentationError, UiPresentationRuntime};
 use super::container_data;
 use super::container_kinds::{
     Cell, ContainerKind, mount_kind, mount_slots, storage_kind, window_kind,
 };
 use super::engine;
-use crate::ui_runtime::{
-    UiRuntime,
-    forms::EngineFrame,
-    inventory_ledger::InventoryTarget,
-    presentation::inventory_pointer::{InventoryCellHit, InventoryScreen},
+use {
+    super::super::{HudFrame, TextMetrics, UiPresentationError, UiPresentationRuntime},
+    ui::IconRef,
+};
+use {
+    crate::ui_runtime::{
+        UiRuntime,
+        forms::EngineFrame,
+        presentation::inventory_pointer::{InventoryCellHit, InventoryScreen},
+    },
+    inventory::inventory_ledger::InventoryTarget,
 };
 
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.

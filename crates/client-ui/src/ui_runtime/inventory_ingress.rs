@@ -2,7 +2,7 @@ use protocol::{InventoryEvent, ItemRegistryEvent};
 
 use super::{UiRuntime, UiRuntimeError};
 
-pub use inventory::{InventoryAuthorityEvent, SequencedInventoryEvent};
+use inventory::SequencedInventoryEvent;
 
 impl UiRuntime {
     pub fn enqueue_inventory_event(
@@ -65,7 +65,7 @@ impl UiRuntime {
     pub fn crafting_preview<'a>(
         &self,
         player_runtime: &'a player_state::PlayerState,
-    ) -> Option<super::CraftingPreview<'a>> {
+    ) -> Option<inventory::CraftingPreview<'a>> {
         player_runtime.inventory.crafting_preview()
     }
 
@@ -83,7 +83,7 @@ impl UiRuntime {
     pub fn begin_crafting(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+    ) -> Result<i32, inventory::inventory_ledger::InventoryGestureError> {
         player_runtime.inventory.begin_crafting()
     }
 
@@ -91,8 +91,8 @@ impl UiRuntime {
     pub fn begin_crafting_into(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-        sink: super::inventory_ledger::CraftSink,
-    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        sink: inventory::inventory_ledger::CraftSink,
+    ) -> Result<i32, inventory::inventory_ledger::InventoryGestureError> {
         player_runtime.inventory.begin_crafting_into(sink)
     }
 
@@ -100,7 +100,7 @@ impl UiRuntime {
     pub fn begin_crafting_all(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+    ) -> Result<i32, inventory::inventory_ledger::InventoryGestureError> {
         player_runtime.inventory.begin_crafting_all()
     }
 }

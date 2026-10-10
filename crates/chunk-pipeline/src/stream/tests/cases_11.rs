@@ -271,14 +271,11 @@ fn confirmed_player_grid_interest_uses_clamped_radius_and_bounded_edges() {
     stream
         .submit(4, WorldEvent::ChunkRadiusUpdated(i32::MAX))
         .expect("admit oversized confirmed radius");
-    assert_eq!(
-        stream.chunk_radius,
-        Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
-    );
+    assert_eq!(stream.chunk_radius, Some(super::MAX_VIEW_RADIUS_CHUNKS));
 
     let edge = ChunkKey::new(
         0,
-        PLAYER_COLUMN[0] + super::PHASE0_MAX_VIEW_RADIUS_CHUNKS + 2,
+        PLAYER_COLUMN[0] + super::MAX_VIEW_RADIUS_CHUNKS + 2,
         PLAYER_COLUMN[1],
     );
     let outside = ChunkKey::new(0, edge.x + 1, edge.z);

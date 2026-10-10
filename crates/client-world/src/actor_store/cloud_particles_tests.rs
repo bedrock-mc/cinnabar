@@ -100,7 +100,7 @@ fn cloud_anchors_first_tick_then_emits_every_five_through_inclusive_expiry() {
     let vars = variables(&first[0]);
     assert_eq!(
         vars["variable.cloud_lifetime"],
-        EMISSION_TICKS as f32 * crate::ACTOR_TICK_DURATION.as_secs_f32()
+        EMISSION_TICKS as f32 * world::TICK_DURATION.as_secs_f32()
     );
     assert_eq!(vars["variable.cloud_radius"], 3.5);
     assert_eq!(vars["variable.particle_multiplier"], EMISSION_TICKS as f32);

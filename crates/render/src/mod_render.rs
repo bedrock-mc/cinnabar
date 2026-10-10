@@ -14,13 +14,14 @@ mod tests;
 use bevy::{
     prelude::*,
     render::{
-        RenderApp, extract_resource::ExtractResource, extract_resource::ExtractResourcePlugin,
+        RenderApp,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
     },
 };
 use mod_render::{RenderOutput, geometry::ModVertex};
 use std::sync::Arc;
 
-pub use block_highlights::MAX_BLOCK_HIGHLIGHTS;
+use mod_api::MAX_BLOCK_HIGHLIGHTS;
 pub use passes::ModPassLabel;
 
 /// The current mod's render output, extracted whenever the mod commits a change.

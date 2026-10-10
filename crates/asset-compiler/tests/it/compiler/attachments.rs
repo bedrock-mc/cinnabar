@@ -1,4 +1,12 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_FOLIAGE_TINT,
+        MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelStateField,
+        RegistryRecord, RuntimeAssets, VisualKind, encode_blob, read_registry,
+    },
+    std::path::Path,
+};
 
 fn generated_vine_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(

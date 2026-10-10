@@ -1,9 +1,8 @@
 //! Host compatibility exports for the launcher installation model.
-pub use launcher::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
+
 #[cfg(test)]
-pub use launcher::install_layout::vanilla_pack_relative;
-#[cfg(test)]
-pub(crate) use launcher::install_layout::{InstallEnvironment, Platform};
+use launcher::install_layout::{InstallEnvironment, Platform};
 
 /// Creates an isolated installation tree for app tests that own local files.
 #[cfg(test)]
@@ -79,9 +78,9 @@ fn scratch_at(platform: Platform, base: &std::path::Path) -> InstallLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::{Platform, scratch_at};
     use crate::asset_startup::{AssetPathSource, select_asset_path_with_default};
     use std::{ffi::OsString, path::PathBuf};
+    use {super::scratch_at, launcher::install_layout::Platform};
 
     #[test]
     fn scratch_layouts_keep_every_platform_under_the_supplied_root() {

@@ -4,13 +4,16 @@ use std::{
     process::{Command, Output},
 };
 
-use server_experience::{
-    bundle::VerifiedBundle,
-    cache::{self, BundleCache},
-    crypto::{self, KeyPair},
-    manifest::{PackageOffer, Permission, Scope},
-    policy::MAX_EXPANDED_BYTES,
-    wire::Direction,
+use {
+    ring::signature::KeyPair,
+    server_experience::{
+        bundle::VerifiedBundle,
+        cache::{self, BundleCache},
+        crypto,
+        manifest::{PackageOffer, Permission, Scope},
+        policy::MAX_EXPANDED_BYTES,
+        wire::Direction,
+    },
 };
 
 /// The M0 client part (spec § Sub-project 2) with a screen, in an Experience's `experience.toml`
@@ -72,7 +75,7 @@ fn printed<'a>(output: &'a Output, key: &str) -> &'a str {
 
 fn publisher_key(seed: &Path) -> String {
     let seed = crypto::fixed_hex::<32>(std::fs::read_to_string(seed).unwrap().trim()).unwrap();
-    let key = crypto::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+    let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
     crypto::hex(key.public_key().as_ref())
 }
 

@@ -1,4 +1,14 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
+        DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+        ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord, RuntimeAssets, VisualKind,
+        encode_blob, read_registry,
+    },
+    std::path::Path,
+    tempfile::TempDir,
+};
 
 pub(super) fn write_chiseled_bookshelf_pack(root: &Path, terrain_overrides: Option<&str>) {
     write_pack(

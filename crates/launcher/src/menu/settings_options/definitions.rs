@@ -324,7 +324,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         "render_distance",
         "options.renderDistance",
         ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
-        render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
+        render_api::MAX_VIEW_RADIUS_CHUNKS,
         ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
     ),
     slider(

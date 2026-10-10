@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use bevy::prelude::Resource;
 use semantic_input::{InputMode, PerspectiveMode};
 
-use crate::markers::{
+use diagnostics::markers::{
     self, PHASE3_EVENT, PHASE3_FRAME, PHASE3_IDENTITY, PHASE3_TERMINAL, PHASE3_VIOLATION,
 };
 
@@ -177,9 +177,9 @@ impl Phase3EvidenceIdentitySource {
         preg_sha256: [u8; 32],
         breg_sha256: [u8; 32],
     ) -> Result<Self, Phase3EvidenceIdentityError> {
-        let build_commit = std::env::var(markers::BUILD_COMMIT).map_err(|_| {
+        let build_commit = std::env::var(diagnostics::markers::BUILD_COMMIT).map_err(|_| {
             Phase3EvidenceIdentityError::MissingBuildCommit {
-                environment: markers::BUILD_COMMIT,
+                environment: diagnostics::markers::BUILD_COMMIT,
             }
         })?;
         Phase3EvidenceIdentity::new(
@@ -190,18 +190,24 @@ impl Phase3EvidenceIdentitySource {
             breg_sha256,
             candidate_physics,
         )?;
-        validate_phase3_build_source(std::env::var(markers::SOURCE_DIRTY).ok().as_deref())?;
-        let run_id = required_run_environment(markers::PHASE3_RUN_ID)?;
-        let endpoint = required_run_environment(markers::PHASE3_ENDPOINT)?;
-        let bridge_endpoint = required_run_environment(markers::PHASE3_BRIDGE_ENDPOINT)?;
-        let core_sha256 = required_run_environment(markers::PHASE3_CORE_SHA256)?;
-        let core_process_id = required_run_environment(markers::PHASE3_CORE_PROCESS_ID)?
-            .parse::<u32>()
-            .ok()
-            .filter(|process_id| *process_id != 0)
-            .ok_or(Phase3EvidenceIdentityError::InvalidRunIdentity {
-                environment: markers::PHASE3_CORE_PROCESS_ID,
-            })?;
+        validate_phase3_build_source(
+            std::env::var(diagnostics::markers::SOURCE_DIRTY)
+                .ok()
+                .as_deref(),
+        )?;
+        let run_id = required_run_environment(diagnostics::markers::PHASE3_RUN_ID)?;
+        let endpoint = required_run_environment(diagnostics::markers::PHASE3_ENDPOINT)?;
+        let bridge_endpoint =
+            required_run_environment(diagnostics::markers::PHASE3_BRIDGE_ENDPOINT)?;
+        let core_sha256 = required_run_environment(diagnostics::markers::PHASE3_CORE_SHA256)?;
+        let core_process_id =
+            required_run_environment(diagnostics::markers::PHASE3_CORE_PROCESS_ID)?
+                .parse::<u32>()
+                .ok()
+                .filter(|process_id| *process_id != 0)
+                .ok_or(Phase3EvidenceIdentityError::InvalidRunIdentity {
+                    environment: diagnostics::markers::PHASE3_CORE_PROCESS_ID,
+                })?;
         validate_run_identity(
             &run_id,
             &endpoint,
@@ -254,7 +260,7 @@ pub fn validate_phase3_build_source(
         Ok(())
     } else {
         Err(Phase3EvidenceIdentityError::DirtyOrUnattributedBuild {
-            environment: markers::SOURCE_DIRTY,
+            environment: diagnostics::markers::SOURCE_DIRTY,
         })
     }
 }
@@ -281,12 +287,15 @@ fn validate_run_identity(
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         return Err(Phase3EvidenceIdentityError::InvalidRunIdentity {
-            environment: markers::PHASE3_RUN_ID,
+            environment: diagnostics::markers::PHASE3_RUN_ID,
         });
     }
     for (value, environment) in [
-        (endpoint, markers::PHASE3_ENDPOINT),
-        (bridge_endpoint, markers::PHASE3_BRIDGE_ENDPOINT),
+        (endpoint, diagnostics::markers::PHASE3_ENDPOINT),
+        (
+            bridge_endpoint,
+            diagnostics::markers::PHASE3_BRIDGE_ENDPOINT,
+        ),
     ] {
         let Some((host, port)) = value.rsplit_once(':') else {
             return Err(Phase3EvidenceIdentityError::InvalidRunIdentity { environment });
@@ -304,12 +313,12 @@ fn validate_run_identity(
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         return Err(Phase3EvidenceIdentityError::InvalidRunIdentity {
-            environment: markers::PHASE3_CORE_SHA256,
+            environment: diagnostics::markers::PHASE3_CORE_SHA256,
         });
     }
     if core_process_id == 0 {
         return Err(Phase3EvidenceIdentityError::InvalidRunIdentity {
-            environment: markers::PHASE3_CORE_PROCESS_ID,
+            environment: diagnostics::markers::PHASE3_CORE_PROCESS_ID,
         });
     }
     Ok(())

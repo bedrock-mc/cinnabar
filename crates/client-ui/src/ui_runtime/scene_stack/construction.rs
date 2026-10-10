@@ -1,6 +1,6 @@
 //! One scene-construction visitor supplies rendering and debug visibility.
 
-use super::*;
+use {super::*, launcher::menu::MenuScreen};
 
 /// Tracks whether the visible scene stack permits the developer overlay.
 #[derive(Default)]
@@ -125,7 +125,7 @@ impl UiRuntime {
             );
         }
         if let Some(screen) = host.menu {
-            let reference = crate::ui_runtime::presentation::forms::menu_reference(screen);
+            let reference = launcher::menu::menu_reference(screen);
             let settings = if screen == MenuScreen::Death {
                 death_settings()
             } else {

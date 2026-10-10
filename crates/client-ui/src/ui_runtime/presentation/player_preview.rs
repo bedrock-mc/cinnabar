@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use assets::RuntimeEquipmentCatalog;
 
-use super::{IconRef, UiPresentationRuntime};
+use {super::UiPresentationRuntime, ui::IconRef};
 
 pub(super) mod cape;
 pub(super) mod controller;
@@ -86,7 +86,7 @@ impl UiPresentationRuntime {
         runtime: &crate::ui_runtime::UiRuntime,
         identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
     ) {
-        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
             stack.and_then(|stack| Some((identify(stack)?, stack.clone())))

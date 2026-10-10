@@ -1,11 +1,6 @@
 use std::time::Duration;
 
 use crate::app::{ClientFrameSet, configure_client_frame_schedule};
-use crate::camera::{
-    self, AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, FlyCameraPlugin,
-    PITCH_LIMIT,
-};
-use crate::local_player::LocalViewPose;
 use crate::semantic_controls::{
     SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
     route_semantic_input,
@@ -18,6 +13,7 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
+use client_presentation::local_player::LocalViewPose;
 use semantic_input::{Action, PerspectiveMode};
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts,
@@ -25,6 +21,12 @@ use sim::{
 };
 use ui::UserSettings;
 use world::ChunkKey;
+use {
+    crate::camera::{self, FlyCameraPlugin},
+    client_presentation::camera::{
+        AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
+    },
+};
 
 mod cursor_changes;
 use cursor_changes::track_test_focus;
@@ -76,7 +78,7 @@ fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
         unavailable: false,
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -140,7 +142,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             boxes,
             unavailable: false,
         };
-        let blocked = camera::collision_safe_perspective_pose(
+        let blocked = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
@@ -153,7 +155,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             "{label} boom distance {blocked_distance} did not stop at pre-hit {expected}",
         );
 
-        let clear = camera::collision_safe_perspective_pose(
+        let clear = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
@@ -164,7 +166,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 <= 1.0e-5,
             "{label} boom did not restore after collision space cleared",
         );
-        let blocked_again = camera::collision_safe_perspective_pose(
+        let blocked_again = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
@@ -189,7 +191,7 @@ fn third_person_boom_retains_its_reach_when_the_boom_region_is_unloaded() {
         ..default()
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -220,7 +222,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         },
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -244,7 +246,7 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
         result: LenientCollisionBoxes::default(),
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -260,8 +262,11 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
 fn missing_world_stream_falls_back_to_eye_in_third_person() {
     let eye = Vec3::new(4.0, 70.0, -3.0);
     let rotation = Quat::from_rotation_y(0.4);
-    let pose =
-        camera::unavailable_world_perspective_pose(eye, rotation, PerspectiveMode::ThirdPersonBack);
+    let pose = client_presentation::camera::unavailable_world_perspective_pose(
+        eye,
+        rotation,
+        PerspectiveMode::ThirdPersonBack,
+    );
     assert_eq!(pose.translation, eye);
     assert!(pose.rotation.abs_diff_eq(rotation, 1.0e-6));
 }
@@ -274,8 +279,9 @@ fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
     );
 
     for sample in 0..=2_000 {
-        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
-        let offset = camera::auto_fly_offset(seconds);
+        let seconds =
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let offset = client_presentation::camera::auto_fly_offset(seconds);
         assert!(offset.xz().length() <= camera::AUTO_FLY_MAX_HORIZONTAL_BLOCKS + 0.001);
         assert!(offset.y.abs() <= 8.001);
         assert!(offset.x.abs() < 16.0 * 16.0);
@@ -291,10 +297,11 @@ fn auto_fly_keeps_the_mutation_target_in_view() {
     auto_fly.set_look_target(target);
     assert!(auto_fly.enabled());
     for sample in 0..=2_000 {
-        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
-        let position = anchor + camera::auto_fly_offset(seconds);
+        let seconds =
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let position = anchor + client_presentation::camera::auto_fly_offset(seconds);
         assert!(position.distance(target) < 16.0 * 16.0);
-        let rotation = camera::look_at_target(position, target);
+        let rotation = client_presentation::camera::look_at_target(position, target);
         let forward = rotation * Vec3::NEG_Z;
         assert!(forward.dot((target - position).normalize()) > 0.999);
     }
@@ -342,12 +349,19 @@ fn direction_axes_map_wasd_space_and_both_shift_keys() {
 fn mouse_look_clamps_pitch_and_applies_pixel_delta_without_time() {
     assert_eq!(PITCH_LIMIT, 89.9_f32.to_radians());
 
-    let (yaw, pitch) = camera::look_angles(0.5, 0.25, Vec2::new(10.0, -20.0), Vec2::splat(0.01));
+    let (yaw, pitch) = client_presentation::camera::look_angles(
+        0.5,
+        0.25,
+        Vec2::new(10.0, -20.0),
+        Vec2::splat(0.01),
+    );
     assert!((yaw - 0.4).abs() < 1.0e-6);
     assert!((pitch - 0.45).abs() < 1.0e-6);
 
-    let (_, up) = camera::look_angles(0.0, 0.0, Vec2::new(0.0, -1_000_000.0), Vec2::ONE);
-    let (_, down) = camera::look_angles(0.0, 0.0, Vec2::new(0.0, 1_000_000.0), Vec2::ONE);
+    let (_, up) =
+        client_presentation::camera::look_angles(0.0, 0.0, Vec2::new(0.0, -1_000_000.0), Vec2::ONE);
+    let (_, down) =
+        client_presentation::camera::look_angles(0.0, 0.0, Vec2::new(0.0, 1_000_000.0), Vec2::ONE);
     assert_eq!(up, PITCH_LIMIT);
     assert_eq!(down, -PITCH_LIMIT);
 }
@@ -693,7 +707,7 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     app.update();
 
     let end = app.world().resource::<LocalViewPose>().eye_translation();
-    let expected = start + camera::auto_fly_offset(0.5);
+    let expected = start + client_presentation::camera::auto_fly_offset(0.5);
     assert!(end.abs_diff_eq(expected, 1.0e-4));
 }
 
@@ -729,7 +743,7 @@ fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
         app.update();
 
         let actual = app.world().resource::<LocalViewPose>().eye_translation();
-        let expected = start + camera::auto_fly_offset(elapsed.as_secs_f32());
+        let expected = start + client_presentation::camera::auto_fly_offset(elapsed.as_secs_f32());
         assert!(actual.abs_diff_eq(expected, 1.0e-4));
         assert!(
             app.world()
@@ -808,18 +822,30 @@ fn perspective_poses_orbit_four_blocks_and_face_the_subject() {
     let subject = Vec3::new(4.0, 70.0, -2.0);
     let rotation = Quat::from_euler(EulerRot::YXZ, 0.7, -0.3, 0.0);
     let forward = rotation * Vec3::NEG_Z;
-    let radius = camera::THIRD_PERSON_RADIUS_BLOCKS;
+    let radius = client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS;
 
-    let first = camera::perspective_pose(subject, rotation, PerspectiveMode::FirstPerson);
+    let first = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::FirstPerson,
+    );
     assert!(first.translation.abs_diff_eq(subject, 1.0e-6));
     assert!(first.rotation.abs_diff_eq(rotation, 1.0e-6));
 
-    let back = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonBack);
+    let back = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::ThirdPersonBack,
+    );
     assert!((back.translation.distance(subject) - radius).abs() < 1.0e-5);
     assert!((back.translation - (subject - forward * radius)).length() < 1.0e-5);
     assert!((back.rotation * Vec3::NEG_Z).dot((subject - back.translation).normalize()) > 0.999);
 
-    let front = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonFront);
+    let front = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::ThirdPersonFront,
+    );
     assert!((front.translation.distance(subject) - radius).abs() < 1.0e-5);
     assert!((front.translation - (subject + forward * radius)).length() < 1.0e-5);
     assert!((front.rotation * Vec3::NEG_Z).dot((subject - front.translation).normalize()) > 0.999);
@@ -1045,7 +1071,7 @@ fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     app.update();
 
     let end = *app.world().resource::<LocalViewPose>();
-    let expected = start + camera::auto_fly_offset(0.5);
+    let expected = start + client_presentation::camera::auto_fly_offset(0.5);
     assert!(
         end.eye_translation().abs_diff_eq(expected, 1.0e-4),
         "auto-fly stayed at {:?} instead of advancing to {expected:?}",

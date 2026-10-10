@@ -16,16 +16,16 @@ use client_ui::ui_runtime::presentation::forms::EmoteHit;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::{UiAction, UiPoint};
 
-use crate::{
-    menu::{
-        MenuRuntime,
-        settings_options::{binding_gamepad, binding_key, binding_mouse, gamepad_button},
-    },
-    player_runtime::PlayerRuntime,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        menu::MenuRuntime, player_runtime::PlayerRuntime, runtime::world::ClientWorld,
+        semantic_controls::SemanticInputSnapshot,
+    },
+    launcher::menu::settings_options::control_bindings::{
+        binding_gamepad, binding_key, binding_mouse, gamepad_button,
+    },
+};
 
 use controls::{should_stop_emote, slot_key, wheel_key};
 type SlotPreferences = [Option<String>; EMOTE_SLOT_COUNT];

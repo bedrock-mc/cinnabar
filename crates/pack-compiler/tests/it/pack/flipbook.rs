@@ -1,4 +1,4 @@
-use super::support::*;
+use {super::support::*, assets::AssetError};
 
 #[test]
 fn flipbook_preserves_complete_metadata_defaults_and_order() {

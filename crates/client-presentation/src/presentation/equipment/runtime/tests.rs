@@ -1,10 +1,13 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
-use super::*;
 use bevy::math::Quat;
 use client_world::ItemAnimationState;
 use render::ActorRenderIdentity;
 use sha2::{Digest, Sha256};
+use {
+    super::*,
+    render_model::equipment::{attach_to_bone, held_block_display},
+};
 
 #[test]
 fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity() {
@@ -588,16 +591,16 @@ fn compiled_attack_facts_normalize_and_session_overrides_reset_to_the_catalog() 
     let timing = base.get("fixture:spear").unwrap();
     assert_eq!(
         timing.swing_duration_ticks,
-        Some(sim::TICKS_PER_SECOND * 3 / 4)
+        Some(world::TICKS_PER_SECOND * 3 / 4)
     );
     let cooldown = timing.attack_cooldown.as_ref().unwrap();
     assert_eq!(cooldown.category.as_ref(), "fixture:jab");
-    assert_eq!(cooldown.ticks, sim::TICKS_PER_SECOND / 2);
+    assert_eq!(cooldown.ticks, world::TICKS_PER_SECOND / 2);
     assert!(timing.piercing_weapon);
     assert!(timing.is_spear);
     assert_eq!(timing.kinetic_weapon.unwrap().damage_ticks, 90);
     let override_timing = protocol::ItemAttackTiming {
-        swing_duration_ticks: Some(sim::TICKS_PER_SECOND),
+        swing_duration_ticks: Some(world::TICKS_PER_SECOND),
         ..Default::default()
     };
     let items = crate::session_assets::SessionItems {

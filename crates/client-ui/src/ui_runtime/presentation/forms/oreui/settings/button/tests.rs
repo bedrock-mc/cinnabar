@@ -1,11 +1,14 @@
 use super::super::{Content, services};
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 #[test]
 fn external_actions_reserve_the_native_icon_and_label_gap() {
-    use crate::menu::settings_support::{SupportAction, SupportLink};
+    use launcher::menu::settings_support::{SupportAction, SupportLink};
     let view = MenuView::new(true, "Player".into());
     let external = MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Help));
     let mut widths = Vec::new();

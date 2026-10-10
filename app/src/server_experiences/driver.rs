@@ -94,7 +94,7 @@ fn drive(
                     &marker,
                     audience,
                     settings,
-                    super::unix_seconds(),
+                    client_ui::experience_session::unix_seconds(),
                     now_ms,
                 ) {
                     Ok(true) => {
@@ -120,7 +120,9 @@ fn drive(
             }
         }
     }
-    extension.session.tick(super::unix_seconds(), now_ms);
+    extension
+        .session
+        .tick(client_ui::experience_session::unix_seconds(), now_ms);
     let (text, wants_prompt) = chrome(&extension.session);
     if presentation
         .set_experience_chrome(text.as_deref(), wants_prompt)
@@ -199,7 +201,11 @@ fn drive(
             .read()
             .filter(|input| input.state.is_pressed())
             .filter_map(|input| {
-                crate::ui_runtime::typed_text(input.key_code, input.text.as_deref(), control)
+                client_ui::ui_runtime::forms::engine_input::typed_text(
+                    input.key_code,
+                    input.text.as_deref(),
+                    control,
+                )
             })
             .collect();
         let escape = keys.just_pressed(KeyCode::Escape);
@@ -325,8 +331,11 @@ fn present_media(
     let mut scene = scene;
     if let Some(live) = &mut service.live {
         // Consent already covers playback here; the autoplay preference awaits a settings UI.
-        live.media_mut()
-            .service(super::unix_seconds(), local_us, true);
+        live.media_mut().service(
+            client_ui::experience_session::unix_seconds(),
+            local_us,
+            true,
+        );
         let defaults = client_presentation::audio::settings::AudioSettings::default();
         let settings = audio_settings.as_deref().unwrap_or(&defaults);
         live.media_mut().pump_audio(
@@ -369,7 +378,7 @@ fn persist_trust(
 /// Starts work only for a live signed grant and discards it on every revocation.
 fn advance_runtime(
     service: &mut ExperienceService,
-    extension: &mut super::ExperienceSession,
+    extension: &mut client_ui::experience_session::ExperienceSession,
     network: &NetworkHandle,
     generation: u64,
     now_ms: u64,

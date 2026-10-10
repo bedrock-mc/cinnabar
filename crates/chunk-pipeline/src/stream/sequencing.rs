@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, render_api::MAX_VIEW_RADIUS_CHUNKS};
 
 pub(super) fn chunk_commit_is_mutation_failure(error: &DecodeError) -> bool {
     matches!(error, DecodeError::CollisionRevision(_))
@@ -416,7 +416,7 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::InvalidChunkRadius);
                     return;
                 }
-                self.chunk_radius = Some(radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
+                self.chunk_radius = Some(radius.min(MAX_VIEW_RADIUS_CHUNKS));
                 self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {
@@ -428,8 +428,7 @@ impl WorldStream {
                     update.center,
                     update.radius_blocks,
                 );
-                self.publisher.radius_chunks =
-                    Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
+                self.publisher.radius_chunks = Some(cohort.radius.min(MAX_VIEW_RADIUS_CHUNKS));
                 if self.publisher.cohort != Some(cohort) {
                     if self.publisher.provisional_rebase {
                         self.publisher.required_columns =

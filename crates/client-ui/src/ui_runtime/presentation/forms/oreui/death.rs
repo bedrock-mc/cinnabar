@@ -7,7 +7,7 @@ use launcher::menu::death::{CONTENT_FADE_SECONDS, STAGE_SECONDS};
 use super::super::super::UiPresentationError;
 use super::super::menu_screens::Translate;
 use super::{paint::Canvas, theme, widgets};
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// Samples a CSS cubic Bezier by solving its horizontal parameter first.
 fn bezier(t: f64, control: [f64; 4]) -> f32 {

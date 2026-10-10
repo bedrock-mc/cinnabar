@@ -1,7 +1,12 @@
 //! Launcher state construction and persisted settings startup.
 
 use super::input::field_editor;
-use super::*;
+use {
+    super::*,
+    launcher::install_layout::InstallLayout,
+    launcher::menu::view::MenuView,
+    launcher::menu::{MenuDialog, MenuField},
+};
 
 impl MenuRuntime {
     /// Creates a menu over the checkout's assets with private, empty user roots, so parallel test
@@ -186,7 +191,7 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::view::MenuView};
 
     #[test]
     fn shared_initial_view_matches_the_host_before_services_are_loaded() {

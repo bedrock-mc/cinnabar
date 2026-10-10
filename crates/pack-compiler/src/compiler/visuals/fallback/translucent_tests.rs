@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use image::{Rgba, RgbaImage};
 use serde_json::Value;
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 #[test]
 fn current_registry_ice_supersedes_fallback_alpha_and_geometry() {

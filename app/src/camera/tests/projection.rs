@@ -1,5 +1,8 @@
-use super::*;
 use bevy::camera::CameraProjection;
+use {
+    super::*,
+    client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
+};
 
 /// Builds the app camera adapter with a primary window of the requested size.
 fn camera_app(width: u32, height: u32) -> (App, Entity) {
@@ -162,13 +165,16 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
 
 #[test]
 fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_retirement() {
-    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
     use chunk_pipeline::WorldStream;
     use protocol::{
         ActorAttribute, ActorEvent, ActorKind, ActorSpawnEvent, HudEvent, UiEvent, WorldBootstrap,
         WorldEvent,
     };
     use std::sync::Arc;
+    use {
+        crate::runtime::world::ClientWorld,
+        client_presentation::actor_publication::ActorFramePartialTick,
+    };
 
     /// Advances the actor clock at the production actor preparation boundary.
     fn advance_death_clock(
@@ -303,13 +309,16 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
 
 #[test]
 fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() {
-    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
     use chunk_pipeline::WorldStream;
     use protocol::{
         ActorEvent, ActorKind, ActorSpawnEvent, ActorStatusEvent, ActorStatusKind, WorldBootstrap,
         WorldEvent,
     };
     use std::sync::Arc;
+    use {
+        crate::runtime::world::ClientWorld,
+        client_presentation::actor_publication::ActorFramePartialTick,
+    };
 
     /// Gives the rendered camera its ordinary pose before presentation each frame.
     fn reset_pose(mut cameras: Query<&mut Transform, With<FlyCamera>>) {

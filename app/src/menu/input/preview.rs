@@ -2,7 +2,7 @@ use bevy::input::touch::Touches;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use ui::UiPoint;
 
-use crate::menu::MenuScreen;
+use launcher::menu::MenuScreen;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drive(

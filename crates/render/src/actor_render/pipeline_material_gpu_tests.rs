@@ -47,7 +47,7 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
             crate::pack_actor_light_without_lightmap(),
             crate::pack_overlay_rgba8([1.0; 4]),
         );
-        let shade = crate::fancy_actor_shade(normal, 0.0);
+        let shade = render_api::fancy_actor_shade(normal, 0.0);
         for (actual, source) in center(&frame)[..3].iter().zip([200, 120, 40]) {
             let expected = (source as f32 * 0.5 * shade).round() as i32;
             assert!(
@@ -111,7 +111,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                 let shade = if light == 0 {
                     1.0
                 } else {
-                    crate::fancy_actor_shade([0.0, 1.0, 0.0], if admitted { 1.0 } else { 0.0 })
+                    render_api::fancy_actor_shade([0.0, 1.0, 0.0], if admitted { 1.0 } else { 0.0 })
                 };
                 for ((actual, destination), source) in center(&frame)[..3]
                     .iter()

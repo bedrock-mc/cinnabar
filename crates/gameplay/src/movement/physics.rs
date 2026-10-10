@@ -1,11 +1,14 @@
 use std::{collections::VecDeque, time::Duration};
 
 use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode};
-use sim::{
-    CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
-    TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
-};
 use thiserror::Error;
+use {
+    sim::{
+        CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
+        Vec3, WorldCollisionIdentity,
+    },
+    world::TICKS_PER_SECOND,
+};
 
 mod aim_pose;
 mod controller_frame;

@@ -96,9 +96,11 @@ pub(in super::super) fn capture(
     runtime: &UiRuntime,
     frame: &HudFrame,
     sheet: Option<&HudTexturePages>,
-    options: &crate::menu::settings_options::SettingsOptions,
+    options: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudPaint {
-    use crate::menu::settings_options::{INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION};
+    use launcher::menu::settings_options::{
+        INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION,
+    };
     let now_tick = runtime.estimated_server_tick(frame.now_millis);
     let mode_allows_hotbar = player_runtime
         .facts

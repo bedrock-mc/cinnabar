@@ -31,7 +31,7 @@ fn crouch_eye_and_actor_feet_are_frozen_independently() {
     crouched.feet = Vec3::NAN;
     assert_eq!(
         carrier.publish(crouched),
-        Err(crate::local_player::LocalPlayerFrameError::NonFiniteFeet)
+        Err(client_presentation::local_player::LocalPlayerFrameError::NonFiniteFeet)
     );
     assert_eq!(carrier, prior);
 }

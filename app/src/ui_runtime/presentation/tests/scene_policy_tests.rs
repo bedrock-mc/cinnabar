@@ -1,14 +1,15 @@
 //! App launcher transitions feed synchronous JSON-UI scene policy.
 use super::*;
-use crate::menu::{MenuAction, MenuRuntime};
 use crate::ui_runtime::presentation::forms::pack_harness;
 use client_ui::ui_runtime::presentation::forms::ServerUiPack;
+use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
 
 #[test]
 fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
+    let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
+    else {
         eprintln!(
             "skipping java_chat_keeps_the_world_and_hud_but_absorbs_gameplay: fixture unavailable; requires installed local carriers (make assets)"
         );
@@ -43,7 +44,8 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
 fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
+    let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
+    else {
         eprintln!(
             "skipping retail_menu_defaults_and_server_visibility_override_share_the_resolved_root: fixture unavailable; requires installed local carriers (make assets)"
         );

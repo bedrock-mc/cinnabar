@@ -9,12 +9,15 @@ use std::{collections::BTreeSet, sync::Arc};
 use server_experience::screen::{self, GuiSize, ScreenLayout};
 use ui::UiNode;
 
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
     engine::{EngineInputs, ScreenArt},
     template_screen::{ModalEdits, TemplateArt, TemplateScreen},
 };
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{TextMetrics, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 mod layering;
 
@@ -459,8 +462,8 @@ fn item_icons(
     keys: &BTreeSet<i64>,
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    icon: impl Fn(&str, u32) -> Option<crate::ui_runtime::presentation::IconRef>,
-) -> Vec<(i64, crate::ui_runtime::presentation::IconRef)> {
+    icon: impl Fn(&str, u32) -> Option<ui::IconRef>,
+) -> Vec<(i64, ui::IconRef)> {
     let Some(registry) = runtime
         .inventory_ledger(player_runtime)
         .negotiated_item_registry()

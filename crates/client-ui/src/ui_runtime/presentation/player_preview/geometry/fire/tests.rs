@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn fire(size: [f32; 2]) -> PreviewFire {
     PreviewFire {

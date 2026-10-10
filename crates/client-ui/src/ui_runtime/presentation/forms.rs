@@ -111,8 +111,8 @@ pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
 pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use experience_modal::ExperienceModal;
+
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
-pub use menu_screens::menu_reference;
 pub use mod_screens::ModScreensInput;
 pub use npc::NPC_SCREEN;
 pub use oreui::BedHit;
@@ -126,7 +126,8 @@ use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
 pub use engine::hud_renderers;
 pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
-pub use server_pack::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
+
+pub use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -146,15 +147,15 @@ pub(super) struct FormPresentation {
     /// The container screen the engine drew this build, with its cell layout.
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
-    menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    menu_keys: Vec<(launcher::menu::MenuAction, String)>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
-    pub(super) menu_focus: Vec<crate::menu::MenuAction>,
+    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.
-    pub(super) menu_focus_context: Option<(crate::menu::MenuScreen, bool)>,
-    pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
-    pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
+    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
+    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
+    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
-    menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
+    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
@@ -425,7 +426,7 @@ impl UiPresentationRuntime {
     }
 
     /// The sound the engine menu's control for `action` plays when pressed.
-    pub fn menu_sound(&self, action: crate::menu::MenuAction) -> Option<&json_ui::ControlSound> {
+    pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
         self.form_presentation
             .menu_sounds
             .iter()
@@ -689,7 +690,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         EMOTE_EQUIP_POPUP,
         NPC_SCREEN,
         toast_screen::TOAST_SCREEN,
-        crate::store::SDL_SCREEN,
+        launcher::store::SDL_SCREEN,
         crate::ui_runtime::credits::CREDITS_SCREEN,
     ]
     .into_iter()

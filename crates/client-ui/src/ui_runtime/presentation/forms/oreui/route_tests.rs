@@ -1,6 +1,10 @@
-use super::*;
-use crate::menu::MenuField;
 use crate::ui_runtime::presentation::tests::fixture_font;
+use launcher::menu::MenuField;
+use {
+    super::*,
+    launcher::menu::auth::AuthState,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 fn append(
     presentation: &mut UiPresentationRuntime,
@@ -159,7 +163,7 @@ fn death_immediate_respawn_finishes_the_backdrop_animation() {
 #[test]
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.player_preview_icon = Some(super::super::super::IconRef {
+    presentation.player_preview_icon = Some(ui::IconRef {
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -467,8 +471,10 @@ fn connection_screen_owns_cancel_and_blocks_the_play_tabs() {
     let hits = append(&mut presentation, &view, [1280.0, 720.0]);
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].0, MenuAction::AddBack);
-    view.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
-    view.feeds.join.observe(Some(crate::menu::JoinStage::Realm));
+    view.feeds.join = launcher::menu::JoinProgress::new(launcher::menu::JoinKind::Realm);
+    view.feeds
+        .join
+        .observe(Some(launcher::menu::JoinStage::Realm));
     assert!(append(&mut presentation, &view, [1280.0, 720.0]).is_empty());
 }
 
@@ -535,7 +541,7 @@ fn local_world_progress_cancel_keeps_its_existing_backend_action() {
     assert_eq!(hits.len(), 1);
     assert_eq!(
         hits[0].0,
-        MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)
+        MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Back)
     );
     view.local.progress = Some(launcher::local_worlds::Progress::connecting(
         "Fixture world",
@@ -586,7 +592,7 @@ fn pause_resume_follows_its_caption_without_a_large_empty_gap() {
 fn pause_actions_align_with_the_character_footer_and_logo_has_extra_top_space() {
     let view = MenuView::new(true, "Fixture".into());
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        canvas.title_artwork = Some(crate::ui_runtime::presentation::IconRef {
+        canvas.title_artwork = Some(ui::IconRef {
             page: 1,
             uv: [0, 0, 300, 100],
             glint: false,

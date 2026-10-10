@@ -4,51 +4,51 @@
 use bevy::prelude::ResMut;
 
 use super::MenuRuntime;
-use crate::audio::{AudioCategory, AudioSettings};
+use client_presentation::audio::{AudioCategory, AudioSettings};
 
 /// The sound section's mixer categories; text-to-speech persists without a mixer backend.
 pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     (
-        super::settings_options::VOLUME_SETTINGS[0],
+        launcher::menu::settings_options::VOLUME_SETTINGS[0],
         Some(AudioCategory::Master),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[1],
+        launcher::menu::settings_options::VOLUME_SETTINGS[1],
         Some(AudioCategory::Music),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[2],
+        launcher::menu::settings_options::VOLUME_SETTINGS[2],
         Some(AudioCategory::Sound),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[3],
+        launcher::menu::settings_options::VOLUME_SETTINGS[3],
         Some(AudioCategory::Ambient),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[4],
+        launcher::menu::settings_options::VOLUME_SETTINGS[4],
         Some(AudioCategory::Blocks),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[5],
+        launcher::menu::settings_options::VOLUME_SETTINGS[5],
         Some(AudioCategory::Hostile),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[6],
+        launcher::menu::settings_options::VOLUME_SETTINGS[6],
         Some(AudioCategory::Neutral),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[7],
+        launcher::menu::settings_options::VOLUME_SETTINGS[7],
         Some(AudioCategory::Players),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[8],
+        launcher::menu::settings_options::VOLUME_SETTINGS[8],
         Some(AudioCategory::Records),
     ),
     (
-        super::settings_options::VOLUME_SETTINGS[9],
+        launcher::menu::settings_options::VOLUME_SETTINGS[9],
         Some(AudioCategory::Weather),
     ),
-    (super::settings_options::VOLUME_SETTINGS[10], None),
+    (launcher::menu::settings_options::VOLUME_SETTINGS[10], None),
 ];
 impl MenuRuntime {
     /// A capture's fixed CLI scale, cleared when the native option is changed.
@@ -139,7 +139,7 @@ mod tests {
                 .choices()
                 .collect(),
         );
-        menu.activate(super::super::MenuAction::SettingsScale(-1));
+        menu.activate(launcher::menu::MenuAction::SettingsScale(-1));
         assert_eq!(menu.gui_scale_preference(), None);
         assert_eq!(menu.gui_scale_offset(), -1);
     }
@@ -150,7 +150,7 @@ mod tests {
         menu.sync_fullscreen(true);
         assert!(menu.view().fullscreen);
         assert_eq!(menu.take_fullscreen_change(), None);
-        menu.activate(super::super::MenuAction::SettingsFullscreen(false));
+        menu.activate(launcher::menu::MenuAction::SettingsFullscreen(false));
         assert!(!menu.view().fullscreen);
         assert_eq!(menu.take_fullscreen_change(), Some(false));
         assert_eq!(menu.take_fullscreen_change(), None);

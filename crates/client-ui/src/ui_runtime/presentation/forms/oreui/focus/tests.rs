@@ -1,8 +1,8 @@
-use super::*;
-use crate::menu::{MenuScreen, MenuView, settings_options::SETTINGS_OPTIONS};
 use crate::ui_runtime::presentation::{
     TextMetrics, UiPresentationRuntime, forms::menu_screens::SETTINGS_SECTIONS, tests::fixture_font,
 };
+use launcher::menu::{MenuScreen, MenuView, settings_options::SETTINGS_OPTIONS};
+use {super::*, launcher::menu::MenuAction, launcher::menu::view::SettingsFocusAxis};
 
 fn view(section: &str) -> MenuView {
     let mut view = MenuView::new(true, "Player".into());

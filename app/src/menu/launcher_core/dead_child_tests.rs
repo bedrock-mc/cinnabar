@@ -1,5 +1,5 @@
-use super::*;
 use bevy::{ecs::world::CommandQueue, prelude::World};
+use {super::*, launcher::menu::auth::AuthState};
 
 fn child_guard(exited: bool) -> CoreProcessGuard {
     #[cfg(windows)]

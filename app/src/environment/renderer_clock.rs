@@ -31,7 +31,7 @@ impl RendererClock {
         let due = ((self.remainder + f64::EPSILON) / tick_seconds).floor();
         self.remainder = (self.remainder - due * tick_seconds).max(0.0);
         self.ticks = self.ticks.saturating_add(
-            (due as u64).min(crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64),
+            (due as u64).min(gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64),
         );
         self.ticks as f64 + self.remainder / tick_seconds
     }
@@ -58,7 +58,7 @@ mod tests {
         let ticks = clock.advance(Some(1), 100.0);
         assert_eq!(
             ticks,
-            crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as f64
+            gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as f64
         );
         assert_eq!(clock.advance(Some(1), 99.0), ticks);
         assert_eq!(clock.advance(Some(1), 100.0), ticks);

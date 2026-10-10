@@ -1,6 +1,10 @@
-use super::*;
-use crate::ui_runtime::presentation::{IconRef, forms::oreui::review_tests::paint};
 use std::{collections::HashMap, sync::Arc};
+use {
+    super::*,
+    launcher::global_resources::{Action, Snapshot},
+    launcher::menu::{MenuAction, MenuView},
+};
+use {crate::ui_runtime::presentation::forms::oreui::review_tests::paint, ui::IconRef};
 
 #[test]
 fn resource_sections_and_pack_details_reveal_height_instead_of_jumping() {

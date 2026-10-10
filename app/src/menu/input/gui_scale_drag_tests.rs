@@ -2,13 +2,12 @@ use bevy::{prelude::*, window::WindowResolution};
 use ui::{DpiScale, UiRect};
 
 use super::*;
-use crate::{
-    menu::{MenuAction, MenuScreen},
-    ui_runtime::presentation::{
-        apply_gui_scale_setting, tests::engine_hud_tests::engine_presentation,
-    },
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::ui_runtime::presentation::apply_gui_scale_setting,
+    client_ui::test_support::engine_presentation,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
@@ -37,7 +36,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
     menu.activate(MenuAction::SettingsSection(
         settings_section_index("sound_forced_index").unwrap(),
     ));
-    let index = super::super::settings_options::SETTINGS_OPTIONS
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "main_volume")
         .unwrap() as u16;
@@ -88,7 +87,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
             ))
         })
         .expect("rendered volume slider midpoint");
-    let music_index = super::super::settings_options::SETTINGS_OPTIONS
+    let music_index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "music_volume")
         .unwrap() as u16;
@@ -267,13 +266,13 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
         return;
     };
     let index = u16::try_from(
-        super::super::settings_options::SETTINGS_OPTIONS
+        launcher::menu::settings_options::SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == "field_of_view")
             .unwrap(),
     )
     .unwrap();
-    let definition = &super::super::settings_options::SETTINGS_OPTIONS[usize::from(index)];
+    let definition = &launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(index)];
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let mut app = App::new();

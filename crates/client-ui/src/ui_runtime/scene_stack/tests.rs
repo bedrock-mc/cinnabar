@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use super::*;
+use {super::*, launcher::menu::MenuScreen};
 
 fn settings(value: serde_json::Value) -> ScreenSettings {
     let serde_json::Value::Object(map) = value else {

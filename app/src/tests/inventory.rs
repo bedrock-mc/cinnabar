@@ -10,9 +10,12 @@ use crate::runtime::network::{
     publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
     route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
 };
-use client_ui::ui_runtime::{
-    InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime,
-    inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
+use {
+    client_ui::ui_runtime::UiRuntime,
+    inventory::{
+        InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS,
+        inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
+    },
 };
 
 fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
@@ -397,7 +400,7 @@ fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
 
     assert!(matches!(
         error,
-        client_ui::ui_runtime::inventory_router::InventoryRouterError::WrongSession {
+        inventory::inventory_router::InventoryRouterError::WrongSession {
             expected: 8,
             actual: 7,
         }

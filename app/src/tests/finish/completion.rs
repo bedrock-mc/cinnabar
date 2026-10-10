@@ -61,7 +61,10 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
             started + Duration::from_millis(13),
         )
         .expect("transport depth does not replace an exact presentation candidate");
-    assert_eq!(same_expectation.view_generation, expectation.view_generation);
+    assert_eq!(
+        same_expectation.view_generation,
+        expectation.view_generation
+    );
     assert!(settler.has_stable_presentation(transport_refilled));
 
     let mut changed = snapshot;
@@ -110,7 +113,8 @@ fn world_ready_binds_announced_columns_without_rewriting_raw_radius_identity() {
         Duration::from_millis(2),
     );
     missing_announced.allocation_manifest = Arc::from([(inside, 7)]);
-    missing_announced.visible_allocation_manifest = Arc::clone(&missing_announced.allocation_manifest);
+    missing_announced.visible_allocation_manifest =
+        Arc::clone(&missing_announced.allocation_manifest);
     missing_announced.drawn_manifest = Arc::clone(&missing_announced.allocation_manifest);
     missing_announced.missing_target_instances = 1;
     assert!(
@@ -181,7 +185,10 @@ fn presentation_waits_until_the_captured_readiness_ingress_fence_is_consumed() {
     let same_expectation = settler
         .reconcile_presentation(snapshot, proposed, started + Duration::from_millis(2))
         .expect("traffic produced after the explicit fence belongs to a later boundary");
-    assert_eq!(same_expectation.view_generation, expectation.view_generation);
+    assert_eq!(
+        same_expectation.view_generation,
+        expectation.view_generation
+    );
 }
 
 #[test]
@@ -234,8 +241,8 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             surface_anchor: None,
         },
     };
-    let mut view = crate::local_player::LocalViewPose::default();
-    let mut camera_settings = crate::camera::CameraSettingsAuthority::default();
+    let mut view = client_presentation::local_player::LocalViewPose::default();
+    let mut camera_settings = client_presentation::camera::CameraSettingsAuthority::default();
     let mut pending_surface_spawn = None;
     for control in [correction_control, move_control, dimension_control] {
         assert!(refresh_mutation_anchor_from_committed_control(
@@ -468,12 +475,15 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
         "the launcher must take ownership of a failed join"
     );
 
-    assert!(menu.is_visible(), "a failed join must land back on the menu");
+    assert!(
+        menu.is_visible(),
+        "a failed join must land back on the menu"
+    );
     let error = menu
         .view()
         .disconnect_message
         .expect("the launcher must explain the failure");
-    let words = crate::menu::disconnect::describe(&error);
+    let words = launcher::menu::disconnect::describe(&error);
     assert_eq!(words.title, "connect.failed", "got {words:?}");
 }
 
@@ -498,8 +508,8 @@ fn a_long_session_failure_shows_vanilla_text() {
 
     let error = menu.view().disconnect_message.unwrap();
     assert_eq!(
-        crate::menu::disconnect::describe(&error).body,
-        crate::menu::disconnect::DisconnectBody::Key("disconnectionScreen.noReason")
+        launcher::menu::disconnect::describe(&error).body,
+        launcher::menu::disconnect::DisconnectBody::Key("disconnectionScreen.noReason")
     );
 }
 

@@ -35,7 +35,7 @@ fn atmosphere_app(cycle: bool) -> App {
         .init_resource::<AtmosphereFrame>()
         .init_resource::<render::AtmosphereViewInputs>()
         .init_resource::<WorldLighting>()
-        .init_resource::<crate::camera::VisionEffects>()
+        .init_resource::<client_presentation::camera::VisionEffects>()
         .init_resource::<crate::settings_runtime::RuntimeSettings>()
         .init_resource::<Time<Real>>()
         .insert_resource(client_ui::ui_runtime::UiRuntime::new(1))

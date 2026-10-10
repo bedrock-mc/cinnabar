@@ -6,10 +6,8 @@ use crate::{
 };
 use bevy::time::Real;
 use bevy::{ecs::system::SystemParam, prelude::*};
+use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
-pub(crate) use client_presentation::actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
@@ -34,9 +32,9 @@ pub(crate) struct ActorObservations<'w> {
     world: ResMut<'w, ClientWorld>,
     player: Res<'w, PlayerRuntime>,
     physics: Res<'w, LocalPhysicsController>,
-    view: Res<'w, crate::local_player::LocalViewPose>,
+    view: Res<'w, client_presentation::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
-    settings: Res<'w, crate::camera::CameraSettingsAuthority>,
+    settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
@@ -354,8 +352,8 @@ pub(crate) fn publish_entity_shadows(
     world: Res<ClientWorld>,
     player: Res<PlayerRuntime>,
     partial_tick: Res<ActorFramePartialTick>,
-    local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
-    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    local: Res<client_presentation::local_player::LocalAvatarVisibilityCarrier>,
+    camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
     frame: Res<render::ActorRenderFrame>,
     mut drawn: Local<Vec<u64>>,
     mut staging: Local<Vec<render_model::EntityShadow>>,

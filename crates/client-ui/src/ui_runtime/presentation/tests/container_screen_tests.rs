@@ -793,8 +793,8 @@ fn pause_paper_doll_faces_the_viewer() {
     else {
         return;
     };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Pause;
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Pause;
     view.over_world = true;
     presentation.set_menu_view(Some(view));
     let runtime = session(&mut player_runtime);

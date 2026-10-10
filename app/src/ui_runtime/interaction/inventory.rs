@@ -1,6 +1,5 @@
 //! Inventory pointer routing and wheel handling shared by ordered and frame input.
 use super::dispatch_bound_inventory_hotbar;
-use crate::menu::settings_options::binding_key;
 use bevy::{
     input::mouse::MouseScrollUnit,
     prelude::{ButtonInput, KeyCode, MouseButton, Time},
@@ -8,12 +7,15 @@ use bevy::{
     window::Window,
 };
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
-use client_ui::ui_runtime::{
-    UiRuntime,
-    inventory_ledger::DropSource,
-    presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen},
-};
+use launcher::menu::settings_options::control_bindings::binding_key;
 use ui::UiPoint;
+use {
+    client_ui::ui_runtime::{
+        UiRuntime,
+        presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen},
+    },
+    inventory::inventory_ledger::DropSource,
+};
 
 /// Applies presses routed to the open inventory screen, after any keys already queued for it.
 #[allow(clippy::too_many_arguments)]

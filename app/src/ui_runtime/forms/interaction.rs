@@ -251,14 +251,18 @@ pub(crate) fn drive_server_form_input(
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
     use bevy::prelude::{App, Update};
     use client_ui::ui_runtime::forms::values::FormDrag;
+    use {
+        crate::ui_runtime::presentation::forms::pack_harness,
+        client_ui::test_support::mini_engine_presentation,
+    };
 
     #[test]
     fn unfocused_form_discards_pointer_edges_without_closing_or_replaying_them() {
         let mut player = crate::player_runtime::PlayerRuntime::new(1);
-        let mut runtime = pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
+        let mut runtime =
+            client_ui::test_support::pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
         let identity = runtime.server_forms().active().unwrap().identity;
         let engine = runtime.server_forms_mut().engine_mut();
         engine.view.focused = Some("retained focus".into());

@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+ring = "=0.17.14"
 anyhow.workspace = true
 protocol = { path = "../../crates/protocol" }
 serde = { version = "=1.0.228", features = ["derive"] }

@@ -1,7 +1,7 @@
 //! Static owners retain equipment and property inputs for their attachables.
-use super::*;
 use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
 use assets::{MolangCall, MolangOp, MolangSymbol, MolangSymbolKind};
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 /// Selects one animation from an owning-entity query with a single argument.
 fn query_fixture(property: bool) -> Arc<RuntimeEntityAssets> {

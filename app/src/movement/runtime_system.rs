@@ -1,23 +1,30 @@
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use std::time::Instant;
 
-use crate::{
-    acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
-    player_runtime::PlayerRuntime, runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot, settings_runtime::RuntimeSettings,
-};
 use bevy::{
     prelude::{EulerRot, Local, Res, ResMut, Time, Vec3},
     time::Real,
 };
 use protocol::PlayerInputMode;
 use semantic_input::Action;
-
-use super::{
-    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-    MovementTicker, PhysicsCollisionRegistries, local_facts,
+use {
+    crate::player_runtime::PlayerRuntime, crate::runtime::world::ClientWorld,
+    crate::semantic_controls::SemanticInputSnapshot, crate::settings_runtime::RuntimeSettings,
+    client_presentation::camera::AutoFly, client_presentation::local_player::LocalViewPose,
 };
 
-pub(crate) use gameplay::movement::LocomotionState as LocomotionLocals;
+use {
+    super::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
+    },
+    gameplay::movement::local_facts,
+};
+
+use gameplay::movement::LocomotionState as LocomotionLocals;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
@@ -66,7 +73,7 @@ pub(crate) fn advance_local_physics(
     let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = gameplay::movement::wire_yaw(180.0 - bevy_yaw.to_degrees());
-    let facts = local_facts::read(
+    let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
         &super::GameplayWorldView(stream),
         item_use

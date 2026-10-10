@@ -2,10 +2,8 @@
 
 use bevy::math::{Mat4, Quat, Vec3};
 use render_model::RenderBoneTransform;
-pub(super) use render_model::equipment::sprite_item_transform;
-pub use render_model::equipment::{
-    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
-};
+use render_model::equipment::sprite_item_transform;
+use render_model::equipment::{ItemDisplay, attach_to_bone};
 
 pub(super) const LAYER_MAIN_HAND: u8 = 1;
 pub(super) const LAYER_OFF_HAND: u8 = 2;
@@ -131,7 +129,7 @@ pub(super) fn head_block_display() -> ItemDisplay {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, render_model::equipment::attach_to_bone};
 
     #[test]
     fn worn_pumpkin_face_follows_the_front_of_the_posed_head() {

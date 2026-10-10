@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use protocol::{CreativeCategory, CreativeContentEvent, CreativeItem, ItemRegistryEntry};
 
 use super::{ScreenState, tab_category};
-use crate::ui_runtime::inventory_ledger::PlayerInventoryLedger;
+use inventory::inventory_ledger::PlayerInventoryLedger;
 
 #[derive(Clone, Debug)]
 pub(super) struct CreativeFilterCache {
@@ -150,11 +150,11 @@ fn creative_entry_indexes(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use protocol::{
         CreativeCategory, CreativeGroup, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
     };
     use std::cell::Cell;
+    use {super::*, inventory::inventory_ledger::PlayerInventoryLedger};
 
     #[test]
     fn creative_search_only_rescans_when_its_inputs_change() {

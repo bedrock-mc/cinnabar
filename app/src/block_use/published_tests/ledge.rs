@@ -1,4 +1,10 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::block_use::LocalUse,
+    gameplay::interaction_authority::FrozenBlockObservation,
+    gameplay::mining::{protocol_input_mode, survival_reach},
+};
 
 /// Builds a one-block-high ledge whose forward ray misses while its downward ray hits.
 fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {

@@ -1,8 +1,13 @@
 //! Keyboard and gamepad focus: the actions each launcher screen cycles
 //! through, and moving or activating the focused one.
 
-use super::*;
 use launcher::menu::view::{SettingsFocusAxis, SettingsFocusLandmark, SettingsFocusTarget};
+use {
+    super::*,
+    launcher::menu::auth::AuthState,
+    launcher::menu::worlds_tab::LocalWorldAction,
+    launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuServerTab},
+};
 
 mod settings;
 pub(super) use settings::SettingsFocusGeometry;
@@ -354,17 +359,21 @@ impl MenuRuntime {
                     MenuAction::SettingsConfirmResetBindings(gamepad),
                     MenuAction::DismissDialog,
                 ],
-                MenuDialog::SettingsSupport(super::settings_support::SupportDialog::Help) => vec![
-                    MenuAction::SettingsSupport(super::settings_support::SupportAction::Open(
-                        super::settings_support::SupportLink::Help,
-                    )),
+                MenuDialog::SettingsSupport(
+                    launcher::menu::settings_support::SupportDialog::Help,
+                ) => vec![
+                    MenuAction::SettingsSupport(
+                        launcher::menu::settings_support::SupportAction::Open(
+                            launcher::menu::settings_support::SupportLink::Help,
+                        ),
+                    ),
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::SettingsSupport(_) => vec![MenuAction::DismissDialog],
                 MenuDialog::StorageError => vec![MenuAction::DismissDialog],
                 MenuDialog::StorageDelete => vec![
                     MenuAction::SettingsStorage(
-                        super::settings_storage::StorageAction::ConfirmDelete,
+                        launcher::menu::settings_storage::StorageAction::ConfirmDelete,
                     ),
                     MenuAction::DismissDialog,
                 ],
@@ -410,7 +419,7 @@ impl MenuRuntime {
                     .iter()
                     .position(|action| *action == MenuAction::Navigate(MenuScreen::Social))
                     .expect("home navigation includes Realms");
-                actions.insert(realms + 1, MenuAction::Store(crate::store::OPEN));
+                actions.insert(realms + 1, MenuAction::Store(client_ui::store::OPEN));
                 actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
@@ -565,7 +574,7 @@ impl MenuRuntime {
             }
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::OpenDeathGameMenu],
             MenuScreen::Inbox => {
-                use super::inbox::{Action, CATEGORIES, category_index};
+                use launcher::menu::inbox::{Action, CATEGORIES, category_index};
                 if self.feeds.inbox_state.delete_pending.is_some() {
                     return vec![
                         MenuAction::Inbox(Action::Cancel),
@@ -608,7 +617,7 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
-            MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
+            MenuScreen::Store => vec![MenuAction::Store(launcher::store::StoreAction::Back)],
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }

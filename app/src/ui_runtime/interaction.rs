@@ -25,7 +25,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
-use crate::menu::settings_options::{
+use launcher::menu::settings_options::control_bindings::{
     binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
     hotbar_control_slots,
 };

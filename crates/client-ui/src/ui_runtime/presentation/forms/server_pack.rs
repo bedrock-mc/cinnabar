@@ -88,7 +88,7 @@ impl ServerUiPack {
 }
 
 /// Largest texture file read from the pack stack.
-pub use resource_pack::MAX_PACK_TEXTURE_BYTES;
+use resource_pack::MAX_PACK_TEXTURE_BYTES;
 
 /// The pack stack's images and sidecars by path stem, read lazily.
 struct PackTextures {

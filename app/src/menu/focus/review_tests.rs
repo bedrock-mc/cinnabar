@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
     let rect = |[left, top, right, bottom]: [f32; 4]| {

@@ -1,5 +1,15 @@
-use super::*;
 use semantic_input::{InputContext, PhysicalControl};
+use {
+    super::*,
+    launcher::menu::settings_options::{
+        EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SETTINGS_FILE,
+        SETTINGS_OPTIONS, SettingsOptions, chat,
+        control_bindings::{
+            binding_key, binding_mouse, binding_pressed, gamepad_button, hotbar_control_slots,
+        },
+        frame_rate_limit, runtime,
+    },
+};
 
 /// Finds an option through the same stable controller identifier used on disk.
 fn index(name: &str) -> usize {
@@ -27,7 +37,7 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     }
     let settings = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     let user = settings.user_settings();
-    let mut authority = crate::camera::CameraSettingsAuthority::default();
+    let mut authority = client_presentation::camera::CameraSettingsAuthority::default();
     authority.replace(1, &user).unwrap();
     assert_eq!(authority.horizontal_fov_degrees(), 82.0);
     assert!(!authority.feel().view_bobbing);
@@ -48,8 +58,8 @@ fn camera_input_and_window_settings_read_the_saved_values() {
 
 #[test]
 fn server_list_actions_save_preferences_without_changing_selection_or_gameplay() {
-    use crate::menu::{MenuAction, MenuRuntime};
     use launcher::menu::server_list::{ServerGroup, ServerListAction};
+    use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
     let mut menu = MenuRuntime::new(true, 2, "Server list test".into());
     menu.feeds.select_saved(2);
     menu.settings_apply = false;
@@ -72,11 +82,11 @@ fn server_list_actions_save_preferences_without_changing_selection_or_gameplay()
 
 #[test]
 fn saved_volumes_reach_the_mixer() {
-    use crate::{
-        audio::{AudioCategory, AudioSettings},
-        menu::MenuRuntime,
-    };
     use bevy::prelude::{App, ResMut, Update};
+    use {
+        crate::menu::MenuRuntime,
+        client_presentation::audio::{AudioCategory, AudioSettings},
+    };
     /// Exercises the production sound adapter without writing settings to disk.
     fn sync(mut menu: ResMut<MenuRuntime>, audio: ResMut<AudioSettings>) {
         menu.sync_audio_settings(Some(audio));
@@ -96,8 +106,11 @@ fn saved_volumes_reach_the_mixer() {
 
 #[test]
 fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
-    use super::{EXTRA_KEYS, binding_key, binding_mouse, binding_pressed};
     use bevy::prelude::{ButtonInput, KeyCode, MouseButton};
+    use launcher::menu::settings_options::{
+        EXTRA_KEYS,
+        control_bindings::{binding_key, binding_mouse, binding_pressed},
+    };
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let index = KEY_BINDINGS.len()
         + EXTRA_KEYS
@@ -125,8 +138,11 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
 
 #[test]
 fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
-    use super::{EXTRA_KEYS, binding_key, binding_pressed};
     use bevy::prelude::{ButtonInput, KeyCode};
+    use launcher::menu::settings_options::{
+        EXTRA_KEYS,
+        control_bindings::{binding_key, binding_pressed},
+    };
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let chat = KEY_BINDINGS.len()
         + EXTRA_KEYS
@@ -163,8 +179,8 @@ fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
 
 #[test]
 fn controller_swaps_agree_between_display_capture_router_and_menu() {
-    use super::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
     use bevy::input::gamepad::GamepadButton;
+    use launcher::menu::settings_options::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
     let mut settings = SettingsOptions::default();
     settings.set(index("swap_gamepad_ab_buttons"), 1);
     settings.set(index("swap_gamepad_xy_buttons"), 1);
@@ -373,7 +389,7 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
 
 #[test]
 fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
-    use super::hotbar_control_slots;
+    use launcher::menu::settings_options::control_bindings::hotbar_control_slots;
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let row = KEY_BINDINGS
         .iter()
@@ -434,7 +450,7 @@ fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
     ] {
         let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
         for action in [Action::Hotbar1, Action::Hotbar2] {
-            let row = crate::menu::settings_options::KEY_BINDINGS
+            let row = launcher::menu::settings_options::KEY_BINDINGS
                 .iter()
                 .position(|(candidate, _)| *candidate == action)
                 .unwrap();
@@ -447,13 +463,13 @@ fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
         assert!(ledger.mark_transport_enqueued(0));
         ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(2),
-            window_type: client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
             position: [0; 3],
             runtime_entity_id: -1,
         }));
         let mut slots = vec![
             NetworkItemStack::empty();
-            client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
+            inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
         ];
         for (slot, network_id) in [(0, 745), (1, 846), (20, 947)] {
             slots[slot] = NetworkItemStack {
@@ -520,9 +536,9 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
             let mut player = crate::player_runtime::PlayerRuntime::new(1);
             let mut runtime = client_ui::test_support::inventory_session(&mut player);
             let mut slots = vec![
-                    NetworkItemStack::empty();
-                    client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
-                ];
+                NetworkItemStack::empty();
+                inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT
+            ];
             slots[0] = NetworkItemStack {
                 network_id: 745,
                 stack_network_id: 13,
@@ -584,9 +600,9 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
 
 #[test]
 fn rebound_hotbar_keys_are_reserved_only_while_the_container_is_visible() {
-    use crate::menu::settings_options::KEY_BINDINGS;
     use crate::ui_runtime::interaction::inventory_consumes_key;
     use bevy::prelude::KeyCode;
+    use launcher::menu::settings_options::KEY_BINDINGS;
     use semantic_input::{Action, PhysicalControl};
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
     let row = KEY_BINDINGS

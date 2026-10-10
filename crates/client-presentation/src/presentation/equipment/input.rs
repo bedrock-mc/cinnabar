@@ -84,7 +84,7 @@ pub fn local_input(
     ui: Option<&UiRuntime>,
     runtime_id: u64,
 ) -> ActorEquipmentInput {
-    use client_ui::ui_runtime::inventory_ledger::InventoryTarget;
+    use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream

@@ -1,10 +1,10 @@
 //! End portal frames use a rotated base and a state-dependent eye cuboid.
 
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const FRAME_TOP: i16 = 13 * 16;
 const EYE_NEAR: i16 = 4 * 16;

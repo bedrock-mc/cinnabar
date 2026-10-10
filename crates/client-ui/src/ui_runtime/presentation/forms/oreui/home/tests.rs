@@ -1,11 +1,15 @@
 use super::super::review_tests::paint;
-use super::*;
 use std::collections::HashMap;
 use ui::UiVisual;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+    ui::IconRef,
+};
 
 fn view() -> MenuView {
     let mut view = MenuView::new(true, "Fallback".into());
-    view.auth_state = crate::menu::auth::AuthState::Authenticated;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     view.feeds.profile.gamertag = "ActualPlayer".into();
     view
 }
@@ -146,7 +150,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
 #[test]
 fn commerce_routes_do_not_render_service_promotional_art() {
     let mut view = view();
-    view.feeds.home.store_art = Some(crate::menu::ButtonArt {
+    view.feeds.home.store_art = Some(launcher::menu::ButtonArt {
         default_background: "promotion".into(),
         banner: "BUY NOW".into(),
         ..Default::default()
@@ -199,7 +203,7 @@ fn commerce_routes_do_not_render_service_promotional_art() {
 #[test]
 fn signed_out_home_has_a_direct_sign_in_action() {
     let mut view = view();
-    view.auth_state = crate::menu::auth::AuthState::SignedOut;
+    view.auth_state = launcher::menu::auth::AuthState::SignedOut;
     let (_, hits, _) = paint(HashMap::new(), |c| {
         draw(c, &view, [1280.0, 720.0], None, &|_| None).unwrap();
     });

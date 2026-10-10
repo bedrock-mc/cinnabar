@@ -5,7 +5,7 @@ use std::sync::Arc;
 use json_ui::{CollectionItem, DataSource, HitRegion, HudModel, Scalar};
 
 use super::super::UiPresentationRuntime;
-use crate::menu::{MenuAction, settings_options::SettingsOptions};
+use launcher::menu::{MenuAction, settings_options::SettingsOptions};
 
 #[derive(Default)]
 pub(super) struct ChatSettings {
@@ -71,14 +71,14 @@ pub(super) fn bind(
             f64::from(options.value("chat_line_spacing")) / 10.0
         )),
     );
-    for option in crate::menu::settings_options::SETTINGS_OPTIONS {
+    for option in launcher::menu::settings_options::SETTINGS_OPTIONS {
         if !matches!(
             option.name,
             "chat_typeface" | "chat_color" | "mentions_color"
         ) {
             continue;
         }
-        if let crate::menu::settings_options::SettingKind::Dropdown(choices) = option.kind {
+        if let launcher::menu::settings_options::SettingKind::Dropdown(choices) = option.kind {
             data.set_global(
                 format!("#{}_dropdown_label", option.name),
                 Scalar::Text(translate(
@@ -96,11 +96,11 @@ pub(super) fn bind(
         ui::BedrockColor::Yellow,
         ui::BedrockColor::Gold,
     ];
-    let choices = crate::menu::settings_options::SETTINGS_OPTIONS
+    let choices = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .find(|option| option.name == "chat_color")
         .expect("chat colors are registered");
-    let crate::menu::settings_options::SettingKind::Dropdown(labels) = choices.kind else {
+    let launcher::menu::settings_options::SettingKind::Dropdown(labels) = choices.kind else {
         unreachable!()
     };
     let colors: Vec<_> = palette
@@ -143,7 +143,7 @@ pub(super) fn action(settings: &ChatSettings, region: &HitRegion) -> Option<Menu
         } else {
             "chat_color"
         };
-        let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        let index = launcher::menu::settings_options::SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == name)?;
         return Some(MenuAction::SettingsOption(

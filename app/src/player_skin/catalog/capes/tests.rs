@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::install_layout::InstallLayout};
 
 fn layout() -> InstallLayout {
     super::super::tests::layout()

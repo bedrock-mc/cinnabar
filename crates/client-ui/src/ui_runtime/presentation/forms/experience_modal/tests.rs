@@ -443,7 +443,7 @@ fn modal_item_renderers_draw_the_players_inventory() {
             stack,
             storage_item: None,
         }));
-    let icon = super::super::super::IconRef {
+    let icon = ui::IconRef {
         page: 3,
         uv: [16, 32, 48, 64],
         glint: false,

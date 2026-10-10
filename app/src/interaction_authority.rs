@@ -7,15 +7,16 @@ use std::num::NonZeroU64;
 use protocol::PlayerInputMode;
 use sim::{PaletteWorld, Vec3};
 
-use crate::{
-    local_player::InteractionOriginSnapshot,
-    mining::{FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::mining::{
+        FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget,
+    },
+};
 
-pub(crate) use gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range};
+use gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range};
 
 /// Whether a frozen ray still belongs to the live network session.
 ///
@@ -24,7 +25,7 @@ pub(crate) use gameplay::interaction_authority::{FrozenBlockObservation, within_
 /// actor-session id is a separate process-wide counter, not the network session generation;
 /// each is checked against the matching authority captured by the ray.
 pub(crate) fn ray_is_current(
-    ray: &crate::local_player::FrozenInteractionOrigin,
+    ray: &client_presentation::local_player::FrozenInteractionOrigin,
     ui_session: u64,
     stream: &chunk_pipeline::WorldStream,
 ) -> bool {
@@ -183,7 +184,11 @@ pub(crate) fn fixture(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        client_presentation::local_player::InteractionOriginSnapshot,
+        gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range},
+    };
 
     fn stream() -> chunk_pipeline::WorldStream {
         chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
@@ -201,11 +206,11 @@ mod tests {
         session: u64,
         actor_session_id: u64,
         fifo_sequence: u64,
-    ) -> crate::local_player::FrozenInteractionOrigin {
-        let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
+    ) -> client_presentation::local_player::FrozenInteractionOrigin {
+        let mut carrier = client_presentation::local_player::LocalPlayerFrameCarrier::default();
         let identity = sim::CollisionQuery::synthetic(()).identity;
         carrier
-            .publish(crate::local_player::LocalPlayerFrameSample {
+            .publish(client_presentation::local_player::LocalPlayerFrameSample {
                 session_generation: session,
                 actor_session_id,
                 fifo_sequence,

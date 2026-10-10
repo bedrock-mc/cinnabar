@@ -12,7 +12,7 @@ use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
 use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
-use crate::presentation::{actors, entity_layers};
+use client_presentation::presentation::{actors, entity_layers};
 use client_ui::ui_runtime::presentation::{
     nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
     nametags::{build_nametag_scene, extract_nametag},
@@ -340,11 +340,22 @@ pub(super) fn draw_actors(
         .iter()
         .filter_map(|id| {
             let rig = world.authority().actor_rig(*id)?;
-            actors::entity_rig_presentation(&rig, world.authority().actor(*id)?, artwork, 1.0)
+            client_presentation::presentation::actors::entity_rig_presentation(
+                &rig,
+                world.authority().actor(*id)?,
+                artwork,
+                1.0,
+            )
         })
         .collect();
-    let mut batch = actors::select_actor_presentations(1, false, None, bodies);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1, false, None, bodies,
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());

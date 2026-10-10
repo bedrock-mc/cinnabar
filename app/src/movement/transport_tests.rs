@@ -1,8 +1,11 @@
-use super::*;
+use {
+    super::*,
+    gameplay::movement::{MovementOutboxReconciliation, MovementSource, flush_player_auth_inputs},
+};
 
 #[test]
 fn socket_pending_is_runtime_emittable_but_never_a_candidate_terminal_pass() {
-    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+    let identity = acceptance::phase3_evidence::Phase3EvidenceIdentity::new(
         "0123456789abcdef0123456789abcdef01234567",
         crate::args::Phase3Target::Bds,
         7,
@@ -33,7 +36,7 @@ fn socket_pending_is_runtime_emittable_but_never_a_candidate_terminal_pass() {
 
 #[test]
 fn remote_closed_candidate_terminal_emits_no_outbox_violation() {
-    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+    let identity = acceptance::phase3_evidence::Phase3EvidenceIdentity::new(
         "0123456789abcdef0123456789abcdef01234567",
         crate::args::Phase3Target::Bds,
         7,
@@ -93,7 +96,7 @@ fn local_stop_with_undrained_authoritative_state_still_violates() {
         MovementOutboxReconciliation::NotAuthoritative,
         "a locally stopped candidate session must not claim a remote close"
     );
-    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+    let identity = acceptance::phase3_evidence::Phase3EvidenceIdentity::new(
         "0123456789abcdef0123456789abcdef01234567",
         crate::args::Phase3Target::Bds,
         7,
@@ -120,7 +123,7 @@ fn local_stop_with_undrained_authoritative_state_still_violates() {
 
 #[test]
 fn free_camera_remote_closed_reconciliation_still_fails_the_terminal_gate() {
-    let identity = crate::runtime::phase3_evidence::Phase3EvidenceIdentity::new(
+    let identity = acceptance::phase3_evidence::Phase3EvidenceIdentity::new(
         "0123456789abcdef0123456789abcdef01234567",
         crate::args::Phase3Target::Bds,
         7,
