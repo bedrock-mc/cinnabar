@@ -17,6 +17,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -229,6 +230,46 @@ func TestSelectSessionPacksFollowsTheNegotiatedStack(t *testing.T) {
 	}
 	if _, _, err := selectSessionPacks(nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing stack: %v", err)
+	}
+}
+
+// A required stack naming a pack that is neither acquired nor built in refuses the join; an optional one skips it.
+func TestSelectSessionPacksRejectsUnavailableRequiredPacks(t *testing.T) {
+	second, err := resource.ReadBytes(admissionPackArchiveWithID(t, "11223344-5566-7788-99aa-bbccddeeff00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testAdmissionPack(t)
+	offer, _ := negotiatedOfferUpstream(t, []*resource.Pack{first}, false).ResourcePackOffer()
+	stack, _ := negotiatedOfferUpstream(t, []*resource.Pack{first, second}, false).ResourcePackStack()
+	for _, required := range []bool{false, true} {
+		selected, _, err := selectSessionPacks(&selectedResourcePackStack{offer: offer, snapshot: stack, required: required})
+		var admission *PackAdmissionError
+		if required != errors.As(err, &admission) {
+			t.Fatalf("required=%t: err = %v", required, err)
+		}
+		if !required && (len(selected) != 1 || selected[0].UUID != first.UUID().String()) {
+			t.Fatalf("optional selection = %+v", selected)
+		}
+	}
+}
+
+// An ItemRegistry carried in the handoff sets the shield ID used to decode the client's item stacks.
+func TestSessionHandoffObservesStartupItemRegistry(t *testing.T) {
+	local, peer := net.Pipe()
+	session := newSessionConn(streamnet.NewFramedConn(local))
+	defer session.Close()
+	frames := readSessionFrames(peer)
+	registry := encodeTestPacket(&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 300}}})
+	plan := sessionPlan{startup: [][]byte{registry, encodeTestPacket(&packet.StartGame{EntityRuntimeID: 9})}}
+	if err := writeSessionHandoff(session, plan); err != nil {
+		t.Fatal(err)
+	}
+	if frame := <-frames; frame[0] != sessionKindHandoff {
+		t.Fatalf("frame kind %d", frame[0])
+	}
+	if got := session.shieldID.Load(); got != 300 {
+		t.Fatalf("shield ID = %d", got)
 	}
 }
 

@@ -114,13 +114,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 	if id, ok := sessionPacketID(data); ok {
 		switch id {
 		case packet.IDItemRegistry:
-			if registry, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ItemRegistry); ok {
-				for _, item := range registry.Items {
-					if item.Name == "minecraft:shield" {
-						session.shieldID.Store(int32(item.RuntimeID))
-					}
-				}
-			}
+			session.observeItemRegistry(data)
 		case packet.IDTransfer:
 			if transfer, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Transfer); ok {
 				if _, err := transferAddress(transfer.Address, transfer.Port); err == nil {
@@ -136,6 +130,20 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 	}
 	session.pending = appendBatchPacket(session.pending, data)
 	return nil
+}
+
+// observeItemRegistry records the shield runtime ID from an ItemRegistry the client receives.
+func (session *sessionConn) observeItemRegistry(data []byte) {
+	if id, ok := sessionPacketID(data); !ok || id != packet.IDItemRegistry {
+		return
+	}
+	if registry, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ItemRegistry); ok {
+		for _, item := range registry.Items {
+			if item.Name == "minecraft:shield" {
+				session.shieldID.Store(int32(item.RuntimeID))
+			}
+		}
+	}
 }
 
 // WritePacket encodes value and adds it to the forming batch.

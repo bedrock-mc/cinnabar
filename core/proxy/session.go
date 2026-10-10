@@ -232,6 +232,9 @@ func handOffSession(ctx context.Context, session *sessionConn, prepared *prepare
 }
 
 func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
+	for _, data := range plan.startup {
+		session.observeItemRegistry(data)
+	}
 	frame, err := encodeSessionHandoff(plan.handoff, plan.startup)
 	if err != nil {
 		return err
@@ -298,9 +301,22 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 	}
 }
 
+// builtinResourcePacks are the client built-in packs a stack may select without offering them, as in
+// the pinned gophertunnel's exemption list.
+var builtinResourcePacks = map[string]bool{
+	resourcePackIdentity("d34cfa4b-2ad1-453d-a0db-668b429a3ea0", "1.26.40"): true,
+	resourcePackIdentity("b41c2785-c512-4a49-af56-3a87afd47c57", "1.21.30"): true,
+	resourcePackIdentity("a4df0cb3-17be-4163-88d7-fcf7002b935d", "1.21.20"): true,
+	resourcePackIdentity("d19adffe-a2e1-4b02-8436-ca4583368c89", "1.21.10"): true,
+	resourcePackIdentity("85d5603d-2824-4b21-8044-34f441f4fce1", "1.21.0"):  true,
+	resourcePackIdentity("e977cd13-0a11-4618-96fb-03dfe9c43608", "1.20.60"): true,
+	resourcePackIdentity("0674721c-a0aa-41a1-9ba8-1ed33ea3e7ed", "1.20.50"): true,
+	resourcePackIdentity("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"):   true,
+}
+
 // selectSessionPacks lists the archives to apply in stack order, as the client's own selection did:
-// entries without content are client built-ins, and a repeated identity or a sub-pack that differs
-// from the offer is skipped, or refuses the join when the packs are required.
+// built-in packs need no archive, while an unavailable pack, a repeated identity or a sub-pack that
+// differs from the offer is skipped, or refuses the join when the packs are required.
 func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*resource.Pack, error) {
 	if stack == nil {
 		return nil, nil, errResourcePackStackUnavailable
@@ -316,19 +332,19 @@ func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*res
 	seen := make(map[string]bool)
 	for _, entry := range stack.snapshot.Entries() {
 		id := resourcePackIdentity(entry.UUID(), entry.Version())
-		index, ok := offers[id]
-		pack := entry.Pack()
-		if !ok || pack == nil {
+		if builtinResourcePacks[id] {
 			continue
 		}
-		info := offered[index].Info()
-		if seen[id] || info.SubPackName != entry.SubPackName() {
+		index, ok := offers[id]
+		pack := entry.Pack()
+		if !ok || pack == nil || seen[id] || offered[index].Info().SubPackName != entry.SubPackName() {
 			if stack.required {
 				return nil, nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offered)}
 			}
 			continue
 		}
 		seen[id] = true
+		info := offered[index].Info()
 		selected = append(selected, sessionPack{
 			UUID: info.UUID.String(), Version: info.Version, SubPack: entry.SubPackName(),
 			ContentKey: info.ContentKey, Size: uint64(max(pack.Size(), 0)),
