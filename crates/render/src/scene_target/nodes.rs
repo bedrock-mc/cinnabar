@@ -60,6 +60,12 @@ impl ViewNode for SceneOpaquePass {
         if let Some(viewport) =
             Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
         {
+            let Some(viewport) = crate::render_bounds::viewport(
+                &viewport,
+                crate::render_bounds::extent(scene.color_view(false)),
+            ) else {
+                return Ok(());
+            };
             pass.set_camera_viewport(&viewport);
         }
         if !opaque.is_empty()
@@ -163,6 +169,12 @@ impl ViewNode for SceneTransmissivePass {
             if let Some(viewport) =
                 Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
             {
+                let Some(viewport) = crate::render_bounds::viewport(
+                    &viewport,
+                    crate::render_bounds::extent(scene.color_view(false)),
+                ) else {
+                    return Ok(());
+                };
                 pass.set_camera_viewport(&viewport);
             }
             if let Err(error) =

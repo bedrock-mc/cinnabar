@@ -1,3 +1,13 @@
+## Small-surface render safety
+
+- Explicit render scissors and viewports intersect their physical attachments; empty
+  intersections skip drawing. UI pipeline selection follows current resource preparation,
+  including retained layers and model depth during the first frame and resize.
+- Deterministic bounds witnesses cover oversized layouts, 254×124, 1×1, zero extents and
+  differing DPI. Native offscreen validation covers nonzero small attachments.
+- The reported unfocused macOS startup panic remains incomplete until a matching
+  headless startup capture reproduces it. No native parity or frame-budget gate closes.
+
 ## Optional spatial anti-aliasing and cutout coverage
 
 - Capability-aware MSAA remains the primary setting with its existing default. Spatial

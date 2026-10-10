@@ -78,7 +78,11 @@ impl Raster {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            if initial && let Some(rect) = damage {
+            if initial
+                && let Some(rect) = damage.and_then(|rect| {
+                    crate::render_bounds::scissor(rect, [output.width(), output.height()])
+                })
+            {
                 pass.set_pipeline(&self.clear);
                 pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
                 pass.draw(0..3, 0..1);
@@ -90,7 +94,11 @@ impl Raster {
                 &self.materials[usize::from(mode.1 != 0) * 2 + usize::from(mode.2 != 0)],
             );
             for batch in batches {
-                let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage) else {
+                let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage)
+                    .and_then(|rect| {
+                        crate::render_bounds::scissor(rect, [output.width(), output.height()])
+                    })
+                else {
                     continue;
                 };
                 pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
@@ -366,5 +374,48 @@ fn analytic_radial_gradient_interpolates_premultiplied_stops_and_extent() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn oversized_layout_on_small_targets_emits_valid_scissors() {
+    let mut input = scene();
+    input.viewport_size = [352, 184];
+    for batch in Arc::make_mut(&mut input.batches) {
+        batch.scissor = UiScissor::new(0, 0, 352, 184);
+        batch.depth_test = 0;
+        batch.depth_write = 0;
+        batch.isolated_depth_scope = None;
+    }
+    let Some(raster) = Raster::new(&input) else {
+        return;
+    };
+    for [width, height] in [[254, 124], [1, 1]] {
+        let output = raster.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("small UI surface"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: super::super::composite::UI_LAYER_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        raster
+            .gpu
+            .device
+            .push_error_scope(wgpu::ErrorFilter::Validation);
+        raster.draw(&input, &output, None);
+        raster
+            .gpu
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        let error = bevy::tasks::block_on(raster.gpu.device.pop_error_scope());
+        assert!(error.is_none(), "{width}x{height}: {error:?}");
     }
 }

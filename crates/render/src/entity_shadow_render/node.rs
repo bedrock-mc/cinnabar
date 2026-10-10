@@ -36,6 +36,13 @@ impl ViewNode for EntityShadowNode {
         {
             return Ok(());
         }
+        let extent = crate::render_bounds::extent(scene.color_view(false));
+        let Some(rect) = crate::render_bounds::scissor(
+            render_model::UiScissor::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)),
+            extent,
+        ) else {
+            return Ok(());
+        };
         let colour = scene.color_attachment(target, true);
         let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("entity shadows"),
@@ -55,9 +62,12 @@ impl ViewNode for EntityShadowNode {
             occlusion_query_set: None,
         });
         if let Some(viewport) = camera.viewport.as_ref() {
-            pass.set_camera_viewport(viewport);
+            let Some(viewport) = crate::render_bounds::viewport(viewport, extent) else {
+                return Ok(());
+            };
+            pass.set_camera_viewport(&viewport);
         }
-        pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
+        pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
         pass.set_render_pipeline(pipeline);
         pass.set_stencil_reference(1);
         pass.set_bind_group(0, bind_group, &[offset.offset]);

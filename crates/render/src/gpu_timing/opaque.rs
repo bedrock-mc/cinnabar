@@ -56,6 +56,7 @@ impl ViewNode for OpaqueTimingNode {
         let colors = [Some(target.get_color_attachment())];
         let depth = Some(depth.get_attachment(StoreOp::Store));
         let view_entity = graph.view_entity();
+        let extent = crate::render_bounds::extent(colors[0].as_ref().unwrap().view);
         context.add_command_buffer_generation_task(move |device| {
             let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("timed main opaque pass"),
@@ -75,6 +76,11 @@ impl ViewNode for OpaqueTimingNode {
             if let Some(viewport) =
                 Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
             {
+                let Some(viewport) = crate::render_bounds::viewport(&viewport, extent) else {
+                    diagnostic_span.end(&mut pass);
+                    drop(pass);
+                    return encoder.finish();
+                };
                 pass.set_camera_viewport(&viewport);
             }
             if !opaque.is_empty()
