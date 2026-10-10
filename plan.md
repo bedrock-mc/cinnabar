@@ -366,6 +366,25 @@
   running after the requested restart. Changes are local and uncommitted;
   nothing is pushed.
 
+## Tip text slot
+
+- `TextTypeTip` and its JSON variant used the action bar's slot, so a tip
+  overwrote the action bar and server packs that retarget the tip text were
+  ignored: the Lumine UI array list drew below the hotbar instead of the
+  screen's top right.
+- The tip text now has its own store slot, its `#tip_text` global and its own
+  `hud_tip_text_factory` feed, with the `$destroy_id` instance and fade clock
+  `popup_tip_text`. The built-in Java HUD pack defines the tip text's own
+  template, and `clear_titles` clears it.
+- Vanilla-template render tests cover the tip drawing beside, not over, the
+  action bar; a multi-line tip keeping its last line on the tip position with
+  earlier lines above it; and a pack retargeting `hud_tip_text` moving it to the
+  top right. Text routing and localization tests assert the tip's own slot.
+- Incomplete: no rendered-frame pass on the target platform has been taken, so
+  the live tip placement above the hotbar is unverified. Two pre-existing
+  failures are unrelated: `incremental_bind::hud_changes_rebuild_only_their_subtree`
+  and `engine_hud_tests::java_pack_geometry_on_a_real_viewport`.
+
 ## Server-pack actors and conditional forms
 
 - Captured CubeCraft definitions exposed rejected actor queries that discarded

@@ -528,6 +528,41 @@
     "destroy_at_end": "hud_actionbar_text"
   },
 
+  // The tip text: centred, anchored so its last line keeps the tip position.
+  // It binds `#tip_text` into `#text`, as the vanilla template does.
+  "hud_tip_text": {
+    "type": "label",
+    "size": [ "default", "default" ],
+    "controls": [],
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "offset": [ 0, -42 ],
+    "text": "#text",
+    "color": "$tool_tip_text",
+    "shadow": true,
+    "localize": false,
+    "layer": 31,
+    "alpha": "@hud.java_anim_tip_text_wait",
+    "bindings": [
+      { "binding_name": "#tip_text", "binding_name_override": "#text" }
+    ]
+  },
+
+  "java_anim_tip_text_wait": {
+    "anim_type": "wait",
+    "duration": 1,
+    "next": "@hud.java_anim_tip_text_out"
+  },
+
+  "java_anim_tip_text_out": {
+    "anim_type": "alpha",
+    "easing": "in_expo",
+    "duration": 2,
+    "from": 1.0,
+    "to": 0,
+    "destroy_at_end": "popup_tip_text"
+  },
+
   // Boss bars: names 3 GUI px from the top, bars from y = 12, 19 px apart.
   "boss_health_panel": {
     "type": "panel",

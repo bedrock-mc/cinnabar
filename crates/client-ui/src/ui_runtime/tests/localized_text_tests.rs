@@ -153,7 +153,7 @@ fn flagged_rawtext_preserves_literal_and_resolved_percent_text() {
                 )
                 .unwrap();
             let message = if kind == TextKind::Tip {
-                runtime.hud().actionbar().unwrap().text.as_ref()
+                runtime.hud().tip().unwrap().text.as_ref()
             } else {
                 runtime.chat().messages().back().unwrap().message.as_ref()
             };
