@@ -271,13 +271,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # On the software (WARP) adapter this one GPU test runs for over 30 minutes; macOS PRs
-          # and full Windows runs still cover it.
+          # These GPU witnesses exhaust the PR budget on the software WARP adapter.
+          # macOS PRs and full Windows runs still cover every excluded case.
           - name: windows
             os: windows-latest
             crates: true
             client: false
-            skip: test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
+            skip: >-
+              test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
+              | test(=terrain_seams::near_merged_floors_far_from_origin_leave_no_seam_pixels)
+              | test(=terrain_seams::sealing_grows_silhouettes_by_less_than_a_pixel)
+              | test(=terrain_seams::sealing_keeps_face_interiors_in_place)
+              | test(=world_seams::far_from_origin_floors_of_cubes_slabs_and_water_leave_no_seam_pixels)
           - { name: windows client, os: windows-latest, crates: false, client: true }
           - { name: macos, os: macos-latest, crates: true, client: false }
           - { name: macos client, os: macos-latest, crates: false, client: true }
