@@ -37,7 +37,7 @@ defaults:
 env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
-  # Keep timing reports and compiler intermediates inside the source checkout.
+  # The build cache saves target/; keep compiler intermediates there, not in the shared build-dir.
   CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"

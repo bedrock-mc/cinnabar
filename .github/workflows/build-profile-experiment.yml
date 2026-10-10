@@ -7,7 +7,6 @@ permissions:
   contents: read
 
 env:
-  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
 

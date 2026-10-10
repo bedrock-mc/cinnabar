@@ -19,7 +19,7 @@ Once the workflow exists on the default branch, select **Build profile
 experiment → Run workflow** in Actions, or run:
 
 ```sh
-gh workflow run build-profile-experiment.yml --repo bedrock-mc/cinnabar --ref ci/build-timings
+gh workflow run build-profile-experiment.yml --repo bedrock-mc/cinnabar --ref dev
 ```
 
 Choose the branch or commit being measured with `--ref`. GitHub requires a new
