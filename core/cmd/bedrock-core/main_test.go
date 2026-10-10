@@ -28,7 +28,7 @@ func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "secret-token-sentinel"})
 	err := run(
 		context.Background(),
-		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"},
+		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")},
 		io.Discard,
 		&stderr,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
@@ -294,7 +294,7 @@ func TestRunAuthenticatedPassesTheAccountToProxy(t *testing.T) {
 	serveCalls := 0
 	err := run(
 		context.Background(),
-		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"},
+		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")},
 		io.Discard,
 		io.Discard,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
@@ -543,7 +543,7 @@ func TestRunSignedInKeepsTheAccountFresh(t *testing.T) {
 		}
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
-	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"}, io.Discard, io.Discard,
+	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")}, io.Discard, io.Discard,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return source, nil },
 		func(_ context.Context, cfg proxy.Config) error {
 			if account := <-refreshing; account != cfg.Account {
