@@ -87,7 +87,8 @@ pub struct ActorRigSubmission {
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
     pub route: ActorRigRoute,
-    /// Packed `0xAABBGGRR` dye multiplier for fully opaque texels; `0` leaves the texture untouched.
+    /// Packed `0xAABBGGRR` tint; authored blended materials multiply RGBA, while other
+    /// materials retain their dye contract. `0` leaves the texture untouched.
     pub tint: u32,
     /// Packed RGBA8 overlay blended over the lit skin (see [`pack_overlay_rgba8`]); 0 disables it.
     pub overlay_rgba8: u32,

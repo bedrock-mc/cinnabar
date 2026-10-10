@@ -137,11 +137,15 @@
 Spectator mode now keeps forced flight without the ordinary flight-toggle grant,
 passes through solid terrain without ground contact or anchor depenetration, and
 suppresses block interactions and first-person hands. Player render queries follow
-the committed mode so the installed pack selects its spectator head and material.
+the committed mode; runtime skins receive authored visibility before equipment is
+attached, and authored blended layers multiply texture opacity by controller opacity.
 The inside-block overlay respects no-clip while server camera fades remain active.
 Owning regressions cover mode transitions, stale ability grants, solid and unloaded
-terrain, embedded anchors, render queries, hands, and overlays. Full spectator
-parity remains incomplete pending exact native trajectory and platform comparison;
+terrain, embedded anchors, render queries, hands, overlays, runtime skin visibility,
+authored material overrides, and GPU opacity. The built-in spectator blend fallback
+is provisional until the version-matched stock material contract is verified. Full
+spectator parity remains incomplete pending exact native trajectory and platform
+comparison, custom controller geometry, and persona coverage;
 these changes do not close the movement, camera, or actor parity gates.
 
 - Input packets retain digital buttons and raw jump/sneak events separately from

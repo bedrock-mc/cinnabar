@@ -51,7 +51,10 @@ platform, and performance gates remain open.
 ## P3.4-INPUT-CAMERA
 
 Spectator hand suppression and no-clip inside-block overlays have owning
-behavioral regressions. Exact native and platform comparison remains open.
+behavioral regressions. Runtime skin controller visibility precedes equipment, and
+authored opacity has a GPU regression. The spectator material fallback remains
+provisional; version-matched stock materials, custom controller geometry, persona,
+and exact native and platform comparison remain open.
 
 | Field | Evidence |
 |---|---|
