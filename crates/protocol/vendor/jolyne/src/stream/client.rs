@@ -47,18 +47,9 @@ use crate::valentine::{
     McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
 };
 
-// Login timing: waiting for ResourcePacksInfo is bounded by 5m, and nothing else in
-// the connection sequence times out. In particular there is no deadline on the
-// handshake up to the server's LoginSuccess PlayStatus: relay/proxy chains (and the
-// local core itself) only serve the client-facing handshake after their own upstream
-// login completes, which includes upstream resource-pack downloads that the client
-// cannot observe. Verified live against a proxy chain whose core downloaded packs for
-// over 7 minutes before serving the handshake; any absolute pre-LoginSuccess deadline
-// (the previous 600s overall bound, or a 90s handshake bound) fires mid-download.
-// Transport errors and dropping the future remain the exits at every phase.
-const RESOURCE_PACKS_INFO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-/// Bounded drain after a failed startup write, only to surface a terminal
-/// transfer/disconnect that arrived alongside the failure.
+// Login has no wall-clock deadline: proxies answer only after their own upstream login and pack
+// downloads, so transport errors and dropping the join are the exits, as in vanilla.
+/// Bounds the drain that surfaces a disconnect arriving with a failed startup write.
 const STARTUP_WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
 // Built-in compatibility pack in the pinned gophertunnel conn.go exemption list.
@@ -388,10 +379,7 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
 
     /// Helper: Orchestrates the entire login sequence.
     ///
-    /// Waiting for ResourcePacksInfo is bounded by 5m; the handshake up to the
-    /// server's LoginSuccess PlayStatus and everything after ResourcePacksInfo
-    /// (pack downloads, stack, StartGame) do not time out. Returns both the
-    /// stream in Play state and the captured [`GameData`].
+    /// Returns the stream in Play state and the captured [`GameData`]; no phase times out.
     pub async fn join(
         self,
         config: ClientHandshakeConfig,
@@ -399,10 +387,7 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         self.join_phased(config).await
     }
 
-    /// Orchestrates login with an explicit overall deadline on top of the default policy.
-    ///
-    /// The caller's `timeout` still bounds the whole sequence for callers that need one;
-    /// [`Self::join`] applies only the ResourcePacksInfo wait deadline.
+    /// Orchestrates login bounded by one caller-supplied deadline.
     pub async fn join_with_timeout(
         self,
         config: ClientHandshakeConfig,
@@ -430,15 +415,12 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         // 2. Login
         let secure = login.send_login(&config).await?;
 
-        // 3. Encryption (ends with the server's LoginSuccess PlayStatus). No timeout:
-        // the server may still be completing its own upstream login, including
-        // pack downloads, before it answers.
+        // 3. Encryption, ending with the server's LoginSuccess PlayStatus
         let packs = secure
             .await_handshake_with_client_cache(&key, config.client_cache_enabled)
             .await?;
 
-        // 4. Resource Packs (waiting for ResourcePacksInfo is bounded by 5m;
-        // everything after it receives no timeout)
+        // 4. Resource Packs
         let start = packs.handle_packs_with_store(resource_pack_store).await?;
 
         // 5. Start Game - returns (stream, game_data)
@@ -532,8 +514,7 @@ async fn recv_login_packet<T: Transport>(
     }
 }
 
-/// Drains terminal input after a failed startup write within a short bounded drain,
-/// so a transfer/disconnect that arrived alongside the failure is reported instead.
+/// Drains terminal input briefly after a failed startup write, reporting any disconnect instead.
 async fn startup_write_failure<T: Transport>(
     transport: &mut BedrockTransport<T>,
     write_error: JolyneError,
@@ -1255,7 +1236,6 @@ mod tests {
                 .await
                 .is_pending()
         );
-        // Dropping the pending join is the owner's cancellation path.
     }
 
     // Dragonfly answers the radius request with PlayerSpawn alone and streams
@@ -1527,10 +1507,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn login_handshake_does_not_time_out_while_the_server_is_slow() {
-        // Relay/proxy chains serve the client-facing handshake only after their own
-        // upstream login (including pack downloads) completes, which the client cannot
-        // observe. A silent handshake must stay pending well past the old 90s and 600s
-        // bounds; transport errors and owner cancellation remain the exits.
+        // Proxies answer only after their own upstream login and pack downloads.
         let transport = BedrockTransport::new(PendingTransport);
         let stream = BedrockStream {
             transport,
@@ -1550,44 +1527,10 @@ mod tests {
                 .is_pending(),
             "handshake must not time out while waiting for LoginSuccess"
         );
-        // Dropping the pending join is the owner's cancellation path.
     }
 
     #[tokio::test(start_paused = true)]
-    async fn resource_packs_info_deadline_is_5m() {
-        let stream = BedrockStream {
-            transport: BedrockTransport::new(PendingTransport),
-            state: ResourcePacks { early_packet: None },
-            _role: PhantomData,
-        };
-        let mut packs = std::pin::pin!(stream.handle_packs());
-        // Still waiting for ResourcePacksInfo just before the deadline.
-        tokio::time::advance(RESOURCE_PACKS_INFO_TIMEOUT - std::time::Duration::from_secs(1)).await;
-        assert!(
-            std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
-                .await
-                .is_pending(),
-            "ResourcePacksInfo wait must stay pending before 5m"
-        );
-        tokio::time::advance(std::time::Duration::from_secs(2)).await;
-        let error = match packs.await {
-            Ok(_) => panic!("pending ResourcePacksInfo must hit the 5m deadline"),
-            Err(error) => error,
-        };
-        let message = error.to_string();
-        assert!(
-            message.contains("ResourcePacksInfo"),
-            "unexpected packs-info timeout: {message}"
-        );
-        assert!(
-            message.contains("300s"),
-            "packs-info deadline must report 300s: {message}"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn connection_sequence_does_not_time_out_after_packs_info() {
-        // An empty early ResourcePacksInfo moves straight to waiting for the stack.
+    async fn pack_negotiation_and_start_game_do_not_time_out() {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let stream = BedrockStream {
             transport: BedrockTransport::new(PendingTransport),
@@ -1597,7 +1540,6 @@ mod tests {
             _role: PhantomData,
         };
         let mut packs = std::pin::pin!(stream.handle_packs());
-        // Well past the old per-phase timeouts and the old 600s overall deadline.
         tokio::time::advance(std::time::Duration::from_secs(601)).await;
         assert!(
             std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
@@ -1619,7 +1561,6 @@ mod tests {
                 .is_pending(),
             "StartGame must not time out after ResourcePacksInfo"
         );
-        // Dropping the pending futures is the owner's cancellation path.
     }
 
     #[test]
@@ -2373,9 +2314,6 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
     }
 
     /// Negotiates packs, requesting only those `store` cannot supply, as vanilla does for its cache.
-    ///
-    /// Waiting for ResourcePacksInfo is bounded by 5m. Once it arrives nothing
-    /// else in the connection sequence times out; dropping the future cancels it.
     pub async fn handle_packs_with_store(
         mut self,
         store: Option<std::sync::Arc<dyn ResourcePackStore>>,
@@ -2385,17 +2323,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             tracing::debug!("Using early ResourcePacksInfo received during handshake");
             early
         } else {
-            let raw = tokio::time::timeout(
-                RESOURCE_PACKS_INFO_TIMEOUT,
-                recv_login_packet(&mut self.transport),
-            )
-            .await
-            .map_err(|_| {
-                ProtocolError::UnexpectedHandshake(format!(
-                    "timeout waiting for ResourcePacksInfo after {:?}",
-                    RESOURCE_PACKS_INFO_TIMEOUT
-                ))
-            })??;
+            let raw = recv_login_packet(&mut self.transport).await?;
             match raw.id {
                 McpePacketName::ResourcePacksInfoPacket => raw.decode(&self.transport.session)?,
                 McpePacketName::DisconnectPacket => {
