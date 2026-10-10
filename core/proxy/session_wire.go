@@ -31,12 +31,11 @@ var errMalformedSessionMessage = errors.New("proxy: malformed session message")
 
 // sessionConnectRequest is the client's only setup message: where to join and its login client data.
 type sessionConnectRequest struct {
-	Protocol int32          `json:"protocol"`
-	Target   *sessionTarget `json:"target,omitempty"` // nil keeps the core's current selection
-	// DisplayName names an offline login; a signed-in core uses its account instead.
-	DisplayName string `json:"display_name"`
-	ClientCache bool   `json:"client_cache"` // the client resolves blob-cache chunks
+	Protocol    int32          `json:"protocol"`
+	Target      *sessionTarget `json:"target,omitempty"` // nil keeps the core's current selection
+	ClientCache bool           `json:"client_cache"`     // the client resolves blob-cache chunks
 	// ClientData holds the Bedrock login client-data claims, as gophertunnel's login.ClientData names them.
+	// Its ThirdPartyName names an offline login; a signed-in core joins as its account.
 	ClientData json.RawMessage `json:"client_data"`
 }
 

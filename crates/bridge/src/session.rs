@@ -32,11 +32,10 @@ pub struct ConnectRequest {
     pub protocol: i32,
     /// `None` joins the core's current selection, which follows a pending server transfer.
     pub target: Option<ConnectTarget>,
-    /// Names an offline login; a signed-in core joins as its account.
-    pub display_name: String,
     /// Whether the client resolves blob-cache chunks.
     pub client_cache: bool,
-    /// Bedrock login client-data claims, keyed as the login JWT names them.
+    /// Bedrock login client-data claims, keyed as the login JWT names them. Their `ThirdPartyName`
+    /// names an offline login; a signed-in core joins as its account.
     pub client_data: serde_json::Value,
 }
 
@@ -45,7 +44,6 @@ struct ConnectWire<'a> {
     protocol: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<ConnectParams<'a>>,
-    display_name: &'a str,
     client_cache: bool,
     client_data: &'a serde_json::Value,
 }
@@ -55,7 +53,6 @@ pub fn encode_connect(request: &ConnectRequest) -> Result<Bytes, BridgeError> {
     let wire = ConnectWire {
         protocol: request.protocol,
         target: request.target.as_ref().map(ConnectTarget::params),
-        display_name: &request.display_name,
         client_cache: request.client_cache,
         client_data: &request.client_data,
     };

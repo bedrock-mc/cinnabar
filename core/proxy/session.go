@@ -391,7 +391,7 @@ func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, er
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
 	}
 	return &sessionDownstream{
-		identity:    login.IdentityData{DisplayName: request.DisplayName},
+		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},
 		clientData:  clientData,
 		clientCache: request.ClientCache,
 	}, nil

@@ -13,7 +13,6 @@ fn connect_encoding_matches_the_core_fixture() {
     let request = ConnectRequest {
         protocol: 2193,
         target: Some(ConnectTarget::RakNet("play.example.net:19132".into())),
-        display_name: "Steve".into(),
         client_cache: true,
         client_data: serde_json::json!({"DeviceOS": 7, "GameVersion": "1.26.50"}),
     };

@@ -92,7 +92,7 @@ func TestSessionConnectFixtureDecodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if request.Protocol != 2193 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
-		request.DisplayName != "Steve" || !request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.50" {
+		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.50" {
 		t.Fatalf("connect = %+v, client data = %+v", request, clientData)
 	}
 }
@@ -620,7 +620,7 @@ func testSessionConnect(t *testing.T) sessionConnectRequest {
 		t.Fatal(err)
 	}
 	return sessionConnectRequest{
-		Protocol: minecraft.DefaultProtocol.ID(), DisplayName: "Steve", ClientCache: true, ClientData: clientData,
+		Protocol: minecraft.DefaultProtocol.ID(), ClientCache: true, ClientData: clientData,
 	}
 }
 
