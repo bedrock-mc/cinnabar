@@ -14,6 +14,7 @@ use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 mod absorption;
 mod boss_removal_tests;
 mod crosshair_options;
+mod experience_spacing;
 
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
@@ -409,7 +410,7 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
 }
 
 // Java Gui geometry: hotbar flush at the bottom centre, selection 1 px out,
-// status rows from H-39, the XP bar at H-29 with its green level at H-35.
+// status rows and the level from H-39, with the XP bar at H-29.
 #[test]
 fn java_pack_geometry_on_a_real_viewport() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -463,7 +464,7 @@ fn java_pack_geometry_on_a_real_viewport() {
         .filter(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "7"))
         .collect();
     assert_eq!(level.len(), 5, "the level and its four outline copies");
-    assert_eq!(level[4].dest.y, 250.0 - 35.0);
+    assert_eq!(level[4].dest.y, hearts[0].dest.y);
     // The selection frame lands where the Java HUD drew it, in physical px.
     assert!(
         input
