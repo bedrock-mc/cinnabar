@@ -5,8 +5,8 @@ use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     render::{
         render_graph::{NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode},
-        render_phase::DrawFunctionId,
-        render_resource::{RenderPassDescriptor, StoreOp},
+        render_phase::{DrawFunctionId, TrackedRenderPass},
+        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::ViewDepthTexture,
     },
@@ -17,6 +17,7 @@ use super::{
     model::{CullPhase, CullStream, args_region, count_index},
 };
 use crate::chunk::*;
+use crate::gpu_timing::{SectionSpan, within_span};
 
 /// Draws one stream's compacted args for one phase of the GPU-culled view.
 pub(in crate::chunk) struct DrawGpuCulled<const STREAM: usize, const LATE: bool>;
@@ -68,6 +69,7 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, draws.offsets.slice(..));
         let args_offset = u64::from(args_region(draws.capacity, phase, stream)) * 4;
         match draws.submission {
             GpuCullSubmission::Count => pass.multi_draw_indexed_indirect_count(
@@ -222,62 +224,95 @@ impl ViewNode for LateCullNode {
         if cull.prepared_view != Some(view_entity) || view.entity != view_entity {
             return Ok(());
         }
-        let encoder = render_context.command_encoder();
-        if let Some(prepared) = &cull.pyramid {
-            cull.kernels
-                .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+        #[cfg(feature = "tracy")]
+        if let Some(client) = tracy_client::Client::running() {
+            use tracy_client::plot_name;
+            let bounds = cull.table.draw_bounds();
+            client.plot(plot_name!("cull slots"), f64::from(cull.slot_count()));
+            client.plot(plot_name!("cull bound solid"), f64::from(bounds[0]));
+            client.plot(plot_name!("cull bound cutout"), f64::from(bounds[1]));
+            client.plot(plot_name!("cull bound model"), f64::from(bounds[2]));
+            client.plot(plot_name!("cull bound liquid"), f64::from(bounds[3]));
         }
-        cull.kernels
-            .encode_cull(encoder, &groups[1], cull.slot_count());
-
-        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("terrain late cull pass"),
-            color_attachments: &[Some(scene_target.color_attachment(target, false))],
-            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                world,
-                crate::RuntimeStage::GpuTerrainOpaque,
-            ),
-            occlusion_query_set: None,
-        });
-        if let Some(viewport) =
+        let pyramid = cull.pyramid.as_ref();
+        // Spans and attachments are claimed in graph order; the task only records them.
+        let spans = [
+            pyramid.and_then(|_| SectionSpan::claim(world, "late cull hi-z pyramid")),
+            SectionSpan::claim(world, "late cull dispatch"),
+            SectionSpan::claim(world, "late cull draws"),
+        ];
+        let colour = scene_target.color_attachment(target, false);
+        let depth = depth.get_attachment(StoreOp::Store);
+        let timestamps =
+            crate::gpu_timing::render_pass_timestamps(world, crate::RuntimeStage::GpuTerrainOpaque);
+        // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
+        // which still builds the pyramid and culls but draws nothing.
+        let viewport =
             Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution_override)
-        {
-            let Some(viewport) = crate::render_bounds::viewport(
-                &viewport,
-                crate::render_bounds::extent(scene_target.color_view(false)),
-            ) else {
-                return Ok(());
-            };
-            pass.set_camera_viewport(&viewport);
-        }
-        let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
-        let mut draw_functions = draw_functions.write();
-        draw_functions.prepare(world);
-        for (draw_function, pipeline) in view.late_draws.into_iter().zip(view.pipelines) {
-            let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
-                Opaque3dBatchSetKey {
-                    draw_function,
-                    pipeline,
-                    material_bind_group_index: None,
-                    lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
-                },
-                Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
-                },
-                (view_entity, view.main),
-                0..1,
-                PhaseItemExtraIndex::None,
-            );
-            let Some(draw) = draw_functions.get_mut(draw_function) else {
-                continue;
-            };
-            if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
-                bevy::log::error!("late terrain cull draw failed: {error:?}");
+                .map(|viewport| {
+                    crate::render_bounds::viewport(
+                        &viewport,
+                        crate::render_bounds::extent(scene_target.color_view(false)),
+                    )
+                });
+        render_context.add_command_buffer_generation_task(move |device| {
+            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("terrain late cull"),
+            });
+            if let Some(prepared) = pyramid {
+                within_span(spans[0].as_ref(), &mut encoder, |encoder| {
+                    cull.kernels
+                        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+                });
             }
-        }
+            within_span(spans[1].as_ref(), &mut encoder, |encoder| {
+                cull.kernels
+                    .encode_cull(encoder, &groups[1], cull.slot_count());
+            });
+            within_span(spans[2].as_ref(), &mut encoder, |encoder| {
+                let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("terrain late cull pass"),
+                    color_attachments: &[Some(colour)],
+                    depth_stencil_attachment: Some(depth),
+                    timestamp_writes: timestamps,
+                    occlusion_query_set: None,
+                });
+                let mut pass = TrackedRenderPass::new(&device, pass);
+                match &viewport {
+                    Some(Some(viewport)) => pass.set_camera_viewport(viewport),
+                    Some(None) => return,
+                    None => {}
+                }
+                let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
+                let mut draw_functions = draw_functions.write();
+                draw_functions.prepare(world);
+                for (draw_function, pipeline) in view.late_draws.into_iter().zip(view.pipelines) {
+                    let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
+                        Opaque3dBatchSetKey {
+                            draw_function,
+                            pipeline,
+                            material_bind_group_index: None,
+                            lightmap_slab: None,
+                            vertex_slab: default(),
+                            index_slab: None,
+                        },
+                        Opaque3dBinKey {
+                            asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        },
+                        (view_entity, view.main),
+                        0..1,
+                        PhaseItemExtraIndex::None,
+                    );
+                    let Some(draw) = draw_functions.get_mut(draw_function) else {
+                        continue;
+                    };
+                    if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
+                        bevy::log::error!("late terrain cull draw failed: {error:?}");
+                    }
+                }
+            });
+            encoder.finish()
+        });
         Ok(())
     }
 }

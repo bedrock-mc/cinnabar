@@ -88,12 +88,15 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) biome_buffer: Buffer,
     pub(in crate::chunk) index_buffer: Buffer,
     pub(in crate::chunk) model_index_buffer: Buffer,
+    /// Vertex buffer 0 of CPU-planned terrain draws; see [`identity_vertex_offsets`].
+    pub(in crate::chunk) vertex_offset_buffer: Buffer,
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_ref_buffer: Buffer,
     /// Per-slot capacity of `transparent_ref_buffer`, which is also the second slot's offset.
     pub(in crate::chunk) transparent_slot_refs: usize,
     pub(in crate::chunk) bind_group: Option<BindGroup>,
+    pub(in crate::chunk) transparent_bind_group: Option<BindGroup>,
     pub(in crate::chunk) bind_group_buffers: Option<ChunkBindGroupBuffers>,
     pub(in crate::chunk) quad_capacity: usize,
     pub(in crate::chunk) geometry_stream_capacity: usize,
@@ -165,6 +168,7 @@ impl ChunkGpuArena {
                 contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
                 usage: BufferUsages::INDEX,
             }),
+            vertex_offset_buffer: identity_vertex_offsets(render_device, 1),
             indirect_buffer: create_indirect_buffer(render_device, 1),
             transparent_indirect_buffer: create_indirect_buffer(render_device, 1),
             transparent_ref_buffer: transparent_ref_buffer(
@@ -173,6 +177,7 @@ impl ChunkGpuArena {
             ),
             transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
             bind_group: None,
+            transparent_bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,
             geometry_stream_capacity: 1,
@@ -202,6 +207,24 @@ impl ChunkGpuArena {
         super::telemetry::log_initial_arena_capacity(&arena, render_device);
         arena
     }
+}
+
+/// Vertex buffer 0 for CPU-planned terrain draws over `origin_capacity` origin slots: entry `i`
+/// is `(i, 0)`, so fetching at a draw's base vertex yields its vertex index while the builtin
+/// instance index keeps its first instance. GPU-culled draws bind the cull's draw offsets instead.
+pub(in crate::chunk) fn identity_vertex_offsets(
+    render_device: &RenderDevice,
+    origin_capacity: usize,
+) -> Buffer {
+    let corners = crate::chunk::gpu_cull::model::OFFSET_CORNERS;
+    let entries = (0..origin_capacity as u32 * corners)
+        .flat_map(|vertex| [vertex, 0])
+        .collect::<Vec<u32>>();
+    render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("terrain identity vertex offsets"),
+        contents: bytemuck::cast_slice(&entries),
+        usage: BufferUsages::VERTEX,
+    })
 }
 
 pub(in crate::chunk) fn create_storage_buffer(

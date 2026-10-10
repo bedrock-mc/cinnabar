@@ -687,7 +687,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
             instance_count: 2,
             first_index: 0,
             base_vertex: 0,
-            first_instance: 0,
+            first_instance: meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG,
         })
     );
 
@@ -709,7 +709,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
     assert!(transparent_draw_range_args(0, 4, 0..5).is_none());
     assert_eq!(
         transparent_draw_range_args(1, 4, 1..3).map(|args| args.first_instance),
-        Some(5)
+        Some(5 | meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG)
     );
 }
 

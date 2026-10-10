@@ -184,24 +184,13 @@ pub(in crate::chunk) fn queue_chunks(
         let Ok(solid_pipeline_id) = pipeline.solid_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
-        let Ok(model_pipeline_id) = pipeline.model_variants.specialize(
-            &pipeline_cache,
-            ChunkPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                enhanced: enhanced.is_some(),
-            },
-        ) else {
+        let Ok(model_pipeline_id) = pipeline.model_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
-        let Ok(depth_liquid_pipeline_id) = pipeline.depth_liquid_variants.specialize(
-            &pipeline_cache,
-            ChunkPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                enhanced: enhanced.is_some(),
-            },
-        ) else {
+        let Ok(depth_liquid_pipeline_id) = pipeline
+            .depth_liquid_variants
+            .specialize(&pipeline_cache, key)
+        else {
             continue;
         };
 
@@ -598,10 +587,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             enhanced: enhanced.is_some(),
         };
         let rangefinder = view.rangefinder3d();
-        let model_pipeline_id = pipeline
-            .transparent_model_variants
+        let Ok(pipeline_id) = pipeline
+            .transparent_variants
             .specialize(&pipeline_cache, key)
-            .ok();
+        else {
+            continue;
+        };
         let mut models = BTreeMap::new();
         let mut water = Vec::new();
         for &(entity, main) in visible_entities.get::<ChunkRenderInstance>() {
@@ -631,10 +622,6 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         // Displaced water can overlap itself even when flat, so such views sort all of it.
         let direct_order_independent = !view_displaces_water(enhanced.is_some());
         let mut merged = HashSet::new();
-        let water_pipeline_id = pipeline
-            .liquid_variants
-            .specialize(&pipeline_cache, key)
-            .ok();
         let snapshot = runtime.state.committed();
         let groups = snapshot.and_then(TransparentOrderedSnapshot::phase_groups);
         if snapshot.is_some() && groups.is_none() {
@@ -650,9 +637,6 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             order_independent,
         } in each_visible_key(water, &arena.transparent_liquids)
         {
-            let Some(water_pipeline_id) = water_pipeline_id else {
-                break;
-            };
             let direct = direct_order_independent && order_independent;
             // Water that needs an order draws the committed snapshot's group for it; the
             // frustum only chooses which of the groups appear.
@@ -670,7 +654,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 unsorted.count += usize::from(!direct);
                 phase.add(Transparent3d {
                     entity: (entity, main),
-                    pipeline: water_pipeline_id,
+                    pipeline: pipeline_id,
                     draw_function: record_draw,
                     distance: transparent_liquid_phase_distance(&rangefinder, water_key),
                     batch_range: 0..1,
@@ -681,7 +665,6 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             };
             // Native deferred water uses layer 2, not ordinary blend layer 3.
             if enhanced.is_none()
-                && let Some(model_pipeline_id) = model_pipeline_id
                 && let Some(&(entity, main)) = models.get(&group.key)
                 && let (Ok(instance), Ok(allocation)) =
                     (instances.get(entity), allocations.get(entity))
@@ -695,14 +678,13 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     &texture_assets,
                     committed,
                     group,
-                    water_pipeline_id,
-                    model_pipeline_id,
+                    pipeline_id,
                 )
             {
                 merged.insert(entity);
                 phase.add(Transparent3d {
                     entity: (entity, main),
-                    pipeline: model_pipeline_id,
+                    pipeline: pipeline_id,
                     draw_function: mixed_draw,
                     distance: transparent_model_phase_distance(&rangefinder, group.key),
                     batch_range: 0..1,
@@ -716,7 +698,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             }
             phase.add(Transparent3d {
                 entity: (view_entity, *main_entity),
-                pipeline: water_pipeline_id,
+                pipeline: pipeline_id,
                 draw_function: direct_draw,
                 distance: transparent_liquid_phase_distance(&rangefinder, group.key),
                 batch_range: 0..1,
@@ -727,21 +709,19 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 indexed: true,
             });
         }
-        if let Some(model_pipeline_id) = model_pipeline_id {
-            for (&model_key, &(entity, main)) in &models {
-                if merged.contains(&entity) {
-                    continue;
-                }
-                phase.add(Transparent3d {
-                    entity: (entity, main),
-                    pipeline: model_pipeline_id,
-                    draw_function: transparent_model_draw,
-                    distance: transparent_model_phase_distance(&rangefinder, model_key),
-                    batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::None,
-                    indexed: true,
-                });
+        for (&model_key, &(entity, main)) in &models {
+            if merged.contains(&entity) {
+                continue;
             }
+            phase.add(Transparent3d {
+                entity: (entity, main),
+                pipeline: pipeline_id,
+                draw_function: transparent_model_draw,
+                distance: transparent_model_phase_distance(&rangefinder, model_key),
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: true,
+            });
         }
     }
     mixed.finish_frame();

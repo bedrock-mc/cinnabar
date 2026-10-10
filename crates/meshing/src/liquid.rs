@@ -6,6 +6,9 @@ pub const LIQUID_TWO_SIDED_BIT: u32 = 1 << 29;
 pub const LIQUID_TOP_INSET_BIT: u32 = 1 << 30;
 /// Word 2 flag selecting the opaque depth-writing liquid route.
 pub const LIQUID_DEPTH_WRITE_BIT: u32 = 1 << 31;
+/// First-instance flag of a transparent draw whose instances are transparent liquid refs; the
+/// shared transparent terrain shader otherwise reads them as model draw refs.
+pub const TRANSPARENT_WATER_DRAW_FLAG: u32 = 1 << 31;
 
 /// Visual medium containing the active camera eye.
 ///

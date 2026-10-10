@@ -2,9 +2,11 @@
 
 use std::{borrow::Cow, num::NonZeroU64};
 
+use wgpu::util::DeviceExt;
+
 use super::model::{
     CULL_WORKGROUP, CullPhase, CullViewUniform, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK,
-    HIZ_PADDING, PHASE_COUNT, STREAM_COUNT, args_words, group_count,
+    HIZ_PADDING, PHASE_COUNT, STREAM_COUNT, args_words, draw_offset_bytes, group_count,
 };
 
 const RECORD_BYTES: u64 = std::mem::size_of::<super::model::CullRecord>() as u64;
@@ -36,6 +38,8 @@ pub struct CullStorage {
     pub group_sums: wgpu::Buffer,
     pub args: wgpu::Buffer,
     pub draw_counts: wgpu::Buffer,
+    /// Per-command vertex entries; see [`super::model::resolve_culled_args`].
+    pub draw_offsets: wgpu::Buffer,
     pub uniforms: [wgpu::Buffer; PHASE_COUNT],
 }
 
@@ -91,6 +95,11 @@ impl CullStorage {
                 "terrain cull draw counts",
                 (PHASE_COUNT * STREAM_COUNT * 4) as u64,
                 U::STORAGE | U::INDIRECT | copy_out,
+            ),
+            draw_offsets: buffer(
+                "terrain cull draw offsets",
+                draw_offset_bytes(capacity),
+                U::STORAGE | U::VERTEX | copy_out,
             ),
             uniforms: [
                 uniform("terrain cull early view"),
@@ -166,6 +175,19 @@ pub fn pyramid_sizes(depth_size: [u32; 2]) -> Vec<[u32; 2]> {
     sizes
 }
 
+/// Texels of each level that cover at least one depth pixel, `ceil(depth / 2^(level + 1))` per
+/// axis. The cull reads no other texel, so only these are built.
+pub fn pyramid_extents(depth_size: [u32; 2]) -> Vec<[u32; 2]> {
+    let mut extent = depth_size.map(|side| side.max(1));
+    pyramid_sizes(depth_size)
+        .iter()
+        .map(|_| {
+            extent = extent.map(|side| side.div_ceil(2));
+            extent
+        })
+        .collect()
+}
+
 /// Reverse-Z farthest-depth pyramid over a depth target of `depth_size` pixels.
 pub struct HizPyramid {
     pub depth_size: [u32; 2],
@@ -174,6 +196,9 @@ pub struct HizPyramid {
     pub view: wgpu::TextureView,
     mips: Vec<wgpu::TextureView>,
     sizes: Vec<[u32; 2]>,
+    extents: Vec<[u32; 2]>,
+    /// Per level, the `HizBounds` uniform of `hiz.wgsl`: source last texel, covered extent.
+    bounds: Vec<wgpu::Buffer>,
 }
 
 impl HizPyramid {
@@ -204,12 +229,37 @@ impl HizPyramid {
                 })
             })
             .collect();
+        let extents = pyramid_extents(depth_size);
+        let bounds = extents
+            .iter()
+            .enumerate()
+            .map(|(level, extent)| {
+                let source = if level == 0 {
+                    depth_size
+                } else {
+                    extents[level - 1]
+                };
+                let words = [
+                    source[0].saturating_sub(1),
+                    source[1].saturating_sub(1),
+                    extent[0],
+                    extent[1],
+                ];
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("terrain hi-z level bounds"),
+                    contents: bytemuck::cast_slice(&words),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                })
+            })
+            .collect();
         Self {
             depth_size,
             view: texture.create_view(&Default::default()),
             texture,
             mips,
             sizes,
+            extents,
+            bounds,
         }
     }
 
@@ -286,6 +336,7 @@ impl CullKernels {
                     },
                     count: None,
                 },
+                storage(10, false),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -307,7 +358,13 @@ impl CullKernels {
                 layout,
                 module,
                 entry_point: Some(entry),
-                compilation_options: Default::default(),
+                // Every kernel writes its own workgroup slots before any barrier reads them, and
+                // the occlusion bits are cleared explicitly. Zero-filling the 256-entry scratch
+                // anyway kept FXC optimising for seconds per kernel at every DX12 launch.
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
                 cache: None,
             })
         };
@@ -371,6 +428,10 @@ impl CullKernels {
             entries.push(wgpu::BindGroupEntry {
                 binding: 8,
                 resource: wgpu::BindingResource::TextureView(hiz),
+            });
+            entries.push(wgpu::BindGroupEntry {
+                binding: 10,
+                resource: storage.draw_offsets.as_entire_binding(),
             });
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("terrain cull bindings"),
@@ -473,12 +534,17 @@ impl CullKernels {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(&pyramid.mips[0]),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: pyramid.bounds[0].as_entire_binding(),
+                },
             ],
         );
         let reduce = pyramid
             .mips
             .windows(2)
-            .map(|pair| {
+            .zip(&pyramid.bounds[1..])
+            .map(|(pair, bounds)| {
                 group(
                     &self.reduce,
                     &[
@@ -489,6 +555,10 @@ impl CullKernels {
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::TextureView(&pair[1]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: bounds.as_entire_binding(),
                         },
                     ],
                 )
@@ -518,12 +588,12 @@ impl CullKernels {
         };
         let levels = std::iter::once((seed, &bindings.seed))
             .chain(bindings.reduce.iter().map(|group| (&self.reduce, group)));
-        for ((pipeline, group), size) in levels.zip(&pyramid.sizes) {
+        for ((pipeline, group), extent) in levels.zip(&pyramid.extents) {
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, group, &[]);
             pass.dispatch_workgroups(
-                size[0].div_ceil(PYRAMID_WORKGROUP),
-                size[1].div_ceil(PYRAMID_WORKGROUP),
+                extent[0].div_ceil(PYRAMID_WORKGROUP),
+                extent[1].div_ceil(PYRAMID_WORKGROUP),
                 1,
             );
         }

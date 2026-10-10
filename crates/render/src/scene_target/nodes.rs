@@ -7,14 +7,15 @@ use bevy::{
     render::{
         camera::ExtractedCamera,
         render_graph::{NodeRunError, RenderGraphContext, ViewNode},
-        render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases},
-        render_resource::{RenderPassDescriptor, StoreOp},
+        render_phase::{TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases},
+        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::{ExtractedView, ViewDepthTexture, ViewTarget},
     },
 };
 
-/// Cinnabar's opaque, cutout and sky phase items share samples with later world passes.
+/// Cinnabar's opaque, cutout and sky phase items share samples with later world passes. The
+/// pass records and encodes on a worker task, in parallel with other deferred world passes.
 pub(super) struct SceneOpaquePass;
 
 impl ViewNode for SceneOpaquePass {
@@ -47,37 +48,53 @@ impl ViewNode for SceneOpaquePass {
             return Ok(());
         };
         let attachments = [Some(scene.color_attachment(target, false))];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("main opaque and cutout scene"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                world,
-                crate::RuntimeStage::GpuOpaque,
-            ),
-            occlusion_query_set: None,
+        let depth = depth.get_attachment(StoreOp::Store);
+        let timestamps =
+            crate::gpu_timing::render_pass_timestamps(world, crate::RuntimeStage::GpuOpaque);
+        let view_entity = graph.view_entity();
+        // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
+        // which begins the pass but draws nothing.
+        let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+            .map(|viewport| {
+                crate::render_bounds::viewport(
+                    &viewport,
+                    crate::render_bounds::extent(scene.color_view(false)),
+                )
+            });
+        context.add_command_buffer_generation_task(move |device| {
+            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("main opaque and cutout scene"),
+            });
+            let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("main opaque and cutout scene"),
+                color_attachments: &attachments,
+                depth_stencil_attachment: Some(depth),
+                timestamp_writes: timestamps,
+                occlusion_query_set: None,
+            });
+            let mut pass = TrackedRenderPass::new(&device, pass);
+            match &viewport {
+                Some(Some(viewport)) => pass.set_camera_viewport(viewport),
+                Some(None) => {
+                    drop(pass);
+                    return encoder.finish();
+                }
+                None => {}
+            }
+            if !opaque.is_empty()
+                && let Err(error) = opaque.render(&mut pass, world, view_entity)
+            {
+                bevy::log::error!("Error rendering the opaque scene: {error:?}");
+            }
+            if !cutout.is_empty()
+                && let Err(error) = cutout.render(&mut pass, world, view_entity)
+            {
+                bevy::log::error!("Error rendering the cutout scene: {error:?}");
+            }
+            drop(pass);
+            encoder.finish()
         });
-        if let Some(viewport) =
-            Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
-        {
-            let Some(viewport) = crate::render_bounds::viewport(
-                &viewport,
-                crate::render_bounds::extent(scene.color_view(false)),
-            ) else {
-                return Ok(());
-            };
-            pass.set_camera_viewport(&viewport);
-        }
-        if !opaque.is_empty()
-            && let Err(error) = opaque.render(&mut pass, world, graph.view_entity())
-        {
-            bevy::log::error!("Error rendering the opaque scene: {error:?}");
-        }
-        if !cutout.is_empty()
-            && let Err(error) = cutout.render(&mut pass, world, graph.view_entity())
-        {
-            bevy::log::error!("Error rendering the cutout scene: {error:?}");
-        }
+
         Ok(())
     }
 }

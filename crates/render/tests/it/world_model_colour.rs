@@ -86,7 +86,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
             .map(|_| [light[0], light[1], light[2], 1.0]);
         let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
         let fog = [0.5, 0.6, 0.7];
-        let mut atmosphere = [0.0; 32];
+        let mut atmosphere = [0.0; 36];
         atmosphere[16..19].copy_from_slice(&fog.map(linear));
         atmosphere[20] = 100.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

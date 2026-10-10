@@ -176,6 +176,8 @@ fn hi_z_pyramid_keeps_the_farthest_depth_of_every_footprint() {
 }
 
 /// Display-sized pyramids build, and odd trailing rows and columns still reach every level.
+/// Only texels covering a depth pixel are built; edges nearer than an unbuilt texel prove no
+/// covered texel reads one.
 #[test]
 fn hi_z_pyramid_covers_every_pixel_of_display_sized_targets() {
     let Some(gpu) = Gpu::for_fixture("terrain hi-z display sizes") else {
@@ -191,44 +193,63 @@ fn hi_z_pyramid_covers_every_pixel_of_display_sized_targets() {
                 .all(|pair| pair[1] == pair[0].map(|side| (side / 2).max(1)))
         );
         assert_eq!(*sizes.last().unwrap(), [1, 1]);
+        let extents = kernels::pyramid_extents(size);
 
-        // Only the last column and row keep the cleared, farthest depth.
-        let target = Target::sized(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1, size);
         let [width, height] = size;
         let edge_x = 1.0 - 2.0 / width as f32;
         let edge_y = -1.0 + 2.0 / height as f32;
-        let rects = [
-            [-1.0, edge_y, 0.5, 0.0, edge_x, 1.0, 0.0, 0.0],
-            [-0.5, 0.0, 0.75, 0.0, 0.25, 0.5, 0.0, 0.0],
-        ];
-        render_scene(
-            &gpu,
-            &target,
-            ("rect_vertex", "colour_fragment"),
-            &[0.0; 16],
-            &rects,
-        );
-        let depth = floats(&read_texture(&gpu, &target.depth, 0));
-        let (w, h) = (width as usize, height as usize);
-        assert_eq!(depth[0], 0.5, "{size:?} interior");
-        assert_eq!(depth[w - 1], 0.0, "{size:?} last column");
-        assert_eq!(depth[(h - 1) * w], 0.0, "{size:?} last row");
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        let pyramid = target.pyramid(&gpu, &kernels, &mut encoder);
-        gpu.queue.submit([encoder.finish()]);
-        assert_eq!(pyramid.mip_count() as usize, sizes.len());
-        for level in 0..pyramid.mip_count() {
-            let texels = floats(&read_texture(&gpu, &pyramid.texture, level));
-            let level_width = pyramid.size(level)[0] as usize;
-            let mut expected = vec![None::<f32>; texels.len()];
-            for (pixel, &value) in depth.iter().enumerate() {
+        for covered_edges in [false, true] {
+            // Without the cover, only the last column and row keep the cleared, farthest depth.
+            let cover = [-1.0, -1.0, 0.25, 0.0, 1.0, 1.0, 0.0, 0.0];
+            let rects = [
+                [-1.0, edge_y, 0.5, 0.0, edge_x, 1.0, 0.0, 0.0],
+                [-0.5, 0.0, 0.75, 0.0, 0.25, 0.5, 0.0, 0.0],
+            ];
+            let scene = if covered_edges {
+                [&[cover][..], &rects].concat()
+            } else {
+                rects.to_vec()
+            };
+            let target = Target::sized(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1, size);
+            render_scene(
+                &gpu,
+                &target,
+                ("rect_vertex", "colour_fragment"),
+                &[0.0; 16],
+                &scene,
+            );
+            let depth = floats(&read_texture(&gpu, &target.depth, 0));
+            let (w, h) = (width as usize, height as usize);
+            let edge = if covered_edges { 0.25 } else { 0.0 };
+            assert_eq!(depth[0], 0.5, "{size:?} interior");
+            assert_eq!(depth[w - 1], edge, "{size:?} last column");
+            assert_eq!(depth[(h - 1) * w], edge, "{size:?} last row");
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            let pyramid = target.pyramid(&gpu, &kernels, &mut encoder);
+            gpu.queue.submit([encoder.finish()]);
+            assert_eq!(pyramid.mip_count() as usize, sizes.len());
+            for level in 0..pyramid.mip_count() {
                 let shift = level + 1;
-                let texel = ((pixel / w) >> shift) * level_width + ((pixel % w) >> shift);
-                expected[texel] = Some(expected[texel].map_or(value, |old: f32| old.min(value)));
-            }
-            for (texel, (actual, expected)) in texels.iter().zip(&expected).enumerate() {
-                if let Some(expected) = expected {
-                    assert_eq!(actual, expected, "{size:?} level {level} texel {texel}");
+                assert_eq!(
+                    extents[level as usize],
+                    [((w - 1) >> shift) as u32 + 1, ((h - 1) >> shift) as u32 + 1],
+                    "{size:?} level {level} covered extent"
+                );
+                let texels = floats(&read_texture(&gpu, &pyramid.texture, level));
+                let level_width = pyramid.size(level)[0] as usize;
+                let mut expected = vec![None::<f32>; texels.len()];
+                for (pixel, &value) in depth.iter().enumerate() {
+                    let texel = ((pixel / w) >> shift) * level_width + ((pixel % w) >> shift);
+                    expected[texel] =
+                        Some(expected[texel].map_or(value, |old: f32| old.min(value)));
+                }
+                for (texel, (actual, expected)) in texels.iter().zip(&expected).enumerate() {
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            actual, expected,
+                            "{size:?} edges {covered_edges} level {level} texel {texel}"
+                        );
+                    }
                 }
             }
         }

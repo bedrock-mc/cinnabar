@@ -6,15 +6,6 @@ use crate::{
 
 fn source() -> String {
     let source = shader_source::standalone(include_str!("../../src/model.wgsl"), &["ENHANCED"])
-        .replace("@vertex\nfn vertex(", "fn model_vertex(")
-        .replace(
-            "@builtin(vertex_index) vertex_index: u32",
-            "vertex_index: u32",
-        )
-        .replace(
-            "@builtin(instance_index) instance_index: u32",
-            "instance_index: u32",
-        )
         .replace("@group(1) @binding(0)", "@group(0) @binding(30)");
     let source = (0..7).fold(source, |source, binding| {
         source.replace(
@@ -157,10 +148,14 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
                 [0.0, 0.0, 1.0],
             ][if case == 9 { 1 } else { case - 4 }]
         };
-        assert_eq!(
-            &values[case * 3][..3],
-            &expected,
-            "case {case}: offset must not become rotation"
+        // Exact to within the driver's normalize rounding, which varies by module context.
+        assert!(
+            values[case * 3][..3]
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() <= 1.0e-6),
+            "case {case}: offset must not become rotation: {:?} != {expected:?}",
+            &values[case * 3][..3]
         );
         assert_eq!(values[case * 3][3], 1.0, "fixture vertex must be visible");
         assert_eq!(

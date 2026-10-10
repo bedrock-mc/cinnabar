@@ -331,6 +331,11 @@ pub(in crate::chunk) fn begin_arena_migration(
         bytes = growth.new_capacity as u64 * stream.item_bytes(),
     )
     .entered();
+    if stream == ArenaStream::Origins {
+        // Slots up to the new capacity may be drawn before the copy lands.
+        arena.vertex_offset_buffer =
+            super::arena::identity_vertex_offsets(render_device, growth.new_capacity);
+    }
     arena.migration = Some(ArenaMigration {
         stream,
         buffer: create_storage_buffer(

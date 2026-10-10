@@ -179,6 +179,21 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         compilation_options: Default::default(),
         cache: None,
     });
+    // The seed's source is the whole depth target and it builds every covering texel.
+    let size = depth.texture.size();
+    let bounds = wgpu::util::DeviceExt::create_buffer_init(
+        device,
+        &wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[
+                size.width - 1,
+                size.height - 1,
+                size.width.div_ceil(2),
+                size.height.div_ceil(2),
+            ]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        },
+    );
     let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
@@ -190,6 +205,10 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: bounds.as_entire_binding(),
             },
         ],
     });

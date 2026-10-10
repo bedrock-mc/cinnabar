@@ -6,8 +6,13 @@ use gpu_snapshot::{Draw, Gpu};
 fn shader() -> String {
     let source = include_str!("../../src/model.wgsl");
     let functions = source.split_once("fn rotate_cross(").unwrap().1;
-    let functions = functions.split_once("\n@vertex").unwrap().0;
-    format!("fn rotate_cross({functions}\n{WITNESS}")
+    // Up to the first preprocessor directive or entry point that follows the helpers.
+    let end = ["\n#", "\n@"]
+        .into_iter()
+        .filter_map(|marker| functions.find(marker))
+        .min()
+        .unwrap();
+    format!("fn rotate_cross({}\n{WITNESS}", &functions[..end])
 }
 
 #[test]

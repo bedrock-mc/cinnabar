@@ -611,8 +611,39 @@
   frames keep the CPU path.
 - Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
   against rendered ids, and the CPU path's pixels from a stale history.
-- Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
-  as is a GPU pass-time measurement once per-pass timestamps land.
+- Live visual pass: on Vulkan and DX12, GPU-culled and CPU-planned frames at the aeris.land
+  spawn match at four headings apart from moving entities, nametags and chat. GPU pass times
+  come from `RUST_MCBE_GPU_NODES=1` (below).
+
+## Render frame time
+
+- Culled terrain commands carry no builtin-visible offsets: each command's base vertex
+  addresses its own entries in a draw-offset vertex buffer the cull kernel writes, so DX12 uses
+  count draws like Vulkan. The fixed-count path, which submitted every slot's worst case and
+  had wgpu validate and patch each command, is now the fallback for devices without count
+  draws. The GPU test draws both submissions pixel-identical to the CPU path on DX12 and
+  Vulkan.
+- CPU-planned draws bind the arena's identity offset buffer, so both paths share one pipeline
+  per terrain family. DX12 compiles shaders with FXC at every launch, about 0.5 to 1.7 s per
+  pipeline here, so a culled variant per family would lengthen the loading screen.
+- The Hi-Z pyramid builds only texels that cover a depth pixel, `ceil(depth / 2^(level + 1))`
+  per axis, passed per level in a bounds uniform; the cull reads no other texel.
+- The cull kernels skip wgpu's workgroup zero-fill. Each kernel writes its workgroup slots
+  before reading them, and the fill made FXC spend about 7.5 s per kernel, which held DX12
+  launch-to-HUD at about 23 s; it is now about 4 s.
+- The opaque, late-cull and transparent passes record and encode on worker tasks; each
+  transparent colour-space range is its own task.
+- Sorted and direct water and model draws share one transparent pipeline
+  (`transparent_terrain.wgsl`, composing the liquid and model modules over
+  `chunk_bindings.wgsl`); every water draw's first instance carries
+  `TRANSPARENT_WATER_DRAW_FLAG`, and `liquid_draw_ref` tells sorted refs from direct records.
+  On an RX 6600 XT the program switch between the two families cost more than the drawing. An
+  offscreen GPU test matches the shared pipeline's pixels, for sorted refs and direct records,
+  against both programs through their own pipelines.
+- `RUST_MCBE_GPU_NODES=1` plots per-node and per-section GPU times under Tracy, and Tracy
+  builds expose wgpu's encode and submit zones; see the live-testing guide.
+- Evidence: [render frame time](docs/evidence/render-frame-time.md), measured on DX12 before
+  Windows defaulted to Vulkan; `WGPU_BACKEND=dx12` selects that backend.
 
 ## Compact font carriers and glyph residency
 
