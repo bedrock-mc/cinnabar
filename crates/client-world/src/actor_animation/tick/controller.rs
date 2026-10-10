@@ -1,6 +1,9 @@
 //! Controller traversal and retained effects of completed transitions.
 use super::*;
 
+#[cfg(test)]
+mod state_time_tests;
+
 #[derive(Clone, Debug, Default)]
 pub(in crate::actor_animation) struct ControllerJournal {
     events: Vec<ControllerEvent>,
@@ -147,6 +150,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
         started_tick: u64,
         blend: Option<ControllerBlend>,
     ) -> Result<(), EvalError> {
+        let evaluator = self.evaluator.for_controller_state(started_tick);
         let first = self.evaluator.assets.controller_states()[state].first_animation as usize;
         for (index, animation) in state_animations(self.evaluator.assets, state)?
             .iter()
@@ -154,7 +158,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
         {
             self.budget.charge_work()?;
             let weight = blend_weight(
-                self.evaluator,
+                &evaluator,
                 self.variables,
                 animation.weight,
                 weight,
@@ -321,7 +325,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 } else {
                     self.finished(state_index, entered_tick)?
                 },
-                ..*self.evaluator
+                ..self.evaluator.for_controller_state(entered_tick)
             };
             let mut target = None;
             for transition in transitions {
@@ -376,6 +380,10 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 .get(controller.first_state as usize + target as usize)
                 .ok_or(EvalError::Invalid)?;
             if let Some(script) = entered.on_entry {
+                let evaluator = Evaluator {
+                    state_time: 0.0,
+                    ..evaluator
+                };
                 evaluator.run(script as usize, self.variables, 0.0, self.budget)?;
             }
             if worn {

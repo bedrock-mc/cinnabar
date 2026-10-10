@@ -534,12 +534,23 @@ pub(super) struct Evaluator<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// Seconds since the controller state being evaluated was entered.
+    pub(super) state_time: f32,
     /// The posed skeleton's bones and lowercase names, for bone queries.
     pub(super) bones: &'a [RuntimeBone],
     pub(super) bone_names: &'a [Box<str>],
 }
 
 impl Evaluator<'_> {
+    /// Sets the elapsed time seen by expressions in one controller state.
+    pub(super) fn for_controller_state(self, entered_tick: u64) -> Self {
+        Self {
+            state_time: self.anim_tick.saturating_sub(entered_tick) as f32
+                * ACTOR_TICK_DURATION.as_secs_f32(),
+            ..self
+        }
+    }
+
     fn expressions(&self) -> &[assets::CompiledMolangExpression] {
         self.program.map_or_else(
             || self.assets.molang_expressions(),
@@ -822,6 +833,7 @@ impl Evaluator<'_> {
             swell_amount: self.swell_amount,
             life_tick: self.life_tick,
             finished: self.finished,
+            state_time: self.state_time,
             bones: self.bones,
             bone_names: self.bone_names,
         };

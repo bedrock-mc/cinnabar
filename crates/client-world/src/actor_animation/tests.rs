@@ -98,6 +98,7 @@ fn read_with(
         swell_amount: None,
         life_tick,
         finished: (false, false),
+        state_time: 0.0,
         bones: &[],
         bone_names: &[],
     };
@@ -1001,6 +1002,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         swell_amount: None,
         life_tick: 0,
         finished: (false, false),
+        state_time: 0.0,
         bones: &bones,
         bone_names: &names,
     };

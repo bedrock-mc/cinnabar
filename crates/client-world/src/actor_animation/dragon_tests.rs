@@ -48,6 +48,7 @@ fn dragon_query_and_engine_history_read_the_completed_actor_tick() {
         swell_amount: None,
         life_tick: 1,
         finished: (false, false),
+        state_time: 0.0,
         bones: &[],
         bone_names: &[],
     };

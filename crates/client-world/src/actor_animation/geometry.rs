@@ -84,6 +84,7 @@ pub(super) fn resolve_binding(
         query_history: None,
         life_tick: 0,
         finished: (false, false),
+        state_time: 0.0,
         bones: &[],
         bone_names: &[],
     };
@@ -481,6 +482,7 @@ fn reselect_geometry_with_checkpoint(
         query_history: None,
         life_tick: 0,
         finished: (false, false),
+        state_time: 0.0,
         bones: &state.bones,
         bone_names: &state.bone_names,
     };

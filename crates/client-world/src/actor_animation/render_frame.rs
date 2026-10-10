@@ -330,6 +330,7 @@ impl ActorAnimationStore {
             query_history: None,
             life_tick: self.completed_tick.saturating_sub(state.lifetime_epoch),
             finished: (false, false),
+            state_time: 0.0,
             bones: state.posed_bones(),
             bone_names: state.posed_bone_names(),
         };

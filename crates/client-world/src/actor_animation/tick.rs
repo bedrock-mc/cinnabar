@@ -338,6 +338,7 @@ pub(super) fn evaluate_state(
         query_history: None,
         life_tick,
         finished: (false, false),
+        state_time: 0.0,
         bones: state.posed_bones(),
         bone_names: state.posed_bone_names(),
     };
