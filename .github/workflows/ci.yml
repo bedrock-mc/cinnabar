@@ -91,15 +91,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
-          gh api --paginate --slurp "repos/$REPO/pulls/$PR/files?per_page=100" > "$RUNNER_TEMP/pr-files.json"
+          gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=100" > "$RUNNER_TEMP/pr-files.json"
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path, PurePosixPath
 
+          # Devtool selects owning Rust packages; this allowlist skips Go and Platform work too.
+          # It is deliberately narrower than tools/devtool/src/selection.rs: reference docs,
+          # crate docs, assets, workflows, packaging and unknown doc directories keep all checks.
           def standalone_doc(name):
               """Accept only standalone contributor docs outside runtime and architecture inputs."""
               path = PurePosixPath(name)
@@ -107,10 +111,11 @@ jobs:
                   str(path.parent) in {"docs", "docs/agents", "docs/reviews"} and path.suffix == ".md"
               )
 
-          pages = json.loads((Path(os.environ["RUNNER_TEMP"]) / "pr-files.json").read_text())
-          files = [file for page in pages for file in page]
-          # Truncated lists, renames from runtime paths, and unknown inputs keep every check.
-          docs_only = bool(files) and len(files) == int(os.environ["CHANGED_FILES"]) and all(
+          comparison = json.loads((Path(os.environ["RUNNER_TEMP"]) / "pr-files.json").read_text())
+          files = comparison["files"]
+          # Compare returns at most 300 files. At the cap or with a count mismatch, run everything.
+          # Renames must be standalone docs on both sides; unknown inputs keep every check.
+          docs_only = 0 < len(files) < 300 and len(files) == int(os.environ["CHANGED_FILES"]) and all(
               standalone_doc(file["filename"])
               and standalone_doc(file.get("previous_filename", file["filename"]))
               for file in files
@@ -137,9 +142,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
 
+  # Full runs retain every diagnostic and cache writer even when preflight fails.
   verify:
     needs: [changes, preflight]
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+    if: >-
+      always() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -185,7 +194,10 @@ jobs:
       actions: write
     name: Rust tests (${{ matrix.os }})
     needs: [changes, preflight]
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+    if: >-
+      always() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -242,7 +254,10 @@ jobs:
       actions: write
     name: Go (${{ matrix.os }})
     needs: [changes, preflight]
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+    if: >-
+      always() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -311,7 +326,11 @@ jobs:
   platform:
     name: Platform (${{ matrix.name }})
     needs: [changes, preflight]
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true' && needs.changes.outputs.full != 'true'
+    if: >-
+      always() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
+      && needs.changes.outputs.full != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
