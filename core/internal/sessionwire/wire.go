@@ -50,7 +50,7 @@ type Handoff struct {
 	Identity      Identity `json:"identity"`
 	ClientCache   bool     `json:"client_cache"`   // the upstream login advertised blob-cache support
 	PacksRequired bool     `json:"packs_required"` // the offer or the stack required the packs
-	Packs         []Pack   `json:"packs"`          // application order; PackData frames follow in this order
+	Packs         []Pack   `json:"packs"`          // application order; uncached archives follow as PackData
 }
 
 // Identity is the upstream login's canonical player identity.
@@ -62,11 +62,18 @@ type Identity struct {
 
 // Pack describes one selected archive; ContentKey is secret.
 type Pack struct {
-	UUID       string `json:"uuid"`
-	Version    string `json:"version"`
-	SubPack    string `json:"sub_pack"`
-	ContentKey string `json:"content_key"`
-	Size       uint64 `json:"size"`
+	UUID       string         `json:"uuid"`
+	Version    string         `json:"version"`
+	SubPack    string         `json:"sub_pack"`
+	ContentKey string         `json:"content_key"`
+	Size       uint64         `json:"size"`
+	Cache      *CachedArchive `json:"cache,omitempty"`
+}
+
+// CachedArchive names a pinned cache file; Size and SHA256 must both match before use.
+type CachedArchive struct {
+	Path   string   `json:"path"`
+	SHA256 [32]byte `json:"sha256"`
 }
 
 // Transfer ends a session at a server transfer; a targetless Connect follows it.
@@ -183,10 +190,13 @@ func EncodeJSON(kind byte, value any) ([]byte, error) {
 	return append([]byte{kind}, body...), nil
 }
 
-// WritePacks streams each archive in PackData frames of at most PackChunkBytes.
+// WritePacks streams uncached archives in PackData frames; nil entries keep the indices of cached packs.
 func WritePacks(writeFrame func([]byte) error, packs []*resource.Pack) error {
 	var frame []byte
 	for index, pack := range packs {
+		if pack == nil {
+			continue
+		}
 		size := pack.Size()
 		for offset := 0; offset < size; {
 			n := min(PackChunkBytes, size-offset)

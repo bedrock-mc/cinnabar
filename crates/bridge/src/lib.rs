@@ -30,7 +30,7 @@ pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
 };
 pub use session::{
-    ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
+    CachedArchive, ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
     SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, batch_frame_body,
     batch_frame_from_bedrock, connect_session, decode_core_message, encode_batch, encode_connect,
 };

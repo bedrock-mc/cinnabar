@@ -1,3 +1,5 @@
+mod cache;
+
 use bytes::{Bytes, BytesMut};
 use tokio_util::codec::Decoder;
 
@@ -74,7 +76,7 @@ fn core_stream_fixture_decodes_in_order() {
         ]
     );
 
-    let mut receiver = HandoffPackReceiver::new(&handoff);
+    let mut receiver = HandoffPackReceiver::new(&handoff, None).unwrap();
     assert!(!receiver.is_complete());
     let CoreMessage::PackData { index, data } = pack else {
         panic!("pack data expected")
@@ -174,7 +176,11 @@ fn handoff_requires_startup_packets_and_known_fields() {
         panic!("handoff expected")
     };
     assert_eq!(handoff.startup, [Bytes::from_static(&[0x0b])]);
-    assert!(HandoffPackReceiver::new(&handoff).is_complete());
+    assert!(
+        HandoffPackReceiver::new(&handoff, None)
+            .unwrap()
+            .is_complete()
+    );
 
     let unknown = br#"{"identity":{"display_name":"a","xuid":"","uuid":""},"client_cache":false,"packs_required":false,"packs":[],"extra":1}"#;
     let mut frame = vec![KIND_HANDOFF];
@@ -204,6 +210,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 sub_pack: String::new(),
                 content_key: PackContentKey("secret-key".into()),
                 size,
+                cache: None,
             })
             .collect(),
         startup: Vec::new(),
@@ -214,7 +221,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
 #[test]
 fn pack_receiver_assembles_chunks_in_handoff_order() {
     let handoff = handoff_with_sizes(&[0, 5, 0, 2]);
-    let mut receiver = HandoffPackReceiver::new(&handoff);
+    let mut receiver = HandoffPackReceiver::new(&handoff, None).unwrap();
     assert!(
         receiver.accept(0, b"x").is_err(),
         "an empty archive takes no bytes"
@@ -241,11 +248,16 @@ fn pack_receiver_assembles_chunks_in_handoff_order() {
 #[test]
 fn pack_receiver_rejects_overflow_and_incomplete_archives() {
     let handoff = handoff_with_sizes(&[3]);
-    let mut receiver = HandoffPackReceiver::new(&handoff);
+    let mut receiver = HandoffPackReceiver::new(&handoff, None).unwrap();
     assert!(receiver.accept(0, b"abcd").is_err());
     assert!(receiver.accept(0, b"").is_err());
     receiver.accept(0, b"ab").unwrap();
-    assert!(HandoffPackReceiver::new(&handoff).into_archives().is_err());
+    assert!(
+        HandoffPackReceiver::new(&handoff, None)
+            .unwrap()
+            .into_archives()
+            .is_err()
+    );
     assert!(receiver.into_archives().is_err());
 }
 

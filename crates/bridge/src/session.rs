@@ -14,6 +14,9 @@ use crate::account::{ConnectParams, ConnectTarget};
 use crate::endpoint::EndpointKind;
 use crate::{BridgeError, FrameQueue, FramedReader, MAX_FRAME_LEN};
 
+mod pack_cache;
+pub use pack_cache::CachedArchive;
+
 const KIND_CONNECT: u8 = 1;
 const KIND_BATCH: u8 = 2;
 const KIND_HANDOFF: u8 = 3;
@@ -149,7 +152,7 @@ pub struct SessionIdentity {
     pub uuid: String,
 }
 
-/// One selected pack; its archive arrives in [`CoreMessage::PackData`] frames.
+/// One selected pack, read from the cache or received in [`CoreMessage::PackData`] frames.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandoffPack {
@@ -159,6 +162,9 @@ pub struct HandoffPack {
     pub content_key: PackContentKey,
     /// Archive bytes.
     pub size: u64,
+    /// Absent when the core streams this archive instead.
+    #[serde(default)]
+    pub cache: Option<CachedArchive>,
 }
 
 /// A pack's content key, redacted from `Debug` and zeroized on drop.
@@ -299,42 +305,47 @@ fn read_varuint32(bytes: &[u8]) -> Option<(u32, usize)> {
     None
 }
 
-/// Reassembles the archives that follow a handoff; batches may arrive only once it is complete.
+/// Loads cached archives and reassembles streamed ones; batches follow only after completion.
 pub struct HandoffPackReceiver {
     sizes: Vec<u64>,
     archives: Vec<Vec<u8>>,
+    next: usize,
 }
 
 impl HandoffPackReceiver {
-    /// Expects the archives of `handoff.packs`, in order.
-    #[must_use]
-    pub fn new(handoff: &SessionHandoff) -> Self {
+    /// Loads cache references and expects any remaining archives in handoff order.
+    /// Files are opened under the client's configured cache root; call this on a blocking worker.
+    pub fn new(handoff: &SessionHandoff, cache_root: Option<&Path>) -> Result<Self, BridgeError> {
+        let archives = handoff
+            .packs
+            .iter()
+            .map(|pack| match &pack.cache {
+                Some(reference) => reference.read(cache_root, pack.size),
+                None => Ok(Vec::new()),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut receiver = Self {
             sizes: handoff.packs.iter().map(|pack| pack.size).collect(),
-            archives: Vec::with_capacity(handoff.packs.len()),
+            archives,
+            next: 0,
         };
         receiver.skip_complete();
-        receiver
+        Ok(receiver)
     }
 
     /// Whether every archive has arrived.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.archives.len() == self.sizes.len()
-            && self
-                .archives
-                .last()
-                .is_none_or(|archive| archive.len() as u64 == self.sizes[self.archives.len() - 1])
+        self.next == self.archives.len()
     }
 
-    /// Appends one PackData chunk, which must continue the first incomplete archive.
+    /// Appends one PackData chunk, which must continue the first incomplete streamed archive.
     pub fn accept(&mut self, index: u32, data: &[u8]) -> Result<(), BridgeError> {
-        let current = self.archives.len().checked_sub(1);
-        let Some(current) = current.filter(|current| *current as u64 == u64::from(index)) else {
+        if self.is_complete() || self.next as u64 != u64::from(index) {
             return Err(invalid("pack data out of order"));
-        };
-        let archive = &mut self.archives[current];
-        let remaining = self.sizes[current] - archive.len() as u64;
+        }
+        let archive = &mut self.archives[self.next];
+        let remaining = self.sizes[self.next] - archive.len() as u64;
         if data.is_empty() || data.len() as u64 > remaining {
             return Err(invalid("pack data exceeds the archive size"));
         }
@@ -351,15 +362,12 @@ impl HandoffPackReceiver {
         Ok(self.archives)
     }
 
-    /// Opens the next archive while the current one is complete, so empty archives need no frames.
+    /// Skips empty and cached archives as well as streams that have finished.
     fn skip_complete(&mut self) {
-        while self.archives.len() < self.sizes.len()
-            && self
-                .archives
-                .last()
-                .is_none_or(|archive| archive.len() as u64 == self.sizes[self.archives.len() - 1])
+        while self.next < self.archives.len()
+            && self.archives[self.next].len() as u64 == self.sizes[self.next]
         {
-            self.archives.push(Vec::new());
+            self.next += 1;
         }
     }
 }

@@ -53,7 +53,8 @@ impl LoginSequence {
             .send(bridge::encode_connect(&request).map_err(bridge_error)?)
             .await
             .map_err(bridge_error)?;
-        let (handoff, archives) = receive_handoff(&mut reader).await?;
+        let (handoff, archives) =
+            receive_handoff(&mut reader, settings.resource_pack_cache_dir.as_deref()).await?;
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
@@ -74,12 +75,20 @@ impl LoginSequence {
 /// Reads the handoff and every archive it announces; a terminal message ends the join instead.
 async fn receive_handoff(
     reader: &mut FramedReader,
+    cache_root: Option<&Path>,
 ) -> Result<(SessionHandoff, Vec<Vec<u8>>), ProtocolError> {
     let handoff = match next_message(reader).await? {
         CoreMessage::Handoff(handoff) => handoff,
         message => return Err(join_ended(message)),
     };
-    let mut receiver = HandoffPackReceiver::new(&handoff);
+    let cache_root = cache_root.map(Path::to_path_buf);
+    let (handoff, receiver) = tokio::task::spawn_blocking(move || {
+        let receiver = HandoffPackReceiver::new(&handoff, cache_root.as_deref());
+        (handoff, receiver)
+    })
+    .await
+    .map_err(|_| unexpected("cache archive reader failed"))?;
+    let mut receiver = receiver.map_err(bridge_error)?;
     while !receiver.is_complete() {
         match next_message(reader).await? {
             CoreMessage::PackData { index, data } => {

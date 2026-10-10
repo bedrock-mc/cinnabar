@@ -19,6 +19,8 @@ pub struct LoginSettings {
     pub input_mode: PlayerInputMode,
     /// The GUI scale offset from the video settings.
     pub gui_scale_offset: i8,
+    /// Trusted local archive directory, never sent in the upstream login claims.
+    pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for LoginSettings {
@@ -27,6 +29,7 @@ impl Default for LoginSettings {
             language_code: "en_US".to_owned(),
             input_mode: PlayerInputMode::Mouse,
             gui_scale_offset: 0,
+            resource_pack_cache_dir: None,
         }
     }
 }
@@ -208,6 +211,7 @@ mod tests {
             language_code: "de_DE".to_owned(),
             input_mode: PlayerInputMode::GamePad,
             gui_scale_offset: -1,
+            ..Default::default()
         };
         let claims = login_client_data("Steve", None, &settings);
         assert_eq!(claims["GameVersion"], GAME_VERSION);

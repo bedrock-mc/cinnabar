@@ -242,6 +242,7 @@ func (server *sessionServer) prepare(
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
 	}
+	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs
 	return plan, prepared, nil
 }

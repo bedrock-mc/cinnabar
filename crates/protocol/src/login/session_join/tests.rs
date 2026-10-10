@@ -163,8 +163,25 @@ fn identity(display_name: &str) -> serde_json::Value {
 /// their sub-packs, content keys and required bit, and initializes only once presentation is ready.
 #[tokio::test]
 async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
+    for cached in [false, true] {
+        check_handed_off_packs(cached).await;
+    }
+}
+
+/// Exercises a complete join with streamed packs and with a mixed cache/stream stack.
+async fn check_handed_off_packs(cached: bool) {
+    use sha2::{Digest, Sha256};
     let dir = SocketDir::new("packs");
-    let settings = LoginSettings::default();
+    let cache_root = dir.path().join("cache");
+    std::fs::create_dir(&cache_root).unwrap();
+    let cache_root = cache_root.canonicalize().unwrap();
+    let archive = cache_root.join("pack.mcpack");
+    std::fs::write(&archive, b"abcde").unwrap();
+    let reference = cached.then(|| serde_json::json!({"path": archive, "sha256": <[u8; 32]>::from(Sha256::digest(b"abcde"))}));
+    let settings = LoginSettings {
+        resource_pack_cache_dir: Some(cache_root),
+        ..Default::default()
+    };
     let listener = listen(dir.path());
     let core = async {
         let mut core = FakeCore::accept(&listener).await;
@@ -181,16 +198,18 @@ async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
             serde_json::json!({
                 "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
                 "packs": [
-                    {"uuid": "00112233-4455-6677-8899-aabbccddeeff", "version": "1.0.0", "sub_pack": "high", "content_key": "key-a", "size": 5},
+                    {"uuid": "00112233-4455-6677-8899-aabbccddeeff", "version": "1.0.0", "sub_pack": "high", "content_key": "key-a", "size": 5, "cache": reference},
                     {"uuid": "11223344-5566-7788-99aa-bbccddeeff00", "version": "2.0.0", "sub_pack": "", "content_key": "", "size": 3},
                 ],
             }),
             &[start_game()],
         ))
         .await;
-        for (index, bytes) in [(0, &b"ab"[..]), (0, b"cde"), (1, b"xyz")] {
-            core.send(pack_frame(index, bytes)).await;
+        if !cached {
+            core.send(pack_frame(0, b"ab")).await;
+            core.send(pack_frame(0, b"cde")).await;
         }
+        core.send(pack_frame(1, b"xyz")).await;
         let spawn_requests = core.receive_packets().await;
         assert!(
             spawn_requests
@@ -415,4 +434,34 @@ fn disconnect_messages_keep_reason_text_and_hidden_screen() {
     );
     assert!(unknown.hide_disconnection_screen);
     assert_eq!(unknown.messages.message, "kicked");
+}
+
+/// Invalid cache references fail the join before the client starts its spawn sequence.
+#[tokio::test]
+async fn invalid_cached_archive_is_reported_as_a_join_error() {
+    let dir = SocketDir::new("bad-cache");
+    let cache_root = dir.path().canonicalize().unwrap();
+    let path = cache_root.join("archive.mcpack");
+    std::fs::write(&path, b"bad").unwrap();
+    let listener = listen(dir.path());
+    let settings = LoginSettings {
+        resource_pack_cache_dir: Some(cache_root),
+        ..Default::default()
+    };
+    let core = async {
+        let mut core = FakeCore::accept(&listener).await;
+        core.receive().await;
+        core.send(handoff_frame(serde_json::json!({
+            "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
+            "packs": [{"uuid": "00112233-4455-6677-8899-aabbccddeeff", "version": "1.0.0", "sub_pack": "", "content_key": "", "size": 3,
+                "cache": {"path": path, "sha256": vec![0; 32]}}]
+        }), &[start_game()])).await;
+        core
+    };
+    let join = LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings);
+    let (result, _core) = tokio::join!(join, core);
+    match result {
+        Err(error) => assert!(error.to_string().contains("cached archive hash"), "{error}"),
+        Ok(_) => panic!("a corrupt cached archive joined"),
+    }
 }

@@ -6393,6 +6393,12 @@ sign-in keeps a stable cache generation across refreshes; a replacement sign-in
 ends the old account runtime before it can adopt the new credentials. The active
 catalog exporter and native Windows/Linux BDS installer remain supported. Resource
 packs still pass through the Go cache and retain their client progress reporting.
+Session handoffs name pinned cache archives by absolute path, size and SHA-256.
+The client reads them under its configured cache directory and rejects invalid
+paths or bytes during the join. Cache misses retain the streamed archive fallback;
+pack order, required flags, sub-packs and content keys remain unchanged. Live
+performance acceptance of the cache-reference handoff remains incomplete.
+
 ### Astra UX follow-up (incomplete live performance/parity acceptance)
 
 Real-carrier Bevy input now exercises all Add/Edit server fields, persistence and

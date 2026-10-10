@@ -398,6 +398,7 @@ type preparedConnection struct {
 	packetDelay   *PacketDelay
 	downstream    packetSession // attached when Accept transfers the prepared session
 	upstream      upstreamSession
+	releasePacks  func() // holds cached archives until the client session ends
 	releaseTarget func() error
 	packAdmission *resourcePackAdmissionTelemetry
 	packStack     *selectedResourcePackStack
@@ -413,6 +414,9 @@ func (prepared *preparedConnection) close() error {
 	}
 	prepared.closeOnce.Do(func() {
 		prepared.closeErr = errors.Join(shutdownSession(prepared.downstream), finishPreparedResources(prepared.upstream, prepared.releaseTarget))
+		if prepared.releasePacks != nil {
+			prepared.releasePacks()
+		}
 		prepared.packAdmission.reportFinal()
 		prepared.packStack.release()
 	})
