@@ -582,7 +582,7 @@ fn resolve(
                     let mut target =
                         resolve_globs(local, symbols, &mut branch_seen, configuration)?;
                     if known_local(&target, symbols, configuration)?
-                        && (path.len() == 1 || !value_only(&target, symbols, configuration)?)
+                        && !value_only(&target, symbols, configuration)?
                     {
                         target.extend_from_slice(&path[1..]);
                         return resolve(module, &target, symbols, &mut branch_seen, configuration);

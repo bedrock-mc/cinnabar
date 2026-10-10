@@ -34,6 +34,8 @@ fn rejects_named_renamed_grouped_and_restricted_forwarders() {
         "pub(crate) use other::{Thing as Renamed};",
         "pub(super) use other::Thing;",
         "pub use other;",
+        "pub fn other() {} pub use other as api;",
+        "mod local { pub fn other() {} } use local::*; pub use other as api;",
         "use other as alias; pub use alias::Thing;",
         "mod other {} pub use ::other::Thing;",
         "use other::Thing; pub use self::Thing as Forwarded;",
@@ -375,6 +377,18 @@ fn mutually_exclusive_external_imports_do_not_taint_local_exports() {
             #[cfg(target_os = "linux")] pub use self::Thing as Exported;"#,
         r#"#[cfg(feature = "local")] mod other { pub struct Thing; }
             #[cfg(feature = "local")] pub use other::Thing;"#,
+        r#"mod local { pub struct Thing; }
+            #[cfg(windows)] use other::Thing;
+            #[cfg(not(windows))] use local::Thing;
+            #[cfg(target_os = "linux")] pub use self::Thing as Exported;"#,
+        r#"mod local { pub struct Thing; }
+            #[cfg(not(unix))] use other::Thing;
+            #[cfg(unix)] use local::Thing;
+            #[cfg(target_family = "unix")] pub use self::Thing as Exported;"#,
+        r#"mod local { pub struct Thing; }
+            #[cfg(target_endian = "big")] use other::Thing;
+            #[cfg(target_endian = "little")] use local::Thing;
+            #[cfg(target_arch = "x86_64")] pub use self::Thing as Exported;"#,
         r#"#![cfg(any())]
             pub use other::Thing;"#,
     ] {
@@ -398,6 +412,25 @@ fn external_module_conditions_are_inherited_by_local_definitions() {
     );
     fs::write(root.join("src/local.rs"), "pub struct Thing;").unwrap();
     assert_eq!(findings(root).len(), 1);
+}
+
+#[test]
+fn possible_platforms_and_build_options_keep_external_exports_visible() {
+    for predicate in [
+        r#"all(windows, target_os = "windows")"#,
+        r#"all(unix, target_os = "linux")"#,
+        r#"all(target_family = "unix", target_family = "wasm")"#,
+        r#"all(target_os = "linux", panic = "abort")"#,
+        r#"target_os = "custom""#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(
+            temp.path(),
+            &format!("#[cfg({predicate})] pub use other::Thing;"),
+            "",
+        );
+        assert_eq!(findings(temp.path()).len(), 1, "missed {predicate}");
+    }
 }
 
 #[test]

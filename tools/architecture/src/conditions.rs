@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use cfg_expr::{Expression, Predicate, TargetPredicate, targets::ALL_BUILTINS};
 use syn::{Attribute, Item, Meta, Token, ext::IdentExt, punctuated::Punctuated};
 
 pub(super) type Configuration = BTreeMap<String, bool>;
@@ -59,6 +60,9 @@ impl Condition {
                     .any(|(other, value)| *value && exclusive(atom, other))
                 {
                     return Ok(false);
+                }
+                if let Some(value) = platform_fact(atom, configuration) {
+                    return Ok(value);
                 }
                 Err(atom.clone())
             }
@@ -150,6 +154,41 @@ fn predicate(meta: &Meta) -> Condition {
             }
         }
     }
+}
+
+/// Infers fixed target properties from the built-in platforms compatible with prior choices.
+fn platform_fact(atom: &str, configuration: &Configuration) -> Option<bool> {
+    let predicate = platform_predicate(atom)?;
+    let restrictions = configuration
+        .iter()
+        .filter_map(|(atom, value)| platform_predicate(atom).map(|predicate| (predicate, *value)))
+        .collect::<Vec<_>>();
+    let mut values = ALL_BUILTINS
+        .iter()
+        .filter(|target| {
+            restrictions
+                .iter()
+                .all(|(predicate, value)| predicate.matches(*target) == *value)
+        })
+        .map(|target| predicate.matches(target));
+    let first = values.next()?;
+    values.all(|value| value == first).then_some(first)
+}
+
+/// Selects fixed target properties while leaving build options and unknown targets symbolic.
+fn platform_predicate(atom: &str) -> Option<TargetPredicate> {
+    let expression = Expression::parse(atom).ok()?;
+    let Predicate::Target(predicate) = expression.predicates().next()? else {
+        return None;
+    };
+    if matches!(
+        predicate,
+        TargetPredicate::Panic(_) | TargetPredicate::HasAtomic(_)
+    ) || !ALL_BUILTINS.iter().any(|target| predicate.matches(target))
+    {
+        return None;
+    }
+    Some(predicate)
 }
 
 /// Prevents impossible combinations of single-valued target predicates.

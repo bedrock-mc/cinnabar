@@ -349,6 +349,7 @@ dependencies = [
 name = "architecture"
 version = "0.1.12"
 dependencies = [
+ "cfg-expr",
  "clap",
  "serde",
  "syn 2.0.118",
