@@ -59,6 +59,7 @@ pub(in crate::chunk) fn queue_chunks(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
         Backends::from(render_adapter.get_info().backend),
+        apple_gpu(&render_adapter.get_info()),
     );
     let diagnostic_timer = probes
         .profiler
@@ -568,6 +569,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
         Backends::from(render_adapter.get_info().backend),
+        apple_gpu(&render_adapter.get_info()),
     );
     if draw_mode == ChunkDrawMode::Unsupported {
         return;
