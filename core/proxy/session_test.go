@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -277,6 +278,24 @@ func TestChooseSessionPacksRefusesARepeatedOfferIdentity(t *testing.T) {
 	selected, _, err := chooseSessionPacks(offers[1:], entries, true)
 	if err != nil || len(selected) != 1 || selected[0].ContentKey != "second-key" {
 		t.Fatalf("single offer = %+v, %v", selected, err)
+	}
+}
+
+// A stack spelling an offered UUID in upper case still selects it; an unparsable one is unavailable.
+func TestChooseSessionPacksParsesStackUUIDs(t *testing.T) {
+	pack := testAdmissionPack(t)
+	offers := []sessionOffer{testSessionOffer(pack, "", "")}
+	upper := []sessionStackEntry{{uuid: strings.ToUpper(pack.UUID().String()), version: pack.Version()}}
+	selected, _, err := chooseSessionPacks(offers, upper, true)
+	if err != nil || len(selected) != 1 || selected[0].UUID != pack.UUID().String() {
+		t.Fatalf("upper-case stack entry = %+v, %v", selected, err)
+	}
+	invalid := []sessionStackEntry{{uuid: "not-a-uuid", version: pack.Version()}}
+	if selected, _, err := chooseSessionPacks(offers, invalid, false); err != nil || len(selected) != 0 {
+		t.Fatalf("optional invalid entry = %+v, %v", selected, err)
+	}
+	if _, _, err := chooseSessionPacks(offers, invalid, true); err == nil {
+		t.Fatal("a required invalid entry was accepted")
 	}
 }
 

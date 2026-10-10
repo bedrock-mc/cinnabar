@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -368,8 +369,13 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 		if minecraft.IsBuiltinResourcePack(entry.uuid, entry.version) {
 			continue
 		}
-		id := resourcePackIdentity(entry.uuid, entry.version)
-		offer := byIdentity[id]
+		// Parsed as the client's selection did, so a stack may spell an offered UUID in any case.
+		var id string
+		var offer sessionOffer
+		if parsed, err := uuid.Parse(entry.uuid); err == nil {
+			id = resourcePackIdentity(parsed.String(), entry.version)
+			offer = byIdentity[id]
+		}
 		if offer.pack == nil || seen[id] || offer.info.SubPackName != entry.subPack {
 			if required {
 				return nil, nil, refuse
