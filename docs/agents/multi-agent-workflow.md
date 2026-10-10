@@ -9,7 +9,7 @@ are active. Prefer `cargo check -p <crate>` and avoid release builds unless the 
 requires performance measurements. Local builds do not use sccache.
 
 `.cargo/config.toml` gives each worktree its own Cargo `build-dir` under
-`$CARGO_HOME/build`, keyed by workspace path; `target` keeps only final artifacts. Never
+`$CARGO_HOME/build/cinnabar`, keyed by workspace path; `target` keeps only final artifacts. Never
 share a `build-dir` or `CARGO_TARGET_DIR` between worktrees: workspace crates hash the
 same in every checkout and freshness is mtime-based, so Cargo would reuse another
 worktree's stale crates. Remove a worktree's `target` after its work is integrated. Build test carriers into an isolated scratch directory so concurrent

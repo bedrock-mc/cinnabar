@@ -1,4 +1,4 @@
 [build]
 # Intermediates live outside the checkout, one directory per worktree: workspace crates hash
 # the same in every checkout and freshness is mtime-based, so a shared directory serves stale crates.
-build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
+build-dir = "{cargo-cache-home}/build/cinnabar/{workspace-path-hash}"
