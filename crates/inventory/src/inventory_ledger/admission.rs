@@ -121,6 +121,15 @@ impl PlayerInventoryLedger {
                         && close.window_type == storage.window_type
                 }) {
                     self.acknowledge_storage_close(close.server_initiated);
+                    // The native client confirms a server's close with a close of
+                    // its own. Geyser opens the next window only on that
+                    // confirmation: without it a menu that closes one chest to
+                    // open another closed and never reopened.
+                    if close.server_initiated
+                        && let Some(window_id) = close.container.window_id
+                    {
+                        self.queue_close(window_id, close.window_type, PendingCloseOwner::Cleanup);
+                    }
                 }
             }
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -328,7 +337,16 @@ impl PlayerInventoryLedger {
             self.apply_bundle_slot(dynamic_id, identity.slot, stack);
             return;
         }
-        match project_container_cell(&identity.container, identity.slot) {
+        // A slot update for slot 0 of the personal UI inventory is the cursor,
+        // whatever name rides along: Geyser sets and clears the cursor this way,
+        // under the default name.
+        let cell = if identity.slot == 0 && protocol::is_personal_ui_inventory(&identity.container)
+        {
+            Some(CanonicalCell::Cursor)
+        } else {
+            project_container_cell(&identity.container, identity.slot)
+        };
+        match cell {
             Some(CanonicalCell::PlayerInventory(index)) => {
                 self.set_authoritative_cell(Cell::Inventory(index), Held::new(stack));
                 self.known[usize::from(index)] = true;
