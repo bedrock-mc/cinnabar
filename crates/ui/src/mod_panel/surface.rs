@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Host-owned track action consumed without invoking an extension control.
+pub const SCROLL_TRACK_ACTION: &str = "mod.scroll_track";
+
 pub const MAX_SURFACE_BYTES: usize = 96 * 1024;
 pub const MAX_SURFACE_NODES: usize = 1024;
 pub const MAX_SURFACE_BINDINGS: usize = 128;
@@ -124,7 +127,15 @@ fn node(
         .ok_or("surface control type is missing")?;
     if !matches!(
         kind,
-        "screen" | "panel" | "button" | "label" | "custom" | "stack_panel"
+        "screen"
+            | "panel"
+            | "button"
+            | "label"
+            | "custom"
+            | "stack_panel"
+            | "scroll_view"
+            | "scroll_track"
+            | "scrollbar_box"
     ) || (kind == "screen" && depth != 0)
     {
         return Err("surface control type is unsupported".into());
@@ -204,7 +215,9 @@ fn node(
             if action.len() > 96 {
                 return Err("surface action exceeds its bound".into());
             }
-            actions.push(action.to_owned());
+            if kind != "scroll_track" || action != SCROLL_TRACK_ACTION {
+                actions.push(action.to_owned());
+            }
         }
     }
     if let Some(children) = object.get("controls") {
