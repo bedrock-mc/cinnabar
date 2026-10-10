@@ -26,20 +26,38 @@ pub(super) fn primary_window(
 
 pub(super) fn render_plugin() -> RenderPlugin {
     let mut settings = WgpuSettings::default();
-    settings.limits.max_storage_buffers_per_shader_stage = settings
-        .limits
-        .max_storage_buffers_per_shader_stage
-        .max(render::required_vertex_storage_buffers());
+    configure_render_settings(&mut settings);
     if let Some(backends) = preferred_render_backends(
         std::env::var_os("WGPU_BACKEND").as_deref(),
         dx12_hardware_adapter,
     ) {
         settings.backends = Some(backends);
     }
+    #[cfg(windows)]
+    {
+        static LOG_COMPILER: std::sync::Once = std::sync::Once::new();
+        // Renderer settings are selected before the log plugin is installed.
+        LOG_COMPILER.call_once(|| {
+            eprintln!(
+                "Configured DX12 shader compiler: {:?}",
+                settings.dx12_shader_compiler
+            );
+        });
+    }
     RenderPlugin {
         render_creation: RenderCreation::Automatic(settings),
         ..Default::default()
     }
+}
+
+/// Applies renderer limits and compiler policy to Bevy's defaults.
+fn configure_render_settings(settings: &mut WgpuSettings) {
+    // Shipping installs use FXC; a DLL in the launch directory must not change that.
+    settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
+    settings.limits.max_storage_buffers_per_shader_stage = settings
+        .limits
+        .max_storage_buffers_per_shader_stage
+        .max(render::required_vertex_storage_buffers());
 }
 
 /// The backends the renderer may choose from, or `None` to keep wgpu's defaults. An explicit
@@ -84,6 +102,22 @@ fn dx12_hardware_adapter() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shader_compiler_does_not_inherit_a_launch_directory_dxc() {
+        let mut settings = WgpuSettings {
+            dx12_shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
+                dxc_path: "dxcompiler.dll".into(),
+                max_shader_model: wgpu::DxcShaderModel::V6_7,
+            },
+            ..Default::default()
+        };
+        configure_render_settings(&mut settings);
+        assert!(matches!(
+            settings.dx12_shader_compiler,
+            wgpu::Dx12Compiler::Fxc
+        ));
+    }
 
     #[test]
     fn windows_prefers_dx12_hardware_and_falls_back_to_vulkan_without_overriding_an_explicit_backend()
