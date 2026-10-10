@@ -388,7 +388,7 @@ fn actor_material_states_replacement_excludes_add_remove_for_the_same_family() {
 fn always_passing_depth_function_is_inherited_and_restored_by_less_equal() {
     let definitions = json!({"materials":{
         "version":"1.0.0",
-        "fixture_marker:entity":{"depthFunc":"Always","depthBias":1000000000.0},
+        "fixture_marker:entity":{"depthFunc":"Always"},
         "fixture_marker_cutout:fixture_marker":{"+defines":["ALPHA_TEST"]},
         "fixture_marker_tested:fixture_marker":{"depthFunc":"LessEqual"}
     }});
