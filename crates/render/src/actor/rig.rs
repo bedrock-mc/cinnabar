@@ -75,6 +75,8 @@ pub enum ActorRigRoute {
     Compiled,
     StaticFallback,
     Diagnostic,
+    /// Participates only in Enhanced directional-light shadow passes.
+    ShadowOnly,
     NoDraw,
 }
 
@@ -95,6 +97,19 @@ pub struct ActorRigSubmission {
     pub uv_anim: [f32; 4],
     /// World light or white illumination with face shading; 0 draws without shading.
     pub light: u32,
+}
+
+impl ActorRigSubmission {
+    /// Excludes a caster from the main draw while preserving diagnostic geometry and NoDraw.
+    pub fn make_shadow_only(&mut self) {
+        if self.route == ActorRigRoute::NoDraw {
+            return;
+        }
+        if self.route == ActorRigRoute::Diagnostic {
+            self.input.rig = DIAGNOSTIC_RIG_ID;
+        }
+        self.route = ActorRigRoute::ShadowOnly;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -283,10 +298,11 @@ struct BuildScratch {
     manifest: Vec<ActorDrawManifestEntry>,
 }
 
-/// Where one admitted submission draws: by layer, texture page and geometry, then in identity
-/// order (`rank`) among equals.
+/// Visible submissions draw first, then shadow-only submissions; each group sorts by layer,
+/// texture page, geometry and identity rank.
 #[derive(Clone, Copy, Debug)]
 struct DrawKey {
+    shadow_only: bool,
     layer: u8,
     page: ActorArtworkPageId,
     rig: EntityRigId,
@@ -567,6 +583,7 @@ impl ActorRigFrameBuilder {
             let submission = &ordered[index as usize];
             let identity = submission.input.identity;
             DrawKey {
+                shadow_only: submission.route == ActorRigRoute::ShadowOnly,
                 layer: identity.layer,
                 page: page_of(&identity, locations[index as usize]),
                 rig: submission.input.rig,
@@ -574,7 +591,9 @@ impl ActorRigFrameBuilder {
                 index,
             }
         }));
-        draw_order.sort_unstable_by_key(|draw| (draw.layer, draw.page, draw.rig, draw.rank));
+        draw_order.sort_unstable_by_key(|draw| {
+            (draw.shadow_only, draw.layer, draw.page, draw.rig, draw.rank)
+        });
         for draw in &draw_order {
             let submission = &ordered[draw.index as usize];
             let location = locations[draw.index as usize];

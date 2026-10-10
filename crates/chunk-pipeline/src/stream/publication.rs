@@ -203,6 +203,10 @@ impl WorldStream {
     pub fn set_actor_animation_view(&mut self, view: Option<client_world::ActorAnimationView>) {
         self.authority.set_actor_animation_view(view)
     }
+    /// Requests the local world-context body independently of its first-person hand animation.
+    pub fn set_actor_world_body_enabled(&mut self, enabled: bool) {
+        self.authority.set_actor_world_body_enabled(enabled)
+    }
     /// Sets the view's world position that camera-relative queries sample per tick.
     pub fn set_actor_camera_position(&mut self, position: [f32; 3]) {
         self.authority.set_actor_camera_position(position)

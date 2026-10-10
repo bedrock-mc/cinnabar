@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod placement;
+
 /// Render-space poses and presentations of each rig's latest tick, kept across frames: every
 /// frame of a tick shares one conversion and presentation, re-placing only its transform, and an
 /// unchanged pose keeps its allocation so its bone matrices are reused.

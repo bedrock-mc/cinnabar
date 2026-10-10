@@ -137,7 +137,9 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     );
     let query_tables = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("biome query tables"),
-        contents: bytemuck::cast_slice(&meshing::biome_lattice::query_table_words()),
+        contents: bytemuck::cast_slice(&crate::material_shader::world_uniform_words(
+            &[0; crate::material_shader::WORLD_CLOCK_WORDS],
+        )),
         usage: wgpu::BufferUsages::UNIFORM,
     });
     let inputs = storage(bytemuck::cast_slice(&queries), wgpu::BufferUsages::empty());

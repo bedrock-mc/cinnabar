@@ -279,6 +279,37 @@ fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
 }
 
 #[test]
+fn shadow_only_instances_follow_the_exact_main_manifest_even_across_layers() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let mut shadow = submission(1, 1);
+    shadow.route = ActorRigRoute::ShadowOnly;
+    let mut equipment = submission(2, 1);
+    equipment.input.identity.layer = 1;
+    let frame = builder.build(0.5, None, [shadow, equipment, submission(3, 1)]);
+    assert_eq!(frame.instances.len(), 3);
+    assert!(
+        frame.manifest[..2]
+            .iter()
+            .all(|entry| entry.route == ActorRigRoute::Compiled)
+    );
+    assert_eq!(frame.manifest[2].route, ActorRigRoute::ShadowOnly);
+    assert_eq!(frame.manifest[2].identity.runtime_id, 1);
+    let main = crate::actor::gpu::ActorDrawFrame {
+        artwork_identity: [0; 32],
+        skin_revision: 1,
+        geometry_revision: frame.geometry_revision,
+        frame_generation: frame.frame_generation,
+        draw_generation: 1,
+        manifest: Arc::from(&frame.manifest[..2]),
+    };
+    assert!(main.is_exact());
+    assert_eq!(main.manifest[0].instance_index, 0);
+    assert_eq!(main.manifest[1].instance_index, 1);
+}
+
+#[test]
 fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
     for id in [
         render_model::pack_rig_id(0),

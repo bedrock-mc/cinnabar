@@ -25,6 +25,7 @@ struct Case {
     overlay: u32,
     material: [u32; 4],
     unlit: bool,
+    emissive: bool,
     fog_amount: f32,
     sample: (u8, u8),
     gradient: bool,
@@ -42,6 +43,7 @@ impl Default for Case {
             overlay: 0,
             material: [0; 4],
             unlit: false,
+            emissive: false,
             fog_amount: 0.0,
             sample: (2, 9),
             gradient: false,
@@ -245,7 +247,12 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
     for i in 0..3 {
         color[i] = color[i] * (1.0 - overlay[3]) + overlay[i] * overlay[3];
         if !case.unlit {
-            color[i] *= shade * light[i];
+            let lighting = shade * light[i];
+            color[i] *= if case.emissive {
+                1.0 + (lighting - 1.0) * texel[3]
+            } else {
+                lighting
+            };
         }
         color[i] = color[i] * (1.0 - case.fog_amount) + fog[i] * case.fog_amount;
     }
@@ -255,7 +262,28 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
-    let gpu = Gpu::new().expect("native GPU");
+    assert_actor_colors(cases(), false);
+}
+
+#[test]
+fn msaa_actor_emissive_lighting_uses_authored_alpha_instead_of_coverage() {
+    assert_actor_colors(
+        vec![Case {
+            name: "half-opacity emissive cutout with full coverage",
+            texture: 1,
+            light: [0.13, 0.15, 0.25],
+            emissive: true,
+            ..Default::default()
+        }],
+        true,
+    );
+}
+
+/// Compares the production actor fragment with numeric lighting and opacity expectations.
+fn assert_actor_colors(cases: Vec<Case>, coverage: bool) {
+    let Some(gpu) = Gpu::for_fixture("actor color and MSAA emissive alpha") else {
+        return;
+    };
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("actor native colour witness"),
         size: wgpu::Extent3d {
@@ -296,10 +324,11 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
         );
     // Test-only resource remapping lets the shared single-group readback helper run
     // production actor_fragment unchanged, including its actual imported helpers.
-    let actor = shader_source::standalone(&actor, &[])
+    let defs: &[&str] = if coverage { &["ALPHA_TO_COVERAGE"] } else { &[] };
+    let actor = shader_source::standalone(&actor, defs)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)");
-    let source = format!("{actor}\n{VERTEX}");
+    let source = format!("{actor}\n{}", crate::material_shader::source(VERTEX));
     let view = gpu.buffer(
         &gpu_snapshot::view(bevy::math::Mat4::IDENTITY, bevy::math::Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
@@ -316,7 +345,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     );
     let glint = gpu.blank_texture_view();
     let mut failures = Vec::new();
-    for case in cases() {
+    for case in cases {
         let table = table(case);
         let lightmap = gpu.buffer(&table, wgpu::BufferUsages::UNIFORM);
         let material = gpu.buffer(
@@ -334,7 +363,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
         words.extend([
             case.fog_amount * 100.0,
             f32::from_bits(u32::from(case.material[2] != 0)),
-            0.0,
+            f32::from(case.emissive),
             0.0,
         ]);
         let fixture = gpu.buffer(&words, wgpu::BufferUsages::UNIFORM);
@@ -392,28 +421,35 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
                 resource: fixture.as_entire_binding(),
             },
         ];
-        let pixels = gpu.render_srgb(
-            &source,
-            "actor_witness_vertex",
-            &[Draw {
-                fragment: "actor_fragment",
-                vertices: 0..3,
-                bindings: &bindings,
-                blend: None,
-                write_depth: true,
-            }],
-        );
+        let draws = [Draw {
+            fragment: "actor_fragment",
+            vertices: 0..3,
+            bindings: &bindings,
+            blend: None,
+            write_depth: true,
+        }];
+        let pixels = if coverage {
+            gpu.render_with_samples(&source, "actor_witness_vertex", &draws, 4)
+        } else {
+            gpu.render_srgb(&source, "actor_witness_vertex", &draws)
+        };
         let offset = (128 * 256 + 128) * 4;
         let alpha = f32::from(TEXELS[case.texture as usize][3]) / 255.0;
         let discard = case.material[1] == 0
             && case.material[2] == 0
             && ((case.material[0] == 0 && alpha < 0.1) || (case.material[0] == 1 && alpha == 0.0));
-        let expected = if discard {
+        let mut expected = if discard {
             let [r, g, b] = [0.12, 0.18, 0.25].map(gamma);
             [r, g, b, 1.0]
         } else {
             expected(case, &table, fog)
         };
+        if coverage {
+            for channel in &mut expected[..3] {
+                *channel = linear(*channel);
+            }
+            expected[3] = 1.0;
+        }
         for channel in 0..4 {
             let target = expected[channel].clamp(0.0, 1.0) * 255.0;
             if (f32::from(pixels[offset + channel]) - target).abs() > 2.0 {
@@ -440,6 +476,7 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
     out.uv = vec2(0.5);
     out.skin_layer = actor_witness.words.x;
     out.valid = 1u;
+    out.material = select(0u, ACTOR_MATERIAL_AUTHORED_FLAG | ACTOR_MATERIAL_EMISSIVE_FLAG | ACTOR_MATERIAL_ALPHA_TEST_FLAG, actor_witness.distance_multi.z != 0.0);
     let normals = array(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0));
     out.world_normal = select(actor_witness.normal.xyz, normals[index], actor_witness.normal.w != 0.0);
     out.back_uv = vec2(0.5);

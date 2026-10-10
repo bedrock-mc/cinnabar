@@ -14,6 +14,8 @@ const SUN_COLOUR_SUBTRACTION: f32 = 0.2;
 /// Weather fog is the native precipitation-lattice accumulator, not rain level.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Default)]
 pub struct AtmosphereViewInputs {
+    /// Exact world dimension; sky kind alone cannot identify custom dimensions.
+    pub dimension: i32,
     pub forward: [f32; 3],
     pub fog_weather_level: f32,
     /// Current simulation rain, not the frame's interpolated rain.

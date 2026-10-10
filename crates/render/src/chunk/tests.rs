@@ -33,70 +33,78 @@ fn target_expectation(
 
 fn opaque_runtime_assets() -> &'static RuntimeAssets {
     static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
-    ASSETS.get_or_init(|| {
-        let compiled = CompiledAssets {
-            visuals: vec![
-                BlockVisual {
-                    faces: [0; 6],
-                    flags: BlockFlags::AIR,
-                    kind: VisualKind::Invisible,
-                    support: assets::VisualSupport::Exact,
-                    contributor_role: assets::ContributorRole::Air,
-                    model_template: NO_MODEL_TEMPLATE,
-                    animation: NO_ANIMATION,
-                    variant: 0,
-                },
-                BlockVisual {
-                    faces: [1; 6],
-                    flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
-                    kind: VisualKind::Cube,
-                    support: assets::VisualSupport::Exact,
-                    contributor_role: assets::ContributorRole::Primary,
-                    model_template: NO_MODEL_TEMPLATE,
-                    animation: NO_ANIMATION,
-                    variant: 0,
-                },
-            ]
-            .into_boxed_slice(),
-            light_properties: vec![assets::LightProperties::default(); 2].into_boxed_slice(),
-            hashed: Box::new([]),
-            materials: vec![
-                Material {
-                    texture: TextureRef::DIAGNOSTIC,
-                    flags: 0,
-                    animation: NO_ANIMATION,
-                    ..assets::Material::unvaried()
-                };
-                2
-            ]
-            .into_boxed_slice(),
-            model_templates: Box::new([]),
-            model_quads: Box::new([]),
-            animations: Box::new([]),
-            animation_frames: Box::new([]),
-            texture_pages: vec![TexturePage::new(TextureArray {
-                layers: 1,
-                mips: [16_u32, 8, 4, 2, 1]
-                    .into_iter()
-                    .map(|size| TextureMip {
-                        size,
-                        rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            })]
-            .into_boxed_slice(),
-            biomes: CompiledBiomeAssets::diagnostic(),
-            provenance: assets::BlobProvenance {
-                source_manifest_sha256: [0xA5; 32],
-                block_registry_sha256: [0x5A; 32],
-                light_registry_sha256: [0x33; 32],
-                biome_registry_sha256: [0x3C; 32],
+    ASSETS.get_or_init(|| test_runtime_assets(false))
+}
+
+/// Builds a checked block carrier with either a solid cube or an invisible emitter.
+fn test_runtime_assets(invisible_emitter: bool) -> RuntimeAssets {
+    let mut compiled = CompiledAssets {
+        visuals: vec![
+            BlockVisual {
+                faces: [0; 6],
+                flags: BlockFlags::AIR,
+                kind: VisualKind::Invisible,
+                support: assets::VisualSupport::Exact,
+                contributor_role: assets::ContributorRole::Air,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
             },
-        };
-        let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
-        RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")
-    })
+            BlockVisual {
+                faces: [1; 6],
+                flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                kind: VisualKind::Cube,
+                support: assets::VisualSupport::Exact,
+                contributor_role: assets::ContributorRole::Primary,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
+            },
+        ]
+        .into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); 2].into_boxed_slice(),
+        hashed: Box::new([]),
+        materials: vec![
+            Material {
+                texture: TextureRef::DIAGNOSTIC,
+                flags: 0,
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
+            };
+            2
+        ]
+        .into_boxed_slice(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![TexturePage::new(TextureArray {
+            layers: 1,
+            mips: [16_u32, 8, 4, 2, 1]
+                .into_iter()
+                .map(|size| TextureMip {
+                    size,
+                    rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        })]
+        .into_boxed_slice(),
+        biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
+    };
+    if invisible_emitter {
+        compiled.visuals[1].flags = BlockFlags::empty();
+        compiled.visuals[1].kind = VisualKind::Invisible;
+        compiled.light_properties[1] = assets::LightProperties::new(15, 0).unwrap();
+    }
+    let blob = encode_blob(&compiled).expect("encode plugin test assets");
+    RuntimeAssets::decode(&blob).expect("decode plugin test assets")
 }
 
 fn solid_test_mesh() -> ChunkMesh {

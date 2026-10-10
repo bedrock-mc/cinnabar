@@ -30,17 +30,17 @@ impl ViewNode for EnhancedSnapshotNode {
         &self,
         _graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (entity, settings, _target, scene, _depth): QueryItem<Self::ViewQuery>,
+        (entity, settings, _target, source, _depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        if !super::enhanced_rendering_enabled() || !settings.water_reflections {
+        if !render_model::enhanced_rendering_enabled() || !settings.water_reflections {
             return Ok(());
         }
         let views = world.resource::<EnhancedViews>();
         let Some(state) = views.0.get(&entity) else {
             return Ok(());
         };
-        let (Some(colour), Some(scene_depth)) = (&state.scene_colour, &state.scene_depth) else {
+        let Some(scene) = &state.scene else {
             return Ok(());
         };
         let Some(depth) = &state.resolved_depth else {
@@ -49,25 +49,15 @@ impl ViewNode for EnhancedSnapshotNode {
         depth.draw(context, world, None);
         let diagnostics = context.diagnostic_recorder();
         let span = diagnostics.time_span(context.command_encoder(), "enhanced opaque snapshot");
-        if scene.texture.sample_count() > 1 {
-            let _pass = context
-                .command_encoder()
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("enhanced opaque colour resolve"),
-                    color_attachments: &[Some(
-                        scene.resolve_attachment(&colour.default_view, wgpu::StoreOp::Store),
-                    )],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-        } else {
-            context.command_encoder().copy_texture_to_texture(
-                scene.texture.as_image_copy(),
-                colour.texture.as_image_copy(),
-                colour.texture.size(),
-            );
-        }
+        context.command_encoder().copy_texture_to_texture(
+            source.texture.as_image_copy(),
+            scene.colour.as_image_copy(),
+            wgpu::Extent3d {
+                width: scene.colour.width(),
+                height: scene.colour.height(),
+                depth_or_array_layers: 1,
+            },
+        );
         context.command_encoder().copy_texture_to_texture(
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,
@@ -75,11 +65,12 @@ impl ViewNode for EnhancedSnapshotNode {
             },
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,
-                ..scene_depth.texture.as_image_copy()
+                ..scene.depth.as_image_copy()
             },
-            scene_depth.texture.size(),
+            scene.depth.size(),
         );
         span.end(context.command_encoder());
+        super::probes::filter_mips(context, world, &state.frame, &scene.mips, &scene.depth_view);
         Ok(())
     }
 }

@@ -198,6 +198,8 @@ pub(crate) struct ActorAnimationStore {
     next_reset_generation: u64,
     next_rest_reset_generation: u64,
     stats: ActorAnimationStats,
+    /// Whether the local first-person actor also evaluates a third-person world body.
+    local_body_enabled: bool,
     #[cfg(test)]
     schedule: schedule::TestSchedule,
 }
@@ -241,6 +243,8 @@ struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     ui_pose: Option<Vec<BoneTransform>>,
     ui_animation: Option<hud::UiAnimationState>,
+    /// Optional third-person evaluation used by the local actor's Enhanced shadow caster.
+    world_body: Option<body::WorldBodyState>,
     view_context: Option<bool>,
     rest: Vec<BoneTransform>,
     rest_completed_tick: u64,
@@ -427,6 +431,7 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
+            local_body_enabled: false,
             #[cfg(test)]
             schedule: Default::default(),
         };
@@ -776,6 +781,7 @@ fn resolve_rig(
 }
 
 mod attachable;
+mod body;
 mod clock;
 pub(crate) mod custom_emotes;
 mod evaluation;

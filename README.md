@@ -33,6 +33,23 @@ every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
+To try experimental enhanced rendering while keeping the default Vanilla path, run
+`make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced`. The mode has known GPU stability risks
+and remains outside the vanilla parity gate.
+
+Enhanced can load an optional authored 512x color/PBR pack. Extract the base pack and its PBR
+extension, then set both roots (semicolon-separated on Windows) before starting:
+
+```powershell
+$env:CINNABAR_ENHANCED_PBR_DIR = 'C:\packs\XsRealism-512x-main;C:\packs\XsRealism-pbr-main'
+make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced
+```
+
+The loader reads Bedrock texture sets and explicitly declared LabPBR 1.3 companions,
+normalizing authored layers to 512x512. Unknown Java channel formats are skipped.
+Blocks without matching colors retain carrier textures; missing authored maps use neutral defaults.
+See [pack configuration and material coverage](crates/render/src/enhanced/README.md#authored-512x-pbr-packs).
+
 ## What's different
 
 Vanilla behaviour is the default. Everything below is extra:

@@ -33,8 +33,13 @@ mod device_poll;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
+#[cfg(all(feature = "enhanced", target_os = "windows"))]
+pub use enhanced::configure_enhanced_shader_compiler;
+pub use enhanced::{
+    EnhancedQuality, EnhancedRenderPlugin, EnhancedRenderSupport, EnhancedRendering,
+    EnhancedShadowDebug, MAX_SHADOW_CASCADES,
+};
 mod entity_shadow_render;
-pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuFrameTimes, GpuTimingPlugin};
@@ -166,21 +171,22 @@ pub use chunk::{
     ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, ChunkTextureUploadStats,
     ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
-    MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,
-    MATERIAL_UV_ROTATE_270, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
-    MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, ModelWitnessEvent, ModelWitnessEvidence,
-    ModelWitnessFrameAck, ModelWitnessManifestRecord, ModelWitnessRequest,
-    ModelWitnessRequestError, ModelWorkloadMetrics, PackedTransparentDrawRef, PresentedFrameAck,
-    PresentedFrameGate, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES,
-    TargetRenderExpectation, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
-    TexturePageBinding, TextureUploadPlanError, TransparentAllocationIdentity, TransparentDrawArgs,
-    TransparentOrderedSnapshot, TransparentSortError, TransparentSortJobGate,
-    TransparentSortMetrics, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
-    TransparentWitnessEvent, TransparentWitnessEvidence, TransparentWitnessIncompleteEvent,
-    TransparentWitnessRequest, TransparentWitnessRequestError, TransparentWitnessStageEvent,
-    TransparentWitnessStageRecord, ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
-    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
-    select_animation_frames, texture_asset_needs_rebuild, validate_transparent_sort_ref_count,
+    EnhancedTextureAssets, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
+    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, MAX_MODEL_WITNESS_KEYS,
+    MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS,
+    ModelWitnessEvent, ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord,
+    ModelWitnessRequest, ModelWitnessRequestError, ModelWorkloadMetrics, PackedTransparentDrawRef,
+    PresentedFrameAck, PresentedFrameGate, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES,
+    TRANSPARENT_REF_SLOT_BYTES, TargetRenderExpectation, TextureArrayLimits, TextureLimitError,
+    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError,
+    TransparentAllocationIdentity, TransparentDrawArgs, TransparentOrderedSnapshot,
+    TransparentSortError, TransparentSortJobGate, TransparentSortMetrics, TransparentSortResult,
+    TransparentSortState, TransparentUploadBatch, TransparentWitnessEvent,
+    TransparentWitnessEvidence, TransparentWitnessIncompleteEvent, TransparentWitnessRequest,
+    TransparentWitnessRequestError, TransparentWitnessStageEvent, TransparentWitnessStageRecord,
+    ViewSortGeneration, ViewSortKey, diagnostic_texture_page, greedy_texture_uv,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    texture_asset_needs_rebuild, validate_transparent_sort_ref_count,
 };
 #[cfg(feature = "publication-test-support")]
 pub use chunk::{

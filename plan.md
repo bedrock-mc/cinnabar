@@ -47,6 +47,146 @@
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
 
+## Enhanced photographic lighting extension
+
+- Default builds keep Enhanced disabled; opt-in builds expose its rendering and presets.
+- The owner reports the startup white screen resolved. Latest horizon-footprint
+  guard visual acceptance remains pending.
+- Local integration builds and renders on Windows Vulkan at 1920x1080 through the
+  headless client MCP. Video preset selection, keyboard focus/activation, persistence
+  and disable/re-enable behavior were captured. Controller input remains unverified.
+  Clouds filter at their actual render resolution and taper distant density. A smooth
+  finite-world sky extension replaces the dark void; physical environment transport
+  remains separate. This extension and higher-order cloud scattering are approximations.
+  Geometric normal MRT drives AO, contacts and receiver-plane shadow histories.
+- Latest local integration: cloud density applies its height profile before coverage
+  thresholding. A separate cached incident environment includes cloud-scattered light
+  and schedules bounded indirect relighting after publication. Lamp shadow candidates
+  use world distance independently of camera yaw; receiver history follows each emitter
+  across atlas lanes. Submitted-frame history advances independently of TAA. These
+  latest changes build and render on Windows Vulkan at 1920x1080. Static capture
+  passes have no observed validation error; native nearby shadow/beacon motion
+  acceptance remains incomplete.
+- Cloud shape now uses an isotropic world-space field; type-dependent height profiles
+  retain thin stratiform layers and thicker convective billows. Fetch and march bounds
+  remain unchanged. Developer snapshots expose actual rendered rain, thunder and sun
+  direction. Regional weather coverage now produces clear gaps and connected cloud
+  groups; coarse cloud types no longer repeat at the fine erosion scale. Cached
+  transport-derived multiple scattering replaces the fixed white atmospheric fill.
+  Fresh clear-weather Noon, sunset and lunar captures render on Windows Vulkan;
+  the grazing-angle horizon is blue. A thin display lookup seam remains under
+  verification after adding a continuous bilinear-footprint guard. Physical sky,
+  indirect-light and reflection directions retain their original transport.
+  Touched Rust test targets compile. Enhanced regressions, including native GPU shader fixtures, pass.
+  A saved clear-weather low-sun
+  roof/slab/five-beacon scene is prepared outside git; first local server launch awaits
+  PC readiness under the native-testing policy.
+- Fresh decoded PBR coverage is 852/941 complete authored material aliases (90.5%),
+  with zero decode errors. Most added sets are vanilla-style low-resolution materials;
+  this is not 90.5% photorealistic 512-pixel coverage. Compact animation/material pages
+  retain native-source dimensions in the audit. Fresh decoded compact pages reduce the
+  texture cache payload from 679,984,136 to 493,513,736 bytes (27.4%) with unchanged
+  material coverage. This is a measured byte reduction, not an FPS claim. Motion
+  acceptance and user-owned GPU measurements remain open. A 75.5-second nearby canopy
+  backtrack/turn recording was inspected across all 4,530 encoded frames: no clear
+  whole-block lit/dark toggle or persistent shadow trail was demonstrated. Many
+  duplicate frames prevent an FPS inference; animated leaf gaps and small sunflecks
+  remain ambiguous. Controlled roof/receiver and moving-player beacon captures
+  remain pending. The XSRealism companion files match the
+  author's archives, but their channel encoding and normal orientation are not
+  documented by the author; no guessed format override is enabled. Verified native
+  photorealistic 512-pixel complete material coverage remains zero.
+- Camera-motion shadow continuity: fixed physical receiver offset/depth bias,
+  per-texel receiver-plane comparisons without directional raster slope bias, and
+  bilinear, confidence-weighted blocker separation. Filter width no longer follows
+  camera distance. Shared world filter borders,
+  padded texel/depth-snapped cascades and coverage-aware handovers. Sun visibility
+  reprojects depth/normal-matched receiver planes over 60ms independently of TAA;
+  full-resolution geometric normals and strict plane compatibility reject inaccurate
+  receiver history. Cuts and changed caster geometry reject history. Contact refinement has continuous
+  bilinear bracketing and screen-edge confidence. Implementation is local; native
+  walking/backtracking/turning and moving-caster acceptance remains incomplete.
+- Beacon/player transitions: finite emitter point-shadow filtering crosses cube seams;
+  continuous-caster receiver visibility blends over 45ms independently of TAA;
+  sampled foliage captures use anchored 15Hz updates and a 133ms response. Replacement
+  reflection captures blend displayed radiance over 60ms and stop work after settling.
+  Existing fixtures cover repeated crossings, camera jitter, moving receiver ownership,
+  depth edges and cube atlas padding. Live multi-player beacon crossings and GPU cost acceptance remain open.
+- User-requested non-parity extension: calibrated HDR exposure, horizon/contact visibility,
+  physical sky, volumetric clouds, geometry reflections, local lamps and authored materials.
+  Server-authored unlit actors retain their intended appearance. Vanilla gates stay open.
+- Quality selection: Settings > Video toggles Enhanced and selects Performance,
+  Balanced or Ultra. Choices persist and apply without restarting; the optional
+  `CINNABAR_ENHANCED_QUALITY` startup override remains. Balanced is the default.
+  Directional map size/range, cloud/SSR samples, effects resolution, irradiance batches,
+  reflection filtering/refresh and lamp shadows follow the preset. Persistent effect
+  targets and post bindings avoid repeated creation for unchanged inputs.
+  Quality-policy tests and native renderer regression fixtures pass locally.
+  Local implementation; Windows Vulkan pointer/keyboard quality selection passed.
+  Controller, other graphics backends and user-owned frame-budget acceptance remain
+  incomplete. Separate lamp arrays avoid allocating
+  small lamp maps at directional resolution. Shadow owners retain stable slots with
+  influence hysteresis, and all four visibility lanes use temporal receiver smoothing.
+- Reflection captures share the parent's directional/lamp/cloud shadows and resident
+  irradiance field, publishing only after matching shadow submission. Outside parent
+  coverage they retain sky fallback. Rough SSR footprints reject depth edges before
+  sampling color mips. Wave reprojection owns water motion independently of submerged
+  objects; reactive transparency covers sky and depth-compatible edge neighbours.
+- Clear-weather streaming fade is restricted to the outer 14% horizontal range; physical
+  height fog/weather scattering remain. Enlarged sun/moon discs keep area-normalized energy.
+- Clouds use persistent 64x64x64 tileable Perlin/Worley noise with filtered 3D mips, weather types,
+  erosion and internal light. Generation is cached and omitted for Vanilla-only views;
+  effects wait for queue-ordered generation. The cloud view march follows the preset.
+  Shape-variance mips retain thin density, erosion combines spatial frequencies,
+  solar/lunar cloud color blends through dusk and centroid transmittance attenuates distance.
+  The sky LUT concentrates samples around the horizon.
+- Directional shadow kernels follow world receivers, with contact hardening, cascade
+  padding and receiver-plane correction. Camera-centered radial coverage stays fixed through
+  yaw/pitch/FOV changes and overlaps before cascade handoff. Screen contacts are a bounded
+  supplement. Cloud-shadow sampling no longer resets with camera history, and cached cloud
+  coordinates follow receiver height. AO dims incident light independently of emission.
+- A resident 48x32x48m irradiance grid traces occluded sky and one colored diffuse bounce.
+  Applied empty subchunks are known air; missing geometry is unknown. Visibility/distance
+  moments reject interpolation across walls; voxel sky access bounds distant sky escape.
+  Initial center probes update first in quality-bounded batches; unchanged warm input stops.
+  Scrolling reuses overlapping world probes, prioritizes exposed cells and rejects departed aliases.
+  Refreshed radiance blends over 120ms. Equal geometry/skylight republications leave
+  transport unchanged; overlapping grids retain probes through local geometry/tint changes.
+  Dimension, asset and nonoverlapping grid cuts reject history immediately. Refresh sweeps
+  finish before revisiting earlier probes; equal-opacity voxel overlaps resolve deterministically.
+  Exposure retains its own meter history independently of image reprojection validity.
+  Stationary flash, streamed edit and sampled foliage visual acceptance remains incomplete.
+  Trusted skylight bounds sky fallback across missing distant residency for known bounce surfaces.
+  Model triangles carry eight half-block occupancy bits and a conservative normal mask
+  in the existing grid buffer; partial-cell tracing and relocation preserve open slab/stair space.
+- Authored 512x512 block layers decode Bedrock texture sets, MER/MERS and explicit LabPBR 1.3.
+  Packed normals retain AO/height; material data includes dielectric F0, metal identity,
+  emission, subsurface and porosity. Joint linear/coverage-preserving material mips filter
+  normals and roughness. Optional local packs use content-addressed decode caches.
+  Vanilla sessions skip optional pack loading; runtime Enhanced selection starts background decoding.
+  Authored-only GPU updates retain carrier resources, upload at most 8 MiB/frame and publish
+  complete maps together. Unknown XsRealism specular/normal formats are skipped; explicit
+  color/height and verified Faithful LabPBR remain active. Driver allocation cost is unmeasured.
+  `.local/enhanced-pbr-audit.json` reports per-alias applied maps, errors and fallbacks,
+  including cached loads and failed pack matches. Normal-variance specular filtering
+  and categorical animation blending retain the authored material interpretation.
+- Nearby opaque authored height maps use bounded 12-step parallax and five-tap directional
+  relief visibility; cutouts, translucency, animation and subpixel/distant relief retain
+  geometry. Relief blocker visibility fades continuously. Normal bases follow UV
+  rotation/mirroring and transformed model surfaces.
+- Submitted actor/wind motion, cubic temporal reconstruction, GGX reflection filtering and
+  restrained bloom remain. Local lamps admit 32 sources/eight per tile; the preset admits
+  one, two or four shadowed sources with separate face-resolution budgets.
+  Current native visual/streaming/performance acceptance is pending;
+  GPU cost measurement is user-owned. Earlier hardware reviews do not close this revision.
+- Incomplete approximations: finite voxel volume, conservative half-block model occupancy,
+  cell-level mixed material/normal selection, one bounce, finite reflection shadow coverage,
+  unknown-boundary sky fallback, newly exposed probe warmup, no animated actors in secondary transport,
+  RGB higher atmospheric/cloud scattering, screen refraction/analytic caustics and transparent
+  radiance reactivity. Pack coverage is partial and resource-pack mappings require inspection.
+  Custom animation order/maps are sampled into the carrier clock; independent authored timing
+  remains incomplete. Full split-screen viewport support and cross-backend acceptance remain open.
+- Details and primary references: [Enhanced renderer](crates/render/src/enhanced/README.md).
 ## OreUI menus, appearance and motion
 
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
@@ -1533,17 +1673,11 @@ session-pack version selection and equal-minimum merging remain incomplete; this
 closes the reported model defect, not the broad animal parity gate. See
 `docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
 
-2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
-WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
-Enhanced shader specialization and effect passes. The toggle is hidden, and saved
-settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
-unresolved; Enhanced visual and performance gates remain incomplete.
-The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
-(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
-preference. Home and Video settings remained legible with normal geometry,
-clipping, layering and colours; the Enhanced control was absent. Settings clicks,
-scrolling, hover focus and Escape navigation worked. This checks the disable,
-not gameplay performance or the unresolved GPU fault.
+2026-10-04 Enhanced rendering: available only in an explicit `enhanced` feature
+build; default builds still force Vanilla. This restores a local experimentation
+path after the earlier macOS GPU page faults and WindowServer watchdog panic; it
+does not resolve that fault. Enhanced visual and performance gates remain
+incomplete and the mode remains a non-parity extension.
 
 2026-10-02 native comparison follow-up (in progress; local and uncommitted,
 not pushed): both real Minecraft and Rust now join the same offline official BDS

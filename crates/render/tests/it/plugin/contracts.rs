@@ -476,12 +476,6 @@ fn transparent_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
     assert!(shader.contains("mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position))"));
     assert!(shader.contains("sampled_gamma.a);"));
-    assert!(
-        shader.contains("return vec4(sampled.rgb, sampled.a);")
-            && shader
-                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);"),
-        "biome tinting must preserve sampled alpha for the blend entry point"
-    );
     assert_eq!(
         shader_source::alpha_discard_threshold(&shader, "shade_blend"),
         None,

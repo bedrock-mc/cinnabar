@@ -790,17 +790,18 @@ impl Raster {
         );
         let animations = gpu.words(&[0; 8], storage);
         let animation_frames = gpu.words(&[0; 4], storage);
-        let clock = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
+        let clock = gpu.words(
+            &crate::material_shader::world_uniform_words(
+                &[0; crate::material_shader::WORLD_CLOCK_WORDS],
+            ),
+            wgpu::BufferUsages::UNIFORM,
+        );
         let streams = gpu.words(
             &solid_terrain_raster::lighting_words(terrain.quads.len()),
             storage,
         );
         let records = gpu.buffer(&[0.0], storage);
         let tints = gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage);
-        let query_tables = gpu.words(
-            &meshing::biome_lattice::query_table_words(),
-            wgpu::BufferUsages::UNIFORM,
-        );
         let mut atmosphere = [0.0; 32];
         atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
         atmosphere[19] = 8.0;
@@ -825,13 +826,12 @@ impl Raster {
                 (8, tints.as_entire_binding()),
                 (9, animations.as_entire_binding()),
                 (10, animation_frames.as_entire_binding()),
-                (11, clock.as_entire_binding()),
-                (13, streams.as_entire_binding()),
-                (15, atmosphere.as_entire_binding()),
                 (
                     crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-                    query_tables.as_entire_binding(),
+                    clock.as_entire_binding(),
                 ),
+                (13, streams.as_entire_binding()),
+                (15, atmosphere.as_entire_binding()),
                 (20, lightmap.as_entire_binding()),
                 (
                     material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

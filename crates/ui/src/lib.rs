@@ -37,6 +37,7 @@ pub use model::{
     UiError, UiFrame, UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree,
     UiVertex, UiVisual, UiWorldProjection,
 };
+pub use render_api::EnhancedQuality;
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
     BossOverlay, BossStyle, DisplaySlot, MAX_BOSS_BARS, MAX_BOSS_RETAINED_TEXT_BYTES,

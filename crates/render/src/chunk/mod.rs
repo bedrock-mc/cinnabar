@@ -86,7 +86,7 @@ mod draw;
 #[cfg(feature = "enhanced")]
 pub(crate) mod enhanced;
 mod extract;
-mod gpu;
+pub(crate) mod gpu;
 mod gpu_cull;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
@@ -99,6 +99,8 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "enhanced")]
+pub(crate) mod resident_coverage;
 mod resource_geometry;
 pub use instance::ChunkRenderInstance;
 mod texture_reload;
@@ -158,10 +160,8 @@ use gpu::bind_groups::{
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
     init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
-    prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
+    prepare_chunk_texture_assets, storage_table_fits,
 };
-#[allow(unused_imports)]
-use gpu::graphics_metadata::{adapter_metadata_field, publish_graphics_runtime_metadata};
 #[cfg(test)]
 use gpu::layout::transparent_geometry_update_requires_cow;
 #[allow(unused_imports)]
@@ -221,8 +221,6 @@ use presentation::frame_probe::{
     submit_presented_frame_probe,
 };
 pub use presentation::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
-#[allow(unused_imports)]
-use presentation::model_witness::ModelWitnessEvidenceState;
 pub use presentation::model_witness::{
     ModelWitnessEvent, ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord,
     ModelWitnessRequest, ModelWitnessRequestError,
@@ -246,9 +244,10 @@ use queue::{
 };
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
-    TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
+    EnhancedTextureAssets, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    texture_asset_needs_rebuild,
 };
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};

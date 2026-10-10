@@ -1,3 +1,5 @@
+#[cfg(feature = "enhanced")]
+use super::resident_coverage::ChunkResidentCoverage;
 use crate::chunk::*;
 
 pub(in crate::chunk) const DEFAULT_RENDER_QUEUE_ITEMS: usize = 512;
@@ -611,7 +613,7 @@ impl ChunkRenderQueue {
         }
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let generation = token.map_or(self.next_generation, |token| token.generation);
-        if mesh.is_empty() {
+        if empty_publication(&mesh) {
             self.render_manifest.remove(&key);
         } else {
             self.render_manifest.insert(key, generation);
@@ -683,6 +685,8 @@ pub(in crate::chunk) struct RenderQueueRuntime<'w> {
         ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
     >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    #[cfg(feature = "enhanced")]
+    coverage: Option<Res<'w, ChunkResidentCoverage>>,
 }
 
 pub(in crate::chunk) fn apply_chunk_render_queue(
@@ -710,15 +714,20 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         acknowledgements,
         mut immediate_terrain,
         profiler,
+        #[cfg(feature = "enhanced")]
+        coverage,
     } = runtime;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::RenderQueueApplication));
     if std::mem::take(&mut queue.session_reset_pending) {
-        // A held reload snapshot names the chunks despawned below; keeping the hold would
-        // stop every upload of the new session.
+        // A held reload snapshot names the chunks despawned below; discard it for the new session.
         if let Some(reload) = &reload {
             reload.discard_geometry();
+        }
+        #[cfg(feature = "enhanced")]
+        if let Some(coverage) = &coverage {
+            coverage.clear();
         }
         drop(gpu_removals.take_ready(usize::MAX, |_| true));
         acknowledgements.clear();
@@ -787,6 +796,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     continue;
                 }
             };
+            #[cfg(feature = "enhanced")]
+            if let Some(coverage) = &coverage {
+                coverage.set(key, false);
+            }
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
                     && let Some(slot) = &instance.publication_permit
@@ -816,7 +829,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let Some(pending) = queue.pending.get(&key) else {
             continue;
         };
-        let pending_bytes = if pending.mesh.is_empty() {
+        let pending_bytes = if empty_publication(&pending.mesh) {
             0
         } else {
             pending_upload_byte_len(pending)
@@ -827,7 +840,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         {
             continue;
         }
-        if pending.mesh.is_empty()
+        if empty_publication(&pending.mesh)
             && ((zero_byte_applications >= maximum_zero_byte_operations
                 || (pending.publication_permit.is_some()
                     && !gpu_removals.has_capacity_for(key, pending.priority)))
@@ -856,7 +869,11 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             }
         };
         gpu_removals.cancel(key);
-        if pending.mesh.is_empty() {
+        #[cfg(feature = "enhanced")]
+        if let Some(coverage) = &coverage {
+            coverage.set(key, true);
+        }
+        if empty_publication(&pending.mesh) {
             queue.tracked_generations.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
@@ -888,15 +905,18 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let origin = chunk_origin(key);
         let cube_layout = pending.mesh.cube_layout();
         let (
-            cube_quads,
-            cube_lighting,
-            model_refs,
-            model_lighting,
-            model_draw_refs,
-            transparent_model_draw_refs,
-            liquid_quads,
-            liquid_lighting,
-        ) = pending.mesh.into_streams();
+            (
+                cube_quads,
+                cube_lighting,
+                model_refs,
+                model_lighting,
+                model_draw_refs,
+                transparent_model_draw_refs,
+                liquid_quads,
+                liquid_lighting,
+            ),
+            light_emitters,
+        ) = pending.mesh.into_streams_with_emitters();
         debug_assert_eq!(cube_quads.len(), cube_lighting.len());
         let depth_liquid_start = liquid_quads
             .iter()
@@ -913,6 +933,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             .is_some_and(|quad| !quad.is_depth_writing());
         let bounds = super::bounds::aabb(!model_refs.is_empty());
         let instance = ChunkRenderInstance {
+            light_emitters: Arc::from(light_emitters),
             key,
             cube_quads: Arc::from(cube_quads),
             cube_lighting: Arc::from(cube_lighting),
@@ -966,4 +987,9 @@ pub(in crate::chunk) const fn chunk_origin(key: SubChunkKey) -> [i32; 3] {
         key.y.saturating_mul(16),
         key.z.saturating_mul(16),
     ]
+}
+
+/// A publication removes its render instance only when neither geometry nor lights remain.
+fn empty_publication(mesh: &ChunkMesh) -> bool {
+    mesh.is_empty() && mesh.light_emitters().is_empty()
 }

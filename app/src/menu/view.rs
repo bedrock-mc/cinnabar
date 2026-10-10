@@ -48,6 +48,7 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            enhanced_quality: self.enhanced_quality,
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),
             servers: self.servers.clone(),

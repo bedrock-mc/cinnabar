@@ -3,7 +3,7 @@
 
 use bevy::prelude::ResMut;
 
-use super::MenuRuntime;
+use super::{EnhancedQuality, MenuRuntime, RenderMode};
 use crate::audio::{AudioCategory, AudioSettings};
 
 /// The sound section's mixer categories; text-to-speech persists without a mixer backend.
@@ -51,6 +51,55 @@ pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     (super::settings_options::VOLUME_SETTINGS[10], None),
 ];
 impl MenuRuntime {
+    /// Mirrors the applied mode; a pending menu toggle wins until taken.
+    pub(crate) fn sync_render_mode(&mut self, applied: RenderMode) {
+        if self.render_mode_request.is_none() {
+            self.render_mode = applied;
+        }
+    }
+
+    /// Mirrors applied quality while retaining a pending menu choice.
+    pub(crate) fn sync_enhanced_quality(&mut self, applied: EnhancedQuality) {
+        if self.enhanced_quality_request.is_none() {
+            self.enhanced_quality = applied;
+        }
+    }
+
+    /// Consume the pending Video-section change.
+    pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
+        self.render_mode_request.take()
+    }
+
+    /// Consume the pending Enhanced quality change.
+    pub(crate) fn take_enhanced_quality_request(&mut self) -> Option<EnhancedQuality> {
+        self.enhanced_quality_request.take()
+    }
+
+    /// Routes extension edits through the saved graphics request.
+    pub(super) fn activate_enhanced_settings(&mut self, action: super::MenuAction) {
+        if !render_model::ENHANCED_RENDERING_ENABLED {
+            return;
+        }
+        match action {
+            super::MenuAction::ToggleRenderMode => {
+                self.render_mode = self.render_mode.toggled();
+                self.render_mode_request = Some(self.render_mode);
+            }
+            action if self.render_mode == ui::RenderMode::Enhanced => {
+                let quality = match action {
+                    super::MenuAction::CycleEnhancedQuality => self.enhanced_quality.next(),
+                    super::MenuAction::SetEnhancedQuality(quality) => quality,
+                    _ => return,
+                };
+                if self.enhanced_quality != quality {
+                    self.enhanced_quality = quality;
+                    self.enhanced_quality_request = Some(quality);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A capture's fixed CLI scale, cleared when the native option is changed.
     pub(crate) fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference

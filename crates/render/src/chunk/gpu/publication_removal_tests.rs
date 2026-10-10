@@ -6,6 +6,7 @@ fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
     let count = if one_quad { 1 } else { mesh.quads().len() };
     let key = SubChunkKey::new(0, x, 0, 0);
     ChunkRenderInstance {
+        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from(&mesh.quads()[..count]),
@@ -148,4 +149,66 @@ fn removal_operation_allowance_does_not_masquerade_as_stalled_retirement() {
     assert!(arena.pending_removals.contains(&removed));
     assert!(arena.allocations.contains_key(&fresh));
     assert_eq!(arena.retirement_budget.bytes, 0);
+}
+
+#[test]
+fn invisible_emitters_survive_empty_geometry_publication_and_clear_on_replacement() {
+    let assets = test_runtime_assets(true);
+    let source = world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 });
+    let mesh = meshing::mesh_sub_chunk(
+        &meshing::BlockClassifier::new(0),
+        &assets,
+        assets::NetworkIdMode::Sequential,
+        &meshing::Neighbourhood::empty(),
+        &source,
+    );
+    assert!(mesh.is_empty());
+    assert_eq!(mesh.light_emitters().len(), world::BLOCKS_PER_SUB_CHUNK);
+    let expected = mesh.light_emitters().to_vec();
+    let key = SubChunkKey::new(0, 2, 3, 4);
+    let acknowledgements = ChunkUploadAcknowledgements::default();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(acknowledgements.clone())
+        .add_plugins(ChunkRenderPlugin::with_budget(ChunkUploadBudget::new(
+            8,
+            u64::MAX,
+        )));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_update_tracked(
+            key,
+            mesh,
+            ChunkUploadPriority::new(0.0),
+            ChunkUploadToken {
+                generation: 1,
+                dirty_since: Instant::now(),
+            },
+        )
+        .unwrap();
+    app.update();
+    let instance = {
+        let world = app.world_mut();
+        world
+            .query::<&ChunkRenderInstance>()
+            .single(world)
+            .expect("invisible emitters must reach the render world")
+            .clone()
+    };
+    assert_eq!(instance.light_emitters(), expected);
+    let mut gpu_app = publication_app();
+    gpu_app.insert_resource(acknowledgements.clone());
+    gpu_app.world_mut().spawn(instance);
+    gpu_app
+        .world_mut()
+        .run_system_once(prepare_gpu_chunks)
+        .unwrap();
+    assert_eq!(acknowledgements.drain().len(), 1);
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_update(key, ChunkMesh::default(), ChunkUploadPriority::new(0.0))
+        .unwrap();
+    app.update();
+    let world = app.world_mut();
+    assert_eq!(world.query::<&ChunkRenderInstance>().iter(world).count(), 0);
 }

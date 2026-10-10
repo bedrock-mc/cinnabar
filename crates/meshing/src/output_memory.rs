@@ -94,12 +94,14 @@ pub fn mesh_output_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 
         + bytes::<PackedLiquidQuad>(mesh.liquid_quads().len() as u64)
         + bytes::<PackedQuadLighting>(mesh.liquid_lighting().len() as u64)
         + bytes::<DiagnosticGeometryCount>(mesh.diagnostic_geometry().entries().len() as u64)
+        + bytes::<crate::BlockLightEmitter>(mesh.light_emitters().len() as u64)
         + biome.byte_len()
 }
 
 /// Reserves all cube and liquid faces, plus the largest packed biome descriptor.
 fn plain_bound() -> u64 {
     bytes::<ChunkMesh>(1)
+        + bytes::<crate::BlockLightEmitter>(BLOCKS_PER_SUB_CHUNK as u64)
         + bytes::<CubeStreams>(1)
         + bytes::<ModelDrawRefs>(1)
         + bytes::<DiagnosticGeometryCount>(MAX_DIAGNOSTIC_IDENTITIES_PER_MESH as u64)

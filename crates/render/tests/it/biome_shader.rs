@@ -67,15 +67,16 @@ fn seasonal_shader_uses_bounded_species_cells_and_direct_biome_lookup() {
 #[test]
 fn every_tinted_pipeline_calls_the_shared_blender() {
     for name in ["chunk.wgsl", "model.wgsl", "liquid.wgsl"] {
-        let source = shader(name);
-        assert!(
-            source.contains("#import cinnabar::biome_tint"),
-            "{name} must import the common biome contract"
-        );
-        assert!(
-            source.contains("blended_biome_tint("),
-            "{name} must apply the same blending kernel"
-        );
+        for definitions in [&[][..], &["ENHANCED"][..]] {
+            let source = shader_source::standalone(&shader(name), definitions);
+            let module = naga::front::wgsl::parse_str(&source).unwrap();
+            assert!(
+                module.entry_points.iter().any(|entry| {
+                    crate::model_tint_raster::calls_biome_blender(&module, &entry.function.body)
+                }),
+                "{name} {definitions:?} must reach the shared blending kernel"
+            );
+        }
     }
 }
 

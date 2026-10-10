@@ -5,8 +5,12 @@ use bevy::{
 };
 
 use super::{
+    depth::{EnhancedDepthLabel, EnhancedDepthNode},
     hand_layer::{EnhancedHandCompositeLabel, EnhancedHandCompositeNode},
-    post::{EnhancedPostLabel, EnhancedPostNode},
+    post::{
+        EnhancedLightingLabel, EnhancedLightingNode, EnhancedPostLabel, EnhancedPostNode,
+        EnhancedSkyLabel, EnhancedSkyNode,
+    },
     shadows::{EnhancedShadowLabel, EnhancedShadowNode},
     snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode},
 };
@@ -15,6 +19,9 @@ use super::{
 pub(super) fn install_graph(world: &mut World) {
     let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
+    let depth = ViewNodeRunner::<EnhancedDepthNode>::new(EnhancedDepthNode, world);
+    let lighting = ViewNodeRunner::<EnhancedLightingNode>::new(EnhancedLightingNode, world);
+    let sky = ViewNodeRunner::<EnhancedSkyNode>::new(EnhancedSkyNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
     let composite = ViewNodeRunner::new(EnhancedHandCompositeNode, world);
     let hand = crate::viewmodel_render::enhanced_post_node(world);
@@ -26,8 +33,10 @@ pub(super) fn install_graph(world: &mut World) {
         return;
     };
     graph.add_node(EnhancedSnapshotLabel, snapshot);
+    graph.add_node(EnhancedSkyLabel, sky);
     graph.add_node_edges((
         Node3d::MainOpaquePass,
+        EnhancedSkyLabel,
         EnhancedSnapshotLabel,
         Node3d::MainTransparentPass,
     ));
@@ -40,7 +49,15 @@ pub(super) fn install_graph(world: &mut World) {
         }
     }
     graph.add_node(EnhancedShadowLabel, shadow);
-    graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
+    graph.add_node(EnhancedDepthLabel, depth);
+    graph.add_node(EnhancedLightingLabel, lighting);
+    graph.add_node_edges((
+        Node3d::StartMainPass,
+        EnhancedShadowLabel,
+        EnhancedDepthLabel,
+        EnhancedLightingLabel,
+        Node3d::MainOpaquePass,
+    ));
     graph.add_node(EnhancedPostLabel, post);
     // World -> Bloom -> grade -> hand and UI; Bloom stays in post-processing, where moving it
     // before EndMainPass would close a cycle through MotionBlur/Taa.

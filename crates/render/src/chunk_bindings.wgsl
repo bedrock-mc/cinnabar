@@ -5,8 +5,6 @@
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 // ANIMATION_GPU_LAYOUT
-// Composable modules avoid member names ending in digits, which naga's writer would rename.
-struct AnimationClockGpu { tick: u32, partial_tick: f32, reserved_a: u32, reserved_b: u32 }
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
@@ -28,8 +26,16 @@ struct AtmosphereUniform {
 @group(0) @binding(NATIVE_LEAF_SAMPLER_BINDING) var model_sampler: sampler;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(12) var<storage, read> model_templates: array<u32>;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(14) var<storage, read> transparent_refs: array<TransparentDrawRef>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
+
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_0) var enhanced_color_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_1) var enhanced_color_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_0) var enhanced_normal_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_1) var enhanced_normal_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_0) var enhanced_mer_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_1) var enhanced_mer_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_SAMPLER_BINDING) var enhanced_sampler: sampler;
+@group(0) @binding(ENHANCED_TEXTURE_REF_BINDING) var<storage, read> enhanced_texture_refs: array<u32>;

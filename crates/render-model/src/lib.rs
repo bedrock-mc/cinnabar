@@ -87,9 +87,9 @@ pub use visibility::{
     VisibilityKeyDelta, VisibilityKeyDigest,
 };
 
-/// Enhanced is disabled until the GPU faults and system freezes are resolved.
-/// Ordinary settings, launch flags and camera components cannot override this switch.
-pub const ENHANCED_RENDERING_ENABLED: bool = false;
+/// Enhanced is opt-in at build time while its GPU stability issues are unresolved.
+/// Default builds keep ordinary settings, launch flags and cameras on Vanilla.
+pub const ENHANCED_RENDERING_ENABLED: bool = cfg!(feature = "enhanced");
 
 #[cfg(feature = "enhanced-diagnostics")]
 static ENHANCED_DIAGNOSTIC: std::sync::atomic::AtomicBool =

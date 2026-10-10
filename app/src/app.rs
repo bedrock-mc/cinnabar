@@ -9,11 +9,13 @@ use crate::runtime::phase3_evidence::{
 };
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
-use std::{ffi::OsStr, fs, io::Write, path::Path, sync::Arc};
+#[cfg(test)]
+use std::fs;
+use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    anti_alias::AntiAliasPlugin,
+    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin, taa::TemporalAntiAliasPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
@@ -30,6 +32,7 @@ use render::{
 };
 mod logging;
 mod startup;
+use startup::bind_direct_session_directory;
 
 #[cfg(feature = "acceptance")]
 use crate::acceptance::world_ready::emit_world_ready;
@@ -86,7 +89,7 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
+    session_cleanup::reclaim_stale_session_directories,
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
@@ -106,7 +109,7 @@ use diagnostics::metrics::MetricsCollector;
 #[cfg(feature = "acceptance")]
 use crate::acceptance::model_witness::drive_model_witness;
 
-mod render_setup;
+pub(crate) mod render_setup;
 use render_setup::render_plugin;
 
 const PHYSICS_REGISTRY_SHA256: &str =
@@ -369,7 +372,8 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 LocalPlayerFrameSet::Interaction,
             )
                 .chain()
-                .after(FlyCameraUpdateSet),
+                .after(FlyCameraUpdateSet)
+                .after(crate::render_mode::RenderModeUpdateSet),
         )
         .add_systems(
             Update,
@@ -409,36 +413,6 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
-}
-
-/// Binds the identity-checked session-directory owner for direct starts.
-///
-/// Only app-derived directories carry the `direct-<pid>` naming grammar the
-/// guard enforces. A flag-provided `--socket-dir` belongs to the operator
-/// (documented custom layouts predate the ownership guard) and its leaf may
-/// violate that grammar, so binding it would abort startup with
-/// `InvalidName`; such sessions own no runtime directory and leave the
-/// provided directory exactly as supplied, after preserving the historical
-/// side effect that it exists. Teardown order is unchanged: the core child
-/// is stopped by the explicit `drop(app)` below before any app-owned state
-/// is released, and an unowned directory is never removed.
-fn bind_direct_session_directory(
-    args: &args::ClientArgs,
-    socket_dir: std::path::PathBuf,
-) -> Result<ScopedSessionDirectory> {
-    if args.address.is_some() && !args.socket_dir_explicit {
-        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
-            format!(
-                "prepare direct-connect session directory {}",
-                socket_dir.display()
-            )
-        });
-    }
-    if args.address.is_some() {
-        fs::create_dir_all(&socket_dir)
-            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
-    }
-    Ok(ScopedSessionDirectory::none())
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
@@ -605,6 +579,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let weather_textures = carriers.weather;
+    let authored_texture_loading = crate::render_mode::AuthoredTextureLoading::new(
+        Arc::clone(&loaded_assets.runtime),
+        loaded_assets.material_keys.clone(),
+    );
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -744,6 +722,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    app.add_plugins(FxaaPlugin);
+    app.add_plugins(TemporalAntiAliasPlugin);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
@@ -847,6 +827,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ))
     .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(authored_texture_loading)
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)

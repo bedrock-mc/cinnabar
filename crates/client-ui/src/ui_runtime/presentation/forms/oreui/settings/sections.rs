@@ -111,6 +111,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;
+    super::enhanced::draw(content)?;
     content.option("graphics_mode")?;
     let graphics = if content.view.settings_options.value("graphics_mode") == 0 {
         "options.graphicsModeOptions.simple"

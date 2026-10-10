@@ -1,5 +1,6 @@
 use super::*;
 
+const CASE_BINDING: u32 = crate::material_shader::LAST_CHUNK_BINDING + 1;
 const COLUMNS: u32 = 4;
 const CELL_SIDE: u32 = SNAPSHOT_SIDE / COLUMNS;
 
@@ -120,8 +121,28 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
             resource: wgpu::BindingResource::Sampler(&sampler),
         });
     }
+    let texture_refs = gpu.words(
+        &vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS],
+        wgpu::BufferUsages::STORAGE,
+    );
+    if enhanced {
+        for (page, view) in views.iter().enumerate() {
+            bindings.push(wgpu::BindGroupEntry {
+                binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[page],
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_SAMPLER_BINDING,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        });
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_TEXTURE_REF_BINDING,
+            resource: texture_refs.as_entire_binding(),
+        });
+    }
     bindings.push(wgpu::BindGroupEntry {
-        binding: 19,
+        binding: CASE_BINDING,
         resource: data.as_entire_binding(),
     });
     let production = if model {
@@ -155,7 +176,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     };
     source.push_str(&format!(
         r#"
-@group(0) @binding(19) var<storage, read> grid_cases: array<vec4<u32>>;
+@group(0) @binding({CASE_BINDING}) var<storage, read> grid_cases: array<vec4<u32>>;
 @vertex fn grid_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
     return vec4(uv * 2.0 - vec2(1.0), 0.5, 1.0);
@@ -171,6 +192,17 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
 }}
 "#
     ));
+    let used = crate::shader_source::bindings_used_by_entry_points(
+        &source,
+        &["grid_vertex", "grid_fragment"],
+        0,
+    );
+    bindings.retain(|resource| used.contains(&resource.binding));
+    assert_eq!(
+        bindings.len(),
+        used.len(),
+        "grid fixture binds exactly its active resources"
+    );
     gpu.render_with_state(
         &source,
         "grid_vertex",

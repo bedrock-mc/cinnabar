@@ -23,7 +23,7 @@ struct VertexOutput {
 #ifdef ENHANCED
     @location(8) sky_light: f32,
     @location(9) ambient_occlusion: f32,
-    @location(10) @interpolate(flat) surface_class: u32,
+    @location(10) @interpolate(flat) tint_surface: vec4<f32>,
 #else
     @location(8) native_light_levels: vec2<f32>,
 #endif
@@ -66,7 +66,7 @@ fn vertex(
         out.normal = liquid.normal;
         out.sky_light = liquid.sky_light;
         out.ambient_occlusion = liquid.ambient_occlusion;
-        out.surface_class = liquid.surface_class;
+        out.tint_surface = vec4(1.0, 1.0, 1.0, f32(liquid.surface_class));
 #else
         out.native_light_levels = liquid.native_light_levels;
 #endif
@@ -89,7 +89,7 @@ fn vertex(
 #ifdef ENHANCED
     out.sky_light = model.sky_light;
     out.ambient_occlusion = model.ambient_occlusion;
-    out.surface_class = model.surface_class;
+    out.tint_surface = model.tint_surface;
 #else
     out.native_light_levels = model.native_light_levels;
     out.native_ao_face = model.native_ao_face;
@@ -117,7 +117,7 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     liquid.sky_light = in.sky_light;
     liquid.ambient_occlusion = in.ambient_occlusion;
     liquid.normal = in.normal;
-    liquid.surface_class = in.surface_class;
+    liquid.surface_class = u32(in.tint_surface.w);
 #else
     liquid.native_light_levels = in.native_light_levels;
 #endif
@@ -144,7 +144,7 @@ fn model_output(in: VertexOutput) -> ModelOutput {
 #ifdef ENHANCED
     model.sky_light = in.sky_light;
     model.ambient_occlusion = in.ambient_occlusion;
-    model.surface_class = in.surface_class;
+    model.tint_surface = in.tint_surface;
 #else
     model.native_light_levels = in.native_light_levels;
     model.native_ao_face = in.native_ao_face;

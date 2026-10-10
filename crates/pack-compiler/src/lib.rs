@@ -22,6 +22,7 @@ mod image;
 mod lang;
 mod pack;
 mod particle;
+pub mod pbr;
 mod starter_skins;
 mod ui;
 mod weather_textures;

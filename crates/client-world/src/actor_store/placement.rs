@@ -350,6 +350,10 @@ impl ActorStore {
         self.animation_view = view;
     }
 
+    pub(crate) fn set_local_body_enabled(&mut self, enabled: bool) {
+        self.local_view_dirty |= self.animation.set_local_body_enabled(enabled);
+    }
+
     /// Records the view's world position for camera-relative animation queries.
     pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
         if position.iter().all(|value| value.is_finite()) {

@@ -99,15 +99,22 @@ fn attachment_support(
     ))
 }
 
-/// Updates world-camera coverage and spatial smoothing only when their settings change.
+/// Selects world-camera coverage before viewmodel publication, including Enhanced depth limits.
 pub fn apply_camera_antialiasing(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
     support: Res<CameraAntiAliasingSupport>,
-    mut cameras: Query<(Entity, &mut Msaa, Option<&Smaa>), With<FlyCamera>>,
+    mut cameras: Query<
+        (Entity, &mut Msaa, Option<&Smaa>, Has<render::EnhancedRendering>),
+        With<FlyCamera>,
+    >,
 ) {
-    let desired = support.msaa(settings.anti_aliasing_samples());
-    for (entity, mut msaa, smaa) in &mut cameras {
+    for (entity, mut msaa, smaa, enhanced) in &mut cameras {
+        let desired = if enhanced {
+            Msaa::Off
+        } else {
+            support.msaa(settings.anti_aliasing_samples())
+        };
         if *msaa != desired {
             *msaa = desired;
         }
@@ -210,6 +217,53 @@ mod tests {
                 .unwrap()
                 .is_changed()
         );
+    }
+
+    #[test]
+    fn enhanced_cameras_publish_single_sample_coverage_and_restore_vanilla_msaa() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 4]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 4;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let enhanced = app
+            .world_mut()
+            .spawn((
+                FlyCamera::default(),
+                Msaa::Sample4,
+                render::EnhancedRendering::default(),
+            ))
+            .id();
+        let vanilla = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Off))
+            .id();
+        for _ in 0..2 {
+            app.update();
+            assert_eq!(app.world().get::<Msaa>(enhanced).unwrap().samples(), 1);
+            assert_eq!(app.world().get::<Msaa>(vanilla).unwrap().samples(), 4);
+        }
+        app.world_mut().clear_trackers();
+        app.update();
+        assert!(
+            !app.world()
+                .entity(enhanced)
+                .get_ref::<Msaa>()
+                .unwrap()
+                .is_changed()
+        );
+        app.world_mut()
+            .entity_mut(enhanced)
+            .remove::<render::EnhancedRendering>();
+        app.update();
+        assert_eq!(app.world().get::<Msaa>(enhanced).unwrap().samples(), 4);
     }
 
     #[test]

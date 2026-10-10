@@ -216,7 +216,7 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
                     resource: wgpu::BindingResource::Sampler(&native_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 19,
+                    binding: 34,
                     resource: data.as_entire_binding(),
                 },
             ],
@@ -278,7 +278,7 @@ struct LeafWitnessCase {
     fog_amount: vec4<f32>,
     route: vec4<u32>,
 }
-@group(0) @binding(19) var<storage, read> leaf_witness_cases: array<LeafWitnessCase>;
+@group(0) @binding(34) var<storage, read> leaf_witness_cases: array<LeafWitnessCase>;
 
 @vertex fn leaf_witness_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
