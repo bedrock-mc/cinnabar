@@ -37,7 +37,7 @@ PR titles become the changelog: use an imperative summary without a `type:` pref
 
 ## Worktrees, captures, and payloads
 
-Use one worktree and Cargo target directory per concurrent change. Bound parallel builds, use the configured shared build limiter when available, and never hold one build lock while waiting for another. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
+Use one worktree per concurrent change; worktrees share one Cargo `build-dir` (`.cargo/config.toml`) and keep their own `target` for final artifacts. Bound parallel builds, use the configured shared build limiter when available, and never hold one build lock while waiting for another. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
 
 Capture visible changes with the offline UI snapshot harness or a headless client MCP session. Include before/after screenshots in the PR description; `tools/pr-screenshots.sh` can upload them. Keep real account details and server addresses out of captures. Do not commit game assets, BDS binaries, credentials, recordings, traces, or `.local/` carriers. Delete raw captures and traces after the PR is open.
 

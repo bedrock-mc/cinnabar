@@ -34,3 +34,6 @@ flate2 = "1"
 jsonwebtoken = "9.3"
 p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
 snap = "1.1"
+
+[lints]
+workspace = true

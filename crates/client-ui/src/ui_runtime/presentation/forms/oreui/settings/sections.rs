@@ -541,7 +541,7 @@ pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
         "options.framerateLimit.description" => {
-            "Automatic lets your display pace frames, with fresh input and no tearing. Unlimited renders as fast as it can."
+            "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",

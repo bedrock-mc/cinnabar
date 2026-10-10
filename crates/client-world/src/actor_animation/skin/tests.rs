@@ -410,13 +410,12 @@ fn custom_model_crowd_publishes_a_bounded_number_per_frame() {
     for id in 1..=crowd as u8 {
         add_player(&mut store, id, profile_skin(id));
     }
-    // Every batch is admitted without waiting for an earlier one to finish.
-    for _ in 0..batches {
-        store.advance_interpolation_frame(0);
-    }
-    store.finish_appearance_fixture_batch();
     let mut drawn = 0;
-    for frame in 1..=crowd.div_ceil(PER_FRAME) {
+    for frame in 1..=batches + crowd.div_ceil(PER_FRAME) {
+        // Admit every batch without waiting; workers can finish during admission.
+        if frame == batches + 1 {
+            store.finish_appearance_fixture_batch();
+        }
         store.advance_interpolation_frame(0);
         let now = store.actor_rigs().count();
         assert!(

@@ -13,6 +13,12 @@ use bevy::{
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
+const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
+    (MouseButton::Left, "MouseLeft"),
+    (MouseButton::Right, "MouseRight"),
+    (MouseButton::Middle, "MouseMiddle"),
+];
+
 #[derive(Default)]
 pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
@@ -129,6 +135,48 @@ mod tests {
     }
 
     #[test]
+    fn pointer_observations_count_edges_preserve_holds_and_ignore_other_windows() {
+        let mut physical = PhysicalControls::default();
+        let mut events = Messages::default();
+        let mut world = World::new();
+        let window = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        let event = |window, button, state| MouseButtonInput {
+            window,
+            button,
+            state,
+        };
+        events.write(event(other, MouseButton::Right, ButtonState::Pressed));
+        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
+        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
+        assert_eq!(
+            physical.pointer_edges(Some(&events), None, window, true),
+            ["MouseLeft"]
+        );
+        assert!(physical.left_held && physical.held_keys.contains(&"MouseLeft".into()));
+        assert!(
+            physical
+                .pointer_edges(Some(&events), None, window, true)
+                .is_empty()
+        );
+        events.write(event(window, MouseButton::Left, ButtonState::Released));
+        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
+        events.write(event(window, MouseButton::Right, ButtonState::Pressed));
+        assert_eq!(
+            physical.pointer_edges(Some(&events), None, window, true),
+            ["MouseLeft", "MouseRight"]
+        );
+        physical.discard_pending(None, Some(&events));
+        assert!(physical.held_keys.is_empty() && !physical.left_held);
+        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
+        assert!(
+            physical
+                .pointer_edges(Some(&events), None, window, false)
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn dormant_input_discards_old_edges_and_observes_only_next_attachment_edges() {
         use bevy::input::keyboard::Key;
         let mut keyboard = Messages::default();
@@ -221,6 +269,49 @@ impl PhysicalControls {
         }
     }
 
+    /// Observes same-window pointer edges without consuming ordinary gameplay buttons.
+    fn pointer_edges(
+        &mut self,
+        events: Option<&Messages<MouseButtonInput>>,
+        buttons: Option<&ButtonInput<MouseButton>>,
+        window: Entity,
+        focused: bool,
+    ) -> Vec<String> {
+        let mut pressed = Vec::new();
+        let mut down =
+            POINTER_BUTTONS.map(|(_, name)| self.held_keys.iter().any(|key| key == name));
+        if let Some(events) = events {
+            for event in self.mouse.read(events) {
+                if event.window != window {
+                    continue;
+                }
+                let Some(index) = POINTER_BUTTONS
+                    .iter()
+                    .position(|(button, _)| *button == event.button)
+                else {
+                    continue;
+                };
+                let next = event.state == ButtonState::Pressed;
+                if next && !down[index] && focused && pressed.len() < mod_host::MAX_CONTROL_KEYS {
+                    pressed.push(POINTER_BUTTONS[index].1.to_owned());
+                }
+                down[index] = next;
+            }
+        } else {
+            for (index, (button, name)) in POINTER_BUTTONS.iter().enumerate() {
+                down[index] = buttons.is_some_and(|buttons| buttons.pressed(*button));
+                if focused && buttons.is_some_and(|buttons| buttons.just_pressed(*button)) {
+                    pressed.push((*name).to_owned());
+                }
+            }
+        }
+        self.left_held = down[0];
+        for (index, (_, name)) in POINTER_BUTTONS.iter().enumerate() {
+            self.track_held((*name).into(), down[index]);
+        }
+        pressed
+    }
+
     /// Remembers input ownership independently of guest reload or quarantine.
     fn finish_panel(&mut self, open: bool, focused: bool, absorbed: bool, captured: bool) -> bool {
         if !focused || absorbed {
@@ -296,7 +387,16 @@ pub(super) fn prepare_mod_input(
         return;
     };
     if focused {
+        let seed_pointer = !physical.held_seeded;
         physical.seed_held(keys.get_pressed());
+        if seed_pointer && let Some(buttons) = mouse.as_ref() {
+            for (button, name) in POINTER_BUTTONS {
+                physical.track_held(
+                    name.into(),
+                    buttons.pressed(button) && !buttons.just_pressed(button),
+                );
+            }
+        }
     }
     let mut panel_keys = Vec::new();
     if let Some(events) = keyboard_events {
@@ -327,19 +427,8 @@ pub(super) fn prepare_mod_input(
             physical.track_held(name, down);
         }
     }
-    if let Some(events) = mouse_events {
-        let mut held = physical.left_held;
-        for event in physical.mouse.read(&events) {
-            if event.window == entity && event.button == MouseButton::Left {
-                held = event.state == ButtonState::Pressed;
-            }
-        }
-        physical.left_held = held;
-    } else {
-        physical.left_held = mouse
-            .as_ref()
-            .is_some_and(|buttons| buttons.pressed(MouseButton::Left));
-    }
+    let pointer_pressed =
+        physical.pointer_edges(mouse_events.as_deref(), mouse.as_deref(), entity, focused);
     let absorbed = menu.as_deref().map_or_else(
         || ui.ui_focused(&player),
         |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
@@ -366,7 +455,7 @@ pub(super) fn prepare_mod_input(
     if absorbed || interrupt {
         presentation.cancel_mod_panel_edit();
     }
-    let mut pressed = Vec::new();
+    let mut pressed = pointer_pressed;
     let mut events = Vec::new();
     for (key, text, repeat) in panel_keys {
         if open && focused && !absorbed && editing && !interrupt {
@@ -424,7 +513,7 @@ pub(super) fn prepare_mod_input(
     super::hud_editor::collect(&mut extension, &mut presentation);
     let events = events
         .into_iter()
-        .take(ui::mod_panel::MAX_PANEL_CONTROLS)
+        .take(ui::mod_panel::MAX_PANEL_EVENTS)
         .map(|event| mod_host::ControlEvent {
             id: event.id,
             value: event.value,

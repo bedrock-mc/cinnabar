@@ -835,10 +835,10 @@
   then Mailbox, then FIFO. Hidden developer surfaces present unpaced.
   Every choice comes from the primary surface's probed modes.
   `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
-- Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
-  vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
-  the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
-  variable refresh at 97% of its maximum in low-latency mode.
+- Max Framerate offers 1–240 FPS and Unlimited, which is the default. Missing or unsupported
+  saved FPS values use Unlimited. `--frame-cap` replaces the saved limit for the session.
+  VSync controls display pacing; confirmed variable refresh caps low-latency rendering at
+  97% of its maximum, including when Unlimited is selected.
 - Variable Refresh Rate offers Automatic / On / Off in both Video menus. Automatic uses the
   current macOS screen's refresh intervals and native fullscreen state; unsupported queries,
   Windows, and Linux remain Unknown. On declares VRR enabled by the player; it does not change

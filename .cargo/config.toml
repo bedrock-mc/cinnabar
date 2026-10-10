@@ -1,0 +1,4 @@
+[build]
+# Every worktree shares one dependency build; `target/` keeps only final artifacts.
+# Concurrent builds wait on this directory's lock, so agents give each build slot its own.
+build-dir = "{cargo-cache-home}/build/cinnabar"

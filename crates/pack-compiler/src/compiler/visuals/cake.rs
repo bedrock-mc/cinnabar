@@ -38,7 +38,6 @@ pub(in crate::compiler) fn cake_collision_is_exact(record: &RegistryRecord, bite
         6_250_000, 18_750_000, 31_250_000, 43_750_000, 56_250_000, 68_750_000, 81_250_000,
     ];
     bite <= 6
-        && record.collision_seed.shape_id == 89 + bite as u16
         && record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
         && record.collision_seed.boxes.as_ref()
             == [assets::CollisionBox {

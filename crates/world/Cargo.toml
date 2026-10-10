@@ -22,3 +22,6 @@ harness = false
 [[bench]]
 name = "light_work"
 harness = false
+
+[lints]
+workspace = true

@@ -53,7 +53,7 @@ impl PresentModeRuntime {
             observed_settings_generation: 0,
             remedy_adopted: None,
             launch_limit: None,
-            limit: FrameRateLimit::Automatic,
+            limit: FrameRateLimit::Unlimited,
         }
     }
 

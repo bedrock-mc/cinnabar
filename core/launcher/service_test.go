@@ -24,18 +24,19 @@ func testAccount() *authcache.Account {
 }
 
 type fixture struct {
-	service  *Service
-	store    *control.Store
-	selector *proxy.UpstreamSelector
-	removed  []string
+	service   *Service
+	store     *control.Store
+	selector  *proxy.UpstreamSelector
+	transfers *proxy.TransferState
+	removed   []string
 }
 
 func newFixture(t *testing.T, source *authcache.Account) *fixture {
 	t.Helper()
-	f := &fixture{store: control.NewStore(), selector: new(proxy.UpstreamSelector)}
+	f := &fixture{store: control.NewStore(), selector: new(proxy.UpstreamSelector), transfers: new(proxy.TransferState)}
 	f.service = New(Config{
 		Account: source, AuthCache: filepath.Join(t.TempDir(), "token.json"),
-		Store: f.store, Selector: f.selector, Transfers: new(proxy.TransferState),
+		Store: f.store, Selector: f.selector, Transfers: f.transfers,
 		Realms: func(context.Context, *authcache.Account) ([]catalog.Realm, error) {
 			return []catalog.Realm{{Name: "R", Target: "realm_id/1"}}, nil
 		},
@@ -90,6 +91,39 @@ func TestConnectClearsPendingTransfer(t *testing.T) {
 	}
 	if f.store.Status().Transfer != nil {
 		t.Fatal("explicit connect left the transfer pending")
+	}
+}
+
+// A session's explicit target drops an abandoned transfer, so the next targetless Connect cannot
+// follow it, while the shared selection stays as it was.
+func TestSessionTargetClearsPendingTransferWithoutSelecting(t *testing.T) {
+	f := newFixture(t, testAccount())
+	_ = f.service.Connect(context.Background(), control.TargetRakNet, "keep.example:1")
+	if err := f.transfers.Record(proxy.TransferTarget{Host: "b.example", Port: 2}); err != nil {
+		t.Fatal(err)
+	}
+	f.store.ObserveTransfer(proxy.TransferTarget{Host: "b.example", Port: 2})
+	target, err := f.service.SessionTarget(context.Background(), control.TargetRealm, "7")
+	if err != nil || target != "realm_id/7" {
+		t.Fatalf("SessionTarget() = %q, %v", target, err)
+	}
+	if _, pending := f.transfers.Pending(); pending || f.store.Status().Transfer != nil {
+		t.Fatal("explicit session target left the transfer pending")
+	}
+	if got, _ := f.selector.Target(); got != "keep.example:1" {
+		t.Fatalf("session target changed the shared selection to %q", got)
+	}
+
+	if err := f.transfers.Record(proxy.TransferTarget{Host: "b.example", Port: 2}); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := f.service.SessionTarget(cancelled, control.TargetRakNet, "a.example:1"); err == nil {
+		t.Fatal("a cancelled resolution returned a target")
+	}
+	if _, pending := f.transfers.Pending(); !pending {
+		t.Fatal("a cancelled resolution dropped the transfer")
 	}
 }
 

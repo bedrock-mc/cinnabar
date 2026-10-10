@@ -120,6 +120,60 @@ class SourceReuseTests(unittest.TestCase):
         self.assertNotEqual(second["prefix"], changed["prefix"])
 
 
+class CrossTargetTests(unittest.TestCase):
+    """Keep cross-compiled artifacts and their caches separate on the same runner."""
+
+    def test_rust_targets_cache_both_host_and_target_outputs(self):
+        """Cross builds retain native tools and target artifacts in separate buckets."""
+        root = Path("source").resolve()
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64"}
+        plans = []
+        for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"]:
+            with patch.object(cache, "command", side_effect=["rustc 1", "revision"]):
+                plan = cache.plan(root, "rust", "release", {**env, "CARGO_BUILD_TARGET": target})
+            paths = plan["paths"].splitlines()
+            self.assertIn(str(root / "target/release"), paths)
+            self.assertIn(str(root / "target" / target / "release"), paths)
+            self.assertIn(str(root / "target/.ci-inputs.json"), paths)
+            plans.append(plan)
+        self.assertNotEqual(plans[0]["bucket"], plans[1]["bucket"])
+        self.assertNotEqual(plans[0]["prefix"], plans[1]["prefix"])
+        entries = [
+            {"id": 1, "key": plans[0]["key"], "ref": "refs/heads/dev", "created_at": "2026-01-01"},
+            {"id": 2, "key": plans[1]["key"], "ref": "refs/heads/dev", "created_at": "2026-01-02"},
+        ]
+        self.assertEqual(cache.superseded(entries, plans[1]["key"], plans[1]["bucket"], "refs/heads/dev"), [])
+
+    def test_go_targets_and_cgo_settings_separate_caches(self):
+        """Parallel Go targets cannot collide or reuse incompatible cgo settings."""
+        root = Path("source").resolve()
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "GOOS": "darwin", "CGO_ENABLED": "1"}
+        plans = []
+        for settings in [{"GOARCH": "arm64"}, {"GOARCH": "amd64"}, {"GOARCH": "amd64", "CGO_ENABLED": "0"}]:
+            with patch.object(cache, "command", side_effect=["go version 1", "cache\nmodules", "revision"]):
+                plans.append(cache.plan(root, "go", "ci", {**env, **settings}))
+        self.assertNotEqual(plans[0]["bucket"], plans[1]["bucket"])
+        self.assertNotEqual(plans[1]["prefix"], plans[2]["prefix"])
+        self.assertEqual(plans[0]["paths"], "cache\nmodules")
+
+    def test_native_cache_retention_preserves_cross_targets(self):
+        """Regular native CI must not prune release caches built for explicit targets."""
+        root = Path("source").resolve()
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64"}
+        for language, settings, outputs in [
+            ("rust", {"CARGO_BUILD_TARGET": "x86_64-apple-darwin"}, ["rustc 1", "revision"]),
+            ("go", {"GOOS": "darwin", "GOARCH": "amd64"}, ["go version 1", "cache\nmodules", "revision"]),
+        ]:
+            with patch.object(cache, "command", side_effect=outputs * 2):
+                native = cache.plan(root, language, "ci", env)
+                cross = cache.plan(root, language, "ci", {**env, **settings})
+            entries = [
+                {"id": 1, "key": cross["key"], "ref": "refs/heads/dev", "created_at": "2026-01-01"},
+                {"id": 2, "key": native["key"], "ref": "refs/heads/dev", "created_at": "2026-01-02"},
+            ]
+            self.assertEqual(cache.superseded(entries, native["key"], native["bucket"], "refs/heads/dev"), [])
+
+
 class RetentionTests(unittest.TestCase):
     """Protect the replacement, other platforms, and concurrent newer saves."""
 

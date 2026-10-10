@@ -2,22 +2,21 @@
 use std::num::NonZeroU16;
 
 use super::{
-    ANIMATIONS_OPTION, FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, SMAA_OPTION, SettingsOptions,
+    ANIMATIONS_OPTION, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
+    SMAA_OPTION, SettingsOptions,
 };
 use render_api::FrameRateLimit;
 use semantic_input::PerspectiveMode;
 
-/// The limit a stored `max_framerate` slider value selects.
+/// The selected FPS cap, or Unlimited for a value outside the fixed-cap range.
 #[must_use]
 pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
     match value {
-        FRAME_RATE_AUTOMATIC => FrameRateLimit::Automatic,
         FRAME_RATE_UNLIMITED.. => FrameRateLimit::Unlimited,
         fixed => u16::try_from(fixed)
             .ok()
             .and_then(NonZeroU16::new)
-            .map_or(FrameRateLimit::Automatic, FrameRateLimit::Fixed),
+            .map_or(FrameRateLimit::Unlimited, FrameRateLimit::Fixed),
     }
 }
 

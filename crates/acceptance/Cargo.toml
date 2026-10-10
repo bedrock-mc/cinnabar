@@ -27,3 +27,6 @@ world = { path = "../world" }
 
 [dev-dependencies]
 render = { path = "../render", features = ["publication-test-support"] }
+
+[lints]
+workspace = true

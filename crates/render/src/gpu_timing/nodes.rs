@@ -331,10 +331,10 @@ fn begin_frame(mut timer: ResMut<NodeTimer>) {
                 };
                 for span in 0..slot.spans as usize {
                     let (begin, end) = (tick(span * 2), tick(span * 2 + 1));
-                    if span_validity(begin, end) == SpanValidity::Valid {
-                        if let Some(total) = totals.get_mut(usize::from(slot.nodes[span])) {
-                            *total += end - begin;
-                        }
+                    if span_validity(begin, end) == SpanValidity::Valid
+                        && let Some(total) = totals.get_mut(usize::from(slot.nodes[span]))
+                    {
+                        *total += end - begin;
                     }
                 }
                 drop(bytes);
