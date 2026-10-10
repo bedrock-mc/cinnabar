@@ -367,7 +367,7 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
-	var sessionTarget func(context.Context, string, string) error
+	var sessionTarget func(context.Context, string, string) (string, error)
 	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
@@ -410,7 +410,7 @@ func runWithResourcePackCacheFactory(
 		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
-		sessionTarget = service.Connect
+		sessionTarget = service.Target
 		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)

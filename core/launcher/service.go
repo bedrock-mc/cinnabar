@@ -215,22 +215,10 @@ func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.
-// A gathering is joined now, so its server assignment is fresh.
 func (s *Service) Connect(ctx context.Context, kind, value string) error {
-	target, err := upstreamTarget(kind, value)
+	target, err := s.Target(ctx, kind, value)
 	if err != nil {
 		return err
-	}
-	if kind != control.TargetRakNet {
-		account, err := s.source()
-		if err != nil {
-			return err
-		}
-		if kind == control.TargetGathering {
-			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
-				return err
-			}
-		}
 	}
 	if s.cfg.Selector != nil {
 		s.cfg.Selector.Set(target)
@@ -242,6 +230,27 @@ func (s *Service) Connect(ctx context.Context, kind, value string) error {
 		s.cfg.Store.ClearTransfer()
 	}
 	return nil
+}
+
+// Target returns the proxy target for a connect.v1 target without selecting it. A gathering is
+// joined now, so its server assignment is fresh.
+func (s *Service) Target(ctx context.Context, kind, value string) (string, error) {
+	target, err := upstreamTarget(kind, value)
+	if err != nil {
+		return "", err
+	}
+	if kind != control.TargetRakNet {
+		account, err := s.source()
+		if err != nil {
+			return "", err
+		}
+		if kind == control.TargetGathering {
+			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
+				return "", err
+			}
+		}
+	}
+	return target, nil
 }
 
 // upstreamTarget maps a connect.v1 target to the proxy's target syntax.

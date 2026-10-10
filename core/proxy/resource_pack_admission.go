@@ -635,7 +635,12 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		err = errors.Join(err, finishPreparedResources(upstream, releaseTarget))
 	}()
 
-	target, err = connections.resolveTarget(withConnectProgress(ctx, report))
+	resolve := connections.resolveTarget
+	session, isSession := downstream.(sessionJoinDownstream)
+	if isSession && session.sessionResolveTarget() != nil {
+		resolve = session.sessionResolveTarget()
+	}
+	target, err = resolve(withConnectProgress(ctx, report))
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +658,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		tokenSource = nil
 	}
 	clientCache := connections.upstreamClientCache
-	if session, ok := downstream.(sessionCacheDownstream); ok {
+	if isSession {
 		clientCache = clientCache && session.sessionClientCache()
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)

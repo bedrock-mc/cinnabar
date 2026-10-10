@@ -55,8 +55,9 @@ type Config struct {
 	PacketDelay *PacketDelay
 	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
 	ServerTrust minecraft.ServerTrust
-	// SessionTarget, when set, applies a session Connect's connect.v1 target; nil rejects targeted Connects.
-	SessionTarget func(ctx context.Context, kind, value string) error
+	// SessionTarget, when set, maps a session Connect's connect.v1 target to a proxy target for that
+	// session alone; nil rejects targeted Connects.
+	SessionTarget func(ctx context.Context, kind, value string) (string, error)
 }
 
 const maxInitialTransferHops = 8
@@ -134,6 +135,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		transfers:    transfers,
 		onDisconnect: cfg.OnDisconnect,
 		selectTarget: cfg.SessionTarget,
+		dialTarget:   dial,
 		delay:        cfg.PacketDelay,
 		logger:       logger,
 	}

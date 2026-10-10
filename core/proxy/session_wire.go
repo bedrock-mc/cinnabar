@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -95,7 +96,7 @@ func decodeSessionConnect(frame []byte) (sessionConnectRequest, error) {
 	if err := decoder.Decode(&request); err != nil {
 		return request, fmt.Errorf("%w: connect: %v", errMalformedSessionMessage, err)
 	}
-	if decoder.More() {
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return request, fmt.Errorf("%w: connect has trailing data", errMalformedSessionMessage)
 	}
 	if len(request.ClientData) == 0 {
@@ -114,7 +115,7 @@ func appendBatchPacket(batch, data []byte) []byte {
 func splitBatch(body []byte) ([][]byte, error) {
 	var packets [][]byte
 	for len(body) != 0 {
-		length, n := binary.Uvarint(body)
+		length, n := readVaruint32(body)
 		if n <= 0 || length == 0 || length > uint64(len(body)-n) || length > streamnet.MaxFrameLen {
 			return nil, fmt.Errorf("%w: batch packet length", errMalformedSessionMessage)
 		}
@@ -148,11 +149,20 @@ func rawSessionPackets(packets [][]byte, decode func(uint32) bool, pool packet.P
 
 // sessionPacketID reads the packet ID from an encoded packet's header.
 func sessionPacketID(data []byte) (uint32, bool) {
-	header, n := binary.Uvarint(data)
-	if n <= 0 || header > 0xffffffff {
+	header, n := readVaruint32(data)
+	if n <= 0 {
 		return 0, false
 	}
 	return uint32(header) & 0x3ff, true
+}
+
+// readVaruint32 is binary.Uvarint limited to the five bytes and 32 bits of a varuint32; n <= 0 rejects.
+func readVaruint32(data []byte) (value uint64, n int) {
+	value, n = binary.Uvarint(data[:min(len(data), binary.MaxVarintLen32)])
+	if n <= 0 || value > 0xffffffff {
+		return 0, -1
+	}
+	return value, n
 }
 
 // decodeSessionPacket decodes one encoded packet of the current protocol, or returns nil; limits

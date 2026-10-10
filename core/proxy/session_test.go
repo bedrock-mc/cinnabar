@@ -103,6 +103,8 @@ func TestDecodeSessionConnectRejectsMalformedSetup(t *testing.T) {
 		"invalid json":   "\x01{",
 		"unknown field":  "\x01{\"protocol\":1,\"client_data\":{},\"extra\":1}",
 		"trailing value": "\x01{\"protocol\":1,\"client_data\":{}}{}",
+		"trailing close": "\x01{\"protocol\":1,\"client_data\":{}}}",
+		"trailing array": "\x01{\"protocol\":1,\"client_data\":{}}]",
 		"no client data": "\x01{\"protocol\":1}",
 	} {
 		if _, err := decodeSessionConnect([]byte(frame)); !errors.Is(err, errMalformedSessionMessage) {
@@ -145,6 +147,8 @@ func TestSplitBatchRoundTripsAndRejectsMalformedBodies(t *testing.T) {
 		"truncated":     {3, 1, 2},
 		"bad varint":    {0x80},
 		"trailing byte": {1, 9, 1},
+		"wide length":   {0x81, 0x80, 0x80, 0x80, 0x80, 0x00, 9},
+		"33-bit length": {0x81, 0x80, 0x80, 0x80, 0x10, 9},
 	} {
 		if _, err := splitBatch(body); !errors.Is(err, errMalformedSessionMessage) {
 			t.Errorf("%s: err = %v", name, err)
@@ -375,20 +379,22 @@ func TestSessionPreparationFailureSendsDisconnect(t *testing.T) {
 	}
 }
 
-// A targeted Connect selects its target before joining; a core without target selection refuses it.
-func TestSessionConnectTargetIsSelectedBeforeJoining(t *testing.T) {
+// A targeted Connect joins its own resolved target, never the shared selection another join may change;
+// a core without target selection refuses it.
+func TestSessionConnectTargetIsBoundToItsSession(t *testing.T) {
 	dir := t.TempDir()
-	selected := make(chan sessionTarget, 1)
-	joined := make(chan sessionTarget, 1)
+	dialed := make(chan string, 1)
 	newTestSessionServer(t, dir, func(server *sessionServer) {
-		server.selectTarget = func(_ context.Context, kind, value string) error {
-			selected <- sessionTarget{Kind: kind, Value: value}
-			return nil
+		server.selectTarget = func(_ context.Context, kind, value string) (string, error) {
+			return kind + "/" + value, nil
 		}
-		server.prepared.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
-			target := <-selected
-			joined <- target
-			return nil, errors.New("stop after selection")
+		server.dialTarget = func(_ context.Context, address string) (*resolvedUpstreamTarget, error) {
+			dialed <- address
+			return nil, errors.New("stop after resolution")
+		}
+		server.prepared.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+			dialed <- "shared selection"
+			return nil, errors.New("joined the shared selection")
 		}
 	})
 	request := testSessionConnect(t)
@@ -397,8 +403,8 @@ func TestSessionConnectTargetIsSelectedBeforeJoining(t *testing.T) {
 	if frame := <-frames; frame[0] != sessionKindDisconnect || !bytes.Contains(frame, []byte("disconnectionScreen.cantConnect")) {
 		t.Fatalf("frame = %q", frame)
 	}
-	if target := <-joined; target != *request.Target {
-		t.Fatalf("selected %+v", target)
+	if address := <-dialed; address != "realm/42" {
+		t.Fatalf("dialed %q", address)
 	}
 
 	untargetable := t.TempDir()
@@ -410,6 +416,33 @@ func TestSessionConnectTargetIsSelectedBeforeJoining(t *testing.T) {
 	_, frames = dialTestSession(t, untargetable, request)
 	if frame := <-frames; frame[0] != sessionKindDisconnect || !bytes.Contains(frame, []byte("disconnectionScreen.cantConnect")) {
 		t.Fatalf("untargetable core frame = %q", frame)
+	}
+}
+
+// A client that leaves while its target is resolving cancels the resolution.
+func TestSessionClientLeavingCancelsTargetResolution(t *testing.T) {
+	dir := t.TempDir()
+	started, cancelled := make(chan struct{}), make(chan struct{})
+	newTestSessionServer(t, dir, func(server *sessionServer) {
+		server.selectTarget = func(ctx context.Context, _, _ string) (string, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return "", ctx.Err()
+		}
+		server.dialTarget = func(context.Context, string) (*resolvedUpstreamTarget, error) {
+			return nil, errors.New("dialed after the client left")
+		}
+	})
+	request := testSessionConnect(t)
+	request.Target = &sessionTarget{Kind: "gathering", Value: "00000000-0000-4000-8000-000000000001"}
+	client, _ := dialTestSession(t, dir, request)
+	<-started
+	_ = client.Close()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("target resolution outlived its client")
 	}
 }
 

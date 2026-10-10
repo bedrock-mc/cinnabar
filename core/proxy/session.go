@@ -31,7 +31,8 @@ type sessionServer struct {
 	prepared     *preparedConnections
 	transfers    *TransferState
 	onDisconnect func(DisconnectInfo)
-	selectTarget func(ctx context.Context, kind, value string) error // nil rejects targeted Connects
+	selectTarget func(ctx context.Context, kind, value string) (string, error) // nil rejects targeted Connects
+	dialTarget   func(ctx context.Context, address string) (*resolvedUpstreamTarget, error)
 	delay        *PacketDelay
 	logger       *slog.Logger
 
@@ -125,18 +126,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 	session := newSessionConn(framed)
 	defer func() { _ = session.Close() }()
 
-	if request.Target != nil {
-		if server.selectTarget == nil {
-			err = errors.New("proxy: session targets are unavailable")
-		} else {
-			err = server.selectTarget(sessionCtx, request.Target.Kind, request.Target.Value)
-		}
-		if err != nil {
-			_ = session.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)})
-			return err
-		}
-	}
-	plan, prepared, err := server.prepare(sessionCtx, cancel, session, downstream)
+	plan, prepared, err := server.prepare(sessionCtx, cancel, session, downstream, request.Target)
 	if err != nil {
 		if sessionCtx.Err() == nil {
 			relayPreLoginDisconnect(session, err)
@@ -156,15 +146,29 @@ type sessionPlan struct {
 }
 
 // prepare joins upstream while watching the client, then reads startup and selects the packs.
-// The returned connection owns the upstream leg; the caller still owns session.
+// A target is resolved for this session alone. The returned connection owns the upstream leg;
+// the caller still owns session.
 func (server *sessionServer) prepare(
 	ctx context.Context,
 	cancel context.CancelCauseFunc,
 	session *sessionConn,
 	downstream *sessionDownstream,
+	target *sessionTarget,
 ) (plan sessionPlan, prepared *preparedConnection, err error) {
 	stopWatch := session.watchPeer(cancel)
 	defer stopWatch()
+	if target != nil {
+		if server.selectTarget == nil || server.dialTarget == nil {
+			return plan, nil, errors.New("proxy: session targets are unavailable")
+		}
+		address, err := server.selectTarget(ctx, target.Kind, target.Value)
+		if err != nil {
+			return plan, nil, err
+		}
+		downstream.resolve = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+			return server.dialTarget(ctx, address)
+		}
+	}
 	err = server.prepared.tracked(ctx, func(prepareCtx context.Context) error {
 		connected, err := server.prepared.connectPrepared(prepareCtx, downstream)
 		if err != nil {
@@ -339,17 +343,23 @@ type sessionDownstream struct {
 	identity    login.IdentityData
 	clientData  login.ClientData
 	clientCache bool
+	resolve     func(context.Context) (*resolvedUpstreamTarget, error) // nil uses the core's selection
 }
 
-// sessionCacheDownstream narrows the core's static upstream blob-cache opt-in to the client's answer.
-type sessionCacheDownstream interface {
+// sessionJoinDownstream lets a session narrow the core's static upstream blob-cache opt-in to the
+// client's answer and replace the shared target selection with its own target.
+type sessionJoinDownstream interface {
 	sessionClientCache() bool
+	sessionResolveTarget() func(context.Context) (*resolvedUpstreamTarget, error)
 }
 
 func (downstream *sessionDownstream) IdentityData() login.IdentityData { return downstream.identity }
 func (downstream *sessionDownstream) ClientData() login.ClientData     { return downstream.clientData }
 func (downstream *sessionDownstream) Proto() minecraft.Protocol        { return minecraft.DefaultProtocol }
 func (downstream *sessionDownstream) sessionClientCache() bool         { return downstream.clientCache }
+func (downstream *sessionDownstream) sessionResolveTarget() func(context.Context) (*resolvedUpstreamTarget, error) {
+	return downstream.resolve
+}
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data.
 func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, error) {
