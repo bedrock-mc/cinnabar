@@ -11,8 +11,8 @@ use ui::{UiNode, UiRect};
 use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
 use super::{engine, menu_caret::TextSpot, menu_screens};
-use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
+use launcher::menu::{MenuAction, MenuView};
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 
@@ -54,7 +54,7 @@ impl UiPresentationRuntime {
             return Ok(Vec::new());
         };
         self.begin_menu_caret(Arc::make_mut(&mut view));
-        if view.screen == crate::menu::MenuScreen::Death {
+        if view.screen == launcher::menu::MenuScreen::Death {
             Arc::make_mut(&mut view).death_reason = runtime.death_reason().to_owned();
         }
         let shown = view.as_ref();
@@ -73,7 +73,7 @@ impl UiPresentationRuntime {
             Ok(None) | Err(_) => {
                 let owned_dialog = matches!(
                     shown.dialog,
-                    Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
+                    Some(launcher::menu::MenuDialog::Accounts | launcher::menu::MenuDialog::Exit)
                 );
                 let fallback = owned_dialog.then(|| {
                     let mut view = shown.clone();
@@ -144,7 +144,7 @@ impl UiPresentationRuntime {
         if self.form_presentation.engine.is_none()
             && !matches!(
                 view.screen,
-                crate::menu::MenuScreen::DressingRoom | crate::menu::MenuScreen::Death
+                launcher::menu::MenuScreen::DressingRoom | launcher::menu::MenuScreen::Death
             )
         {
             return Ok(None);
@@ -220,14 +220,14 @@ impl UiPresentationRuntime {
             pressed: key_of(view.pressed),
             focused: view.field.and_then(|field| {
                 key_of(Some(match field {
-                    crate::menu::MenuField::Name => MenuAction::AddName,
-                    crate::menu::MenuField::Address => MenuAction::AddAddress,
-                    crate::menu::MenuField::Port => MenuAction::AddPort,
+                    launcher::menu::MenuField::Name => MenuAction::AddName,
+                    launcher::menu::MenuField::Address => MenuAction::AddAddress,
+                    launcher::menu::MenuField::Port => MenuAction::AddPort,
                     // Drawn by the OreUI create and edit screens, not JSON-UI.
-                    crate::menu::MenuField::WorldName
-                    | crate::menu::MenuField::WorldSeed
-                    | crate::menu::MenuField::SkinName
-                    | crate::menu::MenuField::RealmCode => {
+                    launcher::menu::MenuField::WorldName
+                    | launcher::menu::MenuField::WorldSeed
+                    | launcher::menu::MenuField::SkinName
+                    | launcher::menu::MenuField::RealmCode => {
                         return None;
                     }
                 }))
@@ -253,7 +253,7 @@ impl UiPresentationRuntime {
                 .renders(
                     index == top
                         && (!view.popup_open()
-                            || view.dialog == Some(crate::menu::MenuDialog::DeathQuit)),
+                            || view.dialog == Some(launcher::menu::MenuDialog::DeathQuit)),
                 )
             {
                 continue;
@@ -281,8 +281,7 @@ impl UiPresentationRuntime {
                 preview_control: Some(&preview_control),
                 preview_rotation: self.menu_preview.rotation(),
                 pointer: self.menu_preview.pointer.map(|point| {
-                    let gui_pixel =
-                        metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+                    let gui_pixel = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
                     [
                         (point.x() - self.safe_area.left()) / gui_pixel,
                         (point.y() - self.safe_area.top()) / gui_pixel,
@@ -439,11 +438,11 @@ impl UiPresentationRuntime {
         };
         if matches!(
             dialog,
-            Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
+            Some(launcher::menu::MenuDialog::Accounts | launcher::menu::MenuDialog::Exit)
         ) {
             self.form_presentation.menu_sounds = Vec::new();
             let rollback = (nodes.len(), *next);
-            let drawn = if dialog == Some(crate::menu::MenuDialog::Exit) {
+            let drawn = if dialog == Some(launcher::menu::MenuDialog::Exit) {
                 self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
                     runtime.translation(key)
                 })
@@ -483,8 +482,8 @@ impl UiPresentationRuntime {
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
         let mut data = json_ui::form_data_source(&model);
         let reference = if dialog
-            == Some(crate::menu::MenuDialog::SettingsSupport(
-                crate::menu::settings_support::SupportDialog::Help,
+            == Some(launcher::menu::MenuDialog::SettingsSupport(
+                launcher::menu::settings_support::SupportDialog::Help,
             )) {
             super::settings_support::help_data(&mut data, &translate);
             "rating_prompt.rating_prompt_screen"

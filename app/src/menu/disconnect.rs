@@ -1,8 +1,6 @@
-pub(crate) use launcher::menu::disconnect::*;
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use launcher::menu::disconnect::{DisconnectBody, SERVER_SENT_KEYS, describe};
     #[test]
     fn network_session_failures_keep_known_server_language_keys() {
         let key = DisconnectBody::Key;

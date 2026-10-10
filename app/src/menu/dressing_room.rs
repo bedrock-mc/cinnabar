@@ -1,8 +1,8 @@
 //! Skin selection work stays outside the frame loop; results publish atomically.
 
-use super::*;
 use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
+use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuAction};
 
 mod editor;
 mod picker;

@@ -88,7 +88,7 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
     };
     let runtime = UiRuntime::new(7);
     let mut presentation =
-        UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
     let (network, _receiver) = NetworkHandle::with_command_capacity(8);
     client_world.dimension_transfer.begin(
         runtime.session_id(),

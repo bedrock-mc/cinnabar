@@ -1,6 +1,6 @@
 use protocol::PlayerInputMode;
 
-use super::{creative_reach, survival_reach};
+use gameplay::mining::{creative_reach, survival_reach};
 
 #[test]
 fn creative_reach_is_frozen_per_input_mode() {

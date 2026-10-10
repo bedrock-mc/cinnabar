@@ -443,8 +443,8 @@ fn sprite_pages(nodes: &[ui::UiNode]) -> Vec<(u16, [u16; 4])> {
 fn path_and_url_button_images_resolve_like_vanilla() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use super::super::IconRef;
     use protocol::FormButtonImage::{Path, Url};
+    use ui::IconRef;
     let vanilla = std::env::temp_dir().join(format!("forms-vanilla-{}", std::process::id()));
     std::fs::create_dir_all(vanilla.join("textures/blocks")).unwrap();
     std::fs::write(
@@ -525,12 +525,12 @@ impl json_ui::TextureSource for NoTextures {
 }
 
 fn pause_texts() -> Option<Vec<String>> {
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Pause;
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Pause;
     screen_texts(&view)
 }
 
-pub(super) fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
+pub(super) fn screen_texts(view: &launcher::menu::MenuView) -> Option<Vec<String>> {
     let carrier = super::pack_harness::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier
@@ -582,14 +582,16 @@ fn pause_screen_draws_the_retail_buttons() {
 // A pack download shows vanilla's "Downloading packs" title with the pack count and sizes.
 #[test]
 fn connecting_screen_reports_the_pack_download() {
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.connecting = true;
-    view.feeds.join.observe(Some(crate::menu::JoinStage::Packs {
-        done: 1,
-        total: 3,
-        received_bytes: 5 * 1024 * 1024,
-        total_bytes: 20 * 1024 * 1024,
-    }));
+    view.feeds
+        .join
+        .observe(Some(launcher::menu::JoinStage::Packs {
+            done: 1,
+            total: 3,
+            received_bytes: 5 * 1024 * 1024,
+            total_bytes: 20 * 1024 * 1024,
+        }));
     let Some(texts) = screen_texts(&view) else {
         eprintln!(
             "skipping connecting_screen_reports_the_pack_download: fixture unavailable; requires installed local carriers (make assets)"
@@ -607,10 +609,12 @@ fn connecting_screen_reports_the_pack_download() {
 // A Realm join lays out vanilla's Realms loading screen with the lookup's words.
 #[test]
 fn realm_join_screen_reports_the_realm_lookup() {
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.connecting = true;
-    view.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
-    view.feeds.join.observe(Some(crate::menu::JoinStage::Realm));
+    view.feeds.join = launcher::menu::JoinProgress::new(launcher::menu::JoinKind::Realm);
+    view.feeds
+        .join
+        .observe(Some(launcher::menu::JoinStage::Realm));
     let Some(texts) = screen_texts(&view) else {
         eprintln!(
             "skipping realm_join_screen_reports_the_realm_lookup: fixture unavailable; requires installed local carriers (make assets)"
@@ -628,9 +632,9 @@ fn realm_join_screen_reports_the_realm_lookup() {
 // Opening a local world shows vanilla's loading screen with the current stage and its bytes.
 #[test]
 fn local_world_loading_screen_names_the_stage() {
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.local.progress = Some(crate::local_worlds::Progress {
-        stage: crate::local_worlds::Stage::DownloadingServer,
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.local.progress = Some(launcher::local_worlds::Progress {
+        stage: launcher::local_worlds::Stage::DownloadingServer,
         fraction: Some(0.5),
         detail: "50.0 / 100.0 MB".to_owned(),
     });
@@ -666,8 +670,8 @@ fn retail_settings_hide_debug_and_automation_sections() {
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
-    let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
-    view.screen = crate::menu::MenuScreen::Settings;
+    let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+    view.screen = launcher::menu::MenuScreen::Settings;
     let settings = super::menu_screens::screen_data(&view, &|_| None).unwrap();
     let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
@@ -726,8 +730,8 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
             .map(|file| (&*file.path, &*file.bytes)),
     )
     .unwrap();
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Settings;
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Settings;
     let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
     let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
         .control
@@ -799,10 +803,10 @@ fn the_server_list_builds_only_visible_rows() {
 
     let drawn = |count: usize| {
         let mut presentation = mini_engine_presentation();
-        let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
-        view.screen = crate::menu::MenuScreen::Servers;
+        let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+        view.screen = launcher::menu::MenuScreen::Servers;
         view.servers = (0..count)
-            .map(|index| crate::menu::SavedServer {
+            .map(|index| launcher::menu::SavedServer {
                 name: format!("Server {index}"),
                 address: format!("10.0.0.{}:19132", index % 250),
                 favorite: false,
@@ -822,7 +826,7 @@ fn the_server_list_builds_only_visible_rows() {
         let saved = presentation
             .menu_hit_targets
             .iter()
-            .filter(|(action, _)| matches!(action, crate::menu::MenuAction::SelectSaved(_)))
+            .filter(|(action, _)| matches!(action, launcher::menu::MenuAction::SelectSaved(_)))
             .count();
         (input.vertices.len(), saved)
     };
@@ -835,7 +839,7 @@ fn the_server_list_builds_only_visible_rows() {
 }
 
 /// The OreUI screen `view` draws, as its text runs.
-fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
+fn oreui_texts(view: &launcher::menu::MenuView) -> Vec<String> {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let dpi = ui::DpiScale::new(1.0).unwrap();
     let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
@@ -858,15 +862,15 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
 // Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
-    use crate::local_worlds::{
+    use launcher::local_worlds::{
         Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
         World, WorldState, WorldStatus,
     };
-    let mut runtime = crate::menu::MenuView::new(true, "Steve".to_owned());
-    runtime.screen = crate::menu::MenuScreen::Play;
+    let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
+    runtime.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
         id: "0123456789abcdef".to_owned(),
         name: "Plains".to_owned(),
@@ -882,10 +886,10 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let base = |menu: &WorldsMenu| {
         let mut view = runtime.clone();
         view.local = menu.view();
-        view.local_worlds = vec![crate::menu::LocalWorldCard {
+        view.local_worlds = vec![launcher::menu::LocalWorldCard {
             name: flat.name.clone(),
             game_mode: "Creative".to_owned(),
-            world_type: crate::local_worlds::world_type_label(flat.generator).to_owned(),
+            world_type: launcher::local_worlds::world_type_label(flat.generator).to_owned(),
             date: String::new(),
             size: String::new(),
         }];
@@ -963,10 +967,10 @@ fn fallback_form_preserves_host_owned_presentation_state() {
 
 #[test]
 fn review_failed_menu_modal_does_not_expose_underlying_actions() {
-    use crate::menu::{MenuDialog, MenuScreen};
+    use launcher::menu::{MenuDialog, MenuScreen};
     let player_runtime = player_state::PlayerState::new(1);
     let mut presentation = mini_engine_presentation();
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.screen = MenuScreen::Play;
     presentation.set_menu_view(Some(view.clone()));
     presentation
@@ -1065,10 +1069,10 @@ fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
         return;
     };
     let player_runtime = player_state::PlayerState::new(1);
-    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    let mut view = launcher::menu::MenuView::new(true, "Player".into());
     view.connecting = true;
-    view.dialog = Some(crate::menu::MenuDialog::Exit);
-    view.feeds.server_trust = Some(crate::menu::ServerTrustPrompt {
+    view.dialog = Some(launcher::menu::MenuDialog::Exit);
+    view.feeds.server_trust = Some(launcher::menu::ServerTrustPrompt {
         id: 1,
         url: "http://127.0.0.1:19132".into(),
         from_session_core: false,
@@ -1090,14 +1094,14 @@ fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
     }
     for answer in [true, false] {
         assert!(
-            actions.contains(&crate::menu::MenuAction::ServerTrust(answer)),
+            actions.contains(&launcher::menu::MenuAction::ServerTrust(answer)),
             "{actions:?}"
         );
     }
     assert!(
         actions
             .iter()
-            .all(|action| matches!(action, crate::menu::MenuAction::ServerTrust(_))),
+            .all(|action| matches!(action, launcher::menu::MenuAction::ServerTrust(_))),
         "{actions:?}"
     );
 }

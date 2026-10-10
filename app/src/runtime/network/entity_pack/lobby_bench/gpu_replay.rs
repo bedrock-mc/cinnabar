@@ -1,5 +1,4 @@
 //! Native GPU replay of captured lobby actors; no socket or live server is used.
-use super::*;
 use bevy::{
     asset::AssetPlugin,
     camera::{Camera3dDepthTextureUsage, CameraPlugin, RenderTarget},
@@ -10,6 +9,7 @@ use bevy::{
     render::{RenderApp, RenderPlugin, render_resource::*, renderer::RenderDevice, view::Hdr},
     window::WindowPlugin,
 };
+use {super::*, client_presentation::actor_publication::publish_actor_render_frame};
 
 const VIEWPORT: [u32; 2] = [640, 360];
 
@@ -135,7 +135,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     let capture = read_capture(Path::new(&capture));
     let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), false);
     let camera = *world
-        .query_filtered::<&Transform, With<crate::camera::FlyCamera>>()
+        .query_filtered::<&Transform, With<client_presentation::camera::FlyCamera>>()
         .single(&world)
         .unwrap();
     let mut app = gpu_app(camera);
@@ -155,7 +155,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
         app.update();
     }
     presentation.set_menu_view(None);
-    let font = crate::ui_runtime::presentation::forms::pack_harness::font();
+    let font = client_ui::test_support::pack_harness::font();
     let mut layouts = ui::TextLayoutCache::new(256, 1 << 20);
     let mut atlas = client_ui::ui_runtime::presentation::nametag_atlas::NametagAtlas::default();
     let mut clock = Instant::now();

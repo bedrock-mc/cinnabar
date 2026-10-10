@@ -1,8 +1,12 @@
 //! Backend and terrain remain independent choices on the advanced world form.
 
-use super::*;
-use crate::local_worlds::backend_label;
+use launcher::local_worlds::backend_label;
 use protocol::world_control::{Backend, UnavailableReason};
+use {
+    super::*,
+    launcher::local_worlds::{WorldsView, world_type_label},
+    launcher::menu::{LocalWorldAction as A, MenuField, MenuView},
+};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

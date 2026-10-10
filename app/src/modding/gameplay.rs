@@ -231,7 +231,7 @@ fn nearest_players<'a>(
             .total_cmp(&distance_squared(b, eye))
             .then_with(|| a.runtime_id.cmp(&b.runtime_id))
     });
-    players.truncate(mod_host::MAX_GAMEPLAY_PLAYERS);
+    players.truncate(mod_api::MAX_GAMEPLAY_PLAYERS);
     players
 }
 
@@ -240,7 +240,7 @@ fn nearest_mobs<'a>(
     actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
     eye: Vec3,
 ) -> Vec<GameplayMob> {
-    let range = mod_host::MAX_MOB_RANGE_BLOCKS * mod_host::MAX_MOB_RANGE_BLOCKS;
+    let range = mod_api::MAX_MOB_RANGE_BLOCKS * mod_api::MAX_MOB_RANGE_BLOCKS;
     let mut mobs: Vec<_> = actors
         .filter_map(|actor| {
             let protocol::ActorKind::Entity { identifier } = &actor.kind else {
@@ -251,7 +251,7 @@ fn nearest_mobs<'a>(
                 || !position.is_finite()
                 || position.distance_squared(eye) > range
                 || identifier.is_empty()
-                || identifier.len() > mod_host::MAX_MOB_TYPE_BYTES
+                || identifier.len() > mod_api::MAX_MOB_TYPE_BYTES
             {
                 return None;
             }
@@ -277,7 +277,7 @@ fn nearest_mobs<'a>(
             .total_cmp(&distance(b))
             .then_with(|| a.runtime_id.cmp(&b.runtime_id))
     });
-    mobs.truncate(mod_host::MAX_GAMEPLAY_MOBS);
+    mobs.truncate(mod_api::MAX_GAMEPLAY_MOBS);
     mobs
 }
 

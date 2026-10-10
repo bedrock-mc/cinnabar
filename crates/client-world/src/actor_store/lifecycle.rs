@@ -469,7 +469,7 @@ impl ActorStore {
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
                 }
-                let tick_seconds = crate::ACTOR_TICK_DURATION.as_secs_f32();
+                let tick_seconds = world::TICK_DURATION.as_secs_f32();
                 let elapsed_seconds = movement
                     .source_tick
                     .zip(actor.source_tick)

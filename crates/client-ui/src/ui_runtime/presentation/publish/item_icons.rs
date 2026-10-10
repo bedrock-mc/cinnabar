@@ -1,7 +1,7 @@
 //! Stack-aware icons: a crossbow's nonzero animation frame N selects
 //! crossbow_pulling variant N-1.
 
-use super::*;
+use {super::*, ui::IconRef};
 
 #[derive(Default)]
 pub struct ItemIconFrames(pub [Option<u32>; protocol::HOTBAR_SLOT_COUNT as usize]);
@@ -34,7 +34,7 @@ pub(super) fn stack_icon(
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support {
-    use super::*;
+    use {super::*, ui::IconRef};
     /// Resolves a stack icon for app item-use integration tests.
     pub fn stack_icon(
         runtime: &UiRuntime,

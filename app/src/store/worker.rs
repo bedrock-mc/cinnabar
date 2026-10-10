@@ -17,7 +17,7 @@ const IMAGE_QUEUE: usize = 64;
 /// Concurrent offer image fetches; each thumbnail is a few hundred KB from one CDN host.
 const IMAGE_WORKERS: usize = 8;
 
-pub(crate) use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
+use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
 
 fn reduce<T>(result: Result<T, BridgeError>) -> Result<T, StoreError> {
     result.map_err(|error| StoreError::from(&error))
@@ -147,7 +147,10 @@ async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::store::worker::{StoreError, StoreRequest},
+    };
 
     fn rpc(code: i64) -> BridgeError {
         BridgeError::ControlRpc {

@@ -1,5 +1,5 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::AcceptanceRun;
+use ::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use acceptance::phase2_evidence::{
     CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, build_profile_identity,
@@ -27,7 +27,7 @@ use bevy::{
     time::Real,
 };
 #[cfg(feature = "acceptance")]
-use chunk_pipeline::Phase2PresentationSnapshot;
+use chunk_pipeline::PresentationSnapshot;
 #[cfg(feature = "acceptance")]
 use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
 use render::{
@@ -42,36 +42,39 @@ use world::SubChunkKey;
 mod visibility_snapshot;
 
 #[cfg(feature = "acceptance")]
-use crate::camera::FlyCamera;
-use crate::{
-    acceptance::{
+use client_presentation::camera::FlyCamera;
+use diagnostics::metrics::{
+    GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+    TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+};
+use {
+    crate::{
+        movement::MovementTicker,
+        runtime::{
+            network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+            publication::{
+                PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
+            },
+            shutdown::record_fatal_error,
+            visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+            world::{ClientWorld, WorldStreamFramePoll},
+        },
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::{
+        camera::THIRD_PERSON_RADIUS_BLOCKS, local_player::LocalPlayerFrameCarrier,
+    },
+    diagnostics::{
         markers::{
             ERROR_COUNTERS, STAGE_PROFILE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,
             cumulative_counter_delta, visibility_delta_marker_fields,
             visibility_digest_marker_fields, world_publication_snapshot_marker,
         },
-        mutation::write_stdout_marker,
+        write_stdout_marker,
     },
-    camera::THIRD_PERSON_RADIUS_BLOCKS,
-    local_player::LocalPlayerFrameCarrier,
-    movement::{
-        MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
-        flush_player_auth_inputs_guarded,
+    gameplay::movement::{
+        MovementSendError, PhysicsTickEvidenceContext, flush_player_auth_inputs_guarded,
     },
-    runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        publication::{
-            PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
-        },
-        shutdown::record_fatal_error,
-        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::{ClientWorld, WorldStreamFramePoll},
-    },
-    semantic_controls::SemanticInputSnapshot,
-};
-use diagnostics::metrics::{
-    GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
-    TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
 };
 
 const VISIBILITY_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
@@ -122,7 +125,7 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
 }
 
-pub(crate) use diagnostics::AcceptanceRuntimeConfig;
+use diagnostics::AcceptanceRuntimeConfig;
 
 #[cfg(feature = "acceptance")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -481,7 +484,7 @@ pub(crate) fn record_metrics(
             required_cohort_hash,
             &publisher_manifest,
         );
-        let presentation = Phase2PresentationSnapshot {
+        let presentation = PresentationSnapshot {
             build_profile: build_profile_identity(runtime_config.build_profile),
             graphics_identity_sha256: graphics_identity_sha256(&graphics),
             requested_present_mode: present_mode_identity(&graphics.requested_present_mode),
@@ -833,7 +836,7 @@ pub(crate) fn gpu_pass_measurement(
         .map(|measurement| GpuPassMeasurement::new(measurement.time, measurement.value))
 }
 
-pub(crate) use diagnostics::transparent_sort_committed_marker;
+use diagnostics::transparent_sort_committed_marker;
 
 /// Releases acknowledged tick records when the optional evidence consumer is absent.
 #[cfg(not(feature = "acceptance"))]

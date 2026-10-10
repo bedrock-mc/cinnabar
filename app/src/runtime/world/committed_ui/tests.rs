@@ -1,30 +1,10 @@
 //! Real ordered-stream commit-to-authority witnesses, not network-ingress tests.
 use super::*;
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
 use crate::player_runtime::PlayerRuntime;
-use crate::{
-    acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
-    app::{
-        ClientBlobCacheOwner, configure_client_authority_systems, configure_client_frame_schedule,
-    },
-    camera::CameraSettingsAuthority,
-    environment::{WeatherState, bind_session_generation},
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
-    menu::{MenuClipboard, MenuRuntime},
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    runtime::{
-        network::{NetworkHandle, ResourcePackAdmissionState},
-        phase3_evidence::Phase3EvidenceEmitter,
-    },
-    semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets,
-    },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::presentation::tests::fixture_font,
-};
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use bevy::{
     input::{
         ButtonState,
@@ -44,6 +24,30 @@ use protocol::{
 use render::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
+use {
+    crate::app::{
+        ClientBlobCacheOwner, configure_client_authority_systems, configure_client_frame_schedule,
+    },
+    crate::environment::{WeatherState, bind_session_generation},
+    crate::menu::{MenuClipboard, MenuRuntime},
+    crate::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
+    },
+    crate::runtime::network::{NetworkHandle, ResourcePackAdmissionState},
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    crate::semantic_controls::{
+        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
+        SemanticTouchTargets,
+    },
+    crate::settings_runtime::RuntimeSettings,
+    acceptance::model_witness::ModelWitnessFileSource,
+    client_presentation::camera::CameraSettingsAuthority,
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+    },
+    client_ui::test_support::fixture_font,
+};
 
 mod boss_lifetime;
 mod credits_identity;
@@ -227,12 +231,12 @@ fn bind_ability_fixture(app: &mut App) {
 fn prepare_ability_control_fixture(app: &mut App) {
     app.init_resource::<crate::runtime::publication::PublicationController>()
         .init_resource::<render::ChunkUploadAcknowledgements>()
-        .init_resource::<crate::local_player::LocalAvatarPresentation>()
+        .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
         .init_resource::<crate::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(
             diagnostics::metrics::MetricsCollector::new(),
         ))
-        .insert_resource(crate::camera::AutoFly::new(false));
+        .insert_resource(client_presentation::camera::AutoFly::new(false));
 }
 
 #[test]

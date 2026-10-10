@@ -4,7 +4,6 @@ mod footer;
 #[cfg(test)]
 mod tests;
 
-use super::super::super::{IconRef, UiPresentationError};
 use super::super::menu_screens::Translate;
 use super::{
     CharacterPreview, focus,
@@ -13,7 +12,8 @@ use super::{
     theme::{CAPTION, EDGE, HEADER5, NEUTRAL80, OUTLINE, TEXT, TEXT_DIMMER, TEXT_DIMMEST},
     widgets::{self, Variant},
 };
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
+use {super::super::super::UiPresentationError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -171,7 +171,7 @@ fn action_panel(
     let content = canvas.begin_focus_region(
         focus::CONTENT,
         viewport,
-        Some(crate::menu::view::SettingsFocusAxis::Vertical),
+        Some(launcher::menu::view::SettingsFocusAxis::Vertical),
         true,
     )?;
     canvas.focus_delegate(Some(MenuAction::Navigate(MenuScreen::Play)), None);
@@ -331,7 +331,7 @@ fn live_event(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-    event: &crate::menu::LiveEventCard,
+    event: &launcher::menu::LiveEventCard,
     translate: Translate<'_>,
 ) -> Result<(), UiPresentationError> {
     let label = translate(&event.button_text).map_or_else(

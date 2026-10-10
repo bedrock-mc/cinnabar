@@ -1,6 +1,9 @@
 //! Presentation authority shared with app adapters.
 
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 impl UiPresentationRuntime {
     /// Counts and rate-limits rejected UI frames without changing session authority.

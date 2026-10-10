@@ -1,10 +1,13 @@
 //! Small in-memory fixtures for overflow and scrolling review regressions.
 use super::paint::Canvas;
-use super::*;
-use crate::menu::{InboxItem, MenuFriendCard, MenuRealmCard};
 use crate::ui_runtime::presentation::menu_scroll::ScrollArea;
 use crate::ui_runtime::presentation::tests::fixture_font;
+use launcher::menu::{InboxItem, MenuFriendCard, MenuRealmCard};
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 /// Draws one route without installed carriers or texture files.
 pub(super) fn paint(
@@ -48,7 +51,7 @@ pub(super) fn solids(nodes: &[UiNode]) -> Vec<([f32; 4], [u8; 4])> {
 
 /// Makes enough friends to overflow either list.
 fn friends_view() -> MenuView {
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.friends = (0..40)
         .map(|index| MenuFriendCard {
             gamertag: format!("Friend {index}"),
@@ -152,8 +155,8 @@ fn review_realm_list_reveals_the_last_entry() {
 
 #[test]
 fn review_short_profile_is_scrollable() {
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
-    view.auth_state = crate::menu::auth::AuthState::Authenticated;
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     view.feeds.profile.loaded = true;
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
         let size = [c.r(60.0), c.r(40.0)];
@@ -167,10 +170,10 @@ fn review_short_profile_is_scrollable() {
 
 #[test]
 fn review_short_world_settings_are_scrollable() {
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     use protocol::world_control::{Backend, Difficulty, GameMode, Generator, World};
-    let mut worlds = crate::local_worlds::WorldsMenu::default();
-    worlds.apply(crate::local_worlds::Event::Listed(vec![World {
+    let mut worlds = launcher::local_worlds::WorldsMenu::default();
+    worlds.apply(launcher::local_worlds::Event::Listed(vec![World {
         id: "test".into(),
         name: "World".into(),
         game_mode: GameMode::Survival,
@@ -182,10 +185,16 @@ fn review_short_world_settings_are_scrollable() {
         last_played_unix: 0,
         size_bytes: 0,
     }]));
-    worlds.update(crate::local_worlds::Input::BeginEdit(0));
+    worlds.update(launcher::local_worlds::Input::BeginEdit(0));
     view.local = worlds.view();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
-        world_settings::draw(c, &view, [1280.0, 300.0], crate::local_worlds::Screen::Edit).unwrap()
+        world_settings::draw(
+            c,
+            &view,
+            [1280.0, 300.0],
+            launcher::local_worlds::Screen::Edit,
+        )
+        .unwrap()
     });
     assert!(
         scrolls.iter().any(|area| area.max > 0.0),

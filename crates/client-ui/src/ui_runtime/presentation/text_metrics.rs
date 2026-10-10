@@ -3,11 +3,9 @@
 use assets::RuntimeFontCatalog;
 use ui::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, TextWrap, UiScale};
 
-use super::gui_scale;
+use ui::gui_scale;
 
-pub(super) use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
-};
+use ui::{FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64};
 
 /// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
 /// single frame cannot mix scales or line pitches. Font atlas texels are two

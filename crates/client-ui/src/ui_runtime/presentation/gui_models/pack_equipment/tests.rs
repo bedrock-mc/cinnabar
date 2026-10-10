@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn catalog(color: [u8; 4]) -> Arc<assets::RuntimeEquipmentCatalog> {
     use assets::*;

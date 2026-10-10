@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::motion::Tween;
-use crate::menu::MenuAction;
+use launcher::menu::MenuAction;
 
 mod progress;
 pub(super) mod resources;

@@ -13,8 +13,8 @@ use launcher::menu::{
 use semantic_input::Action;
 use ui::{StandingToast, ToastPress};
 
-use super::{MenuAction, MenuRuntime};
 use crate::semantic_controls::SemanticInputSnapshot;
+use {super::MenuRuntime, launcher::menu::MenuAction};
 
 #[derive(Debug, Default)]
 pub(super) struct JoinRequestUi {

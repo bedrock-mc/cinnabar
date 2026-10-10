@@ -48,7 +48,7 @@ pub struct StageDurations {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Phase2PublicationSnapshot {
+pub struct PublicationSnapshot {
     pub session_generation: u64,
     pub publisher_epoch: u64,
     pub publisher_center: Option<[i32; 3]>,
@@ -166,7 +166,7 @@ pub enum PresentModeIdentity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Phase2PresentationSnapshot {
+pub struct PresentationSnapshot {
     pub build_profile: BuildProfileIdentity,
     pub graphics_identity_sha256: [u8; 32],
     pub requested_present_mode: PresentModeIdentity,
@@ -183,10 +183,7 @@ pub struct Phase2PresentationSnapshot {
 
 impl WorldStream {
     #[must_use]
-    pub fn phase2_publication_snapshot(
-        &self,
-        player_column: ChunkKey,
-    ) -> Phase2PublicationSnapshot {
+    pub fn phase2_publication_snapshot(&self, player_column: ChunkKey) -> PublicationSnapshot {
         let required = self
             .publisher
             .cohort
@@ -209,7 +206,7 @@ impl WorldStream {
             &self.publisher.required_columns,
         );
 
-        Phase2PublicationSnapshot {
+        PublicationSnapshot {
             session_generation: self.authority.actor_session_id(),
             publisher_epoch: self.publisher.epoch,
             publisher_center: self.publisher.center,

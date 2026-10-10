@@ -871,7 +871,7 @@ fn phase3_other_violation_reasons_remain_exact_two_key_v2_objects() {
             session_generation: 7,
             fault: PhysicsAuthorityFault::OutboxOverflow,
             next_tick: 42,
-            pending_count: crate::movement::OUTBOX_CAPACITY,
+            pending_count: gameplay::movement::OUTBOX_CAPACITY,
         });
     assert_eq!(fault_markers.len(), 2);
     let json: serde_json::Value = serde_json::from_str(
@@ -1019,7 +1019,7 @@ fn phase3_authority_fault_evidence_survives_deauthorization_and_is_bounded() {
         session_generation: 7,
         fault: PhysicsAuthorityFault::OutboxOverflow,
         next_tick,
-        pending_count: crate::movement::OUTBOX_CAPACITY,
+        pending_count: gameplay::movement::OUTBOX_CAPACITY,
     };
     let mut evidence = Phase3EvidenceEmitter::default();
     let marker = evidence.observe_authority_fault(fault(41));
@@ -1030,7 +1030,7 @@ fn phase3_authority_fault_evidence_survives_deauthorization_and_is_bounded() {
     assert_eq!(json["session_generation"], 7);
     assert_eq!(json["fault"], "outbox_overflow");
     assert_eq!(json["next_tick"], 41);
-    assert_eq!(json["pending_count"], crate::movement::OUTBOX_CAPACITY);
+    assert_eq!(json["pending_count"], gameplay::movement::OUTBOX_CAPACITY);
     assert!(marker[1].starts_with("RUST_MCBE_PHASE3_VIOLATION="));
 
     let mut emitted = marker.len();

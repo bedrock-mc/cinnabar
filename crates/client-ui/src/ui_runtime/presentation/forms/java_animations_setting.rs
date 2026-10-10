@@ -3,7 +3,7 @@
 use json_ui::Catalog;
 use serde_json::json;
 
-use crate::menu::settings_options::{ANIMATION_CHOICES, ANIMATIONS_OPTION};
+use launcher::menu::settings_options::{ANIMATION_CHOICES, ANIMATIONS_OPTION};
 
 /// Uses the Graphics mode dropdown and radio templates after View Bobbing.
 pub(super) fn install(catalog: &mut Catalog) {
@@ -47,8 +47,11 @@ pub(super) fn install(catalog: &mut Catalog) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ui_runtime::presentation::forms::pack_harness;
+    use {
+        super::*,
+        launcher::menu::settings_options::{ANIMATION_CHOICES, ANIMATIONS_OPTION},
+    };
 
     /// Searches labels throughout an inherited control.
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {

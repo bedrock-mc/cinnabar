@@ -1,8 +1,8 @@
 use super::super::tests::mini_engine_presentation;
 use super::tests::{frame, panel, point};
-use super::*;
 use serde_json::json;
 use ui::mod_panel::{Surface, SurfaceValue};
+use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 /// Declares native control routes through an extension-owned catalog.
 fn authored() -> Panel {

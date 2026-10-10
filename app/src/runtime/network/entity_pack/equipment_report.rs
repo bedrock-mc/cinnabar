@@ -8,7 +8,9 @@ use render::{
 };
 use render_model::{EntityRigId, RenderBoneTransform};
 
-use crate::presentation::equipment::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
+use client_presentation::presentation::equipment::{
+    ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem,
+};
 
 fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
     let names = [
@@ -152,7 +154,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
                 assets::ArmorSlot::Leggings => "slot.armor.legs",
                 assets::ArmorSlot::Boots => "slot.armor.feet",
             };
-            let items = super::SessionItems {
+            let items = client_presentation::session_assets::SessionItems {
                 components: Arc::new(
                     [(
                         Arc::<str>::from(item.as_ref()),

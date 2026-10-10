@@ -1,4 +1,12 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionBox, CollisionConfidence, ContributorRole,
+        DIAGNOSTIC_MATERIAL, ModelFamily, ModelState, NetworkIdMode, RegistryRecord, RuntimeAssets,
+        VisualKind, encode_blob, read_registry,
+    },
+    std::path::Path,
+};
 
 #[derive(Clone, Copy)]
 struct MineralFixture {

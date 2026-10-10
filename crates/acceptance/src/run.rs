@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, diagnostics::metrics::TransparentSortMetricsSnapshot};
 impl AcceptanceRun {
     pub fn new(
         seconds: Option<u64>,

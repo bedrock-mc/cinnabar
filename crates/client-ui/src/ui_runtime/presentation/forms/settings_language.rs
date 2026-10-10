@@ -2,7 +2,7 @@
 
 use json_ui::{CollectionItem, DataSource, HitKind, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// Supplies native labels, selection and the one-column grid the vanilla section requests.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {

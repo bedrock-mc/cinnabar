@@ -62,9 +62,8 @@ mod tests {
         world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
         world.insert_resource(UiRuntime::new(1));
         let mut presentation =
-            UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font())
-                .unwrap();
-        presentation.set_menu_view(Some(client_ui::menu::MenuView::new(true, "Fixture".into())));
+            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        presentation.set_menu_view(Some(launcher::menu::MenuView::new(true, "Fixture".into())));
         world.insert_resource(presentation);
         world.init_resource::<PreparedUiPublication>();
         world.init_resource::<render::UiRenderSceneResource>();
@@ -121,8 +120,8 @@ mod tests {
     #[test]
     fn overflowing_text_publishes_without_ending_the_session() {
         let mut world = world();
-        let mut view = client_ui::menu::MenuView::new(true, "Fixture".into());
-        view.screen = client_ui::menu::MenuScreen::Settings;
+        let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
+        view.screen = launcher::menu::MenuScreen::Settings;
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_menu_view(Some(view));

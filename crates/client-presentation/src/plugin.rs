@@ -1,6 +1,6 @@
 //! Presentation resources shared by actor preparation and publication.
 use crate::actor_publication::{ActorFramePartialTick, ActorFrameState, PreparedActorPublication};
-use bevy::prelude::*;
+use bevy::prelude::{App, Plugin};
 
 /// Installs retained actor presentation state; the host sets frame ordering explicitly.
 pub struct ClientPresentationPlugin;

@@ -3,13 +3,13 @@
 use ui::{DpiScale, UiVisual};
 
 use super::{pack_harness, snapshot};
-use crate::menu::{InboxItem, MenuScreen};
 use crate::ui_runtime::UiRuntime;
+use launcher::menu::{InboxItem, MenuScreen};
 
 /// Builds one inbox frame without networking or a running game session.
 fn draw_inbox(
     presentation: &mut super::super::UiPresentationRuntime,
-    view: &crate::menu::MenuView,
+    view: &launcher::menu::MenuView,
     now_millis: u64,
 ) {
     presentation.set_menu_view(Some(view.clone()));
@@ -26,11 +26,11 @@ fn draw_inbox(
 
 #[test]
 fn inbox_categories_keep_independent_scroll_positions() {
-    use crate::menu::{MenuAction, inbox::Action};
+    use launcher::menu::{MenuAction, inbox::Action};
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.screen = MenuScreen::Inbox;
     view.feeds.home.inbox = (0..30)
         .map(|index| InboxItem {
@@ -91,7 +91,7 @@ fn inbox_rows_ellipsize_titles_and_omit_the_body_summary() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.screen = MenuScreen::Inbox;
     view.feeds.home.inbox = ["First", "Second"]
         .map(|name| InboxItem {

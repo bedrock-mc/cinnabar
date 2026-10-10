@@ -1,7 +1,7 @@
 //! The current saved account's name and picture for the start screen; the picker itself
 //! is the OreUI modal in `oreui/accounts.rs`.
 
-use crate::menu::MenuView;
+use launcher::menu::MenuView;
 
 pub(super) fn current_name(view: &MenuView) -> &str {
     if !view.feeds.profile.gamertag.is_empty() {
@@ -34,8 +34,8 @@ mod tests {
         pack_harness::{drawn_texts, engine_presentation, menu_nodes},
         test_support::draw_menu_actions,
     };
-    use super::*;
-    use crate::menu::{MenuAction, MenuDialog, MenuScreen, auth::AuthState};
+    use launcher::menu::{MenuAction, MenuDialog, MenuScreen, auth::AuthState};
+    use {super::*, launcher::menu::MenuView};
 
     fn manager_view() -> MenuView {
         let mut view = MenuView::new(true, "First".into());

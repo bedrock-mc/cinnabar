@@ -1,5 +1,4 @@
 //! Input regressions across the real inventory suppression and mod-screen paths.
-use super::*;
 use crate::ui_runtime::drive_chat_keyboard_input;
 use bevy::window::WindowEvent;
 use bevy::{
@@ -12,6 +11,10 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_ui::test_support::{fixture_font, inventory_session};
+use {
+    super::*,
+    experience_sdk::mod_manifest::{KeyDecl, Modifier},
+};
 
 const MOD_ID: &str = "input_test";
 const VIEW: &str = "ui/view.json";

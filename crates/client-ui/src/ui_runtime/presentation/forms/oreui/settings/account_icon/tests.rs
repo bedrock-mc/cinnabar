@@ -1,4 +1,3 @@
-use super::*;
 use crate::ui_runtime::{
     oreui_assets::{OreUiImages, OreUiSprite},
     presentation::{
@@ -7,6 +6,7 @@ use crate::ui_runtime::{
     },
 };
 use std::{collections::HashMap, sync::Arc};
+use {super::*, launcher::menu::MenuView, launcher::menu::auth::AuthState, ui::IconRef};
 
 fn paint(view: &MenuView, gamerpic: Option<IconRef>) -> Vec<ui::UiNode> {
     let sprites = Arc::new(HashMap::from([(

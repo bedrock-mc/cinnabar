@@ -4,7 +4,7 @@ use json_ui::{HitKind, HitRegion, RectOut};
 use launcher::menu::invite::{Action, Friend, InviteState, Section};
 
 use super::super::menu_screens::{action_for, screen_data};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 fn friend(xuid: &str, gamertag: &str, online: bool) -> Friend {
     Friend {

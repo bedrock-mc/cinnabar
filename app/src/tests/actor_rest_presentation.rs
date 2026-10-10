@@ -1,7 +1,7 @@
 //! Independently authored producer-to-adapter fixture; no trusted raw page constructor.
-use crate::presentation::actors::entity_rig_presentation;
 use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
+use client_presentation::presentation::actors::entity_rig_presentation;
 use client_world::ActorRigSnapshot;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use render::{ActorArtworkPages, ActorRigRoute};
@@ -409,7 +409,8 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
         client_world,
         scene,
         artwork,
-        crate::runtime::network::HandRigBuilder::from_runtime_assets(&entities).unwrap(),
+        client_presentation::actor_publication::HandRigBuilder::from_runtime_assets(&entities)
+            .unwrap(),
         (Vec3::new(0.0, 66.0, -12.0), Vec3::new(0.0, 64.0, 4.0)),
     );
     let mut clock = std::time::Instant::now();
@@ -426,7 +427,9 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
                 .run_system_cached(crate::runtime::network::prepare_actor_render_frame)
                 .unwrap();
             world
-                .run_system_cached(crate::runtime::network::publish_actor_render_frame)
+                .run_system_cached(
+                    client_presentation::actor_publication::publish_actor_render_frame,
+                )
                 .unwrap();
         }
         world

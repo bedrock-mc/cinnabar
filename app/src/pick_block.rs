@@ -7,16 +7,19 @@ use bevy::{
 };
 use protocol::PlayerGameMode;
 
-use crate::{
-    interaction_authority::observe_block,
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{creative_reach, hand_interaction_selection, protocol_input_mode, survival_reach},
-    movement::PhysicsCollisionRegistries,
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        interaction_authority::observe_block,
+        menu::MenuRuntime,
+        mining::hand_interaction_selection,
+        movement::PhysicsCollisionRegistries,
+        runtime::{network::NetworkHandle, world::ClientWorld},
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
+};
 
 #[derive(SystemParam)]
 pub(crate) struct PickBlockContext<'w, 's> {
@@ -39,11 +42,11 @@ pub(crate) fn produce_pick_block(
     context: PickBlockContext,
     ui: ResMut<UiRuntime>,
 ) {
-    if !(crate::menu::settings_options::binding_gamepad(
+    if !(crate::menu::settings_options::control_bindings::binding_gamepad(
         Some(&context.menu),
         "key.pickItem",
         &context.gamepads,
-    ) || crate::menu::settings_options::binding_pressed(
+    ) || crate::menu::settings_options::control_bindings::binding_pressed(
         Some(&context.menu),
         "key.pickItem",
         &context.keys,
