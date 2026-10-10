@@ -11,7 +11,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 #[test]
-fn make_client_acquires_and_builds_the_required_physics_registry() {
+fn make_play_acquires_and_builds_the_required_physics_registry() {
     let makefile = read_makefile();
     for contract in [
         "PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin",
@@ -44,12 +44,12 @@ fn make_client_acquires_and_builds_the_required_physics_registry() {
             .split_whitespace()
             .any(|word| word == "$(PHYSICS_REGISTRY)")
     );
-    let client = makefile
+    let play = makefile
         .lines()
-        .find(|line| line.starts_with("client:"))
+        .find(|line| line.starts_with("play:"))
         .unwrap();
     assert!(
-        client
+        play
             .split_whitespace()
             .any(|word| word == "physics-assets")
     );
