@@ -27,6 +27,11 @@ use bevy::{
         view::{ExtractedView, ViewTarget},
     },
 };
+#[path = "ui_render/font_atlas.rs"]
+mod font_atlas;
+#[cfg(test)]
+#[path = "ui_render/font_atlas_tests.rs"]
+mod font_atlas_tests;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
@@ -67,8 +72,8 @@ pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_o
 use shader::UiViewportUniform;
 
 use render_model::{
-    MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
-    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
+    FontAtlasVertex, MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch,
+    UiRenderInput, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
 };
 
 /// Main-world holder of the published [`UiRenderScene`], cloned into the render world.

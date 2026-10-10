@@ -180,8 +180,8 @@ pub fn compile_outline_font_with_fallback(
         .ok_or_else(|| invalid("page source accounting overflows"))?;
     let decoded_total = ranges
         .len()
-        .checked_mul(FALLBACK_SIDE as usize * FALLBACK_SIDE as usize * 4)
-        .and_then(|n| n.checked_add(1_024 * 1_024 * 4))
+        .checked_mul(FALLBACK_SIDE as usize * FALLBACK_SIDE as usize)
+        .and_then(|n| n.checked_add(1_024 * 1_024))
         .ok_or_else(|| invalid("page pixel accounting overflows"))?;
     if source_total > MAX_FONT_SOURCE_BYTES as usize || decoded_total > 64 * 1024 * 1024 {
         return Err(invalid("font pages exceed carrier byte policy"));
@@ -275,7 +275,7 @@ fn metric_charge(codepoint: char, metrics: &fontdue::Metrics) -> Result<usize, F
 fn page(
     path: &str,
     source: &[u8],
-    rgba8: Box<[u8]>,
+    coverage: Box<[u8]>,
     side: u32,
 ) -> Result<FontTexturePage, FontCompileError> {
     Ok(FontTexturePage {
@@ -283,10 +283,10 @@ fn page(
         source_bytes: u32::try_from(source.len())
             .map_err(|_| invalid("font source length overflows"))?,
         source_sha256: Sha256::digest(source).into(),
-        pixels_sha256: Sha256::digest(&rgba8).into(),
+        pixels_sha256: Sha256::digest(&coverage).into(),
         width: side,
         height: side,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Coverage(coverage),
     })
 }
 

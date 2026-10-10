@@ -57,8 +57,8 @@ fn completion_carriers_are_available_only_through_the_assets_public_api() {
 
     let _ = encode_font_catalog;
     assert_eq!(FONT_CARRIER_MAGIC, *b"MCBEFONT1");
-    assert_eq!(FONT_CARRIER_SCHEMA, 1);
     let _ = (
+        FONT_CARRIER_SCHEMA,
         MAX_FONT_SOURCE_BYTES,
         MAX_FONT_PAGES,
         MAX_FONT_GLYPHS,

@@ -21,6 +21,7 @@ pub use outline::{
     GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
 };
 
+const FONT_DESCRIPTOR_SCHEMA: u32 = 1;
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,7 +139,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
     let descriptor_bytes = read_source(&descriptor_source, MAX_FONT_SOURCE_BYTES)?;
     let descriptor = serde_json::from_slice::<Descriptor>(&descriptor_bytes)
         .map_err(|source| FontCompileError::DescriptorJson { source })?;
-    if descriptor.schema != FONT_CARRIER_SCHEMA
+    if descriptor.schema != FONT_DESCRIPTOR_SCHEMA
         || decode_runtime_sha256(&descriptor.source_manifest_sha256)
             != Some(assets::vanilla_source_manifest_sha256())
     {

@@ -10,9 +10,17 @@ use render_model::{UiRenderBatch, UiTextureCatalog, UiTexturePage};
 impl Raster {
     /// Clears the whole layer or its damage rectangle, then replays every overlapping batch in order.
     fn draw(&self, input: &UiRenderInput, output: &wgpu::Texture, damage: Option<UiScissor>) {
+        let resident: Vec<_> = input
+            .vertices
+            .iter()
+            .map(|&source| render_model::FontAtlasVertex {
+                source,
+                atlas_offset: [0.; 2],
+            })
+            .collect();
         let vertices = buffer(
             &self.gpu,
-            bytemuck::cast_slice(&input.vertices),
+            bytemuck::cast_slice(&resident),
             wgpu::BufferUsages::VERTEX,
         );
         let indices = buffer(

@@ -67,7 +67,7 @@ pub(super) enum Command {
         #[arg(long)]
         behavior_pack: Option<PathBuf>,
     },
-    /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
+    /// Compile bounded bitmap-font metrics and compressed texture pages.
     FontAssets {
         /// Root of the pinned vanilla resource pack.
         #[arg(long, required_unless_present = "font", conflicts_with = "font")]

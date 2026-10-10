@@ -56,6 +56,8 @@ pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
 pub(crate) mod compatibility_tests;
+#[cfg(test)]
+mod font_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;

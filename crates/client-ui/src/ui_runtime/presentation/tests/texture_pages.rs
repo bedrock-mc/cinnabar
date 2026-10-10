@@ -142,19 +142,21 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
         let physical = input.textures.plan().locations()[logical];
         assert_eq!(
             input.textures.plan().buckets()[physical.bucket].dimensions,
-            input.textures.pages()[logical].dimensions()
+            input.textures.pages()[logical].resident_dimensions()
         );
     }
 }
 
 #[test]
-fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
+fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
-    let font_bytes: usize = font
-        .pages()
+    let font_bytes: usize = presentation.textures.pages()[..font.pages().len()]
         .iter()
-        .map(|page| page.pixels.bytes().len())
+        .map(|page| {
+            let [width, height] = page.resident_dimensions();
+            width as usize * height as usize * page.format().bytes_per_texel()
+        })
         .sum();
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);

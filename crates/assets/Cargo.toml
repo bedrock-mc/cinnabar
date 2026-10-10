@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 block-transform = { path = "../block-transform" }
 bitflags = "2"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 lewton = "0.10.2"
 rayon.workspace = true
 serde = { version = "1", features = ["derive"] }

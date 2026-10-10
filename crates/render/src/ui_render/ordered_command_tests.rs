@@ -63,7 +63,7 @@ fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_
     let descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
     assert_eq!(
         descriptor.vertex.buffers[0].array_stride,
-        std::mem::size_of::<UiRenderVertex>() as u64
+        std::mem::size_of::<FontAtlasVertex>() as u64
     );
     assert_eq!(
         descriptor.vertex.buffers[0].attributes[0].format,

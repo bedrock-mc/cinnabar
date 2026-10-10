@@ -576,6 +576,22 @@
 - Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
   as is a GPU pass-time measurement once per-pass timestamps land.
 
+## Compact font carriers and glyph residency
+
+- Font carrier schema 2 stores independently compressed zlib pages, with coverage bytes for
+  outline faces and RGBA retained for colored bitmap pages. Decoding checks stored and decoded
+  hashes, exact stream lengths, dimensions, and the aggregate decoded-byte bound.
+- Font textures use bounded demand atlases. A publication resolves all sampled glyph rectangles
+  before uploading or drawing them; warm glyphs retain their placements. Full atlases repack the
+  current frame's requests, and frames exceeding the bound are rejected before texture writes.
+  New slots share row uploads to bound queue overhead. Source UVs remain unchanged during
+  interpolation so relocation preserves SDF derivatives.
+- Development-profile startup measurements reach the first completed menu GPU submission.
+  Offline mixed-script menu/chat captures and native GPU pixel comparisons cover the carrier
+  and atlas changes. Incomplete performance acceptance: release frame/hitch attribution and
+  qualification on all reference hardware tiers remain open; these measurements do not close
+  those gates.
+
 ## Menu frame passes and retained memory
 
 - The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
