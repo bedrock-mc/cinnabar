@@ -7,7 +7,11 @@ mod chunk_metrics;
 mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
+mod font_atlas;
 mod frame_pacing;
+pub use font_atlas::{
+    FONT_ATLAS_GUTTER, FONT_ATLAS_SIDE, FontAtlas, FontAtlasFrame, FontAtlasVertex, FontRect,
+};
 mod item_geometry;
 pub mod java_animation;
 mod nametag;

@@ -248,3 +248,6 @@ and stack tables; never export the trace table of contents or process metadata,
 which can include environment variables. Use scheduler states and sampled stacks
 to separate blocked time from runnable delay and active work. Profiling overhead
 and unavailable GPU categories must be reported separately.
+
+Developer client builds include the default `acceptance` feature. Packaging opts out explicitly;
+use a developer build for acceptance evidence, even when testing with the release profile.

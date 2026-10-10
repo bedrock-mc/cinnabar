@@ -1,3 +1,23 @@
+## Small-surface render safety
+
+- Explicit render scissors and viewports intersect their physical attachments; empty
+  intersections skip drawing. UI pipeline selection follows current resource preparation,
+  including retained layers and model depth during the first frame and resize.
+- Deterministic bounds witnesses cover oversized layouts, 254×124, 1×1, zero extents and
+  differing DPI. Native offscreen validation covers nonzero small attachments.
+- The reported unfocused macOS startup panic remains incomplete until a matching
+  headless startup capture reproduces it. No native parity or frame-budget gate closes.
+## UI text and presentation failure recovery
+
+- Wrapped presentation text keeps an indivisible glyph wider than its control, with
+  existing line breaks and clipping. Newly shaped overflow layouts are counted and
+  logged with bounded frequency. Strict measurement requests still reject oversized ink.
+- Rejected runtime presentation frames count, log and skip publication without ending
+  the network session; a later valid frame can publish. Startup asset validation remains
+  fail-fast. Fitting status labels keep their width checks and ellipsis policy.
+- Exact-version native overflow behavior remains incomplete pending a matching native
+  control witness. The original reported text is unknown. No parity gate closes.
+
 ## Optional spatial anti-aliasing and cutout coverage
 
 - Capability-aware MSAA remains the primary setting with its existing default. Spatial
@@ -579,6 +599,22 @@
   against rendered ids, and the CPU path's pixels from a stale history.
 - Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
   as is a GPU pass-time measurement once per-pass timestamps land.
+
+## Compact font carriers and glyph residency
+
+- Font carrier schema 2 stores independently compressed zlib pages, with coverage bytes for
+  outline faces and RGBA retained for colored bitmap pages. Decoding checks stored and decoded
+  hashes, exact stream lengths, dimensions, and the aggregate decoded-byte bound.
+- Font textures use bounded demand atlases. A publication resolves all sampled glyph rectangles
+  before uploading or drawing them; warm glyphs retain their placements. Full atlases repack the
+  current frame's requests, and frames exceeding the bound are rejected before texture writes.
+  New slots share row uploads to bound queue overhead. Source UVs remain unchanged during
+  interpolation so relocation preserves SDF derivatives.
+- Development-profile startup measurements reach the first completed menu GPU submission.
+  Offline mixed-script menu/chat captures and native GPU pixel comparisons cover the carrier
+  and atlas changes. Incomplete performance acceptance: release frame/hitch attribution and
+  qualification on all reference hardware tiers remain open; these measurements do not close
+  those gates.
 
 ## Menu frame passes and retained memory
 

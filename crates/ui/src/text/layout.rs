@@ -103,9 +103,12 @@ pub(super) fn build_layout(
             }
             candidate = lines.candidate(&glyph)?;
         }
-        // Only a legacy glyph break refuses a glyph wider than the whole line;
-        // a vanilla label lets it overflow.
-        if request.wrap.chop == WordChop::Glyph && lines.overflows(&candidate)? {
+        // Clipped controls keep indivisible wide glyphs; strict measurement requests
+        // still reject ink wider than the whole line.
+        if request.wrap.chop == WordChop::Glyph
+            && !request.wrap.allow_visual_overflow
+            && lines.overflows(&candidate)?
+        {
             return Err(TextError::VisualWidthExceeded {
                 actual_64: lines.output_width(&candidate)?,
                 limit_64: u64::from(request.width_64),

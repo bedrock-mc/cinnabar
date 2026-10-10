@@ -84,7 +84,13 @@ impl ViewNode for LayerProbeNode {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_camera_viewport(&target.viewport);
+            let Some(viewport) = crate::render_bounds::viewport(
+                &target.viewport,
+                crate::render_bounds::extent(&target.view),
+            ) else {
+                return Ok(());
+            };
+            pass.set_camera_viewport(&viewport);
             let functions = world.resource::<DrawFunctions<Opaque3d>>();
             let mut functions = functions.write();
             functions.prepare(world);

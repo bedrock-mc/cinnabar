@@ -34,7 +34,7 @@ impl BufferUploads {
 }
 
 /// Return the first through last changed element; every byte outside it is identical.
-fn changed_range<T: bytemuck::Pod>(old: &[T], new: &[T], fresh: bool) -> Range<usize> {
+pub(super) fn changed_range<T: bytemuck::Pod>(old: &[T], new: &[T], fresh: bool) -> Range<usize> {
     if fresh || old.len() != new.len() {
         return 0..new.len();
     }

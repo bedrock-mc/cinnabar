@@ -16,6 +16,8 @@ mod material_shader;
 #[path = "../src/pipeline_warmup.rs"]
 #[allow(dead_code, reason = "shared pipeline warmup")]
 mod pipeline_warmup;
+#[path = "../src/render_bounds.rs"]
+mod render_bounds;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,

@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 CARGO ?= cargo
-# Cargo profile for `make play`; PROFILE=release gives the shipped build.
+# Cargo profile for `make play`; PROFILE=release keeps developer features with shipping optimizations.
 PROFILE ?= play
 # Cargo names the dev profile output directory debug.
 PROFILE_DIR = $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
@@ -152,7 +152,7 @@ UPDATE_TRUSTED_KEYS ?=
 PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUpdateKeys=$(UPDATE_TRUSTED_KEYS)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
+	$(CARGO) build --release --locked --no-default-features -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

@@ -56,6 +56,7 @@ impl UiPresentationRuntime {
             icon_catalog: icons,
             icon_refs,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
+            rejected_frames: 0,
             revision: 0,
             last_input: None,
             last_frame: None,

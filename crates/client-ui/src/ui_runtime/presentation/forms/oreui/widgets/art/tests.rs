@@ -101,7 +101,7 @@ fn native_button_focus_beats_hover_and_pressed_and_disabled_keep_precedence() {
     let keys = artwork(Variant::Primary);
     let sprites = Arc::new(
         keys.into_iter()
-            .chain([DISABLED_IMAGE])
+            .chain([BUTTON_DISABLED_IMAGE])
             .enumerate()
             .map(|(index, key)| {
                 (

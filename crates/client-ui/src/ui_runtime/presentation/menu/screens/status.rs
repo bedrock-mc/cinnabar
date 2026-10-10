@@ -59,7 +59,8 @@ pub(super) fn status_extent(
     width: f32,
 ) -> Result<Option<f32>, UiPresentationError> {
     match layouts.layout(metrics.request(value, (width * 64.0) as u32, font)) {
-        Ok(layout) => Ok(Some(text_visual_extent(&layout, metrics.shadow()))),
+        Ok(layout) => Ok((layout.size_64()[0] as f32 / 64.0 <= width)
+            .then(|| text_visual_extent(&layout, metrics.shadow()))),
         Err(TextError::VisualWidthExceeded { .. } | TextError::WrapLineLimitExceeded { .. }) => {
             Ok(None)
         }
@@ -99,7 +100,9 @@ pub(super) fn status_text(
                         value: &str|
          -> Result<bool, UiPresentationError> {
             match layouts.layout(metrics.request(value, (width * 64.0) as u32, font)) {
-                Ok(layout) => Ok(layout.line_count() == 1),
+                Ok(layout) => {
+                    Ok(layout.line_count() == 1 && layout.size_64()[0] as f32 / 64.0 <= width)
+                }
                 Err(
                     TextError::VisualWidthExceeded { .. } | TextError::WrapLineLimitExceeded { .. },
                 ) => Ok(false),
@@ -137,7 +140,9 @@ pub(super) fn status_text(
                 let candidate = format!("{}…", last.trim_end_matches('…'));
                 let layout =
                     layouts.layout(metrics.request(&candidate, (width * 64.0) as u32, font));
-                if layout.as_ref().is_ok_and(|layout| layout.line_count() == 1) {
+                if layout.as_ref().is_ok_and(|layout| {
+                    layout.line_count() == 1 && layout.size_64()[0] as f32 / 64.0 <= width
+                }) {
                     *last = candidate;
                     break;
                 }

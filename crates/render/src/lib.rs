@@ -71,6 +71,7 @@ pub use pipeline_warmup::PipelineWarmupReadiness;
 mod present_mode;
 mod primitive_shapes;
 pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
+mod render_bounds;
 mod runtime_profile;
 mod runtime_profile_phases;
 mod runtime_profile_slow;

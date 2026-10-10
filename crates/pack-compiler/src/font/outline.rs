@@ -133,9 +133,9 @@ fn compile_parsed_outline(
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let (glyphs, rgba8) = pack(&rasterized, config.atlas_side)?;
+    let (glyphs, coverage) = pack(&rasterized, config.atlas_side)?;
     let source_sha256 = Sha256::digest(source_bytes).into();
-    let pixels_sha256 = Sha256::digest(&rgba8).into();
+    let pixels_sha256 = Sha256::digest(&coverage).into();
     let page = FontTexturePage {
         source_path: format!("font/atlas-{}px.png", config.pixel_height).into_boxed_str(),
         source_bytes: u32::try_from(source_bytes.len()).map_err(|_| {
@@ -147,7 +147,7 @@ fn compile_parsed_outline(
         pixels_sha256,
         width: config.atlas_side,
         height: config.atlas_side,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Coverage(coverage),
     };
     let pages = [page];
     let bytes = encode_font_catalog(source_manifest_sha256, &glyphs, &pages)?;
@@ -161,7 +161,7 @@ fn compile_parsed_outline(
             glyphs: glyphs.len(),
             pages: 1,
             source_bytes: source_bytes.len() as u64,
-            decoded_bytes: rgba_len(config.atlas_side)? as u64,
+            decoded_bytes: coverage_len(config.atlas_side)? as u64,
             source_manifest_sha256,
             carrier_sha256,
         },
@@ -207,7 +207,7 @@ fn validate_config_minimum(
         || config.atlas_side < 256
         || config.atlas_side > MAX_FONT_PAGE_SIDE
         || !config.atlas_side.is_power_of_two()
-        || rgba_len(config.atlas_side)? as u64 > MAX_FONT_SOURCE_BYTES
+        || coverage_len(config.atlas_side)? as u64 > MAX_FONT_SOURCE_BYTES
     {
         return Err(invalid(
             "outline font configuration is outside its reviewed bounds",
@@ -418,11 +418,12 @@ fn synthetic_replacement(pixel_height: u32) -> Result<RasterizedGlyph, FontCompi
     })
 }
 
+/// Packs raster coverage without retaining unused RGB channels.
 fn pack(
     rasterized: &[RasterizedGlyph],
     side: u32,
 ) -> Result<(Vec<GlyphMetrics>, Box<[u8]>), FontCompileError> {
-    let mut rgba8 = vec![0; rgba_len(side)?];
+    let mut coverage = vec![0; coverage_len(side)?];
     let mut glyphs = Vec::with_capacity(rasterized.len());
     let mut x = ATLAS_PADDING;
     let mut y = ATLAS_PADDING;
@@ -447,13 +448,7 @@ fn pack(
                     .map_err(|_| FontCompileError::OutlineAtlasFull { side })?;
                 let target_pixel = usize::try_from((y + source_y) * side + x + source_x)
                     .map_err(|_| FontCompileError::OutlineAtlasFull { side })?;
-                let target = target_pixel
-                    .checked_mul(4)
-                    .ok_or(FontCompileError::OutlineAtlasFull { side })?;
-                rgba8[target] = 255;
-                rgba8[target + 1] = 255;
-                rgba8[target + 2] = 255;
-                rgba8[target + 3] = glyph.alpha[source];
+                coverage[target_pixel] = glyph.alpha[source];
             }
         }
         glyphs.push(GlyphMetrics {
@@ -471,14 +466,14 @@ fn pack(
         x += glyph.width + ATLAS_PADDING;
         row_height = row_height.max(glyph.height);
     }
-    Ok((glyphs, rgba8.into_boxed_slice()))
+    Ok((glyphs, coverage.into_boxed_slice()))
 }
 
-fn rgba_len(side: u32) -> Result<usize, FontCompileError> {
+/// Returns the bounded single-channel page allocation.
+fn coverage_len(side: u32) -> Result<usize, FontCompileError> {
     usize::try_from(side)
         .ok()
         .and_then(|side| side.checked_mul(side))
-        .and_then(|pixels| pixels.checked_mul(4))
         .ok_or_else(|| invalid("outline font atlas size overflows"))
 }
 

@@ -34,3 +34,6 @@ schemas document every argument. Agents drive the client only through this endpo
 ```json
 { "mcpServers": { "cinnabar": { "command": "target/debug/cinnabar-mcp", "args": ["--repo", "."] } } }
 ```
+
+Keep default features enabled for client MCP builds so acceptance evidence remains available.
+`make package-binaries` excludes the acceptance harness and developer control.

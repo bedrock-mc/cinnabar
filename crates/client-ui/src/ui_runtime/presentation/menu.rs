@@ -529,7 +529,7 @@ fn fitting_status_layout<'a>(
     match layouts.layout(metrics.request(message, (width * 64.0) as u32, font)) {
         Ok(layout) => {
             let extent = text_visual_extent(&layout, metrics.shadow());
-            if extent <= maximum_extent {
+            if extent <= maximum_extent && layout.size_64()[0] as f32 / 64.0 <= width {
                 return Ok(Some((message, extent)));
             }
         }
@@ -564,7 +564,7 @@ fn fitting_status_layout<'a>(
             Err(error) => return Err(UiPresentationError::Text(error)),
         };
         let extent = text_visual_extent(&layout, metrics.shadow());
-        if extent <= maximum_extent {
+        if extent <= maximum_extent && layout.size_64()[0] as f32 / 64.0 <= width {
             best = Some((value, extent));
             low = middle + 1;
         } else {

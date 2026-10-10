@@ -62,6 +62,7 @@ impl TextMetrics {
             font,
             wrap: TextWrap {
                 device_scale_65536: (self.dpi_scale.get() * 65_536.0).round() as u32,
+                allow_visual_overflow: true,
                 ..TextWrap::default()
             },
         }

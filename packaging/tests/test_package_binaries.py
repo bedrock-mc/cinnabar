@@ -24,6 +24,35 @@ class PackageBinariesTests(unittest.TestCase):
         self.assertIs(plist.get("LSSupportsGameMode"), True)
         self.assertEqual(plist["LSApplicationCategoryType"], "public.app-category.games")
 
+    def test_play_keeps_default_features_with_release_and_tracy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "commands.jsonl"
+            stub = root / "build_stub.py"
+            stub.write_text(
+                "import json, os, sys\n"
+                "with open(os.environ['PACKAGE_TEST_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            )
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+            for profile in ("play", "release"):
+                for tracy in (0, 1):
+                    with self.subTest(profile=profile, tracy=tracy):
+                        log.write_text("")
+                        subprocess.run(
+                            ["make", "--no-print-directory", "-o", "assets", "-o", "physics-assets",
+                             "play", f"PROFILE={profile}", f"TRACY={tracy}",
+                             f"CARGO={command} cargo", f"GO={command} go"],
+                            cwd=ROOT, env=dict(os.environ, PACKAGE_TEST_LOG=str(log)),
+                            capture_output=True, text=True, check=True,
+                        )
+                        calls = [json.loads(line) for line in log.read_text().splitlines()]
+                        args = next(args for tool, *args in calls if tool == "cargo" and args[0] == "run")
+                        self.assertNotIn("--no-default-features", args)
+                        self.assertEqual(args[args.index("--profile") + 1], profile)
+                        if tracy:
+                            self.assertIn("tracy", args)
+
     def test_release_clients_enable_local_mods_on_every_platform(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -58,6 +87,7 @@ class PackageBinariesTests(unittest.TestCase):
                     }
                     self.assertIn("bedrock-client/local-mods", features)
                     self.assertIn("--release", args)
+                    self.assertIn("--no-default-features", args)
 
 
 if __name__ == "__main__":

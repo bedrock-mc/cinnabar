@@ -120,13 +120,13 @@ pub(crate) fn prepare_ui_runtime(
     }
     let logical_width = physical_size[0] as f32 / window.scale_factor();
     let logical_height = physical_size[1] as f32 / window.scale_factor();
-    let Ok(dpi_scale) = DpiScale::new(window.scale_factor()) else {
-        hand.clear();
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            "primary window reported an unsupported UI DPI scale".to_owned(),
-        );
-        return;
+    let dpi_scale = match DpiScale::new(window.scale_factor()) {
+        Ok(scale) => scale,
+        Err(error) => {
+            hand.clear();
+            presentation.record_frame_failure(&UiPresentationError::Geometry(error));
+            return;
+        }
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);

@@ -5,7 +5,7 @@ pub(crate) mod dimensions;
 mod packing;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{Cursor, Read},
     path::{Path, PathBuf},
@@ -135,6 +135,109 @@ pub(crate) const PROFILE_SUMMARY_ICONS: [&str; 4] = [
 ];
 /// Gamerscore art shared by Overview and achievement cards.
 pub(crate) const PROFILE_GAMERSCORE: &str = "assets/gamerscore_icon-53b10130cb6f6c0271cb.png";
+/// Native action icons in ArrowBack, Cross, Search, Player, Pencil, Check and Filter order.
+pub(crate) const ACTION_ICONS: [&str; 7] = [
+    "assets/arrow-left@0.5x.icon-32012c9c1d3e6debaaf8ce01da9815de.png",
+    "assets/cross@0.5x.icon-a30f9556f5895c0d6996af977c6fbb91.png",
+    "assets/search@0.5x.icon-57e5a707535fd5959a31271ce38e0b7f.png",
+    "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
+    "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
+    "assets/checkmark@0.5x.icon-3a1f3dd3866716c7bc33ad20204c68ca.png",
+    "assets/filter@0.5x.icon-4d527e67d899c241675338c67277d157.png",
+];
+/// Disabled elevated button face.
+pub(crate) const BUTTON_DISABLED_IMAGE: &str =
+    "assets/pressable_elevated_disabled-d849d4185836b2229b5a.png";
+/// Elevated button artwork in default, hovered, focused and pressed order.
+pub(crate) const BUTTON_PRIMARY_IMAGES: [&str; 4] = [
+    "assets/pressable_elevated_primary_default-7a6e2edf98a626b182c2.png",
+    "assets/pressable_elevated_primary_hovered-bcb21ab092446cbcecb6.png",
+    "assets/pressable_elevated_primary_focused-cc7df0bf833f92bb08dd.png",
+    "assets/pressable_primary_pressed-13b0f01c6c00e07322ca.png",
+];
+/// Elevated button artwork in default, hovered, focused and pressed order.
+pub(crate) const BUTTON_SECONDARY_IMAGES: [&str; 4] = [
+    "assets/pressable_elevated_secondary_default-0aacffbfa726a8184fc5.png",
+    "assets/pressable_elevated_secondary_hovered-758970b376da9eb299da.png",
+    "assets/pressable_elevated_secondary_focused-05d59cd4654230c9b01d.png",
+    "assets/pressable_secondary_pressed-87bba1faba891ebfa7fc.png",
+];
+/// Elevated button artwork in default, hovered, focused and pressed order.
+pub(crate) const BUTTON_NEUTRAL_IMAGES: [&str; 4] = [
+    "assets/pressable_elevated_neutral_default-48cdf8535bfd48b47c2a.png",
+    "assets/pressable_elevated_neutral_hovered-dcbd873ad9e83d24dc7a.png",
+    "assets/pressable_elevated_neutral_focused-b28fc482cadde858740c.png",
+    "assets/pressable_neutral_pressed-aad8b64fc0f155676218.png",
+];
+/// Elevated button artwork in default, hovered, focused and pressed order.
+pub(crate) const BUTTON_DESTRUCTIVE_IMAGES: [&str; 4] = [
+    "assets/pressable_elevated_destructive_default-a5fb3f173720065fcc13.png",
+    "assets/pressable_elevated_destructive_hovered-63736c555d7fc6479755.png",
+    "assets/pressable_elevated_destructive_focused-cfa496a1b2e3a06a9db4.png",
+    "assets/pressable_destructive_pressed-d5d4943d1b774ef42f85.png",
+];
+/// Play tab faces in default, hovered, pressed, focused and pressed-focused order.
+pub(crate) const PLAY_TAB_IMAGES: [&str; 5] = [
+    "assets/tabBar_neutral_default-40e26ac9318c12909f42.png",
+    "assets/tabBar_neutral_hovered-b73d7029874500714b0f.png",
+    "assets/tabBar_neutral_pressed-9d14d8d1343a1fc3836d.png",
+    "assets/tabBar_neutral_default_focused-812a9fcda5a4e49d93d5.png",
+    "assets/tabBar_neutral_pressed_focused-c05012af3863c527b0a2.png",
+];
+/// Settings support links use the native external-link mask.
+pub(crate) const EXTERNAL_LINK_ICON: &str =
+    "assets/external-link@0.5x.icon-28016636e9d767b57dffe6e45fa749aa.png";
+/// Settings binding reset mask.
+pub(crate) const RESET_ICON: &str = "assets/reset@0.5x.icon-4fc2a8ff6f440b4d14293bb8e833a1bc.png";
+/// Sleep animations use a hashed bundle name after this stable prefix.
+pub(crate) const SLEEP_ANIMATION_PREFIX: &str = "assets/sleep_";
+
+const REFERENCED_KEY_GROUPS: &[&[&str]] = &[
+    &[
+        WORLD_PREVIEW,
+        HARDCORE_ICON,
+        LOADING_ANIMATION,
+        SWITCH_ON_IMAGE,
+        SWITCH_OFF_IMAGE,
+        CHEVRON_LEFT_IMAGE,
+        CHEVRON_UP_IMAGE,
+        CHEVRON_DOWN_IMAGE,
+        BASE_PACK_IMAGE,
+        MISSING_PACK_IMAGE,
+        OVERWORLD_BLOCK_IMAGE,
+        SETTINGS_ICON_HIGHLIGHT_IMAGE,
+        SERVER_PLAYERS_IMAGE,
+        SERVER_ADD_IMAGE,
+        PROFILE_GAMERSCORE,
+        BUTTON_DISABLED_IMAGE,
+        EXTERNAL_LINK_ICON,
+        RESET_ICON,
+    ],
+    &WORLD_CATEGORY_ICONS,
+    &SERVER_PING_IMAGES,
+    &PLAY_TAB_ICONS,
+    &INBOX_ICONS,
+    &INBOX_EMPTY_IMAGES,
+    &SETTINGS_ICONS,
+    &PROFILE_STAT_ICONS,
+    &PROFILE_BANNERS,
+    &PROFILE_ERRORS,
+    &PROFILE_SUMMARY_ICONS,
+    &ACTION_ICONS,
+    &BUTTON_PRIMARY_IMAGES,
+    &BUTTON_SECONDARY_IMAGES,
+    &BUTTON_NEUTRAL_IMAGES,
+    &BUTTON_DESTRUCTIVE_IMAGES,
+    &PLAY_TAB_IMAGES,
+];
+
+/// Lists exact native artwork keys used by screens; hashed sleep names match the prefix above.
+pub(crate) fn referenced_keys() -> impl Iterator<Item = &'static str> {
+    REFERENCED_KEY_GROUPS
+        .iter()
+        .flat_map(|group| group.iter().copied())
+}
+
 /// A sprite keeps its original pixel rectangle on one packed page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OreUiSprite {
@@ -321,14 +424,23 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
         serde_json::from_slice(&json).map_err(|error| format!("atlas.json: {error}"))?;
     let mut pack = packing::Pages::default();
     let mut sprites = HashMap::new();
-    let mut masks = Vec::new();
+    let required: HashSet<_> = referenced_keys().collect();
+    let referenced = |key: &str| required.contains(key) || key.starts_with(SLEEP_ANIMATION_PREFIX);
     for atlas in &atlases {
+        let mut coordinates: Vec<_> = atlas
+            .coordinates
+            .iter()
+            .filter(|(key, _)| referenced(key))
+            .collect();
+        if coordinates.is_empty() {
+            continue;
+        }
         let (width, height, pixels) = decode(&bundle_path(dir, &atlas.name)?)?;
         if width != atlas.width || height != atlas.height {
             return Err(format!("{} does not match atlas.json", atlas.name));
         }
-        let sprite = pack.insert(&pixels, width, height)?;
-        for (path, rect) in &atlas.coordinates {
+        coordinates.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        for (path, rect) in coordinates {
             if rect
                 .x
                 .checked_add(rect.width)
@@ -342,26 +454,20 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
             {
                 continue;
             }
-            let [left, top, _, _] = sprite.bounds;
+            let mut cropped = Vec::with_capacity((rect.width * rect.height * 4) as usize);
+            for y in rect.y..rect.y + rect.height {
+                let start = ((y * width + rect.x) * 4) as usize;
+                cropped.extend_from_slice(&pixels[start..start + rect.width as usize * 4]);
+            }
             sprites.insert(
                 path.clone(),
-                OreUiSprite {
-                    page: sprite.page,
-                    bounds: [
-                        left + rect.x as u16,
-                        top + rect.y as u16,
-                        left + (rect.x + rect.width) as u16,
-                        top + (rect.y + rect.height) as u16,
-                    ],
-                },
+                pack.insert(&cropped, rect.width, rect.height)?,
             );
             if is_mask(path) {
-                let mut cropped = Vec::with_capacity((rect.width * rect.height * 4) as usize);
-                for y in rect.y..rect.y + rect.height {
-                    let start = ((y * width + rect.x) * 4) as usize;
-                    cropped.extend_from_slice(&pixels[start..start + rect.width as usize * 4]);
-                }
-                masks.push((path.clone(), rect.width, rect.height, alpha_mask(&cropped)));
+                sprites.insert(
+                    format!("@mask/{path}"),
+                    pack.insert(&alpha_mask(&cropped), rect.width, rect.height)?,
+                );
             }
         }
     }
@@ -370,27 +476,14 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
     let source = Arc::new(catalog::SourceCatalog::new(files.iter().cloned().collect()));
     let mut dimensions = Vec::new();
     for (key, path) in files {
-        if sprites.contains_key(&key) {
+        if !referenced(&key) || sprites.contains_key(&key) {
             continue;
         }
         let reader = image_reader(&path)?;
         let (width, height) = reader
             .into_dimensions()
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        let animated = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"));
-        let required = if animated {
-            key == LOADING_ANIMATION || key.starts_with("assets/sleep_")
-        } else {
-            width <= 256 && height <= 256
-                || PROFILE_BANNERS.contains(&key.as_str())
-                || key == WORLD_PREVIEW
-        };
-        if required {
-            dimensions.push((width, height, key, path));
-        }
+        dimensions.push((width, height, key, path));
     }
     dimensions.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)).then(a.2.cmp(&b.2)));
     let mut animations = HashMap::new();
@@ -421,10 +514,6 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
             }
             sprites.insert(key, sprite);
         }
-    }
-    masks.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)).then(a.0.cmp(&b.0)));
-    for (key, width, height, pixels) in masks {
-        sprites.insert(format!("@mask/{key}"), pack.insert(&pixels, width, height)?);
     }
     let loading_frames = animations
         .get(LOADING_ANIMATION)
@@ -573,184 +662,4 @@ fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Makes authored GIF bytes without requiring any installed assets.
-    fn synthetic_animation(count: usize) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        {
-            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
-            for index in 0..count {
-                let pixels =
-                    image::RgbaImage::from_pixel(2, 2, image::Rgba([index as u8, 120, 40, 255]));
-                encoder
-                    .encode_frame(image::Frame::from_parts(
-                        pixels,
-                        0,
-                        0,
-                        image::Delay::from_numer_denom_ms(100, 1),
-                    ))
-                    .unwrap();
-            }
-        }
-        bytes
-    }
-
-    #[test]
-    fn animated_loading_keeps_each_frame_and_delay() {
-        let frames = decode_animation(&synthetic_animation(3)).unwrap();
-        assert_eq!(frames.len(), 3);
-        for (index, (width, height, pixels, millis)) in frames.iter().enumerate() {
-            assert_eq!((*width, *height, *millis), (2, 2, 100));
-            assert_eq!(&pixels[..4], &[index as u8, 120, 40, 255]);
-        }
-        assert!(decode_animation(&synthetic_animation(MAX_ANIMATION_FRAMES + 1)).is_err());
-        assert!(decode_animation(b"invalid GIF").is_err());
-    }
-
-    #[test]
-    fn profile_banners_fit_beside_existing_atlas_without_resizing() {
-        let dir = std::env::temp_dir().join(format!("oreui-profile-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("assets")).unwrap();
-        image::RgbaImage::from_pixel(1024, 1024, image::Rgba([0, 0, 0, 255]))
-            .save(dir.join("base.png"))
-            .unwrap();
-        std::fs::write(
-            dir.join("atlas.json"),
-            r#"[{"name":"base.png","width":1024,"height":1024,"coordinates":{}}]"#,
-        )
-        .unwrap();
-        // The reference's eight banner images are 960 by 540 pixels.
-        for name in PROFILE_BANNERS {
-            image::RgbImage::from_pixel(960, 540, image::Rgb([80, 120, 160]))
-                .save(dir.join(name))
-                .unwrap();
-        }
-        let images = load(&dir).unwrap();
-        for name in PROFILE_BANNERS {
-            let [left, top, right, bottom] = images.sprites[name].bounds;
-            assert_eq!((right - left, bottom - top), (960, 540));
-        }
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn atlases_pack_side_by_side_with_their_sprite_rects() {
-        let dir = std::env::temp_dir().join(format!("oreui-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        image::RgbaImage::from_pixel(4, 2, image::Rgba([255, 0, 0, 255]))
-            .save(dir.join("a.png"))
-            .unwrap();
-        image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 255, 0, 128]))
-            .save(dir.join("b.png"))
-            .unwrap();
-        std::fs::write(
-            dir.join("atlas.json"),
-            r#"[{"name":"a.png","width":4,"height":2,"size":1,"coordinates":{"assets/x.png":{"x":1,"y":0,"width":2,"height":2}}},
-               {"name":"b.png","width":2,"height":2,"size":1,"coordinates":{"assets/y.png":{"x":0,"y":0,"width":2,"height":2},"assets/bad.png":{"x":1,"y":1,"width":5,"height":5}}}]"#,
-        )
-        .unwrap();
-        let images = load(&dir).unwrap();
-        assert_eq!(images.sprites["assets/x.png"].bounds, [1, 0, 3, 2]);
-        assert_eq!(images.sprites["assets/y.png"].bounds, [5, 0, 7, 2]);
-        assert!(!images.sprites.contains_key("assets/bad.png"));
-        // The shader applies alpha once, after sampling the original RGB.
-        let pixel = (5 * 4) as usize;
-        assert_eq!(&images.pages[0].pixels[pixel..pixel + 4], &[0, 255, 0, 128]);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn standalone_art_masks_and_demand_pages_keep_source_pixels_and_reuse_cache() {
-        let dir = std::env::temp_dir().join(format!("oreui-catalog-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("assets")).unwrap();
-        std::fs::write(dir.join("atlas.json"), "[]").unwrap();
-        let icon = "assets/unlisted.icon-example.png";
-        let background = "assets/unlisted-background.png";
-        let animation = "assets/unlisted-animation.gif";
-        image::RgbaImage::from_pixel(13, 7, image::Rgba([19, 22, 24, 128]))
-            .save(dir.join(icon))
-            .unwrap();
-        image::RgbaImage::from_pixel(3840, 1, image::Rgba([40, 70, 90, 128]))
-            .save(dir.join(background))
-            .unwrap();
-        std::fs::write(dir.join(animation), synthetic_animation(2)).unwrap();
-        let core = load(&dir).unwrap();
-        assert!(core.contains(background) && core.contains(animation));
-        assert!(!core.sprites.contains_key(background));
-        assert!(!core.sprites.contains_key(animation));
-        let texel = |images: &OreUiImages, key: &str| {
-            let sprite = images.sprites[key];
-            let page = &images.pages[usize::from(sprite.page)];
-            let start = (usize::from(sprite.bounds[1]) * page.dimensions[0] as usize
-                + usize::from(sprite.bounds[0]))
-                * 4;
-            <[u8; 4]>::try_from(&page.pixels[start..start + 4]).unwrap()
-        };
-        assert_eq!(texel(&core, icon), [19, 22, 24, 128]);
-        assert_eq!(texel(&core, &format!("@mask/{icon}")), [255, 255, 255, 128]);
-        image::RgbaImage::from_pixel(3840, 1, image::Rgba([100, 70, 90, 128]))
-            .save(dir.join(background))
-            .unwrap();
-        let first = core.with_artwork(&[background, animation]).unwrap();
-        assert_eq!(texel(&first, background), [100, 70, 90, 128]);
-        assert_eq!(
-            first.pages[usize::from(first.sprites[background].page)].dimensions,
-            [3840, 1]
-        );
-        assert_eq!(first.animations[animation].len(), 2);
-        std::fs::remove_file(dir.join(background)).unwrap();
-        std::fs::remove_file(dir.join(animation)).unwrap();
-        let second = core
-            .with_artwork(&[animation, background, background])
-            .unwrap();
-        assert!(
-            first
-                .pages
-                .iter()
-                .zip(&second.pages)
-                .all(|(a, b)| Arc::ptr_eq(&a.pixels, &b.pixels))
-        );
-        assert!(core.with_artwork(&["../outside.png"]).is_err());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn installed_core_has_native_settings_art_within_texture_budget() {
-        let Some(dir) = bundle_dir() else {
-            eprintln!(
-                "skipping installed_core_has_native_settings_art_within_texture_budget: installed OreUI bundle unavailable"
-            );
-            return;
-        };
-        let images = load(&dir).unwrap();
-        for key in SETTINGS_ICONS.into_iter().chain([
-            OVERWORLD_BLOCK_IMAGE,
-            SETTINGS_ICON_HIGHLIGHT_IMAGE,
-            SWITCH_ON_IMAGE,
-            SWITCH_OFF_IMAGE,
-            CHEVRON_LEFT_IMAGE,
-        ]) {
-            assert!(
-                images.sprites.contains_key(key),
-                "missing native settings art: {key}"
-            );
-        }
-        for key in [SWITCH_ON_IMAGE, SWITCH_OFF_IMAGE, CHEVRON_LEFT_IMAGE] {
-            assert!(images.sprites.contains_key(&format!("@mask/{key}")));
-        }
-        let mut files = Vec::new();
-        collect_rasters(&dir, &dir.join("assets"), &mut files).unwrap();
-        assert!(files.iter().all(|(key, _)| images.contains(key)));
-        assert_eq!(images.source.as_ref().unwrap().len(), files.len());
-        assert!(
-            images
-                .pages
-                .iter()
-                .map(|page| page.pixels.len())
-                .sum::<usize>()
-                < render_model::MAX_UI_FIXED_TEXTURE_BYTES / 2
-        );
-    }
-}
+mod tests;

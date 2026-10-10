@@ -74,6 +74,19 @@ pub(super) fn draw_ui_layer(
     lifetime: &mut super::model_depth::ModelDepthLifetime,
     damage: Option<UiScissor>,
 ) -> LayerDrawn {
+    let extent = crate::render_bounds::extent(&draw.layer.view);
+    let damage = match damage {
+        Some(rect) => match crate::render_bounds::scissor(rect, extent) {
+            Some(rect) => Some(rect),
+            None => {
+                return LayerDrawn {
+                    encoded: false,
+                    complete: true,
+                };
+            }
+        },
+        None => None,
+    };
     let mut encoded = false;
     let mut complete = true;
     let mut start = 0;
@@ -149,6 +162,7 @@ pub(super) fn draw_ui_layer(
             draw.vertices,
             draw.indices,
             draw.viewport,
+            extent,
             group,
             draw.skip,
             damage,
@@ -187,6 +201,7 @@ pub(super) fn draw_batches<'w>(
     vertices: &'w Buffer,
     indices: &'w Buffer,
     viewport: Option<&Viewport>,
+    extent: [u32; 2],
     batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
@@ -196,12 +211,17 @@ pub(super) fn draw_batches<'w>(
         profile.record_pass(stage);
     }
     if let Some(viewport) = viewport {
-        pass.set_camera_viewport(viewport);
+        let Some(viewport) = crate::render_bounds::viewport(viewport, extent) else {
+            return;
+        };
+        pass.set_camera_viewport(&viewport);
     }
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let Some(scissor) = clipped_scissor(batch.scissor, damage) else {
+        let Some(scissor) = clipped_scissor(batch.scissor, damage)
+            .and_then(|rect| crate::render_bounds::scissor(rect, extent))
+        else {
             continue;
         };
         let binding = gpu.textures.buckets[location.bucket]
@@ -217,7 +237,6 @@ pub(super) fn draw_batches<'w>(
             pass.draw_indexed(range, 0, location.layer..location.layer + 1);
         }
     }
-    pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
 }
 
 /// Partial replay needs an ordinary first pass and every pipeline ready before preserving pixels.

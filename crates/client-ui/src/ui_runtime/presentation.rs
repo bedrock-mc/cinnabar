@@ -122,6 +122,7 @@ pub struct UiPresentationRuntime {
     icon_catalog: Option<Arc<RuntimeIconCatalog>>,
     icon_refs: Option<Box<[IconRef]>>,
     layouts: TextLayoutCache,
+    rejected_frames: u64,
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`

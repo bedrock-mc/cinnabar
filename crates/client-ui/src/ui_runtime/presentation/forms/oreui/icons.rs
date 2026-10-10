@@ -1,6 +1,8 @@
 //! OreUI icons as our own pixel art (one texel = 0.2rem), matched to the
 //! originals' sizes; installed artwork supplies each icon's exact alpha shape.
 
+use crate::ui_runtime::oreui_assets::ACTION_ICONS;
+
 use super::super::super::UiPresentationError;
 use super::paint::{Bounds, Canvas};
 use super::theme::{EDGE, Rgba};
@@ -31,13 +33,13 @@ impl Icon {
     /// The install's atlas key for the local-originals mode.
     fn original(self) -> &'static str {
         match self {
-            Self::ArrowBack => "assets/arrow-left@0.5x.icon-32012c9c1d3e6debaaf8ce01da9815de.png",
-            Self::Cross => "assets/cross@0.5x.icon-a30f9556f5895c0d6996af977c6fbb91.png",
-            Self::Search => "assets/search@0.5x.icon-57e5a707535fd5959a31271ce38e0b7f.png",
-            Self::Player => "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
-            Self::Pencil => "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
-            Self::Check => "assets/checkmark@0.5x.icon-3a1f3dd3866716c7bc33ad20204c68ca.png",
-            Self::Filter => "assets/filter@0.5x.icon-4d527e67d899c241675338c67277d157.png",
+            Self::ArrowBack => ACTION_ICONS[0],
+            Self::Cross => ACTION_ICONS[1],
+            Self::Search => ACTION_ICONS[2],
+            Self::Player => ACTION_ICONS[3],
+            Self::Pencil => ACTION_ICONS[4],
+            Self::Check => ACTION_ICONS[5],
+            Self::Filter => ACTION_ICONS[6],
         }
     }
 

@@ -144,11 +144,17 @@ impl ViewNode for MotionBlurNode {
             occlusion_query_set: None,
         });
         let viewport = state.viewport();
+        let Some(rect) = crate::render_bounds::scissor(
+            render_model::UiScissor::new(viewport.x, viewport.y, viewport.z, viewport.w),
+            crate::render_bounds::extent(scene.color_view(false)),
+        ) else {
+            return Ok(());
+        };
         pass.set_viewport(
-            viewport.x as f32,
-            viewport.y as f32,
-            viewport.z as f32,
-            viewport.w as f32,
+            rect.x as f32,
+            rect.y as f32,
+            rect.width as f32,
+            rect.height as f32,
             0.0,
             1.0,
         );
