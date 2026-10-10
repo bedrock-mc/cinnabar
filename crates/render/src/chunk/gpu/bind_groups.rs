@@ -108,6 +108,8 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
 pub(in crate::chunk) struct PreparedChunkBiomeTints {
     pub(in crate::chunk) identity: ChunkBiomeTintResourceIdentity,
     pub(in crate::chunk) buffer: Buffer,
+    /// The blend kernel's constant lookup tables; see `biome_lattice::query_table_words`.
+    pub(in crate::chunk) query_tables: Buffer,
 }
 
 #[derive(Resource, Default)]
@@ -148,8 +150,20 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
         contents: bytemuck::cast_slice(&entries),
         usage: BufferUsages::STORAGE,
     });
+    let query_tables = match gpu.prepared.take() {
+        Some(prepared) => prepared.query_tables,
+        None => render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("packed chunk biome query tables"),
+            contents: bytemuck::cast_slice(&meshing::biome_lattice::query_table_words()),
+            usage: BufferUsages::UNIFORM,
+        }),
+    };
     gpu._retained_entries = Some(Arc::clone(&source.entries));
-    gpu.prepared = Some(PreparedChunkBiomeTints { identity, buffer });
+    gpu.prepared = Some(PreparedChunkBiomeTints {
+        identity,
+        buffer,
+        query_tables,
+    });
 }
 
 pub(in crate::chunk) struct PreparedChunkTextureAssets {
@@ -833,6 +847,10 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
                 resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                resource: biome_tints.query_tables.as_entire_binding(),
             },
         ],
     );

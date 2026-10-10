@@ -295,7 +295,7 @@ pub use weather_textures::{
 };
 
 mod biome_noise;
-pub use biome_noise::{ClientRandom, grass_noise_permutation};
+pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 
 mod session_entities;
 pub use session_entities::SessionEntityPack;

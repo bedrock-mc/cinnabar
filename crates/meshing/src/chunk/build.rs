@@ -47,6 +47,7 @@ pub fn mesh_sub_chunk_with_lighting<S: crate::lighting::MeshLightSampler + ?Size
         &neighbourhood,
         light_sampler,
         false,
+        MeshOptions::default(),
     )
 }
 
@@ -67,6 +68,14 @@ pub fn mesh_sub_chunk_in_neighbourhood(
     )
 }
 
+/// Meshing choices that depend on data outside the block snapshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MeshOptions {
+    /// Keeps every biome-tinted cube face one block wide. Set when the sub-chunk's biome
+    /// record is mixed, so the renderer can blend its tint once per face instead of per pixel.
+    pub split_tinted_faces: bool,
+}
+
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
 #[must_use]
 pub fn mesh_sub_chunk_in_neighbourhood_with_lighting<
@@ -78,6 +87,28 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_lighting<
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
 ) -> ChunkMesh {
+    mesh_sub_chunk_in_neighbourhood_with_options(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+        light_sampler,
+        MeshOptions::default(),
+    )
+}
+
+/// Greedy-mesh the bounded palette snapshot with solved light and explicit [`MeshOptions`].
+#[must_use]
+pub fn mesh_sub_chunk_in_neighbourhood_with_options<
+    S: crate::lighting::MeshLightSampler + ?Sized,
+>(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
+    options: MeshOptions,
+) -> ChunkMesh {
     mesh_sub_chunk_core(
         classifier,
         visuals,
@@ -85,6 +116,7 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_lighting<
         neighbourhood,
         light_sampler,
         true,
+        options,
     )
 }
 
@@ -95,6 +127,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
     include_liquids: bool,
+    options: MeshOptions,
 ) -> ChunkMesh {
     let sub_chunk = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -179,6 +212,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     &mut cube_streams,
                     &mut diagnostic_geometry,
                     visuals.materials(),
+                    options.split_tinted_faces,
                 ),
             );
         }
