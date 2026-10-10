@@ -150,7 +150,12 @@ dist-local:
 PKG_VERSION ?= $(shell sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml | head -n 1)
 # Update manifest keys the client trusts (id:base64[,...]); read by the client build.
 UPDATE_TRUSTED_KEYS ?=
+# Unset when empty, as under plain cargo, so switching between them never rebuilds the client.
+ifneq ($(UPDATE_TRUSTED_KEYS),)
 export UPDATE_TRUSTED_KEYS
+else
+unexport UPDATE_TRUSTED_KEYS
+endif
 PKG_CORE_LDFLAGS = -s -w
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
