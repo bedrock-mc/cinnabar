@@ -77,7 +77,10 @@ fn rejected_campfire_placement_emits_two_smoke_origins_per_combustible_attachmen
     let (positions, _) = origins([0; 3], neighbors, true);
     assert_eq!(positions.len(), 10);
     // Current callback emits west, east, north, south, above, two per face.
-    for (face, pair) in ATTACHMENT_ORDER.into_iter().zip(positions.chunks_exact(2)) {
+    for (face, pair) in ATTACHMENT_ORDER
+        .into_iter()
+        .zip(positions.as_chunks::<2>().0.iter())
+    {
         for position in pair {
             assert!(
                 position

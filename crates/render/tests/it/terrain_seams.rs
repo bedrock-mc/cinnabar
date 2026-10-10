@@ -343,7 +343,11 @@ impl Fixture {
         let pixels = self.render(streams, &sky, "seam_vertex", "fragment_solid");
         let background = pixels[..4].to_vec();
         assert!(
-            pixels.chunks_exact(4).all(|pixel| pixel == background),
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel.as_slice() == background),
             "the sky view must miss every quad"
         );
         background

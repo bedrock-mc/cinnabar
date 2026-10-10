@@ -51,14 +51,15 @@ fn shield_gui_route_uses_bound_geometry_and_texture_without_changing_ordinary_sp
     assert_eq!(compiled.report.model_item_visuals, 1);
     let catalog = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
     let shield = catalog.lookup("minecraft:shield", 0).unwrap();
-    assert!(shield.rgba8.chunks_exact(4).any(|p| p[3] == 0));
+    assert!(shield.rgba8.as_chunks::<4>().0.iter().any(|p| p[3] == 0));
     assert!(
         shield
             .rgba8
-            .chunks_exact(4)
-            .any(|p| p == [190, 70, 30, 255])
+            .as_chunks::<4>()
+            .0
+            .contains(&[190, 70, 30, 255])
     );
-    assert!(!shield.rgba8.chunks_exact(4).any(|p| p == [0, 200, 80, 255]));
+    assert!(!shield.rgba8.as_chunks::<4>().0.contains(&[0, 200, 80, 255]));
     assert_eq!(
         &*catalog.lookup("minecraft:bundle_blue", 0).unwrap().rgba8,
         &[0, 200, 80, 255].repeat(16 * 16)

@@ -118,8 +118,10 @@ pub fn decode_fsb5(input: &[u8]) -> Result<DecodedSound, FsbError> {
                 .get(..sample_count * 2)
                 .ok_or(FsbError::Malformed("truncated PCM"))?;
             bytes
-                .chunks_exact(2)
-                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| i16::from_le_bytes(*pair))
                 .collect()
         }
         CODEC_FADPCM => decode_fadpcm(data, frames, channels)?,
@@ -144,8 +146,12 @@ fn decode_fadpcm(data: &[u8], frames: usize, channels: u8) -> Result<Vec<i16>, F
         .ok_or(FsbError::Malformed("truncated FADPCM"))?;
     let mut samples = Vec::with_capacity(frames * channel_count);
     for (index, group) in data.chunks_exact(group_bytes).enumerate() {
-        let decoded: Vec<[i16; BLOCK_FRAMES]> =
-            group.chunks_exact(BLOCK_BYTES).map(decode_block).collect();
+        let decoded: Vec<[i16; BLOCK_FRAMES]> = group
+            .as_chunks::<BLOCK_BYTES>()
+            .0
+            .iter()
+            .map(|block| decode_block(block))
+            .collect();
         let count = (frames - index * BLOCK_FRAMES).min(BLOCK_FRAMES);
         for frame in 0..count {
             for channel in &decoded {

@@ -311,7 +311,9 @@ fn visible_color(draw: &ui::UiDrawList, point: [f32; 2]) -> Option<[u8; 4]> {
         .filter(|batch| batch.clip.contains(hit))
         .flat_map(|batch| {
             draw.indices[batch.index_range.start as usize..batch.index_range.end as usize]
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
+                .iter()
         })
         .rfind(|quad| {
             let min = std::array::from_fn::<_, 2, _>(|axis| {

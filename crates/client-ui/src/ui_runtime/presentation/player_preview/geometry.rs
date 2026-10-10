@@ -155,7 +155,7 @@ fn append(
     let start = u32::try_from(vertices.len()).ok()?;
     let [red, green, blue] = tint.unwrap_or([255; 3]);
     let centers = lighting::part_centers(source);
-    for triangle in source.chunks_exact(3) {
+    for triangle in source.as_chunks::<3>().0 {
         let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
         let model_light = lighting::triangle_light(
             triangle,

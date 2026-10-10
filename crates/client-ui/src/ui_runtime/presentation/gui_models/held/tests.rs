@@ -35,7 +35,7 @@ fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {
             .iter()
             .all(|placement| matches!(placement, PreviewHeldPlacement::Block))
     );
-    for (face, vertices) in model.vertices.chunks_exact(6).enumerate() {
+    for (face, vertices) in model.vertices.as_chunks::<6>().0.iter().enumerate() {
         let icon = super::super::sheet_faces(source)[face];
         assert_eq!(
             vertices[0].uv,

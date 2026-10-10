@@ -411,7 +411,9 @@ impl CompiledBiomeAssets {
             records: records.into_boxed_slice(),
             swamp_grass_palette: self
                 .tint_maps_rgb8
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .skip(
                     (TintMapId::SwampGrass as usize * TINT_MAP_SIZE as usize
                         + TINT_MAP_SIZE as usize

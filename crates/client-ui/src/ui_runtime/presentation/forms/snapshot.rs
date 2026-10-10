@@ -83,7 +83,7 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let scissor = batch.scissor;
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
-        for triangle in indices.chunks_exact(3) {
+        for triangle in indices.as_chunks::<3>().0 {
             let corners: [UiRenderVertex; 3] =
                 std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
             let [du, dv] = offset(triangle[0] as usize);

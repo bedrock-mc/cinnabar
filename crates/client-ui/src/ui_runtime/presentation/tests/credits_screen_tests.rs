@@ -94,32 +94,36 @@ fn draws_title_pixel(input: &render_model::UiRenderInput) -> bool {
         let [width, height] = page.dimensions();
         let first = batch.first_index as usize;
         let end = first + batch.index_count as usize;
-        input.indices[first..end].chunks_exact(3).any(|triangle| {
-            let point = triangle.iter().fold([0.0; 2], |mut point, index| {
-                for (axis, target) in point.iter_mut().enumerate() {
-                    *target += input.vertices[*index as usize].position[axis] / 3.0;
+        input.indices[first..end]
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .any(|triangle| {
+                let point = triangle.iter().fold([0.0; 2], |mut point, index| {
+                    for (axis, target) in point.iter_mut().enumerate() {
+                        *target += input.vertices[*index as usize].position[axis] / 3.0;
+                    }
+                    point
+                });
+                let clip = batch.scissor;
+                if point[0] < clip.x as f32
+                    || point[1] < clip.y as f32
+                    || point[0] >= (clip.x + clip.width) as f32
+                    || point[1] >= (clip.y + clip.height) as f32
+                {
+                    return false;
                 }
-                point
-            });
-            let clip = batch.scissor;
-            if point[0] < clip.x as f32
-                || point[1] < clip.y as f32
-                || point[0] >= (clip.x + clip.width) as f32
-                || point[1] >= (clip.y + clip.height) as f32
-            {
-                return false;
-            }
-            let uv = triangle.iter().fold([0.0; 2], |mut uv, index| {
-                for (target, source) in uv.iter_mut().zip(input.vertices[*index as usize].uv) {
-                    *target += source / 3.0;
-                }
-                uv
-            });
-            let x = (uv[0].floor() as u32).min(width - 1);
-            let y = (uv[1].floor() as u32).min(height - 1);
-            let offset = ((y * width + x) * 4) as usize;
-            page.pixels()[offset..offset + 4] == [20, 160, 240, 255]
-        })
+                let uv = triangle.iter().fold([0.0; 2], |mut uv, index| {
+                    for (target, source) in uv.iter_mut().zip(input.vertices[*index as usize].uv) {
+                        *target += source / 3.0;
+                    }
+                    uv
+                });
+                let x = (uv[0].floor() as u32).min(width - 1);
+                let y = (uv[1].floor() as u32).min(height - 1);
+                let offset = ((y * width + x) * 4) as usize;
+                page.pixels()[offset..offset + 4] == [20, 160, 240, 255]
+            })
     })
 }
 
@@ -182,7 +186,7 @@ fn credits_logo_and_first_poem_row_have_a_content_separator() {
             let [width, height] = page.dimensions();
             let first = batch.first_index as usize;
             let end = first + batch.index_count as usize;
-            for triangle in input.indices[first..end].chunks_exact(3) {
+            for triangle in input.indices[first..end].as_chunks::<3>().0 {
                 let uv = triangle.iter().fold([0.0; 2], |mut uv, index| {
                     for (target, source) in uv.iter_mut().zip(input.vertices[*index as usize].uv) {
                         *target += source / 3.0;
@@ -195,9 +199,9 @@ fn credits_logo_and_first_poem_row_have_a_content_separator() {
                 let pixel = &page.pixels()[offset..offset + 4];
                 for index in triangle {
                     let y = input.vertices[*index as usize].position[1];
-                    if pixel == [20, 160, 240, 255] {
+                    if *pixel == [20, 160, 240, 255] {
                         logo_bottom = logo_bottom.max(y);
-                    } else if pixel == [255; 4] {
+                    } else if *pixel == [255; 4] {
                         first_glyph_top = first_glyph_top.min(y);
                     }
                 }

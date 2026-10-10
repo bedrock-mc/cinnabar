@@ -248,12 +248,18 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
         );
         let background = &reference[..4];
         assert!(
-            reference.chunks_exact(4).any(|pixel| pixel != background),
+            reference
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel != background),
             "camera {eye} sees terrain"
         );
         let mismatched = reference
-            .chunks_exact(4)
-            .zip(culled.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(culled.as_chunks::<4>().0.iter())
             .filter(|(left, right)| left != right)
             .count();
         assert_eq!(mismatched, 0, "camera {eye} with runs {runs:?}");

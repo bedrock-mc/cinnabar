@@ -76,12 +76,7 @@ mod tests {
                     (u64::from(down.texture.page()) << 32) | u64::from(down.texture.layer())
                 );
                 assert_ne!(down.texture, TextureRef::DIAGNOSTIC);
-                assert!(
-                    !tile
-                        .pixels
-                        .chunks_exact(4)
-                        .any(|rgba| rgba == [255, 0, 255, 255])
-                );
+                assert!(!tile.pixels.as_chunks::<4>().0.contains(&[255, 0, 255, 255]));
                 if name == "minecraft:grass_block" {
                     assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
                 }

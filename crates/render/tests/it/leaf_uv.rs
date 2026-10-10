@@ -184,7 +184,9 @@ fn actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes() {
                 ],
             );
             let covered = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[1] == 255)
                 .count();
             assert_eq!(

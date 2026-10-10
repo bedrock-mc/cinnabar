@@ -162,8 +162,10 @@ fn quad_bounds(quad: &[render_model::UiRenderVertex]) -> [f32; 4] {
 fn crosshair(input: &render_model::UiRenderInput, side: f32) -> Option<[f32; 4]> {
     input
         .vertices
-        .chunks_exact(4)
-        .map(quad_bounds)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|quad| quad_bounds(quad))
         .find(|bounds| {
             (bounds[2] - bounds[0] - side).abs() < 1e-3
                 && (bounds[3] - bounds[1] - side).abs() < 1e-3
@@ -468,8 +470,10 @@ fn java_pack_geometry_on_a_real_viewport() {
     assert!(
         input
             .vertices
-            .chunks_exact(4)
-            .map(quad_bounds)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|quad| quad_bounds(quad))
             .any(|bounds| bounds == [364.0, 681.0, 436.0, 753.0]),
         "selection frame at Java geometry"
     );

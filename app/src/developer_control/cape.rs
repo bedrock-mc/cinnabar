@@ -55,7 +55,13 @@ mod tests {
         let cape = skinned.cape.unwrap();
         assert_eq!((cape.width, cape.height), (64, 32));
         assert_eq!(cape.rgba8.len(), 64 * 32 * 4);
-        assert!(cape.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(
+            cape.rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         assert_ne!(&cape.rgba8[0..4], &cape.rgba8[4 * (64 * 3 + 3)..][..4]);
         apply(&mut world, false).unwrap();
         assert_eq!(world.resource::<LocalPlayerSkin>().player_skin(), original);

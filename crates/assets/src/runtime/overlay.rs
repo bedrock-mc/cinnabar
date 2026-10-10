@@ -611,7 +611,13 @@ mod tests {
     #[test]
     fn expanded_layers_retain_their_source_mips_for_terrain_upload() {
         let mut texture = page(64);
-        for (index, pixel) in texture.mips[0].rgba8.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in texture.mips[0]
+            .rgba8
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .enumerate()
+        {
             pixel.copy_from_slice(if index % 8 < 4 {
                 &[255, 0, 0, 255]
             } else {
@@ -619,7 +625,7 @@ mod tests {
             });
         }
         for mip in &mut texture.mips[1..] {
-            for pixel in mip.rgba8.chunks_exact_mut(4) {
+            for pixel in mip.rgba8.as_chunks_mut::<4>().0 {
                 pixel.copy_from_slice(&[127, 0, 127, 255]);
             }
         }

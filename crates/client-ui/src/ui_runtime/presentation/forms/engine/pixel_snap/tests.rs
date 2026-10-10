@@ -232,7 +232,7 @@ fn thin_nine_slice_caps_do_not_sample_the_neighboring_atlas_column() {
         .reduce(f32::min)
         .unwrap()
         .floor();
-    for quad in draw.vertices.chunks_exact(4) {
+    for quad in draw.vertices.as_chunks::<4>().0 {
         let (left, right) = (quad[0].position[0], quad[1].position[0]);
         for x in (left.ceil() as u32)..(right.ceil() as u32) {
             let fraction = (x as f32 + 0.5 - left) / (right - left);

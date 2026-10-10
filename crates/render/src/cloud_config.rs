@@ -184,7 +184,9 @@ impl CloudGeometryDiagnostic {
         let occupied_texels = u32::try_from(
             texture
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|texel| texel[3] >= 128)
                 .count(),
         )
@@ -252,7 +254,9 @@ impl CloudGeometryDiagnostic {
         let occupied_texels = u32::try_from(
             texture
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|texel| texel[3] > 1)
                 .count(),
         )

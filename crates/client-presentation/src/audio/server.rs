@@ -121,8 +121,10 @@ pub(super) fn decode_wav(bytes: &[u8]) -> Option<Pcm> {
         channels: channels as u8,
         rate,
         samples: data[..whole_frames]
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| i16::from_le_bytes(*pair))
             .collect::<Vec<_>>()
             .into(),
     })
