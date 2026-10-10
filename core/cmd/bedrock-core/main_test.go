@@ -566,3 +566,38 @@ func TestServerTrustFileRequiresControlStatus(t *testing.T) {
 		t.Fatalf("parseFlags = %+v, %v", opts.serverTrustFile, err)
 	}
 }
+
+// Signing in another account must not mint a second device for the same install.
+func TestRunKeepsOneDeviceAcrossAuthCaches(t *testing.T) {
+	install := t.TempDir()
+	deviceFile := filepath.Join(install, "auth", "device.json")
+	if err := os.MkdirAll(filepath.Join(install, "auth", "account-manager"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, authCache := range []string{
+		filepath.Join(install, "auth", "microsoft-token.json"),
+		filepath.Join(install, "auth", "account-manager", "pending-token.json"),
+	} {
+		err := run(context.Background(),
+			[]string{"-socket-dir", t.TempDir(), "-upstream", "example.test:19132", "-auth-cache", authCache, "-device-file", deviceFile},
+			io.Discard, io.Discard,
+			func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+				return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"}), nil
+			},
+			func(_ context.Context, cfg proxy.Config) error {
+				ids = append(ids, string(cfg.Device.ID))
+				return nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("run(%s) error = %v", authCache, err)
+		}
+	}
+	if ids[0] == "" || ids[0] != ids[1] {
+		t.Fatalf("device IDs = %q, want one persisted ID", ids)
+	}
+	if _, err := os.Stat(filepath.Join(install, "auth", "account-manager", "device.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending account wrote its own device profile: %v", err)
+	}
+}
