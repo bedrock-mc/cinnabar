@@ -1,7 +1,12 @@
 //! Fills the core's artwork URLs with cached local files, so the menu only ever draws files on
 //! disk. Polled feeds publish at once and are woken again when missing art arrives.
 
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use client_ui::remote_images::{ImageDirectory, LAUNCHER_ART};
 use crossbeam_channel::Sender;
@@ -50,12 +55,19 @@ pub(super) async fn fill(images: &ImageDirectory, slots: Vec<Slot<'_>>) {
 
 /// Download batches a feed may queue while its art worker is busy; later ones are dropped.
 const QUEUED_BATCHES: usize = 4;
+/// How long a downloaded URL is not queued again, so art beyond the cache's capacity cannot
+/// evict and re-download itself in a loop.
+const REFETCH_AFTER: Duration = Duration::from_secs(5 * 60);
+/// Downloaded URLs a feed remembers; expired ones are dropped first.
+const MAX_RECENT: usize = 1024;
 
 /// One polled feed's art worker: a round fills what is on disk and queues the rest, and the
 /// feed is woken to publish again once any of it arrives.
 pub(super) struct FeedArt {
     images: ImageDirectory,
     batches: Sender<Vec<String>>,
+    /// When this feed last downloaded each URL.
+    recent: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl FeedArt {
@@ -63,6 +75,8 @@ impl FeedArt {
     pub(super) fn start(images: ImageDirectory, wake: Sender<()>) -> Self {
         let (batches, queue) = crossbeam_channel::bounded::<Vec<String>>(QUEUED_BATCHES);
         let downloads = images.clone();
+        let recent = Arc::new(Mutex::new(HashMap::new()));
+        let fetched_at = Arc::clone(&recent);
         let spawned = std::thread::Builder::new()
             .name("feed-art".to_owned())
             .spawn(move || {
@@ -70,9 +84,16 @@ impl FeedArt {
                     return;
                 };
                 for urls in queue {
-                    let fetched = runtime.block_on(downloads.fetch_all(urls, ARTWORK_BUDGET));
+                    let fetched =
+                        runtime.block_on(downloads.fetch_all(urls.clone(), ARTWORK_BUDGET));
+                    let arrived: Vec<String> = urls
+                        .into_iter()
+                        .zip(&fetched)
+                        .filter_map(|(url, path)| path.is_some().then_some(url))
+                        .collect();
                     // Waking only for new files keeps a dead host from looping the feed.
-                    if fetched.iter().any(Option::is_some) {
+                    if !arrived.is_empty() {
+                        remember(&fetched_at, arrived);
                         let _ = wake.try_send(());
                     }
                 }
@@ -80,7 +101,11 @@ impl FeedArt {
         if let Err(error) = spawned {
             bevy::log::warn!("feed artwork worker unavailable: {error}");
         }
-        Self { images, batches }
+        Self {
+            images,
+            batches,
+            recent,
+        }
     }
 
     /// Fills slots already cached and queues the others' downloads; never waits on the network.
@@ -92,7 +117,9 @@ impl FeedArt {
             }
             match self.images.cached_path(url) {
                 Some(cached) => *path = cached.to_string_lossy().into_owned(),
-                None if !self.images.failed_recently(url) => missing.push(url.to_owned()),
+                None if !self.images.failed_recently(url) && !self.fetched_recently(url) => {
+                    missing.push(url.to_owned())
+                }
                 None => {}
             }
         }
@@ -100,6 +127,29 @@ impl FeedArt {
             let _ = self.batches.try_send(missing);
         }
     }
+
+    /// Whether this feed downloaded `url` within [`REFETCH_AFTER`]; gone from disk since, it was
+    /// evicted for capacity.
+    fn fetched_recently(&self, url: &str) -> bool {
+        self.recent
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .get(url)
+            .is_some_and(|at| at.elapsed() < REFETCH_AFTER)
+    }
+}
+
+/// Records `urls` as just downloaded, keeping at most [`MAX_RECENT`] entries.
+fn remember(recent: &Mutex<HashMap<String, Instant>>, urls: Vec<String>) {
+    let mut recent = recent.lock().unwrap_or_else(|poison| poison.into_inner());
+    if recent.len() + urls.len() > MAX_RECENT {
+        recent.retain(|_, at| at.elapsed() < REFETCH_AFTER);
+    }
+    if recent.len() + urls.len() > MAX_RECENT {
+        recent.clear();
+    }
+    let now = Instant::now();
+    recent.extend(urls.into_iter().map(|url| (url, now)));
 }
 
 /// Logos, banners, screenshots and activity art of the featured servers.
@@ -309,5 +359,39 @@ mod tests {
         woken.recv_timeout(Duration::from_secs(5)).unwrap();
         feed.fill_cached(home_slots(&mut home));
         assert!(!home.persona_head.path.is_empty());
+    }
+
+    // Art beyond the cache's capacity evicted itself and was queued again on every wake.
+    #[test]
+    fn evicted_art_is_not_queued_again_right_after_downloading() {
+        let dir = tempfile::tempdir().unwrap();
+        let (batches, queued) = crossbeam_channel::bounded(QUEUED_BATCHES);
+        let feed = FeedArt {
+            images: feed_images(dir.path()),
+            batches,
+            recent: Arc::default(),
+        };
+        let url = "https://a.test/evicted.png";
+        let mut home = Home {
+            persona_head: art(url, ""),
+            ..Default::default()
+        };
+        feed.fill_cached(home_slots(&mut home));
+        assert_eq!(queued.try_recv().unwrap(), [url]);
+        remember(&feed.recent, vec![url.to_owned()]);
+        feed.fill_cached(home_slots(&mut home));
+        assert!(queued.try_recv().is_err(), "evicted art queued again");
+    }
+
+    #[test]
+    fn remembered_downloads_are_bounded() {
+        let recent = Mutex::new(HashMap::new());
+        for batch in 0..3 {
+            let urls = (0..MAX_RECENT / 2)
+                .map(|index| format!("https://a.test/{batch}/{index}"))
+                .collect();
+            remember(&recent, urls);
+        }
+        assert!(recent.lock().unwrap().len() <= MAX_RECENT);
     }
 }
