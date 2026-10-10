@@ -22,8 +22,7 @@ const TRUSTED_KEYS: &str = match option_env!("UPDATE_TRUSTED_KEYS") {
     None => "",
 };
 
-/// Verdict published for whatever UI surfaces updates.
-pub type UpdateNotice = update_manifest::Verdict;
+use update_manifest::Verdict;
 
 #[derive(Deserialize, Serialize)]
 struct Stamp {
@@ -58,7 +57,7 @@ fn stamp_path(layout: &InstallLayout) -> PathBuf {
 }
 
 /// Last recorded verdict, if a newer build was found.
-pub fn available(layout: &InstallLayout) -> Option<UpdateNotice> {
+pub fn available(layout: &InstallLayout) -> Option<Verdict> {
     read_available(
         &layout.user_data_root.join("update"),
         env!("CARGO_PKG_VERSION"),
@@ -66,9 +65,9 @@ pub fn available(layout: &InstallLayout) -> Option<UpdateNotice> {
 }
 
 /// Reads a cached verdict only for the running client version.
-fn read_available(directory: &Path, current: &str) -> Option<UpdateNotice> {
+fn read_available(directory: &Path, current: &str) -> Option<Verdict> {
     let bytes = fs::read(directory.join("available.json")).ok()?;
-    serde_json::from_slice::<UpdateNotice>(&bytes)
+    serde_json::from_slice::<Verdict>(&bytes)
         .ok()
         .filter(|notice| notice.available && notice.current == current)
 }
@@ -151,7 +150,7 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
     })
 }
 
-fn record(directory: &Path, notice: &UpdateNotice) {
+fn record(directory: &Path, notice: &Verdict) {
     let _ = fs::create_dir_all(directory);
     if let Ok(bytes) = serde_json::to_vec(&Stamp {
         checked_at: now_secs(),
@@ -217,15 +216,15 @@ mod tests {
     #[test]
     fn recorded_verdicts_parse_with_and_without_an_artifact() {
         let with = br#"{"available":true,"current":"0.1.0","latest":"0.2.0","artifact":{"url":"https://x/y","sha256":"ab","size":9}}"#;
-        let notice: UpdateNotice = serde_json::from_slice(with).unwrap();
+        let notice: Verdict = serde_json::from_slice(with).unwrap();
         assert_eq!(notice.artifact.unwrap().size, 9);
         let without = br#"{"available":false,"current":"0.2.0","latest":"0.2.0"}"#;
         assert!(
-            !serde_json::from_slice::<UpdateNotice>(without)
+            !serde_json::from_slice::<Verdict>(without)
                 .unwrap()
                 .available
         );
-        assert!(serde_json::from_slice::<UpdateNotice>(b"nope").is_err());
+        assert!(serde_json::from_slice::<Verdict>(b"nope").is_err());
     }
 
     #[test]

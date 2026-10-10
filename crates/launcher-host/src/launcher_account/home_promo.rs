@@ -1,6 +1,6 @@
-//! Offline home-feed mapping and rendered start-screen evidence.
+//! Offline home-feed mapping.
 
-use {super::*, launcher::menu::auth::AuthState};
+use super::*;
 
 #[test]
 fn home_feed_preserves_promo_and_fallback_label() {

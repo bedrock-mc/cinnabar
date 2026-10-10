@@ -298,7 +298,7 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
         };
     }
     let address = address.trim();
-    let (destination, join) = match crate::menu::target_for(address) {
+    let (destination, join) = match launcher_host::launcher_core::target_for(address) {
         ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
