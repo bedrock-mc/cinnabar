@@ -586,7 +586,10 @@ fn resolve(
     } else if let Some(first) = path.first() {
         let mut local = module.to_vec();
         local.push(first.clone());
-        if symbols.dependencies.contains(first) {
+        let root = vec!["crate".into(), first.clone()];
+        let root_alias =
+            !seen.contains(&root) && active_name(&symbols.extern_roots, &root, configuration)?;
+        if symbols.dependencies.contains(first) || root_alias {
             let mut has_type_import = false;
             let mut imports_self = false;
             if !seen.contains(&local)
@@ -632,6 +635,9 @@ fn resolve(
                     }
                 }
                 absolute.clear();
+                if root_alias {
+                    absolute.push("crate".into());
+                }
             }
         }
     }
