@@ -14,6 +14,7 @@ use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 mod absorption;
 mod boss_removal_tests;
 mod crosshair_options;
+mod pack_snapshots;
 
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
