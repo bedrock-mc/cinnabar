@@ -57,10 +57,10 @@ impl PlayerState {
     /// Captures the ledger as painting must show it, before this frame's sends.
     #[must_use]
     pub fn capture_ledger(&self) -> CapturedLedger {
-        CapturedLedger(self.inventory.ledger().clone())
+        CapturedLedger(self.inventory.ledger_snapshot())
     }
 
-    /// Returns a read-only copy of this state showing `captured` in place of the live ledger.
+    /// Returns a read-only presentation of this state showing `captured` in place of the live ledger.
     #[must_use]
     pub fn present(&self, captured: CapturedLedger) -> PresentedPlayer {
         PresentedPlayer(Self {
@@ -70,8 +70,8 @@ impl PlayerState {
     }
 }
 
-/// A ledger copy taken at a frame boundary; opaque until handed back to [`PlayerState::present`].
-pub struct CapturedLedger(inventory::PlayerInventoryLedger);
+/// Shared immutable ledger cells taken at a frame boundary; opaque until handed back to [`PlayerState::present`].
+pub struct CapturedLedger(Arc<inventory::PlayerInventoryLedger>);
 
 /// Player state for painting; it can be read but never feeds back into authority.
 pub struct PresentedPlayer(PlayerState);
@@ -87,6 +87,22 @@ impl std::ops::Deref for PresentedPlayer {
 #[cfg(test)]
 mod tests {
     use super::PlayerState;
+
+    #[test]
+    fn unchanged_frames_share_the_captured_ledger_and_authority_detaches_on_write() {
+        let mut live = PlayerState::new(1);
+        let first = live.capture_ledger();
+        let next = live.capture_ledger();
+        assert!(std::sync::Arc::ptr_eq(&first.0, &next.0));
+        live.inventory.ledger_mut().begin_session(2);
+        let changed = live.capture_ledger();
+        assert!(!std::sync::Arc::ptr_eq(&first.0, &changed.0));
+        let before = live.present(first);
+        assert!(!std::ptr::eq(
+            before.inventory.ledger(),
+            live.inventory.ledger()
+        ));
+    }
 
     // Painting sees the captured ledger beside live session state; authority keeps its ledger.
     #[test]
