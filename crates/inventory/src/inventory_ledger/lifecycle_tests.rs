@@ -493,6 +493,48 @@ fn late_open_cleanup_is_deduplicated_bounded_and_never_evicts_personal_close() {
     assert!(personal.pending_closes.is_empty());
 }
 
+/// The native client answers a server's close with a close of its own;
+/// Geyser opens the next window only on that confirmation.
+#[test]
+fn server_close_of_a_storage_window_is_confirmed_with_a_close() {
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(3),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.storage_generation().is_some());
+    assert!(ledger.pending_closes.is_empty());
+
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(3),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        server_initiated: true,
+    }));
+    assert!(ledger.storage_generation().is_none());
+    let confirmation = ledger
+        .pending_closes
+        .front()
+        .expect("a queued confirmation");
+    assert_eq!(confirmation.window_id, 3);
+    assert_eq!(confirmation.owner, PendingCloseOwner::Cleanup);
+    assert!(matches!(
+        ledger.pending_control_packet().unwrap().unwrap().data,
+        protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData::ContainerClosePacket(close)
+            if close.container_id == 3 && !close.server_initiated_close
+    ));
+
+    // The server's answer to our own close needs no confirmation.
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(3),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(ledger.pending_closes.is_empty());
+}
+
 #[test]
 fn superseded_storage_closes_evict_oldest_and_retain_latest_window() {
     let mut ledger = ledger_with_slot_zero();
