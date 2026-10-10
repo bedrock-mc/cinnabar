@@ -231,10 +231,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         } else {
             gpu.spans.as_slice()
         };
-        for span in spans
-            .iter()
-            .filter(|span| sorted(span.material) == SORTED)
-        {
+        for span in spans.iter().filter(|span| sorted(span.material) == SORTED) {
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }

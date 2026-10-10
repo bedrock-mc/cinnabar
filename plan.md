@@ -360,7 +360,9 @@
 - Server-pack entity materials with `depthFunc: Always` (through-wall markers)
   compile to an always-passing depth test. `LessEqual` restores normal testing,
   and children inherit the setting. These spans draw in the sorted pass after
-  opaque terrain, so terrain cannot overwrite them.
+  opaque terrain, so terrain cannot overwrite them. Every admitted raster state
+  prewarms both normal and always-passing depth variants, including blending and
+  disabled depth writes.
 - Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
   states are ignored. The sorted-pass order approximates native entity order and
   is unverified against a native capture.

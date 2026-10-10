@@ -128,18 +128,12 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             })
         })
     });
-    // Pack materials such as `entity_depth` and `entity_alpha_depth` that draw through walls.
-    let depth_always = [false, true].into_iter().flat_map(|cull| {
-        [false, true].into_iter().map(move |alpha_test| {
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                alpha_test,
-                cull,
-                depth_always: true,
-                ..Default::default()
-            }))
-        })
-    });
-    ordinary.chain(additive).chain(depth_always)
+    ordinary.chain(additive).flat_map(|material| {
+        [
+            material,
+            material | assets::EntityRenderMaterialState::DEPTH_ALWAYS,
+        ]
+    })
 }
 
 pub(super) fn prepare_actor_pipelines(
