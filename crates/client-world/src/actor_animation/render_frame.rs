@@ -102,6 +102,8 @@ impl<'a> ActorRenderFrame<'a> {
 pub(super) struct FrameState {
     pub motion: SwellMotion,
     pub samples_camera_poses: bool,
+    /// Completed selection and clock writes feed independently sampled layer channels.
+    pub selection_effects: evaluation::MolangEffects,
     /// Completed channel writes survive frames that retain ordinary pose endpoints.
     pub retained_pose_effects: evaluation::MolangEffects,
     pub previous_motion: Option<SwellMotion>,
@@ -462,6 +464,12 @@ impl ActorAnimationStore {
         } else {
             None
         };
+        if sampled_clips.is_none()
+            && endpoints.is_none()
+            && frame.selection_effects.apply(&mut variables).is_err()
+        {
+            return Some(completed());
+        }
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
             let Ok(local) = pose::sample_clips(
                 &current.evaluator,
@@ -605,13 +613,31 @@ impl ActorAnimationStore {
                         .iter()
                         .find(|previous| previous.geometry == layer.geometry)
                 });
+            let layer_inputs_changed = if pose.is_none()
+                && previous.is_some()
+                && let Some(geometry) = layer.geometry
+            {
+                match camera::layer_needs_pose_sampling(
+                    &evaluator,
+                    clips,
+                    geometry,
+                    camera::LayerInputs {
+                        variables: &variables,
+                        completed: &state.variables,
+                        presentation_changed: pose_inputs_changed,
+                    },
+                    &mut budget,
+                ) {
+                    Ok(changed) => changed,
+                    Err(_) => return Some(completed()),
+                }
+            } else {
+                false
+            };
             let sampled = match (&pose, layer.geometry) {
                 (Some(pose), None) => Some(Arc::clone(pose)),
                 (_, Some(geometry))
-                    if pose.is_some()
-                        || previous.is_none()
-                        || (pose_inputs_changed
-                            && camera::layer_needs_camera_sampling(assets, clips, geometry)) =>
+                    if pose.is_some() || previous.is_none() || layer_inputs_changed =>
                 {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
