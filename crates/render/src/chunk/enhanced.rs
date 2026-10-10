@@ -118,6 +118,7 @@ mod tests {
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 0,
         };
         let bounds = CascadeBounds {

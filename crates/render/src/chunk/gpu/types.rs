@@ -19,6 +19,9 @@ pub(in crate::chunk) struct GpuChunkAllocation {
     pub(in crate::chunk) has_depth_liquid: bool,
     pub(in crate::chunk) has_transparent_liquid: bool,
     pub(in crate::chunk) depth_liquid_range: Option<Range<u32>>,
+    /// Whether the transparent water blends the same in any face order and shares its
+    /// sub-chunk with no transparent model; such water is drawn without a sort.
+    pub(in crate::chunk) order_independent_liquid: bool,
     pub(in crate::chunk) metadata_index: u32,
 }
 
@@ -127,13 +130,13 @@ pub(in crate::chunk) enum ChunkDrawMode {
     Unsupported,
 }
 
-/// Apple GPUs have no hardware indirect draws. Honeykrisp (Asahi Mesa) and MoltenVK expand a
-/// count-driven multi-draw into one CPU draw per slot, each behind a robustness dispatch, so
-/// the Metal direct-draw rule applies to them under Vulkan as well.
+/// Selects direct draws for Apple hardware, including Vulkan drivers that expand indirect draws.
+/// Their per-slot robustness work makes count-driven multi-draws more expensive.
 pub(in crate::chunk) fn apple_gpu(info: &wgpu::AdapterInfo) -> bool {
     apple_gpu_identity(info.vendor, &info.driver, &info.name)
 }
 
+/// Recognizes Apple hardware through its vendor ID or Vulkan driver and adapter names.
 pub(in crate::chunk) fn apple_gpu_identity(vendor: u32, driver: &str, name: &str) -> bool {
     const APPLE_VENDOR_ID: u32 = 0x106B;
     vendor == APPLE_VENDOR_ID || driver == "Honeykrisp" || name.starts_with("Apple ")
@@ -389,6 +392,33 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {
     depth_liquid_draw_command(allocation)
+}
+
+/// Draws water records directly: first_instance selects a record; base_vertex encodes (metadata index + 1) * 4.
+pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    if !allocation.has_transparent_liquid {
+        return None;
+    }
+    allocation.liquid_lighting_range.as_ref()?;
+    let liquid = allocation.liquid_range.as_ref()?;
+    if !liquid.start.is_multiple_of(4) || !liquid.end.is_multiple_of(4) {
+        return None;
+    }
+    let first_instance = liquid.start / 4;
+    let end = allocation
+        .depth_liquid_range
+        .as_ref()
+        .map_or(liquid.end / 4, |depth| depth.start);
+    let instance_count = end.checked_sub(first_instance)?;
+    (instance_count != 0).then_some(DrawIndexedIndirectArgs {
+        index_count: STATIC_QUAD_INDICES.len() as u32,
+        instance_count,
+        first_index: 0,
+        base_vertex: metadata_base_vertex(allocation.metadata_index.checked_add(1)?)?,
+        first_instance,
+    })
 }
 
 pub(in crate::chunk) fn depth_liquid_mdi_draw_command(

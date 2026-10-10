@@ -17,6 +17,11 @@ struct Route {
 }
 static PATHS: OnceLock<Vec<Route>> = OnceLock::new();
 
+/// Whether the carrier's item routes are installed; once installed they never change.
+pub(crate) fn vanilla_item_paths_installed() -> bool {
+    PATHS.get().is_some()
+}
+
 /// Retains source routes once, so menus can apply packs before any item registry arrives.
 pub(crate) fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
     let mut aliases_by_source = std::collections::HashMap::<_, Vec<String>>::new();

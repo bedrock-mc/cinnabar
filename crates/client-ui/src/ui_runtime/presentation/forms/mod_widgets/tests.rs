@@ -310,6 +310,146 @@ fn larger_row_text_rebuilds_the_catalog_and_fits_stacked_and_right_icon_bands() 
     }
 }
 
+#[test]
+fn right_icon_values_stay_centered_when_text_and_hud_are_scaled() {
+    for scale in [0.5, 0.75, 1., 1.5, 2.] {
+        for text_scale in [1., 1.75] {
+            let mut p = presentation(false);
+            let mut hud = content();
+            let card = &mut hud.cards[0];
+            card.title.clear();
+            card.row_layout = ui::mod_hud::RowLayout::IconRight;
+            card.width = 72.;
+            card.row_height = 28.;
+            card.icon_size = 20.;
+            card.scale = scale;
+            card.text_scale = text_scale;
+            let row = &mut card.rows[0];
+            row.label.clear();
+            row.value = "363".into();
+            row.progress = None;
+            row.color = [1., 0., 0., 1.];
+            p.set_mod_hud(Some(&hud)).unwrap();
+            frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
+            let nodes = &p.last_frame.as_ref().unwrap().nodes;
+            let surface = rendered_card_surface(nodes);
+            let (bounds, layout) = contained_row_text(nodes, surface, [255, 0, 0, 255]);
+            assert_eq!(layout.line_count(), 1);
+            let text_center = (bounds.min().y() + bounds.max().y()) * 0.5;
+            let pixels_per_unit = (surface.max().x() - surface.min().x()) / (72. * scale);
+            let row_center = surface.min().y() + 14. * scale * pixels_per_unit;
+            assert!(
+                // Text and icon origins snap independently to whole output pixels.
+                (text_center - row_center).abs() <= 1.,
+                "scale={scale}, text_scale={text_scale}: text={text_center}, icon row={row_center}"
+            );
+        }
+    }
+}
+
+#[test]
+fn replacement_effect_icons_hide_and_restore_without_changing_player_effects() {
+    let mut p = presentation(false);
+    let definition = serde_json::json!({"namespace":"hud", "hud_screen":{
+        "type":"screen", "controls":[
+            {"effects":{"type":"custom", "renderer":"mob_effects_renderer",
+                "size":[100,50], "anchor_from":"top_right", "anchor_to":"top_right"}},
+            {"visible_marker":{"type":"label", "text":"Effects", "size":[100,12],
+                "bindings":[{"binding_name":"#status_effects_visible", "binding_name_override":"#visible"}]}}
+        ]
+    }});
+    p.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![vec![
+            (
+                "ui/_ui_defs.json".into(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+            ),
+            (
+                "ui/hud_screen.json".into(),
+                serde_json::to_vec(&definition).unwrap(),
+            ),
+        ]],
+        ..Default::default()
+    });
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_effect(
+            1,
+            1,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 0,
+            },
+            0,
+        )
+        .unwrap();
+    let ordinary = snapshot::rasterize(&frame(&mut p, &runtime, [1280, 720], 1.));
+    let right_icons = |nodes: &[ui::UiNode]| {
+        nodes
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.visual(),
+                    ui::UiVisual::Sprite { .. }
+                        | ui::UiVisual::StyledSprite { .. }
+                        | ui::UiVisual::Solid { .. }
+                ) && composed_bounds(nodes, node).min().x() > 1000.
+            })
+            .count()
+    };
+    let nodes = &p.last_frame.as_ref().unwrap().nodes;
+    assert_eq!(
+        right_icons(nodes),
+        2,
+        "ordinary icon and its background are drawn"
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+    );
+    let mut replacement = Hud {
+        hide_effect_icons: true,
+        ..Default::default()
+    };
+    p.set_mod_hud(Some(&replacement)).unwrap();
+    let hidden = snapshot::rasterize(&frame(&mut p, &runtime, [1280, 720], 1.));
+    assert!(
+        ordinary != hidden,
+        "both ordinary icon art and its visibility binding disappear"
+    );
+    let nodes = &p.last_frame.as_ref().unwrap().nodes;
+    assert_eq!(
+        right_icons(nodes),
+        0,
+        "an unconditional native effect renderer is empty"
+    );
+    assert!(
+        !nodes
+            .iter()
+            .any(|node| matches!(node.visual(), ui::UiVisual::Text { .. })),
+        "the status-effect visibility binding is false"
+    );
+    assert_eq!(runtime.gameplay_hud().effects().len(), 1);
+    replacement.hide_effect_icons = false;
+    p.set_mod_hud(Some(&replacement)).unwrap();
+    assert!(ordinary == snapshot::rasterize(&frame(&mut p, &runtime, [1280, 720], 1.)));
+    replacement.hide_effect_icons = true;
+    p.set_mod_hud(Some(&replacement)).unwrap();
+    p.set_mod_hud(None).unwrap();
+    assert!(
+        ordinary == snapshot::rasterize(&frame(&mut p, &runtime, [1280, 720], 1.)),
+        "revoking the component restores ordinary icons"
+    );
+}
+
 /// Locates the card surface in the same world coordinates as its row text.
 fn rendered_card_surface(nodes: &[ui::UiNode]) -> ui::UiRect {
     nodes

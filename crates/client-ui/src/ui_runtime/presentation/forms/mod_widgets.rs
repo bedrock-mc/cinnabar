@@ -29,7 +29,8 @@ pub(super) struct ModWidgets {
 impl UiPresentationRuntime {
     /// Replaces card values while retaining the template when its geometry is unchanged.
     pub fn set_mod_hud(&mut self, content: Option<&Hud>) -> Result<(), String> {
-        let Some(content) = content.filter(|hud| !hud.cards.is_empty()) else {
+        let Some(content) = content.filter(|hud| !hud.cards.is_empty() || hud.hide_effect_icons)
+        else {
             self.form_presentation.mod_widgets = None;
             return Ok(());
         };
@@ -57,6 +58,14 @@ impl UiPresentationRuntime {
             });
         }
         Ok(())
+    }
+
+    /// A published replacement may hide ordinary effect icons even with no card rows.
+    pub(super) fn mod_effect_icons_hidden(&self) -> bool {
+        self.form_presentation
+            .mod_widgets
+            .as_ref()
+            .is_some_and(|widgets| widgets.content.hide_effect_icons)
     }
 
     /// Retains a validated cosmetic replacement; `None` immediately restores the ordinary cursor.

@@ -238,11 +238,7 @@ impl EquipmentRuntime {
                 ))
                 .or_insert_with(|| bone_map(&geometry.names, &bones.names).into()),
         );
-        let tint = if binding.material.contains("leather") {
-            pack_tint(item.dye_rgb.unwrap_or(DEFAULT_LEATHER_RGB))
-        } else {
-            0
-        };
+        let tint = binding.color_mask_rgb(item.dye_rgb).map_or(0, pack_tint);
         let (previous, current) = (
             remap_pose(&map, &body.input.previous_bones),
             remap_pose(&map, &body.input.current_bones),

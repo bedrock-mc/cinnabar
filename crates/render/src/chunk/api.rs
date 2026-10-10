@@ -531,8 +531,8 @@ pub(in crate::chunk) struct FrameCompletionEvidence {
     pub(in crate::chunk) submitted_work_done_at: Option<Instant>,
 }
 
-/// Exact frame evidence published only after present returns and the sentinel
-/// submission's GPU-completion callback runs.
+/// Exact frame evidence published only after present returns and the frame's
+/// GPU-completion callback runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentedFrameAck {
     pub cohort: RenderViewCohort,

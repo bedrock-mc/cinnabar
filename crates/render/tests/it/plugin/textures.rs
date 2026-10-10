@@ -268,7 +268,7 @@ fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on
         "a rejected new revision must retain the previous complete GPU asset set"
     );
     let second_page = prepare
-        .find("let (texture_1, view_1, padded_1) = upload_texture_page(")
+        .find("let (texture_1, view_1, uploaded_1) = upload_texture_page(")
         .expect("second page is prepared before publication");
     let publish = prepare
         .find("_textures: [texture_0, texture_1]")
