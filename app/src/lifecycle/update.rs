@@ -129,8 +129,10 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
         .enable_all()
         .build()
         .ok()?;
+    // Refuses plain HTTP, redirects included, so a downgrade cannot serve the manifest.
     let client = reqwest::Client::builder()
         .timeout(FETCH_TIMEOUT)
+        .https_only(true)
         .build()
         .ok()?;
     runtime.block_on(async {
@@ -232,5 +234,18 @@ mod tests {
         for url in ["http://example.test/m", "file:///m", "not a url", ""] {
             assert!(!https(url), "{url} accepted");
         }
+    }
+
+    // The default redirect policy followed an HTTPS manifest URL down to plain HTTP.
+    #[test]
+    fn fetching_never_opens_plain_http() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/update-stable.json",
+            listener.local_addr().unwrap()
+        );
+        assert!(fetch(&url).is_none());
+        listener.set_nonblocking(true).unwrap();
+        assert!(listener.accept().is_err(), "connected over plain HTTP");
     }
 }
