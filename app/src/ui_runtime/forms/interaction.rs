@@ -252,11 +252,8 @@ pub(crate) fn drive_server_form_input(
 mod focus_tests {
     use super::*;
     use bevy::prelude::{App, Update};
+    use client_ui::test_support::mini_engine_presentation;
     use client_ui::ui_runtime::forms::values::FormDrag;
-    use {
-        crate::ui_runtime::presentation::forms::pack_harness,
-        client_ui::test_support::mini_engine_presentation,
-    };
 
     #[test]
     fn unfocused_form_discards_pointer_edges_without_closing_or_replaying_them() {

@@ -10,7 +10,7 @@ use protocol::{
 };
 use render::{ActorArtworkPages, ActorRenderScene};
 
-use client_presentation::presentation::{actors, entity_layers};
+use client_presentation::presentation::actors;
 
 const SIDE: u32 = 320;
 

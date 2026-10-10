@@ -3,7 +3,7 @@
 //! the model.
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use chunk_pipeline::WorldStream;
-use client_presentation::presentation::{actors, entity_layers};
+
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,

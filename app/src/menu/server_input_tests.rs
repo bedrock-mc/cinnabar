@@ -12,7 +12,6 @@ use bevy::{
 };
 use ui::{DpiScale, UiPoint, UiVisual};
 
-use crate::ui_runtime::presentation::forms::pack_harness;
 use client_ui::ui_runtime::{
     UiRuntime,
     presentation::{UiPresentationRuntime, forms::snapshot},

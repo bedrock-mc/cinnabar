@@ -13,7 +13,7 @@ use chunk_pipeline::WorldStreamService;
 use render::{ChunkUploadBudget, FrameStart, RuntimeStage, RuntimeStageProfiler};
 
 use super::{ClientWorld, WorldStreamFramePoll};
-use {client_presentation::local_player::LocalViewPose, diagnostics::markers};
+use client_presentation::local_player::LocalViewPose;
 
 /// Runs after every other main schedule; nothing later in the frame reads the stream.
 #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]

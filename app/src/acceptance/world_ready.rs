@@ -10,7 +10,6 @@ use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;
 use {
-    crate::camera,
     crate::runtime::network::NetworkHandle,
     crate::runtime::visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
     crate::runtime::world::{ClientWorld, WorldStreamFramePoll},

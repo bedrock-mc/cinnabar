@@ -186,3 +186,69 @@ fn honors_binary_attributes_and_owned_art_without_allowing_executables() {
     );
     assert!(diagnostics.iter().any(|line| line.contains("art/program: forbidden binary artifact (executable header)")));
 }
+
+#[test]
+fn follows_private_globs_without_mistaking_local_definitions_for_forwarders() {
+    for source in [
+        "use other::*; pub use Thing;",
+        "use other as alias; use alias::*; pub(crate) use Thing;",
+        "mod facade { use other::*; pub use Thing; } pub use facade::Thing;",
+        "mod facade { pub use other::Thing; } use facade::*; pub use Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(!findings(temp.path()).is_empty(), "missed {source}");
+    }
+    let temp = tempfile::tempdir().unwrap();
+    fixture(
+        temp.path(),
+        "use other::*; pub struct Thing; pub use self::Thing as Local;",
+        "",
+    );
+    assert!(findings(temp.path()).is_empty());
+}
+
+#[test]
+fn keeps_library_binary_and_integration_target_imports_independent() {
+    for (library, binary) in [
+        (
+            "use other::Thing;",
+            "mod local { pub struct Thing; } use local::Thing; pub(crate) use self::Thing as Public;",
+        ),
+        (
+            "mod local { pub struct Thing; } use local::Thing; pub(crate) use self::Thing as Public;",
+            "use other::Thing;",
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fixture(root, library, "");
+        fs::write(root.join("src/main.rs"), binary).unwrap();
+        fs::create_dir(root.join("tests")).unwrap();
+        fs::write(root.join("tests/independent.rs"), "use other::Thing;").unwrap();
+        assert!(findings(root).is_empty());
+    }
+}
+
+#[test]
+fn resolves_modules_beside_a_custom_cargo_target_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fixture(root, "use other::Thing;", "");
+    let manifest = root.join("Cargo.toml");
+    let mut contents = fs::read_to_string(&manifest).unwrap();
+    contents.push_str("\n[[bin]]\nname='tool'\npath='custom/entry.rs'\n");
+    fs::write(manifest, contents).unwrap();
+    fs::create_dir(root.join("custom")).unwrap();
+    fs::write(
+        root.join("custom/entry.rs"),
+        "mod local; pub use local::Thing;",
+    )
+    .unwrap();
+    fs::write(root.join("custom/local.rs"), "pub use other::Thing;").unwrap();
+    assert!(
+        findings(root)
+            .iter()
+            .any(|line| line.starts_with("custom/entry.rs:"))
+    );
+}

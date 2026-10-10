@@ -16,12 +16,9 @@ use {
     client_presentation::camera::AutoFly, client_presentation::local_player::LocalViewPose,
 };
 
-use {
-    super::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    gameplay::movement::local_facts,
+use super::{
+    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+    MovementTicker, PhysicsCollisionRegistries,
 };
 
 use gameplay::movement::LocomotionState as LocomotionLocals;

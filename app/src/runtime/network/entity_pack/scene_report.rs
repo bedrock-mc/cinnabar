@@ -12,7 +12,7 @@ use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
 use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
-use client_presentation::presentation::{actors, entity_layers};
+
 use client_ui::ui_runtime::presentation::{
     nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
     nametags::{build_nametag_scene, extract_nametag},

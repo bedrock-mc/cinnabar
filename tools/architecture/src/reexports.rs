@@ -25,6 +25,8 @@ struct Export {
 struct Symbols {
     dependencies: BTreeSet<String>,
     modules: BTreeSet<Name>,
+    definitions: BTreeSet<Name>,
+    globs: BTreeMap<Name, Vec<Name>>,
     imports: BTreeMap<Name, Import>,
     exports: Vec<Export>,
 }
@@ -45,11 +47,9 @@ pub(super) fn check_reexports(
                 source,
             }
         })?;
-        let mut symbols = Symbols::default();
-        dependency_names(&manifest, &mut symbols.dependencies);
-        symbols
-            .dependencies
-            .extend(["std".into(), "core".into(), "alloc".into()]);
+        let mut dependencies = BTreeSet::new();
+        dependency_names(&manifest, &mut dependencies);
+        dependencies.extend(["std".into(), "core".into(), "alloc".into()]);
         let mut parsed_files = BTreeMap::new();
         for path in files.iter().filter(|path| {
             path.starts_with(&directory) && path.extension().is_some_and(|ext| ext == "rs")
@@ -61,54 +61,63 @@ pub(super) fn check_reexports(
             };
             parsed_files.insert(path.clone(), parsed);
         }
-        for (path, module) in module_locations(&directory, &parsed_files) {
-            collect(
-                &parsed_files[&path].items,
-                &module,
-                &relative_slash(root, &path),
-                &mut symbols,
-                diagnostics,
-            );
-        }
-        for export in &symbols.exports {
-            let target = resolve(
-                &export.module,
-                &export.target,
-                &symbols,
-                &mut BTreeSet::new(),
-            );
-            if target.first().is_none_or(|name| name == "crate") {
-                continue;
+        for tree in module_trees(&directory, &manifest, &parsed_files) {
+            let mut symbols = Symbols {
+                dependencies: dependencies.clone(),
+                ..Symbols::default()
+            };
+            for (path, module) in tree {
+                collect(
+                    &parsed_files[&path].items,
+                    &module,
+                    &relative_slash(root, &path),
+                    &mut symbols,
+                    diagnostics,
+                );
             }
-            let allowed = policy.reexport_allowances.iter().any(|allowance| {
-                allowance.path == export.file && allowance.exports.contains(&export.name)
-            });
-            if !allowed {
-                diagnostics.push(format!(
-                    "{}: cross-crate re-export `{}` is forbidden; import from `{}` directly",
-                    export.file,
-                    export.name,
-                    target.join("::")
-                ));
+            for export in &symbols.exports {
+                let target = resolve(
+                    &export.module,
+                    &export.target,
+                    &symbols,
+                    &mut BTreeSet::new(),
+                );
+                if target.first().is_none_or(|name| name == "crate") {
+                    continue;
+                }
+                let allowed = policy.reexport_allowances.iter().any(|allowance| {
+                    allowance.path == export.file && allowance.exports.contains(&export.name)
+                });
+                if !allowed {
+                    diagnostics.push(format!(
+                        "{}: cross-crate re-export `{}` is forbidden; import from `{}` directly",
+                        export.file,
+                        export.name,
+                        target.join("::")
+                    ));
+                }
             }
         }
     }
     Ok(())
 }
 
-/// Follows module declarations so explicit paths retain their declared namespace.
-fn module_locations(
+/// Keeps separate target roots isolated while following ordinary and explicit module paths.
+fn module_trees(
     directory: &Path,
+    manifest: &toml::Value,
     files: &BTreeMap<PathBuf, syn::File>,
-) -> Vec<(PathBuf, Name)> {
+) -> Vec<Vec<(PathBuf, Name)>> {
+    let targets = target_roots(directory, manifest, files);
     let mut edges = BTreeMap::new();
     let mut children = BTreeSet::new();
     for (path, file) in files {
         let parent = path.parent().unwrap_or(directory);
-        let base = if matches!(
-            path.file_stem().and_then(|name| name.to_str()),
-            Some("lib" | "main" | "mod")
-        ) {
+        let base = if targets.contains(path)
+            || matches!(
+                path.file_stem().and_then(|name| name.to_str()),
+                Some("lib" | "main" | "mod")
+            ) {
             parent.to_path_buf()
         } else {
             path.with_extension("")
@@ -119,24 +128,63 @@ fn module_locations(
         children.extend(declared.iter().map(|(path, _)| path.clone()));
         edges.insert(path.clone(), declared);
     }
-    let mut pending = files
+    let mut trees = Vec::new();
+    for root in files
         .keys()
-        .filter(|path| !children.contains(*path))
-        .map(|path| (path.clone(), file_module(directory, path), BTreeSet::new()))
-        .collect::<Vec<_>>();
-    let mut result = Vec::new();
-    while let Some((path, module, mut ancestors)) = pending.pop() {
-        if !ancestors.insert(path.clone()) {
-            continue;
+        .filter(|path| targets.contains(*path) || !children.contains(*path))
+    {
+        let mut pending = vec![(root.clone(), vec!["crate".into()], BTreeSet::new())];
+        let mut tree = Vec::new();
+        while let Some((path, module, mut ancestors)) = pending.pop() {
+            if !ancestors.insert(path.clone()) {
+                continue;
+            }
+            for (child, suffix) in &edges[&path] {
+                let mut name = module.clone();
+                name.extend(suffix.iter().cloned());
+                pending.push((child.clone(), name, ancestors.clone()));
+            }
+            tree.push((path, module));
         }
-        for (child, suffix) in &edges[&path] {
-            let mut name = module.clone();
-            name.extend(suffix.iter().cloned());
-            pending.push((child.clone(), name, ancestors.clone()));
-        }
-        result.push((path, module));
+        trees.push(tree);
     }
-    result
+    trees
+}
+
+/// Identifies conventional and explicitly configured Cargo entry files, even when also imported.
+fn target_roots(
+    directory: &Path,
+    manifest: &toml::Value,
+    files: &BTreeMap<PathBuf, syn::File>,
+) -> BTreeSet<PathBuf> {
+    let mut roots = BTreeSet::from([directory.join("src/lib.rs"), directory.join("src/main.rs")]);
+    for kind in ["lib", "bin", "test", "bench", "example"] {
+        let Some(value) = manifest.get(kind) else {
+            continue;
+        };
+        let targets = value
+            .as_array()
+            .map_or_else(|| vec![value], |values| values.iter().collect());
+        for target in targets {
+            if let Some(path) = target.get("path").and_then(toml::Value::as_str) {
+                roots.insert(directory.join(path));
+            }
+        }
+    }
+    for path in files.keys() {
+        for folder in ["src/bin", "tests", "benches", "examples"] {
+            let Ok(relative) = path.strip_prefix(directory.join(folder)) else {
+                continue;
+            };
+            let parts = relative.components().count();
+            if parts == 1
+                || (parts == 2 && relative.file_name().is_some_and(|name| name == "main.rs"))
+            {
+                roots.insert(path.clone());
+            }
+        }
+    }
+    roots
 }
 
 /// Resolves ordinary and explicit external module files beneath inline modules.
@@ -214,29 +262,6 @@ fn dependency_names(value: &toml::Value, names: &mut BTreeSet<String>) {
     }
 }
 
-/// Names ordinary source modules and keeps integration test roots separate.
-fn file_module(directory: &Path, path: &Path) -> Name {
-    let relative = path
-        .strip_prefix(directory.join("src"))
-        .unwrap_or_else(|_| path.strip_prefix(directory).unwrap_or(path));
-    let mut module = vec!["crate".into()];
-    if let Some(parent) = relative.parent() {
-        module.extend(
-            parent
-                .components()
-                .map(|part| part.as_os_str().to_string_lossy().into_owned()),
-        );
-    }
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("");
-    if !matches!(stem, "lib" | "main" | "mod") {
-        module.push(stem.into());
-    }
-    module
-}
-
 /// Records imports before resolving them so declaration order does not affect enforcement.
 fn collect(
     items: &[Item],
@@ -263,6 +288,11 @@ fn collect(
                         target.insert(0, String::new());
                     }
                     if binding == "*" {
+                        symbols
+                            .globs
+                            .entry(module.to_vec())
+                            .or_default()
+                            .push(target.clone());
                         if !matches!(item.vis, Visibility::Inherited) {
                             diagnostics.push(format!(
                                 "{file}: glob re-export `{}` is forbidden",
@@ -314,7 +344,25 @@ fn collect(
                     diagnostics.push(format!("{file}: cross-crate re-export `extern crate {name} as {binding}` is forbidden"));
                 }
             }
-            _ => {}
+            _ => {
+                let name = match item {
+                    Item::Struct(item) => Some(&item.ident),
+                    Item::Enum(item) => Some(&item.ident),
+                    Item::Union(item) => Some(&item.ident),
+                    Item::Type(item) => Some(&item.ident),
+                    Item::Trait(item) => Some(&item.ident),
+                    Item::TraitAlias(item) => Some(&item.ident),
+                    Item::Fn(item) => Some(&item.sig.ident),
+                    Item::Const(item) => Some(&item.ident),
+                    Item::Static(item) => Some(&item.ident),
+                    _ => None,
+                };
+                if let Some(name) = name {
+                    let mut key = module.to_vec();
+                    key.push(name.to_string());
+                    symbols.definitions.insert(key);
+                }
+            }
         }
     }
 }
@@ -403,6 +451,44 @@ fn resolve(
                 return target;
             }
         }
+    }
+    resolve_globs(absolute, symbols, seen)
+}
+
+/// Resolves names supplied by private globs while preserving explicit local definitions.
+fn resolve_globs(absolute: Name, symbols: &Symbols, seen: &mut BTreeSet<Name>) -> Name {
+    if absolute.first().is_none_or(|name| name != "crate") {
+        return absolute;
+    }
+    for index in 1..absolute.len() {
+        let binding = &absolute[..=index];
+        if symbols.definitions.contains(binding) {
+            return absolute;
+        }
+        if symbols.modules.contains(binding) {
+            continue;
+        }
+        let module = &absolute[..index];
+        if let Some(globs) = symbols.globs.get(module) {
+            for glob in globs {
+                let mut target = glob.clone();
+                target.extend_from_slice(&absolute[index..]);
+                let mut key = module.to_vec();
+                key.push("*".into());
+                key.extend(target.iter().cloned());
+                if !seen.insert(key) {
+                    continue;
+                }
+                let resolved = resolve(module, &target, symbols, seen);
+                if resolved.first().is_some_and(|name| name != "crate")
+                    || symbols.definitions.contains(&resolved)
+                    || symbols.modules.contains(&resolved)
+                {
+                    return resolved;
+                }
+            }
+        }
+        break;
     }
     absolute
 }

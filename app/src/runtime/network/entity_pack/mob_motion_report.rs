@@ -12,7 +12,6 @@ use protocol::{
 use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
 
 use super::render_report::world_for;
-use client_presentation::presentation::{actors, entity_layers};
 
 mod gait;
 mod gpu;
