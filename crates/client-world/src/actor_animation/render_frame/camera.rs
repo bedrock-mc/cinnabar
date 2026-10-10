@@ -7,7 +7,32 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
 ) -> bool {
-    needs_pose_sampling(assets, rig_binding, geometry_binding, controllers, false)
+    needs_pose_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        controllers,
+        false,
+        None,
+    )
+}
+
+/// Dormant camera clips retain tick interpolation; contributing clips sample presentation input.
+pub(in crate::actor_animation) fn needs_active_camera_sampling(
+    assets: &RuntimeEntityAssets,
+    rig_binding: usize,
+    geometry_binding: usize,
+    controllers: &[ControllerState],
+    clips: &[tick::WeightedClip],
+) -> bool {
+    needs_pose_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        controllers,
+        false,
+        Some(clips),
+    )
 }
 
 /// Attack-time expressions sample the local swing at the physical frame fraction.
@@ -17,7 +42,14 @@ pub(in crate::actor_animation) fn needs_swing_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
 ) -> bool {
-    needs_pose_sampling(assets, rig_binding, geometry_binding, controllers, true)
+    needs_pose_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        controllers,
+        true,
+        None,
+    )
 }
 
 /// Locates camera queries or attack-time variables across every reachable pose expression.
@@ -27,7 +59,12 @@ fn needs_pose_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
     swing: bool,
+    active_clips: Option<&[tick::WeightedClip]>,
 ) -> bool {
+    let samples_clip = |clip: usize| {
+        active_clips.is_none_or(|clips| clips.iter().any(|active| active.clip == clip))
+            && camera_clip(assets, clip, swing)
+    };
     if swing
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
@@ -62,7 +99,7 @@ fn needs_pose_sampling(
                 binding
                     .weight
                     .is_some_and(|expression| camera_expression(assets, expression as usize, swing))
-                    || camera_clip(assets, binding.clip as usize, swing)
+                    || samples_clip(binding.clip as usize)
             })
         })
     {
@@ -105,7 +142,7 @@ fn needs_pose_sampling(
                                 }
                                 match animation.target {
                                     assets::EntityControllerAnimationTarget::Clip(clip) => {
-                                        camera_clip(assets, clip as usize, swing)
+                                        samples_clip(clip as usize)
                                     }
                                     assets::EntityControllerAnimationTarget::Controller(_) => false,
                                 }

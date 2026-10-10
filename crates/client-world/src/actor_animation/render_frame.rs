@@ -101,6 +101,7 @@ impl<'a> ActorRenderFrame<'a> {
 #[derive(Debug)]
 pub(super) struct FrameState {
     pub motion: SwellMotion,
+    pub samples_camera_poses: bool,
     pub previous_motion: Option<SwellMotion>,
     pub swell_poses: Option<SwellPoses>,
     pub swell_layers: BTreeMap<u32, SwellPoses>,
@@ -396,7 +397,7 @@ impl ActorAnimationStore {
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let isolated_swell = swell_changed
-            && !(state.samples_camera_poses && camera_inputs_changed)
+            && !(frame.samples_camera_poses && camera_inputs_changed)
             && !swing_changed;
         let mut endpoints: Option<(SwellEndpoint<'_>, SwellEndpoint<'_>)> = if isolated_swell {
             let amount = actor.creeper_swell_amount(partial_tick);
@@ -471,7 +472,7 @@ impl ActorAnimationStore {
                 return Some(completed());
             };
             Some(local)
-        } else if (state.samples_camera_poses && pose_inputs_changed)
+        } else if (frame.samples_camera_poses && pose_inputs_changed)
             || swing_changed
             || swell_changed
         {

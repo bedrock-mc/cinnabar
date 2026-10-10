@@ -930,6 +930,11 @@ A local-only pose refresh handles frames without a tick, preserves simulation
 and animation time, and invalidates bone conversion caches. Two synthetic
 regressions cover tick and between-tick switches; Windows verification is pending.
 
+Third-person locomotion retains both tick poses when camera-sensitive clips are
+inactive, allowing walking and jumping to interpolate between ticks. Active camera
+clips still sample presentation input. Full native motion-query sampling and
+interpolation of ordinary channels mixed with active camera clips remain incomplete.
+
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
 local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin

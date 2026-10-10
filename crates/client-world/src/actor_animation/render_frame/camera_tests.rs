@@ -234,6 +234,116 @@ fn unchanged_camera_and_frame_input_retains_completed_geometry_poses_without_res
 }
 
 #[test]
+fn inactive_camera_animation_preserves_walking_pose_interpolation() {
+    let mut compiled = camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.modified_distance_moved".into(),
+        },
+    );
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        if let MolangOp::CallQuery(call) = op {
+            call.symbol = 2;
+        }
+    }
+    ops.extend([
+        MolangOp::LoadQuery(1),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.extend([4, 5].map(|first_op| CompiledMolangExpression {
+        first_op,
+        op_count: 1,
+        max_stack: 1,
+    }));
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    let camera_keyframe = compiled.animation_keyframes[0].clone();
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(2), None, None];
+    }
+    let mut keyframes = compiled.animation_keyframes.into_vec();
+    let first_keyframe = keyframes.len() as u32;
+    keyframes.push(camera_keyframe);
+    compiled.animation_keyframes = keyframes.into_boxed_slice();
+    let mut channels = compiled.animation_channels.into_vec();
+    let first_channel = channels.len() as u32;
+    channels.push(EntityAnimationChannel {
+        first_keyframe,
+        keyframe_count: 1,
+        ..channels[0].clone()
+    });
+    compiled.animation_channels = channels.into_boxed_slice();
+    let mut symbols = compiled.symbols.into_vec();
+    let symbol = 4;
+    symbols.insert(
+        4,
+        EntityAssetSymbol {
+            kind: EntityAssetKind::Animation,
+            identifier: "animation.zz_camera".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        },
+    );
+    compiled.symbols = symbols.into_boxed_slice();
+    compiled.rig_bindings[0].render_controller += 1;
+    let mut clips = compiled.animation_clips.into_vec();
+    let clip = clips.len() as u32;
+    clips.push(EntityAnimationClip {
+        symbol,
+        first_channel,
+        ..clips[0]
+    });
+    compiled.animation_clips = clips.into_boxed_slice();
+    let mut bindings = compiled.rig_animations.into_vec();
+    bindings.push(assets::EntityRigAnimationBinding {
+        name: 0,
+        clip,
+        weight: Some(3),
+        order: 1,
+    });
+    compiled.rig_animations = bindings.into_boxed_slice();
+    compiled.rig_geometries[0].animation_count = 2;
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position: [Some(0.6), None, None],
+            position_origin: protocol::ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    assert_ne!(completed[1].previous_pose, completed[1].pose);
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        for (layer, completed) in layers.iter().zip(&completed).skip(1) {
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
+
+#[test]
 fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     let mut compiled = camera_compiled();
     let scalar = |value| EntityGeometryScalar::new(value).unwrap();
