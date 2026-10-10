@@ -174,6 +174,7 @@ fn bind_with(
     state.scroll_observed = false;
     state.node_budget_exceeded = false;
     state.built.clear();
+    state.views_run = 0;
     let changes = match &state.data {
         Some(previous)
             if incremental && state.published.is_empty() && data.components.is_empty() =>

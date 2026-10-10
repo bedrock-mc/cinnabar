@@ -165,7 +165,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
 /// Attaches the acceptance-owned marker to the transport's serialized observation.
 fn emit_packet_trace(trace: &str) {
     crate::acceptance::mutation::write_stdout_marker(
-        &mut std::io::stdout().lock(),
+        &mut diagnostics::console::stdout(),
         &format!(
             "{}={trace}",
             crate::acceptance::markers::FAST_TRANSFER_PACKET_TRACE

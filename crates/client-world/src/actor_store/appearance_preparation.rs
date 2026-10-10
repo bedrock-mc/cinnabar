@@ -2,6 +2,9 @@
 use super::{ActorKind, ActorStore, PlayerProfile, PlayerSkin, retained_skin_bytes};
 use std::{collections::HashMap, sync::Arc};
 
+/// Maximum appearances published per frame to smooth bursts; the local player publishes first.
+pub(crate) const MAX_APPEARANCES_PUBLISHED_PER_FRAME: usize = 8;
+
 #[derive(Debug, Default)]
 pub(super) struct ReadyAppearances {
     pub(super) profiles: HashMap<[u8; 16], PlayerProfile>,
@@ -9,8 +12,8 @@ pub(super) struct ReadyAppearances {
 }
 
 impl ActorStore {
-    /// Ready profiles have their own byte ceiling, including replacements retained during a job.
-    /// First appearances publish on any frame; replacements wait for a tick so a visible pose never drops to rest.
+    /// Publishes bounded ready profiles, retaining old replacements until a tick.
+    /// First appearances may publish without a tick; retained bytes have their own ceiling.
     pub(crate) fn prepare_appearances(&mut self, tick: bool) {
         if !self.animation.has_skin_preparation() {
             return;
@@ -40,6 +43,7 @@ impl ActorStore {
                     .values()
                     .filter(|actor| Some(actor.runtime_id) != local),
             );
+        let mut published = 0;
         for actor in actors {
             let ActorKind::Player { uuid, .. } = &actor.kind else {
                 continue;
@@ -59,6 +63,7 @@ impl ActorStore {
             });
             let previous = ready.profiles.get(uuid);
             if !prepared
+                || published >= MAX_APPEARANCES_PUBLISHED_PER_FRAME
                 || previous
                     .is_some_and(|previous| !tick || same_profile_allocation(previous, profile))
             {
@@ -80,6 +85,7 @@ impl ActorStore {
             ready.profiles.insert(*uuid, profile.clone());
             self.animation
                 .sync_skin_model(actor.runtime_id, geometry_source(profile));
+            published += 1;
         }
         self.animation.submit_skin_preparation();
     }

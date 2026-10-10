@@ -52,6 +52,76 @@ impl ColumnScan {
     }
 }
 
+/// Maximum distant-column rescans per frame; near edits bypass this streaming budget.
+pub(super) const MAX_COLUMN_RESCANS_PER_FRAME: usize = 8;
+
+/// Rotates distant rescan admission without changing the scene's submission order.
+#[derive(Default)]
+pub(super) struct RescanOrder {
+    cursor: Option<world::ChunkKey>,
+}
+
+impl RescanOrder {
+    /// Selects at most the frame limit from sorted dirty keys, wrapping after the last admission.
+    pub(super) fn select(
+        &mut self,
+        dirty: impl Iterator<Item = world::ChunkKey>,
+    ) -> [Option<world::ChunkKey>; MAX_COLUMN_RESCANS_PER_FRAME] {
+        let mut selected = [None; MAX_COLUMN_RESCANS_PER_FRAME];
+        let mut wrapped = [None; MAX_COLUMN_RESCANS_PER_FRAME];
+        let (mut next, mut first) = (0, 0);
+        for key in dirty {
+            if self.cursor.is_none_or(|cursor| key > cursor) {
+                selected[next] = Some(key);
+                next += 1;
+                if next == selected.len() {
+                    break;
+                }
+            } else if first < wrapped.len() {
+                wrapped[first] = Some(key);
+                first += 1;
+            }
+        }
+        for key in wrapped.into_iter().take(first).take(selected.len() - next) {
+            selected[next] = key;
+            next += 1;
+        }
+        if next > 0 {
+            self.cursor = selected[next - 1];
+        }
+        selected
+    }
+}
+/// Columns within this many columns of the eye's rescan on every change outside the budget,
+/// so blocks the player edits within reach never wait for streaming elsewhere.
+const NEAR_COLUMN_REACH: i32 = 1;
+
+/// Whether column (`chunk_x`, `chunk_z`) is one of the eye column's near neighbours.
+pub(super) fn is_near_column(eye_column: [i32; 2], chunk_x: i32, chunk_z: i32) -> bool {
+    (chunk_x - eye_column[0]).abs() <= NEAR_COLUMN_REACH
+        && (chunk_z - eye_column[1]).abs() <= NEAR_COLUMN_REACH
+}
+
+/// Reuses current scans and refreshes near or budgeted columns.
+/// Deferred columns keep their stale scan, or return `None` until first scanned.
+pub(super) fn frame_scan(
+    previous: Option<ColumnScan>,
+    chunk: &Chunk,
+    near: bool,
+    rescans_left: &mut usize,
+    rescan: impl FnOnce(Option<ColumnScan>) -> ColumnScan,
+) -> Option<ColumnScan> {
+    match previous {
+        Some(scan) if scan.is_current(chunk) => Some(scan),
+        previous if near => Some(rescan(previous)),
+        previous if *rescans_left > 0 => {
+            *rescans_left -= 1;
+            Some(rescan(previous))
+        }
+        stale => stale,
+    }
+}
+
 /// An edit replaces the map or detaches its weak references, so either check sees it.
 fn same<T>(weak: &Weak<T>, current: &Arc<T>) -> bool {
     weak.upgrade()

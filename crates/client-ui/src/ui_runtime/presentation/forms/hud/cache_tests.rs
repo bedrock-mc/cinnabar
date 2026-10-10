@@ -91,3 +91,52 @@ fn cached_hud_remeasures_language_and_context_changes() {
     }
     assert_eq!(cache.passes, 4);
 }
+
+// The pack worker resolves the HUD and crosshair, so the frame installing a server catalog binds
+// them without resolving; an unprepared catalog still resolves on its first frame.
+#[test]
+fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
+    for prepared in [true, false] {
+        let Some(mut presentation) = crate::test_support::engine_presentation() else {
+            eprintln!(
+                "skipping prepared_server_catalogs_resolve_no_hud_on_the_frame: missing local UI carrier (make assets)"
+            );
+            return;
+        };
+        let base = presentation.pack_catalog_base().unwrap();
+        let pack = if prepared {
+            (*super::super::ServerUiPack::default().prepare_catalog(&base)).clone()
+        } else {
+            super::super::ServerUiPack {
+                catalog: Some(Arc::new(super::super::engine::layer_pack_catalog(
+                    &base,
+                    &[],
+                ))),
+                ..super::super::ServerUiPack::default()
+            }
+        };
+        presentation.set_server_ui_pack(&pack);
+        // A survival player in a session shows the HUD.
+        let mut player = player_state::PlayerState::new(1);
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        presentation
+            .build(
+                &player,
+                &UiRuntime::new(1),
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let screens = &presentation.form_presentation.hud;
+        assert!(screens.hud.passes > 0, "the HUD bound");
+        let resolves = screens.hud.resolves + screens.crosshair.resolves;
+        assert_eq!(
+            resolves,
+            if prepared { 0 } else { 2 },
+            "prepared={prepared} resolved {resolves} screens on the frame"
+        );
+    }
+}

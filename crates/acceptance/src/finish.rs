@@ -72,7 +72,7 @@ pub fn finish_acceptance_run(
             phase3.pending_count,
             phase3.outbox_reconciliation,
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in markers {
             write_stdout_marker(&mut stdout, &marker);
         }

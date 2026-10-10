@@ -65,6 +65,8 @@ impl UiPresentationRuntime {
             #[cfg(test)]
             tree_builds: 0,
             #[cfg(test)]
+            redrawn_nodes: 0,
+            #[cfg(test)]
             oreui_paints: 0,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
@@ -81,6 +83,7 @@ impl UiPresentationRuntime {
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
+            player_preview_raster_pose: None,
             player_preview_view: player_preview::PreviewView::default(),
             menu_preview_model: player_preview::model::MenuPreviewModel::default(),
             menu_preview: player_preview::controller::MenuPreview::default(),

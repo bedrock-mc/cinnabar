@@ -10,6 +10,8 @@ use carrier::{
     validate_glyph_records, validate_page_offsets,
 };
 mod fallback;
+#[cfg(test)]
+mod merge_tests;
 mod rendering;
 mod runtime;
 pub use fallback::FontGlyphRequests;
@@ -171,20 +173,20 @@ impl CompiledFontCatalog {
     /// A catalog that also draws `extra` glyphs, which replace same-codepoint entries when
     /// `replace` allows; its identity changes with them so layout caches never alias.
     pub fn with_glyphs(&self, extra: &[crate::SheetGlyph], replace: impl Fn(char) -> bool) -> Self {
-        let mut glyphs: BTreeMap<char, GlyphMetrics> = self
-            .glyphs
-            .iter()
-            .map(|glyph| (glyph.codepoint, *glyph))
-            .collect();
+        // The glyph table stays sorted by codepoint: merge the few added glyphs into it
+        // rather than rebuilding a map of every glyph.
+        let mut added: BTreeMap<char, GlyphMetrics> = BTreeMap::new();
         let mut draw_sizes_64 = (*self.draw_sizes_64).clone();
         let mut hash = Sha256::new();
         hash.update(self.identity.carrier_sha256);
         for glyph in extra {
             let codepoint = glyph.metrics.codepoint;
-            if glyphs.contains_key(&codepoint) && !replace(codepoint) {
+            if (added.contains_key(&codepoint) || self.glyph(codepoint).is_some())
+                && !replace(codepoint)
+            {
                 continue;
             }
-            glyphs.insert(codepoint, glyph.metrics);
+            added.insert(codepoint, glyph.metrics);
             draw_sizes_64.insert(codepoint, glyph.draw_size_64);
             hash.update(u32::from(codepoint).to_le_bytes());
             hash.update(glyph.metrics.page.to_le_bytes());
@@ -204,7 +206,7 @@ impl CompiledFontCatalog {
                 carrier_sha256: hash.finalize().into(),
                 ..self.identity
             },
-            glyphs: glyphs.into_values().collect(),
+            glyphs: merge_glyphs(&self.glyphs, added),
             pages: Arc::clone(&self.pages),
             draw_sizes_64: Arc::new(draw_sizes_64),
             named: Arc::clone(&self.named),
@@ -372,6 +374,24 @@ impl CompiledFontCatalog {
             .ok()
             .map(|index| &self.glyphs[index])
     }
+}
+
+/// `base`, sorted by codepoint, with `added` inserted in order; an added glyph replaces the
+/// base glyph of its codepoint.
+fn merge_glyphs(base: &[GlyphMetrics], added: BTreeMap<char, GlyphMetrics>) -> Box<[GlyphMetrics]> {
+    let mut merged = Vec::with_capacity(base.len() + added.len());
+    let mut added = added.into_values().peekable();
+    for glyph in base {
+        while let Some(next) = added.next_if(|next| next.codepoint < glyph.codepoint) {
+            merged.push(next);
+        }
+        match added.next_if(|next| next.codepoint == glyph.codepoint) {
+            Some(replacement) => merged.push(replacement),
+            None => merged.push(*glyph),
+        }
+    }
+    merged.extend(added);
+    merged.into_boxed_slice()
 }
 
 #[derive(Debug, Error)]

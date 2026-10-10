@@ -91,6 +91,36 @@ fn lowered_workers_never_hold_the_queue_lock() {
     );
 }
 
+/// Light still solves below frame priority, but publishes its result at normal priority, so the
+/// frame thread never waits in `try_recv` on a slot a starved lowered sender reserved.
+#[cfg(windows)]
+#[test]
+fn lowered_workers_publish_results_at_normal_priority() {
+    const JOBS: usize = 64;
+    let pool = WorldPool::new(PoolSize {
+        foreground: 1,
+        background: 2,
+    });
+    let (result_tx, result_rx) = crossbeam_channel::bounded(JOBS);
+    let (done_tx, done_rx) = crossbeam_channel::unbounded();
+    for _ in 0..JOBS {
+        let result = result_tx.clone();
+        let done = done_tx.clone();
+        pool.spawn(Lane::Light, move || {
+            let solved_lowered = priority::is_lowered();
+            send_result(&result, ());
+            done.send((solved_lowered, priority::is_lowered())).unwrap();
+        });
+    }
+    for _ in 0..JOBS {
+        let (solved_lowered, published_lowered) =
+            done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(solved_lowered, "light solves below frame priority");
+        assert!(!published_lowered, "results publish at normal priority");
+        result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+}
+
 /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
 fn take_order(background: bool, queued: &[Lane], queued_at: Instant, now: Instant) -> Vec<Lane> {
     let mut queues = Queues::default();

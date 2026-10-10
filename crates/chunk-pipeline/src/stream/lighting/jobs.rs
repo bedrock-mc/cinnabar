@@ -301,7 +301,7 @@ impl WorldStream {
                     #[cfg(feature = "tracy")]
                     let _zone = tracing::info_span!("light.completion_send", key = ?completion.key)
                         .entered();
-                    let _ = tx.send(completion);
+                    workers::send_result(&tx, completion);
                 }
             });
         }
