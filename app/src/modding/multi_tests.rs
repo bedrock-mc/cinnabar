@@ -246,6 +246,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModRuntime, Merged, Vec<usize>) {
     let mut previous = Vec::new();
     let mut failures = Vec::new();
     let mut merged = Merged::default();
+    let mut captures = 0;
     for _ in 0..frames {
         merged = run_frame(
             &mut runtime,
@@ -255,11 +256,15 @@ fn run(probes: &[Probe], frames: usize) -> (ModRuntime, Merged, Vec<usize>) {
                 previous_cues: &previous,
                 player_state: None,
             },
-            |_| (Some(snapshot()), Vec::new(), None),
+            |_| {
+                captures += 1;
+                (Some(snapshot()), Vec::new(), None)
+            },
             |index, _| failures.push(index),
         );
         previous = merged.cues.clone();
     }
+    assert_eq!(captures, frames);
     (runtime, merged, failures)
 }
 
@@ -401,5 +406,27 @@ fn the_merged_label_is_rebuilt_only_when_a_mod_label_changes() {
     assert_eq!(
         runtime.label_rebuilds, built,
         "unchanged labels must not be rejoined"
+    );
+}
+
+#[test]
+fn inactive_hosts_do_not_capture_world_state() {
+    let crashing = Probe {
+        extra: "unreachable",
+        ..Probe::new("A", 1000, 0.5)
+    };
+    let (mut runtime, _, failures) = run(&[crashing], 1);
+    assert_eq!(failures, [0]);
+    let controls = mod_host::empty_controls();
+    run_frame(
+        &mut runtime,
+        FrameInput {
+            pressed: false,
+            controls: &controls,
+            previous_cues: &[],
+            player_state: None,
+        },
+        |_| panic!("inactive hosts must not capture the world"),
+        |_, _| panic!("quarantined host ran again"),
     );
 }
