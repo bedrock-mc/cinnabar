@@ -1,5 +1,6 @@
 use super::*;
 
+/// Creates an empty world stream for startup-readiness comparisons.
 fn stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,

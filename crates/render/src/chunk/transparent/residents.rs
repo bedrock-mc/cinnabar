@@ -1,7 +1,5 @@
-//! Every resident sub-chunk with transparent water, kept current as uploads and removals land.
-//!
-//! The sort manifest is drawn from here rather than from the frustum, so a camera turn
-//! never changes what is sorted; the frustum only selects which sorted groups are drawn.
+//! Tracks all resident water as uploads and removals arrive.
+//! Sorting ignores the frustum; visibility only selects which committed groups to draw.
 use crate::chunk::*;
 
 /// One resident allocation's transparent water.
@@ -234,10 +232,8 @@ pub(in crate::chunk) struct TransparentResidentSelection<'a> {
     pub(in crate::chunk) camera_dependent: bool,
 }
 
-/// Selects the residents to sort: all of them under `ceiling` refs, otherwise the nearest
-/// to `camera_chunk` that fit, so distant water is the part left unsorted.
-///
-/// Running totals decide which case applies, so only a selection past the ceiling sorts.
+/// Selects all residents under ceiling, otherwise the nearest water that fits around camera_chunk.
+/// Uses running totals to avoid sorting when every resident fits.
 pub(in crate::chunk) fn select_sorted_residents(
     residents: &TransparentLiquidResidents,
     include_order_independent: bool,

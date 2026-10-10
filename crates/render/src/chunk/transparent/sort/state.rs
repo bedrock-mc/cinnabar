@@ -189,10 +189,8 @@ impl TransparentAllocationIdentity {
     }
 }
 
-/// Omits camera rotation: each sub-chunk is its own phase item and its faces sort by position.
-///
-/// The allocations are every resident group that needs sorting, not the frustum's, so a
-/// turn never changes the key and newly visible water is already in order.
+/// Keys all resident groups needing sorting by camera position, omitting rotation and frustum.
+/// Newly visible groups are already ordered after a camera turn.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ViewSortKey {
     pub(in crate::chunk) order_camera: FaceOrderCamera,
@@ -494,11 +492,8 @@ impl TransparentSortState {
         self.request_retaining_resident_snapshot(key, false, false)
     }
 
-    /// Requests a sort for `key`, keeping each snapshot whose addresses stay readable.
-    ///
-    /// A staged upload that is still readable finishes and commits before any newer key is
-    /// requested, so neither camera motion nor streaming that changes the residents every
-    /// frame can starve the bounded inactive-slot upload.
+    /// Requests key while retaining readable snapshots and finishing a valid staged upload first.
+    /// This prevents continuous motion or streaming from starving bounded uploads.
     pub(in crate::chunk) fn request_retaining_resident_snapshot(
         &mut self,
         key: &ViewSortKey,
@@ -528,12 +523,8 @@ impl TransparentSortState {
         generation
     }
 
-    /// Accepts the result for the latest request, returning whether it committed now.
-    ///
-    /// A result planned against exactly the committed slot commits in place: its urgent
-    /// ranges must be written this frame and its deferred ones may follow within later
-    /// upload budgets. A result over the same allocations is patched where it differs.
-    /// Anything else is staged into the inactive slot and committed once uploaded.
+    /// Accepts the latest result and returns whether it committed, patching compatible live ranges.
+    /// Stages incompatible allocations in the inactive slot until their upload completes.
     pub fn complete(
         &mut self,
         result: TransparentSortResult,

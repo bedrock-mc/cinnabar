@@ -166,10 +166,8 @@ fn join_fixture(test: &str) -> Option<std::ffi::OsString> {
     paths
 }
 
-/// Times a first join of the local server stack in `CINNABAR_JOIN_PACKS`, compiled the way a
-/// join does, then a transfer that receives the same packs again. `CINNABAR_JOIN_THREADS` sizes
-/// a pool to compare against (unset, the join runs on its own pool), and
-/// `CINNABAR_JOIN_NO_REUSE` makes the transfer compile again, as before joins kept stacks.
+/// Times a first join and same-pack transfer from CINNABAR_JOIN_PACKS.
+/// CINNABAR_JOIN_THREADS selects a pool width; CINNABAR_JOIN_NO_REUSE disables retention.
 #[test]
 fn join_preparation_timing() {
     use std::time::Instant;

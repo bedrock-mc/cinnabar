@@ -64,6 +64,7 @@ fn join(kept: &CompiledStacks, archive: &ResourcePackArchive) -> PackApplication
     .expect("optional packs never refuse the join")
 }
 
+/// Returns the validated archives retained by this compiled fixture.
 fn stack(application: &PackApplication) -> &Arc<ValidatedPackStack> {
     match &application.admission {
         PackAdmission::Validated(stack) => stack,

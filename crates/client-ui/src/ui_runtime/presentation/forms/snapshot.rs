@@ -134,12 +134,8 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Fill one triangle, sampling premultiplied `shade(uv, color, overlay, x, y)` at
-/// each covered pixel centre and blending over the image. A centre on an edge belongs
-/// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
-/// so a quad's shared diagonal is never blended twice. Positions first snap to the
-/// GPU's subpixel grid, so float noise in a shared edge cannot leave a centre on it
-/// owned by neither triangle.
+/// Samples premultiplied shade at covered pixel centres and blends with the GPU top-left rule.
+/// Snaps vertices to the subpixel grid so shared edges have exactly one owner.
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],

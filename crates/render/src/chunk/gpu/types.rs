@@ -394,10 +394,7 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     depth_liquid_draw_command(allocation)
 }
 
-/// Draws the transparent water records in mesh order without the sorted ref buffer.
-///
-/// `first_instance` selects the first record, and `base_vertex / 4` is the metadata index
-/// plus one, which the liquid vertex shader reads instead of a ref.
+/// Draws water records directly: first_instance selects a record; base_vertex encodes (metadata index + 1) * 4.
 pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {

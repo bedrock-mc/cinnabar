@@ -12,10 +12,8 @@ const MIN_WORLD_THREADS: usize = 3;
 /// sustained mesh load cannot starve the decode and light work that mesh depends on.
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
-/// Whether background workers run lowered only while a job runs, taking the queue lock at normal
-/// priority. Windows locks have no priority inheritance: a lowered holder preempted on a busy
-/// machine can wait seconds for its anti-starvation boost while the frame thread waits on the
-/// lock. Elsewhere a thread cannot raise its niceness back, so workers stay lowered for life.
+/// Windows lowers workers only during jobs so queue locks retain normal priority.
+/// Other platforms keep workers lowered because they cannot restore their niceness.
 const LOWER_PER_JOB: bool = cfg!(windows);
 
 /// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
@@ -127,11 +125,8 @@ pub fn world_worker_threads(cores: usize) -> usize {
     PoolSize::for_cores(cores).threads()
 }
 
-/// Runs `work` on as many threads as the world pool, for work that finishes before a world
-/// streams, such as a join's pack compile. The pool exists only for this call. Its width
-/// already leaves the frame threads their cores, so it keeps normal priority: lowered threads
-/// would let any busy background process stretch a join. `work` runs on the caller's pool
-/// instead if those threads cannot start.
+/// Runs pre-stream work on a temporary normal-priority pool sized like the world pool.
+/// Falls back to the caller pool if worker threads cannot start.
 pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     match rayon::ThreadPoolBuilder::new()

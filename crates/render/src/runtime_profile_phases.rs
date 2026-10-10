@@ -21,9 +21,8 @@ enum PhaseBoundary {
     BeforeLast,
 }
 
-/// Times `PreUpdate`, the fixed-update loop, `Update`, and `PostUpdate` (with `SpawnScene`) as
-/// [`RuntimeStage::MainPreUpdate`] through [`RuntimeStage::MainPostUpdate`]. Each boundary is a
-/// schedule between two phases, so no phase system can run inside a neighbouring span.
+/// Times the main schedule phases as RuntimeStage spans, including SpawnScene in PostUpdate.
+/// Boundary schedules keep neighboring phase systems outside each measured span.
 pub fn install_main_phase_spans(app: &mut App) {
     app.init_resource::<RuntimeStageSpans>();
     let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();

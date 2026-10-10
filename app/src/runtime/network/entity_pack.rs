@@ -85,11 +85,8 @@ impl Default for EntityCache {
     }
 }
 
-/// Encodes and writes disk entries one at a time on a single background thread: nothing a session
-/// reads depends on them, so a join does not wait on encoding and writing a large pack. While one
-/// write runs, one more may wait; a write beyond that is skipped, leaving a later miss rather than
-/// another large pack held for writing. A write that never completes leaves a miss, never a
-/// damaged hit.
+/// Writes optional disk-cache entries on one worker, with room for one waiting entry.
+/// Overflow or incomplete writes leave a cache miss; joins never wait for disk encoding.
 fn store_in_background(write: Box<dyn FnOnce() + Send>) {
     type Writes = std::sync::Mutex<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>>;
     static WRITER: std::sync::OnceLock<Option<Writes>> = std::sync::OnceLock::new();

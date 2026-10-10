@@ -20,6 +20,7 @@ const STACK_ARMOR: [([u16; 2], usize); 9] = [
     ([96, 96], 2),
 ];
 
+/// Creates an armor binding for the requested fixture slot and artwork.
 fn binding(identifier: &str, slot: ArmorSlot, texture: &str, material: &str) -> EquipmentBinding {
     let reference = |identifier: &str| EquipmentReference {
         identifier: identifier.into(),
@@ -39,6 +40,7 @@ fn binding(identifier: &str, slot: ArmorSlot, texture: &str, material: &str) -> 
     }
 }
 
+/// Creates a solid-color armor texture with the requested dimensions.
 fn texture(identifier: &str, [width, height]: [u16; 2], color: [u8; 4]) -> EquipmentTexture {
     EquipmentTexture {
         identifier: identifier.into(),
@@ -89,6 +91,7 @@ fn stack_index(size: [u16; 2]) -> usize {
         .sum()
 }
 
+/// Creates an enabled GUI preview with the fixture font and default player skin.
 fn presentation() -> UiPresentationRuntime {
     let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;

@@ -93,6 +93,7 @@ fn bits(bone: &BoneTransform) -> [u32; 11] {
     [r0, r1, r2, r3, t0, t1, t2, t3, s0, s1, s2]
 }
 
+/// Compares every transform field by float bits, including signed zero and NaN payloads.
 fn same_bits(left: &[BoneTransform], right: &[BoneTransform]) -> bool {
     left.len() == right.len() && left.iter().zip(right).all(|(a, b)| bits(a) == bits(b))
 }

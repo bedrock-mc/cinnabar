@@ -466,9 +466,8 @@ fn paperdoll_controller_does_not_apply_live_bob_sneak_or_holding_rotation() {
     }
 }
 
-/// The pinned inventory layout (`ui/inventory_screen.json`, `player_armor_panel`): a 52 by 70
-/// black `player_bg` whose 30 by 30 `live_player_renderer` panel is centred 14 GUI pixels above
-/// the panel's centre.
+/// Uses the pinned inventory player panel: a 52x70 background with a centred 30x30 renderer.
+/// The renderer sits 14 GUI pixels above the background centre.
 #[test]
 fn inventory_live_model_stands_centred_in_the_vanilla_black_panel() {
     let panel = [0.0, 0.0, 52.0, 70.0];

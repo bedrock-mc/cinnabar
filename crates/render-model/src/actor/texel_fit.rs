@@ -1,9 +1,7 @@
 //! The power-of-two box reduction every bounded actor-art allocation applies past its limit.
 
-/// Box-filters `width`-by-`height` RGBA8 layers by the smallest power of two that brings the
-/// longest side within `limit`; a partial block at an odd edge averages the texels it covers.
-/// Returns the reduced size and every whole layer of `rgba8`, or `None` when the art already
-/// fits, `limit` is zero, or a side is zero.
+/// Box-filters whole RGBA8 layers by powers of two until their longest side fits limit.
+/// Averages partial edge blocks; returns None for zero sizes/limit or artwork that already fits.
 pub fn fit_rgba_within(
     width: u16,
     height: u16,

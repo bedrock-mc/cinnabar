@@ -8,9 +8,7 @@ use super::*;
 const RADIUS: i32 = 50;
 const SHORE_FACES: usize = 272;
 
-/// What one phase of frames cost and whether any frame missed visible resident water.
-///
-/// A deferred upload is one the arena admits on a later pass, for example while it grows.
+/// Reports frame-phase costs and missed visible water, including arena uploads deferred to later passes.
 #[derive(Default)]
 struct PhaseReport {
     frames: usize,
@@ -24,6 +22,7 @@ struct PhaseReport {
     upload_pass: std::time::Duration,
 }
 
+/// Reads the fixture sort counters after a measured frame phase.
 fn metrics(fixture: &Fixture) -> TransparentSortMetricsSnapshot {
     fixture
         .app

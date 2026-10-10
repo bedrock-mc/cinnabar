@@ -4,6 +4,7 @@ use super::*;
 
 const CAMERA: Vec3 = Vec3::new(8.5, 64.6, 8.5);
 
+/// Reads the fixture sort counters after streaming updates.
 fn metrics(fixture: &Fixture) -> TransparentSortMetricsSnapshot {
     fixture
         .app
@@ -12,6 +13,7 @@ fn metrics(fixture: &Fixture) -> TransparentSortMetricsSnapshot {
         .snapshot()
 }
 
+/// Returns the active snapshot slot so the fixture can detect unnecessary replacement.
 fn committed_slot(fixture: &Fixture) -> u8 {
     fixture
         .app
@@ -23,6 +25,7 @@ fn committed_slot(fixture: &Fixture) -> u8 {
         .buffer_slot()
 }
 
+/// Advances enough fixture frames to finish the initial bounded sort upload.
 fn settle(fixture: &mut Fixture) {
     for _ in 0..8 {
         fixture.frame_looking(CAMERA, Vec3::Z);

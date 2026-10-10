@@ -1,8 +1,5 @@
-//! What the snapshot sorts: resident water whose faces need order, chosen without the frustum.
-//!
-//! A sub-chunk's faces sort by camera position alone and each sub-chunk is its own phase
-//! item, so a sorted snapshot of every resident stays valid however the camera turns. The
-//! queue then draws whichever of its groups are visible.
+//! Selects resident water needing sort without the frustum; face order depends only on camera position.
+//! Camera turns therefore retain sorted groups and change only which ones are drawn.
 use super::groups::{TransparentGroupInput, TransparentGroups, build_transparent_group};
 use super::state::{TransparentAllocationIdentity, TransparentSortRuntime, ViewSortKey};
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
@@ -80,12 +77,8 @@ pub(in crate::chunk) fn sorted_addresses_are_resident(
 }
 
 impl TransparentSortRuntime {
-    /// The resident allocations to sort, in key order.
-    ///
-    /// The choice is rebuilt only when the residents or tint table change, or, while the ref
-    /// ceiling admits only the nearest water, when the camera enters another sub-chunk. A
-    /// resident whose sort input cannot be built yet is left to draw unsorted until its
-    /// pending upload changes the residents.
+    /// Returns key-ordered sort inputs, rebuilding only for changed residents, tints or ceiling selection.
+    /// Residents whose inputs are pending continue drawing directly until an upload makes them ready.
     pub(in crate::chunk) fn resident_manifest(
         &mut self,
         arena: &ChunkGpuArena,

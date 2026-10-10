@@ -100,9 +100,8 @@ pub(super) struct JoinBases<'a> {
     pub(super) ui_catalog: Option<&'a Arc<json_ui::Catalog>>,
 }
 
-/// A join's presentation from its validated pack inputs, prepared over `bases` on the cores
-/// world streaming will use once the join completes. A stack that reads exactly like one joined
-/// recently reuses that compile; the result is kept for the next join. `None` once cancelled.
+/// Prepares a validated join on idle world cores, reusing an equivalent recent stack.
+/// Keeps the compiled result for the next join; returns None after cancellation.
 pub(super) fn prepare_join(
     preparation: &client_session::PackPreparation,
     game_data: &protocol::GameData,
@@ -218,9 +217,8 @@ pub(super) fn prepare_changed_application(
     compiled.expect("an uncancellable compile completes")
 }
 
-/// Compiles the subscribers `changes` names concurrently and reuses the rest from `previous`;
-/// icons follow blocks, whose thumbnails they use. Cancellation skips every part not yet started
-/// and yields `None`.
+/// Compiles changed subscribers concurrently, keeping the rest; icons follow their block thumbnails.
+/// Cancellation skips unstarted work and returns None.
 fn compile_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
@@ -567,9 +565,8 @@ pub(super) fn session_runtime_assets(
     }
 }
 
-/// The last carrier extended with a block overlay. Weak, so it lives only while a session or the
-/// renderer holds it; a later session over the same carrier and compiled blocks then shares it,
-/// and the chunk renderer keeps the atlas it built for it.
+/// Weakly retains the last block-overlay carrier while a session or renderer owns it.
+/// Equivalent live inputs share that carrier and its rendered atlas.
 struct OverlaidCarrier(std::sync::Mutex<Option<Overlaid>>);
 
 struct Overlaid {
@@ -580,13 +577,13 @@ struct Overlaid {
 }
 
 impl OverlaidCarrier {
+    /// Creates an empty weak cache for shared block overlays.
     const fn new() -> Self {
         Self(std::sync::Mutex::new(None))
     }
 
-    /// `base` extended with `compiled` from `first_id`. Shared with the last extension while
-    /// all three of its inputs are still the same live allocations, which are immutable; the
-    /// lock is not held while extending.
+    /// Extends base with compiled blocks from first_id, sharing equal immutable live inputs.
+    /// The cache lock is released before extending the carrier.
     fn extend(
         &self,
         base: &Arc<assets::RuntimeAssets>,

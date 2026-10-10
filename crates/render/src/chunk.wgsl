@@ -87,7 +87,7 @@ fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu
 }
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) normal: vec3<f32>,
@@ -250,29 +250,16 @@ fn vertex(
     return cube_vertex(vertex_index, instance_index);
 }
 
-// Rasterizers snap vertices to a sub-pixel grid. Where a smaller cube quad's
-// corner lies on a greedy-merged quad's long edge (a T-junction), the snapped
-// edges no longer meet, and pixel centres in the sliver between them see
-// whatever lies behind the terrain. Every cube quad edge therefore advances
-// this many pixels outward within its own face before rasterization.
+// Expand cube edges within their face to cover T-junction gaps from subpixel snapping.
 const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
-// Below this sine between a corner's two projected edges, those edges advance
-// proportionally less, so a sliver-thin face lengthens by at most
-// CUBE_SEAM_SEAL_PIXELS / CUBE_SEAM_MIN_EDGE_SINE, a quarter pixel. Floors
-// seen at standing height along a diagonal reach sines near 0.03.
+// Dampen nearly parallel projected edges so a thin face grows by at most a quarter pixel.
 const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
 // Largest in-plane step per unit of clip w, reached only when an edge points
 // along the view ray and moving along it barely changes the screen position.
 const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
 
-/// World distances to move a quad corner along the two unit axes that point
-/// away from the quad along the edges meeting there, so that both edges
-/// advance `seal_pixels` on screen, perpendicular to themselves. `du` and
-/// `dv` are the clip-space motions of one block along those axes, and `clip`
-/// is the corner's clip position. Moving within the face's plane keeps the
-/// face's own depth on newly covered pixels. Corners behind the camera get
-/// the matching inward steps, which keeps edges sealed after near-plane
-/// clipping.
+/// Returns bounded in-plane corner steps that advance both projected edges by seal_pixels.
+/// Reverses steps behind the camera to preserve sealing after near-plane clipping.
 fn seal_steps(clip: vec4<f32>, du: vec4<f32>, dv: vec4<f32>, seal_pixels: f32) -> vec2<f32> {
     // Screen pixels moved per world unit along each axis, times w squared.
     let half_viewport = 0.5 * view.viewport.zw;
@@ -294,8 +281,8 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     return sealed_cube_vertex(vertex_index, instance_index, CUBE_SEAM_SEAL_PIXELS);
 }
 
-// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
-// A `seal_pixels` of zero leaves the corner exactly on the block grid.
+/// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
+/// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
 fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
@@ -380,11 +367,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     );
 #endif
 #ifndef ENHANCED_SHADOW
-    // Grow the face within its plane. Texture coordinates and positions follow
-    // the moved corner, so the interior keeps its exact mapping; light keeps
-    // the corner's samples.
-    // The width and height axes are world axes, so a block along either moves
-    // the clip position by a column of `clip_from_world`.
+    // Grow within the face plane, moving positions and UVs while retaining corner light samples.
+    // World-axis motions project through the corresponding clip_from_world columns.
     let outward = sign(2.0 * corner_position - vec2(width, height));
     let normal_axis = face / 2u;
     let du = select(view.clip_from_world[0], view.clip_from_world[2], normal_axis == 0u) * outward.x;

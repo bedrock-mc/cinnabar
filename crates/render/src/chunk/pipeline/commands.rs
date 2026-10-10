@@ -480,11 +480,8 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
     }
 }
 
-/// Draws one sub-chunk's transparent water from its own records, in mesh order.
-///
-/// The queue uses it for water whose faces cannot overlap, and for water the committed
-/// sort does not hold yet or that the ref ceiling left out, so visible water is never
-/// skipped while a sort is pending.
+/// Draws one sub-chunk directly when water needs no ordering or awaits a committed sort.
+/// Visible water remains drawn when sorting or the ref ceiling leaves it out.
 pub(in crate::chunk) struct DrawTransparentLiquidDirect;
 
 impl RenderCommand<Transparent3d> for DrawTransparentLiquidDirect {

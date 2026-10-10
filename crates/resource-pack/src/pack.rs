@@ -96,10 +96,10 @@ impl ValidatedPack {
         self.read_file_with_limit(path, MAX_FILE_BYTES)
     }
 
-    /// Whether this pack's identity, logical file index and per-file keys equal `other`'s, without
-    /// comparing archive bytes. Together with [`Self::same_bytes`], every read of either pack then
-    /// inflates and decrypts the same entry the same way.
+    /// Compares pack identity, logical index and file keys without reading archive bytes.
+    /// Together with same_bytes, this guarantees identical reads, inflation and decryption.
     fn same_index(&self, other: &Self) -> bool {
+        /// Resolves an indexed entry's optional content key for semantic pack comparisons.
         fn key<'a>(pack: &'a ValidatedPack, entry: &EntryIndex) -> Option<&'a ContentKey> {
             entry.key.map(|index| &pack.keys[index])
         }
@@ -284,9 +284,7 @@ impl ValidatedPackStack {
         &self.packs
     }
 
-    /// Whether every read through this stack returns exactly what the same read through `other`
-    /// returns, layer for layer, and both dropped the same packs. Archive bytes are compared
-    /// only once every layer's identity and file index already match.
+    /// Compares layered reads and dropped packs, checking archive bytes after every layer index matches.
     #[must_use]
     pub fn same_contents(&self, other: &Self) -> bool {
         self.rejections == other.rejections

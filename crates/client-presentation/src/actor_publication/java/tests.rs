@@ -685,6 +685,7 @@ fn bits<'a>(values: impl IntoIterator<Item = &'a f32>) -> Vec<u32> {
     values.into_iter().map(|value| value.to_bits()).collect()
 }
 
+/// Flattens render transforms into float bits for exact cached-pose comparisons.
 fn render_bits(pose: &[RenderBoneTransform]) -> Vec<u32> {
     bits(pose.iter().flat_map(|bone| {
         bone.rotation
@@ -694,6 +695,7 @@ fn render_bits(pose: &[RenderBoneTransform]) -> Vec<u32> {
     }))
 }
 
+/// Flattens world transforms into float bits for exact cached-pose comparisons.
 fn world_bits(pose: &[BoneTransform]) -> Vec<u32> {
     bits(pose.iter().flat_map(|bone| {
         bone.rotation

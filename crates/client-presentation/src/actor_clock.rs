@@ -62,9 +62,8 @@ pub struct ActorFrameClock {
 }
 
 impl ActorFrameClock {
-    /// Advances the actor tick clock while retaining a fractional remainder. Like vanilla's frame
-    /// timer, a frame further behind than [`world::MAX_TICKS_PER_FRAME`] discards the excess whole
-    /// ticks, so a stall is never replayed for every actor in the next frame.
+    /// Advances actor time with its fractional remainder, capping whole ticks at world::MAX_TICKS_PER_FRAME.
+    /// Discards excess catch-up ticks so the next frame does not replay the stall.
     pub fn advance(&mut self, delta: Duration) -> ActorFrameStep {
         self.accumulated_nanos = self.accumulated_nanos.saturating_add(delta.as_nanos());
         let elapsed_ticks = self.accumulated_nanos / ACTOR_TICK_NANOS;

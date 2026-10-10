@@ -24,11 +24,8 @@ fn surface() -> Vec<[u32; 4]> {
         .collect()
 }
 
-/// Renders `records` through the production ref selection and liquid fragment, with the
-/// production blend, colour mask and depth state of transparent water.
-///
-/// `base_vertex` is what the draw passes the vertex stage: zero for a sorted draw that
-/// reads `refs`, or four times the metadata index plus one for a draw from the records.
+/// Renders production liquid selection and blending; base_vertex zero uses sorted refs.
+/// A direct draw passes (metadata index + 1) * 4 as base_vertex.
 fn render(
     gpu: &Gpu,
     source: &str,
@@ -163,6 +160,7 @@ fn render(
     )
 }
 
+/// Composes the production liquid shader with the indexed order-witness entry point.
 fn witness_source() -> String {
     let indices = chunk_constants::STATIC_QUAD_INDICES;
     let index_source = format!(
@@ -235,12 +233,11 @@ fn flat_water_draws_the_same_pixels_from_records_as_from_any_sorted_order() {
     );
 }
 
-// The production `liquid_draw_ref` selection and `liquid_corner` geometry, reached the way
-// an indexed instanced draw reaches them: the vertex is the base vertex plus the static
-// quad index, and the instance is the quad. Each record gets its own colour so that any
-// change of blend order shows in the pixels.
+// Reaches production liquid geometry with indexed-draw vertex and instance selection.
+// Each record gets a distinct color so pixel comparisons expose blend-order changes.
 const WITNESS: &str = r#"
 @group(0) @binding(24) var<uniform> raster_draw: vec4<u32>;
+/// Draws production liquid geometry with per-record colors that expose blend order.
 @vertex fn order_witness(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corner = RASTER_INDICES[index % 6u];
     let draw_ref = liquid_draw_ref(raster_draw.x + corner, index / 6u);

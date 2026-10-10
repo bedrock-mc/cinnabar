@@ -1,6 +1,5 @@
-//! Recently compiled server stacks. A later join, or the reload that follows a join, reuses one
-//! whose stack reads exactly alike under the same process tables. Only blocks and icons also read
-//! StartGame facts, so only they recompile when those facts differ.
+//! Retains equivalent server stacks under the same process tables for joins and reloads.
+//! Only blocks and icons recompile when their StartGame inputs change.
 
 use std::{
     collections::VecDeque,
@@ -87,6 +86,7 @@ impl std::fmt::Debug for CompiledStacks {
 pub(in crate::runtime::network) static LATEST: CompiledStacks = CompiledStacks::new();
 
 impl CompiledStacks {
+    /// Creates an empty bounded cache of compiled server stacks.
     pub(crate) const fn new() -> Self {
         Self(Mutex::new(VecDeque::new()))
     }
@@ -244,9 +244,8 @@ impl From<Arc<ValidatedPackStack>> for CompiledStacks {
     }
 }
 
-/// Compiles `stack`, starting from a kept application whose contents and environment match:
-/// then only subscribers reading StartGame facts that differ compile, and the result admits the
-/// kept stack so one copy of the archives stays alive. `None` once cancelled.
+/// Compiles from an equivalent retained stack, rebuilding only changed StartGame subscribers.
+/// Keeps one archive copy and returns None after cancellation.
 pub(in crate::runtime::network) fn compile_reusing(
     kept: &CompiledStacks,
     stack: Arc<ValidatedPackStack>,

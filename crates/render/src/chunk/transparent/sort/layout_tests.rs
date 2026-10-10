@@ -30,10 +30,12 @@ fn group(x: i32, generation: u64, record_start: u32, faces: u32) -> Arc<Transpar
     })
 }
 
+/// Copies group allocation identities in the same key order.
 fn allocations(groups: &[Arc<TransparentGroupInput>]) -> Vec<TransparentAllocationIdentity> {
     groups.iter().map(|group| group.identity.clone()).collect()
 }
 
+/// Plans a fixture water sort against the chosen base and upload budget.
 fn plan(
     camera: Vec3,
     groups: &[Arc<TransparentGroupInput>],
@@ -43,6 +45,7 @@ fn plan(
     plan_transparent_slot(camera, &allocations(groups), groups, base, upload_cap)
 }
 
+/// Builds a committed layout base from a prior output and its group identities.
 fn base_of(
     output: &TransparentSortOutput,
     groups: &[Arc<TransparentGroupInput>],

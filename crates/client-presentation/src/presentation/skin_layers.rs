@@ -96,9 +96,8 @@ impl SkinLayerCache {
             .and_then(|(_, index)| self.locations[*index])
     }
 
-    /// Rebuilds rectangular image pages only when the base artwork changes, an image without a
-    /// published cell becomes visible, or none remains visible. Images that leave view, as when
-    /// turning or on a death, keep their cells, so the pages are not repacked and rehashed then.
+    /// Rebuilds pages when base art changes, uncached images appear, or visibility becomes empty.
+    /// Images leaving view retain their cells, avoiding another repack and hash.
     fn update_pages(&mut self, base: &ActorArtworkPages) -> Option<ActorArtworkPages> {
         let published = self.base == base.identity()
             && if self.desired.is_empty() {

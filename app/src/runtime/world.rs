@@ -240,9 +240,8 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// The committed view's readiness for startup, and its full-world witness only for
-/// acceptance and metrics: loading reads the required columns alone, and normal play
-/// scans nothing once startup releases.
+/// Computes startup readiness from required columns and full diagnostics only when enabled.
+/// Once startup releases, ordinary play scans neither.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,

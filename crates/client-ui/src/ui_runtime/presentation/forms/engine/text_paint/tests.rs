@@ -1,6 +1,4 @@
-//! Label strokes at fractional display scales, through the path a JSON-UI label paints: the
-//! frame's text metrics, the label request, the whole-pixel text origin, the retained draw
-//! list, the physical render input and the nearest-sampling rasterizer.
+//! Exercises fractional-scale label strokes through retained JSON-UI paint and physical rasterization.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -24,9 +22,7 @@ use crate::ui_runtime::render_adapter::{UiRenderViewport, adapt_ui_draw_list};
 /// Ink rows of every stroke glyph, as tall as Cinnangles Sans capitals.
 const INK_ROWS: u16 = 14;
 
-/// Glyphs drawn as full-height vertical strokes one design pixel wide: codepoint, cell width,
-/// the first texel column of each stroke, and advance, all in texels as Cinnangles Sans letters
-/// of those widths have them.
+/// Builds one-texel-wide glyph strokes with the cell widths and advances of Cinnangles Sans.
 const STROKE_GLYPHS: [(char, u16, &[u16], u16); 5] = [
     ('H', 10, &[0, 8], 12),
     ('i', 2, &[0], 4),
@@ -182,10 +178,7 @@ fn stroke_widths(image: &RgbaImage) -> Vec<u32> {
     widths
 }
 
-/// At an integer GUI scale every design pixel spans that many device pixels, as vanilla's
-/// font pixels do, whatever the platform's display scale. A fractional display scale
-/// (Windows 125%, 150%, 175%) used to drift glyphs off the device grid along a line, giving
-/// some letters' strokes one device pixel more or less than their neighbours'.
+/// Checks that integer GUI scales keep font strokes on the device grid at fractional display scales.
 #[test]
 fn label_strokes_cover_whole_gui_pixels_at_fractional_display_scales() {
     let font = stroke_font();

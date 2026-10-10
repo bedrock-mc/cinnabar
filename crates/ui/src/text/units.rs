@@ -1,12 +1,5 @@
-//! The fixed-point unit a layout measures in: output pixels, or device pixels when the
-//! request's device scale puts every font texel on whole half device pixels.
-//!
-//! Output pixels are logical pixels, so at a fractional display scale (1.25, 1.5, 1.75) a
-//! whole device pixel is not a whole number of output 1/64 pixels. Measuring there scales
-//! each advance by a rounded scale and truncates it, and the pen drifts a fraction of a
-//! device pixel per glyph. Once a glyph's texel edges reach pixel centres, nearest sampling
-//! gives one design pixel one device pixel more or less than its neighbours. Device units
-//! keep every texel edge exact, and only each finished glyph edge is rounded to output pixels.
+//! Measures in exact device units when font texels span whole half device pixels.
+//! Rounds only finished glyph edges into output units, preventing cumulative pen drift.
 
 use super::TextError;
 
@@ -24,9 +17,8 @@ pub(super) enum Units {
 }
 
 impl Units {
-    /// Device units when `device_65536` makes a texel at `scale_1024` span whole half device
-    /// pixels, within the rounding both fixed-point inputs already carry. Fonts with their own
-    /// em metrics rescale fallback glyphs, so they keep output units.
+    /// Selects device units when fixed-point scales put texels on whole half device pixels.
+    /// Fonts with separate em metrics retain output units for their rescaled fallback glyphs.
     pub(super) fn select(scale_1024: i64, device_65536: u32, own_em_metrics: bool) -> Self {
         let device_65536 = i64::from(device_65536);
         if device_65536 > 0 && !own_em_metrics {

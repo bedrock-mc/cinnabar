@@ -66,7 +66,7 @@ const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BI
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
@@ -185,10 +185,8 @@ fn liquid_vertex_alpha(alpha: f32, camera_distance: f32, fade_distance: f32) -> 
     return alpha;
 }
 
-// Sorted draws use base vertex 0 and read their back-to-front refs. Water whose faces
-// cannot overlap draws its records directly: the instance is the record and
-// base_vertex / 4 is the metadata index plus one. Both share this one program, so
-// shared edges between them compute identical positions.
+/// Selects sorted refs at base vertex zero, or direct records at (metadata index + 1) * 4.
+/// Both paths share projection code so shared edges reach identical positions.
 fn liquid_draw_ref(vertex_index: u32, instance_index: u32) -> TransparentDrawRef {
     if (vertex_index < 4u) {
         return transparent_refs[instance_index];

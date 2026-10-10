@@ -105,10 +105,8 @@ impl Atlas {
         Ok(icon)
     }
 
-    /// Places texels at full resolution when a page can hold them. Art longer than a page side,
-    /// or past the page budget when `shrink` is set, is box-filtered down by powers of two as
-    /// in-world actor art past its budget is, rather than dropped. Returns the region and the
-    /// size actually stored; nothing is placed when even a single texel does not fit.
+    /// Places full-resolution texels or box-filters by powers of two when size or budget requires it.
+    /// Returns the stored region and size; returns None if even one texel cannot fit.
     pub(super) fn insert_fitted(
         &mut self,
         size: [u16; 2],

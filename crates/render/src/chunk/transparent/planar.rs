@@ -20,12 +20,8 @@ fn liquid_face_is_rectangular(face: Face, heights: [u8; 4]) -> bool {
     }
 }
 
-/// Whether `quads` blend to identical pixels in every draw order.
-///
-/// That holds when every quad has the same face, the same rectangular corner heights and
-/// inset, lies in the same axis-aligned plane, and occupies its own cell of that plane.
-/// The quads then only meet along whole shared edges whose vertices the shader computes
-/// from identical inputs, so rasterization covers each sample at most once.
+/// Returns whether quads occupy distinct cells in one plane with identical facing, heights and inset.
+/// Such faces share exact whole edges, so each raster sample belongs to at most one face.
 pub(in crate::chunk) fn liquid_quads_are_order_independent(quads: &[PackedLiquidQuad]) -> bool {
     let Some(&first) = quads.first() else {
         return true;

@@ -652,9 +652,8 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
         .collect()
 }
 
-/// Draws cube quads exactly on the block grid. Sealed quads overlap coplanar
-/// neighbours by a sub-pixel sliver whose colour follows draw order, and the
-/// culling paths compared here legitimately draw sub-chunks in different orders.
+/// Uses unsealed block-grid quads so different culling draw orders compare identical pixels.
+/// Sealed coplanar edges can overlap by a sliver and legitimately depend on draw order.
 const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
     @builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32,\
 ) -> VertexOutput { return sealed_cube_vertex(vertex_index, instance_index, 0.0); }";

@@ -17,9 +17,7 @@ struct Section {
     quads: Vec<PackedQuad>,
 }
 
-/// Rows of single-block faces between full-width merged rows, as the greedy
-/// mesher emits next to isotropic or differently lit blocks. Every merged
-/// edge carries fifteen T-junctions, including edges on section borders.
+/// Alternates unit and merged floor rows, creating fifteen T-junctions per merged edge.
 fn flat_section(origin: [i32; 3], along_x: bool) -> Section {
     let mut quads = Vec::new();
     for row in 0..SIDE {
@@ -42,9 +40,7 @@ fn flat_section(origin: [i32; 3], along_x: bool) -> Section {
     Section { origin, quads }
 }
 
-/// A terrace rising one block every two rows along +Z. Either the step fronts
-/// or the treads are merged across the section, so convex and concave edges
-/// both meet T-junctions.
+/// Builds terraces rising every two rows, with merged fronts or treads at convex and concave edges.
 fn terrace_section(origin: [i32; 3], merged_fronts: bool) -> Section {
     let mut quads = Vec::new();
     for z in 0..SIDE {
@@ -122,10 +118,8 @@ fn terrain(
         .collect()
 }
 
-/// GPU streams for a terrain fixture: quads, per-section origins, and the
-/// geometry stream. The vertex stage has no spare storage binding, so that
-/// stream starts with each quad's section index, padded to whole lighting
-/// records, and every section's lighting base skips past it.
+/// Stores quads, origins and lighting, prefixing geometry with per-quad section indices.
+/// Lighting bases skip that prefix, which is padded to whole records.
 struct Streams {
     quads: wgpu::Buffer,
     origins: wgpu::Buffer,
@@ -134,6 +128,7 @@ struct Streams {
 }
 
 impl Streams {
+    /// Uploads packed quads, origins and lighting for the terrain fixture.
     fn new(gpu: &Gpu, terrain: &[Section]) -> Self {
         let quad_count = terrain
             .iter()
@@ -232,6 +227,7 @@ struct Fixture {
     clock: wgpu::Buffer,
     records: wgpu::Buffer,
     tints: wgpu::Buffer,
+    query_tables: wgpu::Buffer,
     atmosphere: wgpu::Buffer,
     lightmap: wgpu::Buffer,
     atlas: wgpu::TextureView,
@@ -240,6 +236,7 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// Creates production seam resources, skipping an absent native GPU adapter.
     fn new(name: &str) -> Option<Self> {
         let gpu = Gpu::for_fixture(name)?;
         let storage = wgpu::BufferUsages::STORAGE;
@@ -266,6 +263,10 @@ impl Fixture {
             clock: gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM),
             records: gpu.buffer(&[0.0], storage),
             tints: gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage),
+            query_tables: gpu.words(
+                &meshing::biome_lattice::query_table_words(),
+                wgpu::BufferUsages::UNIFORM,
+            ),
             atmosphere: gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM),
             lightmap: gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM),
             atlas: mipmapped_pattern(&gpu),
@@ -294,6 +295,10 @@ impl Fixture {
             (6, wgpu::BindingResource::Sampler(&self.sampler)),
             (7, self.records.as_entire_binding()),
             (8, self.tints.as_entire_binding()),
+            (
+                material_shader::BIOME_QUERY_TABLES_BINDING,
+                self.query_tables.as_entire_binding(),
+            ),
             (9, self.animations.as_entire_binding()),
             (10, self.animation_frames.as_entire_binding()),
             (11, self.clock.as_entire_binding()),
@@ -362,6 +367,7 @@ impl View {
         Self::toward(eye, eye + direction, fov_y)
     }
 
+    /// Creates a perspective view aimed from eye toward target.
     fn toward(eye: Vec3, target: Vec3, fov_y: f32) -> Self {
         Self {
             eye,
@@ -390,9 +396,7 @@ pub(crate) fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     &pixels[4 * (y * SNAPSHOT_SIDE as usize + x)..][..4]
 }
 
-/// Background pixels that terrain should have covered. A full-frame view must
-/// show terrain everywhere; a horizon view must show terrain below its first
-/// terrain pixel in every column, because the camera looks down on a heightfield.
+/// Counts uncovered pixels: everywhere in full-frame views, or below each column's horizon.
 pub(crate) fn uncovered_pixels(pixels: &[u8], background: &[u8], full_frame: bool) -> usize {
     let side = SNAPSHOT_SIDE as usize;
     let is_background = |x: usize, y: usize| pixel(pixels, x, y) == background;
@@ -479,9 +483,7 @@ impl Scene {
         }
     }
 
-    /// A narrow view along the floor's diagonal from standing eye height,
-    /// 26 to 300 blocks away. The floor's two axes project almost opposite
-    /// there, so each quad is a thin sliver.
+    /// Builds a narrow diagonal view 26–300 blocks away, where floor quads project as thin slivers.
     fn grazing(
         name: &'static str,
         section: fn([i32; 3], bool) -> Section,
@@ -731,29 +733,32 @@ fn sealing_keeps_face_interiors_in_place() {
     }
 }
 
-/// Test entry points around the production cube vertex: the section index of
-/// each quad comes from the geometry stream, and the unsealed variants draw
-/// the same quads exactly on the block grid. Quad ids encode `index / 6 + 1`.
+/// Wraps production cube vertices with section indices, unsealed controls and encoded quad ids.
 const SEAM_SHADER: &str = r#"
+/// Maps witness vertices through the production static quad indices.
 fn seam_corner(index: u32) -> u32 {
     var indices = array<u32, 6>(INDICES);
     return geometry_streams[index / 6u] * 4u + indices[index % 6u];
 }
 
+/// Draws sealed production cube vertices using each quad's section index.
 @vertex fn seam_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     return cube_vertex(seam_corner(index), index / 6u);
 }
 
+/// Draws the same cube vertices with seam growth disabled.
 @vertex fn unsealed_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     return sealed_cube_vertex(seam_corner(index), index / 6u, 0.0);
 }
 
+/// Draws sealed vertices with a unique identifier for each quad.
 @vertex fn seam_id_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var out = cube_vertex(seam_corner(index), index / 6u);
     out.biome_record = index / 6u + 1u;
     return out;
 }
 
+/// Draws unsealed vertices with a unique identifier for each quad.
 @vertex fn unsealed_id_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var out = sealed_cube_vertex(seam_corner(index), index / 6u, 0.0);
     out.biome_record = index / 6u + 1u;
@@ -761,6 +766,7 @@ fn seam_corner(index: u32) -> u32 {
 }
 
 // Shades as usual so the bindings match, then reports the quad id instead.
+/// Encodes the quad identifier in pixels while retaining the color shader as a witness.
 @fragment fn quad_id_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let colour = shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
     return select(unpack4x8unorm(in.biome_record | 0xff000000u), colour, colour.a < -1.0);
