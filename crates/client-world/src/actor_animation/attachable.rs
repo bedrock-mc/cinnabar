@@ -58,6 +58,7 @@ pub(crate) struct AttachableQueryContext {
     pub first_person: bool,
     pub off_hand: bool,
     pub worn: bool,
+    pub worn_slot: u8,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub delta_seconds: Option<f32>,
@@ -65,6 +66,24 @@ pub(crate) struct AttachableQueryContext {
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
     pub owner_life_tick: u64,
+}
+
+impl AttachableQueryContext {
+    /// Returns the model binding name assigned to the rendered equipment slot.
+    pub(super) fn item_slot(self) -> &'static str {
+        if self.worn {
+            match self.worn_slot {
+                0 => "head",
+                1 => "torso",
+                4 => "body",
+                _ => "",
+            }
+        } else if self.off_hand {
+            "off_hand"
+        } else {
+            "main_hand"
+        }
+    }
 }
 
 /// Evaluated geometry and layers in the item's own model frame, before the owner bone.
@@ -295,6 +314,7 @@ impl AttachablesRuntime {
             first_person: input.first_person,
             off_hand: input.off_hand,
             worn: input.worn,
+            worn_slot: input.worn_slot,
             is_paperdoll: input.is_paperdoll,
             frame_alpha,
             delta_seconds: input

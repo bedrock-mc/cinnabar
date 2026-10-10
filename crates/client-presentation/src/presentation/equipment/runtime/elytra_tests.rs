@@ -122,7 +122,11 @@ pub(super) fn owner() -> ActorSnapshot {
 }
 
 /// Supplies tick-owned actor identity and body-name bindings to the authored attachable.
-fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> ActorRigSnapshot<'a> {
+pub(super) fn owner_rig<'a>(
+    owner: &ActorSnapshot,
+    names: &'a [Box<str>],
+    tick: u64,
+) -> ActorRigSnapshot<'a> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,

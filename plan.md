@@ -374,7 +374,9 @@
 
 - Worn armour from server packs runs its attachable scripts with the wearer as
   `context.owning_entity` and draws the texture its render controller selects,
-  such as owner-driven team variants. Each worn slot keeps its own retained state.
+  such as owner-driven team variants. Each worn slot keeps its own retained state
+  and native model binding name. Owner item-use timing and frame delta are passed
+  to the worn scripts.
 - Incomplete: worn armour still uses the binding's default geometry on remapped
   body bones. Attachable animations and controller-selected geometry or
   materials are not applied, and vanilla armour keeps its static binding.

@@ -269,19 +269,40 @@ impl EquipmentRuntime {
         equipment: &ActorEquipmentInput,
         animation: EquipmentAnimation<'_>,
     ) -> Option<ActorArtworkLocation> {
+        let elapsed = animation
+            .owner
+            .is_using_item()
+            .then_some(animation.rig.hand[1].use_ticks);
+        let duration = equipment
+            .main
+            .as_ref()
+            .and_then(|main| self.item_use.get(main.identifier.as_ref()))
+            .copied()
+            .unwrap_or_default();
         let pack = self.pack.as_mut()?;
         let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
         let input = equipment.attachable_input(client_world::AttachableAnimationInput {
             worn: true,
             worn_slot: slot as u8,
             frame_alpha: animation.frame_alpha,
+            use_elapsed_ticks: elapsed,
+            delta_seconds: Some(animation.delta_seconds),
+            animation_frame: inventory::ranged_animation_frame(
+                equipment.main.as_ref().map(|main| main.identifier.as_ref()),
+                elapsed,
+                duration,
+            ),
+            max_use_ticks: duration,
             owner_variables: &variables,
             ..Default::default()
         });
         let evaluated =
             pack.attachables
                 .evaluate(&item.identifier, animation.owner, animation.rig, input)?;
-        let layer = evaluated.render.iter().find(|layer| layer.texture_slot == 0)?;
+        let layer = evaluated
+            .render
+            .iter()
+            .find(|layer| layer.texture_slot == 0)?;
         let path = &pack.assets.sources().get(layer.source as usize)?.path;
         let texture: Box<str> = path
             .strip_suffix(".png")
