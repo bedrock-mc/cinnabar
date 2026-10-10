@@ -399,7 +399,7 @@ impl ActorAnimationStore {
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let isolated_swell = swell_changed
-            && !(frame.samples_camera_poses && camera_inputs_changed)
+            && !(state.samples_camera_poses && camera_inputs_changed)
             && !swing_changed;
         let mut endpoints: Option<(SwellEndpoint<'_>, SwellEndpoint<'_>)> = if isolated_swell {
             let amount = actor.creeper_swell_amount(partial_tick);
@@ -607,7 +607,12 @@ impl ActorAnimationStore {
                 });
             let sampled = match (&pose, layer.geometry) {
                 (Some(pose), None) => Some(Arc::clone(pose)),
-                (Some(_), Some(geometry)) => {
+                (_, Some(geometry))
+                    if pose.is_some()
+                        || previous.is_none()
+                        || (pose_inputs_changed
+                            && camera::layer_needs_camera_sampling(assets, clips, geometry)) =>
+                {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
                     {
@@ -690,7 +695,7 @@ impl ActorAnimationStore {
                         .get(&geometry)
                         .map(|(_, current)| Arc::clone(current))
                 }
-                (None, _) => None,
+                _ => None,
             };
             if let Some(pose) = sampled {
                 layer.previous_pose = match layer.geometry {

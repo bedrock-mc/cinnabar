@@ -17,7 +17,7 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
     )
 }
 
-/// Dormant camera clips retain tick interpolation; contributing clips sample presentation input.
+/// Contributing body clips sample presentation input; layer variants follow render selection.
 pub(in crate::actor_animation) fn needs_active_camera_sampling(
     assets: &RuntimeEntityAssets,
     rig_binding: usize,
@@ -64,7 +64,7 @@ fn needs_pose_sampling(
     if active_clips.is_some_and(|clips| {
         clips
             .iter()
-            .any(|active| camera_clip_with_layers(assets, rig_binding, active.clip, swing))
+            .any(|active| camera_clip(assets, active.clip, swing))
     }) {
         return true;
     }
@@ -159,7 +159,19 @@ fn needs_pose_sampling(
     })
 }
 
-/// Includes the geometry variants used when a render layer maps an active animation.
+/// Selected layers sample their own mapped camera channels without changing the body endpoints.
+pub(super) fn layer_needs_camera_sampling(
+    assets: &RuntimeEntityAssets,
+    clips: &[tick::WeightedClip],
+    geometry: u32,
+) -> bool {
+    clips.iter().any(|active| {
+        render::clip_for_layer(assets, *active, geometry)
+            .is_some_and(|mapped| camera_clip(assets, mapped.clip, false))
+    })
+}
+
+/// Detects camera capability across every geometry the render controllers can select.
 fn camera_clip_with_layers(
     assets: &RuntimeEntityAssets,
     rig_binding: usize,
