@@ -92,7 +92,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt, clippy
       - name: Restore Rust build cache
@@ -147,7 +147,7 @@ jobs:
         os: ${{ fromJSON(needs.changes.outputs.os) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
       - name: Restore Rust build cache
@@ -298,7 +298,7 @@ jobs:
         -p protocol -p render -p rich-presence -p semantic-input -p server-experience -p visualcoverage
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: dtolnay/rust-toolchain@1.99.0
       - name: Restore Rust build cache
         id: rust-cache
         uses: ./.github/actions/build-cache

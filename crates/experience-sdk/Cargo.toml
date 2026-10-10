@@ -22,3 +22,6 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 toml = { version = "0.9", optional = true }
 wit-bindgen = { workspace = true, optional = true }
+
+[lints]
+workspace = true

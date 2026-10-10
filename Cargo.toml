@@ -59,7 +59,7 @@ resolver = "3"
 [workspace.package]
 version = "0.1.12"
 edition = "2024"
-rust-version = "1.93.1"
+rust-version = "1.99.0"
 
 [workspace.dependencies]
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
@@ -147,3 +147,7 @@ inherits = "release"
 codegen-units = 16
 lto = false
 incremental = true
+
+[workspace.lints.clippy]
+# Adopted with Rust 1.99; its `as_chunks` rewrites need type changes at each site, done separately.
+chunks_exact_to_as_chunks = "allow"

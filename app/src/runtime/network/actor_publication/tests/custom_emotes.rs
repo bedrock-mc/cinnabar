@@ -1,7 +1,7 @@
 //! Original geometry through the production frame preparation system, without GPU/assets.
 use std::{sync::Arc, time::Duration};
 
-use bevy::{prelude::*, time::Real};
+use bevy::time::Real;
 use client_presentation::actor_publication::PreparedActorPublication;
 use client_ui::ui_runtime::UiRuntime;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};

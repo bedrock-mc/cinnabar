@@ -45,3 +45,6 @@ protocol = { path = "../protocol", features = ["wire-test-support"] }
 mod-host = { path = "../mod-host" }
 pack-compiler = { path = "../pack-compiler" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

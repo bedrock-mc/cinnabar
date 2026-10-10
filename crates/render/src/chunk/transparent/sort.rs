@@ -246,7 +246,7 @@ impl PackedTransparentDrawRef {
     }
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
+const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
 mod groups;
 mod layout;

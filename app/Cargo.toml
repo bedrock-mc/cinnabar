@@ -127,3 +127,6 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 pack-compiler = { path = "../crates/pack-compiler" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
+
+[lints]
+workspace = true
