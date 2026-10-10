@@ -201,6 +201,10 @@ func (server *sessionServer) prepare(
 		return plan, nil, err
 	}
 	prepared.packetDelay = server.delay
+	// The dial returned at StartGame; the observing wrappers below hide the upstream's game data.
+	if game, ok := prepared.upstream.(interface{ GameData() minecraft.GameData }); ok {
+		session.runtimeID.Store(game.GameData().EntityRuntimeID)
+	}
 	prepared.upstream = observeTransfers(prepared.upstream, server.transfers, server.logger)
 	defer func() {
 		if err != nil {

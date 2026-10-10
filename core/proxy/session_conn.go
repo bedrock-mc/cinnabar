@@ -22,7 +22,8 @@ type sessionConn struct {
 	closeErr   error
 	clientPool packet.Pool
 	serverPool packet.Pool
-	shieldID   atomic.Int32 // from the ItemRegistry relayed to the client, for decoding its item stacks
+	shieldID   atomic.Int32  // from the ItemRegistry relayed to the client, for decoding its item stacks
+	runtimeID  atomic.Uint64 // the player's runtime ID from the upstream StartGame
 
 	writeMu sync.Mutex
 	pending []byte // the Batch frame being formed, kind byte included
@@ -58,6 +59,11 @@ func (session *sessionConn) read() {
 			return
 		}
 	}
+}
+
+// GameData carries the player's runtime ID, so packet-delay tracking recognizes the player's own MovePlayer.
+func (session *sessionConn) GameData() minecraft.GameData {
+	return minecraft.GameData{EntityRuntimeID: session.runtimeID.Load()}
 }
 
 // watchPeer cancels the session when the client leaves or sends anything before its handoff;

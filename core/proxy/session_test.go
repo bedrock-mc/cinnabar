@@ -318,6 +318,37 @@ func TestSessionHandoffObservesStartupItemRegistry(t *testing.T) {
 	}
 }
 
+// Packet-delay tracking on the session path knows the player's runtime ID, so its MovePlayer counts.
+func TestSessionPrepareExposesThePlayerRuntimeID(t *testing.T) {
+	upstream := newFakeUpstream(nil)
+	upstream.useBatchReads = true
+	upstream.batchReads <- batchResult{packets: []packet.Packet{&packet.StartGame{EntityRuntimeID: 9}}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	connections := newPreparedConnections("", nil, logger)
+	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
+		return &preparedConnection{upstream: upstream, packStack: &selectedResourcePackStack{}}, nil
+	}
+	server := &sessionServer{prepared: connections, transfers: new(TransferState), logger: logger}
+	local, peer := net.Pipe()
+	defer peer.Close()
+	session := newSessionConn(streamnet.NewFramedConn(local))
+	defer session.Close()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	downstream, err := newSessionDownstream(testSessionConnect(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prepared, err := server.prepare(ctx, cancel, session, downstream, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.close()
+	if got := ownRuntimeID(session, prepared.upstream); got != 9 {
+		t.Fatalf("own runtime ID = %d, want the upstream's 9", got)
+	}
+}
+
 // A real join: the core logs in upstream, hands off packs and StartGame, relays both ways and ends
 // the session with a Transfer message it also records for the next Connect.
 func TestSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
