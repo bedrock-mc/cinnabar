@@ -269,14 +269,15 @@ impl ImageDirectory {
         Some(target)
     }
 
-    /// Deletes the oldest visible files until the count and byte bounds hold.
+    /// Deletes this cache's oldest files until the count and byte bounds hold; files it did not
+    /// name, such as the core's persona art in the launcher folder, neither count nor go.
     fn evict(&self) {
         let Ok(entries) = fs::read_dir(&self.0.dir) else {
             return;
         };
         let mut files: Vec<(SystemTime, u64, PathBuf)> = entries
             .flatten()
-            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+            .filter(|entry| cache_file(&entry.file_name().to_string_lossy()))
             .filter_map(|entry| {
                 let metadata = entry.metadata().ok()?;
                 metadata.is_file().then(|| {
@@ -316,6 +317,16 @@ impl Drop for Waiting<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
+}
+
+/// Whether `name` is a file this cache stores: a SHA-256 hex stem and an extension.
+fn cache_file(name: &str) -> bool {
+    let (stem, extension) = name.split_at_checked(64).unwrap_or((name, ""));
+    stem.len() == 64
+        && stem
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        && extension.starts_with('.')
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

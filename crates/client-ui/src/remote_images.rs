@@ -2,7 +2,11 @@
 //! Marketplace artwork persist on disk. Every surface downloads through the same policy-checked
 //! client and bounded body reader.
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
 use reqwest::{StatusCode, redirect::Policy};
 use server_experience::fetch::public_address;
@@ -94,11 +98,23 @@ impl Surface {
         };
         let host = match url.host() {
             Some(Host::Domain(domain)) => !domain.is_empty(),
-            Some(Host::Ipv4(ip)) => !self.public_hosts || public_address(ip.into()),
-            Some(Host::Ipv6(ip)) => !self.public_hosts || public_address(ip.into()),
+            Some(Host::Ipv4(ip)) => !self.public_hosts || public_host(ip.into()),
+            Some(Host::Ipv6(ip)) => !self.public_hosts || public_host(ip.into()),
             None => false,
         };
         scheme && host
+    }
+}
+
+/// [`public_address`], also accepting a NAT64 `64:ff9b::/96` address whose embedded IPv4 is
+/// public, as IPv6-only DNS64 networks resolve every IPv4 host there.
+fn public_host(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V6(v6) if v6.segments()[..6] == [0x64, 0xff9b, 0, 0, 0, 0] => {
+            let [.., high, low] = v6.segments();
+            public_address(Ipv4Addr::from((u32::from(high) << 16) | u32::from(low)).into())
+        }
+        ip => public_address(ip),
     }
 }
 
@@ -115,8 +131,7 @@ impl reqwest::dns::Resolve for PublicResolver {
                 .await
                 .map_err(|error| -> ResolveError { Box::new(error) })?
                 .collect();
-            if addresses.is_empty() || !addresses.iter().all(|address| public_address(address.ip()))
-            {
+            if addresses.is_empty() || !addresses.iter().all(|address| public_host(address.ip())) {
                 return Err(ResolveError::from("image host is not public"));
             }
             Ok::<reqwest::dns::Addrs, ResolveError>(Box::new(addresses.into_iter()))

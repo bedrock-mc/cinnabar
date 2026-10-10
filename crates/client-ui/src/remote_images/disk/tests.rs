@@ -211,6 +211,44 @@ fn eviction_keeps_the_most_recently_used_files() {
     assert!(!second.exists());
 }
 
+// The core's persona art shares the launcher folder; as the oldest files there it went first.
+#[test]
+fn eviction_leaves_files_this_cache_did_not_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = SystemTime::now() - Duration::from_secs(3_600);
+    for name in ["persona-head.img", "persona-avatar-ab.img", "notes.txt"] {
+        let path = dir.path().join(name);
+        fs::write(&path, PNG).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+    let server = image_server();
+    let surface = Surface {
+        max_files: 1,
+        ..local(LAUNCHER_ART)
+    };
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), surface);
+    let runtime = runtime();
+    let first = runtime
+        .block_on(cache.fetch(&format!("{}/a", server.base)))
+        .unwrap();
+    assert!(first.exists(), "foreign files counted toward the bound");
+    let second = runtime
+        .block_on(cache.fetch(&format!("{}/b", server.base)))
+        .unwrap();
+    assert!(second.exists() && !first.exists());
+    for name in ["persona-head.img", "persona-avatar-ab.img", "notes.txt"] {
+        assert!(dir.path().join(name).exists(), "{name} evicted");
+    }
+    assert!(cache_file(&format!("{}.img", "a".repeat(64))));
+    assert!(!cache_file(&"a".repeat(64)));
+    assert!(!cache_file(&format!("{}.png", "A".repeat(64))));
+}
+
 #[test]
 fn directory_bytes_are_bounded_too() {
     let dir = tempfile::tempdir().unwrap();
@@ -439,6 +477,8 @@ fn public_surfaces_refuse_special_use_addresses() {
         "https://cdn.example.test/a.png",
         "https://8.8.8.8/a.png",
         "https://[2606:4700::1111]/a.png",
+        // NAT64 of 8.8.8.8, as DNS64 networks resolve every IPv4 host.
+        "https://[64:ff9b::808:808]/a.png",
     ] {
         assert!(LAUNCHER_ART.accepts(url), "{url} refused");
     }
@@ -458,6 +498,9 @@ fn public_surfaces_refuse_special_use_addresses() {
         "https://[::ffff:127.0.0.1]/a.png",
         "https://[2002::1]/a.png",
         "https://[64:ff9b::1]/a.png",
+        "https://[64:ff9b::7f00:1]/a.png",
+        "https://[64:ff9b::a00:8]/a.png",
+        "https://[64:ff9b:1::808:808]/a.png",
         "file:///etc/passwd",
         "not a url",
     ] {
