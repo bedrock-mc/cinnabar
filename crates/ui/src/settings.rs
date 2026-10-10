@@ -203,7 +203,7 @@ impl Default for VideoSettings {
         Self {
             horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
-            frame_rate_limit: FrameRateLimit::Automatic,
+            frame_rate_limit: FrameRateLimit::Unlimited,
             vsync: true,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,

@@ -24,8 +24,8 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, FRAME_RATE_AUTOMATIC,
-    FRAME_RATE_UNLIMITED, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED,
+    INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
     MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION,
     SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, VRR_CHOICES, VRR_OPTION,
 };
@@ -40,8 +40,7 @@ pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SettingsOptions {
-    /// Stored layout version; files without one predate the frame-rate limit migration.
-    #[serde(default = "persistence::legacy_schema")]
+    /// Version of the stored settings format.
     schema: u32,
     values: BTreeMap<String, i32>,
     #[serde(skip)]
