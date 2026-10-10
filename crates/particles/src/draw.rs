@@ -501,19 +501,18 @@ mod tests {
         assert!(system.build_draw(&far, &EmptyWorld).opaque.is_empty());
     }
 
-    /// A server-driven beam: a point emitter offset to the beam's midpoint, with a billboard whose
-    /// width is half the beam length along the custom direction.
+    /// A beam whose emitter sits at its midpoint, sized `[half length, half thickness]` and
+    /// facing along a supplied unit axis.
     const BEAM: &str = r#"{"particle_effect":{"description":{"identifier":"test:beam","basic_render_parameters":{"material":"particles_add","texture":"textures/none"}},
       "components":{
-        "minecraft:emitter_initialization":{"creation_expression":"variable.normal = math.pow(math.pow(variable.direction_x,2) + math.pow(variable.direction_y,2) + math.pow(variable.direction_z,2), 0.5);variable.size = variable.sizein * 0.5;"},
         "minecraft:emitter_rate_instant":{"num_particles":1},
         "minecraft:emitter_lifetime_once":{"active_time":1},
-        "minecraft:emitter_shape_point":{
-          "offset":["variable.direction_x * variable.size / variable.normal","variable.direction_y * variable.size / variable.normal","variable.direction_z * variable.size / variable.normal"],
-          "direction":["variable.direction_x","variable.direction_y","variable.direction_z"]},
-        "minecraft:particle_lifetime_expression":{"max_lifetime":"variable.agesec"},
-        "minecraft:particle_appearance_billboard":{"size":["variable.size",0.1],"facing_camera_mode":"lookat_direction",
-          "direction":{"mode":"custom","custom_direction":["variable.direction_x","variable.direction_y","variable.direction_z"]}}}}}"#;
+        "minecraft:emitter_shape_point":{"offset":[
+          "variable.axis_x * variable.half_length","variable.axis_y * variable.half_length","variable.axis_z * variable.half_length"]},
+        "minecraft:particle_lifetime_expression":{"max_lifetime":1},
+        "minecraft:particle_appearance_billboard":{"size":["variable.half_length","variable.thickness"],
+          "facing_camera_mode":"lookat_direction",
+          "direction":{"mode":"custom","custom_direction":["variable.axis_x","variable.axis_y","variable.axis_z"]}}}}}"#;
 
     #[test]
     fn lookat_direction_stretches_the_width_along_the_direction() {
@@ -521,13 +520,13 @@ mod tests {
         assert!(system.register_effect(BEAM.as_bytes()));
         system.spawn(&SpawnRequest {
             effect: "test:beam".into(),
-            position: [-2.0, 0.0, -5.0],
+            position: [0.0, -1.5, -6.0],
             variables: vec![
-                ("direction_x".into(), 2.0),
-                ("direction_y".into(), 0.0),
-                ("direction_z".into(), 0.0),
-                ("sizein".into(), 4.0),
-                ("agesec".into(), 1.0),
+                ("axis_x".into(), 0.0),
+                ("axis_y".into(), 1.0),
+                ("axis_z".into(), 0.0),
+                ("half_length".into(), 1.5),
+                ("thickness".into(), 0.25),
             ],
             ..SpawnRequest::default()
         });
@@ -535,10 +534,13 @@ mod tests {
         let lists = system.build_draw(&view(), &EmptyWorld);
         assert_eq!(lists.add.len(), 1);
         let instance = lists.add[0];
-        let close = |a: &[f32], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-4);
-        assert!(close(&instance.center_light, [0.0, 0.0, -5.0]), "{instance:?}");
-        assert!(close(&instance.axis_x, [2.0, 0.0, 0.0]), "{instance:?}");
-        assert!(close(&instance.axis_y, [0.0, 0.1, 0.0]), "{instance:?}");
+        let close = |a: [f32; 3], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-4);
+        let [x, y, z, _] = instance.center_light;
+        assert!(close([x, y, z], [0.0, 0.0, -6.0]), "{instance:?}");
+        let [x, y, z, _] = instance.axis_x;
+        assert!(close([x, y, z], [0.0, 1.5, 0.0]), "{instance:?}");
+        let [x, y, z, _] = instance.axis_y;
+        assert!(close([x.abs(), y, z], [0.25, 0.0, 0.0]), "{instance:?}");
     }
 
     #[test]
