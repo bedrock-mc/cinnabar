@@ -505,7 +505,8 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquidDirect {
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let frame_probe = frame_probe.into_inner();
-        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation) else {
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation)
+        else {
             return RenderCommandResult::Skip;
         };
         let identity = FrameAllocationIdentity {
@@ -701,7 +702,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let frame_probe = frame_probe.into_inner();
-        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation) else {
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation)
+        else {
             return RenderCommandResult::Skip;
         };
         let identity = FrameAllocationIdentity {

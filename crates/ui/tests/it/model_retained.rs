@@ -5,9 +5,9 @@ use std::sync::Arc;
 use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
-    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow,
-    TextStyle, UiBlendMode, UiDrawList, UiError, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiNode,
-    UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest,
+    TextShadow, TextStyle, UiBlendMode, UiDrawList, UiError, UiLimits, UiMesh, UiMeshBatch,
+    UiMeshVertex, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 /// Creates finite bounds for a fixture node.
 fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {

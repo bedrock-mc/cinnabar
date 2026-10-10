@@ -184,7 +184,9 @@ fn table_header_identifies_shared_catalog() {
         .iter()
         .find(|line| line.starts_with("# hardness and tools: protocolgen/generated/data "))
         .expect("shared data header");
-    let (_, source_lock) = shared.split_once("source_lock_sha256=").expect("source lock");
+    let (_, source_lock) = shared
+        .split_once("source_lock_sha256=")
+        .expect("source lock");
     assert!(catalog.contains(&format!("\"source_lock_sha256\": \"{source_lock}\"")));
     let mining = headers
         .iter()

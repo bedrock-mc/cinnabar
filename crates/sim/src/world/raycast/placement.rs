@@ -21,7 +21,8 @@ impl PaletteWorld<'_> {
             origin,
             Vec3::new(0.0, -1.0, 0.0),
             BLOCK_USE_SUPPORT_DEPTH,
-        )? else {
+        )?
+        else {
             return Ok(None);
         };
         hit.face = if direction.x.abs() > direction.z.abs() {
