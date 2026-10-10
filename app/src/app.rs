@@ -25,7 +25,9 @@ use render::{
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
 use render_api::PublicationServiceConfig;
-use std::{ffi::OsStr, fs, io::Write, path::Path, sync::Arc};
+#[cfg(test)]
+use std::fs;
+use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
     crate::acceptance::model_witness::drive_model_witness,

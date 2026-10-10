@@ -1,4 +1,9 @@
 use super::UiRuntime;
+use crate::runtime::{
+    shutdown::record_fatal_error,
+    visibility::CaveVisibilityCache,
+    world::{ClientWorld, WorldStreamFramePoll},
+};
 use bevy::{
     camera::Camera,
     prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Time, With},
@@ -10,14 +15,6 @@ use render::{
     VisibilityDiagnosticsInput,
 };
 use ui::{DpiScale, SafeArea};
-use {
-    crate::runtime::{
-        shutdown::record_fatal_error,
-        visibility::CaveVisibilityCache,
-        world::{ClientWorld, WorldStreamFramePoll},
-    },
-    client_presentation::camera::CameraSettingsAuthority,
-};
 
 #[cfg(test)]
 use client_ui::ui_runtime::presentation::{HudFrame, menu_artwork};

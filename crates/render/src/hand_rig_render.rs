@@ -3,7 +3,7 @@
 //! The rendered content is the player's own skin on the standard samples player geometry.
 use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
 use bevy::image::BevyDefault;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 use bevy::prelude::{Entity, GlobalTransform, UVec4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},

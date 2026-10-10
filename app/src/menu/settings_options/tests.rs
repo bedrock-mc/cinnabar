@@ -5,7 +5,7 @@ use {
     },
     launcher::menu::settings_options::{
         EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SETTINGS_FILE,
-        SETTINGS_OPTIONS, SettingsOptions, frame_rate_limit,
+        SETTINGS_OPTIONS, SettingsOptions,
     },
 };
 

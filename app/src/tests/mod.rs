@@ -64,6 +64,31 @@ use crate::runtime::network::{
     NetworkControlEvent,
     session::{SequencedWorldEvent, WorldIngress},
 };
+use crate::runtime::{
+    endpoint::{
+        bridge_endpoint_exists, bridge_endpoint_path, preflight_bridge_endpoint,
+        resolve_socket_dir_from,
+    },
+    network::{
+        NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
+        WorldIngressDrain, actor_render_source, drain_network_controls, drain_network_ingress,
+        update_actor_render_scene,
+    },
+    shutdown::{
+        exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error, window_close_exit,
+    },
+    telemetry::{
+        CommittedBiomeBlendSnapshot, bedrock_camera_rotation,
+        biome_blend_diagnostic_marker_if_changed, biome_blend_diagnostics_enabled,
+        camera_sub_chunk_key, refresh_diagnostic_attribution, update_visibility_diagnostics,
+    },
+    visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
+    world::{
+        ShutdownWatchdog, TeardownWatchdog, apply_committed_control, arm_shutdown_watchdog,
+        flush_sub_chunk_requests, startup_biome_tints, synchronize_biome_tints,
+        world_stream_fatal_message,
+    },
+};
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
@@ -79,37 +104,6 @@ use diagnostics::markers::{
 };
 use diagnostics::metrics::{
     DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot,
-};
-use {
-    crate::runtime::{
-        endpoint::{
-            bridge_endpoint_exists, bridge_endpoint_path, preflight_bridge_endpoint,
-            resolve_socket_dir_from,
-        },
-        network::{
-            NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
-            WorldIngressDrain, actor_render_source, drain_network_controls, drain_network_ingress,
-            update_actor_render_scene,
-        },
-        shutdown::{
-            exit_on_window_close_requested, fatal_runtime_exit, record_fatal_error,
-            window_close_exit,
-        },
-        telemetry::{
-            CommittedBiomeBlendSnapshot, bedrock_camera_rotation,
-            biome_blend_diagnostic_marker_if_changed, biome_blend_diagnostics_enabled,
-            camera_sub_chunk_key, refresh_diagnostic_attribution, update_visibility_diagnostics,
-        },
-        visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
-        world::{
-            ShutdownWatchdog, TeardownWatchdog, apply_committed_control, arm_shutdown_watchdog,
-            flush_sub_chunk_requests, startup_biome_tints, synchronize_biome_tints,
-            world_stream_fatal_message,
-        },
-    },
-    acceptance::committed_control::acceptance_surface_anchor,
-    client_presentation::actor_clock::ActorFrameClock,
-    diagnostics::{AcceptanceRuntimeConfig, transparent_sort_committed_marker},
 };
 use {
     acceptance::mutation::{
@@ -131,11 +125,6 @@ use {
     acceptance::{
         AcceptanceExitDecision, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE,
     },
-    diagnostics::markers::{
-        acceptance_runtime_metadata_marker, cumulative_counter_delta,
-        visibility_digest_marker_fields, world_publication_snapshot_marker,
-    },
-    diagnostics::write_stdout_marker,
 };
 
 const DESTINATION_COHORT: ViewCohort = ViewCohort {

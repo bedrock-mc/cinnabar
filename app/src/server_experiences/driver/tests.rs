@@ -1,5 +1,5 @@
 use super::*;
-use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules};
+use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet};
 use server_experience::{
     manifest::{Offer, Scope},
     negotiation::{Grant, VerifiedOffer},
@@ -356,8 +356,8 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::presentation::forms::snapshot;
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         eprintln!(

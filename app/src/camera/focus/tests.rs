@@ -160,8 +160,8 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     use bevy::input::{ButtonState, InputPlugin, mouse::MouseButtonInput};
     use client_ui::ui_runtime::flush_form_response;
     use {
-        crate::ui_runtime::{drive_server_form_input, presentation::forms::pack_harness},
-        client_ui::test_support::mini_engine_presentation,
+        crate::ui_runtime::drive_server_form_input,
+        client_ui::test_support::{mini_engine_presentation, pack_harness},
     };
 
     let mut player = crate::player_runtime::PlayerRuntime::new(1);

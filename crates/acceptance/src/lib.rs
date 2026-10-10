@@ -16,7 +16,6 @@ use self::{
     teleport::FullViewTeleportTracker,
     world_ready::{GalleryAnchorEmitter, WorldReadySettler},
 };
-use diagnostics::metrics::TransparentSortMetricsSnapshot;
 
 mod exit;
 use diagnostics::bounded_file;

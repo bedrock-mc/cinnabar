@@ -2,8 +2,8 @@
 
 use bevy::math::{Mat4, Quat, Vec3};
 use render_model::RenderBoneTransform;
+use render_model::equipment::ItemDisplay;
 use render_model::equipment::sprite_item_transform;
-use render_model::equipment::{ItemDisplay, attach_to_bone};
 
 pub(super) const LAYER_MAIN_HAND: u8 = 1;
 pub(super) const LAYER_OFF_HAND: u8 = 2;

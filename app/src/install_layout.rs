@@ -1,8 +1,7 @@
-//! Host compatibility exports for the launcher installation model.
-use launcher::install_layout::InstallLayout;
+//! Isolated installation layouts for app tests.
 
 #[cfg(test)]
-use launcher::install_layout::{InstallEnvironment, Platform};
+use launcher::install_layout::{InstallEnvironment, InstallLayout, Platform};
 
 /// Creates an isolated installation tree for app tests that own local files.
 #[cfg(test)]

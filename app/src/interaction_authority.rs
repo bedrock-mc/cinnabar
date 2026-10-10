@@ -16,7 +16,7 @@ use {
     },
 };
 
-use gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range};
+use gameplay::interaction_authority::FrozenBlockObservation;
 
 /// Whether a frozen ray still belongs to the live network session.
 ///

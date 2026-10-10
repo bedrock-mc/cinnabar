@@ -1,11 +1,12 @@
 //! Launcher state construction and persisted settings startup.
 
 use super::input::field_editor;
+#[cfg(feature = "developer-control")]
+use launcher::menu::MenuDialog;
+use launcher::menu::settings_options::{SETTINGS_FILE, SettingsOptions};
 use {
-    super::*,
-    launcher::install_layout::InstallLayout,
+    super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuField,
     launcher::menu::view::MenuView,
-    launcher::menu::{MenuDialog, MenuField},
 };
 
 impl MenuRuntime {
@@ -41,13 +42,10 @@ impl MenuRuntime {
                 ));
                 video_settings::SavedVideoSettings::default()
             });
-        let settings_options = settings_options::SettingsOptions::load(
-            &config_path.with_file_name(settings_options::SETTINGS_FILE),
-        );
+        let settings_options = SettingsOptions::load(&config_path.with_file_name(SETTINGS_FILE));
         let language_asset_path = layout.world_assets();
         let language_pending = settings_options.language().is_some();
-        let language_choices =
-            settings_options::SettingsOptions::language_choices(&layout.resource_root);
+        let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
         #[cfg(feature = "developer-control")]
         let sign_in_fixture = super::sign_in_fixture::startup();

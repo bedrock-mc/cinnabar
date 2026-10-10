@@ -1,6 +1,7 @@
 //! Keyboard and gamepad focus: the actions each launcher screen cycles
 //! through, and moving or activating the focused one.
 
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
 use launcher::menu::view::{SettingsFocusAxis, SettingsFocusLandmark, SettingsFocusTarget};
 use {
     super::*,
@@ -64,16 +65,16 @@ impl MenuRuntime {
             && !self.settings_scale_picker
             && let MenuAction::SettingsOption(index, _) = action
         {
-            match settings_options::SETTINGS_OPTIONS
+            match SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .map(|option| option.kind)
             {
-                Some(settings_options::SettingKind::Slider) => {
+                Some(SettingKind::Slider) => {
                     self.settings_slider_selected =
                         (self.settings_slider_selected != Some(index)).then_some(index);
                     return;
                 }
-                Some(settings_options::SettingKind::Toggle) => {
+                Some(SettingKind::Toggle) => {
                     self.activate_from_navigation(self.live_settings_action(action));
                     return;
                 }
@@ -87,11 +88,9 @@ impl MenuRuntime {
     pub(super) fn live_settings_action(&self, action: MenuAction) -> MenuAction {
         match action {
             MenuAction::SettingsOption(index, _)
-                if settings_options::SETTINGS_OPTIONS
+                if SETTINGS_OPTIONS
                     .get(usize::from(index))
-                    .is_some_and(|option| {
-                        matches!(option.kind, settings_options::SettingKind::Toggle)
-                    }) =>
+                    .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)) =>
             {
                 MenuAction::SettingsOption(index, 1 - self.settings_options.get(usize::from(index)))
             }
@@ -119,12 +118,12 @@ impl MenuRuntime {
                 action if picker => action,
                 MenuAction::SettingsOption(index, choice) => {
                     let value = self.settings_options.get(usize::from(index));
-                    let target = match settings_options::SETTINGS_OPTIONS
+                    let target = match SETTINGS_OPTIONS
                         .get(usize::from(index))
                         .map(|option| option.kind)
                     {
-                        Some(settings_options::SettingKind::Toggle) => 1 - value,
-                        Some(settings_options::SettingKind::Slider) => value,
+                        Some(SettingKind::Toggle) => 1 - value,
+                        Some(SettingKind::Slider) => value,
                         _ => choice,
                     };
                     MenuAction::SettingsOption(index, target)
@@ -186,7 +185,7 @@ impl MenuRuntime {
             && self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && let Some(index) = self.settings_slider_selected
-            && let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index))
+            && let Some(option) = SETTINGS_OPTIONS.get(usize::from(index))
         {
             let value = self.settings_options.get(usize::from(index));
             let next = self
@@ -629,13 +628,10 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
             av == bv
                 || matches!(
-                    settings_options::SETTINGS_OPTIONS
+                    SETTINGS_OPTIONS
                         .get(usize::from(a))
                         .map(|option| option.kind),
-                    Some(
-                        settings_options::SettingKind::Toggle
-                            | settings_options::SettingKind::Slider
-                    )
+                    Some(SettingKind::Toggle | SettingKind::Slider)
                 )
         }
         (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,

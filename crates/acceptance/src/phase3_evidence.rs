@@ -4,7 +4,7 @@ use bevy::prelude::Resource;
 use semantic_input::{InputMode, PerspectiveMode};
 
 use diagnostics::markers::{
-    self, PHASE3_EVENT, PHASE3_FRAME, PHASE3_IDENTITY, PHASE3_TERMINAL, PHASE3_VIOLATION,
+    PHASE3_EVENT, PHASE3_FRAME, PHASE3_IDENTITY, PHASE3_TERMINAL, PHASE3_VIOLATION,
 };
 
 pub const MAX_PHASE3_FRAME_RECORDS: usize = 12_000;

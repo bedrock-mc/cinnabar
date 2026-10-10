@@ -47,10 +47,7 @@ use {
             head_block_display, view_bone,
         },
     },
-    render_model::equipment::{
-        self as attachable, BoneChannels, ItemDisplay, attach_to_bone, blocks, blocks::BlockSheets,
-        held_block_display, held_sprite_display, is_hand_equipped, is_rod,
-    },
+    render_model::equipment::{self as attachable, blocks::BlockSheets, is_rod},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {

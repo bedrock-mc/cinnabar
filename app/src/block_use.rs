@@ -28,7 +28,7 @@ use {
     gameplay::{
         interaction_authority::FrozenBlockObservation,
         melee::obstructs_placement,
-        mining::{FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach},
+        mining::{FrozenMiningSelection, protocol_input_mode},
     },
 };
 

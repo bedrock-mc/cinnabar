@@ -10,7 +10,7 @@ impl super::MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, launcher::menu::inbox::Action};
+    use launcher::menu::inbox::Action;
     use {crate::menu::MenuRuntime, launcher::menu::view::MenuHome};
 
     #[test]

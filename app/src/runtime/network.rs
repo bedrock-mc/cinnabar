@@ -50,8 +50,8 @@ use {
     gameplay::movement::{MovementSource, reset_start_game_prediction},
 };
 use {
+    ::inventory::inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
     client_ui::ui_runtime::UiRuntime,
-    inventory::inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
 };
 
 #[cfg(test)]
@@ -90,11 +90,6 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
     authority: Res<'w, PhysicsAuthorityGate>,
     auto_fly: Res<'w, AutoFly>,
 }
-
-#[cfg(test)]
-use client_presentation::actor_clock::{
-    ActorFrameClock, authoritative_local_actor_eye, publish_local_actor_visibility,
-};
 
 /// Why a network session ended; each reason latches its own follow-up.
 enum SessionEnd {
@@ -929,8 +924,6 @@ pub(crate) fn receive_network_events(
 }
 
 #[cfg(test)]
-use client_presentation::actor_publication::PreparedActorPublication;
-#[cfg(test)]
 mod actor_test_support;
 #[cfg(test)]
 pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
@@ -963,9 +956,6 @@ pub(crate) mod session;
 pub(crate) use actor_publication::{
     advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
     publish_local_actor_damage,
-};
-use client_presentation::actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
 };
 
 #[cfg(test)]

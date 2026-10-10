@@ -424,8 +424,7 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
 
     use bevy::input::mouse::MouseButtonInput;
     use {
-        crate::ui_runtime::presentation::forms::pack_harness,
-        client_ui::test_support::mini_engine_presentation,
+        client_ui::test_support::mini_engine_presentation, client_ui::test_support::pack_harness,
     };
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let mut presentation = mini_engine_presentation();
@@ -504,8 +503,8 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
 // A key held from gameplay auto-repeats; repeats must never press form buttons (pages skipped).
 #[test]
 fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     // Vanilla's form screen carries the real key mappings; skipped without the installed pack.
@@ -575,8 +574,8 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
 // Zeqa answers a page before the mouse is released; that release must not click the next page.
 #[test]
 fn a_release_after_the_next_page_arrives_does_not_click_it() {
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::SequencedUiEvent;
     use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
     use std::sync::Arc;
@@ -758,8 +757,8 @@ fn a_click_without_a_form_reaches_gameplay() {
 fn custom_form_toggle_and_input_edit_their_values() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::forms::FormValue;
     use json_ui::HitKind;
     use protocol::{CustomForm, CustomFormElement, FormRequestEvent, ServerFormModel, UiEvent};
