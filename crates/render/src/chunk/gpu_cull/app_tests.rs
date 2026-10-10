@@ -212,14 +212,17 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
     assert_eq!(cull.slot_count(), 1);
 }
 
-/// DX12 cannot consume compacted draw counts without losing base vertex/instance constants.
-/// Cleared fixed-size indirect regions preserve those constants and still run the same Hi-Z cull.
+/// DX12 consumes compacted counts through culled pipelines and runs the Hi-Z cull on the real
+/// driver. The cleared fixed-size fallback is rasterised on both backends by the integration
+/// tests; DX12 always offers count draws.
 #[cfg(all(target_os = "windows", debug_assertions))]
 #[test]
-fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
-    let Some(render) = render_plugin(wgpu::Backends::DX12, WgpuFeatures::INDIRECT_FIRST_INSTANCE)
-    else {
-        eprintln!("skipping DX12 fixed-count cull app: missing compatible native adapter");
+fn dx12_debug_runs_two_phase_count_gpu_culling() {
+    let Some(render) = render_plugin(
+        wgpu::Backends::DX12,
+        WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
+    ) else {
+        eprintln!("skipping DX12 count cull app: missing compatible native adapter");
         return;
     };
     let (mut app, _) = chunk_app(render, Msaa::Off, camera_transform());
@@ -239,7 +242,7 @@ fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
         "DX12 MDI must not regress to per-section direct draws"
     );
     let cull = render_world.resource::<GpuCull>();
-    assert_eq!(cull.submission, GpuCullSubmission::Fixed);
+    assert_eq!(cull.submission, GpuCullSubmission::Count);
     assert_eq!(cull.slot_count(), 2);
     assert!(cull.bind_groups.is_some(), "the culled view was prepared");
     assert!(

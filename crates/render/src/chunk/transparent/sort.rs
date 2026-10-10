@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
 
 /// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
 pub const MAX_TRANSPARENT_DRAW_REFS: usize = 2_097_152;
@@ -32,7 +33,8 @@ pub(in crate::chunk) fn transparent_draw_args(
     transparent_draw_range_args(buffer_slot, slot_refs, 0..u32::try_from(ref_count).ok()?)
 }
 
-/// `slot_refs` is the arena's current per-slot capacity, the stride between the two slots.
+/// `slot_refs` is the arena's current per-slot capacity, the stride between the two slots. The
+/// first instance carries [`TRANSPARENT_WATER_DRAW_FLAG`], which the transparent pipeline reads.
 pub(in crate::chunk) fn transparent_draw_range_args(
     buffer_slot: u8,
     slot_refs: usize,
@@ -48,12 +50,15 @@ pub(in crate::chunk) fn transparent_draw_range_args(
     let first_instance = u32::from(buffer_slot)
         .checked_mul(u32::try_from(slot_refs).ok()?)?
         .checked_add(ref_range.start)?;
+    if first_instance & TRANSPARENT_WATER_DRAW_FLAG != 0 {
+        return None;
+    }
     Some(TransparentDrawArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
         instance_count,
         first_index: 0,
         base_vertex: 0,
-        first_instance,
+        first_instance: first_instance | TRANSPARENT_WATER_DRAW_FLAG,
     })
 }
 
@@ -339,7 +344,7 @@ mod growth_tests {
         let args = transparent_draw_args(1, arena.transparent_slot_refs, 3).unwrap();
         assert_eq!(
             args.first_instance,
-            INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2
+            INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2 | TRANSPARENT_WATER_DRAW_FLAG
         );
 
         ensure_transparent_ref_capacity(&mut arena, &device, &queue, usize::MAX, &state);

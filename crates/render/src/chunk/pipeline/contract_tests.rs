@@ -26,15 +26,9 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     false,
                 ),
                 (
-                    &mut pipelines.transparent_model_variants,
-                    MODEL_SHADER_HANDLE,
-                    include_str!("../../model.wgsl"),
-                    true,
-                ),
-                (
-                    &mut pipelines.liquid_variants,
-                    LIQUID_SHADER_HANDLE,
-                    include_str!("../../liquid.wgsl"),
+                    &mut pipelines.transparent_variants,
+                    TRANSPARENT_SHADER_HANDLE,
+                    include_str!("../../transparent_terrain.wgsl"),
                     true,
                 ),
                 (
@@ -63,9 +57,14 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 assert_eq!(descriptor.vertex.shader, shader);
                 let fragment_state = descriptor.fragment.as_ref().unwrap();
                 assert_eq!(fragment_state.shader, shader);
-                let module =
-                    naga::front::wgsl::parse_str(&crate::shader_source::standalone(source, &[]))
-                        .unwrap();
+                // The transparent shader composes the liquid and model modules; only the
+                // composer can resolve their shared names.
+                let module = if shader == TRANSPARENT_SHADER_HANDLE {
+                    crate::shader_source::composed(source, &[])
+                } else {
+                    crate::shader_source::standalone(source, &[])
+                };
+                let module = naga::front::wgsl::parse_str(&module).unwrap();
                 for (stage, name) in [
                     (
                         naga::ShaderStage::Vertex,

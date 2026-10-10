@@ -35,6 +35,8 @@ pub(super) struct PreparedPyramid {
 pub(super) struct PreparedCullDraws<'a> {
     pub(super) args: &'a Buffer,
     pub(super) counts: &'a Buffer,
+    /// The vertex buffer every culled pipeline reads its draw's offsets from.
+    pub(super) offsets: &'a Buffer,
     pub(super) capacity: u32,
     /// Per-stream draw ceilings from [`CullSlots::draw_bounds`].
     pub(super) draw_bounds: [u32; STREAM_COUNT],
@@ -49,6 +51,7 @@ pub(in crate::chunk) struct GpuCull {
     storage: Option<CullStorage>,
     args: Option<Buffer>,
     draw_counts: Option<Buffer>,
+    draw_offsets: Option<Buffer>,
     pub(super) table: CullSlots,
     pub(super) pyramid: Option<PreparedPyramid>,
     pub(super) bind_groups: Option<[wgpu::BindGroup; 2]>,
@@ -64,6 +67,7 @@ impl GpuCull {
             storage: None,
             args: None,
             draw_counts: None,
+            draw_offsets: None,
             table: CullSlots::default(),
             pyramid: None,
             bind_groups: None,
@@ -82,6 +86,7 @@ impl GpuCull {
         Some(PreparedCullDraws {
             args: self.args.as_ref()?,
             counts: self.draw_counts.as_ref()?,
+            offsets: self.draw_offsets.as_ref()?,
             capacity: self.storage.as_ref()?.capacity,
             draw_bounds: self.table.draw_bounds(),
             submission: self.submission,
@@ -217,6 +222,7 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
         let storage = CullStorage::new(device.wgpu_device(), capacity, false);
         cull.args = Some(Buffer::from(storage.args.clone()));
         cull.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
+        cull.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
         cull.storage = Some(storage);
         cull.bind_groups = None;
         cull.table.mark_all_dirty();

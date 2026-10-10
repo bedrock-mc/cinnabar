@@ -735,12 +735,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
+    // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
+    let filter = bevy::log::DEFAULT_FILTER.to_owned() + "discord_presence::connection=off";
+    #[cfg(feature = "tracy")]
+    let filter = filter + crate::tracy::WGPU_SCOPE_FILTER;
     let plugins = plugins.set(bevy::log::LogPlugin {
-        // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
-        filter: format!(
-            "{}discord_presence::connection=off",
-            bevy::log::DEFAULT_FILTER
-        ),
+        filter,
         #[cfg(feature = "tracy")]
         custom_layer: crate::tracy::layer,
         ..default()

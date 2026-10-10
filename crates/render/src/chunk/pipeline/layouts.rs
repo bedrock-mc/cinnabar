@@ -3,7 +3,8 @@ use crate::chunk::*;
 mod terrain_blend;
 
 // Packed liquid corners run opposite to cube/model corners. Native's outward
-// winding is preserved without reversing the index buffer shared with cubes.
+// winding is preserved without reversing the index buffer shared with cubes; the
+// transparent pipeline, which also draws models, flips the facing test for water instead.
 const LIQUID_FRONT_FACE: bevy::render::render_resource::FrontFace =
     bevy::render::render_resource::FrontFace::Cw;
 
@@ -32,9 +33,8 @@ pub(in crate::chunk) struct ChunkPipeline {
     pub(in crate::chunk) variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
-    pub(in crate::chunk) transparent_model_variants:
-        Variants<RenderPipeline, ChunkPipelineSpecializer>,
-    pub(in crate::chunk) liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    /// Sorted transparent liquid and model draws, one pipeline so they never switch programs.
+    pub(in crate::chunk) transparent_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) depth_liquid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) bind_group_layout: BindGroupLayoutDescriptor,
 }
@@ -47,7 +47,8 @@ impl FromWorld for ChunkPipeline {
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: CHUNK_SHADER_HANDLE,
-                buffers: Vec::new(),
+                // Opaque terrain fetches its vertex index and first instance; see `chunk.wgsl`.
+                buffers: vec![draw_offsets_layout()],
                 ..default()
             },
             fragment: Some(FragmentState {
@@ -98,31 +99,20 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("solid fragment")
             .entry_point = Some("fragment_solid".into());
-        let mut transparent_model_descriptor = model_descriptor.clone();
-        transparent_model_descriptor.label = Some("packed transparent model pipeline".into());
-        let transparent_model_fragment = transparent_model_descriptor
+        let mut transparent_descriptor = descriptor.clone();
+        transparent_descriptor.label = Some("packed transparent terrain pipeline".into());
+        transparent_descriptor.vertex.shader = TRANSPARENT_SHADER_HANDLE;
+        transparent_descriptor.vertex.entry_point = Some("vertex".into());
+        // Sorted transparency is never GPU-culled and indexes its refs by instance.
+        transparent_descriptor.vertex.buffers.clear();
+        let transparent_fragment = transparent_descriptor
             .fragment
             .as_mut()
-            .expect("transparent model fragment");
-        transparent_model_fragment.entry_point = Some("fragment_blend".into());
-        terrain_blend::apply(&mut transparent_model_descriptor);
-        let mut liquid_descriptor = descriptor.clone();
-        liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
-        liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
-        liquid_descriptor.vertex.entry_point = Some("vertex".into());
-        liquid_descriptor
-            .fragment
-            .as_mut()
-            .expect("liquid fragment")
-            .shader = LIQUID_SHADER_HANDLE;
-        liquid_descriptor
-            .fragment
-            .as_mut()
-            .expect("liquid fragment")
-            .entry_point = Some("fragment".into());
-        terrain_blend::apply(&mut liquid_descriptor);
-        liquid_descriptor.primitive.cull_mode = None;
-        liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
+            .expect("transparent fragment");
+        transparent_fragment.shader = TRANSPARENT_SHADER_HANDLE;
+        transparent_fragment.entry_point = Some("fragment".into());
+        terrain_blend::apply(&mut transparent_descriptor);
+        transparent_descriptor.primitive.cull_mode = None;
         let mut depth_liquid_descriptor = descriptor.clone();
         depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
         depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -139,11 +129,7 @@ impl FromWorld for ChunkPipeline {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
-            transparent_model_variants: Variants::new(
-                ChunkPipelineSpecializer,
-                transparent_model_descriptor,
-            ),
-            liquid_variants: Variants::new(ChunkPipelineSpecializer, liquid_descriptor),
+            transparent_variants: Variants::new(ChunkPipelineSpecializer, transparent_descriptor),
             depth_liquid_variants: Variants::new(ChunkPipelineSpecializer, depth_liquid_descriptor),
             bind_group_layout,
         }
@@ -212,6 +198,25 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
                 .push("ENHANCED".into());
         }
         Ok(key)
+    }
+}
+
+/// Vertex buffer 0 of every opaque terrain pipeline: per vertex, its vertex index, then the
+/// first instance the builtin instance index lacks. Vertex fetch applies the draw's base vertex
+/// on every backend, unlike the builtin `vertex_index` of DX12 count draws.
+pub(crate) fn draw_offsets_layout() -> bevy::mesh::VertexBufferLayout {
+    use bevy::{
+        mesh::VertexBufferLayout,
+        render::render_resource::{VertexAttribute, VertexFormat, VertexStepMode},
+    };
+    VertexBufferLayout {
+        array_stride: crate::chunk::gpu_cull::model::OFFSET_ENTRY_BYTES,
+        step_mode: VertexStepMode::Vertex,
+        attributes: vec![VertexAttribute {
+            format: VertexFormat::Uint32x2,
+            offset: 0,
+            shader_location: 0,
+        }],
     }
 }
 
@@ -525,8 +530,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for ChunkPipeline {
             &mut self.variants,
             &mut self.solid_variants,
             &mut self.model_variants,
-            &mut self.transparent_model_variants,
-            &mut self.liquid_variants,
+            &mut self.transparent_variants,
             &mut self.depth_liquid_variants,
         ] {
             ids.push(variants.specialize(cache, key)?);

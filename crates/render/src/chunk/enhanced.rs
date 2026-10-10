@@ -4,15 +4,22 @@ use crate::chunk::*;
 use crate::enhanced::CascadeBounds;
 use bevy::shader::Shader;
 
-/// Returns the existing vertex-pulling layout and shader handles.
+/// Returns the existing vertex-pulling layout, shader handles, and the vertex buffer 0 layout
+/// their terrain vertex entries read; [`draw_shadow_geometry`] binds the matching buffer.
 pub(crate) fn shadow_sources(
     world: &World,
-) -> (BindGroupLayoutDescriptor, Handle<Shader>, Handle<Shader>) {
+) -> (
+    BindGroupLayoutDescriptor,
+    Handle<Shader>,
+    Handle<Shader>,
+    bevy::mesh::VertexBufferLayout,
+) {
     let pipeline = world.resource::<ChunkPipeline>();
     (
         pipeline.bind_group_layout.clone(),
         CHUNK_SHADER_HANDLE,
         MODEL_SHADER_HANDLE,
+        pipeline::layouts::draw_offsets_layout(),
     )
 }
 
@@ -53,6 +60,7 @@ pub(crate) fn draw_shadow_geometry<'w>(
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
     pass.set_render_pipeline(cube_pipeline);
     pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+    pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
     for (entity, resident) in &arena.allocations {
         let allocation = &resident.gpu;
         if !eligible(*entity, allocation) {

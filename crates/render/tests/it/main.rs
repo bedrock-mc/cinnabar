@@ -68,6 +68,7 @@ mod solid_terrain_raster;
 mod star_rotation;
 mod terrain_lightmap;
 mod terrain_seams;
+mod transparent_terrain;
 mod ui_textures;
 mod water_material;
 mod world_model_colour;

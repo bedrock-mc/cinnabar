@@ -213,15 +213,6 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
     let mut source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions)
-        .replace("@vertex\nfn vertex(", "fn model_vertex(")
-        .replace(
-            "@builtin(vertex_index) vertex_index: u32",
-            "vertex_index: u32",
-        )
-        .replace(
-            "@builtin(instance_index) instance_index: u32",
-            "instance_index: u32",
-        )
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     if reference {
         let start = source
@@ -393,7 +384,7 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     );
     let templates = gpu.words(&template_words(), storage);
     let geometry = gpu.words(&geometry_words(), storage);
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 36];
     atmosphere[16..19].copy_from_slice(&[0.24, 0.31, 0.47]);
     atmosphere[19] = 4.0;
     atmosphere[20] = 180.0;

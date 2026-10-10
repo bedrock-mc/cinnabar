@@ -24,9 +24,30 @@ pub const FRUSTUM_ABSOLUTE_SLACK: f32 = 1.0e-3;
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 const BOUNDS_BIAS: i32 = 128;
 
-/// DX12 count draws in wgpu do not carry the base vertex/instance shader constants.
-pub fn count_draw_offsets_supported(backend: wgpu::Backend) -> bool {
-    !matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Metal)
+/// Draw-offset vertex entries per culled command, one per quad corner.
+pub const OFFSET_CORNERS: u32 = 4;
+/// Bytes of one draw-offset entry: the draw's own base vertex plus corner, then its first instance.
+pub const OFFSET_ENTRY_BYTES: u64 = 8;
+
+/// Bytes of the draw-offset vertex buffer behind the args of `capacity` slots.
+pub fn draw_offset_bytes(capacity: u32) -> u64 {
+    args_words(capacity) / u64::from(ARGS_WORDS) * u64::from(OFFSET_CORNERS) * OFFSET_ENTRY_BYTES
+}
+
+/// The draw a culled command performs. Its `base_vertex` addresses its four entries in
+/// `offsets`, which carry the base vertex and first instance it stands for.
+pub fn resolve_culled_args(
+    args: [u32; ARGS_WORDS as usize],
+    offsets: &[[u32; 2]],
+) -> [u32; ARGS_WORDS as usize] {
+    let [base_vertex, first_instance] = offsets[args[3] as usize];
+    [
+        args[0],
+        args[1],
+        args[2],
+        base_vertex,
+        first_instance + args[4],
+    ]
 }
 
 /// Compacted draw streams, in the order the opaque pass draws them.
@@ -376,7 +397,8 @@ pub fn frustum_slack(plane: [f32; 4], center: [f32; 3]) -> f32 {
     FRUSTUM_RELATIVE_SLACK * (plane[3].abs() + spread) + FRUSTUM_ABSOLUTE_SLACK
 }
 
-/// Compacted args for `visible` slots in slot order, exactly as the emit kernel writes them.
+/// Compacted draws for `visible` slots in slot order, as the emit kernel's commands perform them
+/// once resolved through [`resolve_culled_args`].
 pub fn reference_args(
     records: &[CullRecord],
     camera: CullCamera,

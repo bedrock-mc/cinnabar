@@ -404,6 +404,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             command.first_index..command.first_index + command.index_count,
             command.base_vertex,
@@ -614,6 +615,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             command.first_index..command.first_index + command.index_count,
             command.base_vertex,
@@ -665,6 +667,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             draw.first_index..draw.first_index + draw.index_count,
             draw.base_vertex,
@@ -711,7 +714,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
-        pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        // The transparent pipeline alternates with liquid draws, which bind this same buffer.
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.draw_indexed(
             draw.first_index..draw.first_index + draw.index_count,
             draw.base_vertex,
@@ -764,6 +768,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         if let Some(batch) = batches.0.get(&item.entity()) {
             frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
@@ -812,6 +817,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         frame_probe.record_mdi_streams(
             batch.drawn_allocations.iter().copied(),
@@ -862,6 +868,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(
             &arena.indirect_buffer,
             batch.indirect_offset,
