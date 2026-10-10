@@ -524,7 +524,7 @@ fn poll_join(
 }
 
 /// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
-fn login_settings(
+pub(crate) fn login_settings(
     menu: &MenuRuntime,
     input: Option<&crate::semantic_controls::SemanticInputSnapshot>,
 ) -> protocol::LoginSettings {
@@ -757,6 +757,28 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A hidden-menu direct launch must still report the player's saved GUI scale.
+    #[test]
+    fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
+        let layout = crate::install_layout::scratch("login-settings");
+        std::fs::create_dir_all(&layout.user_config_root).unwrap();
+        std::fs::write(
+            layout.user_config_root.join("video-settings.json"),
+            r#"{"gui_scale_offset":-1}"#,
+        )
+        .unwrap();
+        let menu = MenuRuntime::new_with_layout(
+            false,
+            None,
+            "Direct".to_owned(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+        );
+        let settings = login_settings(&menu, None);
+        assert_eq!(settings.gui_scale_offset, -1);
+        assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
 
     #[test]
     fn joinable_destinations_and_ids_stay_off_the_card() {
