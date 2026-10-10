@@ -453,55 +453,61 @@ fn unused_camera_geometry_preserves_body_walking_endpoints() {
 
 #[test]
 fn frame_geometry_selection_samples_new_pose_and_preserves_existing_endpoints() {
-    let mut compiled = inactive_camera_compiled();
-    let mut symbols = compiled.molang_symbols.into_vec();
-    symbols.insert(
-        1,
-        MolangSymbol {
-            kind: MolangSymbolKind::Query,
-            identifier: "query.frame_alpha".into(),
-        },
-    );
-    compiled.molang_symbols = symbols.into_boxed_slice();
-    let mut ops = compiled.molang_ops.into_vec();
-    for op in &mut ops {
-        match op {
-            MolangOp::LoadQuery(symbol) => *symbol += 1,
-            MolangOp::CallQuery(call) => call.symbol += 1,
-            _ => {}
+    for dormant_camera in [false, true] {
+        let mut compiled = inactive_camera_compiled();
+        if !dormant_camera {
+            compiled.rig_geometries[0].animation_count = 1;
+            compiled.rig_animations = compiled.rig_animations[..1].to_vec().into_boxed_slice();
         }
-    }
-    let first_op = ops.len() as u32;
-    ops.push(MolangOp::LoadQuery(1));
-    compiled.molang_ops = ops.into_boxed_slice();
-    let mut expressions = compiled.molang_expressions.into_vec();
-    expressions.push(CompiledMolangExpression {
-        first_op,
-        op_count: 1,
-        max_stack: 1,
-    });
-    compiled.molang_expressions = expressions.into_boxed_slice();
-    for choice in &mut compiled.render.geometries {
-        choice.condition = Some(4);
-    }
-    compiled.render.layers[1].color = Some([4; 4]);
-    let store = walking_fixture(compiled);
-    let rig = store.actor_rig(1).unwrap();
-    let previous = rig.previous[0];
-    let current = rig.current[0];
-    assert!(rig.render.iter().all(|layer| layer.geometry.is_none()));
-    for alpha in [0.25, 0.75] {
-        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-        assert_eq!(
-            *layers[0].previous_pose.first().unwrap_or(&previous),
-            previous
+        let mut symbols = compiled.molang_symbols.into_vec();
+        symbols.insert(
+            1,
+            MolangSymbol {
+                kind: MolangSymbolKind::Query,
+                identifier: "query.frame_alpha".into(),
+            },
         );
-        assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
-        assert_eq!(layers[1].color, [alpha; 4]);
-        for layer in &layers[1..] {
-            assert_eq!(layer.geometry, Some(1));
-            assert_eq!(layer.pose[1], current);
-            assert_eq!(layer.previous_pose, layer.pose);
+        compiled.molang_symbols = symbols.into_boxed_slice();
+        let mut ops = compiled.molang_ops.into_vec();
+        for op in &mut ops {
+            match op {
+                MolangOp::LoadQuery(symbol) => *symbol += 1,
+                MolangOp::CallQuery(call) => call.symbol += 1,
+                _ => {}
+            }
+        }
+        let first_op = ops.len() as u32;
+        ops.push(MolangOp::LoadQuery(1));
+        compiled.molang_ops = ops.into_boxed_slice();
+        let mut expressions = compiled.molang_expressions.into_vec();
+        expressions.push(CompiledMolangExpression {
+            first_op,
+            op_count: 1,
+            max_stack: 1,
+        });
+        compiled.molang_expressions = expressions.into_boxed_slice();
+        for choice in &mut compiled.render.geometries {
+            choice.condition = Some(4);
+        }
+        compiled.render.layers[1].color = Some([4; 4]);
+        let store = walking_fixture(compiled);
+        let rig = store.actor_rig(1).unwrap();
+        let previous = rig.previous[0];
+        let current = rig.current[0];
+        assert!(rig.render.iter().all(|layer| layer.geometry.is_none()));
+        for alpha in [0.25, 0.75] {
+            let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+            assert_eq!(
+                *layers[0].previous_pose.first().unwrap_or(&previous),
+                previous
+            );
+            assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
+            assert_eq!(layers[1].color, [alpha; 4]);
+            for layer in &layers[1..] {
+                assert_eq!(layer.geometry, Some(1));
+                assert_eq!(layer.pose[1], current);
+                assert_eq!(layer.previous_pose, layer.pose);
+            }
         }
     }
 }
