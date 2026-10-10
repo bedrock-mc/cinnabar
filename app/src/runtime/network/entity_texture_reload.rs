@@ -12,6 +12,11 @@ pub(crate) fn set_base_actor_artwork(pages: ActorArtworkPages, entities: Arc<Run
     let _ = BASE.set((pages, entities));
 }
 
+/// Whether the carrier artwork is installed; once installed it never changes.
+pub(super) fn base_actor_artwork_installed() -> bool {
+    BASE.get().is_some()
+}
+
 /// Decodes winning entity source paths on the worker and restores the base after removal.
 pub(super) fn prepare(view: &LayeredPackView) -> Option<Arc<ActorArtworkPages>> {
     let (pages, entities) = BASE.get()?;

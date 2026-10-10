@@ -142,6 +142,11 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
                 ("lighting", lighting.as_str())
             } else if module.starts_with("cinnabar::biome_tint") {
                 ("biome", biome.as_str())
+            } else if module.starts_with("cinnabar::world_projection") {
+                (
+                    "world_projection",
+                    include_str!("../../../src/world_projection.wgsl"),
+                )
             } else if module.starts_with("cinnabar::enhanced_common") {
                 ("common", include_str!("../../../src/enhanced/common.wgsl"))
             } else if module.starts_with("cinnabar::enhanced_view") {
@@ -190,6 +195,10 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
         (
             "cinnabar::biome_tint",
             meshing::biome_lattice::shader_source(include_str!("../../../src/biome_tint.wgsl")),
+        ),
+        (
+            "cinnabar::world_projection",
+            include_str!("../../../src/world_projection.wgsl").to_owned(),
         ),
         (
             "cinnabar::enhanced_common",

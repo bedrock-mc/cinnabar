@@ -325,6 +325,15 @@ pub(in crate::chunk) type DrawTransparentLiquidCommands = crate::gpu_timing::Gpu
         DrawTransparentLiquid,
     ),
 >;
+pub(in crate::chunk) type DrawTransparentLiquidDirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquidDirect,
+    ),
+>;
 pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuTerrainTransparent as usize },
     (
@@ -467,6 +476,62 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         }
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
+        RenderCommandResult::Success
+    }
+}
+
+/// Draws one sub-chunk's transparent water from its own records, in mesh order.
+///
+/// The queue uses it for water whose faces cannot overlap, and for water the committed
+/// sort does not hold yet or that the ref ceiling left out, so visible water is never
+/// skipped while a sort is pending.
+pub(in crate::chunk) struct DrawTransparentLiquidDirect;
+
+impl RenderCommand<Transparent3d> for DrawTransparentLiquidDirect {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<TransparentSortRuntime>,
+        SRes<TransparentSortMetrics>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = Read<GpuChunkAllocation>;
+
+    fn render<'w>(
+        item: &Transparent3d,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, runtime, metrics, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
+        let Some(command) = transparent_liquid_direct_draw_command(allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            command.first_index..command.first_index + command.index_count,
+            command.base_vertex,
+            command.first_instance..command.first_instance + command.instance_count,
+        );
+        frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::LIQUID);
+        // Direct water is part of the committed transparent frame state.
+        if let Some(snapshot) = runtime.into_inner().state.committed() {
+            record_encoded_transparent_generation(metrics.into_inner(), snapshot.generation());
+        }
         RenderCommandResult::Success
     }
 }

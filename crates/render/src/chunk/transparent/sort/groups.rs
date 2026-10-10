@@ -1,19 +1,20 @@
-//! Per-sub-chunk water face orders, cached by allocation identity and face-order class.
+//! Per-sub-chunk water face orders.
 //!
-//! Each sub-chunk is drawn by its own phase item, so the snapshot lays groups out in key
-//! order and only a group whose class or mesh changed is sorted again.
+//! Each sub-chunk is drawn by its own phase item, so only a group whose class or mesh
+//! changed is sorted again; the rest keep their range of the committed slot.
+use super::layout::plan_transparent_slot;
 use super::state::{
     TransparentAllocationIdentity, TransparentSortError, TransparentSortWork,
-    TransparentWorkerResult, changed_ref_spans,
+    TransparentWorkerResult,
 };
 use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef};
-use crate::chunk::transparent::face_metric::{FaceOrderClass, TransparentFaceMetric};
+use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::*;
 
-/// The visible sub-chunks' sort inputs, in committed layout order.
+/// The manifest's sort inputs, parallel to its key-sorted allocations.
 pub(in crate::chunk) type TransparentGroups = Arc<[Arc<TransparentGroupInput>]>;
 
-/// One visible sub-chunk's sort input; rebuilt only when its allocation or tint table changes.
+/// One sub-chunk's sort input; rebuilt only when its allocation or tint table changes.
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentGroupInput {
     pub(in crate::chunk) identity: TransparentAllocationIdentity,
@@ -22,21 +23,6 @@ pub(in crate::chunk) struct TransparentGroupInput {
     pub(in crate::chunk) centroids: Box<[Vec3]>,
     /// Sorted distinct water tint colours, for the diagnostic tint count.
     pub(in crate::chunk) tint_colors: Box<[[u32; 3]]>,
-}
-
-/// A sub-chunk's back-to-front order, valid while its allocation and class are unchanged.
-#[derive(Debug, Clone, PartialEq)]
-pub(in crate::chunk) struct TransparentGroupOrder {
-    pub(in crate::chunk) identity: TransparentAllocationIdentity,
-    pub(in crate::chunk) class: FaceOrderClass,
-    pub(in crate::chunk) refs: Arc<[PackedTransparentDrawRef]>,
-}
-
-#[derive(Debug, Default)]
-pub(in crate::chunk) struct TransparentGroupSort {
-    pub(in crate::chunk) refs: Vec<PackedTransparentDrawRef>,
-    /// Orders that were sorted for this result rather than reused.
-    pub(in crate::chunk) fresh: Vec<TransparentGroupOrder>,
 }
 
 pub(in crate::chunk) fn build_transparent_group(
@@ -96,7 +82,8 @@ pub(in crate::chunk) fn distinct_tint_count(groups: &[Arc<TransparentGroupInput>
     colors.len()
 }
 
-fn sort_group(
+/// One sub-chunk's faces back to front for `metric`'s camera, as absolute draw refs.
+pub(in crate::chunk) fn sort_group(
     metric: TransparentFaceMetric,
     group: &TransparentGroupInput,
 ) -> Arc<[PackedTransparentDrawRef]> {
@@ -118,37 +105,6 @@ fn sort_group(
         .collect()
 }
 
-/// Concatenates group orders in input order, sorting only groups without a valid cached order.
-pub(in crate::chunk) fn sort_transparent_groups(
-    camera: Vec3,
-    groups: &[Arc<TransparentGroupInput>],
-    cached: &[Option<TransparentGroupOrder>],
-) -> TransparentGroupSort {
-    let metric = TransparentFaceMetric::new(camera);
-    let mut sorted = TransparentGroupSort {
-        refs: Vec::with_capacity(groups.iter().map(|group| group.centroids.len()).sum()),
-        fresh: Vec::new(),
-    };
-    for (index, group) in groups.iter().enumerate() {
-        let class = metric.class(group.identity.key);
-        if let Some(Some(order)) = cached.get(index)
-            && order.class == class
-            && order.identity == group.identity
-        {
-            sorted.refs.extend_from_slice(&order.refs);
-            continue;
-        }
-        let refs = sort_group(metric, group);
-        sorted.refs.extend_from_slice(&refs);
-        sorted.fresh.push(TransparentGroupOrder {
-            identity: group.identity.clone(),
-            class,
-            refs,
-        });
-    }
-    sorted
-}
-
 pub(in crate::chunk) fn spawn_transparent_sort(
     sender: SyncSender<TransparentWorkerResult>,
     work: TransparentSortWork,
@@ -159,24 +115,20 @@ pub(in crate::chunk) fn spawn_transparent_sort(
             .as_ref()
             .map(|profiler| profiler.time(RuntimeStage::TransparentWorker));
         let started = Instant::now();
-        let sorted = sort_transparent_groups(work.camera, &work.groups, &work.cached);
-        let refs = Arc::<[PackedTransparentDrawRef]>::from(sorted.refs);
-        let patch = work
-            .base
-            .filter(|base| base.len() == refs.len())
-            .map(|base| {
-                let spans = changed_ref_spans(&base, &refs);
-                (base, spans)
-            });
+        let output = plan_transparent_slot(
+            work.camera,
+            &work.key.sorted_allocations,
+            &work.groups,
+            work.base.as_ref(),
+            work.upload_cap,
+        );
         let _ = sender.try_send(TransparentWorkerResult {
             generation: work.generation,
             requested_at: work.requested_at,
             key: work.key,
-            refs: Ok(refs),
-            patch,
-            fresh: sorted.fresh,
+            output: Ok(output),
             cpu_duration: started.elapsed(),
-            distinct_tint_count: work.distinct_tint_count,
+            distinct_tint_count: distinct_tint_count(&work.groups),
         });
     });
 }

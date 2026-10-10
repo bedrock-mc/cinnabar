@@ -22,6 +22,9 @@ pub const MAP_CELL: [u32; 2] = [128, 128];
 const MAP_COLUMNS: u32 = 8;
 const MAP_ROWS: u32 = 2;
 const MAP_STRIP_HEIGHT: u32 = MAP_CELL[1] * MAP_ROWS;
+/// Canvases each pool rasterizes per frame. A burst of new signs or maps, such as a lobby
+/// streaming in, fills over the following frames instead of all in one.
+pub(crate) const MAX_NEW_CELLS_PER_FRAME: usize = 16;
 
 /// Height of the dynamic strips below the static atlas: maps, then `text_pages` text pages.
 const fn dynamic_height(text_pages: u32) -> u32 {
@@ -265,6 +268,8 @@ struct CellPool {
     clock: u64,
     /// The first clock value of the current frame; slots used since then are never evicted.
     frame_start: u64,
+    /// Canvases rasterized since the frame started, bounded by [`MAX_NEW_CELLS_PER_FRAME`].
+    made_this_frame: usize,
     revision: u64,
     capped: bool,
 }
@@ -282,6 +287,7 @@ impl CellPool {
             last_used: Vec::new(),
             clock: 0,
             frame_start: 0,
+            made_this_frame: 0,
             revision: 0,
             capped: false,
         };
@@ -302,12 +308,16 @@ impl CellPool {
 
     /// The slot holding `key`, rasterizing `make` (a cell-sized RGBA8 canvas) on a miss into an
     /// empty slot, else the least recently used slot no rect of this frame refers to, else a
-    /// new page. `None` when the canvas has the wrong size or the page cap is reached.
+    /// new page. `None` when the canvas has the wrong size, the page cap is reached, or this
+    /// frame already rasterized [`MAX_NEW_CELLS_PER_FRAME`] canvases; a later frame retries.
     fn slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
         self.clock += 1;
         if let Some(slot) = self.keys.iter().position(|entry| *entry == Some(key)) {
             self.last_used[slot] = self.clock;
             return Some(slot);
+        }
+        if self.made_this_frame >= MAX_NEW_CELLS_PER_FRAME {
+            return None;
         }
         let free = self.keys.iter().position(Option::is_none).or_else(|| {
             (0..self.keys.len())
@@ -334,6 +344,7 @@ impl CellPool {
             }
         };
         let canvas = make();
+        self.made_this_frame += 1;
         let [cell_width, cell_height] = self.cell;
         if canvas.len() != cell_width * cell_height * 4 {
             return None;
@@ -377,10 +388,12 @@ impl DynamicCells {
         }
     }
 
-    /// Ends the frame whose rects were just submitted; their slots become evictable again.
+    /// Ends the frame whose rects were just submitted; their slots become evictable again and
+    /// the next frame may rasterize its own budget of canvases.
     pub fn begin_frame(&mut self) {
         for pool in [&mut self.text, &mut self.maps] {
             pool.frame_start = pool.clock + 1;
+            pool.made_this_frame = 0;
         }
     }
 
@@ -426,6 +439,59 @@ mod tests {
         vec![value; (TEXT_CELL[0] * TEXT_CELL[1] * 4) as usize]
     }
 
+    /// Requests `keys` in order every frame, as a scene drawing all of them does, until each has
+    /// a slot. The last frame stays open; returns the slots.
+    fn settle(cells: &mut DynamicCells, keys: &[u64], value: u8) -> Vec<usize> {
+        loop {
+            let slots: Option<Vec<_>> = keys
+                .iter()
+                .map(|&key| cells.text_slot(key, || canvas(value)))
+                .collect();
+            if let Some(slots) = slots {
+                return slots;
+            }
+            cells.begin_frame();
+        }
+    }
+
+    /// A burst of new texts rasterizes a bounded number of canvases per frame; the rest fill on
+    /// later frames, into the slots one unbounded frame would have given them.
+    #[test]
+    fn a_burst_of_new_texts_rasterizes_within_the_frame_budget() {
+        const TEXTS: usize = 300;
+        let mut text = DynamicCells::new(1024);
+        let mut most = 0;
+        for frame in 1.. {
+            let mut made = 0;
+            let resolved = (0..TEXTS as u64)
+                .filter(|&key| {
+                    text.text_slot(key, || {
+                        made += 1;
+                        canvas(key as u8)
+                    })
+                    .is_some()
+                })
+                .count();
+            most = usize::max(most, made);
+            if resolved == TEXTS {
+                assert_eq!(frame, TEXTS.div_ceil(MAX_NEW_CELLS_PER_FRAME));
+                break;
+            }
+            text.begin_frame();
+        }
+        assert!(
+            most <= MAX_NEW_CELLS_PER_FRAME,
+            "{most} canvases in one frame"
+        );
+        for key in 0..TEXTS as u64 {
+            assert_eq!(
+                text.text_slot(key, || panic!("a hit must not rasterize")),
+                Some(key as usize)
+            );
+        }
+        assert_eq!(text.text_pages() as usize, TEXTS.div_ceil(TEXT_SLOT_COUNT));
+    }
+
     #[test]
     fn rect_uv_scales_with_texture_resolution() {
         let texture = TextureRef {
@@ -452,9 +518,9 @@ mod tests {
             Some(first)
         );
         assert_eq!(text.revision(), 1);
-        for key in 2..=TEXT_SLOT_COUNT as u64 {
-            text.text_slot(key, || canvas(key as u8)).unwrap();
-        }
+        text.begin_frame();
+        let rest: Vec<u64> = (2..=TEXT_SLOT_COUNT as u64).collect();
+        settle(&mut text, &rest, 2);
         // Key 1 was touched first and is now the oldest; next frame a new key takes its slot.
         text.begin_frame();
         let replaced = text.text_slot(1_000, || canvas(9)).unwrap();
@@ -468,10 +534,12 @@ mod tests {
     #[test]
     fn a_full_frame_grows_a_page_instead_of_evicting_its_own_slots() {
         let mut text = DynamicCells::new(1024);
-        for key in 0..TEXT_SLOT_COUNT as u64 {
-            assert_eq!(text.text_slot(key, || canvas(1)), Some(key as usize));
-        }
+        let page: Vec<u64> = (0..TEXT_SLOT_COUNT as u64).collect();
+        let slots = settle(&mut text, &page, 1);
+        assert_eq!(slots, (0..TEXT_SLOT_COUNT).collect::<Vec<_>>());
         assert_eq!(text.text_pages(), 1);
+        text.begin_frame();
+        assert_eq!(settle(&mut text, &page, 1), slots, "hits only");
         let grown = text.text_slot(1_000, || canvas(2)).unwrap();
         assert_eq!(grown, TEXT_SLOT_COUNT);
         assert_eq!(text.text_pages(), 2);
@@ -482,10 +550,14 @@ mod tests {
             );
         }
         let total = MAX_TEXT_PAGES * TEXT_SLOT_COUNT;
-        for key in 2_000..2_000 + (total - TEXT_SLOT_COUNT - 1) as u64 {
-            text.text_slot(key, || canvas(3)).unwrap();
-        }
+        let mut all = vec![1_000];
+        all.extend(&page);
+        all.extend(2_000..2_000 + (total - TEXT_SLOT_COUNT - 1) as u64);
+        text.begin_frame();
+        settle(&mut text, &all, 3);
         assert_eq!(text.text_pages() as usize, MAX_TEXT_PAGES);
+        text.begin_frame();
+        settle(&mut text, &all, 3);
         assert!(text.text_slot(9_999, || canvas(4)).is_none());
         // Next frame the least recently used cell (key 1000's) is reclaimed instead of growing.
         text.begin_frame();

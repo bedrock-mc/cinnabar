@@ -298,6 +298,56 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
 }
 
 #[test]
+fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
+    use bevy::{
+        ecs::system::RunSystemOnce,
+        render::{render_resource::PollType, renderer::WgpuWrapper},
+    };
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(queue.clone());
+    world.init_resource::<HandDrawn>();
+    let gate = ViewmodelCompletionGate::default();
+    world.insert_resource(gate.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let token = ViewmodelToken {
+        session: 1,
+        actor_session: 2,
+        dimension: 0,
+        runtime: 3,
+        spawn: 4,
+        owner: Entity::from_raw_u32(0).unwrap(),
+        viewport: [640, 480],
+        samples: 1,
+        hdr: false,
+        skin: [5; 32],
+        geometry: [6; 32],
+        revision: 1,
+    };
+    gate.select(Some(token));
+    world.resource_mut::<HandGpu>().token = Some(token);
+    *world.resource::<HandDrawn>().0.lock().unwrap() = Some(token);
+
+    let before = crate::device_poll::submissions_so_far(&queue);
+    world.run_system_once(submit_completion).unwrap();
+    assert_eq!(
+        crate::device_poll::submissions_so_far(&queue) - before,
+        1,
+        "only the counting submit reaches the queue"
+    );
+    world
+        .resource::<RenderDevice>()
+        .poll(PollType::wait_indefinitely())
+        .unwrap();
+    assert!(
+        gate.completed(token),
+        "the frame's completion publishes the hand"
+    );
+}
+
+#[test]
 fn ui_only_and_optional_hand_graph_are_ordered_and_idempotent() {
     use bevy::render::render_graph::{EmptyNode, RenderGraph};
     let mut world = World::new();

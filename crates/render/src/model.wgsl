@@ -3,6 +3,7 @@
 #import cinnabar::enhanced_caster::caster_clip
 #endif
 #import bevy_render::view::View
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ALPHA_TO_COVERAGE
@@ -257,7 +258,8 @@ fn vertex(
     let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
     var out: VertexOutput;
     let world = vec3<f32>(origin.value.xyz) + local_position;
-    out.clip_position = view.clip_from_world * vec4(world, 1.0);
+    let camera_offset = section_camera_offset(origin.value.xyz, local_position, view.world_position);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
 #endif
@@ -319,7 +321,11 @@ fn vertex(
 #ifdef ENHANCED
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
-    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    out.clip_position = camera_offset_clip(
+        view.clip_from_world,
+        view.world_position,
+        camera_offset + (out.world_position - world),
+    );
     out.normal = template_quad_normal(template_quad_base, rotation);
 #endif
     return out;

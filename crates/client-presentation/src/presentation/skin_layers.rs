@@ -96,16 +96,21 @@ impl SkinLayerCache {
             .and_then(|(_, index)| self.locations[*index])
     }
 
-    /// Rebuilds rectangular image pages only when the base artwork or selected image set changes.
+    /// Rebuilds rectangular image pages only when the base artwork changes, an image without a
+    /// published cell becomes visible, or none remains visible. Images that leave view, as when
+    /// turning or on a death, keep their cells, so the pages are not repacked and rehashed then.
     fn update_pages(&mut self, base: &ActorArtworkPages) -> Option<ActorArtworkPages> {
-        let changed = self.base != base.identity()
-            || self.desired.len() != self.rasters.len()
-            || !self
-                .desired
-                .iter()
-                .zip(&self.rasters)
-                .all(|(a, b)| same_image(a, b));
-        if !changed {
+        let published = self.base == base.identity()
+            && if self.desired.is_empty() {
+                self.rasters.is_empty()
+            } else {
+                self.desired.iter().all(|raster| {
+                    self.image_index
+                        .get(&ImageKey::new(raster))
+                        .is_some_and(|(retained, _)| same_image(retained, raster))
+                })
+            };
+        if published {
             return None;
         }
         self.base = base.identity();
@@ -235,6 +240,36 @@ mod tests {
             base.identity()
         );
     }
+    /// Animated skins leaving view keep their published cells; only a newly visible image
+    /// repacks, so a shrinking visible set never rehashes every visible skin image.
+    #[test]
+    fn images_leaving_view_keep_their_pages_until_a_new_image_appears() {
+        let base = ActorArtworkPages::default();
+        let (first, second, third) = (raster(), raster(), raster());
+        let mut cache = SkinLayerCache::default();
+        let publish = |cache: &mut SkinLayerCache, visible: &[&EquipmentRaster]| {
+            cache.desired.clear();
+            for image in visible {
+                cache.retain_image((*image).clone());
+            }
+            cache.update_pages(&base)
+        };
+        let both = publish(&mut cache, &[&first, &second]).expect("first sight packs");
+        assert!(publish(&mut cache, &[&first]).is_none(), "leaving view");
+        assert!(cache.image_location(&first).is_some());
+        assert!(
+            publish(&mut cache, &[&second, &first]).is_none(),
+            "returning"
+        );
+        assert_eq!(cache.pages.as_ref().unwrap().identity(), both.identity());
+        publish(&mut cache, &[&first, &third]).expect("a new image repacks");
+        assert!(cache.image_location(&third).is_some());
+        assert!(
+            cache.image_location(&second).is_none(),
+            "the repack drops what left"
+        );
+    }
+
     thread_local! {
         static LOOKUP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }

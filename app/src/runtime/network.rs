@@ -52,10 +52,11 @@ pub(crate) use inventory::{
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::reuse::CompiledStacks;
 pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
-    classify_bootstrap_generation, set_active_language, set_base_material_keys,
+    classify_bootstrap_generation, compiled_stacks, set_active_language, set_base_material_keys,
     set_base_terrain_catalog, set_compile_cache_dir,
 };
 pub(crate) use session::{
@@ -363,7 +364,7 @@ pub(crate) fn receive_network_events(
                 let session_assets = resource_packs::session_runtime_assets(
                     &client_world.runtime_assets,
                     overlay_ids.as_ref(),
-                    packs.block_overlay.as_deref(),
+                    packs.block_overlay.as_ref(),
                 );
                 if let Some(textures) = chunk_textures.as_mut() {
                     resource_packs::install_chunk_textures(textures, &session_assets);

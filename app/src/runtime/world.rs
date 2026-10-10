@@ -43,7 +43,9 @@ use bevy::{
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::{Real, Virtual},
 };
-use chunk_pipeline::{ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll};
+use chunk_pipeline::{
+    CohortProgress, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
+};
 use client_world::CommittedControlEvent;
 
 use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
@@ -85,6 +87,9 @@ fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct WorldStreamFramePoll {
     pub(crate) report: WorldStreamPoll,
+    /// Committed-view readiness while startup or diagnostics watch it.
+    pub(crate) cohort_progress: Option<CohortProgress>,
+    /// The full committed-view witness, only while acceptance or metrics consume it.
     pub(crate) cohort: Option<ViewCohortStatus>,
 }
 
@@ -235,13 +240,14 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// Full-world cohort witness for startup, acceptance and metrics. Normal play
-/// stops scanning retained columns and sub-chunks once startup releases.
+/// The committed view's readiness for startup, and its full-world witness only for
+/// acceptance and metrics: loading reads the required columns alone, and normal play
+/// scans nothing once startup releases.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,
     startup_probe_enabled: bool,
-) -> Option<ViewCohortStatus> {
+) -> (Option<CohortProgress>, Option<ViewCohortStatus>) {
     let diagnostics_enabled = {
         #[cfg(feature = "acceptance")]
         {
@@ -252,12 +258,17 @@ pub(crate) fn frame_cohort_status(
             false
         }
     };
-    if !startup_probe_enabled && !diagnostics_enabled {
-        return None;
+    let Some(target) = stream.committed_view_cohort() else {
+        return (None, None);
+    };
+    if diagnostics_enabled {
+        let status = stream.cohort_status(target);
+        (Some(status.into()), Some(status))
+    } else if startup_probe_enabled {
+        (Some(stream.cohort_progress(target)), None)
+    } else {
+        (None, None)
     }
-    stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target))
 }
 
 pub(crate) fn world_stream_fatal_message(error: chunk_pipeline::WorldStreamFatalError) -> String {
@@ -334,7 +345,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     ));
-    frame_poll.cohort = frame_cohort_status(
+    (frame_poll.cohort_progress, frame_poll.cohort) = frame_cohort_status(
         stream,
         #[cfg(feature = "acceptance")]
         &acceptance,

@@ -13,7 +13,7 @@ pub(super) struct LoadingObservation {
     pub menu_visible: bool,
     pub snapshot: VisibilityDiagnosticSnapshot,
     pub visible_rendered: usize,
-    pub cohort: Option<chunk_pipeline::ViewCohortStatus>,
+    pub cohort: Option<chunk_pipeline::CohortProgress>,
     pub render_work_drained: bool,
     pub pipelines_ready: bool,
     pub now: Duration,

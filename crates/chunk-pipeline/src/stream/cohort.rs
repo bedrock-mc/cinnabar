@@ -172,8 +172,35 @@ impl WorldStream {
     #[must_use]
     pub fn startup_view_complete(&self) -> bool {
         match self.publisher.cohort {
-            Some(target) => self.cohort_status(target).target_is_complete(),
+            Some(target) => self.cohort_progress(target).target_is_complete(),
             None => !self.startup_terrain_announced,
+        }
+    }
+
+    /// How much of `target`'s required terrain has loaded. Agrees with [`Self::cohort_status`]
+    /// on every field it shares, reading only the required and loaded columns.
+    #[must_use]
+    pub fn cohort_progress(&self, target: ViewCohort) -> CohortProgress {
+        let committed = self.publisher.cohort;
+        let classified;
+        let expected = if committed != Some(target) {
+            None
+        } else if target.publisher_geometry.is_some() {
+            Some(&self.publisher.required_columns)
+        } else {
+            classified = target.classifier_columns();
+            Some(&classified)
+        };
+        CohortProgress {
+            target,
+            committed,
+            expected: expected.map_or(0, BTreeSet::len),
+            loaded_target: expected.map_or(0, |expected| {
+                expected
+                    .iter()
+                    .filter(|column| self.loaded_columns.contains(column))
+                    .count()
+            }),
         }
     }
     pub fn cohort_status(&self, target: ViewCohort) -> ViewCohortStatus {

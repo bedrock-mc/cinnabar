@@ -56,8 +56,9 @@ fn post_world_ready_required_growth_revokes_the_emitted_cohort() {
     assert_eq!(acceptance.mutation_cohort, None);
 }
 
-/// Startup needs the cohort witness even without acceptance flags. Ordinary play
-/// must stop scanning the retained world once the startup probe is disabled.
+/// Startup needs committed-view readiness even without acceptance flags, but not the
+/// diagnostic scan of every resident sub-chunk, which only acceptance and metrics read.
+/// Ordinary play computes neither once the startup probe is disabled.
 #[test]
 fn frame_cohort_status_is_computed_for_startup_acceptance_or_metrics_only() {
     let mut stream = WorldStream::new(WorldBootstrap {
@@ -78,17 +79,20 @@ fn frame_cohort_status_is_computed_for_startup_acceptance_or_metrics_only() {
             }),
         )
         .unwrap();
-    assert!(stream.committed_view_cohort().is_some());
+    let target = stream.committed_view_cohort().unwrap();
 
     let play = AcceptanceRun::new(None, None, false, false);
     let acceptance = AcceptanceRun::new(Some(60), None, false, false);
     let metrics = AcceptanceRun::new(None, Some("metrics.json".into()), false, false);
-    assert_eq!(
-        crate::runtime::world::frame_cohort_status(&stream, &play, false),
-        None
-    );
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &play, true).is_some());
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &acceptance, false).is_some());
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &metrics, false).is_some());
-    assert!(crate::runtime::world::frame_cohort_status(&stream, &play, false).is_none());
+    let frame = crate::runtime::world::frame_cohort_status;
+    assert_eq!(frame(&stream, &play, false), (None, None));
+    let (progress, status) = frame(&stream, &play, true);
+    assert_eq!(status, None, "loading skips the diagnostic status");
+    assert_eq!(progress, Some(stream.cohort_progress(target)));
+    for diagnostics in [&acceptance, &metrics] {
+        let (progress, status) = frame(&stream, diagnostics, false);
+        let status = status.expect("acceptance and metrics read the full status");
+        assert_eq!(progress, Some(status.into()));
+    }
+    assert_eq!(frame(&stream, &play, false), (None, None));
 }

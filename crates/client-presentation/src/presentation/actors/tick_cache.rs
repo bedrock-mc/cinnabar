@@ -228,17 +228,23 @@ impl PoseConversions {
 pub(crate) fn convert_bones(
     bones: &[client_world::BoneTransform],
 ) -> Option<Arc<[RenderBoneTransform]>> {
-    bones
-        .iter()
-        .map(|bone| {
-            RenderBoneTransform::from_model_space_scaled(
-                bone.rotation,
-                bone.translation_scale,
-                bone.axis_scale,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(Arc::from)
+    convert_bones_with(bones, &mut Vec::with_capacity(bones.len()))
+}
+
+/// [`convert_bones`] staging the conversion in `scratch`, so only the shared pose allocates.
+pub(crate) fn convert_bones_with(
+    bones: &[client_world::BoneTransform],
+    scratch: &mut Vec<RenderBoneTransform>,
+) -> Option<Arc<[RenderBoneTransform]>> {
+    scratch.clear();
+    for bone in bones {
+        scratch.push(RenderBoneTransform::from_model_space_scaled(
+            bone.rotation,
+            bone.translation_scale,
+            bone.axis_scale,
+        )?);
+    }
+    Some(Arc::from(scratch.as_slice()))
 }
 
 #[cfg(test)]

@@ -719,57 +719,6 @@ impl ActorAnimationStore {
         })
     }
 
-    /// The animated skin layers at `alpha`, each retargeted by the targets `targets` builds
-    /// from its skeleton's bone names and rest pose.
-    pub(crate) fn retargeted_layers(
-        &self,
-        runtime_id: u64,
-        alpha: f32,
-        targets: impl Fn(&[Box<str>], &[BoneTransform]) -> Option<Vec<Option<BoneTransform>>>,
-    ) -> Option<Vec<SkinRenderLayer>> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        let skeletons = state
-            .skin_skeleton()
-            .map_or(&[][..], |skin| &skin.prepared.layers);
-        state
-            .skin_layers
-            .iter()
-            .map(|layer| {
-                let skeleton = skeletons.iter().find(|skeleton| skeleton.poses(layer))?;
-                let pose: Arc<[BoneTransform]> = java::retarget(
-                    &skeleton.bones,
-                    &layer.previous,
-                    &layer.current,
-                    alpha.clamp(0.0, 1.0),
-                    &targets(&skeleton.names, &skeleton.rest)?,
-                )?
-                .into();
-                Some(SkinRenderLayer {
-                    previous: Arc::clone(&pose),
-                    current: pose,
-                    ..layer.clone()
-                })
-            })
-            .collect()
-    }
-
-    /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
-    pub(crate) fn retargeted_pose(
-        &self,
-        runtime_id: u64,
-        alpha: f32,
-        targets: &[Option<BoneTransform>],
-    ) -> Option<Vec<BoneTransform>> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        java::retarget(
-            state.posed_bones(),
-            &state.previous,
-            &state.current,
-            alpha.clamp(0.0, 1.0),
-            targets,
-        )
-    }
-
     fn bump_generation(&mut self) {
         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
     }
@@ -835,6 +784,7 @@ mod horse;
 mod hud;
 mod java;
 mod spear;
+pub use java::retarget::JavaRetargetCache;
 pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
 mod particles;

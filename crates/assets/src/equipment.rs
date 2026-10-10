@@ -82,6 +82,17 @@ impl EquipmentBinding {
     pub fn pose(&self, key: &str) -> Option<&AttachablePose> {
         self.poses.iter().find(|pose| pose.key.as_ref() == key)
     }
+
+    /// The RGB this binding's material multiplies through its color mask: the stack's dye,
+    /// else undyed leather. Only leather materials (vanilla `armor_leather`, whose
+    /// `USE_COLOR_MASK` shader reads texture alpha as the dye mask) have one; every other
+    /// material renders its texture as authored, whatever dye the stack carries.
+    #[must_use]
+    pub fn color_mask_rgb(&self, dye: Option<u32>) -> Option<u32> {
+        self.material
+            .contains("leather")
+            .then(|| dye.unwrap_or(DEFAULT_LEATHER_RGB))
+    }
 }
 
 const MAX_POSES_PER_BINDING: usize = 16;
@@ -841,6 +852,25 @@ mod from_parts_tests {
         assert!(
             RuntimeEquipmentCatalog::from_parts([0; 32], vec![binding("a:item")], Vec::new())
                 .is_err()
+        );
+    }
+
+    // A team dye on diamond armor leaves the diamond texture untinted; leather takes it.
+    #[test]
+    fn only_leather_materials_apply_a_stack_dye() {
+        let worn = |material: &str| EquipmentBinding {
+            material: material.into(),
+            ..binding("minecraft:chestplate")
+        };
+        let red = Some(0x00b0_2e26);
+        assert_eq!(worn("armor").color_mask_rgb(red), None);
+        assert_eq!(worn("armor").color_mask_rgb(None), None);
+        assert_eq!(worn("armor_enchanted").color_mask_rgb(red), None);
+        assert_eq!(worn("entity_alphatest").color_mask_rgb(red), None);
+        assert_eq!(worn("armor_leather").color_mask_rgb(red), red);
+        assert_eq!(
+            worn("armor_leather_enchanted").color_mask_rgb(None),
+            Some(DEFAULT_LEATHER_RGB)
         );
     }
 }

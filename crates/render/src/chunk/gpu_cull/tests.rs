@@ -24,6 +24,7 @@ fn allocation(layout: CubeQuadLayout, metadata_index: u32) -> GpuChunkAllocation
         has_depth_liquid: true,
         has_transparent_liquid: false,
         depth_liquid_range: Some(5..9),
+        order_independent_liquid: false,
         metadata_index,
     }
 }

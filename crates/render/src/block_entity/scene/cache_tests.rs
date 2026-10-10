@@ -264,13 +264,16 @@ fn every_distinct_sign_text_keeps_its_own_canvas_and_an_unchanged_frame_rasteriz
         }),
     };
     let mut scene = scene();
-    let rects: Vec<_> = (0..SIGNS)
-        .map(|key| {
-            scene
-                .text_rect(key, || canvas(key))
-                .expect("every sign gets a canvas")
-        })
-        .collect();
+    // New texts rasterize within a per-frame budget, so every canvas is ready a few frames on.
+    let rects: Vec<_> = loop {
+        let rects: Option<Vec<_>> = (0..SIGNS)
+            .map(|key| scene.text_rect(key, || canvas(key)))
+            .collect();
+        if let Some(rects) = rects {
+            break rects;
+        }
+        scene.update(SceneClock { ticks: 0.0 }, &[], &[]);
+    };
     let submissions: Vec<_> = (0..SIGNS)
         .map(|key| sign(key, rects[key as usize]))
         .collect();

@@ -16,7 +16,7 @@ use crate::{
     movement::{LocalPhysicsController, MovementTicker},
     player_runtime::PlayerRuntime,
     runtime::{
-        network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
+        network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         shutdown::record_fatal_error,
         world::{ClientWorld, TransferNotice},
     },
@@ -68,6 +68,8 @@ pub(crate) struct SessionController {
     connecting: bool,
     /// Polls the per-session core this join started for its server trust question.
     trust: Option<SessionTrust>,
+    /// Server packs recent joins compiled; released once no join follows.
+    kept_packs: &'static CompiledStacks,
 }
 
 impl Default for SessionController {
@@ -88,7 +90,15 @@ impl SessionController {
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
+            kept_packs: crate::runtime::network::compiled_stacks(),
         }
+    }
+
+    /// A controller that releases `kept` instead of the stacks joins share.
+    #[cfg(test)]
+    pub(crate) fn with_kept_packs(mut self, kept: &'static CompiledStacks) -> Self {
+        self.kept_packs = kept;
+        self
     }
 
     /// Names a direct `--address` session's destination.
@@ -135,9 +145,11 @@ impl SessionController {
         true
     }
 
+    /// Returns a failed join to the menu, where no join follows to reuse the kept packs.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
         menu.show_join_failure(message);
         self.connecting = false;
+        self.kept_packs.release();
     }
 
     /// Spawns a per-session core that dials `address` directly.
@@ -317,6 +329,13 @@ pub(crate) struct SessionResources<'w> {
 }
 
 impl SessionResources<'_> {
+    /// Retires the live session with no join to follow, also releasing the
+    /// recently compiled server packs a following join would have reused.
+    fn leave(&mut self) {
+        self.retire();
+        self.controller.kept_packs.release();
+    }
+
     /// Ends the live session and fences a fresh generation. The core stops off
     /// the frame, and its directories go only once it has exited.
     fn retire(&mut self) -> u64 {
@@ -332,10 +351,12 @@ impl SessionResources<'_> {
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
-        self.client_world.stream = None;
-        self.client_world.pack_entities = None;
-        self.client_world.prepared_actor_artwork = None;
-        self.client_world.session_items = None;
+        release_off_frame((
+            self.client_world.stream.take(),
+            self.client_world.pack_entities.take(),
+            self.client_world.prepared_actor_artwork.take(),
+            self.client_world.session_items.take(),
+        ));
         self.client_world.pending_surface_spawn = None;
         self.client_world.fatal_error = None;
         self.client_world.transfer_notice = None;
@@ -346,6 +367,18 @@ impl SessionResources<'_> {
             &mut self.interaction,
         );
         generation
+    }
+}
+
+/// Drops a retired session's world and pack snapshots on a thread of their own, since freeing
+/// every column, actor and cache can take longer than a frame. They drop here only if no thread
+/// can start.
+fn release_off_frame(retired: impl Send + 'static) {
+    let spawned = std::thread::Builder::new()
+        .name("session-release".to_owned())
+        .spawn(move || drop(retired));
+    if let Err(error) = spawned {
+        bevy::log::warn!("session release thread unavailable, released on the frame: {error}");
     }
 }
 
@@ -570,7 +603,7 @@ fn drive_intents(
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
-        session.retire();
+        session.leave();
         if cancelled_join {
             menu.cancel_join();
         } else {
@@ -605,7 +638,7 @@ pub(crate) fn recover_session_failure(
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    session.retire();
+    session.leave();
     session.controller.publish(&mut menu);
 }
 
@@ -640,7 +673,7 @@ fn follow_transfer(
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
-        session.retire();
+        session.leave();
         record_fatal_error(
             &mut session.client_world.fatal_error,
             format!(
@@ -697,7 +730,7 @@ fn end_transfer_without_follow(
     session: &mut SessionResources<'_>,
     reason: String,
 ) {
-    session.retire();
+    session.leave();
     menu.absorb_session_failure(&reason);
 }
 
@@ -788,6 +821,23 @@ mod tests {
         );
         assert!(transfer_handoff_address("", 19132).is_none());
         assert!(transfer_handoff_address("   ", 19132).is_none());
+    }
+
+    /// A retired world is freed on another thread, never by the frame that leaves the server.
+    #[test]
+    fn a_retired_session_is_released_off_the_calling_thread() {
+        struct Probe(std::sync::mpsc::Sender<std::thread::ThreadId>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.0.send(std::thread::current().id());
+            }
+        }
+        let (dropped, dropper) = std::sync::mpsc::channel();
+        release_off_frame((Probe(dropped), vec![0_u8; 1024]));
+        let thread = dropper
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the retired session is released");
+        assert_ne!(thread, std::thread::current().id());
     }
 
     #[test]

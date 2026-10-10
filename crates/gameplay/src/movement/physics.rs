@@ -34,7 +34,7 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
 /// Vanilla's per-frame tick cap; excess whole ticks are discarded.
-pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 10;
+pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = world::MAX_TICKS_PER_FRAME as usize;
 
 pub trait MovementEffectSource {
     fn snapshot(&self) -> sim::MovementEffects;

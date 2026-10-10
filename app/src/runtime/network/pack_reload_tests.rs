@@ -98,6 +98,7 @@ fn optional_reload_reuses_unchanged_subscribers_and_removes_absent_ui() {
         Arc::new(PackInputs::default()),
     );
     let next = resource_packs::prepare_changed_application(
+        &resource_packs::reuse::CompiledStacks::new(),
         stack(&[
             ("ui/reload.json", definition),
             ("texts/en_US.lang", b"test.reload=changed"),
@@ -111,6 +112,7 @@ fn optional_reload_reuses_unchanged_subscribers_and_removes_absent_ui() {
     ));
     assert!(next.server_lang.is_some());
     let removed = resource_packs::prepare_changed_application(
+        &resource_packs::reuse::CompiledStacks::new(),
         stack(&[]),
         Arc::new(PackInputs::default()),
         Some(&next),
@@ -132,6 +134,7 @@ fn optional_reload_replaces_ui_whose_texture_pixels_changed() {
         Arc::new(PackInputs::default()),
     );
     let next = resource_packs::prepare_changed_application(
+        &resource_packs::reuse::CompiledStacks::new(),
         stack(&[
             ("ui/reload.json", definition),
             ("textures/ui/art.png", b"new"),

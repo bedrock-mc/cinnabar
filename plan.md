@@ -161,6 +161,10 @@
   120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
   manual recording clocks keep their requested steps. Live movement acceptance remains open.
 
+- Actor catch-up uses `world::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
+  advancement share one clock step, including server-defined interaction boxes after a stall.
+  Deterministic regression coverage does not close live animation or movement acceptance.
+
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
@@ -592,6 +596,31 @@
   two-sided quads keep the cull-none discard pipeline.
 - An offscreen GPU test matches the culled path pixel-for-pixel against the discard path.
 - Incomplete live visual acceptance: a rendered-frame pass on the target platforms is pending.
+
+## Transparent water order across camera turns
+
+- The water sort covers every resident sub-chunk whose faces need an order, not the
+  frustum's, so turning never re-sorts; the frustum only picks which sorted groups draw.
+- Water whose faces share one plane and facing, one cell each (flat oceans and lakes),
+  blends the same in any order and draws from its records through the sorted path's
+  vertex program. Views that displace water (Enhanced) still sort it.
+- A staged sort that is still readable commits before the next request, so streaming
+  that changes residents every frame cannot starve it.
+- Each sorted sub-chunk owns a range of the committed slot. A new, changed or removed
+  sub-chunk patches only its own range, so one new shore uploads only its refs; the slot
+  is repacked only when fragmented. Removed water is released once no committed or
+  staged snapshot reads it.
+- The resident index keeps running ref totals, and the sort inputs are rebuilt only for
+  residents that changed. A pack reload seeds them, sorted for the view's water mode.
+- Visible water keeps last frame's key order and merges in only new entries; a key
+  visible under two entities draws the upload the resident index holds.
+- Past the 2,097,152-ref ceiling the nearest water is sorted. Farther water that needs an
+  order, and water awaiting its first sort, draws unsorted and is logged, never skipped.
+- Regression tests cover a turn, a rotation sweep, resident churn, streaming, the ceiling
+  through the live prepare step, and an ocean past the ceiling. An offscreen GPU test
+  matches flat water drawn from its records pixel-for-pixel against any sorted order.
+- Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
+  draws unsorted; transparent models still sort only the visible set.
 
 ## Held cube item consistency
 
@@ -5338,6 +5367,19 @@ pass yet; `font_size` steps and the text-background option default are
 unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
 0.3 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
 
+**Text on the device pixel grid (2026-10-09):** vanilla draws a font pixel over
+exactly GUI-scale device pixels and truncates text origins to whole device pixels.
+Text laid out at fractional display scales (Windows 125%, 150% and 175%) used to
+measure in logical 1/64 pixels with a rounded scale, so glyphs drifted off the
+device grid along a line. Nearest sampling then gave some letters' strokes one
+device pixel more or less than their neighbours'. Text from the frame's text
+metrics, and the Java-look book and window text, now measures in device pixels
+whenever each font texel spans whole half device pixels, as Cinnangles Sans does
+at every integer GUI scale. Display scales 1 and 2 lay out unchanged. Text at
+fractional font scales (`font_scale_factor` 0.8, `small` at odd GUI scales) and
+outline OreUI fonts keep logical-pixel layout. Incomplete: no live Windows
+rendered-frame pass at a fractional display scale yet.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
@@ -6205,6 +6247,16 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+
+2026-10-09 preview armor and inventory framing (implemented; parity incomplete): inventory,
+pause and HUD previews resolve armor as the world player does and apply `customColor` only
+through a leather material, so team-dyed diamond armor keeps its diamond art. Session pack
+armor takes GUI model pages only for the worn textures, each placed on its own, so a server
+stack with more attachable art than the model atlas no longer disables all of it. The live
+inventory renderer centers the model-part origin instead of the eyes, as the HUD doll does.
+Incomplete: pack attachables with their own geometry still draw on the humanoid armor boxes;
+worn art longer than a 512-texel model page is box-reduced in the GUI although the world draws
+it at full resolution; the inventory placement has no matched vanilla capture.
 ### Burning camera and HUD doll (accepted fix; overall parity incomplete)
 
 The camera effect now uses vanilla's open fire cube, down-face sprite,

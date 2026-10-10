@@ -22,7 +22,7 @@ use render_model::{
     is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
 
-use super::{ActorArtworkPageId, ActorCullView};
+use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
@@ -270,10 +270,28 @@ pub struct ActorRigFrameBuilder {
 #[derive(Debug, Default)]
 struct BuildScratch {
     submissions: Vec<ActorRigSubmission>,
+    /// Artwork location of each submission.
+    locations: Vec<Option<ActorArtworkLocation>>,
+    /// Submission indices in identity order, then without superseded identities.
+    order: Vec<u32>,
+    draw_order: Vec<DrawKey>,
+    /// Artwork location of each instance the last build drew.
+    instance_locations: Vec<Option<ActorArtworkLocation>>,
     instances: Vec<ActorGpuInstance>,
     previous_bones: Vec<[[f32; 4]; 3]>,
     current_bones: Vec<[[f32; 4]; 3]>,
     manifest: Vec<ActorDrawManifestEntry>,
+}
+
+/// Where one admitted submission draws: by layer, texture page and geometry, then in identity
+/// order (`rank`) among equals.
+#[derive(Clone, Copy, Debug)]
+struct DrawKey {
+    layer: u8,
+    page: ActorArtworkPageId,
+    rig: EntityRigId,
+    rank: u32,
+    index: u32,
 }
 
 impl ActorRigFrameBuilder {
@@ -461,6 +479,26 @@ impl ActorRigFrameBuilder {
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
         page_of: impl Fn(&ActorRenderIdentity) -> ActorArtworkPageId,
     ) -> ActorRigRenderFrame {
+        self.build_located(
+            partial_tick,
+            view,
+            submissions.into_iter().map(|submission| (submission, None)),
+            |identity, _| page_of(identity),
+        )
+    }
+
+    /// [`Self::build_paged`] for submissions paired with their artwork locations, which also
+    /// supply each instance's multitexture samplers. `page_of` is asked once per submission
+    /// that survives deduplication; [`Self::instance_locations`] then lists each instance's.
+    #[must_use]
+    pub(crate) fn build_located(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = (ActorRigSubmission, Option<ActorArtworkLocation>)>,
+        page_of: impl Fn(&ActorRenderIdentity, Option<ActorArtworkLocation>) -> ActorArtworkPageId,
+    ) -> ActorRigRenderFrame {
+        self.scratch.instance_locations.clear();
         let Some(frame_generation) = self.frame_generation.checked_add(1) else {
             return ActorRigRenderFrame {
                 rejects: ActorRigRejects {
@@ -492,17 +530,29 @@ impl ActorRigFrameBuilder {
             )
         };
         let mut ordered = std::mem::take(&mut scratch.submissions);
-        ordered.extend(submissions);
-        ordered.sort_by(|a, b| {
-            key(a)
-                .cmp(&key(b))
-                .then(b.input.identity.cmp(&a.input.identity))
+        let mut locations = std::mem::take(&mut scratch.locations);
+        for (submission, location) in submissions {
+            ordered.push(submission);
+            locations.push(location);
+        }
+        // Sorting indices with their position as the last tie-break gives exactly the order a
+        // stable sort of the submissions themselves would.
+        let mut order = std::mem::take(&mut scratch.order);
+        order.clear();
+        order.extend(0..ordered.len() as u32);
+        order.sort_unstable_by(|&a, &b| {
+            let (left, right) = (&ordered[a as usize], &ordered[b as usize]);
+            key(left)
+                .cmp(&key(right))
+                .then(right.input.identity.cmp(&left.input.identity))
+                .then(a.cmp(&b))
         });
-        ordered.dedup_by_key(|submission| key(submission));
+        order.dedup_by_key(|index| key(&ordered[*index as usize]));
         let mut instances = std::mem::take(&mut scratch.instances);
         let mut previous_bones = std::mem::take(&mut scratch.previous_bones);
         let mut current_bones = std::mem::take(&mut scratch.current_bones);
         let mut manifest = std::mem::take(&mut scratch.manifest);
+        let mut instance_locations = std::mem::take(&mut scratch.instance_locations);
         instances.clear();
         previous_bones.clear();
         current_bones.clear();
@@ -512,16 +562,28 @@ impl ActorRigFrameBuilder {
 
         // Bodies first so equipment can never crowd a body out of the instance arena; layers in
         // ascending order so a coplanar overlay draws after the layers beneath it.
-        ordered.sort_by_key(|submission| {
+        let mut draw_order = std::mem::take(&mut scratch.draw_order);
+        draw_order.clear();
+        draw_order.extend(order.iter().enumerate().map(|(rank, &index)| {
+            let submission = &ordered[index as usize];
             let identity = submission.input.identity;
-            (identity.layer, page_of(&identity), submission.input.rig)
-        });
-        for submission in ordered.drain(..) {
-            if let Err(error) = eligibility::validate_input(&submission) {
+            DrawKey {
+                layer: identity.layer,
+                page: page_of(&identity, locations[index as usize]),
+                rig: submission.input.rig,
+                rank: rank as u32,
+                index,
+            }
+        }));
+        draw_order.sort_unstable_by_key(|draw| (draw.layer, draw.page, draw.rig, draw.rank));
+        for draw in &draw_order {
+            let submission = &ordered[draw.index as usize];
+            let location = locations[draw.index as usize];
+            if let Err(error) = eligibility::validate_input(submission) {
                 error.count(&mut rejects);
                 continue;
             }
-            if !actor_rig_submission_is_visible(&submission, view) {
+            if !actor_rig_submission_is_visible(submission, view) {
                 continue;
             }
             if instances.len() == MAX_ACTOR_RENDER_INSTANCES {
@@ -530,7 +592,7 @@ impl ActorRigFrameBuilder {
             }
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
-            let (geometry_id, geometry) = match eligibility::geometry(&self.catalog, &submission) {
+            let (geometry_id, geometry) = match eligibility::geometry(&self.catalog, submission) {
                 Ok(geometry) => geometry,
                 Err(error) => {
                     error.count(&mut rejects);
@@ -553,12 +615,18 @@ impl ActorRigFrameBuilder {
                 geometry_id,
                 &geometry.bone_pivots,
             );
-            let current_valid = self.matrices.append(
-                &mut current_bones,
-                current,
-                geometry_id,
-                &geometry.bone_pivots,
-            );
+            // One allocation posing both endpoints has the matrices just appended.
+            let current_valid = if previous_valid && Arc::ptr_eq(previous, current) {
+                current_bones.extend_from_slice(&previous_bones[previous_bone_base as usize..]);
+                true
+            } else {
+                self.matrices.append(
+                    &mut current_bones,
+                    current,
+                    geometry_id,
+                    &geometry.bone_pivots,
+                )
+            };
             if !previous_valid || !current_valid {
                 previous_bones.truncate(previous_bone_base as usize);
                 current_bones.truncate(current_bone_base as usize);
@@ -592,7 +660,9 @@ impl ActorRigFrameBuilder {
                 uv_anim: sanitized_uv_anim(submission.uv_anim),
                 light: submission.light,
                 overlay_rgba8: submission.overlay_rgba8,
-                multitexture_layers: [u32::MAX; 2],
+                multitexture_layers: location
+                    .and_then(|location| location.multitexture)
+                    .unwrap_or([u32::MAX; 2]),
                 material: submission.material.gpu_word(),
                 glint: submission.material.glint.parameters(),
                 dissolve_multiplier: if submission.material.dissolve_multiplier.is_finite() {
@@ -617,7 +687,10 @@ impl ActorRigFrameBuilder {
                 current_bone_base,
                 bone_count: previous.len() as u32,
             });
+            instance_locations.push(location);
         }
+        ordered.clear();
+        locations.clear();
 
         debug_assert!(
             previous_bones.len() * ACTOR_BONE_MATRIX_BYTES * 2 <= MAX_ACTOR_BONE_ARENA_BYTES
@@ -636,12 +709,21 @@ impl ActorRigFrameBuilder {
         };
         self.scratch = BuildScratch {
             submissions: ordered,
+            locations,
+            order,
+            draw_order,
+            instance_locations,
             instances,
             previous_bones,
             current_bones,
             manifest,
         };
         frame
+    }
+
+    /// The artwork location of each instance the last build drew, in instance order.
+    pub(crate) fn instance_locations(&self) -> &[Option<ActorArtworkLocation>] {
+        &self.scratch.instance_locations
     }
 }
 
@@ -753,3 +835,7 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
         ]
     }))
 }
+
+#[cfg(test)]
+#[path = "rig/build_tests.rs"]
+mod build_tests;
