@@ -16,6 +16,7 @@ pub mod settings;
 pub mod systems;
 mod voice;
 mod water;
+pub mod weather;
 
 pub use bank::{SoundBank, sound_bank_path};
 
