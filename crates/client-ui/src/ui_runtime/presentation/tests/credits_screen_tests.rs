@@ -149,7 +149,7 @@ fn credits_request_and_paint_the_runtime_title_without_a_json_image_control() {
             std::time::Instant::now() < deadline,
             "custom credits rendering must request and paint its runtime title"
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        test_time::idle();
     }
 }
 
@@ -172,7 +172,7 @@ fn credits_logo_and_first_poem_row_have_a_content_separator() {
             .unwrap();
         if !draws_title_pixel(&input) {
             assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            test_time::idle();
             continue;
         }
         let mut logo_bottom = f32::NEG_INFINITY;

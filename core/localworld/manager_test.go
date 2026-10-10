@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 )
 
 type fakeInstance struct {
@@ -73,15 +75,14 @@ func (r *fakeRunner) last() *fakeInstance {
 
 func waitState(t *testing.T, m *Manager, want State) Status {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if status := m.Status(); status.State == want {
-			return status
-		}
-		time.Sleep(time.Millisecond)
+	var status Status
+	if !testwait.WaitUntil(2*time.Second, func() bool {
+		status = m.Status()
+		return status.State == want
+	}) {
+		t.Fatalf("state = %v, want %v", status, want)
 	}
-	t.Fatalf("state = %v, want %v", m.Status(), want)
-	return Status{}
+	return status
 }
 
 func newTestManager(t *testing.T, runner Runner) (*Manager, World) {
@@ -208,16 +209,11 @@ func TestPauseAppliesWhileRunningAndQueuesWhileStarting(t *testing.T) {
 	close(runner.gate)
 	waitState(t, m, StateRunning)
 	inst := runner.last()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	testwait.WaitUntil(2*time.Second, func() bool {
 		inst.mu.Lock()
-		n := len(inst.paused)
-		inst.mu.Unlock()
-		if n > 0 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer inst.mu.Unlock()
+		return len(inst.paused) > 0
+	})
 	if err := m.SetPaused(false); err != nil {
 		t.Fatal(err)
 	}

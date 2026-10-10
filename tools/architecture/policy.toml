@@ -37,13 +37,13 @@ ownership_record = "crates/protocol/vendor/UPSTREAM.md"
 [[crates]]
 name = "bridge"
 path = "crates/bridge"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["block-transform", "bridge", "render-api"]
+allowed_dependencies = ["block-transform", "bridge", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -100,7 +100,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support"]
-allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
+allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api", "test-time"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
@@ -143,7 +143,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "play
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "render"]
 test_support_features = ["test-support"]
@@ -152,7 +152,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
@@ -180,7 +180,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "developer-control"
 path = "crates/developer-control"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -188,6 +188,13 @@ name = "render-api"
 path = "crates/render-api"
 allowed_dependencies = []
 # Shared contracts stay std-only, including build, dev and target dependencies.
+dependency_free = true
+
+# Test-only waits and manual clocks; std-only, and only ever a dev-dependency.
+[[crates]]
+name = "test-time"
+path = "crates/test-time"
+allowed_dependencies = []
 dependency_free = true
 
 # Render data contracts and CPU geometry; presentation builds against it without the GPU renderer.
@@ -210,7 +217,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
+allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -218,7 +225,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
+allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -251,7 +258,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -287,7 +294,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "experience-runtime"
 path = "crates/experience-runtime"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -360,7 +367,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "mcp-stdio"]
+allowed_dependencies = ["developer-control", "mcp-stdio", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
 
@@ -766,3 +773,48 @@ name = "block-transform"
 path = "crates/block-transform"
 allowed_dependencies = []
 dependency_free = true
+
+# Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
+# Each exception names why the file still sleeps; converting it removes the entry.
+# Domain crates take `now` from their caller; only edge code reads the clock.
+[timing]
+clock_free_crates = [
+    "crates/block-transform",
+    "crates/input",
+    "crates/inventory",
+    "crates/json-ui",
+    "crates/meshing",
+    "crates/player-state",
+    "crates/render-api",
+    "crates/resource-pack",
+    "crates/sim",
+    "crates/ui",
+    "crates/world",
+]
+sleep_exceptions = [
+    { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
+    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
+    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
+    { path = "crates/chunk-pipeline/src/stream/tests/neighbour_deadlines.rs", reason = "manual timing run past the real unsent-column grace" },
+    { path = "crates/chunk-pipeline/src/stream/tests/streaming_harness.rs", reason = "paces frames for the streaming harness" },
+    { path = "crates/client-ui/src/remote_images/disk/tests.rs", reason = "a fixture image server that answers slowly or stalls" },
+    { path = "crates/client-session/src/session/tests.rs", reason = "a worker still busy when the network handle drops" },
+    { path = "tools/cinnabar-mcp/src/tests.rs", reason = "a reply slower than the client's timeout, then the late reply arriving" },
+    { path = "core/authcache/concurrency_test.go", reason = "a fake token source that is slow to refresh" },
+    { path = "core/authcache/derived_test.go", reason = "a fake service that is slow to answer" },
+    { path = "core/authcache/flight_test.go", reason = "racy: sleeps to let goroutines block; needs a ready signal" },
+    { path = "core/cmd/bedrock-core/lifecycle_unix_test.go", reason = "a helper process that stays alive until the test kills it" },
+    { path = "core/internal/lifeline/lifeline_unix_test.go", reason = "a helper process that stays alive until the test kills it" },
+    { path = "core/internal/lockfile/lockfile_test.go", reason = "a lock holder that stays alive until the test kills it" },
+    { path = "core/internal/streamnet/conn_test.go", reason = "racy: sleeps to let a write block; needs a ready signal" },
+    { path = "core/proxy/first_join_token_live_test.go", reason = "a live, opt-in join profile that keeps credentials warm" },
+    { path = "core/proxy/packet_delay_position_test.go", reason = "virtual time inside synctest bubbles" },
+    { path = "core/proxy/packet_delay_test.go", reason = "virtual time inside synctest bubbles" },
+    { path = "core/proxy/prepared_transport_test.go", reason = "stands in for credential acquisition time" },
+    { path = "core/proxy/proxy_test.go", reason = "asserts nothing else arrives within a window" },
+    { path = "core/proxy/relay_backpressure_test.go", reason = "a stalled sink; racy wait for the pump to block needs a ready signal" },
+    { path = "core/proxy/resource_pack_admission_test.go", reason = "a server that trickles a slow download" },
+    { path = "tools/localserver/experience/client_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+    { path = "tools/localserver/experience/dispatch_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+    { path = "tools/localserver/experience/helpers_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+]

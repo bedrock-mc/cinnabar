@@ -11,12 +11,14 @@ mod modules;
 mod paths;
 mod policy;
 mod sources;
+mod timing;
 
 use dependencies::check_dependencies;
 use markers::check_markers;
 use paths::{ignored_directory, is_vendored, relative_slash};
 use policy::Policy;
 use sources::{check_artifacts, check_sources};
+use timing::check_timing;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArchitectureError {
@@ -62,6 +64,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     check_dependencies(root, &policy, &mut diagnostics)?;
     modules::check_modules(root, &policy, &files, &mut diagnostics)?;
     check_markers(root, &policy, &files, &mut diagnostics)?;
+    check_timing(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();
     Ok(diagnostics)

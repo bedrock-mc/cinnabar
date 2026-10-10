@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/df-mc/go-playfab/v2"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/df-mc/go-xsapi/v2/xal"
@@ -353,17 +355,11 @@ func TestFinishedFlightIsNeverReportedCancelled(t *testing.T) {
 // settle waits for publications still finishing in the background after the calls under test returned.
 func settle(t *testing.T, account *Account) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	testwait.Eventually(t, 5*time.Second, "background publication to finish", func() bool {
 		account.activeMu.Lock()
-		active := account.active
-		account.activeMu.Unlock()
-		if active == 0 {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("background publication never finished")
+		defer account.activeMu.Unlock()
+		return account.active == 0
+	})
 }
 
 // blockingDevice holds SISU's token lock by never answering until released.

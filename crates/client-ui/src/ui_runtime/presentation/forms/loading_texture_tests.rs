@@ -110,7 +110,7 @@ fn settled(
             std::time::Instant::now() < deadline,
             "loading textures never became resident"
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        test_time::idle();
     }
     presentation.finish_menu_artwork();
     frame(player_runtime, presentation)

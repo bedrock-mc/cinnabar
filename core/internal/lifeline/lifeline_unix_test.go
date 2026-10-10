@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 )
 
 const helperEnv = "LIFELINE_TEST_HELPER"
@@ -74,12 +76,8 @@ func TestCoreExitsWhenItsClientIsKilled(t *testing.T) {
 	})
 	_ = client.Process.Kill()
 	_ = client.Wait()
-	deadline := time.Now().Add(5 * time.Second)
-	for alive(core) {
-		if time.Now().After(deadline) {
-			t.Fatalf("core %d outlived its killed client", core)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if !testwait.WaitUntil(5*time.Second, func() bool { return !alive(core) }) {
+		t.Fatalf("core %d outlived its killed client", core)
 	}
 }
 

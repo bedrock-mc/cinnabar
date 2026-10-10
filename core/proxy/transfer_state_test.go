@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -202,7 +204,7 @@ func TestTransferTargetDialsWhileOldUpstreamCloseBlocks(t *testing.T) {
 		if ctx.Err() != nil {
 			t.Fatal("Transfer was not relayed to the client")
 		}
-		time.Sleep(time.Millisecond)
+		testwait.Idle()
 	}
 	// The client leaves to follow the transfer; the old session's Close now blocks.
 	_ = downstream.Abort()

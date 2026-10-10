@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
@@ -276,17 +278,11 @@ func exchange(t *testing.T, dir string, request []byte) []byte {
 
 func waitForActiveConnection(t *testing.T, server *Server) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	testwait.Eventually(t, time.Second, "the server to accept the control connection", func() bool {
 		server.mu.Lock()
-		active := len(server.active) != 0
-		server.mu.Unlock()
-		if active {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("server did not accept control connection")
+		defer server.mu.Unlock()
+		return len(server.active) != 0
+	})
 }
 
 type deadlineFailureConn struct {

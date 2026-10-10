@@ -181,7 +181,7 @@ fn worker_decodes_become_resident_and_keep_their_pixels() {
     let started = Instant::now();
     while resident(&atlas) < keys.len() {
         assert!(started.elapsed() < Duration::from_secs(10));
-        std::thread::sleep(Duration::from_millis(5));
+        test_time::idle();
         atlas.require(keys.iter().map(String::as_str));
     }
     assert_eq!(atlas.decodes.pixels.len(), keys.len());

@@ -123,7 +123,7 @@ fn settled(
             std::time::Instant::now() < deadline,
             "carrier images were unresolved"
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        test_time::idle();
     }
     presentation.finish_menu_artwork();
     frame(player, presentation)

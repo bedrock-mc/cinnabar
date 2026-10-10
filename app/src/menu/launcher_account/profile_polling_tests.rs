@@ -48,24 +48,18 @@ fn profile_with_stalled_home(fail: bool) -> Option<MenuProfile> {
         while !stopping.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((stream, _)) => respond(stream, &mut held, fail),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
-                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => test_time::idle(),
                 Err(error) => panic!("offline Profile fixture: {error}"),
             }
         }
     });
     let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
     account.refresh_profile();
-    let deadline = Instant::now() + Duration::from_secs(3);
     let mut profile = None;
-    while Instant::now() < deadline {
+    test_time::wait_until(Duration::from_secs(3), || {
         profile = account.profile();
-        if profile.is_some() {
-            break;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+        profile.is_some()
+    });
     drop(account);
     done.store(true, Ordering::Relaxed);
     fixture.join().unwrap();
@@ -151,15 +145,11 @@ fn profile_loading_restarts_for_new_account_and_rejects_old_reply() {
 fn profile_loading_ends_when_endpoint_is_missing() {
     let dir = std::env::temp_dir().join(format!("profile-missing-{}", std::process::id()));
     let mut account = LauncherAccount::new(dir.clone(), dir.join("artwork"));
-    let deadline = Instant::now() + Duration::from_secs(2);
     let mut profile = None;
-    while Instant::now() < deadline {
+    test_time::wait_until(Duration::from_secs(2), || {
         profile = account.profile();
-        if profile.is_some() {
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
+        profile.is_some()
+    });
     assert!(profile.is_some_and(|profile| profile.loaded && profile.unavailable));
 }
 

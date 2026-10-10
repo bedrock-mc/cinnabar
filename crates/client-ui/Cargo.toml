@@ -40,6 +40,7 @@ tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 tempfile = "3"
 protocol = { path = "../protocol", features = ["wire-test-support"] }
 mod-host = { path = "../mod-host" }

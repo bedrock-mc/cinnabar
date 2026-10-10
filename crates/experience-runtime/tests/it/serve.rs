@@ -122,7 +122,7 @@ impl Session {
                 break status;
             }
             assert!(Instant::now() < deadline, "the runtime did not exit");
-            thread::sleep(Duration::from_millis(10));
+            test_time::idle();
         };
         let stderr = self.stderr.take().expect("finished once");
         let stderr = stderr.join().expect("the stderr reader");

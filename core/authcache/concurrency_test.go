@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"golang.org/x/oauth2"
 )
@@ -79,16 +81,13 @@ func TestOAuthRefreshAcrossProcesses(t *testing.T) {
 // waitForCacheTestFile bounds synchronization with the child test processes.
 func waitForCacheTestFile(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		} else if !errors.Is(err, os.ErrNotExist) {
+	testwait.Eventually(t, 5*time.Second, filepath.Base(path), func() bool {
+		_, err := os.Stat(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			t.Fatal(err)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", filepath.Base(path))
+		return err == nil
+	})
 }
 
 func TestOAuthLeaseWaitIsCancelled(t *testing.T) {

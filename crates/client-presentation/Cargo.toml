@@ -41,6 +41,7 @@ thiserror.workspace = true
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../pack-compiler" }
 chunk-pipeline = { path = "../chunk-pipeline", features = ["publication-test-support"] }

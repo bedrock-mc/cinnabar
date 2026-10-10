@@ -43,6 +43,7 @@ wasmtime = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 tempfile = "3"
 wat = "1"
 

@@ -525,7 +525,7 @@ fn wait_for_child(child: &mut Child, timeout: Duration) -> io::Result<Option<Exi
         if Instant::now() >= deadline {
             return Ok(None);
         }
-        thread::sleep(Duration::from_millis(20));
+        test_time::idle();
     }
 }
 

@@ -216,11 +216,10 @@ impl ChildGuard {
 
     fn terminate(&mut self) {
         self.stdin.take();
-        for _ in 0..100 {
-            if self.child.try_wait().ok().flatten().is_some() {
-                return;
-            }
-            std::thread::sleep(POLL_INTERVAL);
+        if test_time::wait_until(POLL_INTERVAL * 100, || {
+            self.child.try_wait().ok().flatten().is_some()
+        }) {
+            return;
         }
         let _ = self.child.kill();
         let _ = self.child.wait();

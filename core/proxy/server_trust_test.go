@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/endpoint"
 	"github.com/go-jose/go-jose/v4"
@@ -236,15 +238,11 @@ func TestServerTrustPromptsPublishInOrder(t *testing.T) {
 		wg.Add(1)
 		go func() { defer wg.Done(); _, _ = prompts.Confirm(ctx, "http://a:1") }()
 	}
-	for {
+	testwait.Eventually(t, testwait.DefaultTimeout, "all 20 trust checks", func() bool {
 		mu.Lock()
-		n := len(order)
-		mu.Unlock()
-		if n == 20 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(order) == 20
+	})
 	cancel()
 	wg.Wait()
 	if !slices.IsSorted(order) {
