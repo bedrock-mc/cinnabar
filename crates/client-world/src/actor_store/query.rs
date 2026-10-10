@@ -187,6 +187,12 @@ impl ActorStore {
             .get(&runtime_id)
             .is_some_and(|actor| self.animation.samples_rig_scale(actor))
     }
+    /// Whether the actor's own compiled rig can draw an always-passing depth layer.
+    pub(crate) fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
+        self.actors
+            .get(&runtime_id)
+            .is_some_and(|actor| self.animation.may_use_always_depth_material(actor))
+    }
     pub(crate) fn render_layers(
         &self,
         runtime_id: u64,

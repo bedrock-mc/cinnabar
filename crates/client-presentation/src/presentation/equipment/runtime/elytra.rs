@@ -14,6 +14,7 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     additive: false,
     additive_alpha: false,
     disable_overlay: false,
+    depth_always: false,
 };
 
 impl EquipmentRuntime {

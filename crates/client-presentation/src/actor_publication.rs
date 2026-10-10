@@ -352,6 +352,7 @@ pub fn prepare_actor_render_frame(
                             actor,
                             step.partial_tick,
                             cull_view,
+                            render_frame.as_mut(),
                             |low, high| {
                                 cull_view.is_some_and(|view| {
                                     hides_box(stream, view.camera_position.to_array(), low, high)

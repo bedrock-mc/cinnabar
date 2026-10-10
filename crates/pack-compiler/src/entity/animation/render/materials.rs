@@ -179,6 +179,13 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
             }
         }
     }
+    // Only the always-passing comparison is admitted; the default LessEqual restores normal
+    // testing, and other functions keep the inherited state.
+    match fields.get("depthFunc").and_then(Value::as_str) {
+        Some("Always") => state.depth_always = true,
+        Some("LessEqual") => state.depth_always = false,
+        _ => {}
+    }
     let source = fields.get("blendSrc").and_then(Value::as_str);
     let destination = fields.get("blendDst").and_then(Value::as_str);
     if source.is_some() || destination.is_some() {

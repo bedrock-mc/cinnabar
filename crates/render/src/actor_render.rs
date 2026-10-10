@@ -1,5 +1,6 @@
 use std::mem::size_of;
 mod artwork;
+mod dissolve;
 pub(crate) mod phase;
 mod pipeline;
 mod skins;
@@ -140,6 +141,7 @@ pub(crate) struct ActorGpu {
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
     artwork_identity: [u8; 32],
@@ -211,6 +213,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM,
         }),
         spans: Vec::new(),
+        sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         artwork_identity: [0; 32],
@@ -333,6 +336,7 @@ fn prepare_actor_resources(
             tracker.clear();
         }
         if structurally_valid {
+            let instances = dissolve::instances(&rig.instances, &rig.manifest);
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(
                 "actor.frame_upload",
@@ -347,7 +351,7 @@ fn prepare_actor_resources(
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
-                bytemuck::cast_slice::<ActorGpuInstance, u8>(&rig.instances),
+                bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
             );
             render_queue.write_buffer(
                 &gpu.previous_bone_buffer,
@@ -364,13 +368,21 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
-            gpu.instances = std::sync::Arc::clone(&rig.instances);
+            gpu.spans = draw_spans(&frame.instance_pages, &instances, &rig.geometry_spans);
+            gpu.instances = instances;
+            let ActorGpu {
+                sorted,
+                spans,
+                manifest,
+                ..
+            } = &mut *gpu;
+            sorted.prepare(spans, manifest);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
             gate.clear();
             tracker.clear();

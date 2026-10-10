@@ -155,6 +155,10 @@ pub(super) fn resolve_binding(
         bones,
         bone_names,
         render: Vec::new(),
+        may_use_always_depth_material: assets
+            .render_layers(rig_binding)
+            .iter()
+            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always)),
         scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,

@@ -393,6 +393,27 @@
   build passes, and the inspection client is running after the requested
   relaunch. Changes are local and uncommitted; nothing is pushed.
 
+## Always-passing entity depth materials
+
+- Server-pack entity materials with `depthFunc: Always` (through-wall markers)
+  compile to an always-passing depth test. `LessEqual` restores normal testing,
+  and children inherit the setting. These spans draw in the sorted pass after
+  opaque terrain, so terrain cannot overwrite them. Every admitted raster state
+  prewarms both normal and always-passing depth variants, including blending and
+  disabled depth writes.
+- Sorted instances retain separate positions. A sorted dissolve mask carries its
+  own color layer into one draw item in that pass, so another actor cannot split
+  the dependent passes. Ordinary pairs finish before transparent terrain.
+  An explicit always-passing test overrides the color pass's default.
+  Rigs with always-passing depth layers bypass terrain occlusion while retaining
+  the candidate distance and frustum bounds. Admission checks the same sampled
+  frame layers that the draw consumes, including frame-conditioned controllers.
+  A capability cached from all compiled layers keeps ordinary occluded rigs from
+  consuming the shared frame-evaluation budget.
+- Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
+  states are ignored. The sorted-pass order approximates native entity order and
+  is unverified against a native capture.
+
 ## Empty boss-text HUD slots
 
 - A captured server HUD uses eight fixed boss-text slots. Missing collection

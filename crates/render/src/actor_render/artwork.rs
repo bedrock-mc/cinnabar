@@ -175,7 +175,7 @@ fn upload_page(
     )
 }
 
-/// Opaque instances share runs; blended instances retain individual sort positions.
+/// Opaque instances share runs; sorted-pass instances retain individual sort positions.
 pub(super) fn draw_spans(
     pages: &[ActorArtworkPageId],
     instances: &[crate::actor::ActorGpuInstance],
@@ -186,8 +186,7 @@ pub(super) fn draw_spans(
     for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
-                && !crate::actor::material::state(instance.material)
-                    .is_some_and(|state| state.blend)
+                && !super::phase::sorted(instance.material)
                 && last_geometry == Some(instance.geometry_id)
                 && span.material == instance.material
         }) {
@@ -211,6 +210,34 @@ pub(super) fn draw_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn always_depth_instances_keep_separate_sort_positions() {
+        let material =
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                depth_always: true,
+                ..Default::default()
+            }));
+        let instances = [crate::actor::ActorGpuInstance {
+            material,
+            ..Default::default()
+        }; 2];
+        let spans = draw_spans(
+            &[1; 2],
+            &instances,
+            &[crate::actor::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: 36,
+            }],
+        );
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| (span.first, span.count))
+                .collect::<Vec<_>>(),
+            [(0, 1), (1, 1)]
+        );
+    }
 
     #[test]
     fn blended_instances_keep_separate_sortable_spans_while_opaque_instances_batch() {
