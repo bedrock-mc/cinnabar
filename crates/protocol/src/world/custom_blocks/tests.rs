@@ -622,3 +622,31 @@ fn experience_blocks_fit_the_client_bounds() {
     assert!(limit("max_state_combinations") <= super::MAX_STATES_PER_BLOCK);
     assert!(limit("max_permutations") <= super::MAX_PERMUTATIONS as u64);
 }
+
+#[test]
+fn aggregate_admission_keeps_a_sorted_prefix_without_reassigning_later_states() {
+    let mut large = named(10, "");
+    large.extend(named(9, "properties"));
+    large.extend([10, 32]);
+    for _ in 0..16 {
+        large.extend(named(9, "enum"));
+        large.extend([1, 4, 0, 1, 0]);
+    }
+    large.push(0);
+    assert_eq!(
+        parse_definition(&large).unwrap().state_count,
+        super::MAX_STATES_PER_BLOCK as u32
+    );
+    let empty = [10, 0, 0];
+    let mut names = ["test:first", "test:middle", "test:last"];
+    names.sort_by_key(|name| (block_name_sort_key(name), *name));
+    let admitted = super::CustomBlocks::from_definitions([
+        (names[2], empty.as_slice()),
+        (names[1], large.as_slice()),
+        (names[0], empty.as_slice()),
+    ]);
+    assert_eq!(admitted.blocks.len(), 1);
+    assert_eq!(admitted.blocks[0].name.as_ref(), names[0]);
+    assert_eq!(admitted.blocks[0].state_count, 1);
+    assert_eq!(admitted.skipped, 2);
+}
