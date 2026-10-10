@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 )
 
 const v2193EducationStateCount = 2 + 3*3*3*3*2
@@ -73,73 +72,4 @@ func educationRenderRecord(identity Record) (Record, bool, error) {
 // isEducationConstructionName limits admission to the three construction blocks.
 func isEducationConstructionName(name string) bool {
 	return name == "minecraft:allow" || name == "minecraft:deny" || name == "minecraft:border_block"
-}
-
-// applyEducationCollisionSeeds joins construction states to exact pinned collision facts.
-func applyEducationCollisionSeeds(records []Record, root string) error {
-	statesPath, shapesPath := filepath.Join(root, "blockStates.json"), filepath.Join(root, "blockCollisionShapes.json")
-	if err := requirePinnedPhysicsFile(statesPath, pinnedPrismarineStatesSHA, "Education state order"); err != nil {
-		return err
-	}
-	if err := requirePinnedPhysicsFile(shapesPath, pinnedPrismarineShapesSHA, "Education collision shapes"); err != nil {
-		return err
-	}
-	states, err := readPrismarineStates(statesPath, shapesPath)
-	if err != nil {
-		return err
-	}
-	seeds := make(map[string]CollisionSeed)
-	for _, state := range states {
-		if !isEducationConstructionName(state.Name) {
-			continue
-		}
-		canonical, err := canonicalTypedState(state.Properties)
-		if err != nil {
-			return err
-		}
-		key := canonicalRecordKey(state.Name, canonical)
-		if _, duplicate := seeds[key]; duplicate {
-			return fmt.Errorf("duplicate Education collision source %s", key)
-		}
-		seeds[key] = state.CollisionSeed
-	}
-	if len(seeds) != v2193EducationStateCount {
-		return fmt.Errorf("Education collision source has %d states, want %d", len(seeds), v2193EducationStateCount)
-	}
-	matched := 0
-	for index, record := range records {
-		if !isEducationConstructionName(record.Name) {
-			continue
-		}
-		seed, ok := seeds[canonicalRecordKey(record.Name, record.StateJSON)]
-		if !ok {
-			return fmt.Errorf("Education palette state has no exact collision source: %s", record.Name)
-		}
-		records[index].CollisionSeed = seed
-		records[index].Provenance |= ProvenancePrismarine
-		matched++
-	}
-	if matched != len(seeds) {
-		return fmt.Errorf("Education palette matched %d collision states, want %d", matched, len(seeds))
-	}
-	return nil
-}
-
-// applyEducationLightProperties uses identified light facts for admitted construction states.
-func applyEducationLightProperties(projection v2193Projection, properties []byte, source map[string]PMMPLightProperties) error {
-	for index, record := range projection.records {
-		if projection.classes[index] != v2193ClassEducation {
-			continue
-		}
-		fact, ok := source[record.Name]
-		if !ok {
-			return fmt.Errorf("Education palette has no identified light properties for %s", record.Name)
-		}
-		emission, filter, err := checkedPMMPLight(record.Name, fact)
-		if err != nil {
-			return err
-		}
-		properties[index] = emission | filter<<4
-	}
-	return nil
 }

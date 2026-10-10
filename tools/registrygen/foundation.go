@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"io"
 	"strings"
+
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
 const maxFoundationBytes = 16 * 1024
@@ -64,15 +66,14 @@ type foundationOutputs struct {
 }
 
 type foundationSources struct {
-	Dragonfly dragonflyFoundationSource `json:"dragonfly"`
-	BDS       bdsFoundationSource       `json:"bds"`
+	Protocolgen sharedFoundationSource `json:"protocolgen"`
+	BDS         bdsFoundationSource    `json:"bds"`
 }
 
-type dragonflyFoundationSource struct {
-	Commit string `json:"commit"`
-	Blob   string `json:"blob"`
-	SHA256 string `json:"sha256"`
-	Size   uint64 `json:"size"`
+type sharedFoundationSource struct {
+	Module           string `json:"module"`
+	SourceLockSHA256 string `json:"source_lock_sha256"`
+	CloudburstRef    string `json:"cloudburst_ref"`
 }
 
 type bdsFoundationSource struct {
@@ -197,15 +198,9 @@ func validateFoundationFields(foundation registryFoundation) error {
 }
 
 func validateFoundationSources(sources foundationSources) error {
-	dragonfly := sources.Dragonfly
-	if dragonfly.Commit != "4c7b5074be94fa83a1cd98e9c752083ad04a6e21" ||
-		dragonfly.Blob != "ee29e5e039086c10bdfb964621a8e146b4f7af19" ||
-		dragonfly.SHA256 != "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6" ||
-		dragonfly.Size != 3102889 {
-		return errors.New("registry foundation Dragonfly source does not match the audited public identity")
-	}
-	if !validLowerHex(dragonfly.Commit, 20) || !validLowerHex(dragonfly.Blob, 20) || !validLowerHex(dragonfly.SHA256, 32) {
-		return errors.New("registry foundation Dragonfly hashes must be lowercase hexadecimal")
+	catalog := sources.Protocolgen
+	if catalog.Module != "github.com/bedrock-mc/protocolgen/generated/data" || catalog.SourceLockSHA256 != shared.SourceLockSHA256 || catalog.CloudburstRef != shared.CloudburstRef {
+		return errors.New("registry foundation shared catalog identity does not match the pinned module")
 	}
 	bds := sources.BDS
 	if bds.ArchiveSHA256 != "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825" ||

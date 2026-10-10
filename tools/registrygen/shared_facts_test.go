@@ -1,0 +1,47 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/bedrock-mc/protocolgen/generated/data/registry"
+)
+
+// TestSharedPaletteRejectsTruncatedFinalCompound covers EOF at a nonempty final record.
+func TestSharedPaletteRejectsTruncatedFinalCompound(t *testing.T) {
+	palette := registry.BlockStatesNBT()
+	for _, data := range [][]byte{palette[:len(palette)-1], append(palette, 10)} {
+		if _, err := decodeSharedBlockStates(data); err == nil {
+			t.Fatal("truncated palette was accepted")
+		}
+	}
+}
+
+// TestActiveSharedCarriersRegenerateWithoutExternalSources keeps the entire current pipeline reproducible in CI.
+func TestActiveSharedCarriersRegenerateWithoutExternalSources(t *testing.T) {
+	root := filepath.Join("..", "..")
+	temp := t.TempDir()
+	breg, lreg, manifest := filepath.Join(temp, "block.bin"), filepath.Join(temp, "light.bin"), filepath.Join(temp, "projection.json")
+	if err := writeV2193BlockProjection(filepath.Join(root, "crates/assets/data/block-registry-v1001.bin"), filepath.Join(root, v2193RetailItemsPath), breg, lreg, manifest); err != nil {
+		t.Fatal(err)
+	}
+	physics := filepath.Join(temp, "physics.bin")
+	if err := writeV2193PhysicsProjection(breg, physics, "", manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][2]string{{breg, v2193BlockOutputPath}, {lreg, v2193LightOutputPath}, {manifest, "assets/block-projection-v2193.json"}, {physics, v2193PhysicsOutputPath}} {
+		actual, err := os.ReadFile(pair[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, err := os.ReadFile(filepath.Join(root, pair[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(actual, expected) {
+			t.Fatalf("regenerated %s differs from checked-in output", pair[1])
+		}
+	}
+}

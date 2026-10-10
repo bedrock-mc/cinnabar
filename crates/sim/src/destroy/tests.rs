@@ -174,20 +174,25 @@ fn only_vanilla_tool_identifiers_classify() {
 }
 
 #[test]
-fn table_header_pins_manifest_sources() {
-    let manifest = include_str!("../../../../assets/block-data-sources.json");
-    let pins = DESTROY_TABLE
+fn table_header_identifies_shared_catalog() {
+    let catalog = include_str!("../../../../assets/block-projection-v2193.json");
+    let headers = DESTROY_TABLE
         .lines()
         .take_while(|line| line.starts_with('#'))
-        .filter_map(|line| line.split_once("sha256=").map(|(_, digest)| digest))
         .collect::<Vec<_>>();
-    assert_eq!(pins.len(), 2);
-    for digest in pins {
-        assert!(
-            manifest.contains(&format!("\"sha256\": \"{digest}\"")),
-            "{digest}"
-        );
-    }
+    let shared = headers
+        .iter()
+        .find(|line| line.starts_with("# hardness and tools: protocolgen/generated/data "))
+        .expect("shared data header");
+    let (_, source_lock) = shared.split_once("source_lock_sha256=").expect("source lock");
+    assert!(catalog.contains(&format!("\"source_lock_sha256\": \"{source_lock}\"")));
+    let mining = headers
+        .iter()
+        .find(|line| line.starts_with("# tools (provisional): PrismarineJS Bedrock "))
+        .expect("mining evidence header");
+    let (_, digest) = mining.split_once("sha256=").expect("mining digest");
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
 }
 
 const EVERY_TOOL: [&str; 9] = [

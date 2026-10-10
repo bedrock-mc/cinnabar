@@ -1,3 +1,5 @@
+github.com/bedrock-mc/protocolgen/generated/data v0.0.0-20261010132359-f85365e01ba8 h1:H+5f8oIJtzMQKQs3Ujly5ITVRqzaGQEMZKOo1mIIlTE=
+github.com/bedrock-mc/protocolgen/generated/data v0.0.0-20261010132359-f85365e01ba8/go.mod h1:8QbzgE3/G4AGUs6easeg/fXovGP5iu/cU76hN6zQFRM=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

@@ -214,8 +214,7 @@ const PREG_V2193: &[u8] = include_bytes!("../../data/block-physics-v2193.bin");
 
 /// Pinned sidecar digest of `crates/assets/data/block-physics-v2193.bin`
 /// (`block-physics-v2193.sha256`); guards the committed artifact against drift.
-const PREG_V2193_SHA256_HEX: &str =
-    "080763f3eda3df2fff3aca56cc96fbf55ecbb4a09ab89359f2371997cf77337c";
+const PREG_V2193_SHA256_HEX: &str = include_str!("../../data/block-physics-v2193.sha256");
 
 fn assert_physics_error(error: &AssetError, needle: &str) {
     match error {
@@ -238,7 +237,12 @@ fn committed_protocol_2193_artifact_decodes_against_its_own_breg() {
     assert_eq!(registry.protocol(), 2193);
     let expected_sha: [u8; 32] = Sha256::digest(PREG_V2193).into();
     let mut pinned = [0_u8; 32];
-    for (index, byte) in PREG_V2193_SHA256_HEX.as_bytes().chunks_exact(2).enumerate() {
+    for (index, byte) in PREG_V2193_SHA256_HEX
+        .trim()
+        .as_bytes()
+        .chunks_exact(2)
+        .enumerate()
+    {
         pinned[index] = u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 16).unwrap();
     }
     assert_eq!(registry.sha256(), expected_sha);

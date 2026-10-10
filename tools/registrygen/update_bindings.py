@@ -27,6 +27,8 @@ def refresh(root, output):
     protocol = target["wire_protocol"]
     foundation_path = Path(f"assets/registry-foundation-v{protocol}.json")
     foundation = json.loads((root / foundation_path).read_text())
+    projection = json.loads((root / f"assets/block-projection-v{protocol}.json").read_text())
+    foundation["sources"]["protocolgen"] = projection["source"]
     for name, binding in foundation["projection_bindings"].items():
         binding["sha256"] = digest(root / foundation["outputs"][name])
     write_json(output / foundation_path, foundation)
