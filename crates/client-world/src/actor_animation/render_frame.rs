@@ -309,6 +309,7 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
         };
+        // A held pose cannot sample against motion from a newer, unevaluated tick.
         let Some(frame) = state.render_frame.as_ref().filter(|frame| {
             (partial_tick > 0.0
                 || state.samples_camera_poses
@@ -317,6 +318,8 @@ impl ActorAnimationStore {
                 && *remaining_ops > 0
                 && (!state.culled || state.samples_camera_poses || frame.samples_rig_scale(actor))
                 && !state.reset_pending
+                && frame.motion.life_tick
+                    == self.completed_tick.saturating_sub(state.lifetime_epoch)
         }) else {
             return Some(completed());
         };
@@ -342,7 +345,7 @@ impl ActorAnimationStore {
                     || camera_position != motion.context.camera_position
             });
         let motion_changed = state.history.iter().rev().nth(1).is_some_and(|previous| {
-            let current = frame.motion.input;
+            let current = state.history.back().copied().unwrap_or(frame.motion.input);
             previous.position != current.position
                 || previous.body_yaw != current.body_yaw
                 || previous.yaw != current.yaw
@@ -359,7 +362,7 @@ impl ActorAnimationStore {
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;
         context.camera_position = camera_position;
-        let input = motion::input(state, frame.motion.input, partial_tick);
+        let input = motion::input(state, &frame.motion, partial_tick);
         let evaluator = evaluation::Evaluator {
             assets,
             layout,
@@ -390,7 +393,11 @@ impl ActorAnimationStore {
         let mut variables = frame.motion.variables.clone();
         variables.set(
             layout.engine.player_x_rotation,
-            if context.is_in_ui { 0.0 } else { input.pitch },
+            if context.is_in_ui {
+                0.0
+            } else {
+                motion::pitch(state, partial_tick)
+            },
         );
         if let Some(swing) = swing {
             variables.set(layout.engine.attack_time, swing);
@@ -469,6 +476,7 @@ impl ActorAnimationStore {
                     server_effects: &frame.motion.server_effects,
                 },
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
+                true,
                 &mut budget,
             ) else {
                 return Some(completed());
@@ -477,21 +485,23 @@ impl ActorAnimationStore {
         } else {
             None
         };
-        let sampled_clips =
-            if !isolated_swell && (state.samples_camera_poses || swing_changed || swell_changed) {
-                let Ok(clips) = motion::clips(
-                    &evaluator,
-                    &mut variables,
-                    state,
-                    sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
-                    &mut budget,
-                ) else {
-                    return Some(completed());
-                };
-                Some(clips)
-            } else {
-                sampled_clips
+        let sampled_clips = if !isolated_swell
+            && sampled_clips.is_none()
+            && (state.samples_camera_poses || swing_changed || swell_changed)
+        {
+            let Ok(clips) = motion::clips(
+                &evaluator,
+                &mut variables,
+                state,
+                &frame.motion.clips,
+                &mut budget,
+            ) else {
+                return Some(completed());
             };
+            Some(clips)
+        } else {
+            sampled_clips
+        };
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
             let Ok(local) = pose::sample_clips(
                 &current.evaluator,

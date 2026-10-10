@@ -250,7 +250,7 @@ fn frame_motion_keeps_raw_position_and_tick_actions_for_local_and_remote_players
         let state = &store.rigs[store.runtime_to_lifetime.get(&1).unwrap()];
         let current = state.render_frame.as_ref().unwrap().motion.input;
         for (alpha, expected) in [(0.25, 0.08), (0.75, 0.24)] {
-            let input = motion::input(state, current, alpha);
+            let input = motion::input(state, &state.render_frame.as_ref().unwrap().motion, alpha);
             assert_eq!(input.position, current.position);
             assert_eq!(input.position_delta, current.position_delta);
             assert_eq!(input.attack_time, current.attack_time);
@@ -258,4 +258,79 @@ fn frame_motion_keeps_raw_position_and_tick_actions_for_local_and_remote_players
             assert!((sample(&actors, &store, alpha) - expected).abs() < 1e-6);
         }
     }
+}
+
+#[test]
+fn first_person_pitch_driver_samples_observed_pitch() {
+    for pitches in [[30.0, 30.0], [10.0, 30.0]] {
+        let (mut actors, mut store) = fixture("variable.player_x_rotation");
+        for pitch in pitches {
+            actors.get_mut(&1).unwrap().pitch = pitch;
+            store.advance_tick(&actors, None, Some(1), true, true, |_| ActorTickContext {
+                is_local: true,
+                is_local_player: true,
+                is_local_first_person: true,
+                ..Default::default()
+            });
+        }
+        for alpha in [0.0, 0.25, 0.75, 1.0] {
+            let expected = pitches[0] + (pitches[1] - pitches[0]) * alpha;
+            let actual = sample(&actors, &store, alpha);
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "pitch driver at {alpha}: {actual} != {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn first_person_rotation_queries_stay_zero_between_ticks() {
+    for query in [
+        "query.target_x_rotation",
+        "query.target_y_rotation",
+        "query.body_y_rotation",
+    ] {
+        let (mut actors, mut store) = fixture(query);
+        let actor = actors.get_mut(&1).unwrap();
+        actor.pitch = 30.0;
+        actor.yaw = 60.0;
+        actor.head_yaw = 90.0;
+        for _ in 0..2 {
+            store.advance_tick(&actors, None, Some(1), true, true, |_| ActorTickContext {
+                is_local: true,
+                is_local_player: true,
+                is_local_first_person: true,
+                ..Default::default()
+            });
+        }
+        for alpha in [0.0, 0.25, 0.75, 1.0] {
+            let actual = sample(&actors, &store, alpha);
+            assert!(actual.abs() < 1e-6, "{query} at {alpha}: {actual}");
+        }
+    }
+}
+
+#[test]
+fn starved_frame_holds_completed_pose_until_motion_can_be_evaluated() {
+    let (mut actors, mut store) = fixture("query.modified_distance_moved");
+    tick(&actors, &mut store);
+    actors.get_mut(&1).unwrap().position[0] = 0.2;
+    tick(&actors, &mut store);
+    store.schedule.world_budget = 0;
+    actors.get_mut(&1).unwrap().position[0] = 0.4;
+    tick(&actors, &mut store);
+    assert_eq!(store.stats.world_budget_exhaustions, 1);
+    for alpha in [0.25, 0.75, 0.0, 1.0] {
+        let actual = sample(&actors, &store, alpha);
+        assert!(
+            (actual - 0.32).abs() < 1e-6,
+            "held frame at {alpha}: {actual}"
+        );
+    }
+    store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+    actors.get_mut(&1).unwrap().position[0] = 0.6;
+    tick(&actors, &mut store);
+    let actual = sample(&actors, &store, 0.25);
+    assert!((actual - 0.9888).abs() < 1e-6, "resumed motion: {actual}");
 }

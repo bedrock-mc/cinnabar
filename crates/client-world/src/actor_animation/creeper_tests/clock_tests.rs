@@ -337,3 +337,101 @@ fn swell_activated_paused_clock_resumes_from_its_completed_time() {
         completed_time
     );
 }
+
+#[test]
+fn camera_and_swell_share_one_authored_clock_update_per_frame() {
+    for clock_reads_swell in [false, true] {
+        let mut store = pack_swell_fixture_with(
+            AuthoredSwellChannel {
+                pre_animation: false,
+                property: assets::EntityAnimationProperty::Translation,
+                variable: false,
+            },
+            None,
+            false,
+            3,
+            false,
+            |compiled| {
+                let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+                compiled.molang_symbols = [
+                    (assets::MolangSymbolKind::Name, "wield"),
+                    (assets::MolangSymbolKind::Query, "query.anim_time"),
+                    (assets::MolangSymbolKind::Query, "query.camera_rotation"),
+                    (
+                        assets::MolangSymbolKind::Query,
+                        "query.modified_distance_moved",
+                    ),
+                    (assets::MolangSymbolKind::Query, "query.swell_amount"),
+                    (assets::MolangSymbolKind::Variable, "variable.counter"),
+                ]
+                .map(|(kind, identifier)| assets::MolangSymbol {
+                    kind,
+                    identifier: identifier.into(),
+                })
+                .into();
+                let mut ops = vec![
+                    MolangOp::LoadVariable(5),
+                    MolangOp::Push(scalar(1.0)),
+                    MolangOp::Add,
+                    MolangOp::StoreVariable(5),
+                    MolangOp::LoadVariable(5),
+                    MolangOp::LoadQuery(3),
+                    MolangOp::Add,
+                ];
+                if clock_reads_swell {
+                    ops.extend([MolangOp::LoadQuery(4), MolangOp::Add]);
+                }
+                let count = ops.len();
+                ops.extend([
+                    MolangOp::LoadQuery(1),
+                    MolangOp::LoadQuery(2),
+                    MolangOp::Add,
+                    MolangOp::LoadVariable(5),
+                    MolangOp::LoadQuery(4),
+                    MolangOp::Push(scalar(0.0)),
+                    MolangOp::Multiply,
+                    MolangOp::Push(scalar(1.0)),
+                    MolangOp::Add,
+                ]);
+                compiled.molang_ops = ops.into();
+                compiled.molang_expressions = [
+                    (0, count, 2),
+                    (count, 3, 2),
+                    (count + 3, 1, 1),
+                    (count + 4, 5, 2),
+                ]
+                .map(
+                    |(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                        first_op: first_op as u32,
+                        op_count: op_count as u16,
+                        max_stack,
+                    },
+                )
+                .into();
+                compiled.animation_clips[0].anim_time_update = Some(0);
+                compiled.animation_clips[0].length_seconds = scalar(0.0);
+                compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+                compiled.rig_animations[0].weight = Some(3);
+                compiled.render.layers[0].color = Some([2; 4]);
+            },
+        );
+        store.set_camera_rotation([0.0, 90.0]);
+        let completed = store.actor_rig(1).unwrap().render[0].color[0];
+        assert_eq!(completed, 3.0);
+        for alpha in [0.25, 0.75, 0.25] {
+            let layers = store.render_frame(alpha).layers(1).unwrap();
+            assert_eq!(layers[0].color[0], 3.0, "clock writes at {alpha}");
+            let time = 3.0
+                + if clock_reads_swell {
+                    (2.0 + alpha) / crate::actor_store::creeper::SWELL_FULL_TICKS
+                } else {
+                    0.0
+                };
+            assert!(
+                (layers[0].pose[0].translation_scale[0] + time).abs() < 1e-6,
+                "sampled time at {alpha}"
+            );
+        }
+        assert_eq!(store.actor_rig(1).unwrap().render[0].color[0], completed);
+    }
+}

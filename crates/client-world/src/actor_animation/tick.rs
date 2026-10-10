@@ -278,6 +278,21 @@ impl ActorRigState {
     }
 }
 
+/// Zeroes first-person draw rotations while retaining observed motion and action inputs.
+pub(super) fn draw_input(input: ActorTickInput, context: &ActorTickContext) -> ActorTickInput {
+    if context.is_local_first_person {
+        ActorTickInput {
+            body_yaw: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            pitch: 0.0,
+            ..input
+        }
+    } else {
+        input
+    }
+}
+
 pub(super) struct EvaluationInheritance<'a> {
     pub variables: ActorAnimationVariables<'a>,
     pub overrides: &'a [(&'a str, f32)],
@@ -312,17 +327,7 @@ pub(super) fn evaluate_state(
     let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
     // The first-person draw zeroes the actor's rotations, so the view-following target, body
     // and head rotation queries read 0 there; the camera placement carries the view instead.
-    let input = if context.is_local_first_person {
-        ActorTickInput {
-            body_yaw: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            pitch: 0.0,
-            ..observed
-        }
-    } else {
-        observed
-    };
+    let input = draw_input(observed, context);
     let motion = state.motion;
     let evaluator = Evaluator {
         assets,

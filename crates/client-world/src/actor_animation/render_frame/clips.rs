@@ -9,13 +9,15 @@ pub(super) struct ClipHistory<'a> {
     pub server_effects: &'a evaluation::MolangEffects,
 }
 
-/// Resamples weights on scratch controllers without committing transitions or advancing clip clocks.
+/// Samples weights and authored times once on scratch state without committing transitions or clocks.
+/// Isolated swell endpoints keep ordinary motion clocks at their completed times.
 pub(super) fn sample(
     evaluator: &evaluation::Evaluator<'_>,
     variables: &mut MolangVariables,
     state: &ActorRigState,
     history: ClipHistory<'_>,
     swelling: Option<&swell::SwellSampling>,
+    sample_motion: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<tick::WeightedClip>, EvalError> {
     let ClipHistory {
@@ -53,7 +55,8 @@ pub(super) fn sample(
     super::super::clock::sample(evaluator, clocks, &mut clips, budget)?;
     let mut sampled_times = BTreeMap::new();
     for weighted in &mut clips {
-        if swelling.is_some()
+        let motion_time = sample_motion && motion::samples_time(evaluator.assets, weighted.clip);
+        if (swelling.is_some() || motion_time)
             && weighted.weight >= f32::EPSILON
             && evaluator.assets.animation_clips()[weighted.clip]
                 .anim_time_update
@@ -67,7 +70,9 @@ pub(super) fn sample(
                 sampled_times.insert(key, weighted.time);
             }
         }
-        if !swelling.is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip))
+        if !motion_time
+            && !swelling
+                .is_some_and(|sampling| sampling.samples_time(evaluator.assets, weighted.clip))
             && let Some(old) = previous.iter().find(|old| {
                 old.clip == weighted.clip
                     && old.started_tick == weighted.started_tick
