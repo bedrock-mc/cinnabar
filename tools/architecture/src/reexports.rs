@@ -276,7 +276,11 @@ fn module_edges(
             continue;
         }
         let explicit = item.attrs.iter().find_map(|attribute| {
-            if !attribute.path().is_ident("path") {
+            if !attribute
+                .path()
+                .get_ident()
+                .is_some_and(|name| name.unraw() == "path")
+            {
                 return None;
             }
             let syn::Meta::NameValue(value) = &attribute.meta else {
@@ -537,7 +541,9 @@ fn resolve(
         if symbols.dependencies.contains(first) {
             let mut has_type_import = false;
             let mut imports_self = false;
-            if let Some(imports) = symbols.imports.get(&local) {
+            if !seen.contains(&local)
+                && let Some(imports) = symbols.imports.get(&local)
+            {
                 for import in imports {
                     if !import.condition.enabled(configuration)? {
                         continue;

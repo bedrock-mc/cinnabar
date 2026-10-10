@@ -28,6 +28,8 @@ fn rejects_named_renamed_grouped_and_restricted_forwarders() {
     for source in [
         "pub use other::Thing;",
         "pub use r#other::Thing;",
+        "pub use other::Thing as other;",
+        "use other::Thing as other; pub use other::Member;",
         "use r#other as alias; pub use alias::Thing;",
         "pub(crate) use other::{Thing as Renamed};",
         "pub(super) use other::Thing;",
@@ -340,6 +342,9 @@ fn conditional_local_definitions_cannot_hide_external_glob_bindings() {
             pub use self::Thing as Exported;"#,
         r#"#[cfg(any(feature = "a", feature = "b"))] pub struct Thing;
             #[cfg(not(any(feature = "a", feature = "b")))] use other::*;
+            pub use self::Thing as Exported;"#,
+        r#"#[r#cfg(feature = "local")] pub struct Thing;
+            #[cfg(not(feature = "local"))] use other::*;
             pub use self::Thing as Exported;"#,
         r#"#[cfg_attr(feature = "local", cfg(any()))] use other::*;
             #[cfg(feature = "local")] pub struct Thing;
