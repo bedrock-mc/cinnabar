@@ -1,5 +1,6 @@
 use super::*;
 use crate::movement::MovementSource;
+use crate::movement::speed_authority::tests::attribute;
 use client_world::ResolvedServerPosition;
 
 /// A world that rejects any unintended spatial query during non-replay controls.
@@ -38,7 +39,7 @@ fn owners() -> (
 #[test]
 fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
-    assert!(speed.apply(7, 1, 0, 0.25, None));
+    assert!(speed.apply(7, 1, 0, attribute(0.25, 0.25, None)));
     let position = [10.0, 80.0, 20.0];
     let control = CommittedControlEvent::ChangeDimension {
         sequence: 1,
@@ -367,8 +368,7 @@ fn a_combined_delayed_speed_update_replays_once() {
             CommittedControlEvent::LocalMovementSpeed {
                 sequence: 9,
                 dimension: 0,
-                current: Some(0.2),
-                sprint_modifier: None,
+                movement: Some(attribute(0.2, 0.2, None)),
                 underwater,
                 lava: None,
                 air_drag_modifier: None,

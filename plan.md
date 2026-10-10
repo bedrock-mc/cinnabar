@@ -285,6 +285,8 @@
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
   The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Sprint transitions recalculate movement speed from attribute defaults and other
+  modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.

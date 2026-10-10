@@ -55,7 +55,7 @@ pub use authority::{
     AIR_DRAG_MODIFIER_ATTRIBUTE, BlockEventCue, COMMITTED_AUDIO_CAPACITY,
     COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY, COMMITTED_PARTICLE_CAPACITY,
     COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
-    CommittedParticleEvent, CommittedUiEvent, MapImage, PublisherViewGeometry, SignEditRequest,
-    ViewCohort, WorldAuthority,
+    CommittedParticleEvent, CommittedUiEvent, MapImage, MovementSpeedAttribute,
+    PublisherViewGeometry, SPRINT_SPEED_MODIFIER_ID, SignEditRequest, ViewCohort, WorldAuthority,
 };
 pub use protocol::ItemAttackTiming;

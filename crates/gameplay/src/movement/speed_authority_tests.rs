@@ -1,10 +1,37 @@
 use super::{LocalMovementSpeedAuthority, preserve_effective_speed};
+use client_world::MovementSpeedAttribute;
+
+/// Builds a movement packet with explicit current, default and sprint authority.
+pub(crate) fn attribute(current: f64, default: f32, factor: Option<f32>) -> MovementSpeedAttribute {
+    let modifiers = factor
+        .map(|factor| protocol::ActorAttributeModifier {
+            id: std::sync::Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
+            name: std::sync::Arc::from("sprint"),
+            amount: factor - 1.0,
+            operation: 2,
+            operand: 2,
+            serializable: false,
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut attribute = MovementSpeedAttribute::from_attribute(&protocol::ActorAttribute {
+        name: std::sync::Arc::from("minecraft:movement"),
+        min: 0.0,
+        max: f32::MAX,
+        current: default,
+        default: Some(default),
+        modifiers: modifiers.into(),
+    })
+    .unwrap();
+    attribute.current = current;
+    attribute
+}
 
 /// Starts one authority with an admitted server attribute update.
 fn started(current: f32) -> LocalMovementSpeedAuthority {
     let mut authority = LocalMovementSpeedAuthority::default();
     authority.begin_session(7, 0);
-    assert!(authority.apply(7, 1, 0, f64::from(current), None));
+    assert!(authority.apply(7, 1, 0, attribute(f64::from(current), current, None)));
     authority
 }
 
@@ -12,7 +39,7 @@ fn started(current: f32) -> LocalMovementSpeedAuthority {
 fn server_effective_sprint_without_modifiers_is_never_boosted_twice() {
     let mut authority = started(0.1);
     authority.set_sprinting(true);
-    assert!(authority.apply(7, 2, 0, f64::from(0.13_f32), None));
+    assert!(authority.apply(7, 2, 0, attribute(f64::from(0.13_f32), 0.1, None)));
     authority.adopt_server_sprinting(Some(true));
     for _ in 0..20 {
         authority.set_sprinting(true);
@@ -26,8 +53,23 @@ fn server_effective_sprint_without_modifiers_is_never_boosted_twice() {
     // The packet removed the local modifier: native sprint stop cannot remove it again.
     authority.set_sprinting(false);
     assert_eq!(authority.current(), Some(f64::from(0.13_f32)));
-    assert!(authority.apply(7, 3, 0, f64::from(0.1_f32), None));
+    assert!(authority.apply(7, 3, 0, attribute(f64::from(0.1_f32), 0.1, None)));
     assert_eq!(authority.prediction_speed(), Some(f64::from(0.1_f32)));
+}
+
+/// Restarting sprint after an effective-speed resend must not stack another boost.
+#[test]
+fn sprint_restart_after_attribute_resend_does_not_compound_speed() {
+    let mut authority = started(0.1);
+    authority.set_sprinting(true);
+    assert!(authority.apply(7, 2, 0, attribute(f64::from(0.13_f32), 0.1, None)));
+    authority.set_sprinting(false);
+    assert_eq!(authority.current(), Some(f64::from(0.13_f32)));
+    authority.set_sprinting(true);
+    assert_eq!(
+        authority.current(),
+        Some(f64::from(0.1_f32 * sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
 }
 
 #[test]
@@ -46,7 +88,7 @@ fn local_edges_preserve_custom_speed_and_remove_only_installed_modifier() {
     );
 
     authority.adopt_server_sprinting(Some(true));
-    assert!(authority.apply(7, 2, 0, f64::from(0.18_f32), Some(1.5)));
+    assert!(authority.apply(7, 2, 0, attribute(f64::from(0.18_f32), 0.12, Some(1.5))));
     authority.set_sprinting(false);
     assert_eq!(authority.current(), Some(f64::from(0.18_f32 / 1.5)));
 }
@@ -65,38 +107,40 @@ fn metadata_adopts_sprint_without_modifying_attribute() {
 #[test]
 fn authority_obeys_session_fifo_dimension_and_replacement_ordering() {
     let mut authority = started(0.25);
-    assert!(!authority.apply(6, 3, 0, 0.5, None));
-    assert!(!authority.apply(7, 1, 0, 0.5, None));
-    assert!(!authority.apply(7, 3, 1, 0.5, None));
+    assert!(!authority.apply(6, 3, 0, attribute(0.5, 0.5, None)));
+    assert!(!authority.apply(7, 1, 0, attribute(0.5, 0.5, None)));
+    assert!(!authority.apply(7, 3, 1, attribute(0.5, 0.5, None)));
     assert_eq!(authority.current(), Some(0.25));
     authority.set_sprinting(true);
     authority.replace_dimension(7, 1);
     assert_eq!(authority.current(), None);
-    assert!(!authority.apply(7, 1, 0, 0.75, None));
-    assert!(authority.apply(7, 1, 1, 0.0, None));
+    assert!(!authority.apply(7, 1, 0, attribute(0.75, 0.75, None)));
+    assert!(authority.apply(7, 1, 1, attribute(0.0, 0.0, None)));
     authority.set_sprinting(false);
     assert_eq!(authority.current(), Some(0.0));
     authority.begin_session(8, -1);
     assert_eq!(authority.current(), None);
-    assert!(!authority.apply(7, 2, -1, 1.0, None));
-    assert!(authority.apply(8, 1, -1, 0.1, None));
+    assert!(!authority.apply(7, 2, -1, attribute(1.0, 1.0, None)));
+    assert!(authority.apply(8, 1, -1, attribute(0.1, 0.1, None)));
 }
 
 #[test]
 fn invalid_updates_are_consumed_without_overwriting_last_valid_authority() {
     let mut authority = started(0.2);
     for (sequence, value) in [(2, f64::NAN), (3, f64::INFINITY), (4, -0.1), (5, 1.0e6)] {
-        assert!(!authority.apply(7, sequence, 0, value, None));
+        assert!(!authority.apply(7, sequence, 0, attribute(value, 0.1, None)));
         assert_eq!(authority.current(), Some(f64::from(0.2_f32)));
     }
-    assert!(!authority.apply(7, 5, 0, 0.9, None));
+    assert!(!authority.apply(7, 5, 0, attribute(0.9, 0.9, None)));
     for (sequence, factor) in [
         (6, 0.0),
         (7, f32::NAN),
         (8, f32::INFINITY),
         (9, 1.0 + (-0.999_999_94_f32)),
     ] {
-        assert!(!authority.apply(7, sequence, 0, 0.3, Some(factor)));
+        let mut invalid = attribute(0.3, 0.1, None);
+        invalid.sprint_modifier = Some(factor);
+        assert!(!authority.apply(7, sequence, 0, invalid));
         assert_eq!(authority.current(), Some(f64::from(0.2_f32)));
     }
 }
@@ -124,7 +168,7 @@ fn processed_sprint_rewrites_keep_the_effective_attribute() {
 fn liquid_speeds_order_independently_and_keep_omitted_values() {
     let mut authority = LocalMovementSpeedAuthority::default();
     authority.begin_session(1, 0);
-    assert!(authority.apply(1, 5, 0, 0.1, None));
+    assert!(authority.apply(1, 5, 0, attribute(0.1, 0.1, None)));
     let update = authority.apply_liquid(1, 5, 0, Some(0.05), None).unwrap();
     assert_eq!(update.underwater, Some(0.05));
     authority.apply_liquid(1, 6, 0, None, Some(0.03)).unwrap();

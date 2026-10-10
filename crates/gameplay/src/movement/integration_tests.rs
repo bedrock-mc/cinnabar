@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::coordination::physics_authority_fault_for_frame;
+use super::speed_authority::tests::attribute;
 use super::{
     LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementOutboxReconciliation,
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,
