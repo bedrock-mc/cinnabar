@@ -26,15 +26,15 @@ struct Report<'a> {
     arch: &'a str,
 }
 
-/// Records a report under the crash directory for every panic.
-pub fn install_panic_hook(layout: &InstallLayout) {
+/// Records a report and flushes the caller's logs before the previous panic hook runs.
+pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
     let crash_dir = layout.crash_dir();
     let core_log = layout.log_dir().join("core.log");
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         write_report(&crash_dir, &core_log, &info.to_string());
         // Queued log lines precede the panic message.
-        diagnostics::console::flush_before_exit();
+        flush_logs();
         previous(info);
     }));
 }

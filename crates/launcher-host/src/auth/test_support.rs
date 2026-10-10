@@ -83,3 +83,8 @@ impl AuthSupervisor {
         self.cancel_requested
     }
 }
+
+/// Attaches the normal event reader to a scripted child in its initial checking state.
+pub fn from_child(child: Child) -> Result<AuthSupervisor> {
+    AuthSupervisor::from_child(child)
+}

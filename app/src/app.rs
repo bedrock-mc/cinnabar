@@ -1,6 +1,4 @@
 #[cfg(not(feature = "acceptance"))]
-use launcher_host::session_cleanup::reclaim_stale_session_directories;
-
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{
@@ -22,6 +20,7 @@ use bevy::{
     window::WindowPlugin,
 };
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
+use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
@@ -426,7 +425,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = launcher_host::lifecycle::children::StopOnDrop;
-    launcher_host::lifecycle::children::install_exit_hooks();
+    launcher_host::lifecycle::children::install_exit_hooks(diagnostics::console::flush_before_exit);
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;

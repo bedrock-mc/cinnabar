@@ -159,7 +159,8 @@ pub fn spawn_core_for_address(
         .with_context(|| format!("spawn {} for {address}", executable.display()))
 }
 
-pub(super) fn core_command_for_address(
+/// Builds a direct game core command with the install's cache and identity paths.
+pub fn core_command_for_address(
     layout: &InstallLayout,
     executable: &Path,
     socket_dir: &Path,

@@ -131,8 +131,8 @@ impl Drop for StopOnDrop {
 }
 
 /// Stops every child on a main-thread panic (the process is going down) and on SIGINT/SIGTERM,
-/// which then exits with 130.
-pub fn install_exit_hooks() {
+/// which flushes the caller's logs and then exits with 130.
+pub fn install_exit_hooks(flush_logs: fn()) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         previous(info);
@@ -140,9 +140,9 @@ pub fn install_exit_hooks() {
             stop_all(Duration::ZERO);
         }
     }));
-    let installed = ctrlc::try_set_handler(|| {
+    let installed = ctrlc::try_set_handler(move || {
         stop_all(EXIT_GRACE);
-        diagnostics::console::flush_before_exit();
+        flush_logs();
         std::process::exit(130);
     });
     if let Err(error) = installed {
@@ -151,7 +151,8 @@ pub fn install_exit_hooks() {
 }
 
 impl Spawned {
-    #[cfg(test)]
+    /// Returns the tracked child PID for process-lifetime fixtures.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn id(&self) -> u32 {
         lock(&self.0).id()
     }

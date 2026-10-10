@@ -66,7 +66,7 @@ fn completed_add_account_helper_preserves_cancel_focus() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
     menu.dialog = Some(MenuDialog::Accounts);
     menu.feeds.account_adding = true;
-    menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
     let deadline = Instant::now() + Duration::from_secs(5);
     while !matches!(
         menu.current_auth().as_ref(),
@@ -262,7 +262,7 @@ fn active_cancel_is_sticky_and_does_not_block_the_menu_frame() {
     };
     let child = command.stdout(Stdio::piped()).spawn().unwrap();
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
-    menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
 
     let started = Instant::now();
     menu.stop_sign_in();
@@ -417,7 +417,7 @@ fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
         .spawn()
         .unwrap();
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
-    menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
 
     menu.request_connect("offline.example:19132".to_owned());
     assert!(menu.take_join_intent().is_none());
@@ -454,7 +454,7 @@ fn authenticated_connect_waits_for_sign_in_reap_and_keeps_validated_cache() {
         r#"{"v":1,"event":"authenticated","method":"cached"}"#,
     ]);
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
-    menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
 
     let authenticated_deadline = Instant::now() + Duration::from_secs(5);
     while !matches!(
@@ -501,7 +501,7 @@ fn validation_failure_releases_the_queued_connection_offline() {
         r#"{"v":1,"event":"error","stage":"cache","message":"validation failed"}"#,
     ]);
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
-    menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
 
     let failed_deadline = Instant::now() + Duration::from_secs(5);
     while !matches!(

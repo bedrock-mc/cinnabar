@@ -2,15 +2,12 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use launcher::menu::view::{
-    JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails, ServerTrustPrompt,
-};
-use {
-    super::MenuRuntime,
-    launcher::menu::{
-        auth::AuthState,
-        view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
-    },
+use super::MenuRuntime;
+#[cfg(test)]
+use launcher::menu::view::{JoinStage, ServerDetails, ServerTrustPrompt};
+use launcher::menu::{
+    auth::AuthState,
+    view::{MenuHome, MenuProfile},
 };
 
 use launcher_host::account_control::{AccountControl, AccountEvent};

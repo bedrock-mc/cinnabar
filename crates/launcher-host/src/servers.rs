@@ -125,7 +125,7 @@ fn quarantine(path: &Path) -> Result<PathBuf> {
 }
 
 /// Validates and atomically writes `servers`, as [`ServerWriter`] does off the frame.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
     validate(servers)?;
     write_servers(path, servers)
