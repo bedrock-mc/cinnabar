@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -174,17 +173,6 @@ func TestAddressedHTTPServerTrustPromptsOnceAndPersists(t *testing.T) {
 	case prompt := <-log.shown:
 		t.Fatalf("second join prompted again for %q", prompt.URL)
 	default:
-	}
-}
-
-// A declined server ends its join without taking the core down.
-func TestDeclinedServerTrustIsNotProcessFatal(t *testing.T) {
-	declined := fmt.Errorf("dial NetherNet: %w", minecraft.ErrServerNotTrusted)
-	if shouldSurfacePreparationError(declined, context.Background()) {
-		t.Fatal("a declined server stopped the core")
-	}
-	if !shouldSurfacePreparationError(errors.New("dial failed"), context.Background()) {
-		t.Fatal("ordinary preparation failures no longer surface")
 	}
 }
 

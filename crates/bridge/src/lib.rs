@@ -51,12 +51,6 @@ pub use worlds::{
     local_worlds_prefs, open_world, open_world_with, set_world_paused, update_world, world_status,
 };
 
-/// Returns the platform endpoint used for the logical socket directory.
-#[must_use]
-pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
-    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Game)
-}
-
 /// Returns the platform session endpoint used for the logical socket directory.
 #[must_use]
 pub fn session_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
@@ -72,14 +66,6 @@ pub fn control_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
 /// Largest payload accepted by the local bridge framing protocol.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
-/// Connects to the local Go core game endpoint published in `socket_dir`.
-///
-/// A spawned writer task owns the write half, so sends never wait on a read in progress.
-pub async fn connect(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
-    let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Game).await?;
-    Ok(framed::queued(stream, MAX_FRAME_LEN))
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -87,7 +73,7 @@ mod tests {
     use bytes::Bytes;
     use futures::Stream;
 
-    use super::{BridgeError, FrameQueue, FramedReader, connect};
+    use super::{BridgeError, FrameQueue, FramedReader, connect_session};
 
     fn assert_transport<R, W>()
     where
@@ -99,12 +85,12 @@ mod tests {
     #[test]
     fn public_transport_contract_is_stable() {
         assert_transport::<FramedReader, FrameQueue>();
-        let _ = connect;
+        let _ = connect_session;
     }
 
     #[tokio::test]
-    async fn connect_preserves_bridge_error_in_anyhow_result() {
-        let error = match connect(Path::new("")).await {
+    async fn connect_session_rejects_empty_directory() {
+        let error = match connect_session(Path::new("")).await {
             Ok(_) => panic!("empty socket directory must fail"),
             Err(error) => error,
         };

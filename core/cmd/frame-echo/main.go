@@ -22,7 +22,7 @@ func run(args []string) (err error) {
 		return errors.New("usage: frame-echo <socket-directory>")
 	}
 
-	listener, err := streamnet.New(args[0]).Listen("")
+	listener, err := streamnet.ListenSession(args[0])
 	if err != nil {
 		return fmt.Errorf("frame-echo: listen: %w", err)
 	}
@@ -34,12 +34,7 @@ func run(args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, conn.Close()) }()
 
-	reader, ok := conn.(interface {
-		ReadPacket() ([]byte, error)
-	})
-	if !ok {
-		return fmt.Errorf("frame-echo: accepted connection has type %T without ReadPacket", conn)
-	}
+	reader := streamnet.NewFramedConn(conn)
 
 	for {
 		payload, readErr := reader.ReadPacket()
@@ -53,7 +48,7 @@ func run(args []string) (err error) {
 			return fmt.Errorf("frame-echo: read frame: %w", readErr)
 		}
 
-		written, writeErr := conn.Write(payload)
+		written, writeErr := reader.Write(payload)
 		if writeErr != nil {
 			return fmt.Errorf("frame-echo: echo frame: %w", writeErr)
 		}

@@ -1,6 +1,6 @@
 # Offline join replay
 
-`bedrock-replay` sends saved server packets through the same private bridge used
+`bedrock-replay` sends saved server packets through the same private session endpoint used
 by the Go core. Run the native client with `--socket-dir` and no `--address`.
 The helper has no upstream server option. It rejects captured Transfer packets
 before opening the listener. Captures, downloaded packs, traces and reports belong
@@ -45,6 +45,12 @@ nonzero status as an **expected fixture EOF**, exclude teardown frames, and do n
 call it a successful gameplay acceptance run. A timeout or incomplete replay is
 an error. A force kill or macOS termination watchdog may lose the native trace.
 
+The client sends Connect and receives a Handoff containing the recorded startup
+through StartGame. Pack archives follow as PackData; the remaining recorded
+packets arrive as session batches. The first report burst covers startup as one
+handoff, independent of the play burst limits. Later bursts use the requested
+packet and byte limits. No second Minecraft login runs on the local connection.
+
 ## Fidelity and report interpretation
 
 The input format repeats little-endian `u32 packet_id`, `u32 body_length`, then
@@ -54,14 +60,14 @@ Use a capture from the pinned protocol version; the report identifies the
 protocol supported by the binary, not a version inferred from the capture.
 
 Before the first StartGame, network settings, encryption, login status, pack info
-and pack stack are regenerated for this local connection. Supplied local archives
-are offered in command-line order. Their hashes and identities are recorded;
+and pack stack are replaced by the session handoff. Supplied local archives
+are handed off in command-line order. Their hashes and identities are recorded;
 the original offer, experiments, encryption and download timing are not reproduced.
 Other pre-StartGame packets and all packets from StartGame onward are retained.
-Exactly one StartGame is required. This exercises real pack admission and session
+Exactly one StartGame is required. This exercises archive handoff and session
 setup, but does not prove fidelity of the original server's login handshake.
 
-Bursts use a fixed schedule starting after local login. Each burst is bounded by
+Bursts use a fixed schedule starting after Connect. Each play burst is bounded by
 both packet count and serialized bytes; packets are never split. When the socket
 blocks, later bursts catch up to their original deadlines. The report records
 each burst's source record range, scheduled time and actual flush time. Repeat
@@ -119,6 +125,6 @@ ItemRegistry, chunk radius and spawn-status packets complete the local login.
 This is a synthetic sequence with one actor and no chunks, not a captured join.
 The committed protocol LevelChunk deliberately has a dummy payload and is omitted.
 Use `-hold` for a bounded native probe.
-The tests compare packet bytes across the encrypted local bridge, download an
+The tests compare packet bytes across the session transport, download an
 original minimal pack and compare its hash, exercise both shutdown paths, and
 reject truncated input, transfers, invalid bounds and reused report paths.

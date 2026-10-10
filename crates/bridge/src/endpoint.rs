@@ -11,14 +11,10 @@ use tokio::net::UnixStream;
 
 use crate::BridgeError;
 
-#[cfg(any(unix, test))]
-const GAME_UNIX_ENDPOINT_NAME: &str = "game.sock";
 #[cfg(unix)]
 const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
-#[cfg(unix)]
+#[cfg(any(unix, test))]
 const SESSION_UNIX_ENDPOINT_NAME: &str = "session.sock";
-#[cfg(windows)]
-const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
 #[cfg(windows)]
 const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
 #[cfg(windows)]
@@ -32,7 +28,6 @@ const LOCAL_SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EndpointKind {
-    Game,
     Control,
     /// Carries session messages: the core-owned login's handoff and raw batches.
     Session,
@@ -42,7 +37,6 @@ impl EndpointKind {
     #[cfg(unix)]
     const fn unix_name(self) -> &'static str {
         match self {
-            Self::Game => GAME_UNIX_ENDPOINT_NAME,
             Self::Control => CONTROL_UNIX_ENDPOINT_NAME,
             Self::Session => SESSION_UNIX_ENDPOINT_NAME,
         }
@@ -51,7 +45,6 @@ impl EndpointKind {
     #[cfg(windows)]
     const fn windows_name(self) -> &'static str {
         match self {
-            Self::Game => GAME_WINDOWS_ENDPOINT_NAME,
             Self::Control => CONTROL_WINDOWS_ENDPOINT_NAME,
             Self::Session => SESSION_WINDOWS_ENDPOINT_NAME,
         }
@@ -499,7 +492,7 @@ mod tests {
         use rustix::net::sockopt::{socket_recv_buffer_size, socket_send_buffer_size};
 
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("game.sock");
+        let path = directory.path().join("session.sock");
         let _listener = tokio::net::UnixListener::bind(&path).unwrap();
         let untuned = tokio::net::UnixStream::connect(&path).await.unwrap();
 
@@ -557,13 +550,13 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
 
         let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
-        let first = super::endpoint_path(&directory, super::EndpointKind::Game);
-        let second = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let first = super::endpoint_path(&directory, super::EndpointKind::Session);
+        let second = super::endpoint_path(&directory, super::EndpointKind::Session);
 
         assert_eq!(first, second);
         assert_eq!(
             first,
-            Path::new("/tmp/cinnabar-7b260d1b166f7db809ce8c3d8bd42d1a.sock")
+            Path::new("/tmp/cinnabar-50670ea0113e47309bbdd6088cb96012.sock")
         );
         assert_eq!(first.parent(), Some(Path::new("/tmp")));
         let file_name = first
@@ -583,30 +576,30 @@ mod tests {
         let vectors: Vec<(Vec<u8>, Vec<u8>)> = vec![
             (
                 b"/tmp//alpha/./beta/../gamma".to_vec(),
-                b"/tmp/alpha/gamma/game.sock".to_vec(),
+                b"/tmp/alpha/gamma/session.sock".to_vec(),
             ),
-            (repeated_parent.into_bytes(), b"/tmp/game.sock".to_vec()),
+            (repeated_parent.into_bytes(), b"/tmp/session.sock".to_vec()),
             (
-                format!("/{}", "a".repeat(92)).into_bytes(),
-                format!("/{}/game.sock", "a".repeat(92)).into_bytes(),
+                format!("/{}", "a".repeat(89)).into_bytes(),
+                format!("/{}/session.sock", "a".repeat(89)).into_bytes(),
             ),
             (
-                format!("/{}", "a".repeat(93)).into_bytes(),
-                b"/tmp/cinnabar-d32a5982698ad8de34829c65f893edf6.sock".to_vec(),
+                format!("/{}", "a".repeat(90)).into_bytes(),
+                b"/tmp/cinnabar-7fd044d8c1267c6c811743235894f173.sock".to_vec(),
             ),
             (
                 format!("/tmp/{}", "路径/".repeat(20)).into_bytes(),
-                b"/tmp/cinnabar-08390d1ff13834e20abadae40eff1ce0.sock".to_vec(),
+                b"/tmp/cinnabar-5c1dfe1714387b77a31b244a7b24f395.sock".to_vec(),
             ),
             (
                 invalid_bytes,
-                b"/tmp/cinnabar-32ec4a93b88918d1547cfbaf69f63a13.sock".to_vec(),
+                b"/tmp/cinnabar-823775e4bae38410a0353858827b2a30.sock".to_vec(),
             ),
         ];
 
         for (socket_dir, expected) in vectors {
             assert_eq!(
-                super::unix_endpoint_path_bytes(&socket_dir, super::GAME_UNIX_ENDPOINT_NAME),
+                super::unix_endpoint_path_bytes(&socket_dir, super::SESSION_UNIX_ENDPOINT_NAME),
                 expected
             );
         }
@@ -622,9 +615,9 @@ mod tests {
         );
 
         let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
-        let game = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let session = super::endpoint_path(&directory, super::EndpointKind::Session);
         let control = super::endpoint_path(&directory, super::EndpointKind::Control);
-        assert_ne!(game, control);
+        assert_ne!(session, control);
         assert!(control.to_string_lossy().starts_with("/tmp/cinnabar-"));
         assert!(control.to_string_lossy().ends_with(".sock"));
     }
@@ -642,10 +635,6 @@ mod tests {
         let session = super::endpoint_path(&directory, super::EndpointKind::Session);
         assert_ne!(
             session,
-            super::endpoint_path(&directory, super::EndpointKind::Game)
-        );
-        assert_ne!(
-            session,
             super::endpoint_path(&directory, super::EndpointKind::Control)
         );
         assert!(session.to_string_lossy().starts_with("/tmp/cinnabar-"));
@@ -658,7 +647,7 @@ mod tests {
 
         #[test]
         fn canonical_publication_parses_to_ipv4_loopback() {
-            let path = Path::new("game.addr");
+            let path = Path::new("session.addr");
             let address = parse_windows_publication(path, b"127.0.0.1:49152\n")
                 .expect("canonical publication");
 
@@ -677,7 +666,7 @@ mod tests {
                 &b"127.0.0.1:80\0\n"[..],
                 &b"\xef\xbb\xbf127.0.0.1:80\n"[..],
             ] {
-                let error = parse_windows_publication(Path::new("game.addr"), publication)
+                let error = parse_windows_publication(Path::new("session.addr"), publication)
                     .expect_err("malformed publication must fail");
                 assert!(matches!(error, BridgeError::InvalidEndpoint { .. }));
             }
@@ -693,7 +682,7 @@ mod tests {
                 &b"127.0.0.1:080\n"[..],
                 &b"127.0.0.1:+80\n"[..],
             ] {
-                let error = parse_windows_publication(Path::new("game.addr"), publication)
+                let error = parse_windows_publication(Path::new("session.addr"), publication)
                     .expect_err("unsafe publication must fail");
                 assert!(matches!(error, BridgeError::InvalidEndpoint { .. }));
             }

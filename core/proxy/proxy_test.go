@@ -10,18 +10,17 @@ import (
 	"maps"
 	"math"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
-	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -547,6 +546,7 @@ func TestRelayCancellationAbortsBeforePanickingClose(t *testing.T) {
 	up.closePanicBeforeUnblock = true
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- servePreparedConnection(ctx, down, &preparedConnection{upstream: up}) }()
 	cancel()
@@ -586,47 +586,12 @@ func TestIsOrdinaryCloseRecognizesClassifiedTerminalTransportError(t *testing.T)
 	}
 }
 
-func TestStopServerPropagatesListenerCleanupError(t *testing.T) {
-	wantErr := errors.New("endpoint identity changed")
-	var sessions sync.WaitGroup
-	acceptDone := make(chan error, 1)
-	acceptDone <- nil
-	err := stopServer(func() {}, errorCloser{err: wantErr}, &sessions, acceptDone)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("stopServer() error = %v, want cleanup error", err)
-	}
-}
-
-func TestBackpressuredAcceptHandoffAbortsBeforePanickingClose(t *testing.T) {
-	server, client := net.Pipe()
-	defer client.Close()
-	conn := &handoffTestConn{Conn: server}
-	listener := &singleAcceptListener{conn: conn, returned: make(chan struct{})}
-	accepted := make(chan acceptResult)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runAcceptLoop(ctx, listener, accepted) }()
-	<-listener.returned
-	cancel()
-
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "panic while closing accepted connection") {
-			t.Fatalf("runAcceptLoop() error = %v, want recovered Close panic", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("backpressured handoff cleanup blocked")
-	}
-	if got := conn.events(); len(got) != 2 || got[0] != "abort" || got[1] != "close" {
-		t.Fatalf("handoff lifecycle = %v, want abort before close", got)
-	}
-}
-
 func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 	dir := t.TempDir()
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:1", Logger: logger})
@@ -643,7 +608,7 @@ func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 			t.Fatalf("proxy listener was not ready:\n%s", output.String())
 		}
 	}
-	networkName, address, err := streamnet.Resolve(dir)
+	networkName, address, err := streamnet.ResolveSession(dir)
 	if err != nil {
 		cancel()
 		t.Fatalf("resolve ready proxy endpoint: %v", err)
@@ -654,7 +619,6 @@ func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 		t.Fatalf("dial raw proxy endpoint: %v", err)
 	}
 	defer client.Close()
-	waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", true, time.Second)
 	cancel()
 	select {
 	case err := <-done:
@@ -685,9 +649,8 @@ func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("raw client remained open after proxy shutdown")
 	}
-	waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, time.Second)
 
-	successor, err := streamnet.New(dir).Listen("")
+	successor, err := streamnet.ListenSession(dir)
 	if err != nil {
 		t.Fatalf("endpoint lease leaked after proxy shutdown: %v", err)
 	}
@@ -699,6 +662,7 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- Serve(ctx, Config{SocketDir: dir, Upstream: "127.0.0.1:19132", Logger: logger})
@@ -714,10 +678,19 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 			t.Fatalf("Serve() did not report readiness:\n%s", output.String())
 		}
 	}
-	network, endpoint, err := streamnet.Resolve(dir)
+	network, endpoint, err := streamnet.ResolveSession(dir)
 	if err != nil {
 		cancel()
 		t.Fatalf("listener was reported ready before endpoint publication: %v\n%s", err, output.String())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "session.lock" && filepath.Join(dir, entry.Name()) != endpoint {
+			t.Fatalf("unexpected endpoint or lease %q", entry.Name())
+		}
 	}
 	if got := output.String(); !strings.Contains(got, "msg=\"listener ready; waiting for local Rust client\" socket_dir="+dir+" network="+network+" endpoint="+endpoint) {
 		cancel()
@@ -854,15 +827,6 @@ func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
 		"msg=\"upstream connection starting\" target=zeqa.net:19132 authentication=microsoft",
 		"msg=\"upstream connected\" target=zeqa.net:19132 authentication=microsoft",
 	)
-}
-
-func TestReportLocalClientAcceptedIncludesCapabilities(t *testing.T) {
-	var output lockedBuffer
-	logger := slog.New(slog.NewTextHandler(&output, nil))
-	reportLocalClientAccepted(logger, "run/socket", true)
-	if got := output.String(); !strings.Contains(got, "msg=\"local client accepted\" socket_dir=run/socket client_blob_cache=true") {
-		t.Fatalf("local client output = %q", got)
-	}
 }
 
 func TestConnectUpstreamReportsConnectionFailure(t *testing.T) {
@@ -1239,10 +1203,6 @@ func (s *fakeUpstream) ResourcePacks() []*resource.Pack          { return slices
 func (s *fakeUpstream) TexturePacksRequired() bool               { return s.required }
 func (s *fakeUpstream) IdentityData() login.IdentityData         { return s.identity }
 
-type errorCloser struct{ err error }
-
-func (c errorCloser) Close() error { return c.err }
-
 type cacheStatusScriptedNetwork struct {
 	script func(net.Conn) error
 	done   chan error
@@ -1280,44 +1240,6 @@ func encodeCacheStatusScriptedPackets(encoder *packet.Encoder, packets ...packet
 		encoded = append(encoded, buffer.Bytes())
 	}
 	return encoder.Encode(encoded)
-}
-
-type singleAcceptListener struct {
-	conn     net.Conn
-	returned chan struct{}
-}
-
-func (listener *singleAcceptListener) Accept() (net.Conn, error) {
-	close(listener.returned)
-	return listener.conn, nil
-}
-
-type handoffTestConn struct {
-	net.Conn
-	mu        sync.Mutex
-	lifecycle []string
-}
-
-func (conn *handoffTestConn) Abort() error {
-	conn.record("abort")
-	return conn.Conn.Close()
-}
-
-func (conn *handoffTestConn) Close() error {
-	conn.record("close")
-	panic("close after abort")
-}
-
-func (conn *handoffTestConn) record(event string) {
-	conn.mu.Lock()
-	conn.lifecycle = append(conn.lifecycle, event)
-	conn.mu.Unlock()
-}
-
-func (conn *handoffTestConn) events() []string {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	return append([]string(nil), conn.lifecycle...)
 }
 
 type terminalWriteConn struct{ err error }
@@ -1358,7 +1280,7 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	var mu sync.Mutex
 	upstreamSent := map[uint32][]byte{}
 	var upstreamReceived []packet.Packet
-	upstreamNetwork := streamnet.New(filepath.Join(t.TempDir(), "upstream"))
+	upstreamNetwork := newStreamNetwork()
 	upstreamListener, err := minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		ErrorLog:               slog.New(slog.DiscardHandler),
@@ -1481,180 +1403,8 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 }
 
 // The private listener negotiates no compression, so local batches are neither compressed nor decompressed.
-func TestLocalListenerNegotiatesNoCompression(t *testing.T) {
-	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
-	config := localListenConfig(nil)
-	config.ErrorLog = slog.New(slog.DiscardHandler)
-	listener, err := config.ListenNetwork(network, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	go func() {
-		if conn, err := listener.Accept(); err == nil {
-			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
-		}
-	}()
-	settings := make(chan uint16, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "Local"},
-		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
-			if header.PacketID == packet.IDNetworkSettings {
-				var pk packet.NetworkSettings
-				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
-				settings <- pk.CompressionAlgorithm
-			}
-		},
-	}.DialContextNetwork(ctx, network, "")
-	if err != nil {
-		t.Fatalf("dial local listener: %v", err)
-	}
-	_ = conn.Close()
-	if got := <-settings; got != packet.CompressionAlgorithmNone {
-		t.Fatalf("local NetworkSettings compression = %#x, want none (%#x)", got, packet.CompressionAlgorithmNone)
-	}
-}
-
 // The private listener skips the encryption handshake and serves packs in client-maximum chunks.
-func TestLocalListenerSkipsEncryptionAndServesLargePackChunks(t *testing.T) {
-	archive := admissionPackArchiveWithID(t, "00112233-4455-6677-8899-aabbccddeeff")
-	pack, err := resource.ReadBytes(archive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
-	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
-		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, false)
-	})
-	config.ErrorLog = slog.New(slog.DiscardHandler)
-	listener, err := config.ListenNetwork(network, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	go func() {
-		if conn, err := listener.Accept(); err == nil {
-			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
-		}
-	}()
-	var handshakes atomic.Int32
-	chunkSizes := make(chan uint32, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "Local"},
-		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
-			switch header.PacketID {
-			case packet.IDServerToClientHandshake:
-				handshakes.Add(1)
-			case packet.IDResourcePackDataInfo:
-				var pk packet.ResourcePackDataInfo
-				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
-				chunkSizes <- pk.DataChunkSize
-			}
-		},
-	}.DialContextNetwork(ctx, network, "")
-	if err != nil {
-		t.Fatalf("dial local listener: %v", err)
-	}
-	_ = conn.Close()
-	if n := handshakes.Load(); n != 0 {
-		t.Fatalf("local listener sent %d ServerToClientHandshake packets, want none", n)
-	}
-	if got := <-chunkSizes; got != localResourcePackChunkSize {
-		t.Fatalf("local pack chunk size = %d, want %d", got, localResourcePackChunkSize)
-	}
-}
-
 // A client holding an offered pack declines it, so a rejoin moves no pack bytes over the local link.
-func TestLocalListenerSendsOnlyPacksTheClientLacks(t *testing.T) {
-	read := func(archive []byte) *resource.Pack {
-		pack, err := resource.ReadBytes(archive)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return pack
-	}
-	first := read(admissionPackArchiveWithVersion(t, "00112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
-	second := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
-	bumped := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 1"))
-	var offer atomic.Pointer[[]*resource.Pack]
-	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
-	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
-		return conn.ConfigureResourcePackOffer(*offer.Load(), false)
-	})
-	config.ErrorLog = slog.New(slog.DiscardHandler)
-	listener, err := config.ListenNetwork(network, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func() { _ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1}) }()
-		}
-	}()
-	cache, err := packcache.New(filepath.Join(t.TempDir(), "client-packs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cache.Close()
-	join := func(packs ...*resource.Pack) (sent []string, chunkBytes int) {
-		t.Helper()
-		offer.Store(&packs)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		var mu sync.Mutex
-		conn, err := minecraft.Dialer{
-			IdentityData:      login.IdentityData{DisplayName: "Local"},
-			ResourcePackCache: cache,
-			PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
-				mu.Lock()
-				defer mu.Unlock()
-				switch header.PacketID {
-				case packet.IDResourcePackDataInfo:
-					var pk packet.ResourcePackDataInfo
-					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
-					sent = append(sent, pk.UUID)
-				case packet.IDResourcePackChunkData:
-					var pk packet.ResourcePackChunkData
-					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
-					chunkBytes += len(pk.Data)
-				}
-			},
-		}.DialContextNetwork(ctx, network, "")
-		if err != nil {
-			t.Fatalf("dial local listener: %v", err)
-		}
-		if got := len(conn.ResourcePacks()); got != len(packs) {
-			t.Fatalf("client holds %d packs, want %d", got, len(packs))
-		}
-		_ = conn.Close()
-		mu.Lock()
-		defer mu.Unlock()
-		slices.Sort(sent)
-		return sent, chunkBytes
-	}
-	name := func(pack *resource.Pack) string { return pack.UUID().String() + "_" + pack.Version() }
-
-	sent, chunkBytes := join(first, second)
-	if want := []string{name(first), name(second)}; !slices.Equal(sent, want) || chunkBytes != first.Size()+second.Size() {
-		t.Fatalf("first join sent %v (%d bytes), want %v (%d bytes)", sent, chunkBytes, want, first.Size()+second.Size())
-	}
-	if sent, chunkBytes = join(first, second); len(sent) != 0 || chunkBytes != 0 {
-		t.Fatalf("rejoin sent %v (%d bytes), want nothing", sent, chunkBytes)
-	}
-	if sent, chunkBytes = join(first, bumped); !slices.Equal(sent, []string{name(bumped)}) || chunkBytes != bumped.Size() {
-		t.Fatalf("version bump sent %v (%d bytes), want only %v (%d bytes)", sent, chunkBytes, name(bumped), bumped.Size())
-	}
-}
-
 // BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.
 func BenchmarkLocalLegCompression(b *testing.B) {
 	payload := make([]byte, 1<<20)

@@ -93,7 +93,7 @@ impl LocalWorlds {
         }
     }
 
-    /// Takes the id of a world that finished opening; the caller then joins the game socket.
+    /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub(crate) fn take_ready(&mut self) -> Option<String> {
         self.menu.take_ready()
     }

@@ -3473,7 +3473,7 @@ Scope (detailed plan to be written at phase start):
 - Session lifecycle: begin by copying Lunar's `lunar/internal/relay/relay.go` and relay tests
   into `core/internal/relay`, adapting only imports/helpers needed to make the package
   standalone. The core uses that relay logic to dial upstream (RakNet / NetherNet via Xbox
-  signaling / Realms address), serve the game socket, and handle transfers. Lunar remains a
+  signaling / Realms address), serve the session endpoint, and handle transfers. Lunar remains a
   source donor, never a module dependency.
 - Resource-pack negotiation upstream; pack payloads handed to client over the control channel as files in a cache dir (client applies them — Phase 6 renders them).
 - Windows transport flavor (named pipe or TCP) behind the same listener interface.
@@ -5817,7 +5817,7 @@ via control channel (v1.x, not v1).
 Scope: core embeds/spawns dragonfly (`platform/pc-server` and dragonfly-server skill patterns
 as reference); world create/select/delete UI; settings (name, gamemode, seed, flat/normal);
 LevelDB world persistence via dragonfly; pause/resume semantics on window focus; same client
-path as online (core points the game socket at the local dragonfly). Documented v1 limits:
+path as online (core points the session endpoint at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
 Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.

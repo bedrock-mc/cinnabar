@@ -19,10 +19,9 @@ pub fn bridge_endpoint_path(socket_dir: &Path) -> PathBuf {
 
 /// Returns every endpoint the core publishes in `socket_dir`, for cleanup after a lost core.
 #[must_use]
-pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 3] {
+pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 2] {
     [
         bridge::session_endpoint_path(socket_dir),
-        bridge::endpoint_path(socket_dir),
         bridge::control_endpoint_path(socket_dir),
     ]
 }

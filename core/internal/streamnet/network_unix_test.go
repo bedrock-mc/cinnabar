@@ -16,21 +16,21 @@ import (
 
 func TestUnixLongSocketDirectoryUsesStableLengthSafeEndpoint(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), strings.Repeat("macos-runner-segment-", 8))
-	listener, err := New(dir).Listen("")
+	listener, err := ListenSession(dir)
 	if err != nil {
 		t.Fatalf("Listen() with long socket directory: %v", err)
 	}
 	defer listener.Close()
 
-	network, address, err := Resolve(dir)
+	network, address, err := ResolveSession(dir)
 	if err != nil {
-		t.Fatalf("Resolve() with long socket directory: %v", err)
+		t.Fatalf("ResolveSession() with long socket directory: %v", err)
 	}
 	if network != "unix" {
 		t.Fatalf("network = %q, want unix", network)
 	}
-	first := unixEndpointPath(dir)
-	second := unixEndpointPath(dir)
+	first := unixEndpointPathNamed(dir, sessionUnixEndpointName)
+	second := unixEndpointPathNamed(dir, sessionUnixEndpointName)
 	if address != first || first != second {
 		t.Fatalf("endpoint is not stable: got %q, then %q, want resolved %q", first, second, address)
 	}
@@ -44,8 +44,8 @@ func TestUnixLongSocketDirectoryUsesStableLengthSafeEndpoint(t *testing.T) {
 
 func TestUnixLongEndpointDerivationMatchesRustBridge(t *testing.T) {
 	dir := filepath.Join("/var/folders/zz", strings.Repeat("macos-runner-segment-", 8))
-	want := "/tmp/cinnabar-7b260d1b166f7db809ce8c3d8bd42d1a.sock"
-	if got := unixEndpointPath(dir); got != want {
+	want := "/tmp/cinnabar-50670ea0113e47309bbdd6088cb96012.sock"
+	if got := unixEndpointPathNamed(dir, sessionUnixEndpointName); got != want {
 		t.Fatalf("unixEndpointPath() = %q, want shared Rust endpoint %q", got, want)
 	}
 }
@@ -61,37 +61,37 @@ func TestUnixEndpointLexicalNormalizationMatchesRustBridge(t *testing.T) {
 		{
 			name:      "duplicate separators and dot components",
 			socketDir: "/tmp//alpha/./beta/../gamma",
-			want:      "/tmp/alpha/gamma/game.sock",
+			want:      "/tmp/alpha/gamma/session.sock",
 		},
 		{
 			name:      "long raw path normalizes below limit",
 			socketDir: repeatedParent,
-			want:      "/tmp/game.sock",
+			want:      "/tmp/session.sock",
 		},
 		{
 			name:      "exact direct limit",
-			socketDir: "/" + strings.Repeat("a", 92),
-			want:      "/" + strings.Repeat("a", 92) + "/game.sock",
+			socketDir: "/" + strings.Repeat("a", 89),
+			want:      "/" + strings.Repeat("a", 89) + "/session.sock",
 		},
 		{
 			name:      "first hashed length",
-			socketDir: "/" + strings.Repeat("a", 93),
-			want:      "/tmp/cinnabar-d32a5982698ad8de34829c65f893edf6.sock",
+			socketDir: "/" + strings.Repeat("a", 90),
+			want:      "/tmp/cinnabar-7fd044d8c1267c6c811743235894f173.sock",
 		},
 		{
 			name:      "unicode bytes",
 			socketDir: "/tmp/" + strings.Repeat("路径/", 20),
-			want:      "/tmp/cinnabar-08390d1ff13834e20abadae40eff1ce0.sock",
+			want:      "/tmp/cinnabar-5c1dfe1714387b77a31b244a7b24f395.sock",
 		},
 		{
 			name:      "non UTF-8 bytes",
 			socketDir: string(invalidBytes),
-			want:      "/tmp/cinnabar-32ec4a93b88918d1547cfbaf69f63a13.sock",
+			want:      "/tmp/cinnabar-823775e4bae38410a0353858827b2a30.sock",
 		},
 	}
 	for _, vector := range vectors {
 		t.Run(vector.name, func(t *testing.T) {
-			if got := unixEndpointPath(vector.socketDir); got != vector.want {
+			if got := unixEndpointPathNamed(vector.socketDir, sessionUnixEndpointName); got != vector.want {
 				t.Fatalf("unixEndpointPath() = %q, want shared Rust endpoint %q", got, vector.want)
 			}
 		})
@@ -100,13 +100,13 @@ func TestUnixEndpointLexicalNormalizationMatchesRustBridge(t *testing.T) {
 
 func TestUnixActiveListenerCannotBeStolen(t *testing.T) {
 	dir := t.TempDir()
-	first, err := New(dir).Listen("")
+	first, err := ListenSession(dir)
 	if err != nil {
 		t.Fatalf("first Listen(): %v", err)
 	}
 	defer first.Close()
 
-	second, err := New(dir).Listen("")
+	second, err := ListenSession(dir)
 	if err == nil {
 		_ = second.Close()
 		t.Fatal("second Listen() stole an active Unix socket")
@@ -115,11 +115,11 @@ func TestUnixActiveListenerCannotBeStolen(t *testing.T) {
 
 func TestUnixOldListenerCannotDeleteSuccessorSocket(t *testing.T) {
 	dir := t.TempDir()
-	old, err := New(dir).Listen("")
+	old, err := ListenSession(dir)
 	if err != nil {
 		t.Fatalf("old Listen(): %v", err)
 	}
-	path := unixEndpointPath(dir)
+	path := unixEndpointPathNamed(dir, sessionUnixEndpointName)
 	moved := path + ".old"
 	if err := os.Rename(path, moved); err != nil {
 		t.Fatalf("move old socket: %v", err)
@@ -213,17 +213,17 @@ func syscallSocketPair() ([2]net.Conn, error) {
 	return conns, nil
 }
 
-// Accepted game connections must not keep macOS's 8 KiB Unix socket buffers.
-func TestUnixAcceptedGameConnectionUsesLargeSocketBuffers(t *testing.T) {
+// Accepted session connections must not keep macOS's 8 KiB Unix socket buffers.
+func TestUnixAcceptedSessionConnectionUsesLargeSocketBuffers(t *testing.T) {
 	dir := t.TempDir()
-	listener, err := New(dir).Listen("")
+	listener, err := ListenSession(dir)
 	if err != nil {
 		t.Fatalf("Listen(): %v", err)
 	}
 	defer listener.Close()
-	network, address, err := Resolve(dir)
+	network, address, err := ResolveSession(dir)
 	if err != nil {
-		t.Fatalf("Resolve(): %v", err)
+		t.Fatalf("ResolveSession(): %v", err)
 	}
 	client, err := net.Dial(network, address)
 	if err != nil {
@@ -237,7 +237,7 @@ func TestUnixAcceptedGameConnectionUsesLargeSocketBuffers(t *testing.T) {
 	defer accepted.Close()
 
 	for _, option := range []int{syscall.SO_SNDBUF, syscall.SO_RCVBUF} {
-		tuned := socketOption(t, accepted.(*FramedConn).Conn, syscall.SOL_SOCKET, option)
+		tuned := socketOption(t, accepted, syscall.SOL_SOCKET, option)
 		untuned := socketOption(t, client, syscall.SOL_SOCKET, option)
 		if tuned <= untuned {
 			t.Fatalf("option %d = %d on the accepted conn, want above the untuned %d", option, tuned, untuned)

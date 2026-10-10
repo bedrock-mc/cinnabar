@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -222,52 +220,6 @@ func TestPreparedConnectionReleasesEveryResourceOnce(t *testing.T) {
 	}
 }
 
-func TestPreparationErrorReportingPreservesSetupContractAndBoundsQueue(t *testing.T) {
-	serveCtx := context.Background()
-	errorsOut := make(chan error, 1)
-	first := errors.New("dial failed")
-	reportPreparationError(errorsOut, first, serveCtx)
-	reportPreparationError(errorsOut, errors.New("second dial failed"), serveCtx)
-	got := <-errorsOut
-	if !errors.Is(got, first) || !strings.Contains(got.Error(), "proxy: prepare upstream") {
-		t.Fatalf("reported error = %v, want wrapped first setup failure", got)
-	}
-	select {
-	case extra := <-errorsOut:
-		t.Fatalf("bounded error queue retained extra failure: %v", extra)
-	default:
-	}
-}
-
-func TestPreparationErrorReportingKeepsExpectedPerClientFailuresLocal(t *testing.T) {
-	errorsOut := make(chan error, 1)
-	reportPreparationError(errorsOut, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: 1}, context.Background())
-	reportPreparationError(errorsOut, &preparationCancellationError{cause: context.Canceled}, context.Background())
-	stoppedCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-	reportPreparationError(errorsOut, errors.New("dial failed during shutdown"), stoppedCtx)
-	select {
-	case got := <-errorsOut:
-		t.Fatalf("per-client/shutdown failure escaped to Serve: %v", got)
-	default:
-	}
-}
-
-func TestPreparationErrorReportingSurfacesUpstreamOrdinaryCloseDuringSetup(t *testing.T) {
-	for _, setupErr := range []error{io.EOF, net.ErrClosed, context.Canceled} {
-		errorsOut := make(chan error, 1)
-		reportPreparationError(errorsOut, setupErr, context.Background())
-		select {
-		case got := <-errorsOut:
-			if !errors.Is(got, setupErr) {
-				t.Fatalf("reported error = %v, want %v", got, setupErr)
-			}
-		default:
-			t.Fatalf("setup error %v was suppressed", setupErr)
-		}
-	}
-}
-
 func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testing.T) {
 	connections := newTestPreparedConnections()
 	prepared, targetCloses := newTrackedPreparedConnection()
@@ -304,16 +256,11 @@ func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testin
 		clientDone <- admissionDialResult{conn: client, err: err}
 	}()
 
-	acceptDone := make(chan acceptResult, 1)
-	go func() {
-		conn, err := listener.Accept()
-		acceptDone <- acceptResult{conn: conn, err: err}
-	}()
-	acceptedResult := <-acceptDone
-	if acceptedResult.err != nil {
-		t.Fatalf("listener Accept: %v", acceptedResult.err)
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
 	}
-	accepted := acceptedResult.conn.(*minecraft.Conn)
+	accepted := conn.(*minecraft.Conn)
 	if got := prepareCount.Load(); got != 1 {
 		t.Fatalf("prepare count = %d, want 1", got)
 	}
@@ -354,74 +301,6 @@ func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testin
 		t.Fatalf("close prepared: %v", err)
 	}
 	assertPreparedClosedExactlyOnce(t, prepared, targetCloses)
-}
-
-func TestListenerBoundaryLoggerPanicAfterTakeClosesTransferredOwnership(t *testing.T) {
-	stringCalls := new(atomic.Int32)
-	panicValue := sensitivePanic{stringCalls: stringCalls}
-	handler := newSelectivePanicHandler("local client accepted", panicValue)
-	logger := slog.New(handler)
-	connections := newTestPreparedConnections()
-	targetCloses := new(atomic.Int32)
-	prepared := &preparedConnection{
-		upstream:  newFakeUpstream(nil),
-		packStack: &selectedResourcePackStack{},
-		releaseTarget: func() error {
-			targetCloses.Add(1)
-			return nil
-		},
-	}
-	connections.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
-		return prepared, nil
-	}
-	listener, network := newAdmissionTestListener(t, connections.prepare)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	clientDone := make(chan admissionDialResult, 1)
-	go func() {
-		client, err := (minecraft.Dialer{
-			IdentityData: login.IdentityData{DisplayName: "HandoffPanic"},
-			Protocol:     minecraft.DefaultProtocol,
-		}).DialContextNetwork(ctx, network, "")
-		clientDone <- admissionDialResult{conn: client, err: err}
-	}()
-	acceptedRaw, err := listener.Accept()
-	if err != nil {
-		t.Fatalf("listener Accept: %v", err)
-	}
-	accepted := acceptedRaw.(*minecraft.Conn)
-	taken, err := takePreparedAfterAccept(connections, accepted)
-	if err != nil || taken != prepared {
-		t.Fatalf("takePreparedAfterAccept = (%p, %v), want (%p, nil)", taken, err, prepared)
-	}
-	trackedDownstream := &trackedAcceptedDownstream{Conn: accepted}
-	err = serveAcceptedConnection(ctx, trackedDownstream, taken, "test-socket", logger)
-	if err == nil || !strings.Contains(err.Error(), "type proxy.sensitivePanic") {
-		t.Fatalf("serveAcceptedConnection() error = %v, want type-only logger panic", err)
-	}
-	if stringCalls.Load() != 0 || strings.Contains(err.Error(), "sensitive panic payload") {
-		t.Fatalf("panic payload formatted: error=%q String calls=%d", err, stringCalls.Load())
-	}
-	clientResult := <-clientDone
-	if clientResult.conn != nil {
-		_ = clientResult.conn.Close()
-	}
-	if clientResult.err == nil {
-		t.Fatal("client dial succeeded after handoff logger panic")
-	}
-	if trackedDownstream.abortCalls.Load() != 1 || trackedDownstream.closeCalls.Load() != 1 {
-		t.Fatalf("downstream cleanup abort=%d close=%d, want 1 each", trackedDownstream.abortCalls.Load(), trackedDownstream.closeCalls.Load())
-	}
-	if lifecycle := prepared.upstream.(*fakeUpstream).lifecycleEvents(); !slices.Equal(lifecycle, []string{"abort", "close"}) {
-		t.Fatalf("upstream lifecycle = %v, want [abort close]", lifecycle)
-	}
-	if targetCloses.Load() != 1 {
-		t.Fatalf("target closes=%d, want 1", targetCloses.Load())
-	}
-	_ = prepared.close()
-	if targetCloses.Load() != 1 {
-		t.Fatal("second prepared close repeated target or telemetry cleanup")
-	}
 }
 
 func TestListenerBoundaryShutdownDuringPreparationJoinsHook(t *testing.T) {
@@ -623,7 +502,7 @@ func TestListenerBoundaryConnectedLogPanicCleansAllOwnershipBeforeLogin(t *testi
 	serverErrors := make(chan error, 1)
 	prepare := func(ctx context.Context, conn *minecraft.Conn) error {
 		err := connections.prepare(ctx, conn)
-		reportPreparationError(serverErrors, err, context.Background())
+		serverErrors <- err
 		return err
 	}
 	_, network := newAdmissionTestListener(t, prepare)
@@ -678,7 +557,7 @@ func TestListenerBoundaryRejectsMissingSelectedStackBeforeLoginPackets(t *testin
 	serverErrors := make(chan error, 1)
 	prepare := func(ctx context.Context, conn *minecraft.Conn) error {
 		err := connections.prepare(ctx, conn)
-		reportPreparationError(serverErrors, err, context.Background())
+		serverErrors <- err
 		return err
 	}
 	_, network := newAdmissionTestListener(t, prepare)
@@ -759,7 +638,7 @@ func TestListenerBoundarySurfacesUnexpectedPreparationFailure(t *testing.T) {
 			serverErrors := make(chan error, 1)
 			prepare := func(ctx context.Context, conn *minecraft.Conn) error {
 				err := connections.prepare(ctx, conn)
-				reportPreparationError(serverErrors, err, context.Background())
+				serverErrors <- err
 				return err
 			}
 			_, network := newAdmissionTestListener(t, prepare)
@@ -777,7 +656,7 @@ func TestListenerBoundarySurfacesUnexpectedPreparationFailure(t *testing.T) {
 			}
 			select {
 			case got := <-serverErrors:
-				if !errors.Is(got, setupErr) || !strings.Contains(got.Error(), "proxy: prepare upstream") {
+				if !errors.Is(got, setupErr) {
 					t.Fatalf("server setup error = %v", got)
 				}
 			case <-time.After(time.Second):
@@ -794,7 +673,7 @@ type admissionDialResult struct {
 
 func newAdmissionTestListener(t *testing.T, prepare func(context.Context, *minecraft.Conn) error) (*minecraft.Listener, minecraft.Network) {
 	t.Helper()
-	network := streamnet.New(filepath.Join(t.TempDir(), "socket"))
+	network := newStreamNetwork()
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled:   true,
 		AllowUnknownPackets:      true,
@@ -1524,22 +1403,6 @@ type selectivePanicHandler struct {
 	panicValue   any
 }
 
-type trackedAcceptedDownstream struct {
-	*minecraft.Conn
-	abortCalls atomic.Int32
-	closeCalls atomic.Int32
-}
-
-func (downstream *trackedAcceptedDownstream) Abort() error {
-	downstream.abortCalls.Add(1)
-	return downstream.Conn.Abort()
-}
-
-func (downstream *trackedAcceptedDownstream) Close() error {
-	downstream.closeCalls.Add(1)
-	return downstream.Conn.Close()
-}
-
 func newSelectivePanicHandler(message string, value any) *selectivePanicHandler {
 	return &selectivePanicHandler{counts: make(map[string]int), panicMessage: message, panicValue: value}
 }
@@ -1974,34 +1837,15 @@ func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return dialer.DialContextNetwork(ctx, target.network, "")
 	}
-	prepared := make(chan error, 1)
-	_, network := newAdmissionTestListener(t, func(ctx context.Context, conn *minecraft.Conn) error {
-		err := connections.prepare(ctx, conn)
-		prepared <- err
-		return err
-	})
-	clientCtx, cancelClient := context.WithCancel(context.Background())
-	go func() {
-		conn, err := (minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "Cancel"}, Protocol: minecraft.DefaultProtocol}).DialContextNetwork(clientCtx, network, "")
-		if err == nil {
-			_ = conn.Close()
-		}
-	}()
+	dir := t.TempDir()
+	newTestSessionServer(t, dir, func(server *sessionServer) { server.prepared = connections })
+	client, _ := dialTestSession(t, dir, testSessionConnect(t))
 	select {
 	case <-downloading:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the pack stage was never reported")
 	}
-	cancelClient()
-	select {
-	case err := <-prepared:
-		var cancelled *preparationCancellationError
-		if !errors.As(err, &cancelled) {
-			t.Fatalf("prepare error = %v, want a preparation cancellation", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("closing the client did not end the preparation")
-	}
+	_ = client.Close()
 	select {
 	case <-aborted:
 	case <-time.After(5 * time.Second):

@@ -1,7 +1,7 @@
 //! Session endpoint messages. The core makes the only Minecraft login; the client sends one
 //! [`ConnectRequest`], receives a [`SessionHandoff`] and its pack archives, then exchanges raw
 //! packet batches until a terminal [`CoreMessage::Transfer`] or [`CoreMessage::Disconnect`].
-//! Each connection carries one upstream session. The Go core's `proxy` package owns the same contract.
+//! Each connection carries one upstream session. The Go core's `sessionwire` package owns the same contract.
 
 use std::fmt;
 use std::path::Path;

@@ -592,7 +592,7 @@ pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> 
     Ok(body.friends)
 }
 
-/// Selects the upstream for the next game-socket connection.
+/// Selects the upstream for the next session connection.
 pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result<(), BridgeError> {
     call::<Empty, _>(socket_dir, "connect.v1", Some(target.params())).await?;
     Ok(())

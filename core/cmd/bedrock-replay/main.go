@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
 
@@ -103,7 +101,7 @@ func parseOptions(args []string) (options, error) {
 	return opts, nil
 }
 
-// run negotiates a fresh local login, replays exact saved packets, and waits for the client to exit.
+// run accepts a session Connect, replays exact saved packets, and waits for the client to exit.
 func run(ctx context.Context, opts options, output io.Writer) (result error) {
 	file, err := os.Open(opts.capturePath)
 	if err != nil {
@@ -114,7 +112,7 @@ func run(ctx context.Context, opts options, output io.Writer) (result error) {
 	if err = errors.Join(err, closeErr); err != nil {
 		return err
 	}
-	bursts, err := planBursts(captured.packets, opts.burstPackets, opts.burstBytes)
+	bursts, err := planSessionBursts(captured.packets, opts.burstPackets, opts.burstBytes)
 	if err != nil {
 		return err
 	}
@@ -151,11 +149,7 @@ func run(ctx context.Context, opts options, output io.Writer) (result error) {
 		report.Packs = append(report.Packs, packSummary{pack.UUID().String(), pack.Version(), hex.EncodeToString(digest[:])})
 		packs = append(packs, pack)
 	}
-	listener, err := (minecraft.ListenConfig{
-		AuthenticationDisabled: true, AcceptedProtocols: []minecraft.Protocol{minecraft.DefaultProtocol},
-		AllowUnknownPackets: true, FlushRate: -1, Compression: packet.NopCompression,
-		ResourcePacks: packs, ErrorLog: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}).ListenNetwork(streamnet.New(opts.socketDir), "")
+	listener, err := streamnet.ListenSession(opts.socketDir)
 	if err != nil {
 		return err
 	}
@@ -167,19 +161,25 @@ func run(ctx context.Context, opts options, output io.Writer) (result error) {
 	if err != nil {
 		return errors.Join(err, ctx.Err())
 	}
-	conn := accepted.(*minecraft.Conn)
+	conn := streamnet.NewFramedConn(accepted)
 	defer conn.Close()
+	stopConn := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopConn()
+	sink, err := acceptReplaySession(conn, packs)
+	if err != nil {
+		return errors.Join(err, ctx.Err())
+	}
 	readDone := make(chan error, 1)
 	go func() {
 		for {
-			if _, err := conn.ReadBytes(); err != nil {
+			if _, err := conn.ReadPacket(); err != nil {
 				readDone <- err
 				return
 			}
 		}
 	}()
 	report.ReplayUnixMS = time.Now().UnixMilli()
-	report.Replay, err = replayBursts(ctx, conn, bursts, opts.interval)
+	report.Replay, err = replayBursts(ctx, sink, bursts, opts.interval)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func waitReplayEnd(ctx context.Context, readDone <-chan error, fixtureEnd <-chan
 			reason, err = "client_exit", nil
 		}
 	}
-	// The deadline callback closes the listener and its accepted connections. Both cases can
+	// The deadline callbacks close the listener and the accepted session. Both cases can
 	// therefore be ready together; a random select choice must not turn a timeout into success.
 	if ctx.Err() != nil {
 		return "", ctx.Err()

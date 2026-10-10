@@ -20,11 +20,10 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
+	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
-	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
 const (
@@ -38,22 +37,15 @@ func TestProxyJoin(t *testing.T) {
 	harness := startLiveProxyHarness(t, socketDir)
 	defer harness.cancel()
 
-	client, err := (minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "RustMCBEPhase0"},
-		Protocol:     minecraft.DefaultProtocol,
-	}).DialContextNetwork(harness.ctx, streamnet.New(socketDir), "")
-	if err != nil {
-		t.Fatalf("dial core: %v\nCore status: %s\nBDS output:\n%s", err, harness.core.status(), harness.bds.output())
-	}
+	client, frames := dialTestSession(t, socketDir, testSessionConnect(t))
 	defer client.Close()
-	if err := client.DoSpawnContext(harness.ctx); err != nil {
-		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, harness.bds.output())
-	}
-	if got := client.Proto().ID(); got != 2193 {
-		t.Fatalf("protocol ID = %d, want %d", got, 2193)
-	}
-	if got := client.GameData().EntityRuntimeID; got == 0 {
-		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
+	select {
+	case frame := <-frames:
+		if len(frame) == 0 || frame[0] != sessionwire.KindHandoff {
+			t.Fatalf("expected session handoff, got %x", frame)
+		}
+	case <-harness.ctx.Done():
+		t.Fatal(harness.ctx.Err())
 	}
 
 	_ = client.Close()
@@ -462,7 +454,7 @@ func waitForEndpoint(t *testing.T, ctx context.Context, socketDir string, core *
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if _, _, err := streamnet.Resolve(socketDir); err == nil {
+		if _, _, err := streamnet.ResolveSession(socketDir); err == nil {
 			return
 		}
 		select {

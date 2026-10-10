@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	upstreamNetwork := streamnet.New(filepath.Join(t.TempDir(), "upstream"))
+	upstreamNetwork := newStreamNetwork()
 	packs := rustStartupPacks(t, scenario)
 	upstream, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true, FlushRate: -1, ErrorLog: slog.New(slog.DiscardHandler),

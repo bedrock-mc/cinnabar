@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
+
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -76,7 +78,7 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 		case read := <-session.frames:
 			cause := read.err
 			if cause == nil {
-				cause = fmt.Errorf("%w: client message before handoff", errMalformedSessionMessage)
+				cause = fmt.Errorf("%w: client message before handoff", sessionwire.ErrMalformed)
 			}
 			cancel(cause)
 		case <-stopped:
@@ -99,10 +101,10 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if read.err != nil {
 		return nil, read.err
 	}
-	if len(read.frame) == 0 || read.frame[0] != sessionKindBatch {
-		return nil, fmt.Errorf("%w: expected batch", errMalformedSessionMessage)
+	if len(read.frame) == 0 || read.frame[0] != sessionwire.KindBatch {
+		return nil, fmt.Errorf("%w: expected batch", sessionwire.ErrMalformed)
 	}
-	packets, err := splitBatch(read.frame[1:])
+	packets, err := sessionwire.SplitBatch(read.frame[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -117,14 +119,14 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 	if session.ended {
 		return errSessionEnded
 	}
-	if id, ok := sessionPacketID(data); ok {
+	if id, ok := sessionwire.PacketID(data); ok {
 		switch id {
 		case packet.IDItemRegistry:
 			session.observeItemRegistry(data)
 		case packet.IDTransfer:
 			if transfer, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Transfer); ok {
 				if _, err := transferAddress(transfer.Address, transfer.Port); err == nil {
-					return session.endLocked(sessionKindTransfer, sessionTransferMessage{
+					return session.endLocked(sessionwire.KindTransfer, sessionwire.Transfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
 				}
@@ -132,15 +134,15 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		}
 	}
 	if len(session.pending) == 0 {
-		session.pending = append(session.pending, sessionKindBatch)
+		session.pending = append(session.pending, sessionwire.KindBatch)
 	}
-	session.pending = appendBatchPacket(session.pending, data)
+	session.pending = sessionwire.AppendBatchPacket(session.pending, data)
 	return nil
 }
 
 // observeItemRegistry records the shield runtime ID from an ItemRegistry the client receives.
 func (session *sessionConn) observeItemRegistry(data []byte) {
-	if id, ok := sessionPacketID(data); !ok || id != packet.IDItemRegistry {
+	if id, ok := sessionwire.PacketID(data); !ok || id != packet.IDItemRegistry {
 		return
 	}
 	if registry, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ItemRegistry); ok {
@@ -180,7 +182,7 @@ func (session *sessionConn) DisconnectPacket(value packet.Disconnect) error {
 	if session.ended {
 		return nil // a Transfer already ended the session
 	}
-	err := session.endLocked(sessionKindDisconnect, sessionDisconnectMessage{
+	err := session.endLocked(sessionwire.KindDisconnect, sessionwire.Disconnect{
 		Reason: value.Reason, Message: value.Message, FilteredMessage: value.FilteredMessage,
 		HideScreen: value.HideDisconnectionScreen,
 	})
@@ -203,7 +205,7 @@ func (session *sessionConn) flushLocked() error {
 	}
 	_, err := session.conn.Write(session.pending)
 	// Write has returned, so the buffer is reused unless one large batch grew it.
-	if cap(session.pending) > sessionPackChunkBytes {
+	if cap(session.pending) > sessionwire.PackChunkBytes {
 		session.pending = nil
 	} else {
 		session.pending = session.pending[:0]
@@ -217,7 +219,7 @@ func (session *sessionConn) endLocked(kind byte, value any) error {
 		return err
 	}
 	session.ended = true
-	frame, err := encodeSessionJSON(kind, value)
+	frame, err := sessionwire.EncodeJSON(kind, value)
 	if err != nil {
 		return err
 	}

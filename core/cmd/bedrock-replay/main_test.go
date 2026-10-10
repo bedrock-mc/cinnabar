@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 type readyOutput struct {
@@ -37,7 +39,7 @@ func (output *readyOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// TestLocalReplayRoundTrip proves the real encrypted local bridge preserves the captured packet bytes.
+// TestLocalReplayRoundTrip proves the session transport preserves the captured packet bytes.
 func TestLocalReplayRoundTrip(t *testing.T) {
 	for _, end := range []string{"client_exit", "fixture_end"} {
 		for _, withPack := range []bool{false, true} {
@@ -90,39 +92,78 @@ func testLocalReplayRoundTrip(t *testing.T, end string, withPack bool) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	conn, err := (minecraft.Dialer{
-		IdentityData: login.IdentityData{DisplayName: "ReplayTest"},
-		Handoff:      minecraft.HandoffAtStartGame, ErrorLog: slog.New(slog.DiscardHandler),
-	}).DialContextNetwork(ctx, streamnet.New(opts.socketDir), "")
+	network, address, err := streamnet.ResolveSession(opts.socketDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	packs := conn.ResourcePacks()
-	packDigest := sha256.Sum256(packBytes)
-	if withPack && (len(packs) != 1 || packs[0].Checksum() != packDigest) {
-		t.Fatal("resource-pack download changed the offered archive")
+	raw, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !withPack {
-		// Gophertunnel's empty-pack fast path retains the generated stack as a deferred login packet.
-		stack, err := conn.ReadBytes()
-		if err != nil {
-			t.Fatal(err)
+	conn := streamnet.NewFramedConn(raw)
+	defer conn.Close()
+	deadline, _ := ctx.Deadline()
+	_ = conn.SetDeadline(deadline)
+	connect := replayTestConnect(t)
+	if _, err := conn.Write(connect); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := conn.ReadPacket()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frame) < 5 || frame[0] != sessionwire.KindHandoff {
+		t.Fatalf("expected handoff, got %x", frame)
+	}
+	length := int(binary.BigEndian.Uint32(frame[1:5]))
+	var handoff sessionwire.Handoff
+	if err := json.Unmarshal(frame[5:5+length], &handoff); err != nil {
+		t.Fatal(err)
+	}
+	packDigest := sha256.Sum256(packBytes)
+	if withPack {
+		if len(handoff.Packs) != 1 || handoff.Packs[0].Size != uint64(len(packBytes)) {
+			t.Fatal("incorrect pack handoff")
 		}
-		var stackHeader packet.Header
-		if err := stackHeader.Read(bytes.NewReader(stack)); err != nil || stackHeader.PacketID != packet.IDResourcePackStack {
-			t.Fatalf("missing regenerated local resource-pack stack: id=%d err=%v", stackHeader.PacketID, err)
+		var archive []byte
+		for len(archive) < len(packBytes) {
+			pack, err := conn.ReadPacket()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pack) < 5 || pack[0] != sessionwire.KindPackData || binary.BigEndian.Uint32(pack[1:5]) != 0 {
+				t.Fatal("incorrect pack frame")
+			}
+			archive = append(archive, pack[5:]...)
 		}
+		if sha256.Sum256(archive) != packDigest {
+			t.Fatal("pack bytes changed")
+		}
+	} else if len(handoff.Packs) != 0 {
+		t.Fatal("unexpected packs")
+	}
+	packets, err := sessionwire.SplitBatch(frame[5+length:])
+	if err != nil {
+		t.Fatal(err)
 	}
 	for _, captured := range expected.packets {
-		actual, err := conn.ReadBytes()
-		if err != nil {
-			t.Fatal(err)
+		if len(packets) == 0 {
+			batch, err := conn.ReadPacket()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if batch[0] != sessionwire.KindBatch {
+				t.Fatal("expected batch")
+			}
+			packets, err = sessionwire.SplitBatch(batch[1:])
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
+		actual := packets[0]
+		packets = packets[1:]
 		if !bytes.Equal(actual, captured.wire) {
-			var header packet.Header
-			_ = header.Read(bytes.NewReader(actual))
-			t.Fatalf("record %d changed across the local bridge: received id=%d bytes=%d, expected id=%d bytes=%d", captured.record, header.PacketID, len(actual), captured.id, len(captured.wire))
+			t.Fatalf("record %d changed", captured.record)
 		}
 	}
 	if end == "client_exit" {
@@ -147,7 +188,7 @@ func testLocalReplayRoundTrip(t *testing.T, end string, withPack bool) {
 	if err := json.Unmarshal(encoded, &report); err != nil {
 		t.Fatal(err)
 	}
-	if !report.Complete || report.Error != "" || report.EndReason != end || report.Replay.SHA256 != expected.summary.ReplaySHA256 || len(report.Replay.Bursts) != 3 {
+	if !report.Complete || report.Error != "" || report.EndReason != end || report.Replay.SHA256 != expected.summary.ReplaySHA256 || len(report.Replay.Bursts) != 4 {
 		t.Fatalf("invalid replay report: %+v", report)
 	}
 	if withPack && (len(report.Packs) != 1 || report.Packs[0].SHA256 != hex.EncodeToString(packDigest[:])) {
@@ -284,4 +325,22 @@ func TestReplayEndAcceptsUninterruptedCompletion(t *testing.T) {
 	if reason, err := waitReplayEnd(context.Background(), nil, fixtureEnd); err != nil || reason != "fixture_end" {
 		t.Fatalf("fixture end: %q, %v", reason, err)
 	}
+}
+
+// replayTestConnect supplies an offline session login matching the client contract.
+func replayTestConnect(t *testing.T) []byte {
+	t.Helper()
+	data, err := json.Marshal(login.ClientData{
+		GameVersion: minecraft.DefaultProtocol.Ver(), LanguageCode: "en_US",
+		SkinID: "skin", SkinData: base64.StdEncoding.EncodeToString(make([]byte, 64*32*4)),
+		SkinImageWidth: 64, SkinImageHeight: 32, ThirdPartyName: "ReplayTest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := sessionwire.EncodeJSON(sessionwire.KindConnect, sessionwire.ConnectRequest{Protocol: minecraft.DefaultProtocol.ID(), ClientData: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return frame
 }

@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -518,32 +517,9 @@ func dialMinecraftUpstream(
 	return connection, err
 }
 
+// prepare acquires the upstream and configures a friend connection's pack offer.
 func (connections *preparedConnections) prepare(ctx context.Context, downstream *minecraft.Conn) error {
-	// The listener reads nothing while preparing, so a client that leaves (vanilla's cancel) is
-	// only noticed through the stream watcher; it ends the join like the downstream closing.
-	if watcher, ok := peerWatcher(downstream); ok {
-		var cancelPeer context.CancelFunc
-		ctx, cancelPeer = context.WithCancel(ctx)
-		go func() {
-			defer cancelPeer()
-			select {
-			case <-watcher.PeerDone():
-			case <-ctx.Done():
-			}
-		}()
-	}
 	return connections.prepareConnection(ctx, downstream, downstream)
-}
-
-// peerWatcher tolerates a zero Conn, whose RemoteAddr panics.
-func peerWatcher(conn *minecraft.Conn) (watcher streamnet.PeerWatcher, ok bool) {
-	defer func() {
-		if recover() != nil {
-			watcher, ok = nil, false
-		}
-	}()
-	watcher, ok = conn.RemoteAddr().(streamnet.PeerWatcher)
-	return watcher, ok
 }
 
 func (connections *preparedConnections) prepareConnection(
