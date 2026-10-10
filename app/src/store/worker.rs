@@ -1,9 +1,14 @@
 //! The store's link to the core: an API worker, so a slow purchase never queues behind image downloads,
-//! and a pool of image workers fetching offer art in parallel; the render loop only ever polls a channel.
+//! and a pool of image workers fetching offer art into the disk cache in parallel; the render loop
+//! only ever polls a channel.
 
-use std::{path::PathBuf, thread};
+use std::{
+    path::{Path, PathBuf},
+    thread,
+};
 
 use bevy::prelude::Resource;
+use client_ui::remote_images::{ImageDirectory, STORE_ART, Surface};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
 use protocol::store_control::{self, BridgeError};
 
@@ -27,16 +32,26 @@ pub(crate) struct StoreWorker {
 }
 
 impl StoreWorker {
-    /// Start the workers against the control endpoint under `socket_dir`.
-    pub(crate) fn new(socket_dir: PathBuf) -> Self {
+    /// Start the workers against the control endpoint under `socket_dir`, caching offer art
+    /// under `image_dir`.
+    pub(crate) fn new(socket_dir: PathBuf, image_dir: PathBuf) -> Self {
+        Self::with_images(socket_dir, image_dir, STORE_ART)
+    }
+
+    fn with_images(socket_dir: PathBuf, image_dir: PathBuf, surface: Surface) -> Self {
         let (api, api_requests) = bounded(API_QUEUE);
         let (images, image_requests) = bounded(IMAGE_QUEUE);
         let (event_tx, events) = unbounded();
-        let pool = std::iter::repeat_n(image_requests, IMAGE_WORKERS);
-        for requests in std::iter::once(api_requests).chain(pool) {
+        let api_worker = std::iter::once((api_requests, None));
+        let pool = std::iter::repeat_n((image_requests, Some(image_dir)), IMAGE_WORKERS);
+        for (requests, image_dir) in api_worker.chain(pool) {
             let socket_dir = socket_dir.clone();
             let event_tx = event_tx.clone();
-            thread::spawn(move || serve(&socket_dir, &requests, &event_tx));
+            thread::spawn(move || {
+                // Each image worker owns a cache client, as its connections live on this runtime.
+                let images = image_dir.map(|dir| ImageDirectory::new(dir, surface));
+                serve(&socket_dir, images.as_ref(), &requests, &event_tx)
+            });
         }
         Self {
             api,
@@ -65,7 +80,8 @@ impl StoreWorker {
 }
 
 fn serve(
-    socket_dir: &std::path::Path,
+    socket_dir: &Path,
+    images: Option<&ImageDirectory>,
     requests: &Receiver<StoreRequest>,
     events: &Sender<StoreEvent>,
 ) {
@@ -76,14 +92,18 @@ fn serve(
         return;
     };
     while let Ok(request) = requests.recv() {
-        let event = runtime.block_on(handle(socket_dir, request));
+        let event = runtime.block_on(handle(socket_dir, images, request));
         if events.send(event).is_err() {
             return;
         }
     }
 }
 
-async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEvent {
+async fn handle(
+    socket_dir: &Path,
+    images: Option<&ImageDirectory>,
+    request: StoreRequest,
+) -> StoreEvent {
     match request {
         StoreRequest::Home(page) => StoreEvent::Page(reduce(
             store_control::store_home(socket_dir, page.as_deref()).await,
@@ -113,10 +133,13 @@ async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEve
             result: reduce(store_control::store_purchase(socket_dir, &purchase).await),
         },
         StoreRequest::Image(url) => {
-            let result = reduce(store_control::store_image(socket_dir, &url).await);
+            let path = match images {
+                Some(images) => images.fetch(&url).await,
+                None => None,
+            };
             StoreEvent::Image {
                 url,
-                result: result.map(|image| image.path),
+                result: path.ok_or(StoreError::Rejected),
             }
         }
     }
@@ -164,20 +187,22 @@ mod tests {
     }
 
     // One image worker fetched every thumbnail in turn, so a page took the sum of its downloads.
-    #[cfg(unix)]
     #[test]
     fn image_requests_are_fetched_in_parallel() {
-        use std::{io::Read, os::unix::net::UnixListener, time::Duration};
-        let dir = std::env::temp_dir().join(format!("store-images-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let listener =
-            UnixListener::bind(protocol::launcher_control::control_endpoint_path(&dir)).unwrap();
-        let worker = StoreWorker::new(dir.clone());
+        use std::{io::Read, net::TcpListener, time::Duration};
+        let dir = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let surface = Surface {
+            public_only: false,
+            ..STORE_ART
+        };
+        let worker =
+            StoreWorker::with_images(dir.path().to_path_buf(), dir.path().join("images"), surface);
         for index in 0..IMAGE_WORKERS {
-            assert!(worker.send(StoreRequest::Image(format!("https://x.test/{index}.jpg"))));
+            assert!(worker.send(StoreRequest::Image(format!("{base}/{index}.jpg"))));
         }
-        // Each worker holds its connection open until answered; none is answered here.
+        // Each download holds its connection open until answered; none is answered here.
         let mut held = Vec::new();
         listener.set_nonblocking(true).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -185,8 +210,8 @@ mod tests {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     stream.set_nonblocking(false).unwrap();
-                    let mut size = [0; 4];
-                    stream.read_exact(&mut size).unwrap();
+                    let mut request = [0; 512];
+                    let _ = stream.read(&mut request).unwrap();
                     held.push(stream);
                 }
                 Err(_) => std::thread::sleep(Duration::from_millis(5)),
@@ -195,7 +220,26 @@ mod tests {
         let concurrent = held.len();
         drop(held);
         drop(worker);
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(concurrent, IMAGE_WORKERS, "image fetches ran one at a time");
+    }
+
+    #[test]
+    fn a_refused_image_reports_rejection() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = StoreWorker::new(dir.path().to_path_buf(), dir.path().join("images"));
+        assert!(worker.send(StoreRequest::Image("http://insecure.test/a.png".into())));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut events = Vec::new();
+        while events.is_empty() && std::time::Instant::now() < deadline {
+            events = worker.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(matches!(
+            events.as_slice(),
+            [StoreEvent::Image {
+                result: Err(StoreError::Rejected),
+                ..
+            }]
+        ));
     }
 }

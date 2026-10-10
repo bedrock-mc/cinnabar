@@ -73,7 +73,7 @@ Signing is optional; each missing secret yields unsigned output instead of a fai
 | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization; required once `CODESIGN_IDENTITY` is set |
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes, MSI, setup engine and bundle |
 | `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on `v*` releases (else none is published) |
-| `UPDATE_TRUSTED_KEYS` (variable) | Keys the core trusts for update manifests |
+| `UPDATE_TRUSTED_KEYS` (variable) | Keys the client trusts for update manifests |
 | `DISCORD_CHANGELOG_WEBHOOK` | Posts each new `v*` release's changelog to Discord, grouped by PR label (`packaging/changelog.py`) |
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks
@@ -115,9 +115,9 @@ A panic hook writes `crashes/*.json` (message, backtrace, core log tail) for loc
 reports are kept and nothing is uploaded.
 
 ## Update channel
-`bedrock-core check-update` fetches an Ed25519-signed manifest (`core/update`), rejects unknown keys,
-expiry, wrong channel, non-HTTPS, and bad digests, and the client records the verdict in
+The client fetches an Ed25519-signed manifest (`crates/update-manifest`), rejects unknown keys,
+expiry, wrong channel, non-HTTPS, and bad digests, and records the verdict in
 `update/available.json` at most daily. Manifest URL: `CINNABAR_UPDATE_URL` or `resources/update-url`.
-Trusted keys are baked in with `-X main.trustedUpdateKeys=id:base64[,...]` (`UPDATE_TRUSTED_KEYS`),
-so rotation ships as a new key ID. CI signs with `core/cmd/release-manifest` using
-`CINNABAR_UPDATE_SIGNING_KEY`. Installing an update is manual (download the listed artifact).
+Trusted keys (`id:base64[,...]`) are compiled into the client from `UPDATE_TRUSTED_KEYS`,
+so rotation ships as a new key ID. CI signs with `cargo run -p release-manifest -- sign` using
+`CINNABAR_UPDATE_SIGNING_KEY`; `release-manifest keygen` makes a key pair. Installing an update is manual (download the listed artifact).

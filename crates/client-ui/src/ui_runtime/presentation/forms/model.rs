@@ -9,7 +9,7 @@ use json_ui::{
 };
 use protocol::{CustomFormElement, FormButtonImage, MenuElement, ServerFormModel};
 
-use super::remote_images::RemoteState;
+use crate::remote_images::RemoteState;
 use crate::ui_runtime::forms::{FormEngineState, FormValue, values::slider_fraction};
 
 /// `None` for a form the engine cannot draw (unsupported controls).

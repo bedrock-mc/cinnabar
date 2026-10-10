@@ -148,8 +148,10 @@ dist-local:
 
 # Release packaging (see packaging/README.md). Signing credentials come from the environment.
 PKG_VERSION ?= $(shell sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml | head -n 1)
+# Update manifest keys the client trusts (id:base64[,...]); read by the client build.
 UPDATE_TRUSTED_KEYS ?=
-PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUpdateKeys=$(UPDATE_TRUSTED_KEYS)
+export UPDATE_TRUSTED_KEYS
+PKG_CORE_LDFLAGS = -s -w
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
 	$(CARGO) build --release --locked --no-default-features -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc

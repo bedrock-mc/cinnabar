@@ -39,7 +39,7 @@ pub struct Realm {
     pub member: bool,
 }
 
-/// Remote HTTPS artwork and the core's cached copy of it, when it has one.
+/// Remote HTTPS artwork and a local copy once one is cached; the core fills `path` only for art it renders.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Artwork {
     #[serde(default)]

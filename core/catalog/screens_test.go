@@ -5,38 +5,25 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
-	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 )
 
-func TestArtworkPruningKeepsTheNewestFiles(t *testing.T) {
-	directory := t.TempDir()
-	for index, name := range []string{"a.img", "b.img", "c.img"} {
-		path := filepath.Join(directory, name)
-		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		stamp := time.Unix(int64(1000+index), 0)
-		if err := os.Chtimes(path, stamp, stamp); err != nil {
-			t.Fatal(err)
-		}
+// The catalog file names thumbnails by HTTPS URL only; the client caches them.
+func TestCatalogServerCarriesOnlyHTTPSImageURLs(t *testing.T) {
+	data, err := json.Marshal(catalogServer(FeaturedServer{Name: "A", thumbnailURL: "https://cdn.test/a.png"}))
+	if err != nil || !strings.Contains(string(data), `"image_url":"https://cdn.test/a.png"`) {
+		t.Fatalf("catalog row = %s, %v", data, err)
 	}
-	cfg := artworkPolicy
-	cfg.MaxFiles = 2
-	imagecache.New(directory, cfg).Prune()
-	if _, err := os.Stat(filepath.Join(directory, "a.img")); !os.IsNotExist(err) {
-		t.Fatalf("the oldest file survived: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, "c.img")); err != nil {
-		t.Fatalf("the newest file was pruned: %v", err)
+	for _, raw := range []string{"http://cdn.test/a.png", "https://user:pw@cdn.test/a.png", ""} {
+		if got := catalogServer(FeaturedServer{thumbnailURL: raw}).ImageURL; got != "" {
+			t.Fatalf("catalog row kept %q", got)
+		}
 	}
 }
 

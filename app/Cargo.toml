@@ -81,6 +81,7 @@ thiserror.workspace = true
 url = "2"
 tokio.workspace = true
 ui = { path = "../crates/ui" }
+update-manifest = { path = "../crates/update-manifest" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }

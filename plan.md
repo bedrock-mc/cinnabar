@@ -5840,7 +5840,7 @@ first-run experience.
 **Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
 AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, local crash
 records (never uploaded), signed-manifest update checks, and the core log/backoff helpers are in
-`app/src/{first_run,lifecycle}` and `core/update`. Unverified until compiled and run on a clean machine: every
+`app/src/{first_run,lifecycle}` and `crates/update-manifest`. Unverified until compiled and run on a clean machine: every
 recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).

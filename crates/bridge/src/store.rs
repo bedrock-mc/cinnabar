@@ -223,23 +223,6 @@ pub struct PurchaseOutcome {
     pub replayed: bool,
 }
 
-/// An offer image the core cached on local disk (PNG, JPEG, GIF or BMP).
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct StoreImage {
-    pub path: std::path::PathBuf,
-    pub content_type: String,
-}
-
-#[derive(Deserialize)]
-struct ImageBody {
-    image: StoreImage,
-}
-
-#[derive(Serialize)]
-struct ImageParams<'a> {
-    url: &'a str,
-}
-
 #[derive(Deserialize)]
 struct PageBody {
     page: StorePage,
@@ -343,12 +326,6 @@ pub async fn store_row_more(
     .await
 }
 
-/// Downloads an offer image (https only) into the core's bounded cache and returns its path.
-pub async fn store_image(socket_dir: &Path, url: &str) -> Result<StoreImage, BridgeError> {
-    let body: ImageBody = call(socket_dir, "store_image.v1", Some(ImageParams { url })).await?;
-    Ok(body.image)
-}
-
 /// Buys a confirmed offer with virtual currency; the core sends it to Mojang at most once per purchase id.
 pub async fn store_purchase(
     socket_dir: &Path,
@@ -442,14 +419,6 @@ mod tests {
             (more.offers.len(), more.continuation.as_deref()),
             (1, Some("t2"))
         );
-    }
-
-    #[test]
-    fn parses_a_cached_image_reply() {
-        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
-            "image":{"path":"/cache/a.png","content_type":"image/png"}}}"#;
-        let body: ImageBody = parse_response(reply).expect("image");
-        assert_eq!(body.image.content_type, "image/png");
     }
 
     #[test]

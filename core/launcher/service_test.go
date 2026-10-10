@@ -178,28 +178,21 @@ func TestPublishSignedInDoesNotOutliveAccount(t *testing.T) {
 	}
 }
 
-func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
-	var cached []string
+// Screen feeds carry artwork URLs for the client to cache, and need an account.
+func TestScreenFeedsCarryArtworkURLsAndNeedAnAccount(t *testing.T) {
+	logo := catalog.Image{URL: "https://a.test/l.png"}
 	service := New(Config{
-		Account: testAccount(), ArtworkDir: "/art",
+		Account: testAccount(), ArtworkDir: t.TempDir(),
 		Featured: func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error) {
-			return []catalog.FeaturedServer{{Name: "S", Logo: catalog.Image{URL: "https://a.test/l.png"}}}, nil
+			return []catalog.FeaturedServer{{Name: "S", Logo: logo}}, nil
 		},
 		Profile: func(context.Context, *authcache.Account) (catalog.Profile, error) {
 			return catalog.Profile{Gamertag: "Steve"}, nil
 		},
-		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
-			for _, image := range images {
-				if image.URL != "" {
-					image.Path = directory + "/cached"
-					cached = append(cached, image.URL)
-				}
-			}
-		},
 	})
 	servers, err := service.FeaturedServers(context.Background())
-	if err != nil || len(servers) != 1 || servers[0].Logo.Path != "/art/cached" || len(cached) != 1 {
-		t.Fatalf("servers = %+v, err = %v, cached = %v", servers, err, cached)
+	if err != nil || len(servers) != 1 || servers[0].Logo != logo {
+		t.Fatalf("servers = %+v, err = %v", servers, err)
 	}
 	if profile, err := service.Profile(context.Background()); err != nil || profile.Gamertag != "Steve" {
 		t.Fatalf("profile = %+v, err = %v", profile, err)
@@ -210,26 +203,18 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 	}
 }
 
-func TestHomeCachesMessageArtwork(t *testing.T) {
+func TestHomeCarriesMessageArtworkURLs(t *testing.T) {
+	tile := catalog.Image{URL: "https://a.test/t.png"}
 	service := New(Config{
-		Account: testAccount(), ArtworkDir: "/art",
+		Account: testAccount(), ArtworkDir: t.TempDir(),
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{
-				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
-					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},
-				}}},
+				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{{ID: "tile", Image: tile}}}},
 			}, nil
-		},
-		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
-			for _, image := range images {
-				if image.URL != "" {
-					image.Path = directory + "/cached"
-				}
-			}
 		},
 	})
 	home, err := service.Home(context.Background())
-	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" {
+	if err != nil || home.Messages[0].Images[0].Image != tile {
 		t.Fatalf("home = %+v, err = %v", home, err)
 	}
 }
@@ -305,7 +290,6 @@ func TestProfileCarriesTheRenderedAvatar(t *testing.T) {
 			}
 			return catalog.Image{Path: directory + "/avatar.img"}, nil
 		},
-		CacheArt: func(context.Context, string, []*catalog.Image) {},
 	})
 	profile, err := service.Profile(context.Background())
 	if err != nil || calls != 1 || profile.Avatar.Path == "" || profile.AvatarError {

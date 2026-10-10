@@ -247,6 +247,20 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
+    #[must_use]
+    pub fn launcher_artwork_dir(&self) -> PathBuf {
+        self.auth_cache()
+            .with_file_name("catalog-cache")
+            .join("artwork")
+    }
+
+    /// Downloaded Marketplace offer art.
+    #[must_use]
+    pub fn store_images_dir(&self) -> PathBuf {
+        self.auth_cache().with_file_name("store-images")
+    }
+
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {
@@ -661,6 +675,15 @@ mod tests {
         assert_eq!(
             layout.auth_cache(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/microsoft-token.json")
+        );
+        // Downloaded art stays where earlier cores cached it, so upgrades keep their cache.
+        assert_eq!(
+            layout.launcher_artwork_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/catalog-cache/artwork")
+        );
+        assert_eq!(
+            layout.store_images_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/store-images")
         );
         assert_eq!(
             layout.resource_pack_cache_dir(),

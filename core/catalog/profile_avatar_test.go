@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service/persona"
 )
 
@@ -49,8 +48,8 @@ func TestProfileAvatarUsesDiscoveredService(t *testing.T) {
 	}
 }
 
-// TestProfileAvatarCacheHitSurvivesEviction keeps a reused avatar ahead of older artwork.
-func TestProfileAvatarCacheHitSurvivesEviction(t *testing.T) {
+// A reused avatar is touched, so the client's least-recently-used eviction keeps it over older art.
+func TestProfileAvatarCacheHitRefreshesItsAge(t *testing.T) {
 	directory := t.TempDir()
 	env := new(persona.Environment)
 	if err := json.Unmarshal([]byte(`{"serviceUri":"https://persona.fixture.test"}`), env); err != nil {
@@ -64,29 +63,17 @@ func TestProfileAvatarCacheHitSurvivesEviction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unusedPath := filepath.Join(directory, "unused-artwork.img")
-	if err := os.WriteFile(unusedPath, []byte("unused artwork"), 0o600); err != nil {
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(avatar.Path, stale, stale); err != nil {
 		t.Fatal(err)
-	}
-	now := time.Now()
-	for path, stamp := range map[string]time.Time{
-		avatar.Path: now.Add(-2 * time.Hour),
-		unusedPath:  now.Add(-time.Hour),
-	} {
-		if err := os.Chtimes(path, stamp, stamp); err != nil {
-			t.Fatal(err)
-		}
 	}
 	reused, err := cacheProfileAvatar(context.Background(), env, fixedTokens{}, "123", directory)
 	if err != nil || reused.Path != avatar.Path {
 		t.Fatalf("reused avatar = %+v, error = %v", reused, err)
 	}
-	imagecache.New(directory, imagecache.Config{MaxFiles: 1}).Prune()
-	if _, err := os.Stat(avatar.Path); err != nil {
-		t.Fatalf("recently reused avatar was evicted: %v", err)
-	}
-	if _, err := os.Stat(unusedPath); !os.IsNotExist(err) {
-		t.Fatalf("older unused artwork survived eviction: %v", err)
+	info, err := os.Stat(avatar.Path)
+	if err != nil || !info.ModTime().After(stale.Add(time.Hour)) {
+		t.Fatalf("reused avatar kept its old age: %v", err)
 	}
 }
 

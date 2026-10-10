@@ -218,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -363,6 +363,19 @@ path = "tools/cinnabar-mcp"
 allowed_dependencies = ["developer-control", "mcp-stdio"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
+
+# Signed release manifest format, shared by the client's update check and the CI signer.
+[[crates]]
+name = "update-manifest"
+path = "crates/update-manifest"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "release-manifest"
+path = "tools/release-manifest"
+allowed_dependencies = ["update-manifest"]
+forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
 name = "cinnabar-cxb"

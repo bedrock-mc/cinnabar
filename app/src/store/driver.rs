@@ -46,7 +46,10 @@ pub(crate) fn drive_store(
     let (Some(worker), Some(mut state)) = (worker, state) else {
         let mut fresh = StoreState::new();
         fresh.set_settings(launcher::store::settings::load(&menu.store_settings_path()));
-        commands.insert_resource(StoreWorker::new(account.socket_dir().to_path_buf()));
+        commands.insert_resource(StoreWorker::new(
+            account.socket_dir().to_path_buf(),
+            menu.store_images_dir(),
+        ));
         commands.insert_resource(fresh);
         let loading = menu.in_store().then(|| Arc::new(StoreSnapshot::empty()));
         menu.set_store_snapshot(loading);

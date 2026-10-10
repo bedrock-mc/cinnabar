@@ -17,7 +17,7 @@ func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
 			return nil, denied
 		}
 		return nil, nil
-	}, "")
+	})
 	client := new(Client)
 	session.client = client
 	if got, err := session.get(context.Background()); err != nil || got != client {
@@ -31,7 +31,6 @@ func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
 		func() error { _, err := session.Balances(context.Background()); return err },
 		func() error { _, err := session.Entitlements(context.Background(), 0, 0, false); return err },
 		func() error { _, err := session.MoreOffers(context.Background(), ""); return err },
-		func() error { _, err := session.Image(context.Background(), ""); return err },
 		func() error { _, err := session.Purchase(context.Background(), PurchaseRequest{}); return err },
 	}
 	for i, call := range calls {
@@ -42,7 +41,7 @@ func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
 }
 
 func TestSessionRejectsInvalidPurchaseBeforeOpening(t *testing.T) {
-	session := NewSession(func() (*authcache.Account, error) { return nil, nil }, "")
+	session := NewSession(func() (*authcache.Account, error) { return nil, nil })
 	if _, err := session.Purchase(context.Background(), PurchaseRequest{}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("invalid purchase = %v", err)
 	}
