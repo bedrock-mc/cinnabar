@@ -18,7 +18,7 @@ use crate::{
 use client_ui::ui_runtime::UiRuntime;
 
 #[derive(SystemParam)]
-struct SelectionContext<'w> {
+pub(crate) struct SelectionContext<'w> {
     player: Res<'w, crate::player_runtime::PlayerRuntime>,
     world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -36,7 +36,7 @@ pub(crate) fn configure(app: &mut App) {
 }
 
 /// A missing, stale or menu-owned ray clears last frame's target immediately.
-fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
+pub(crate) fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
     let target = target(&context.player, &context);
     frame.update(
         target.as_ref(),
@@ -146,12 +146,4 @@ fn target(
         bounds: [point(min + offset), point(max + offset)],
         shape,
     })
-}
-
-/// Resolves the production selection target from a deterministic test world.
-#[cfg(test)]
-pub(crate) fn test_target(world: &mut World) -> Option<BlockSelectionTarget> {
-    let mut state = bevy::ecs::system::SystemState::<SelectionContext>::new(world);
-    let context = state.get(world);
-    target(&context.player, &context)
 }
