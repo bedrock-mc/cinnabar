@@ -323,6 +323,7 @@ fn launcher_command(
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-control-status")
+        .arg("-xbox-presence")
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .stdin(Stdio::piped())
@@ -644,6 +645,7 @@ mod tests {
         };
         let offline = args(None);
         assert!(offline.iter().any(|arg| arg == "-control-status"));
+        assert!(offline.iter().any(|arg| arg == "-xbox-presence"));
         assert!(
             offline
                 .windows(2)

@@ -97,6 +97,7 @@ type options struct {
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
 	controlStatus             bool
+	xboxPresence              bool
 	upstreamClientCache       bool
 	localWorldsDir            string
 	localServerBin            string
@@ -125,6 +126,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
+	flags.BoolVar(&opts.xboxPresence, "xbox-presence", false, "own Xbox title presence for the account (requires -control-status)")
 	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
@@ -154,6 +156,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.localWorldsDir != "" && !opts.controlStatus {
 		return options{}, errors.New("local-worlds-dir requires -control-status")
+	}
+	if opts.xboxPresence && !opts.controlStatus {
+		return options{}, errors.New("xbox-presence requires -control-status")
 	}
 	if opts.serverTrustFile != "" && !opts.controlStatus {
 		return options{}, errors.New("server-trust-file requires -control-status")
@@ -266,6 +271,7 @@ func runWithResourcePackCacheFactory(
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
 	var account *authcache.Account
+	closeCredentials := context.CancelFunc(func() {})
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
 	}
@@ -276,16 +282,25 @@ func runWithResourcePackCacheFactory(
 		if statusStore != nil {
 			authConfig.Request = launcher.DeviceRequest(statusStore)
 		}
-		tokenSource, err = source(ctx, authConfig)
+		credentialCtx, cancelCredentials := context.WithCancel(context.WithoutCancel(ctx))
+		closeCredentials = cancelCredentials
+		cancelAuthentication := context.AfterFunc(ctx, closeCredentials)
+		defer func() { cancelAuthentication(); closeCredentials() }()
+		tokenSource, err = source(credentialCtx, authConfig)
 		if err != nil {
 			if statusStore != nil && statusStore.Auth().State != control.AuthFailed {
 				statusStore.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: "Could not validate the saved account."})
 			}
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
-		if account = authcache.NewAccount(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
+		// After sign-in, credentials remain alive until bounded title cleanup finishes.
+		cancelAuthentication()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
 			tokenSource = account
-			defer func() { _ = account.Close() }()
+			defer func() { closeCredentials(); _ = account.Close() }()
 		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})
@@ -313,6 +328,7 @@ func runWithResourcePackCacheFactory(
 			keepAccountFresh(account, ctx)
 		}()
 		defer func() {
+			closeCredentials()
 			_ = account.Close()
 			<-refreshed
 		}()
@@ -383,9 +399,11 @@ func runWithResourcePackCacheFactory(
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
-		presence := service.StartPresence(ctx)
-		defer presence.Close()
-		controlServer.SetPresence(presence.Set)
+		if opts.xboxPresence {
+			presence := service.StartPresence(ctx)
+			defer presence.Close()
+			controlServer.SetPresence(presence.Set)
+		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace())

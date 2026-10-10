@@ -36,6 +36,8 @@ pub(super) mod profile_worker;
 mod realm_membership;
 
 #[cfg(all(test, unix))]
+mod presence_polling_tests;
+#[cfg(all(test, unix))]
 mod profile_polling_tests;
 
 /// How often auth state and events refresh.
@@ -280,10 +282,13 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             .xbox_presence
             .clone();
         if sent_presence.as_ref() != Some(&presence) {
-            let sent = runtime.block_on(tokio::time::timeout(
-                Duration::from_secs(2),
-                launcher_control::report_xbox_presence(socket_dir, &presence),
-            ));
+            let sent = runtime.block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    launcher_control::report_xbox_presence(socket_dir, &presence),
+                )
+                .await
+            });
             if matches!(sent, Ok(Ok(()))) {
                 sent_presence = Some(presence);
                 presence_failed = false;

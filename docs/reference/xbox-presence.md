@@ -19,8 +19,8 @@ this title's presence.
 The experience table includes CTF, MobMaze, SoulSteel, GenWars, TreasureHunt,
 ColosseumNova, OneBlock, VotingMap, SkyDimensions, PatientCraft, TheHive,
 SkyblockHorizons, Cubecraft, Lifeboat, Enchanted, Galaxite, MegaSMP and Mineville.
-Ordinary external servers use the world default, as local worlds do. Changing only
-an individual player's mode does not change that default.
+The client uses the committed world default for ordinary external servers and local
+worlds. Changing only an individual player's mode does not change that default.
 
 The request uses the account's authenticated title ID and its corresponding service
 configuration UUID. Updates use `go-xsapi` and retain one client until shutdown.
@@ -28,7 +28,8 @@ The core follows the API's returned heartbeat interval; a missing interval uses 
 provisional five-minute fallback. Failed updates retry after fifteen seconds,
 and a changed client state cancels an older request and queues the newest state.
 
-Exact 1.26.50.26 heartbeat timing, platform-specific service configuration selection,
-server-provided activity overrides and their permission gates remain **incomplete**.
+Exact 1.26.50.26 game-mode input, update trigger ordering, heartbeat timing,
+platform-specific service configuration selection, server-provided activity overrides
+and their permission gates remain **incomplete**.
 The external friends-visible result has not been checked with a signed-in account.
 These changes do not close the Xbox presence parity gate.

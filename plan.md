@@ -6,8 +6,9 @@
 - Fake-client tests cover joins, default-mode changes, leaving, cancellation and title
   cleanup. The control regression failed on the previous implementation. Rust state
   tests distinguish the world default from an individual player's mode.
-- Exact heartbeat cadence, platform-specific service configuration selection, server
-  activity overrides and permission gates remain incomplete. The current heartbeat
+- Exact current-version game-mode input, update trigger ordering, heartbeat cadence,
+  platform-specific service configuration selection, server activity overrides and
+  permission gates remain incomplete. The current heartbeat
   fallback is provisional. Signed-in friends-visible validation is incomplete, and no
   Xbox presence parity gate closes. Discord presence is unchanged.
 
