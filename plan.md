@@ -7090,15 +7090,26 @@ Missing regular, bold, italic and monospace mathematical Latin letters and digit
 original grid-based variants built from the shipped Latin artwork. This fixes the
 sampled styled MOTD boxes; unrestricted Unicode and native fallback shaping remain open.
 
-Full parity is incomplete. Glyph-specific advances and bearings differ: Ten's I advances
-0.5 em rather than 0.315. Seven's ASCII bearings match the reference grid, while
-Ten's 0.052-em bearing is represented by 0.05 em on its 20-texel carrier.
-Five and Five Bold have larger advance and stroke differences. At GUI scale 7, Seven's
-14-texel capital height maps to 39.2 screen pixels; preserving this size cannot also give
-every texel a uniform integer width. Rounded edges and nearest sampling do not close
-that scale/weight gate. Source line metrics also retain sub-unit rounding from the
-reviewed files. Version-matched live text-raster evidence across all GUI scales,
-locale shaping, kerning, and the remaining per-glyph metric differences are open gates.
+The display faces now use original ASCII pixel drawings and declared per-glyph
+advances. Ten has heavier stems and narrower I/i; Five and Five Bold use wider,
+five-row letterforms. Seven has revised lowercase letters, digits and descenders.
+Greek and Cyrillic display capitals follow the adjusted Latin proportions. The
+generator preserves the 64-unit outline grid, complete source coverage and fixed
+metadata, and reproduces the shipped fonts and manifests byte for byte.
+
+Full parity is incomplete. Advances round to the nearest font unit, while ink
+widths and stroke weights remain quantized to the source grid. The carrier compiler
+still rounds glyph advances to whole atlas texels, limiting runtime spacing precision. Ten's 0.052-em
+bearing is represented by 0.05 em on its 20-texel carrier. Five's fine weight and
+bearing differences cannot all fit that grid. Seven's accented fallback drawings
+have not all been revised to match the new ASCII letters. A few narrow accented
+Ten capitals retain their prior forms when a mark cannot fit the adjusted base.
+At GUI scale 7, Seven's
+14-texel capital height maps to 39.2 screen pixels; preserving this size cannot also
+give every texel a uniform integer width. Rounded edges and nearest sampling do
+not close that scale/weight gate. Source line metrics retain sub-unit rounding.
+Version-matched live text-raster evidence across all GUI scales, locale shaping,
+kerning, and the remaining per-glyph differences are open gates.
 
 ## Device render-distance defaults
 
