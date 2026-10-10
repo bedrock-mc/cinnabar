@@ -556,6 +556,51 @@ func TestSessionServerKeepsAcceptingAfterTransientFailure(t *testing.T) {
 	}
 }
 
+// A refused Connect is told why before the core closes: outdated client or core, or vanilla's cantConnect.
+func TestSessionRefusedConnectSendsDisconnect(t *testing.T) {
+	dir := t.TempDir()
+	newTestSessionServer(t, dir, func(server *sessionServer) {
+		server.prepared.connectPrepared = func(context.Context, dialerDownstream) (*preparedConnection, error) {
+			return nil, errors.New("a refused Connect was joined")
+		}
+	})
+	request := testSessionConnect(t)
+	older, newer := request, request
+	older.Protocol--
+	newer.Protocol++
+	otherVersion := request
+	otherVersion.ClientData = bytes.Replace(request.ClientData, []byte(minecraft.DefaultProtocol.Ver()), []byte("1.0.0"), 1)
+	invalid := request
+	invalid.ClientData = json.RawMessage(`{"GameVersion":"` + minecraft.DefaultProtocol.Ver() + `","DeviceOS":0}`)
+	encode := func(request sessionConnectRequest) []byte {
+		frame, err := encodeSessionJSON(sessionKindConnect, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return frame
+	}
+	for name, test := range map[string]struct {
+		frame []byte
+		key   string
+	}{
+		"older protocol":     {encode(older), "disconnectionScreen.outdatedClient"},
+		"newer protocol":     {encode(newer), "disconnectionScreen.outdatedServer"},
+		"other game version": {encode(otherVersion), "disconnectionScreen.outdatedClient"},
+		"invalid client":     {encode(invalid), "disconnectionScreen.cantConnect"},
+		"malformed json":     {[]byte("\x01{"), "disconnectionScreen.cantConnect"},
+	} {
+		_, frames := dialTestSessionFrame(t, dir, test.frame)
+		var disconnect sessionDisconnectMessage
+		frame, ok := <-frames
+		if !ok || frame[0] != sessionKindDisconnect || json.Unmarshal(frame[1:], &disconnect) != nil || disconnect.Message != test.key {
+			t.Fatalf("%s: frame = %q", name, frame)
+		}
+		if _, ok := <-frames; ok {
+			t.Fatalf("%s: the session stayed open", name)
+		}
+	}
+}
+
 // Serve publishes the session endpoint beside the listener and releases it on shutdown.
 func TestServePublishesAndReleasesSessionEndpoint(t *testing.T) {
 	dir := t.TempDir()
@@ -623,6 +668,16 @@ func newTestSessionServer(t *testing.T, dir string, configure func(*sessionServe
 // dialTestSession sends request and returns the connection and its incoming frames.
 func dialTestSession(t *testing.T, dir string, request sessionConnectRequest) (*streamnet.FramedConn, <-chan []byte) {
 	t.Helper()
+	frame, err := encodeSessionJSON(sessionKindConnect, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dialTestSessionFrame(t, dir, frame)
+}
+
+// dialTestSessionFrame sends frame as the first message and returns the connection and its incoming frames.
+func dialTestSessionFrame(t *testing.T, dir string, frame []byte) (*streamnet.FramedConn, <-chan []byte) {
+	t.Helper()
 	network, address, err := streamnet.ResolveSession(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -634,10 +689,6 @@ func dialTestSession(t *testing.T, dir string, request sessionConnectRequest) (*
 	t.Cleanup(func() { _ = raw.Close() })
 	_ = raw.SetDeadline(time.Now().Add(10 * time.Second))
 	conn := streamnet.NewFramedConn(raw)
-	frame, err := encodeSessionJSON(sessionKindConnect, request)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := conn.Write(frame); err != nil {
 		t.Fatal(err)
 	}

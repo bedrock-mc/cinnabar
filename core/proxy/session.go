@@ -132,12 +132,12 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 		return err
 	}
 	request, err := decodeSessionConnect(frame)
-	if err != nil {
-		return err
+	var downstream *sessionDownstream
+	if err == nil {
+		downstream, err = newSessionDownstream(request)
 	}
-	downstream, err := newSessionDownstream(request)
 	if err != nil {
-		return err
+		return errors.Join(err, refuseSessionConnect(raw, framed, err))
 	}
 	sessionCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -395,6 +395,33 @@ func (downstream *sessionDownstream) sessionResolveTarget() func(context.Context
 	return downstream.resolve
 }
 
+// sessionRefusedError carries the lang key a refused Connect is answered with.
+type sessionRefusedError struct {
+	key string
+	err error
+}
+
+func (err *sessionRefusedError) Error() string { return err.err.Error() }
+func (err *sessionRefusedError) Unwrap() error { return err.err }
+
+// refuseSessionConnect answers a refused Connect with a Disconnect naming why, before the caller closes.
+func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause error) error {
+	key := "disconnectionScreen.cantConnect"
+	var refused *sessionRefusedError
+	if errors.As(cause, &refused) {
+		key = refused.key
+	}
+	frame, err := encodeSessionJSON(sessionKindDisconnect, sessionDisconnectMessage{Message: key})
+	if err != nil {
+		return err
+	}
+	if err := raw.SetWriteDeadline(time.Now().Add(sessionConnectTimeout)); err != nil {
+		return err
+	}
+	_, err = framed.Write(frame)
+	return err
+}
+
 // newSessionDownstream accepts only the pinned protocol and valid login client data.
 func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, error) {
 	var clientData login.ClientData
@@ -403,7 +430,13 @@ func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, er
 	}
 	pinned := minecraft.DefaultProtocol
 	if request.Protocol != pinned.ID() || clientData.GameVersion != pinned.Ver() {
-		return nil, fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())
+		// A newer client protocol finds this core outdated; any other mismatch is the client's, as
+		// gophertunnel's listener answers it.
+		key := "disconnectionScreen.outdatedClient"
+		if request.Protocol > pinned.ID() {
+			key = "disconnectionScreen.outdatedServer"
+		}
+		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())}
 	}
 	if err := clientData.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
