@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
-	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -41,7 +40,7 @@ func TestProxyJoin(t *testing.T) {
 	defer client.Close()
 	select {
 	case frame := <-frames:
-		if len(frame) == 0 || frame[0] != sessionwire.KindHandoff {
+		if len(frame) == 0 || frame[0] != sessionKindHandoff {
 			t.Fatalf("expected session handoff, got %x", frame)
 		}
 	case <-harness.ctx.Done():

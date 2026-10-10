@@ -293,7 +293,7 @@ $script:AcceptanceExecutionPhase = {
             -TimeoutSeconds 120 `
             -ReadinessProbe $bdsReadinessProbe
         $coreHandle = Start-LoggedProcess -Executable $CoreExecutable -Arguments $CoreArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-        $endpointPath = Join-Path $SocketDirectory 'game.addr'
+        $endpointPath = Join-Path $SocketDirectory 'session.addr'
         $endpointDeadline = [DateTime]::UtcNow.AddSeconds(30)
         while (-not (Test-Path -LiteralPath $endpointPath -PathType Leaf)) {
             if ($coreHandle.Process.HasExited) {

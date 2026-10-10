@@ -8,10 +8,11 @@ outside git, preferably in a persistent evidence directory rather than `/tmp`.
 
 ## Build and run
 
-Build from `core` using the repository's local build-slot wrapper:
+Build the Rust workspace binary with the configured build-slot wrapper:
 
 ```sh
-"$BUILD_SLOT" go build -o "$EVIDENCE/bedrock-replay" ./cmd/bedrock-replay
+"$BUILD_SLOT" cargo build -p bedrock-replay
+cp target/debug/bedrock-replay "$EVIDENCE/bedrock-replay"
 "$EVIDENCE/bedrock-replay" \
   -capture "$FIXTURES/raw.bin" \
   -resource-pack "$FIXTURES/server.mcpack" \
@@ -113,9 +114,9 @@ cost when attributing a steady-frame bottleneck.
 ## Tests and a minimal diagnostic fixture
 
 ```sh
-go test -race ./cmd/bedrock-replay
+cargo test -p bedrock-replay
 CINNABAR_REPLAY_FIXTURE_OUT="$FIXTURES/repository-startup.bin" \
-  go test ./cmd/bedrock-replay -run '^TestExportReplayFixture$' -count=1
+  cargo test -p bedrock-replay export_replay_fixture -- --nocapture
 ```
 
 The exported stream uses the committed protocol StartGame, AddActor and Text
@@ -125,6 +126,6 @@ ItemRegistry, chunk radius and spawn-status packets complete the local login.
 This is a synthetic sequence with one actor and no chunks, not a captured join.
 The committed protocol LevelChunk deliberately has a dummy payload and is omitted.
 Use `-hold` for a bounded native probe.
-The tests compare packet bytes across the session transport, download an
+The tests compare packet bytes across the session transport, hand off an
 original minimal pack and compare its hash, exercise both shutdown paths, and
 reject truncated input, transfers, invalid bounds and reused report paths.

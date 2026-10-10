@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -45,7 +44,7 @@ func TestSessionHandoffUsesCachedArchive(t *testing.T) {
 	})
 	_, frames := dialTestSession(t, dir, testSessionConnect(t))
 	frame := <-frames
-	if len(frame) < 5 || frame[0] != sessionwire.KindHandoff {
+	if len(frame) < 5 || frame[0] != sessionKindHandoff {
 		t.Fatalf("expected handoff, got %x", frame)
 	}
 	size := binary.BigEndian.Uint32(frame[1:5])
@@ -70,7 +69,7 @@ func TestSessionHandoffUsesCachedArchive(t *testing.T) {
 	if _, err := os.Stat(ref.Path); err != nil {
 		t.Fatal(err)
 	}
-	if next := <-frames; len(next) == 0 || next[0] != sessionwire.KindBatch {
+	if next := <-frames; len(next) == 0 || next[0] != sessionKindBatch {
 		t.Fatal("cached pack was streamed instead of proceeding to the batch")
 	}
 }
@@ -97,15 +96,15 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 				}
 			}
 			packs := []*resource.Pack{first, second}
-			metadata := []sessionwire.Pack{
+			metadata := []sessionPack{
 				{UUID: first.UUID().String(), Version: first.Version(), Size: uint64(first.Size()), SubPack: "high", ContentKey: "secret"},
 				{UUID: second.UUID().String(), Version: second.Version(), Size: uint64(second.Size())},
 			}
 			release := referenceSessionPacks(cache, metadata, packs)
 			defer release()
 			received := make([][]byte, len(packs))
-			err := sessionwire.WritePacks(func(frame []byte) error {
-				if len(frame) < 5 || frame[0] != sessionwire.KindPackData {
+			err := writeSessionPacks(func(frame []byte) error {
+				if len(frame) < 5 || frame[0] != sessionKindPackData {
 					t.Fatal("incorrect pack frame")
 				}
 				index := binary.BigEndian.Uint32(frame[1:5])

@@ -1009,7 +1009,7 @@ mkfifo -- "$core_stdin"
 core_pid=$!
 exec 8>"$core_stdin"
 core_fd_open=true
-endpoint="$socket_dir/game.sock"
+endpoint="$socket_dir/session.sock"
 endpoint_deadline=$(( $(date +%s) + 30 ))
 while [[ ! -S $endpoint ]]; do
     kill -0 "$core_pid" 2>/dev/null || die "core exited before endpoint publication (log: $run_dir/core.stderr.log)"

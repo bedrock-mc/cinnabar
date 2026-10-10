@@ -33,6 +33,7 @@ pub use skin_change::{
     set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
+pub mod session_wire;
 pub mod store_control;
 mod transfer;
 mod translation_parameter;

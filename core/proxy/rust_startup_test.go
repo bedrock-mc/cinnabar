@@ -141,8 +141,23 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 			return err
 		}
 	}
-	if err := conn.WritePacketImmediate(&packet.SetTime{Time: 400}); err != nil || scenario != "transfer-play" {
+	if err := conn.WritePacketImmediate(&packet.SetTime{Time: 400}); err != nil {
 		return err
+	}
+	if scenario == "framing" {
+		for _, payload := range [][]byte{{0, 0xfe, 0, 1, 0xff, 0}, rustFramingPayload()} {
+			expected := &packet.ScriptMessage{Identifier: "framing", Data: payload}
+			if err := expectStartupPacket(conn, expected); err != nil {
+				return err
+			}
+			if err := conn.WritePacketImmediate(expected); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if scenario != "transfer-play" {
+		return nil
 	}
 	return conn.WritePacketImmediate(&packet.Transfer{Address: "play.example.test", Port: 19134})
 }
@@ -157,4 +172,13 @@ func expectStartupPacket(conn *minecraft.Conn, expected packet.Packet) error {
 		return fmt.Errorf("received %#v, want %#v", actual, expected)
 	}
 	return nil
+}
+
+// rustFramingPayload exercises multi-write frames and varied binary bytes on the real session path.
+func rustFramingPayload() []byte {
+	data := make([]byte, 1024*1024)
+	for index := range data {
+		data[index] = byte(index % 251)
+	}
+	return data
 }

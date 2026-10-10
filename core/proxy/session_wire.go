@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
-
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -14,9 +12,9 @@ import (
 func rawSessionPackets(packets [][]byte, decode func(uint32) bool, pool packet.Pool, shieldID int32) ([]minecraft.RawPacket, error) {
 	raws := make([]minecraft.RawPacket, len(packets))
 	for index, data := range packets {
-		id, ok := sessionwire.PacketID(data)
+		id, ok := sessionPacketID(data)
 		if !ok {
-			return nil, fmt.Errorf("%w: packet header", sessionwire.ErrMalformed)
+			return nil, fmt.Errorf("%w: packet header", errMalformedSession)
 		}
 		raws[index] = minecraft.RawPacket{ID: id, Data: data}
 		if decode != nil && decode(id) {

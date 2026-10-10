@@ -46,6 +46,7 @@ members = [
     "crates/update-manifest",
     "tools/visualcoverage",
     "tools/architecture",
+    "tools/bedrock-replay",
     "tools/devtool",
     "tools/dist",
     "tools/phase2-evidence",

@@ -6,7 +6,8 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
 
-use bridge::{BridgeError, CoreMessage, FrameQueue, FramedReader};
+use crate::session_wire::CoreMessage;
+use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::Bytes;
 use futures::Stream;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
@@ -95,13 +96,13 @@ impl SessionTransport {
 
     /// Maps one core frame onto what Jolyne reads: a batch, or the server packet a terminal message stands for.
     fn receive(&mut self, frame: Bytes) -> Result<TransportRecvMessage, BridgeError> {
-        if let Some(body) = bridge::batch_frame_body(&frame) {
+        if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
             return Ok(TransportRecvMessage::SplitFirst {
                 first: crate::codec::BATCH_HEADER,
                 rest: body,
             });
         }
-        let packet = match bridge::decode_core_message(frame)? {
+        let packet = match crate::session_wire::decode_core_message(frame)? {
             CoreMessage::Transfer(transfer) => {
                 crate::login::session_join::transfer_packet(&transfer)
             }
@@ -141,7 +142,7 @@ impl Transport for SessionTransport {
             .iter()
             .any(|sending| same_buffer(&sending.buffer, &message.buffer))
         {
-            let frame = match bridge::batch_frame_from_bedrock(&message.buffer) {
+            let frame = match crate::session_wire::batch_frame_from_bedrock(&message.buffer) {
                 Ok(frame) => frame,
                 Err(error) => return Poll::Ready(Err(error)),
             };

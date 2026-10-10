@@ -328,7 +328,7 @@ Describe 'Phase 3 production marker evidence validation' {
     It 'rejects a stale bridge endpoint before launching the core' {
         $staleSocket = Join-Path $script:TempRoot 'stale-endpoint-socket'
         New-Item -ItemType Directory -Path $staleSocket | Out-Null
-        Set-Content -LiteralPath (Join-Path $staleSocket 'game.addr') -Value '127.0.0.1:19134'
+        Set-Content -LiteralPath (Join-Path $staleSocket 'session.addr') -Value '127.0.0.1:19134'
         { New-Phase3EndpointPublicationGuard -SocketDirectory $staleSocket } | Should Throw
     }
 

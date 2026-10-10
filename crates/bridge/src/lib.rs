@@ -5,7 +5,6 @@ mod endpoint;
 mod error;
 mod framed;
 mod packet_delay;
-mod session;
 mod status;
 mod store;
 mod worlds;
@@ -13,6 +12,12 @@ mod xbox_presence;
 pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
 
 use std::path::Path;
+
+/// Connects to the core's session endpoint published in `socket_dir`.
+pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
+    let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Session).await?;
+    Ok(crate::framed::queued(stream, MAX_FRAME_LEN))
+}
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
@@ -23,16 +28,12 @@ pub use account::{
     list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
     poll_events, profile, realm_membership, report_message_event, sign_out,
 };
+pub use endpoint::listener::SessionListener;
 pub use error::BridgeError;
-pub(crate) use framed::FramedStream;
+pub use framed::FramedStream;
 pub use framed::{FrameQueue, FramedReader};
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
-};
-pub use session::{
-    CachedArchive, ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
-    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, batch_frame_body,
-    batch_frame_from_bedrock, connect_session, decode_core_message, encode_batch, encode_connect,
 };
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,

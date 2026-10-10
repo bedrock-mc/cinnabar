@@ -315,6 +315,12 @@ allowed_dependencies = ["assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
+name = "bedrock-replay"
+path = "tools/bedrock-replay"
+allowed_dependencies = ["bridge", "protocol", "resource-pack"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
 name = "architecture"
 path = "tools/architecture"
 allowed_dependencies = []

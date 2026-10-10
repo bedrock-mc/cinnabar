@@ -10,6 +10,9 @@ publish = false
 wire-test-support = []
 
 [dependencies]
+zeroize = "1"
+cap-std = "3.4.5"
+cap-fs-ext = "3.4.5"
 block-transform = { path = "../block-transform" }
 render-api = { path = "../render-api" }
 anyhow.workspace = true
@@ -28,6 +31,7 @@ valentine = { path = "vendor/valentine", default-features = false, features = ["
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 
 [dev-dependencies]
+tempfile = "3"
 aes = "0.8"
 ctr = "0.9"
 flate2 = "1"

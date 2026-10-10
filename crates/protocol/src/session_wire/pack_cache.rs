@@ -6,14 +6,14 @@ use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::invalid;
-use crate::BridgeError;
+use bridge::BridgeError;
 
 /// An archive retained in the core's cache for the lifetime of the session.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CachedArchive {
     pub path: PathBuf,

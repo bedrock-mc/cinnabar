@@ -6398,6 +6398,9 @@ The client reads them under its configured cache directory and rejects invalid
 paths or bytes during the join. Cache misses retain the streamed archive fallback;
 pack order, required flags, sub-packs and content keys remain unchanged. Live
 performance acceptance of the cache-reference handoff remains incomplete.
+The Rust `bedrock-replay` tool uses the protocol crate's session messages and keeps
+the raw capture and report formats. Acceptance endpoint waiters use the session
+endpoint. The real core-session test covers large binary frames in both directions.
 
 ### Astra UX follow-up (incomplete live performance/parity acceptance)
 

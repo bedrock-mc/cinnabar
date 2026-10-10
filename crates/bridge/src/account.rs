@@ -354,7 +354,13 @@ pub struct Person {
 }
 
 /// Where the next client connection goes.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "lowercase",
+    deny_unknown_fields
+)]
 pub enum ConnectTarget {
     /// A `host:port` server.
     RakNet(String),
@@ -364,24 +370,6 @@ pub enum ConnectTarget {
     Friend(String),
     /// A featured experience's ID, from a `gathering/<id>` featured server address.
     Gathering(String),
-}
-
-impl ConnectTarget {
-    pub(crate) fn params(&self) -> ConnectParams<'_> {
-        let (kind, value) = match self {
-            Self::RakNet(value) => ("raknet", value),
-            Self::Realm(value) => ("realm", value),
-            Self::Friend(value) => ("friend", value),
-            Self::Gathering(value) => ("gathering", value),
-        };
-        ConnectParams { kind, value }
-    }
-}
-
-#[derive(Serialize)]
-pub(crate) struct ConnectParams<'a> {
-    kind: &'static str,
-    value: &'a str,
 }
 
 /// Sign-in state of the core.
@@ -594,7 +582,7 @@ pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> 
 
 /// Selects the upstream for the next session connection.
 pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result<(), BridgeError> {
-    call::<Empty, _>(socket_dir, "connect.v1", Some(target.params())).await?;
+    call::<Empty, _>(socket_dir, "connect.v1", Some(target)).await?;
     Ok(())
 }
 
@@ -718,24 +706,24 @@ mod tests {
             jsonrpc: "2.0",
             id: 1,
             method: "connect.v1",
-            params: Some(ConnectTarget::Realm("42".into()).params()),
+            params: Some(ConnectTarget::Realm("42".into())),
         })
         .expect("encode");
         assert_eq!(
             encoded,
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}})
         );
-        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()).params());
+        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()));
         assert_eq!(
             raknet.expect("encode"),
             serde_json::json!({"kind":"raknet","value":"a:1"})
         );
-        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()).params());
+        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()));
         assert_eq!(
             friend.expect("encode"),
             serde_json::json!({"kind":"friend","value":"9"})
         );
-        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()).params());
+        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()));
         assert_eq!(
             gathering.expect("encode"),
             serde_json::json!({"kind":"gathering","value":"e"})

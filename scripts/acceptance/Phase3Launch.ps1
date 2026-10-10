@@ -244,7 +244,7 @@ function Initialize-Phase3RunDirectory {
 function New-Phase3EndpointPublicationGuard {
     param([Parameter(Mandatory = $true)][string]$SocketDirectory)
 
-    $endpointPath = Join-Path ([IO.Path]::GetFullPath($SocketDirectory)) 'game.addr'
+    $endpointPath = Join-Path ([IO.Path]::GetFullPath($SocketDirectory)) 'session.addr'
     if (Test-Path -LiteralPath $endpointPath) {
         throw "Phase 3 refuses a stale bridge endpoint: $endpointPath"
     }

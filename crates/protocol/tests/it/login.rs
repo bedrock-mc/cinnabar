@@ -128,6 +128,7 @@ async fn login_reaches_start_game_through_bds() {
 async fn offline_core_session_preserves_startup_behaviour() {
     for scenario in [
         "spawn",
+        "framing",
         "packs",
         "transfer",
         "transfer-batch",
@@ -201,6 +202,9 @@ async fn offline_core_session_preserves_startup_behaviour() {
                     .await
                     .expect("completion marker");
                 wait_for_startup_marker(&mut session, 400, &harness).await;
+                if scenario == "framing" {
+                    assert_core_frame_payloads(&mut session).await;
+                }
                 if scenario == "transfer-play" {
                     let packet = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())
                         .await
@@ -680,5 +684,34 @@ impl TestSocketDir {
 impl Drop for TestSocketDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Carries binary and 1 MiB payloads both ways through the real core after its startup handshake.
+async fn assert_core_frame_payloads(session: &mut protocol::PlaySession) {
+    use jolyne::valentine::ScriptMessagePacket;
+    for payload in [
+        vec![0, 0xfe, 0, 1, 0xff, 0],
+        (0..1024 * 1024).map(|index| (index % 251) as u8).collect(),
+    ] {
+        session
+            .send(
+                ScriptMessagePacket {
+                    message_id: "framing".into(),
+                    message_value: payload.clone(),
+                }
+                .into(),
+            )
+            .await
+            .expect("send binary frame");
+        let reply = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())
+            .await
+            .expect("binary reply timeout")
+            .expect("binary reply");
+        let McpePacketData::ScriptMessagePacket(reply) = reply.data else {
+            panic!("expected binary echo");
+        };
+        assert_eq!(reply.message_id, "framing");
+        assert_eq!(reply.message_value, payload);
     }
 }

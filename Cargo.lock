@@ -704,6 +704,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bedrock-replay"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "bridge",
+ "bytes",
+ "futures",
+ "protocol",
+ "resource-pack",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "zip",
+]
+
+[[package]]
 name = "bevy"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1663,8 +1682,6 @@ version = "0.1.12"
 dependencies = [
  "anyhow",
  "bytes",
- "cap-fs-ext",
- "cap-std",
  "futures",
  "rustix 1.1.4",
  "serde",
@@ -1675,7 +1692,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "zeroize",
 ]
 
 [[package]]
@@ -5612,6 +5628,8 @@ dependencies = [
  "block-transform",
  "bridge",
  "bytes",
+ "cap-fs-ext",
+ "cap-std",
  "ctr",
  "flate2",
  "futures",
@@ -5623,11 +5641,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "snap",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
  "valentine",
  "xxhash-rust",
+ "zeroize",
 ]
 
 [[package]]
@@ -6944,6 +6964,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

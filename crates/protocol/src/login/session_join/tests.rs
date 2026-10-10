@@ -83,9 +83,10 @@ fn listen(dir: &Path) -> UnixListener {
 /// One packet's bytes, header included, as a batch carries it.
 fn packet_bytes(packet: &Packet) -> Bytes {
     let batch = crate::codec::encode(packet, &BedrockSession { shield_item_id: 0 }).unwrap();
-    let CoreMessage::Batch(mut packets) =
-        bridge::decode_core_message(bridge::batch_frame_from_bedrock(&batch).unwrap()).unwrap()
-    else {
+    let CoreMessage::Batch(mut packets) = crate::session_wire::decode_core_message(
+        crate::session_wire::batch_frame_from_bedrock(&batch).unwrap(),
+    )
+    .unwrap() else {
         unreachable!("a Batch frame decodes as a batch")
     };
     packets.remove(0)
@@ -331,10 +332,10 @@ fn startup_batches_stay_within_the_packet_and_byte_bounds() {
                 "{} bytes",
                 batch.len()
             );
-            let CoreMessage::Batch(inner) =
-                bridge::decode_core_message(bridge::batch_frame_from_bedrock(batch).unwrap())
-                    .unwrap()
-            else {
+            let CoreMessage::Batch(inner) = crate::session_wire::decode_core_message(
+                crate::session_wire::batch_frame_from_bedrock(batch).unwrap(),
+            )
+            .unwrap() else {
                 unreachable!("a Batch frame decodes as a batch")
             };
             assert!(inner.len() <= jolyne::raw::MAX_RAW_BATCH_PACKETS);

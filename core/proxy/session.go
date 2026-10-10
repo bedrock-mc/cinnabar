@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashimthearab/rust-mcbe/core/internal/sessionwire"
-
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -136,7 +134,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 	if err := raw.SetReadDeadline(time.Time{}); err != nil {
 		return err
 	}
-	request, err := sessionwire.DecodeConnect(frame)
+	request, err := decodeSessionConnect(frame)
 	var downstream *sessionDownstream
 	if err == nil {
 		downstream, err = newSessionDownstream(request, server.device)
@@ -162,7 +160,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 
 // sessionPlan is what the handoff carries, taken from a prepared upstream.
 type sessionPlan struct {
-	handoff sessionwire.Handoff
+	handoff sessionHandoff
 	packs   []*resource.Pack // content of handoff.Packs, in the same order
 	startup [][]byte         // packets through StartGame
 	rest    [][]byte         // the rest of StartGame's batch
@@ -176,7 +174,7 @@ func (server *sessionServer) prepare(
 	cancel context.CancelCauseFunc,
 	session *sessionConn,
 	downstream *sessionDownstream,
-	target *sessionwire.Target,
+	target *sessionTarget,
 ) (plan sessionPlan, prepared *preparedConnection, err error) {
 	stopWatch := session.watchPeer(cancel)
 	defer stopWatch()
@@ -236,8 +234,8 @@ func (server *sessionServer) prepare(
 		return plan, prepared, err
 	}
 	identity := prepared.upstream.IdentityData()
-	plan.handoff = sessionwire.Handoff{
-		Identity:      sessionwire.Identity{DisplayName: identity.DisplayName, XUID: identity.XUID, UUID: identity.Identity},
+	plan.handoff = sessionHandoff{
+		Identity:      sessionIdentity{DisplayName: identity.DisplayName, XUID: identity.XUID, UUID: identity.Identity},
 		ClientCache:   server.prepared.upstreamClientCache && downstream.clientCache,
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
@@ -263,14 +261,14 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 	for _, data := range plan.startup {
 		session.observeItemRegistry(data)
 	}
-	frame, err := sessionwire.EncodeHandoff(plan.handoff, plan.startup)
+	frame, err := encodeSessionHandoff(plan.handoff, plan.startup)
 	if err != nil {
 		return err
 	}
 	if err := session.writeFrame(frame); err != nil {
 		return err
 	}
-	if err := sessionwire.WritePacks(session.writeFrame, plan.packs); err != nil {
+	if err := writeSessionPacks(session.writeFrame, plan.packs); err != nil {
 		return err
 	}
 	for _, data := range plan.rest {
@@ -306,7 +304,7 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 }
 
 // selectSessionPacks lists the archives to apply from the projected offer and the server's stack.
-func selectSessionPacks(stack *selectedResourcePackStack, logger *slog.Logger) ([]sessionwire.Pack, []*resource.Pack, error) {
+func selectSessionPacks(stack *selectedResourcePackStack, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	if stack == nil {
 		return nil, nil, errResourcePackStackUnavailable
 	}
@@ -336,7 +334,7 @@ type sessionStackEntry struct {
 // entry, as vanilla requests each identity once; built-in packs need no archive; and an unavailable
 // pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or refuses the
 // join when the packs are required. A nil logger drops the skip count.
-func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool, logger *slog.Logger) ([]sessionwire.Pack, []*resource.Pack, error) {
+func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool, logger *slog.Logger) ([]sessionPack, []*resource.Pack, error) {
 	refuse := &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offers)}
 	byIdentity := make(map[string]sessionOffer, len(offers))
 	repeated := 0
@@ -351,7 +349,7 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 	if repeated != 0 && logger != nil {
 		logger.Warn("ignoring repeated resource-pack offer entries", "count", repeated)
 	}
-	var selected []sessionwire.Pack
+	var selected []sessionPack
 	var packs []*resource.Pack
 	seen := make(map[string]bool)
 	for _, entry := range entries {
@@ -372,7 +370,7 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 			continue
 		}
 		seen[id] = true
-		selected = append(selected, sessionwire.Pack{
+		selected = append(selected, sessionPack{
 			UUID: offer.info.UUID.String(), Version: offer.info.Version, SubPack: entry.subPack,
 			ContentKey: offer.info.ContentKey, Size: uint64(max(offer.pack.Size(), 0)),
 		})
@@ -420,7 +418,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	if errors.As(cause, &refused) {
 		key = refused.key
 	}
-	frame, err := sessionwire.EncodeJSON(sessionwire.KindDisconnect, sessionwire.Disconnect{Message: key})
+	frame, err := encodeSessionJSON(sessionKindDisconnect, sessionDisconnect{Message: key})
 	if err != nil {
 		return err
 	}
@@ -433,10 +431,10 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data; a device
 // replaces the client's claimed device, so the claim matches the core's sign-in.
-func newSessionDownstream(request sessionwire.ConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
+func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
-		return nil, fmt.Errorf("%w: client data: %v", sessionwire.ErrMalformed, err)
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	if claimed != nil {
 		claimed.Apply(&clientData)
@@ -452,7 +450,7 @@ func newSessionDownstream(request sessionwire.ConnectRequest, claimed *device.Pr
 		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())}
 	}
 	if err := clientData.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: client data: %v", sessionwire.ErrMalformed, err)
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	return &sessionDownstream{
 		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},

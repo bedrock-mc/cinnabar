@@ -128,7 +128,7 @@ try {
         -Arguments @('-socket-dir', $socketDirectory, '-upstream', $upstream, '-auth-cache', $AuthCacheFull) `
         -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') `
         -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-    $endpoint = Join-Path $socketDirectory 'game.addr'
+    $endpoint = Join-Path $socketDirectory 'session.addr'
     $endpointDeadline = [DateTime]::UtcNow.AddSeconds(30)
     while (-not (Test-Path -LiteralPath $endpoint -PathType Leaf)) {
         if ($coreHandle.Process.HasExited) { throw 'core exited before publishing its bridge endpoint' }

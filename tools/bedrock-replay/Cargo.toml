@@ -1,0 +1,28 @@
+[package]
+name = "bedrock-replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+bridge = { path = "../../crates/bridge" }
+bytes.workspace = true
+futures.workspace = true
+protocol = { path = "../../crates/protocol" }
+resource-pack = { path = "../../crates/resource-pack" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+uuid.workspace = true
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+protocol = { path = "../../crates/protocol", features = ["wire-test-support"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

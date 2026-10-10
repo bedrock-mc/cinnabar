@@ -3,10 +3,11 @@
 
 use std::path::Path;
 
-use bridge::{
-    BridgeError, ConnectRequest, CoreMessage, FramedReader, HandoffPackReceiver, SessionDisconnect,
-    SessionHandoff, SessionTransfer,
+use crate::session_wire::{
+    ConnectRequest, CoreMessage, HandoffPackReceiver, SessionDisconnect, SessionHandoff,
+    SessionTransfer,
 };
+use bridge::{BridgeError, FramedReader};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use jolyne::error::JolyneError;
@@ -50,7 +51,7 @@ impl LoginSequence {
             ),
         };
         frames
-            .send(bridge::encode_connect(&request).map_err(bridge_error)?)
+            .send(crate::session_wire::encode_connect(&request).map_err(bridge_error)?)
             .await
             .map_err(bridge_error)?;
         let (handoff, archives) =
@@ -103,7 +104,7 @@ async fn receive_handoff(
 
 async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, ProtocolError> {
     match reader.next().await {
-        Some(Ok(frame)) => bridge::decode_core_message(frame).map_err(bridge_error),
+        Some(Ok(frame)) => crate::session_wire::decode_core_message(frame).map_err(bridge_error),
         Some(Err(error)) => Err(bridge_error(error)),
         None => Err(JolyneError::ConnectionClosed.into()),
     }

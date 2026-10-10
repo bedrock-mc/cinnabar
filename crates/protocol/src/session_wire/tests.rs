@@ -1,13 +1,11 @@
 mod cache;
 
-use bytes::{Bytes, BytesMut};
-use tokio_util::codec::Decoder;
+use bytes::{Buf, Bytes, BytesMut};
 
 use super::*;
-use crate::framed::BridgeCodec;
 
-const CONNECT_FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/session/connect.bin");
-const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/session/core_stream.bin");
+const CONNECT_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/connect.bin");
+const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/core_stream.bin");
 
 /// The Go core decodes exactly these Connect bytes.
 #[test]
@@ -36,10 +34,10 @@ fn connect_encoding_matches_the_core_fixture() {
 #[test]
 fn core_stream_fixture_decodes_in_order() {
     let mut wire = BytesMut::from(CORE_STREAM_FIXTURE);
-    let mut codec = BridgeCodec::new();
     let mut messages = Vec::new();
-    while let Some(frame) = codec.decode(&mut wire).unwrap() {
-        messages.push(decode_core_message(frame).unwrap());
+    while !wire.is_empty() {
+        let length = wire.get_u32() as usize;
+        messages.push(decode_core_message(wire.split_to(length).freeze()).unwrap());
     }
     assert!(wire.is_empty());
     let [handoff, pack, batch, transfer] = <[CoreMessage; 4]>::try_from(messages).unwrap();
@@ -291,4 +289,23 @@ fn bedrock_batches_map_to_batch_frames_both_ways() {
         assert!(batch_frame_from_bedrock(invalid).is_err(), "{invalid:?}");
     }
     assert!(batch_frame_body(&Bytes::from_static(&[KIND_TRANSFER, b'{'])).is_none());
+}
+
+/// Server encoders produce the exact handoff, archive and batch bytes already emitted by Go.
+#[test]
+fn server_encoding_matches_the_core_stream_fixture() {
+    let mut wire = BytesMut::from(CORE_STREAM_FIXTURE);
+    while !wire.is_empty() {
+        let length = wire.get_u32() as usize;
+        let frame = wire.split_to(length).freeze();
+        let message = decode_core_message(frame.clone()).unwrap();
+        assert_eq!(encode_core_message(&message).unwrap(), frame);
+    }
+    assert_eq!(
+        encode_connect(&decode_connect(CONNECT_FIXTURE).unwrap())
+            .unwrap()
+            .as_ref(),
+        CONNECT_FIXTURE
+    );
+    assert!(decode_connect(b"\x01{\"client_data\":null}").is_err());
 }

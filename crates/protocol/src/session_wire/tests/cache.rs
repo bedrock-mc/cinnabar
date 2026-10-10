@@ -3,7 +3,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use super::handoff_with_sizes;
-use crate::{CachedArchive, HandoffPackReceiver, SessionHandoff};
+use crate::session_wire::{CachedArchive, HandoffPackReceiver, SessionHandoff};
 
 /// Builds one cache reference to bytes written under the supplied trusted root.
 fn cached_handoff(root: &Path, bytes: &[u8]) -> SessionHandoff {
