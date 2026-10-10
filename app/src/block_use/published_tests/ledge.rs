@@ -171,7 +171,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
         Res<BlockUseRuntime>,
         Res<MovementTicker>,
     )>::new(world);
-    let (context, player, runtime, movement) = system.get(world);
+    let (context, player, runtime, movement) = system.get_mut(world);
     let input = context.input.snapshot()?;
     let authority = movement.interaction_authority_identity();
     observe_use_target(
