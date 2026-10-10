@@ -1520,6 +1520,12 @@ mod tests {
         );
 
         let mut join = std::pin::pin!(stream.join(config));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(join.as_mut().poll(cx)))
+                .await
+                .is_pending(),
+            "the join must reach its handshake wait before time advances"
+        );
         tokio::time::advance(std::time::Duration::from_secs(601)).await;
         assert!(
             std::future::poll_fn(|cx| Poll::Ready(join.as_mut().poll(cx)))
@@ -1540,6 +1546,12 @@ mod tests {
             _role: PhantomData,
         };
         let mut packs = std::pin::pin!(stream.handle_packs());
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
+                .await
+                .is_pending(),
+            "pack negotiation must be waiting before time advances"
+        );
         tokio::time::advance(std::time::Duration::from_secs(601)).await;
         assert!(
             std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
@@ -1554,6 +1566,12 @@ mod tests {
             _role: PhantomData::<Client>,
         };
         let mut start = std::pin::pin!(stream.await_start_game());
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(start.as_mut().poll(cx)))
+                .await
+                .is_pending(),
+            "StartGame must be waiting before time advances"
+        );
         tokio::time::advance(std::time::Duration::from_secs(601)).await;
         assert!(
             std::future::poll_fn(|cx| Poll::Ready(start.as_mut().poll(cx)))
