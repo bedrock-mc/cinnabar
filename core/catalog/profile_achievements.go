@@ -35,7 +35,7 @@ type ProfileAchievement struct {
 
 // profileAchievements maps the shared Xbox client results into the Overview summary.
 func profileAchievements(ctx context.Context, client *achievements.Client) (*ProfileAchievements, error) {
-	values, err := client.ForTitle(ctx, uint32(auth.AndroidConfig.TitleID), xsapi.RequestHeader("Accept-Language", locale.Default))
+	values, err := client.All(ctx, achievements.Filter{TitleID: uint32(auth.AndroidConfig.TitleID)}, xsapi.RequestHeader("Accept-Language", locale.Default))
 	if err != nil {
 		return nil, err
 	}

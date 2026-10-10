@@ -64,7 +64,7 @@ func TestProfileAchievementUnavailableScores(t *testing.T) {
 		{name: "total overflow", state: "Achieved", rewards: []achievements.Reward{{Type: "Gamerscore", Value: strconv.FormatInt(math.MaxInt64, 10)}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			body, err := json.Marshal(achievements.Page{Achievements: []achievements.Achievement{
+			body, err := json.Marshal(achievements.PageResult{Achievements: []achievements.Achievement{
 				{ID: "one", ProgressState: "Achieved", Rewards: []achievements.Reward{{Type: "Gamerscore", Value: "10"}}},
 				{ID: "two", ProgressState: test.state, Rewards: test.rewards},
 				{ID: "three", ProgressState: "Achieved", Rewards: []achievements.Reward{{Type: "Gamerscore", Value: "5"}}},
