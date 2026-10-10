@@ -138,8 +138,9 @@ mod tests {
     fn pointer_observations_count_edges_preserve_holds_and_ignore_other_windows() {
         let mut physical = PhysicalControls::default();
         let mut events = Messages::default();
-        let window = Entity::PLACEHOLDER;
-        let other = Entity::from_bits(1 << 32);
+        let mut world = World::new();
+        let window = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
         let event = |window, button, state| MouseButtonInput {
             window,
             button,
