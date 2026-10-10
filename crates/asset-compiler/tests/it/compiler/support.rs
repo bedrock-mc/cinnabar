@@ -1,32 +1,17 @@
-pub(super) use std::{
-    collections::HashSet,
-    fmt::Write as FmtWrite,
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
+use {
+    std::collections::HashSet,
+    std::path::{Path, PathBuf},
 };
 
-pub(super) use assets::{
-    AssetError, BlobProvenance, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
-    CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
-    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    Material, ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode,
-    RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
-    canonical_source_manifest_sha256, encode_blob, read_registry,
+use assets::{
+    AssetError, BlockFlags, CollisionConfidence, CollisionSeed, CompiledAssets, ContributorRole,
+    LightProperties, Material, ModelFamily, ModelQuad, ModelState, ModelStateField,
+    RegistryProvenance, RegistryRecord, VisualKind, read_registry,
 };
-pub(super) use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-pub(super) use pack_compiler::{
-    BlockFace, compile_pack as compile_pack_with_lights, read_pack, resolve_texture_key,
-};
-pub(super) use sha2::{Digest, Sha256};
-pub(super) use tempfile::TempDir;
+use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+use sha2::{Digest, Sha256};
+use tempfile::TempDir;
+use {assets::BlockFace, pack_compiler::compile_pack as compile_pack_with_lights};
 
 pub(super) const TILE_SIZE: u32 = 16;
 
@@ -166,9 +151,9 @@ pub(super) const COPPER_GRATE_ALIAS_PAIRS: [(&str, &str); 4] = [
 pub(super) fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create fixture directory");
+        std::fs::create_dir_all(parent).expect("create fixture directory");
     }
-    fs::write(path, contents).expect("write fixture");
+    std::fs::write(path, contents).expect("write fixture");
 }
 
 pub(super) fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {

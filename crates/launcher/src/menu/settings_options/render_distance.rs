@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn saved_legacy_minimum_and_owner_maximum_always_win() {
-        for value in [4, render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS] {
+        for value in [4, render_api::MAX_VIEW_RADIUS_CHUNKS] {
             let bytes = format!(r#"{{"schema":1,"values":{{"render_distance":{value}}}}}"#);
             let mut loaded = SettingsOptions::decode(bytes.as_bytes()).unwrap();
             loaded.set_render_distance_device(device(2, 0));
@@ -84,6 +84,6 @@ mod tests {
         let option = SETTINGS_OPTIONS[index()];
         assert_eq!(option.min, ui::MIN_RENDER_DISTANCE_CHUNKS as i32);
         assert_eq!(option.step, 1);
-        assert_eq!(option.max, render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS);
+        assert_eq!(option.max, render_api::MAX_VIEW_RADIUS_CHUNKS);
     }
 }

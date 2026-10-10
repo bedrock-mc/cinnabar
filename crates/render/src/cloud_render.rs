@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 use assets::AtmosphereRole;
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{GlobalTransform, IntoSystem, Mat4, System, UVec4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -8,7 +11,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Camera3d, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa,
+        Query, Res, ResMut, Resource, Result, Shader, Vec3, With, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

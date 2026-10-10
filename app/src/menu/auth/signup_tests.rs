@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::menu::auth::AuthState};
 
 #[test]
 fn xbox_signup_resumes_cached_and_device_sign_in() {
@@ -48,7 +48,7 @@ fn unsafe_or_premature_xbox_signup_is_rejected() {
 
 #[test]
 fn xbox_signup_owns_focus_and_can_be_cancelled() {
-    use super::super::{MenuAction, MenuRuntime};
+    use {super::super::MenuRuntime, launcher::menu::MenuAction};
     let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
     menu.apply_control_auth(AuthState::AwaitingXboxSignup {
         uri: "https://sisu.xboxlive.com/signup?signature=fixture".into(),

@@ -16,8 +16,8 @@ use assets::{
 
 use super::{ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, COMPILE_COMMAND, format_sha256};
 
-pub use assets::pinned_world_provenance;
-pub(crate) use assets::{active_content_registry_protocol, pinned_block_registry_bytes};
+use assets::pinned_world_provenance;
+use assets::{active_content_registry_protocol, pinned_block_registry_bytes};
 const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 
 /// Fails closed unless the decoded world carrier was compiled from exactly
@@ -110,8 +110,9 @@ mod offline_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        active_content_registry_protocol, pinned_world_provenance, verify_pinned_registries_bind,
+    use {
+        super::verify_pinned_registries_bind,
+        assets::{active_content_registry_protocol, pinned_world_provenance},
     };
 
     #[test]

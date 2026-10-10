@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, client_world::ingestion::WorldStreamError};
 
 impl WorldStream {
     /// Last sequence whose complete ordered mutation has been applied.

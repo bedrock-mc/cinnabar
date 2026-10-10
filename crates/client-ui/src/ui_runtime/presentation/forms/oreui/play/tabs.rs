@@ -4,9 +4,12 @@ use super::super::{
     paint::{Bounds, Canvas},
     theme::{BODY, BORDER, EDGE, NEUTRAL, NEUTRAL80, OUTLINE, TEXT},
 };
-use super::{MenuAction, MenuScreen, MenuView, UiPresentationError};
 use crate::ui_runtime::oreui_assets::{
     PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE,
+};
+use {
+    super::UiPresentationError,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
 };
 
 #[cfg(test)]

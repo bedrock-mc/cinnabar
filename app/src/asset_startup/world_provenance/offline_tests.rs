@@ -4,9 +4,12 @@ use std::path::Path;
 
 use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 
-use super::{active_content_registry_protocol, pinned_block_registry_bytes, verify_world_carrier};
 use crate::asset_startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, load_runtime_assets, select_asset_path,
+};
+use {
+    super::verify_world_carrier,
+    assets::{active_content_registry_protocol, pinned_block_registry_bytes},
 };
 
 #[test]

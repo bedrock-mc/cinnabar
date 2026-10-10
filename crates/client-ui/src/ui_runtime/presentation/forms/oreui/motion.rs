@@ -1,7 +1,7 @@
 //! Owner-requested motion uses short finite timelines, retaining only mounted surfaces.
 
 use super::{theme::Rgba, widgets::Interaction};
-use crate::menu::{MenuAction, MenuScreen};
+use launcher::menu::{MenuAction, MenuScreen};
 
 #[cfg(test)]
 mod tests;

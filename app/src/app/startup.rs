@@ -5,6 +5,7 @@ use crate::asset_startup::{
     LoadedIconAssets, LoadedLangAssets, join,
 };
 use crate::movement::PhysicsCollisionRegistries;
+use crate::{args, session_cleanup::ScopedSessionDirectory};
 use anyhow::{Context, Result, bail};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
@@ -38,7 +39,7 @@ pub(super) struct CoreCarriers {
 pub(super) struct AudioCarriers {
     pub(super) catalog: Option<Arc<RuntimeAudioCatalog>>,
     pub(super) pcm: Option<Arc<RuntimeAudioPcm>>,
-    pub(super) sound_bank: Option<crate::audio::SoundBank>,
+    pub(super) sound_bank: Option<client_presentation::audio::SoundBank>,
 }
 
 /// Loads every startup carrier in parallel and logs each one's load time.
@@ -168,7 +169,10 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     let catalog = loaded.map(|loaded| loaded.into_runtime());
     // Never fatal: absence or damage leaves playback silent.
     let sound_bank = match times.time("sound bank", || {
-        crate::audio::SoundBank::open(&crate::audio::sound_bank_path(world), catalog.clone())
+        client_presentation::audio::SoundBank::open(
+            &client_presentation::audio::sound_bank_path(world),
+            catalog.clone(),
+        )
     }) {
         Ok(Some(mut bank)) => {
             times.time("sound prewarm queue", || bank.prewarm_common());
@@ -201,14 +205,14 @@ fn load_collision_registries(
     // One shared authority drives both startup registry gates: the world-carrier provenance pins
     // and this physics binding derive their protocol from it, so a partially flipped carrier set
     // fails closed instead of aliasing live block identities.
-    let expected_protocol = asset_startup::active_content_registry_protocol();
+    let expected_protocol = assets::active_content_registry_protocol();
     let preg = read_verified_physics_registry(
         physics_registry,
         PHYSICS_REGISTRY_SHA256,
         expected_protocol,
     )?;
     PhysicsCollisionRegistries::bind_coherent_assets(
-        asset_startup::pinned_block_registry_bytes(),
+        assets::pinned_block_registry_bytes(),
         &preg,
         physics_registry,
         world,
@@ -408,4 +412,24 @@ mod tests {
             .validate_acceptance_support(false)
             .unwrap();
     }
+}
+
+/// Owns app-derived session directories and only creates operator-provided directories.
+pub(super) fn bind_direct_session_directory(
+    args: &args::ClientArgs,
+    socket_dir: std::path::PathBuf,
+) -> Result<ScopedSessionDirectory> {
+    if args.address.is_some() && !args.socket_dir_explicit {
+        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
+            format!(
+                "prepare direct-connect session directory {}",
+                socket_dir.display()
+            )
+        });
+    }
+    if args.address.is_some() {
+        fs::create_dir_all(&socket_dir)
+            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
+    }
+    Ok(ScopedSessionDirectory::none())
 }

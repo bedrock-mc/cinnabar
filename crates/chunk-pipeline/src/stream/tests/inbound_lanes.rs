@@ -1,5 +1,8 @@
-use super::*;
 use client_world::ingestion::classify;
+use {
+    super::*,
+    client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS},
+};
 
 fn remote_move(runtime_id: u64) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {

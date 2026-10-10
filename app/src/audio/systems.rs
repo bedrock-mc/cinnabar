@@ -1,14 +1,4 @@
 //! App schedule and borrowed observations for presentation audio.
-use super::{
-    AudioEngine,
-    predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
-};
-use crate::{
-    local_player::LocalViewPose,
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    particles::ParticleInbox,
-    runtime::world::ClientWorld,
-};
 use bevy::prelude::{App, IntoScheduleConfigs, Local, MessageReader, Res, ResMut, Time, Update};
 use client_presentation::audio::{
     local::LocalMotion,
@@ -17,6 +7,18 @@ use client_presentation::audio::{
 use client_presentation::audio_ingress::SequencedAudioEvent;
 use render::{ParticleSimulation, PrecipitationMix, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
+use {
+    super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
+    client_presentation::audio::AudioEngine,
+};
+use {
+    crate::{
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        particles::ParticleInbox,
+        runtime::world::ClientWorld,
+    },
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Installs presentation audio in its existing order. Each system times only its own work, so
 /// systems the executor runs between them are never attributed to audio.

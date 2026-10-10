@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, render_api::PublicationAllowance};
 
 impl WorldStream {
     /// Retains StartGame's level mode for remote-player target admission.

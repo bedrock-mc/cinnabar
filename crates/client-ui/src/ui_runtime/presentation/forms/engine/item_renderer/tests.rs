@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use super::{IconRef, icon, index};
+use {
+    super::{icon, index},
+    ui::IconRef,
+};
 
 fn art(page: u16) -> IconRef {
     IconRef {

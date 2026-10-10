@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::IconRef;
+use ui::IconRef;
 
 pub(super) fn icon<'a>(
     data: &BTreeMap<String, Value>,

@@ -61,7 +61,7 @@ fn confirmed_chunk_radius_changes_and_bounds_fog_distance() {
         .expect("admit oversized confirmed chunk radius");
     assert_eq!(
         stream.render_distance_blocks(),
-        (super::PHASE0_MAX_VIEW_RADIUS_CHUNKS * 16) as f32
+        (super::MAX_VIEW_RADIUS_CHUNKS * 16) as f32
     );
 
     submit_publisher(&mut stream, 4, 128);

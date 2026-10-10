@@ -39,8 +39,8 @@ const LAYOUT: &str = r##"{
 
 #[cfg(test)]
 mod tests {
-    use crate::menu::{MenuAction, MenuView};
     use crate::ui_runtime::UiRuntime;
+    use launcher::menu::{MenuAction, MenuView};
     use ui::DpiScale;
 
     #[test]

@@ -3,7 +3,7 @@
 use bevy::{
     app::SubApp,
     core_pipeline::core_3d::Opaque3d,
-    prelude::*,
+    prelude::{IntoScheduleConfigs, ResMut, Resource},
     render::{Render, RenderSystems, render_phase::ViewBinnedRenderPhases},
 };
 

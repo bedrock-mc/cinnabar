@@ -9,7 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const URL_ENV: &str = "CINNABAR_UPDATE_URL";
 const DISABLE_ENV: &str = "CINNABAR_UPDATE_CHECK";

@@ -1,7 +1,7 @@
-use super::*;
 use assets::{NetworkIdMode, RuntimeAssets};
 use image::{Rgba, RgbaImage};
 use std::fs;
+use {super::*, assets::BlockFace};
 
 #[test]
 fn pots_and_lanterns_keep_cutout_materials_after_carrier_roundtrip() {

@@ -1,5 +1,5 @@
-use super::{SoundBank, sound_bank_path};
 use assets::RuntimeAudioCatalog;
+use client_presentation::audio::{SoundBank, sound_bank_path};
 use std::{fs, path::Path, sync::Arc};
 #[test]
 fn local_pinned_bank_has_audible_grass_and_dirt_break_alternatives_when_present() {

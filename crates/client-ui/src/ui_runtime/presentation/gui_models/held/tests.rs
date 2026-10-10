@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 #[test]
 fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {

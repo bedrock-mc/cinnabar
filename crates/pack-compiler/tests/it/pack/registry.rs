@@ -1,4 +1,11 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        AssetError, BlockFace, BlockFlags, CollisionConfidence, ContributorRole, ModelFamily,
+        ModelStateField, RegistryProvenance, read_registry,
+    },
+    std::{fs, path::Path},
+};
 
 #[test]
 fn block_faces_match_the_packed_renderer_discriminants() {

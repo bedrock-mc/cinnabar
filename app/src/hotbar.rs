@@ -211,8 +211,7 @@ mod tests {
             .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(2),
-                window_type:
-                    client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                window_type: inventory::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
                 position: [0, 64, 0],
                 runtime_entity_id: -1,
             }));
@@ -244,12 +243,12 @@ mod tests {
     /// A wheel frame passes through the production hotbar system.
     fn wheel_selection(
         player_runtime: &mut crate::player_runtime::PlayerRuntime,
-        menu: Option<crate::menu::MenuScreen>,
+        menu: Option<launcher::menu::MenuScreen>,
     ) -> u8 {
         let runtime = UiRuntime::new(1);
         let mut menu_runtime = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
         if let Some(screen) = menu {
-            menu_runtime.activate(crate::menu::MenuAction::Navigate(screen));
+            menu_runtime.activate(launcher::menu::MenuAction::Navigate(screen));
         }
         wheel_with_ui(player_runtime, runtime, menu_runtime)
     }
@@ -286,7 +285,10 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         assert_eq!(
-            wheel_selection(&mut player_runtime, Some(crate::menu::MenuScreen::Settings)),
+            wheel_selection(
+                &mut player_runtime,
+                Some(launcher::menu::MenuScreen::Settings)
+            ),
             0
         );
     }
@@ -303,7 +305,7 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         assert_eq!(
-            wheel_selection(&mut player_runtime, Some(crate::menu::MenuScreen::Pause)),
+            wheel_selection(&mut player_runtime, Some(launcher::menu::MenuScreen::Pause)),
             0
         );
         let hidden = || crate::menu::MenuRuntime::new(false, 2, "Tester".into());
@@ -316,7 +318,7 @@ mod tests {
         inventory.toggle_inventory(&mut player_runtime);
         assert!(inventory.inventory_open());
         assert_eq!(wheel_with_ui(&mut player_runtime, inventory, hidden()), 0);
-        let form = crate::ui_runtime::presentation::forms::pack_harness::action_form(
+        let form = client_ui::test_support::pack_harness::action_form(
             &mut player_runtime,
             "Form",
             &["OK"],
@@ -452,7 +454,7 @@ mod tests {
         assert_eq!(snapshot.slot, 2);
         assert_eq!(
             snapshot.state,
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&equipment_stack)
+            inventory::inventory_ledger::PlayerInventorySlot::Present(&equipment_stack)
         );
         let mut sent = None;
         let mut fatal = None;
@@ -630,7 +632,7 @@ mod tests {
         assert_eq!(authoritative_snapshot.slot, 0);
         assert_eq!(
             authoritative_snapshot.state,
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
+            inventory::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
         let request_id = runtime
             .inventory_ledger_mut(&mut player_runtime)
@@ -640,7 +642,7 @@ mod tests {
         assert_eq!(predicted_snapshot.slot, 0);
         assert_eq!(
             predicted_snapshot.state,
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+            inventory::inventory_ledger::PlayerInventorySlot::Empty
         );
 
         let mut predicted_packet = None;
@@ -670,7 +672,7 @@ mod tests {
         assert_eq!(restored_snapshot.slot, 0);
         assert_eq!(
             restored_snapshot.state,
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
+            inventory::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
 
         let game_mode = player_runtime.facts.player_game_mode();
@@ -770,9 +772,7 @@ mod tests {
             .begin_click(0)
             .unwrap();
         let predicted = match player_runtime.selected_stack_snapshot().unwrap().state {
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
-                stack.clone()
-            }
+            inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => stack.clone(),
             state => panic!("the place predicts a present stack, got {state:?}"),
         };
         assert!(predicted.stack_network_id < -1);

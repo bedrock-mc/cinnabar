@@ -10,7 +10,7 @@ use protocol::{
 };
 use render::{ActorArtworkPages, ActorRenderScene};
 
-use crate::presentation::{actors, entity_layers};
+use client_presentation::presentation::actors;
 
 const SIDE: u32 = 320;
 
@@ -193,15 +193,26 @@ fn draw(
         eprintln!("render: no rig");
         return image;
     };
-    let Some(body) = actors::entity_rig_presentation(&rig, actor, artwork, 0.0) else {
+    let Some(body) = client_presentation::presentation::actors::entity_rig_presentation(
+        &rig, actor, artwork, 0.0,
+    ) else {
         eprintln!(
             "render: no presentation for rig {:?} fallback {:?}",
             rig.rig, rig.fallback
         );
         return image;
     };
-    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1,
+        false,
+        None,
+        [body],
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
@@ -373,7 +384,7 @@ fn measure_pages(
     };
     let base = ActorArtworkPages::new(&catalog);
     summary("vanilla actor", &base);
-    let (_, base, _) = crate::presentation::equipment::EquipmentRuntime::build(
+    let (_, base, _) = client_presentation::presentation::equipment::EquipmentRuntime::build(
         entities,
         equipment.map(Arc::new),
         Arc::new(icons),

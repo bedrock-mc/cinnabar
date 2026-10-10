@@ -21,9 +21,9 @@ fn store_cards_draw_their_offer_titles() {
         tags: vec![],
         owned: false,
     };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot {
         loading: false,
         rows: vec![launcher::store::DisplayRow {
             id: None,
@@ -32,7 +32,7 @@ fn store_cards_draw_their_offer_titles() {
             offers: vec![offer("a", "Castle Pack"), offer("b", "Pale Garden")],
             continuation: None,
         }],
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let Some(texts) = screen_texts(&view) else {
         return;
@@ -68,9 +68,9 @@ fn store_offer_page_draws_its_title() {
         tags: vec![],
         owned: false,
     };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot {
         loading: false,
         view: launcher::store::StoreView::Detail,
         detail: Some(StoreOfferDetail {
@@ -80,7 +80,7 @@ fn store_offer_page_draws_its_title() {
             display_version: None,
             platforms: vec![],
         }),
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let Some(texts) = screen_texts(&view) else {
         return;
@@ -105,9 +105,9 @@ fn a_hero_row_draws_and_opens_its_offers() {
         tags: vec![],
         owned: false,
     };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot {
         loading: false,
         rows: vec![launcher::store::DisplayRow {
             id: None,
@@ -120,7 +120,7 @@ fn a_hero_row_draws_and_opens_its_offers() {
             .map(|id| (format!("https://x.test/{id}.jpg"), format!("/c/{id}.jpg")))
             .into_iter()
             .collect(),
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let Some(carrier) = super::pack_harness::carrier() else {
         return;
@@ -164,7 +164,7 @@ fn a_hero_row_draws_and_opens_its_offers() {
         .filter_map(|region| crate::store::action(snapshot, region))
         .collect();
     assert!(
-        opens.contains(&crate::store::StoreAction::OpenOffer { row: 0, index: 1 }),
+        opens.contains(&launcher::store::StoreAction::OpenOffer { row: 0, index: 1 }),
         "{opens:?}"
     );
 }
@@ -192,16 +192,16 @@ fn each_hero_row_draws_its_own_offers() {
         offers: ids.map(offer).to_vec(),
         continuation: None,
     };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot {
         loading: false,
         rows: vec![hero(["a", "b"]), hero(["c", "d"])],
         images: ["a", "b", "c", "d"]
             .map(|id| (format!("https://x.test/{id}.jpg"), format!("/c/{id}.jpg")))
             .into_iter()
             .collect(),
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let Some(carrier) = super::pack_harness::carrier() else {
         return;
@@ -245,8 +245,8 @@ fn store_render(
     root: [f64; 2],
 ) -> Option<json_ui::ScreenRender> {
     let carrier = super::pack_harness::carrier()?;
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = launcher::menu::MenuScreen::Store;
     let images = rows
         .iter()
         .flat_map(|row| &row.offers)
@@ -256,11 +256,11 @@ fn store_render(
             (url, file)
         })
         .collect();
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+    view.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot {
         loading: false,
         rows,
         images,
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let files = carrier.ui_files();
     let catalog =

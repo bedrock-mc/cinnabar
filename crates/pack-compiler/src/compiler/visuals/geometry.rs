@@ -1,4 +1,4 @@
-use super::super::*;
+use {super::super::*, assets::BlockFace};
 
 /// Crops each native block face to its cuboid coordinates and outside-view orientation.
 pub(in crate::compiler) fn vanilla_cuboid_quads(

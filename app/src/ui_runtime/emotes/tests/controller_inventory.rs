@@ -1,7 +1,7 @@
 //! Closing-frame wheel ownership covers raw inventory consumers after the wheel.
 use super::*;
 use crate::ui_runtime::interaction::drive_world_inventory_keys;
-use client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
+use inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
 use protocol::{
     ContainerIdentity, InventoryContentEvent, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
 };

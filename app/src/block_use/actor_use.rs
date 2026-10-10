@@ -1,6 +1,10 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
-use super::*;
 use gameplay::melee::{Crosshair, classify, pick_actor};
+use {
+    super::*,
+    gameplay::block_use::{LocalUse, RepeatClock},
+    gameplay::mining::{FrozenMiningSelection, creative_reach, survival_reach},
+};
 
 /// Resolves an admitted press against the fresh actor/block pick before block use.
 #[allow(clippy::too_many_arguments)]

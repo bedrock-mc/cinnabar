@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, render_api::PublicationPermit};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct PendingSubChunk {

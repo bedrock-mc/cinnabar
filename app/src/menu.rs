@@ -57,22 +57,21 @@ pub(crate) mod video_settings;
 mod view;
 mod worlds_tab;
 
-use auth::{AuthState, AuthSupervisor};
 use ui::RenderMode;
+use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use launcher::menu::view::{InboxItem, JoinProgress, JoinStage, MenuHome};
-pub(crate) use launcher::menu::view::{
-    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+
+use launcher::menu::view::{
+    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
 };
+
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
     fs,
@@ -82,12 +81,14 @@ use std::{
 
 use bevy::prelude::{Commands, Res, ResMut, Resource};
 
-use crate::{
-    install_layout::InstallLayout,
-    runtime::world::ClientWorld,
-    session::{JoinIntent, SessionStatus},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        runtime::world::ClientWorld,
+        session::{JoinIntent, SessionStatus},
+    },
+    launcher::install_layout::InstallLayout,
+};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -95,9 +96,9 @@ const MAX_SERVER_ADDRESS_BYTES: usize = 128;
 const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
 
-pub(crate) use launcher::menu::split_address;
+use launcher::menu::split_address;
 
-pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
+use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
 #[derive(Debug, Resource)]
 pub(crate) struct MenuRuntime {
@@ -194,13 +195,13 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
-    store_actions: Vec<crate::store::StoreAction>,
-    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
-    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    store_actions: Vec<launcher::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<launcher::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
-    settings_options: std::sync::Arc<settings_options::SettingsOptions>,
-    storage: std::sync::Arc<settings_storage::StorageView>,
+    settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
+    storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
     settings_scale_picker: bool,
     settings_dirty: bool,
@@ -325,7 +326,7 @@ impl MenuRuntime {
     }
 
     /// Marketplace actions queued since the last call, for the store driver.
-    pub(crate) fn take_store_actions(&mut self) -> Vec<crate::store::StoreAction> {
+    pub(crate) fn take_store_actions(&mut self) -> Vec<launcher::store::StoreAction> {
         std::mem::take(&mut self.store_actions)
     }
 
@@ -786,7 +787,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::Store(action) => {
-                if action == crate::store::StoreAction::Open {
+                if action == launcher::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
                 }
                 self.store_actions.push(action);

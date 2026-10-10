@@ -1,5 +1,5 @@
 use super::super::motion::{Surface, Tween};
-use crate::menu::MenuAction;
+use launcher::menu::MenuAction;
 use std::ops::Range;
 
 const EDIT_SECONDS: f64 = 0.075;
@@ -105,7 +105,7 @@ fn inserted_characters(before: &str, after: &str) -> Range<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::MenuAction};
     const SURFACE: Surface = Surface::Loading;
     const ACTION: MenuAction = MenuAction::AddName;
 

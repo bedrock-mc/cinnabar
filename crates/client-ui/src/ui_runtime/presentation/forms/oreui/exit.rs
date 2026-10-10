@@ -3,7 +3,7 @@ use super::modal::{self, Modal};
 use super::paint::Canvas;
 use super::theme::{Appearance, TEXT};
 use super::widgets::Variant;
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 use ui::{UiNode, UiRect};
 
 impl UiPresentationRuntime {
@@ -64,8 +64,11 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 mod tests {
     use super::super::theme;
-    use super::*;
     use crate::ui_runtime::presentation::tests::fixture_font;
+    use {
+        super::*,
+        launcher::menu::{MenuAction, MenuView},
+    };
 
     fn frame(
         runtime: &mut UiPresentationRuntime,

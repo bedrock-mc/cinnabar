@@ -1,13 +1,11 @@
-pub use std::{fs, path::Path};
+use std::path::Path;
 
-pub use assets::{
-    AssetError, BlockFlags, CollisionConfidence, ContributorRole, ModelFamily, ModelState,
-    ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
+use assets::{
+    BlockFlags, ContributorRole, ModelFamily, ModelState, RegistryProvenance, RegistryRecord,
 };
-pub use pack_compiler::{
-    BlockFace, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, TextureKey, read_pack, resolve_texture_key,
-};
-pub use tempfile::TempDir;
+
+use pack_compiler::TextureKey;
+use tempfile::TempDir;
 
 pub const MINIMAL_BLOCKS: &str = r#"{
     "format_version": [1, 1, 0],
@@ -24,9 +22,9 @@ pub type RegistryFixture<'a> = (u32, u32, u8, &'a [u8], &'a [u8]);
 pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create fixture directory");
+        std::fs::create_dir_all(parent).expect("create fixture directory");
     }
-    fs::write(path, contents).expect("write fixture");
+    std::fs::write(path, contents).expect("write fixture");
 }
 
 pub fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {

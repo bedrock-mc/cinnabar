@@ -53,7 +53,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
             }));
     });
     world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
-    world.init_resource::<crate::camera::ServerCameraView>();
+    world.init_resource::<client_presentation::camera::ServerCameraView>();
     scope
 }
 

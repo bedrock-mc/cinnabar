@@ -9,7 +9,10 @@ use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
 use render_model::UiTexturePage;
 use ui::{UiMesh, UiNode, UiVisual};
 
-use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
+use {
+    super::{UiPresentationError, UiPresentationRuntime, item_gui, player_preview},
+    ui::IconRef,
+};
 
 mod atlas;
 mod block_models;
@@ -186,13 +189,13 @@ impl UiPresentationRuntime {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
             }
-            if let Some(binding) = equipment.binding(item_gui::SHIELD_IDENTIFIER)
+            if let Some(binding) = equipment.binding(assets::gui_item::SHIELD_IDENTIFIER)
                 && let Some(geometry) = entities
                     .geometries()
                     .iter()
                     .find(|geometry| geometry.identifier == binding.geometry.identifier)
                 && let Some(texture) = equipment.texture(&binding.texture.identifier)
-                && let Some(icon) = self.item_icon(item_gui::SHIELD_IDENTIFIER, 0)
+                && let Some(icon) = self.item_icon(assets::gui_item::SHIELD_IDENTIFIER, 0)
             {
                 let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
                 if let Some(mesh) = item_gui::shield(geometry, texture, source) {

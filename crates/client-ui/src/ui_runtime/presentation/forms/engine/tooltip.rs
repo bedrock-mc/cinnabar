@@ -8,7 +8,10 @@ use serde_json::Value;
 use ui::{TextShadow, UiVisual};
 
 use super::text_paint::{UNWRAPPED_LOGICAL, width_64};
-use super::{FONT_DESIGN_PIXEL_TEXELS, Painter, UiPresentationError};
+use {
+    super::{Painter, UiPresentationError},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 pub(super) const RENDERER: &str = "hover_text_renderer";
 pub(super) const BACKGROUND_TEXTURE: &str = "textures/ui/purpleBorder";

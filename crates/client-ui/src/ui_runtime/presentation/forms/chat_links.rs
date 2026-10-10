@@ -229,7 +229,7 @@ mod tests {
         let font = super::super::super::tests::fixture_font();
         let metrics =
             TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), Some(1));
-        let scale = metrics.scale.get() * super::super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let mut layouts = TextLayoutCache::new(32, 1 << 20);
         let node = history_node(
             "prefix https://one.example then https://two.example suffix",
@@ -297,7 +297,7 @@ mod tests {
         let font = super::super::super::tests::fixture_font();
         let metrics =
             TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), Some(1));
-        let scale = metrics.scale.get() * super::super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let mut layouts = TextLayoutCache::new(32, 1 << 20);
         let mut node = history_node("https://example.com", 500.0);
         let original = hits(

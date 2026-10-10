@@ -11,11 +11,13 @@ use protocol::{PlayerSkin, WorldBootstrap};
 use render::ActorRigFrameBuilder;
 use render_model::{ActorRigVertex, RenderBoneTransform};
 
-use super::display::{
-    FirstPersonHand, FirstPersonShape, attach_to_bone, first_person_display, held_block_display,
-    held_sprite_display, is_hand_equipped, is_rod, view_bone,
-};
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
+use {
+    super::display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone},
+    render_model::equipment::{
+        attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
+    },
+};
 
 const WIDTH: usize = 854;
 const REST: FirstPersonHand = FirstPersonHand {
@@ -384,9 +386,9 @@ fn render_first_person_held_item_frames() {
                     height: 32,
                     rgba8: sheet,
                 };
-                let vertices = render_model::textured_cube_vertices(super::blocks::face_rects([
-                    0.0, 0.0, 1.0, 1.0,
-                ]));
+                let vertices = render_model::textured_cube_vertices(
+                    render_model::equipment::blocks::face_rects([0.0, 0.0, 1.0, 1.0]),
+                );
                 let display = if third {
                     held_block_display()
                 } else {

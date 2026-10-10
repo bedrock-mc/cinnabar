@@ -6,9 +6,12 @@ use std::sync::Arc;
 use bevy::prelude::{Commands, Res, ResMut};
 
 use super::state::StoreState;
-use super::worker::{StoreError, StoreRequest, StoreWorker};
 use crate::menu::{MenuRuntime, launcher_account::LauncherAccount};
 use launcher::store::snapshot::StoreSnapshot;
+use {
+    super::worker::StoreWorker,
+    launcher::store::worker::{StoreError, StoreRequest},
+};
 
 /// Send `requests`, telling the state about any the queue refused.
 fn send_all(state: &mut StoreState, worker: &StoreWorker, requests: Vec<StoreRequest>) {

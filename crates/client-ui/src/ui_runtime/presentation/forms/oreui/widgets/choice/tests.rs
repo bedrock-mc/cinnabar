@@ -1,5 +1,8 @@
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn draw_choice(selected: bool) -> Vec<ui::UiNode> {
     let view = MenuView::new(true, "Player".into());

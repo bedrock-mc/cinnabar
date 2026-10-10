@@ -8,7 +8,7 @@ mod tests;
 
 impl UiPresentationRuntime {
     /// Identifies the painted controls, so outgoing frames cannot drive another screen's focus.
-    pub fn drawn_menu_context(&self) -> Option<(crate::menu::MenuScreen, bool)> {
+    pub fn drawn_menu_context(&self) -> Option<(launcher::menu::MenuScreen, bool)> {
         self.form_presentation.menu_focus_context
     }
 
@@ -16,8 +16,8 @@ impl UiPresentationRuntime {
     pub fn settings_focus_geometry(
         &self,
     ) -> (
-        &[crate::menu::view::SettingsFocusTarget],
-        &[crate::menu::view::SettingsFocusLandmark],
+        &[launcher::menu::view::SettingsFocusTarget],
+        &[launcher::menu::view::SettingsFocusLandmark],
     ) {
         (
             &self.form_presentation.menu_focus_geometry,
@@ -64,7 +64,7 @@ impl UiPresentationRuntime {
     }
 
     /// Authored focus order includes controls keyboard navigation can scroll into view.
-    pub fn menu_focus_actions(&self) -> impl Iterator<Item = crate::menu::MenuAction> + '_ {
+    pub fn menu_focus_actions(&self) -> impl Iterator<Item = launcher::menu::MenuAction> + '_ {
         self.form_presentation.menu_focus.iter().copied().chain(
             self.menu_hit_targets
                 .iter()
@@ -74,12 +74,12 @@ impl UiPresentationRuntime {
     }
 
     /// Actions of the enabled controls in the most recently drawn menu.
-    pub fn visible_menu_actions(&self) -> impl Iterator<Item = crate::menu::MenuAction> + '_ {
+    pub fn visible_menu_actions(&self) -> impl Iterator<Item = launcher::menu::MenuAction> + '_ {
         self.menu_focus_actions()
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn menu_action_bounds(&self, action: crate::menu::MenuAction) -> Option<ui::UiRect> {
+    pub fn menu_action_bounds(&self, action: launcher::menu::MenuAction) -> Option<ui::UiRect> {
         self.menu_hit_targets
             .iter()
             .rev()
@@ -92,7 +92,7 @@ impl UiPresentationRuntime {
         self.settings_slider_drag_targets
             .iter()
             .filter_map(|(action, bounds)| {
-                matches!(action, crate::menu::MenuAction::SettingsScale(_)).then_some(*bounds)
+                matches!(action, launcher::menu::MenuAction::SettingsScale(_)).then_some(*bounds)
             })
             .reduce(|track, bounds| {
                 super::rect(
@@ -107,11 +107,13 @@ impl UiPresentationRuntime {
 
     /// A captured slider follows the current layout after a scale change.
     /// Native scale option buttons publish no slider capture geometry.
-    pub fn gui_scale_drag_action(&self, point: ui::UiPoint) -> Option<crate::menu::MenuAction> {
+    pub fn gui_scale_drag_action(&self, point: ui::UiPoint) -> Option<launcher::menu::MenuAction> {
         captured_slider_action(
             self.settings_slider_drag_targets
                 .iter()
-                .filter(|(action, _)| matches!(action, crate::menu::MenuAction::SettingsScale(_))),
+                .filter(|(action, _)| {
+                    matches!(action, launcher::menu::MenuAction::SettingsScale(_))
+                }),
             point,
         )
     }
@@ -121,7 +123,7 @@ impl UiPresentationRuntime {
         &self,
         index: u16,
         point: ui::UiPoint,
-    ) -> Option<crate::menu::MenuAction> {
+    ) -> Option<launcher::menu::MenuAction> {
         let targets = if self.settings_slider_drag_targets.is_empty() {
             &self.menu_hit_targets
         } else {
@@ -129,7 +131,7 @@ impl UiPresentationRuntime {
         };
         captured_slider_action(
             targets.iter().filter(|(action, _)| {
-                matches!(action, crate::menu::MenuAction::SettingsOption(at, _) if *at == index)
+                matches!(action, launcher::menu::MenuAction::SettingsOption(at, _) if *at == index)
             }),
             point,
         )
@@ -137,9 +139,9 @@ impl UiPresentationRuntime {
 }
 
 fn captured_slider_action<'a>(
-    slider: impl DoubleEndedIterator<Item = &'a (crate::menu::MenuAction, ui::UiRect)> + Clone,
+    slider: impl DoubleEndedIterator<Item = &'a (launcher::menu::MenuAction, ui::UiRect)> + Clone,
     point: ui::UiPoint,
-) -> Option<crate::menu::MenuAction> {
+) -> Option<launcher::menu::MenuAction> {
     let left = slider
         .clone()
         .map(|(_, bounds)| bounds.min().x())

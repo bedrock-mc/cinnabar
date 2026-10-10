@@ -1,10 +1,13 @@
 use super::*;
-use crate::item_use::{AirUse, ItemUseRuntime, UseFrame, classify};
 use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use {
+    crate::item_use::ItemUseRuntime,
+    gameplay::item_use::{AirUse, UseFrame, classify},
+};
 
 fn presentation() -> UiPresentationRuntime {
     let sprites = (0..6)
@@ -26,8 +29,8 @@ fn presentation() -> UiPresentationRuntime {
     }));
     let bytes = assets::encode_icon_catalog([1; 32], &sprites, &entries).unwrap();
     UiPresentationRuntime::with_hud_and_icons(
-        crate::ui_runtime::presentation::tests::fixture_font(),
-        crate::ui_runtime::presentation::tests::fixture_hud(),
+        client_ui::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
         Arc::new(assets::RuntimeIconCatalog::decode(&bytes).unwrap()),
     )
     .unwrap()

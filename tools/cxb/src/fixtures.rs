@@ -514,7 +514,10 @@ fn source() -> Source {
     }
 }
 
-fn seeds(server: &crypto::Ed25519KeyPair, publisher: &crypto::Ed25519KeyPair) -> Seeds {
+fn seeds(
+    server: &ring::signature::Ed25519KeyPair,
+    publisher: &ring::signature::Ed25519KeyPair,
+) -> Seeds {
     Seeds {
         server: Seed {
             seed: crypto::hex(&SERVER_SEED),

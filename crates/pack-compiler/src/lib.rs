@@ -32,7 +32,7 @@ pub use actor::{
     CompiledActorCarrier, compile_actor_assets, compile_actor_pack, compile_actor_pack_unless,
 };
 pub use animation::AnimationInventory;
-pub use assets::BlockFace;
+
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
 };

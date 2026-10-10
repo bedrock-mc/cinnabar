@@ -3,7 +3,10 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
-use bevy::prelude::*;
+use bevy::prelude::{
+    App, IntoScheduleConfigs, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time,
+    Transform, Update, Vec3, With,
+};
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
     BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace,
@@ -19,12 +22,11 @@ use super::{
     sign_text,
     state::BlockState,
 };
-use crate::{
-    local_player::LocalViewPose,
-    movement::PhysicsCollisionRegistries,
-    runtime::{network::ActorFramePartialTick, world::ClientWorld},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    client_presentation::{actor_publication::ActorFramePartialTick, local_player::LocalViewPose},
+};
 
 const BLOCK_ENTITY_ASSETS_FILENAME: &str = assets::carriers::BLOCK_ENTITY.output;
 /// Block entities farther than this from the eye are not drawn.
@@ -257,7 +259,7 @@ fn portal_kind(
 pub(crate) fn update_block_entity_scene(
     client_world: Res<ClientWorld>,
     actor_partial_tick: Res<ActorFramePartialTick>,
-    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntime>,

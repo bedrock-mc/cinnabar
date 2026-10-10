@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::{SETTINGS_OPTIONS, SettingsOptions};
 use crate::menu::MenuRuntime;
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 
 impl MenuRuntime {
     /// Supplies a cheap settings snapshot even while the launcher menu is hidden.

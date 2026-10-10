@@ -10,7 +10,7 @@ pub mod credits;
 mod death;
 pub mod emotes;
 pub mod presentation_snapshot;
-pub use inventory::CraftingPreview;
+
 mod error;
 pub mod event_apply;
 pub use error::UiRuntimeError;
@@ -22,8 +22,7 @@ pub mod interaction;
 pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
-pub use inventory::inventory_ledger;
-pub use inventory::inventory_router;
+
 pub mod item_facts;
 pub mod json_ui_assets;
 pub mod oreui_assets;
@@ -56,7 +55,6 @@ use interaction::{
     dispatch_chat_ui_action, gamepad_chat_action, paste_chat_shortcut,
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
 };
-pub use inventory_ingress::{InventoryAuthorityEvent, SequencedInventoryEvent};
 
 use std::{collections::VecDeque, sync::Arc};
 
@@ -75,10 +73,9 @@ use ui::{
 };
 
 use self::gameplay_hud::GameplayHudState;
-use self::inventory_ledger::PlayerInventoryLedger;
-use self::inventory_router::{EquipmentRoute, InventoryRouterError};
+use inventory::inventory_ledger::PlayerInventoryLedger;
+use inventory::inventory_router::{EquipmentRoute, InventoryRouterError};
 
-pub use inventory::MAX_PENDING_INVENTORY_EVENTS;
 const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
 const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
@@ -114,7 +111,7 @@ pub struct SequencedLocalAttributes {
     pub attributes: Arc<[ActorAttribute]>,
 }
 
-pub use inventory::SequencedLocalEquipment;
+use inventory::SequencedLocalEquipment;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiApplyOutcome {
@@ -356,7 +353,7 @@ impl UiRuntime {
         session_id: u64,
         fifo_sequence: u64,
         event: EquipmentEvent,
-    ) -> Result<inventory_router::EquipmentRouteResult, InventoryRouterError> {
+    ) -> Result<inventory::inventory_router::EquipmentRouteResult, InventoryRouterError> {
         player_runtime
             .inventory
             .route_equipment(session_id, fifo_sequence, event)
@@ -592,7 +589,7 @@ impl UiRuntime {
         self.block_cracks.snapshot()
     }
 
-    pub fn block_cracks_status(&self) -> crate::block_cracks::BlockCrackStatus {
+    pub fn block_cracks_status(&self) -> chunk_pipeline::BlockCrackStatus {
         self.block_cracks.status()
     }
 

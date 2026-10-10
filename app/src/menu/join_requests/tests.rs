@@ -5,8 +5,11 @@ use client_ui::ui_runtime::UiRuntime;
 use launcher::menu::join_requests::{LIFETIME, respond_hint, title};
 use semantic_input::{Action, ActionPhase, ActionSnapshot, InputMode};
 
-use super::super::{MenuAction, MenuRuntime, MenuScreen};
 use crate::semantic_controls::SemanticInputSnapshot;
+use {
+    super::super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn host() -> MenuRuntime {
     MenuRuntime::new(true, 2, "Host".to_owned())

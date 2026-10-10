@@ -1,6 +1,6 @@
 //! Straight-alpha item icon pixels for world-space item meshes.
 
-use super::{IconRef, UiPresentationRuntime};
+use {super::UiPresentationRuntime, ui::IconRef};
 
 /// One item icon cropped from a UI atlas page.
 #[derive(Debug, Clone, PartialEq, Eq)]

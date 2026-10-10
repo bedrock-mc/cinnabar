@@ -2,7 +2,7 @@ use crate::chunk::*;
 
 use bevy::render::{
     RenderApp, RenderPlugin,
-    renderer::{RenderAdapterInfo, WgpuWrapper},
+    renderer::{RenderAdapterInfo, RenderInstance, WgpuWrapper},
     settings::RenderCreation,
 };
 

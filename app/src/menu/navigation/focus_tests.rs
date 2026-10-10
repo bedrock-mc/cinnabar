@@ -1,15 +1,18 @@
 //! Return navigation is exercised through the input system and painted controls.
 
-use crate::menu::{
-    MenuAction, MenuRuntime, MenuScreen,
-    input::{MenuClipboard, MenuInputMode, drive_menu_input},
-};
 use bevy::{
     input::keyboard::Key,
     prelude::*,
     window::{CursorOptions, PrimaryWindow},
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::menu::{
+        MenuRuntime,
+        input::{MenuClipboard, MenuInputMode, drive_menu_input},
+    },
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 /// Paints the current screen and lets input consume its enabled controls.
 fn draw(app: &mut App) {
@@ -169,7 +172,7 @@ fn gamepad_back_restores_home_without_changing_pointer_outline_admission() {
 fn profile_return_preserves_available_focus_and_falls_back_when_removed() {
     for available in [true, false] {
         let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
-        menu.control_auth = Some(crate::menu::AuthState::Authenticated);
+        menu.control_auth = Some(launcher::menu::auth::AuthState::Authenticated);
         menu.feeds.profile.loaded = true;
         menu.feeds.profile.avatar_loaded = true;
         menu.feeds.profile.featured_screenshot_loaded = true;
@@ -237,7 +240,7 @@ fn changed_account_controls_and_modal_ownership_keep_focus_available() {
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.enter(MenuScreen::Settings);
-        menu.control_auth = Some(crate::menu::AuthState::Authenticated);
+        menu.control_auth = Some(launcher::menu::auth::AuthState::Authenticated);
     }
     draw(&mut app);
     key(&mut app, window, KeyCode::Escape);
@@ -333,7 +336,7 @@ fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
 
 #[test]
 fn borrowed_popup_ownership_matches_the_presented_prompt() {
-    use crate::menu::{AuthState, MenuDialog};
+    use launcher::menu::{MenuDialog, auth::AuthState};
     for auth in [
         AuthState::SignedOut,
         AuthState::Checking,

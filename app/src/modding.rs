@@ -83,7 +83,7 @@ struct ModRuntime {
     label_rebuilds: u64,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
-    render_merge: mod_host::mod_render::RenderMerge,
+    render_merge: mod_render::RenderMerge,
     last_reload: Instant,
     controls: mod_host::ControlFrame,
     reload_on_main: bool,
@@ -321,7 +321,7 @@ fn configure_systems(app: &mut App, watching: bool) {
 #[cfg(feature = "local-mods")]
 type ModOutputs<'w> = (
     Option<Res<'w, crate::runtime::network::NetworkHandle>>,
-    Option<ResMut<'w, crate::camera::CameraSettingsAuthority>>,
+    Option<ResMut<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
 );
@@ -535,8 +535,8 @@ fn send_commands(
 }
 
 #[cfg(feature = "local-mods")]
-fn camera_rig(rig: mod_host::GameplayCameraRig) -> crate::camera::CameraRig {
-    crate::camera::CameraRig {
+fn camera_rig(rig: mod_host::GameplayCameraRig) -> client_presentation::camera::CameraRig {
+    client_presentation::camera::CameraRig {
         offset: Vec3::new(rig.offset.x, rig.offset.y, rig.offset.z),
         roll_radians: rig.roll,
         fov_delta_degrees: rig.fov_delta,
@@ -578,8 +578,7 @@ mod tests {
             );
             return;
         }
-        let Some(presentation) =
-            crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+        let Some(presentation) = client_ui::test_support::pack_harness::engine_presentation()
         else {
             return;
         };

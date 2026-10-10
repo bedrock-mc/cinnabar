@@ -7,7 +7,7 @@ pub struct ActorFrameState {
     pub(super) published_session: Option<u64>,
     /// The session the read seat layouts were last given to.
     seated_session: Option<u64>,
-    pub(super) published_pack: Option<Arc<crate::session_assets::SessionEntityPack>>,
+    pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
     pub(super) pack_geometry_ready: SessionGeometryReady,
     pub(super) published_items: Option<Arc<crate::session_assets::SessionItems>>,
     pub(super) actor_clock: ActorFrameClock,

@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, assets::BlockFace};
 
 pub(in crate::compiler) const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)

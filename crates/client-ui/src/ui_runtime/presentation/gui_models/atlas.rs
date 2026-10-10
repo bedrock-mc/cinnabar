@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use render_model::UiTexturePage;
 use sha2::{Digest, Sha256};
 
-use super::super::{IconRef, UiPresentationError};
+use {super::super::UiPresentationError, ui::IconRef};
 
 const SIDE: usize = render_model::UI_MODEL_ATLAS_SIDE as usize;
 const GUTTER: usize = 1;

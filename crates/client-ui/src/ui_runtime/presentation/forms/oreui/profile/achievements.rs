@@ -2,9 +2,9 @@
 use super::super::theme::{
     BODY, BORDER, CAPTION, INFORMATIVE_TINT, NEUTRAL, SUCCESS_TINT, TEXT_DARK, TEXT_DIMMER,
 };
-use super::*;
 use protocol::launcher_control::ProfileAchievement;
 use std::collections::HashMap;
+use {super::*, launcher::menu::MenuView, ui::IconRef};
 
 /// Draws known suggestions and the three most recently completed achievements.
 pub(super) fn draw(
@@ -25,7 +25,7 @@ pub(super) fn draw(
         return Ok(b[1]);
     };
     let [suggested, completed] =
-        crate::menu::profile_achievements::visible_achievements(&data.entries);
+        launcher::menu::profile_achievements::visible_achievements(&data.entries);
     let mut y = b[1];
     for (title, entries, tint) in [
         ("Suggested next achievements", suggested, INFORMATIVE_TINT),

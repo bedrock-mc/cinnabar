@@ -1,10 +1,10 @@
 //! Vanilla Nether portal cuboids and animated material admission.
 
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 // The native half-width is 1/8 about the block center: six through ten pixels.
 const NEAR: i16 = 96;

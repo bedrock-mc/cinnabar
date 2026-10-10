@@ -1,6 +1,6 @@
 //! Interaction picks remote actors at this frame's tick positions without disturbing their
 //! per-tick animation or the actor clock.
-use super::*;
+use {super::*, client_presentation::actor_publication::ActorFramePartialTick};
 
 #[derive(Resource, Default)]
 struct Picked(Option<u64>);
@@ -153,7 +153,7 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
         stream.poll([0.0, 64.0, 0.0], 0);
         stream.authority().actor_rig(2).unwrap().completed_tick
     };
-    let tick = client_world::ACTOR_TICK_DURATION;
+    let tick = world::TICK_DURATION;
     world
         .resource_mut::<Time<Real>>()
         .advance_by(tick * (cap * 4) + tick / 2);

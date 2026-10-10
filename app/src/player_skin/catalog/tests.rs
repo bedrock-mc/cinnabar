@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::install_layout::InstallLayout};
 
 pub(super) fn layout() -> InstallLayout {
     let mut layout = crate::install_layout::scratch("dressing-room-catalog");

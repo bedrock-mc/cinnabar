@@ -8,8 +8,8 @@ use std::{collections::HashMap, sync::Arc};
 #[test]
 fn native_faces_crossfade_and_depress_without_moving_their_hit_area() {
     use super::super::{Variant, button};
-    use crate::menu::{MenuAction, MenuView};
     use crate::ui_runtime::presentation::forms::oreui::transitions::Transitions;
+    use launcher::menu::{MenuAction, MenuView};
     let sprites = Arc::new(
         artwork(Variant::Primary)
             .into_iter()

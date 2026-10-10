@@ -5,13 +5,13 @@ mod achievements;
 mod card;
 mod rows;
 
-use super::super::super::{IconRef, UiPresentationError};
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{CAPTION, NEUTRAL80, SECONDARY_BUTTON, TEXT, TEXT_DIMMEST};
 use super::widgets::{Variant, button, header, screen_overlay, tabs};
-use crate::menu::ProfileTab;
-use crate::menu::{MenuAction, MenuView, auth::AuthState};
+use launcher::menu::ProfileTab;
+use launcher::menu::{MenuAction, MenuView, auth::AuthState};
+use {super::super::super::UiPresentationError, ui::IconRef};
 
 /// Draws fixed navigation above independently scrolling card and active tab content.
 pub(super) fn draw(

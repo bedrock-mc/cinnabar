@@ -5,14 +5,15 @@ use std::sync::Arc;
 use json_ui::{Catalog, CollectionItem, Context, DataSource, Scalar, ViewState};
 use ui::UiNode;
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-};
 use super::{
     engine::{EngineInputs, EngineOutput, ScreenArt},
     hud::CachedScreen,
 };
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 const MAX_PLAYERS: usize = 80;
 const MAX_ROWS: usize = 20;
