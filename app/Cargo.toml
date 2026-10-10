@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"], optional = true }
@@ -59,7 +60,6 @@ pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
 bevy.workspace = true
 crossbeam-channel = "0.5"
-gilrs = "0.11.2"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }
@@ -88,9 +88,6 @@ ui = { path = "../crates/ui" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
-
-[target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

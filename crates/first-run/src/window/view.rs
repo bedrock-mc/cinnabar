@@ -1,6 +1,6 @@
 //! Asset-independent OreUI setup drawing using the shared menu theme and our open font.
 
-use client_ui::oreui_theme::{self as theme, Appearance};
+use ui::oreui_theme::{self as theme, Appearance};
 
 use super::{
     super::screen::{Action, Screen},

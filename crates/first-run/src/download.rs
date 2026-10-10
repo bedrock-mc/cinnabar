@@ -168,7 +168,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
-    use crate::first_run::test_support::{Dir, write_vanilla_manifest};
+    use crate::test_support::{Dir, write_vanilla_manifest};
 
     const BODY: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 

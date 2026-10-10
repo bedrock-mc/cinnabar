@@ -1,4 +1,6 @@
 #[cfg(not(feature = "acceptance"))]
+use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
+
 use crate::acceptance::AcceptanceRun;
 use crate::player_runtime::PlayerRuntime;
 #[cfg(feature = "acceptance")]
@@ -8,6 +10,7 @@ use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
 };
 use bevy::window::WindowCloseRequested;
+use launcher_host::core_process::CoreProcessGuard;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
@@ -343,7 +346,3 @@ pub(crate) fn with_ui_player<T>(
             )
         })
 }
-
-use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
-
-use launcher_host::core_process::CoreProcessGuard;

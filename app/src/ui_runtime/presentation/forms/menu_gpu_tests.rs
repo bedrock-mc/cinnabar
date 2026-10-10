@@ -14,8 +14,8 @@ use bevy::{
     },
     window::WindowPlugin,
 };
-use client_ui::ui_runtime::presentation::forms::panorama;
 use launcher::menu::MenuScreen;
+use render_model::panorama;
 use std::{sync::Arc, time::Instant};
 
 /// The frame size: `CINNABAR_GPU_SIZE=<width>x<height>` overrides 1280×720, for checking odd

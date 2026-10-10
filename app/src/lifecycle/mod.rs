@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use launcher_host::lifecycle::{core_health, crash, update};
 
-use {crate::first_run, launcher::install_layout::InstallLayout};
+use launcher::install_layout::InstallLayout;
 
 /// Argument that turns this process into the first-run setup window.
 pub const FIRST_RUN_SETUP_FLAG: &str = first_run::SETUP_FLAG;

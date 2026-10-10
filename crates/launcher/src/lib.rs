@@ -34,6 +34,7 @@ pub fn window_title(override_title: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+pub mod branding;
 mod embedding_tests {
     #[test]
     fn window_title_accepts_nonempty_override_and_keeps_default() {

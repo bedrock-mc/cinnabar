@@ -5,9 +5,6 @@ use std::sync::Arc;
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use render_model::{PanoramaFaces, PanoramaView};
 
-/// The panorama shader, for hosts that draw it outside the Bevy render graph.
-pub const PANORAMA_WGSL: &str = include_str!("panorama.wgsl");
-
 /// The panorama drawn behind the launcher; `view` is `None` while it is hidden.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 pub struct PanoramaScene {

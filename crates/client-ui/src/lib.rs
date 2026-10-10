@@ -1,8 +1,5 @@
 //! Retained client UI and presentation, driven synchronously by app adapters.
 
-/// Asset-independent OreUI colours, typography and geometry for bootstrap screens.
-pub mod oreui_theme;
-
 pub mod ui_runtime;
 
 pub mod block_cracks;

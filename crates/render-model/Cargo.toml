@@ -9,6 +9,8 @@ publish = false
 enhanced-diagnostics = []
 
 [dependencies]
+image.workspace = true
+tracing.workspace = true
 assets = { path = "../assets" }
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.30.10", default-features = false, features = ["std"] }
@@ -21,7 +23,6 @@ world = { path = "../world" }
 sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
-image.workspace = true
 pack-compiler = { path = "../pack-compiler" }
 serde_json = "1"
 tempfile = "3"

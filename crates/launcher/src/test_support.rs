@@ -1,8 +1,8 @@
-//! Isolated installation layouts for app tests.
+//! Isolated installation layouts for integration tests.
 
-use launcher::install_layout::{InstallEnvironment, InstallLayout, Platform};
+use crate::install_layout::{InstallEnvironment, InstallLayout, Platform};
 
-/// Creates an isolated installation tree for app tests that own local files.
+/// Creates an isolated installation tree for integration tests that own local files.
 pub fn scratch(label: &str) -> InstallLayout {
     // The clock separates runs of a reused pid; the counter separates calls within one process.
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -39,6 +39,7 @@ pub fn checkout() -> InstallLayout {
     .expect("a target/debug executable resolves to the development layout")
 }
 
+/// Returns the platform whose path rules match this test process.
 fn host_platform() -> Platform {
     if cfg!(windows) {
         Platform::Windows
@@ -70,4 +71,3 @@ pub fn scratch_at(platform: Platform, base: &std::path::Path) -> InstallLayout {
     )
     .expect("absolute test roots form a supported installation")
 }
-

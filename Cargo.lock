@@ -654,9 +654,9 @@ dependencies = [
  "developer-control",
  "diagnostics",
  "experience-sdk",
+ "first-run",
  "fontdue",
  "gameplay",
- "gilrs",
  "image",
  "inventory 0.1.12",
  "json-ui",
@@ -683,7 +683,6 @@ dependencies = [
  "resource-pack",
  "rich-presence",
  "rodio",
- "rustix 1.1.4",
  "semantic-input",
  "serde",
  "serde_json",
@@ -3156,6 +3155,31 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "first-run"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "assets",
+ "fontdue",
+ "gilrs",
+ "image",
+ "launcher",
+ "launcher-host",
+ "render-model",
+ "reqwest",
+ "rustix 1.1.4",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "ui",
+ "wgpu",
+ "winit",
+ "zip",
+]
 
 [[package]]
 name = "fixedbitset"
@@ -6053,6 +6077,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tracing",
  "world",
 ]
 

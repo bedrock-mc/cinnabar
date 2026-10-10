@@ -72,7 +72,7 @@ pub(super) fn write(path: &Path, status: &Status) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::first_run::test_support::Dir;
+    use crate::test_support::Dir;
 
     #[test]
     fn status_round_trips_as_snake_case_json() {

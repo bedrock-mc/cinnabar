@@ -9,31 +9,26 @@
 mod account;
 mod account_control;
 mod accounts;
-#[cfg(test)]
-mod home_promo_tests;
-use launcher_host::auth;
 mod catalog_art;
 mod construction;
-use launcher_host::core_process;
 mod death;
 pub(crate) mod disconnect;
 mod dressing_room;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
+#[cfg(test)]
+mod home_promo_tests;
 pub(crate) mod inbox;
 mod input;
 mod invite;
 mod join_requests;
 mod realm_membership;
 pub(crate) use join_requests::open_join_requests_from_key;
-pub(crate) mod launcher_account;
-mod launcher_core;
-mod services;
-mod xbox_presence;
-use launcher_host::launcher_core::target_for;
 #[cfg(test)]
 mod kept_packs_tests;
+pub(crate) mod launcher_account;
+mod launcher_core;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -41,8 +36,7 @@ mod reconnect;
 mod reconnect_tests;
 #[cfg(test)]
 mod server_input_tests;
-use launcher_host::server_trust;
-use launcher_host::servers;
+mod services;
 #[cfg(test)]
 mod session_teardown_tests;
 pub(crate) mod settings_options;
@@ -50,7 +44,6 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
-use launcher_host::sign_in_browser;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 #[cfg(test)]
@@ -58,7 +51,11 @@ mod transfer_follow_tests;
 pub(crate) mod video_settings;
 mod view;
 mod worlds_tab;
+mod xbox_presence;
 
+use launcher_host::{
+    auth, core_process, launcher_core::target_for, server_trust, servers, sign_in_browser,
+};
 use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 

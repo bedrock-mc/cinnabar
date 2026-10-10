@@ -1,4 +1,6 @@
 #[cfg(not(feature = "acceptance"))]
+use launcher_host::session_cleanup::reclaim_stale_session_directories;
+
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{
@@ -19,6 +21,7 @@ use bevy::{
     render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
+use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
@@ -970,7 +973,3 @@ mod direct_session_directory_tests;
 mod preg_startup_tests;
 #[cfg(test)]
 mod schedule_tests;
-
-use launcher_host::session_cleanup::reclaim_stale_session_directories;
-
-use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};

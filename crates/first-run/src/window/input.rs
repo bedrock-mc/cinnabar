@@ -117,22 +117,19 @@ fn controller_button(
     pressed: bool,
     settings: &SettingsOptions,
 ) -> Option<Command> {
-    use bevy::input::gamepad::GamepadButton;
     use gilrs::Button;
+    use semantic_input::PhysicalControl;
     let button = match button {
         Button::DPadLeft | Button::DPadUp if pressed => return Some(Command::Navigate(true)),
         Button::DPadRight | Button::DPadDown if pressed => return Some(Command::Navigate(false)),
-        Button::South => GamepadButton::South,
-        Button::East => GamepadButton::East,
+        Button::South => PhysicalControl::GamepadButton(0),
+        Button::East => PhysicalControl::GamepadButton(1),
         _ => return None,
     };
-    match (
-        crate::menu::settings_options::control_bindings::gamepad_button(settings, button),
-        pressed,
-    ) {
-        (GamepadButton::South, true) => Some(Command::Press),
-        (GamepadButton::South, false) => Some(Command::Release),
-        (GamepadButton::East, true) => Some(Command::Cancel),
+    match (settings.swap_gamepad_control(button), pressed) {
+        (PhysicalControl::GamepadButton(0), true) => Some(Command::Press),
+        (PhysicalControl::GamepadButton(0), false) => Some(Command::Release),
+        (PhysicalControl::GamepadButton(1), true) => Some(Command::Cancel),
         _ => None,
     }
 }

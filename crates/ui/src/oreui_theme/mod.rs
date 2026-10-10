@@ -1,6 +1,7 @@
 //! Shared OreUI colours, control styles, type sizes and spacing. Sizes are in rem.
 
-use crate::ui_runtime::oreui_fonts::OreUiFont;
+mod font;
+pub use font::OreUiFont;
 
 mod appearance;
 mod metrics;

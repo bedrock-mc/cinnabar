@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use render::PANORAMA_WGSL;
+use render_model::panorama::PANORAMA_WGSL;
 use render_model::{PanoramaFaces, PanoramaView};
 use winit::window::Window;
 

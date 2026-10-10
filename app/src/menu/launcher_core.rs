@@ -5,10 +5,9 @@ use crate::local_worlds::LocalWorlds;
 use bevy::prelude::{Commands, Resource};
 use bridge::bridge_endpoint_exists;
 use launcher::menu::auth::AuthState;
-use launcher_host::{
-    auth::AuthSupervisor, core_process::CoreProcessGuard, launcher_core::LauncherCore,
-    session_cleanup::SessionDirectoryGuard,
-};
+use launcher_host::{auth::AuthSupervisor, launcher_core::LauncherCore};
+#[cfg(test)]
+use launcher_host::{core_process::CoreProcessGuard, session_cleanup::SessionDirectoryGuard};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::{
@@ -281,8 +280,6 @@ mod tests {
         );
     }
 
-    // The launcher core, whose events the menu polls, is the one that asks about server trust.
-
     #[test]
     fn account_core_idle_keeps_direct_play_independent_from_account_startup() {
         for launcher in [false, true] {
@@ -306,19 +303,4 @@ mod tests {
             "after quitting the local game, account updates may resume"
         );
     }
-
-    // A missing launcher socket is an error, not a panic on a timer built outside the runtime.
-    #[test]
-    fn select_without_a_launcher_core_errors_instead_of_panicking() {
-        let missing = std::env::temp_dir().join("cinnabar-no-launcher-core-here");
-        assert!(
-            select(
-                &missing,
-                ConnectTarget::RakNet("example.invalid:19132".into())
-            )
-            .is_err()
-        );
-    }
-
-    // Adding an account must not make the install report a second device.
 }

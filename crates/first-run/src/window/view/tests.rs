@@ -27,7 +27,7 @@ fn screens() -> Vec<Screen> {
                 .filter(|carrier| carrier.installed)
                 .count()
                 + 1,
-            label: crate::first_run::prepare::UNPACK_LABEL.into(),
+            label: crate::prepare::UNPACK_LABEL.into(),
         },
         Screen::Failed {
             message: "Download failed: connection timed out. Check your connection and try again."

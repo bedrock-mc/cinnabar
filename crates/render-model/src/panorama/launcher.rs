@@ -1,9 +1,9 @@
 //! Feeds the launcher's panorama pass: decodes the six faces once and turns the
 //! camera each frame while a launcher screen is up.
 
+use super::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 use assets::RuntimeUiAssets;
 use image::{ImageFormat, ImageReader, Limits};
-use render_model::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 use std::{
     f32::consts::{PI, TAU},
     io::Cursor,
@@ -22,12 +22,12 @@ const SWAY_RATE: f32 = 0.001;
 
 /// Cinnabar's own panorama, in vanilla face order (-Z, +X, +Z, -X, up, down).
 const BUILT_IN_FACES: [&[u8]; 6] = [
-    include_bytes!("../../../../../../assets/panorama/panorama_0.jpg"),
-    include_bytes!("../../../../../../assets/panorama/panorama_1.jpg"),
-    include_bytes!("../../../../../../assets/panorama/panorama_2.jpg"),
-    include_bytes!("../../../../../../assets/panorama/panorama_3.jpg"),
-    include_bytes!("../../../../../../assets/panorama/panorama_4.jpg"),
-    include_bytes!("../../../../../../assets/panorama/panorama_5.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_0.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_1.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_2.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_3.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_4.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_5.jpg"),
 ];
 /// Directory of `panorama_0..5.{png,jpg}` replacing the built-in faces.
 const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
@@ -61,7 +61,7 @@ pub fn launcher_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
                 .find_map(|ext| std::fs::read(dir.join(format!("panorama_{face}.{ext}"))).ok())
         });
         if faces.is_none() {
-            bevy::log::warn!(dir = %dir.display(), "panorama override unreadable; using the built-in faces");
+            tracing::warn!(dir = %dir.display(), "panorama override unreadable; using the built-in faces");
         }
         faces
     });

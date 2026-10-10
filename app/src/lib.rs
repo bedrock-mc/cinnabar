@@ -12,7 +12,8 @@ mod discord_presence;
 #[cfg(feature = "enhanced-diagnostics")]
 mod enhanced_diagnostics;
 mod environment;
-mod first_run;
+#[cfg(test)]
+mod first_run_tests;
 mod frame_pacing;
 mod fullscreen;
 mod global_resources;

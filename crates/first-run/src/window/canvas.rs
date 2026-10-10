@@ -350,7 +350,7 @@ mod tests {
                 height: expected.height,
                 pixels: expected.pixels.clone(),
             };
-            let mut color = client_ui::oreui_theme::PRIMARY_ROLE.fill;
+            let mut color = ui::oreui_theme::PRIMARY_ROLE.fill;
             color[3] = alpha;
             for value in 0..256 {
                 expected.blend(value, 0, color, 255);

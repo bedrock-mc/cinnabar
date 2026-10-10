@@ -61,12 +61,11 @@ mod font_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;
-pub mod panorama;
 #[cfg(test)]
 mod publication_tests;
 #[cfg(test)]
 pub mod regression_snapshots;
-pub use panorama::{built_in_faces, launcher_view};
+
 mod accounts;
 pub mod always_sprint_setting;
 pub mod enhanced_setting;

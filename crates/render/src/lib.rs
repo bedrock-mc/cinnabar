@@ -206,7 +206,7 @@ pub use lightning::{
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
 };
-pub use panorama::{PANORAMA_WGSL, PanoramaScene};
+pub use panorama::PanoramaScene;
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,

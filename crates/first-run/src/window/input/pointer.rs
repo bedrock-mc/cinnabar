@@ -1,6 +1,6 @@
 //! Native pointer position survives focus changes until the pointer leaves the window.
 
-pub(crate) struct Pointer {
+pub struct Pointer {
     pub position: Option<(f32, f32)>,
     pub active: bool,
 }

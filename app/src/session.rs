@@ -6,6 +6,12 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
 };
+use bridge::CORE_START_TIMEOUT;
+use launcher_host::{
+    core_process::{CoreProcessGuard, spawn_core_for_address},
+    server_trust::SessionTrust,
+    session_cleanup::SessionDirectoryGuard,
+};
 
 use client_ui::ui_runtime::UiRuntime;
 use {
@@ -901,10 +907,3 @@ mod tests {
         assert!(controller.consume_transfer_chain_hop());
     }
 }
-
-use bridge::CORE_START_TIMEOUT;
-use launcher_host::{
-    core_process::{CoreProcessGuard, spawn_core_for_address},
-    server_trust::SessionTrust,
-    session_cleanup::SessionDirectoryGuard,
-};

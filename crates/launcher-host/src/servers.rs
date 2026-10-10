@@ -214,7 +214,7 @@ fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
 
 enum Job {
     Save(Vec<SavedServer>),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Flush(crossbeam_channel::Sender<()>),
 }
 
@@ -242,7 +242,7 @@ impl ServerWriter {
                             let _ = report.send(format!("{error:#}"));
                         }
                     }
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-support"))]
                     Job::Flush(ack) => {
                         let _ = ack.send(());
                     }
@@ -290,7 +290,7 @@ impl ServerWriter {
     }
 
     /// Blocks until every queued write has finished.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn flush(&self) {
         let (ack, done) = crossbeam_channel::bounded(1);
         if let Some(jobs) = &self.jobs

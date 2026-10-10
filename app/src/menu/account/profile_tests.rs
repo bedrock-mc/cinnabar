@@ -57,4 +57,3 @@ fn profile_account_feed_does_not_prevent_cached_validation_in_direct_mode() {
     );
     std::fs::remove_file(auth_path).unwrap();
 }
-

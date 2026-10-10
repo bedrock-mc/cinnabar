@@ -14,7 +14,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use canvas::{Image, Text};
 use launcher::install_layout::InstallLayout;
 
-pub(crate) const SETUP_FLAG: &str = "--first-run-setup";
+pub const SETUP_FLAG: &str = "--first-run-setup";
 const EXIT_QUIT: i32 = 3;
 /// No window could open; the parent falls back to native dialogs.
 const EXIT_UNAVAILABLE: i32 = 4;
@@ -51,7 +51,7 @@ fn outcome(code: Option<i32>) -> ChildOutcome {
 }
 
 /// The child-process entry point; returns its exit code.
-pub(crate) fn run_setup_process() -> i32 {
+pub fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;
     };
@@ -66,7 +66,7 @@ pub(crate) fn run_setup_process() -> i32 {
         eprintln!("first-run window unavailable: no usable UI font ({font:?})");
         return EXIT_UNAVAILABLE;
     };
-    let Some(faces) = client_ui::ui_runtime::presentation::forms::built_in_faces() else {
+    let Some(faces) = render_model::panorama::built_in_faces() else {
         return EXIT_UNAVAILABLE;
     };
     let Ok(event_loop) = EventLoop::new() else {
@@ -83,8 +83,7 @@ pub(crate) fn run_setup_process() -> i32 {
 }
 
 fn decode_logo() -> Option<Image> {
-    let image =
-        image::load_from_memory(client_ui::ui_runtime::presentation::BUILT_IN_TITLE).ok()?;
+    let image = image::load_from_memory(launcher::branding::TITLE).ok()?;
     let rgba = image.into_rgba8();
     Some(Image {
         width: rgba.width(),
@@ -109,6 +108,6 @@ mod tests {
     #[test]
     fn built_in_art_decodes() {
         assert!(decode_logo().is_some());
-        assert!(client_ui::ui_runtime::presentation::forms::built_in_faces().is_some());
+        assert!(render_model::panorama::built_in_faces().is_some());
     }
 }

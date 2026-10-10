@@ -13,6 +13,7 @@ mod status;
 #[cfg(test)]
 mod test_support;
 mod window;
+pub mod window_icon;
 
 use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 
@@ -21,7 +22,7 @@ use sha2::{Digest, Sha256};
 
 use prepare::prepare;
 use status::{Phase, Status};
-pub(crate) use window::{SETUP_FLAG, run_setup_process};
+pub use window::{SETUP_FLAG, run_setup_process};
 use {
     launcher::install_layout::InstallLayout,
     launcher_host::native_dialog::{Consent, NativePrompter, Prompter},
@@ -32,7 +33,7 @@ const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource 
 const EULA_URL: &str = "https://www.minecraft.net/eula";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Outcome {
+pub enum Outcome {
     NotNeeded,
     Prepared,
     /// The user declined or cancelled; the client should exit quietly.
@@ -41,7 +42,7 @@ pub(crate) enum Outcome {
 
 /// Prepares the per-user carriers when a packaged install has none or they predate the pins this
 /// build carries; a no-op for development checkouts.
-pub(crate) fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
+pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }

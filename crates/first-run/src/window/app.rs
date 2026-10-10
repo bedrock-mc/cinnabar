@@ -68,7 +68,7 @@ pub(super) struct SetupApp {
     controllers: Option<gilrs::Gilrs>,
     settings: launcher::menu::settings_options::SettingsOptions,
     modifiers: ModifiersState,
-    appearance: client_ui::oreui_theme::Appearance,
+    appearance: ui::oreui_theme::Appearance,
     gui_scale_offset: i8,
     overlay_dirty: bool,
     overlay_at: Option<Instant>,
@@ -99,7 +99,7 @@ impl SetupApp {
                 .server_file()
                 .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
         );
-        let appearance = client_ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
+        let appearance = ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
         let gui_scale_offset = launcher_host::video_settings::load(&layout.user_config_root)
             .unwrap_or_default()
             .gui_scale_offset;
@@ -219,7 +219,7 @@ impl SetupApp {
                 rem: f32::from(
                     ui::DesktopGuiScale::for_window([size.width, size.height])
                         .scale_for_offset(self.gui_scale_offset),
-                ) * client_ui::oreui_theme::GUI_PIXELS_PER_REM,
+                ) * ui::oreui_theme::GUI_PIXELS_PER_REM,
                 appearance: self.appearance,
                 hovered: self.hovered,
                 focused: self.input.focused.filter(|_| self.input.focus_visible),
@@ -360,13 +360,11 @@ impl ApplicationHandler for SetupApp {
                 let size = window.inner_size();
                 let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
                 let seconds = self.epoch.elapsed().as_secs_f32();
-                if let Err(error) =
-                    gpu.draw(&client_ui::ui_runtime::presentation::forms::launcher_view(
-                        seconds,
-                        aspect,
-                        PANORAMA_TINT,
-                    ))
-                {
+                if let Err(error) = gpu.draw(&render_model::panorama::launcher_view(
+                    seconds,
+                    aspect,
+                    PANORAMA_TINT,
+                )) {
                     eprintln!("setup display failed: {error}");
                     self.finish(EXIT_UNAVAILABLE, event_loop);
                 }

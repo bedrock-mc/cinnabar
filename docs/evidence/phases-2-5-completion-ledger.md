@@ -169,12 +169,16 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
+| Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters |
 | Deterministic tests | Not started |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+The standalone setup window belongs to `first-run`. Its preparation tests move with it;
+menu integration tests stay in `app`. Account, process and persistence tests belong to
+`launcher-host`. These ownership changes do not close the settings parity gate.
 
 ## Xbox presence follow-up
 

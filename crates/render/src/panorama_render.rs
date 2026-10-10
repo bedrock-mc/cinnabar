@@ -83,7 +83,7 @@ fn install(app: &mut App) {
     load_internal_asset!(
         app,
         PANORAMA_SHADER_HANDLE,
-        "panorama.wgsl",
+        "../../render-model/src/panorama.wgsl",
         crate::shader_safety::from_wgsl
     );
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));

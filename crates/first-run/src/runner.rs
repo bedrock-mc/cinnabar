@@ -329,7 +329,7 @@ fn cancel_child(child: &mut std::process::Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::first_run::test_support::Dir;
+    use crate::test_support::Dir;
 
     /// A compiler whose kit binary is `/bin/sh`, so tests drive it with `-c <script>`.
     #[cfg(unix)]

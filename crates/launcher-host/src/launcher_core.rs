@@ -63,7 +63,7 @@ impl LauncherCore {
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
-        let child = launcher_host::lifecycle::children::spawn(&mut launcher_command(
+        let child = crate::lifecycle::children::spawn(&mut launcher_command(
             layout,
             &executable,
             &socket_dir,
@@ -148,7 +148,7 @@ fn launcher_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
-            launcher_host::lifecycle::core_health::open_core_log(layout)
+            crate::lifecycle::core_health::open_core_log(layout)
                 .map_or_else(Stdio::null, Stdio::from),
         );
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
@@ -387,5 +387,17 @@ mod tests {
                 assert_eq!(device_file(command), Some(layout.device_profile_file()));
             }
         }
+    }
+    // A missing launcher socket is an error, not a panic on a timer built outside the runtime.
+    #[test]
+    fn select_without_a_launcher_core_errors_instead_of_panicking() {
+        let missing = std::env::temp_dir().join("cinnabar-no-launcher-core-here");
+        assert!(
+            select(
+                &missing,
+                ConnectTarget::RakNet("example.invalid:19132".into())
+            )
+            .is_err()
+        );
     }
 }

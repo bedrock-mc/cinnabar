@@ -15,7 +15,7 @@ pub use font_atlas::{
 mod item_geometry;
 pub mod java_animation;
 mod nametag;
-mod panorama;
+pub mod panorama;
 mod presentation;
 pub mod primitive_shapes;
 mod ui;

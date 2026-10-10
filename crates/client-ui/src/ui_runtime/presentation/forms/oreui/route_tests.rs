@@ -738,7 +738,7 @@ fn text_fields_keep_their_inset_even_on_every_edge() {
 
 #[test]
 fn text_fields_center_visible_glyphs_instead_of_the_font_line_box() {
-    use crate::ui_runtime::oreui_fonts::OreUiFont;
+    use ui::oreui_theme::OreUiFont;
     let base = fixture_font();
     let native = base
         .as_ref()

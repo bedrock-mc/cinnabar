@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 pub mod writer;
 
-const FILE_NAME: &str = "video-settings.json";
-const MAX_FILE_BYTES: u64 = 4096;
+/// Persisted video preference file within the user configuration directory.
+pub const FILE_NAME: &str = "video-settings.json";
+/// Largest video preference file accepted by the reader.
+pub const MAX_FILE_BYTES: u64 = 4096;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -42,6 +44,7 @@ pub fn load(config_root: &Path) -> Result<SavedVideoSettings> {
     serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
 }
 
+/// Atomically publishes the applied video preferences in the user configuration directory.
 pub fn save(config_root: &Path, settings: SavedVideoSettings) -> Result<()> {
     fs::create_dir_all(config_root).with_context(|| format!("create {}", config_root.display()))?;
     let path = config_root.join(FILE_NAME);

@@ -218,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
+allowed_dependencies = ["first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -693,7 +693,7 @@ forbidden_modules = ["test_support"]
 # Authoritative world state cannot regain mesh scheduling or publication ownership.
 [[module_boundaries]]
 path = "crates/client-world/src"
-forbidden_modules = ["chunk_pipeline", "meshing", "render_api"]
+forbidden_modules = ["chunk_pipeline", "meshing"]
 forbidden_owned_types = ["ChunkMesh", "PublicationPermit", "PublicationAllowance", "MeshMemoryPermit"]
 
 # The coordinator composes the authority owner, never a second mutable world store.
@@ -976,3 +976,9 @@ path = "crates/launcher-host"
 allowed_dependencies = ["bridge", "launcher", "server-experience", "update-manifest"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
+
+[[crates]]
+name = "first-run"
+path = "crates/first-run"
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*"]

@@ -22,7 +22,6 @@ use {
 /// watchdog envelope (2 s), so a wedged core cannot turn orderly teardown
 /// into a watchdog `process::exit` that skips the stop.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
-/// How long a freshly spawned core has to publish its bridge endpoint.
 use bridge::{
     CORE_START_TIMEOUT, bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path,
 };
@@ -69,7 +68,8 @@ impl CoreProcessGuard {
         }
     }
 
-    #[cfg(test)]
+    /// Returns the tracked child PID for process-lifetime fixtures.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn id(&self) -> Option<u32> {
         self.child.as_ref().map(Spawned::id)
     }
