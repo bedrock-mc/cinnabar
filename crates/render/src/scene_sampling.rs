@@ -106,6 +106,16 @@ impl ResolvedDepth {
 
     /// Writes the nearest covered surface; Hi-Z uses its separate conservative farthest resolve.
     pub(crate) fn draw(&self, context: &mut RenderContext, world: &World, rect: Option<[u32; 4]>) {
+        let rect = match rect {
+            Some([x0, y0, x1, y1]) => match crate::render_bounds::scissor(
+                render_model::UiScissor::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)),
+                crate::render_bounds::extent(&self.view),
+            ) {
+                Some(rect) => Some(rect),
+                None => return,
+            },
+            None => None,
+        };
         let mut pass = context
             .command_encoder()
             .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -122,8 +132,8 @@ impl ResolvedDepth {
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, self.stage),
                 occlusion_query_set: None,
             });
-        if let Some([x0, y0, x1, y1]) = rect {
-            pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
+        if let Some(rect) = rect {
+            pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.binding, &[]);

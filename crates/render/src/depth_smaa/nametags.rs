@@ -83,6 +83,12 @@ impl ViewNode for NametagsAfterSmaa {
             if let Some(viewport) =
                 Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
             {
+                let Some(viewport) = crate::render_bounds::viewport(
+                    &viewport,
+                    crate::render_bounds::extent(scene.color_view(false)),
+                ) else {
+                    return Ok(());
+                };
                 pass.set_camera_viewport(&viewport);
             }
             phase.render_range(&mut pass, world, graph.view_entity(), range)?;

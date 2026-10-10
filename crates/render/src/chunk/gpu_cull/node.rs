@@ -243,6 +243,12 @@ impl ViewNode for LateCullNode {
         if let Some(viewport) =
             Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution_override)
         {
+            let Some(viewport) = crate::render_bounds::viewport(
+                &viewport,
+                crate::render_bounds::extent(scene_target.color_view(false)),
+            ) else {
+                return Ok(());
+            };
             pass.set_camera_viewport(&viewport);
         }
         let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();

@@ -163,3 +163,45 @@ fn retained_publication_switches_glint_uniforms_on_the_incoming_frame() {
     }
     assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
 }
+
+#[test]
+fn first_frame_view_pipelines_use_the_current_accepted_ui() {
+    let mut world = retained_world();
+    world.init_resource::<super::composite::UiLayerStore>();
+    world.init_resource::<super::composite::UiCompositePipeline>();
+    world.init_resource::<super::model_depth::UiModelDepths>();
+    world.init_resource::<UiGlintSettings>();
+    let owner = world
+        .spawn((
+            ExtractedView {
+                retained_view_entity: bevy::render::view::RetainedViewEntity::new(
+                    Entity::PLACEHOLDER.into(),
+                    None,
+                    1,
+                ),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                hdr: false,
+                viewport: bevy::math::UVec4::new(0, 0, 254, 124),
+                color_grading: Default::default(),
+                invert_culling: false,
+            },
+            Msaa::Off,
+        ))
+        .id();
+    {
+        let mut gpu = world.resource_mut::<UiGpu>();
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+    }
+    let mut schedule = Render::base_schedule();
+    schedule.add_systems(super::ui_systems());
+    schedule.run(&mut world);
+    let gpu = world.resource::<UiGpu>();
+    assert_eq!(gpu.accepted_revision, Some(1));
+    assert!(
+        gpu.view_pipelines.contains_key(&owner),
+        "first-frame pipelines must use this frame's prepared UI"
+    );
+}

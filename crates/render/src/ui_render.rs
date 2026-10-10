@@ -137,17 +137,24 @@ fn install_ui_render(app: &mut App) {
         .init_resource::<composite::UiLayerStore>()
         .init_resource::<model_depth::UiModelDepths>()
         .add_systems(RenderStartup, resources::init_ui_gpu)
-        .add_systems(
-            Render,
-            (
-                resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
-                composite::prepare_ui_layers.in_set(RenderSystems::PrepareResources),
-                prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_ui_overlay.in_set(RenderSystems::Queue),
-            ),
-        );
+        .add_systems(Render, ui_systems());
     profile::install(app.sub_app_mut(RenderApp));
     install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
+}
+
+/// Prepares accepted UI resources, attachments, bindings and view pipelines each frame.
+fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    (
+        resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+        composite::prepare_ui_layers
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets),
+        prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
+        queue_ui_overlay
+            .in_set(RenderSystems::PrepareBindGroups)
+            .after(prepare_ui_bind_group),
+    )
+        .into_configs()
 }
 
 #[derive(Resource)]

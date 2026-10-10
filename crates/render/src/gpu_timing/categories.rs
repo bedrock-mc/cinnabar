@@ -204,6 +204,12 @@ impl ViewNode for OpaqueCategoryNode {
                     camera.viewport.as_ref(),
                     resolution_override,
                 ) {
+                    let Some(viewport) = crate::render_bounds::viewport(
+                        &viewport,
+                        crate::render_bounds::extent(color.view),
+                    ) else {
+                        continue;
+                    };
                     pass.set_camera_viewport(&viewport);
                 }
                 if let Err(error) =
