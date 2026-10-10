@@ -37,6 +37,8 @@ defaults:
 env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+  # Keep timing reports and compiler intermediates inside the source checkout.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
@@ -173,7 +175,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           bin="$PWD/target/$CARGO_BUILD_TARGET/release"
-          make package-binaries DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
           for binary in bedrock-client bedrock-core bedrock-local-server assetc; do
             lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
           done
@@ -219,6 +221,14 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-macos-${{ matrix.arch }}
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
 
   windows:
     permissions:
@@ -280,7 +290,7 @@ jobs:
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
-          make package-binaries
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
@@ -333,6 +343,14 @@ jobs:
             ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-windows-x64
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
 
   linux:
     permissions:
@@ -394,7 +412,7 @@ jobs:
           echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
       - name: Package
         run: |
-          make package-binaries
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings
           bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
           mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the AppImage against the payload allowlist
@@ -428,6 +446,14 @@ jobs:
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
 
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-linux-x86_64
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
+
   release:
     name: Publish
     needs: [prepare, macos, windows, linux]
@@ -457,6 +483,8 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: source/dist
+          # Timing reports are CI diagnostics, never release downloads.
+          pattern: "{macos-*,windows-x64,linux-x86_64}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env >> "$GITHUB_ENV"

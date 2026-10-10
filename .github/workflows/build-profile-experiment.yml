@@ -1,0 +1,61 @@
+name: Build profile experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Linux release (${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: release
+          - profile: no-lto
+            lto: "false"
+          - profile: codegen-16
+            codegen-units: "16"
+          - profile: no-lto-codegen-16
+            lto: "false"
+            codegen-units: "16"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Install Linux desktop development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+      # Each job starts cold and never restores or saves a shared build cache.
+      - name: Build release client
+        env:
+          EXPERIMENT_LTO: ${{ matrix.lto }}
+          EXPERIMENT_CODEGEN_UNITS: ${{ matrix.codegen-units }}
+        run: |
+          if [ -n "$EXPERIMENT_LTO" ]; then
+            export CARGO_PROFILE_RELEASE_LTO="$EXPERIMENT_LTO"
+          fi
+          if [ -n "$EXPERIMENT_CODEGEN_UNITS" ]; then
+            export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="$EXPERIMENT_CODEGEN_UNITS"
+          fi
+          cargo build --release --locked --no-default-features -p bedrock-client \
+            --features local-mods --bin bedrock-client --timings
+      - name: Upload build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-linux-${{ matrix.profile }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn

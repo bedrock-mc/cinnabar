@@ -232,7 +232,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       - name: Test Rust workspace
-        run: cargo nextest run --workspace --locked --no-fail-fast
+        run: cargo nextest run --workspace --locked --no-fail-fast ${{ runner.os == 'Linux' && '--timings' || '' }}
+      - name: Upload Linux test build timings
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-linux-tests
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
       - name: Test Rust doc examples
         if: ${{ !cancelled() }}
         run: cargo test --doc --workspace --locked
