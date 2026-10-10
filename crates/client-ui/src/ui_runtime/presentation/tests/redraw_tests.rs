@@ -294,7 +294,35 @@ fn installed_retained_hud_matches_fresh_pixels_at_both_dpi_scales() {
             .set_actionbar(Arc::from("CPS: 8"), sequence + 1, 10);
         let retained = redrawn.build(&player, &runtime, 10, size, scale).unwrap();
         full.last_frame = None;
-        let fresh = full.build(&player, &runtime, 10, size, scale).unwrap();
+        full.build(&player, &runtime, 10, size, scale).unwrap();
+        let mut tree = ui::UiTree::new(full.last_frame.as_ref().unwrap().nodes.clone()).unwrap();
+        tree.layout(
+            rect(0.0, 0.0, size[0] as f32 / dpi, size[1] as f32 / dpi).unwrap(),
+            UiScale::default(),
+            full.safe_area,
+        )
+        .unwrap();
+        let palette = full.formatting_palette().copied();
+        let draw = tree
+            .build_draw_list_with(TextEffects {
+                palette: palette.as_ref(),
+                obfuscation_seed: 10,
+                obfuscation: Some(&full.obfuscation),
+            })
+            .unwrap();
+        let fresh = adapt_ui_draw_list(
+            &draw,
+            Arc::clone(&full.textures),
+            UiRenderViewport {
+                physical_size: size,
+                dpi_scale: scale,
+                safe_area: full.safe_area,
+            },
+        )
+        .unwrap();
+        assert_eq!(retained.vertices, fresh.vertices);
+        assert_eq!(retained.indices, fresh.indices);
+        assert_eq!(retained.batches, fresh.batches);
         let observed = snapshot::rasterize(&retained);
         let expected = snapshot::rasterize(&fresh);
         assert_eq!(observed, expected);
