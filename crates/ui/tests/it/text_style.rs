@@ -441,3 +441,70 @@ fn pack_palette_changes_cached_text_tints() {
     assert_eq!(draw.vertices[4].color, [255; 4]);
     assert_eq!(draw.vertices[8].color, [140, 179, 255, 255]);
 }
+
+#[test]
+fn device_snapped_glyphs_keep_measurement_and_land_on_whole_screen_pixels() {
+    let font = font()
+        .with_line_metrics(assets::FontLineMetrics {
+            em_64: 20 * 64,
+            ascent_64: 16 * 64,
+            descent_64: 2 * 64,
+        })
+        .unwrap();
+    for dpi in [1.0_f32, 1.25, 1.5, 2.0] {
+        for gui in 1..=8 {
+            let request = |snap| TextLayoutRequest {
+                text: "AB CAB",
+                style: TextStyle::default(),
+                font: &font,
+                width_64: 1000 * 64,
+                line_height_64: 24 * 64,
+                baseline_64: 19 * 64,
+                scale: UiScale::new_display(7.0 * gui as f32 / (20.0 * dpi)).unwrap(),
+                wrap: TextWrap {
+                    device_scale_65536: (dpi * 65_536.0) as u32,
+                    letter_spacing_64: 13,
+                    snap_glyphs_to_device_pixels: snap,
+                    ..TextWrap::default()
+                },
+            };
+            let mut cache = TextLayoutCache::new(2, 65536);
+            let exact = cache.layout(request(false)).unwrap();
+            let snapped = cache.layout(request(true)).unwrap();
+            assert_eq!(exact.size_64(), snapped.size_64());
+            assert_eq!(exact.glyphs(), snapped.glyphs());
+            let draw = |layout| {
+                let mut tree = UiTree::new(vec![
+                    UiNode::new(UiNodeId::new(1), None, rect(0.375, 0.625, 1000.0, 300.0))
+                        .with_visual(UiVisual::Text {
+                            layout,
+                            color: [255; 4],
+                            shadow: TextShadow::None,
+                        }),
+                ])
+                .unwrap();
+                tree.layout(
+                    rect(0.0, 0.0, 1000.0, 400.0),
+                    UiScale::default(),
+                    SafeArea::ZERO,
+                )
+                .unwrap();
+                tree.build_draw_list().unwrap()
+            };
+            let exact = draw(exact);
+            let snapped = draw(snapped);
+            assert!(!snapped.vertices.is_empty());
+            for (before, after) in exact.vertices.iter().zip(&snapped.vertices) {
+                for axis in 0..2 {
+                    let physical = after.position[axis] * dpi;
+                    assert!(
+                        (physical - physical.round()).abs() < 0.001,
+                        "GUI {gui}, DPI {dpi}: glyph edge {physical} misses the device grid"
+                    );
+                    assert!(((before.position[axis] - after.position[axis]) * dpi).abs() <= 0.501);
+                }
+                assert_eq!(before.uv, after.uv);
+            }
+        }
+    }
+}

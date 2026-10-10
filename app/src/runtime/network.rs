@@ -265,6 +265,7 @@ pub(crate) fn receive_network_events(
                 interaction.invalidate();
                 #[cfg(feature = "acceptance")]
                 evidence.note_event(Phase3EvidenceEventKind::Session);
+                let mut timings = bootstrap_timing::BootstrapTimings::start();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
                     position = ?bootstrap.player_position,
@@ -327,6 +328,7 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
+                timings.mark(bootstrap_timing::BootstrapPhase::Session);
                 let hashed_ids = bootstrap.block_network_ids_are_hashes;
                 let mut id_remap = assets::SequentialIdRemap::default();
                 let custom_block_ids = if hashed_ids {
@@ -361,6 +363,7 @@ pub(crate) fn receive_network_events(
                 } else {
                     custom_block_ids.clone()
                 };
+                timings.mark(bootstrap_timing::BootstrapPhase::CustomBlocks);
                 let session_assets = resource_packs::session_runtime_assets(
                     &client_world.runtime_assets,
                     overlay_ids.as_ref(),
@@ -369,6 +372,7 @@ pub(crate) fn receive_network_events(
                 if let Some(textures) = chunk_textures.as_mut() {
                     resource_packs::install_chunk_textures(textures, &session_assets);
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::BlockAssets);
                 let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
                     WorldStream::new_with_asset_sets(
                         bootstrap,
@@ -460,6 +464,7 @@ pub(crate) fn receive_network_events(
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
+                timings.mark(bootstrap_timing::BootstrapPhase::WorldStream);
                 let routed = match publish_equipment_identity(
                     &mut player_runtime,
                     &mut ui_runtime,
@@ -498,6 +503,7 @@ pub(crate) fn receive_network_events(
                         break;
                     }
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::Equipment);
                 resource_packs::install_server_language(
                     &mut ui_runtime,
                     session_generation,
@@ -537,6 +543,8 @@ pub(crate) fn receive_network_events(
                         client_world.fatal_error.is_none(),
                     );
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::Presentation);
+                timings.log();
                 continue;
             }
             NetworkControlEvent::SubChunkRequestSent {
@@ -867,7 +875,7 @@ pub(crate) fn receive_network_events(
             && let protocol::WorldEvent::MovePlayer(movement) = &sequenced.event
             && let Some(marker) = move_player_ingress_marker(sequenced.sequence, movement.position)
         {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
         #[cfg(feature = "acceptance")]
@@ -887,7 +895,7 @@ pub(crate) fn receive_network_events(
                 sequenced.sequence,
                 &sequenced.event,
             ) {
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 write_move_player_ingress_before_source_capture(
                     &mut stdout,
                     &ingress_marker,
@@ -917,6 +925,7 @@ pub(crate) use actor_test_support::{actor_render_source, update_actor_render_sce
 
 mod actor_publication;
 mod block_overlay;
+mod bootstrap_timing;
 mod drain;
 pub(crate) mod entity_pack;
 mod entity_texture_reload;

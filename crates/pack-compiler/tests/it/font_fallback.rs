@@ -4,6 +4,7 @@ use pack_compiler::{
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 
+/// Verifies one pinned source or license before using its bytes.
 fn verify_input(bytes: &[u8], source: &serde_json::Value, field: &str) -> [u8; 32] {
     assert_eq!(
         bytes.len() as u64,
@@ -18,7 +19,6 @@ fn verify_input(bytes: &[u8], source: &serde_json::Value, field: &str) -> [u8; 3
 }
 
 #[test]
-#[ignore = "requires both explicitly fetched pinned outline sources"]
 fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = fs::read(root.join("assets/ui-font-source.json")).unwrap();
@@ -31,7 +31,9 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     let primary_path = path("");
     let fallback_path = path("fallback_");
     if !primary_path.is_file() || !fallback_path.is_file() {
-        eprintln!("skipping: pinned outline font sources are absent");
+        eprintln!(
+            "skipping two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics: missing pinned Monocraft/Noto outline sources"
+        );
         return;
     }
     let primary = fs::read(&primary_path).unwrap();
@@ -84,46 +86,28 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     for glyph in old.glyphs() {
         assert_eq!(Some(glyph), new.glyph(glyph.codepoint));
     }
-    assert!(new.pages().len() <= 4);
+    assert!(new.pages().len() <= assets::MAX_FONT_PAGES);
     for page in &new.pages()[1..] {
         assert_eq!(page.source_bytes as usize, fallback.len());
         assert_eq!(page.source_sha256, fallback_hash);
     }
-    // Exact present coverage of this pinned source, not universal Unicode support.
-    for (first, last, present) in [
-        (0x2190, 0x23ff, 129),
-        (0x2460, 0x27bf, 489),
-        (0x3000, 0x30ff, 253),
-        (0x3400, 0x4dbf, 6582),
-        (0x4e00, 0x9fff, 20976),
-    ] {
-        assert_eq!(
-            new.glyphs()
-                .iter()
-                .filter(|glyph| (first..=last).contains(&u32::from(glyph.codepoint)))
-                .count(),
-            present
-        );
+    // Every mapped source scalar survives, including blocks outside the former allowlists.
+    for source_bytes in [&primary, &fallback] {
+        let source_font =
+            fontdue::Font::from_bytes(source_bytes.as_slice(), fontdue::FontSettings::default())
+                .unwrap();
+        for &codepoint in source_font.chars().keys() {
+            assert!(
+                new.glyph(codepoint).is_some(),
+                "missing U+{:04X}",
+                codepoint as u32
+            );
+        }
     }
-}
-
-#[test]
-#[ignore = "requires the explicitly built, hash-bound local font carrier"]
-fn compiled_ui_font_covers_declared_native_samples() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let carrier = root.join(".local/assets/compiled/ui-monocraft-v1.mcbefont");
-    if !carrier.is_file() {
-        eprintln!("skipping: local font qualification carrier is absent");
-        return;
-    }
-    let bytes = fs::read(carrier).expect("read the local font qualification carrier");
-    let manifest = fs::read(root.join("assets/ui-font-source.json")).unwrap();
-    let identity = assets::canonical_source_manifest_sha256(&manifest);
-    let catalog = assets::RuntimeFontCatalog::decode(&bytes, identity).unwrap();
     for codepoint in [
         '\u{2713}', '\u{2694}', '\u{2620}', '\u{4e16}', '\u{754c}', '\u{7b2c}', '\u{4e8c}',
     ] {
-        let glyph = catalog.glyph(codepoint).unwrap_or_else(|| {
+        let glyph = new.glyph(codepoint).unwrap_or_else(|| {
             panic!(
                 "required U+{:04X} is absent from the carrier",
                 u32::from(codepoint)

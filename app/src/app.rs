@@ -9,7 +9,7 @@ use crate::runtime::phase3_evidence::{
 };
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
-use std::{ffi::OsStr, fs, path::Path, sync::Arc};
+use std::{ffi::OsStr, fs, io::Write, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -28,6 +28,7 @@ use render::{
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
+mod logging;
 mod startup;
 
 #[cfg(feature = "acceptance")]
@@ -735,16 +736,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
-    let filter = bevy::log::DEFAULT_FILTER.to_owned() + "discord_presence::connection=off";
-    #[cfg(feature = "tracy")]
-    let filter = filter + crate::tracy::WGPU_SCOPE_FILTER;
-    let plugins = plugins.set(bevy::log::LogPlugin {
-        filter,
-        #[cfg(feature = "tracy")]
-        custom_layer: crate::tracy::layer,
-        ..default()
-    });
+    let plugins = plugins.set(logging::plugin());
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
@@ -981,8 +973,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         network.shutdown();
     }
     drop(app);
+    let _ = writeln!(
+        diagnostics::console::stderr(),
+        "{SHUTDOWN_COMPLETED} exit_code={}",
+        app_exit_code(&exit)
+    );
+    diagnostics::console::flush_before_exit();
     shutdown_watchdog.complete();
-    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");
     }

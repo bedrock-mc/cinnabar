@@ -1,9 +1,12 @@
 mod priority;
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::Sender;
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
@@ -253,16 +256,36 @@ fn work(shared: &Shared, name: &str, background: bool) {
             continue;
         };
         drop(queues);
-        let lowered = background && LOWER_PER_JOB && priority::lower().is_ok();
+        LOWERED_FOR_JOB.set(background && LOWER_PER_JOB && priority::lower().is_ok());
         // Matches rayon's default: a panicking world job aborts rather than losing its permits.
         if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
             std::process::abort();
         }
-        if lowered && let Err(error) = priority::restore() {
-            eprintln!("{name}: could not restore worker priority: {error}");
-        }
+        restore_lowered_job();
         queues = shared.lock();
     }
+}
+
+thread_local! {
+    /// Whether this worker runs its current job lowered and must restore normal priority.
+    static LOWERED_FOR_JOB: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Returns a worker lowered for its job to normal priority; does nothing otherwise.
+fn restore_lowered_job() {
+    if LOWERED_FOR_JOB.replace(false)
+        && let Err(error) = priority::restore()
+    {
+        let name = std::thread::current().name().unwrap_or("world").to_owned();
+        eprintln!("{name}: could not restore worker priority: {error}");
+    }
+}
+
+/// Restores normal job priority before reserving a result-channel slot.
+/// This prevents the receiving frame from spinning on a preempted, lowered sender.
+pub(super) fn send_result<T>(tx: &Sender<T>, result: T) {
+    restore_lowered_job();
+    let _ = tx.send(result);
 }
 
 #[cfg(test)]

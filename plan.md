@@ -203,8 +203,22 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- UI publication re-emits only the nodes a frame changes into its retained draw list,
+  and HUD rebinds run only the view bindings a change reaches. The paper doll and the
+  inventory model turn as geometry without rebuilding a texture page. The pack worker
+  resolves server HUD screens and reads the pack textures they name, and large session
+  icon sets pack on a worker. Regression tests assert redrawn nodes, view runs, and
+  on-frame resolves, pack reads and icon packs.
+- Incomplete: the first in-world frame after joining (4.9 s), first server form opens
+  and chat-open freezes from live sessions did not reproduce offline at that size, and
+  large server art still decodes on the frame within its budget. A tree-shape change,
+  such as blinking hearts, builds the frame in full, and the first two HUD rebinds after
+  a cold bind rebuild most controls. Release-build hardware captures remain open.
 - Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
   batches prepare custom models while replacements retain the last complete profile.
+  Ready appearances publish within a frame budget, with the local player first; normal
+  ready joins remain visible in their arrival frame. Distant block-entity rescans rotate
+  within their budget, while nearby edits remain immediate.
   Prepared meshes retain validation and vertex fingerprints across catalog publication.
   Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
   see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
@@ -6984,3 +6998,25 @@ Archive, geometry and library ceilings are Cinnabar resource limits. Pack minimu
 engine versions remain separate from geometry schema versions. Full native skin-pack
 import parity, animated imports, persona and Marketplace trust remain incomplete.
 No visual parity or hardware performance gate closes with this extension.
+
+
+### Shipped font grid and coverage (incomplete text parity)
+
+Shipped carriers include every mapped source scalar. Sans uses its 18-pixel raster em;
+Seven, Ten, Five and Five Bold use 20, with one atlas texel per source-grid unit.
+Semantic line and word-space metrics come from the carrier table. OreUI rounds final
+unrotated glyph edges onto the device grid while retaining semantic sizes and tracking.
+Five and Five Bold are available as roles; current screens still use Seven and Ten.
+Missing regular, bold, italic and monospace mathematical Latin letters and digits use
+original grid-based variants built from the shipped Latin artwork. This fixes the
+sampled styled MOTD boxes; unrestricted Unicode and native fallback shaping remain open.
+
+Full parity is incomplete. Glyph-specific advances and bearings differ: Ten's I advances
+0.5 em rather than 0.315. Seven's ASCII bearings match the reference grid, while
+Ten's 0.052-em bearing is represented by 0.05 em on its 20-texel carrier.
+Five and Five Bold have larger advance and stroke differences. At GUI scale 7, Seven's
+14-texel capital height maps to 39.2 screen pixels; preserving this size cannot also give
+every texel a uniform integer width. Rounded edges and nearest sampling do not close
+that scale/weight gate. Source line metrics also retain sub-unit rounding from the
+reviewed files. Version-matched live text-raster evidence across all GUI scales,
+locale shaping, kerning, and the remaining per-glyph metric differences are open gates.

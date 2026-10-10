@@ -10,8 +10,31 @@ bundled or committed.
 OreUI body text uses Cinnangles Seven and headings use Cinnangles Ten, both derived from the
 shipped Cinnangles Sans. `make font-seven-assets` and `make font-ten-assets` build optional,
 hash-checked carriers ahead of startup. Missing or invalid carriers use the default font.
-The carriers include bounded Unicode ranges from each shipped face; no game fonts are read.
-Full Unicode coverage, script shaping and small-text raster parity remain open gates.
+Each carrier includes every Unicode scalar mapped by its source face. The sources cover the
+Basic Multilingual Plane. Missing regular, bold, italic and monospace mathematical Latin
+letters and digits are derived from the source Latin glyphs when building shipped carriers.
+Bold adds one source texel and italic uses a stepped lean. These original fallback glyphs
+make styled server MOTDs readable; they do not establish native fallback-font parity.
+Sans rasterizes at 18 px/em; Ten, Seven, Five and
+Five Bold rasterize at 20 px/em, so their 64-unit source grid lands on exact texels.
+The carrier table owns raster, line, semantic word-space and ASCII bearing metrics. Text keeps its semantic
+size and tracking, and final unrotated glyph edges snap to device pixels. Fractional scale
+factors can still distribute different screen-pixel widths across source texels.
+No game fonts are read by the client.
+
+Five and Five Bold are registered as optional OreUI roles for future screens. Build them with
+`make font-five-assets` and `make font-five-bold-assets`. Regenerate the reviewed faces using
+Python 3.14, numpy, scipy and fontTools:
+
+```sh
+python3 tools/fonts/build_faces.py --sans assets/fonts/CinnanglesSans.ttf \
+    --out assets/fonts --manifests assets --reviewed assets/fonts ten seven five five-bold
+```
+
+`--reviewed` preserves existing name metadata and timestamps and verifies every generated table.
+It does not establish a license; see [the notices](../THIRD_PARTY_NOTICES.md#cinnangles-fonts).
+Source coverage is complete, but characters absent from the source, script shaping, native
+advance and kerning differences, and per-scale text parity remain open gates.
 
 ## Screen routes
 

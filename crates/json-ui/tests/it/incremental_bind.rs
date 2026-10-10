@@ -147,6 +147,7 @@ impl<'c> Pair<'c> {
         Touched {
             rebuilt: state.rebuilt_paths(),
             placed: measures.placed(),
+            views: state.views_run(),
         }
     }
 }
@@ -157,6 +158,8 @@ struct Touched {
     rebuilt: Vec<String>,
     /// Controls the layout placed rather than spliced.
     placed: usize,
+    /// View bindings the bind ran.
+    views: usize,
 }
 
 /// Deterministic xorshift steps.
@@ -965,6 +968,90 @@ fn views_follow_rebuilt_sources_into_reused_controls() {
     let bound = &pair.laid.as_ref().unwrap().bound;
     let copy = find(bound, "mirror_text").properties.get("#copy").cloned();
     assert_eq!(copy, Some(Value::from("c!")));
+}
+
+/// Views beside the controls a change rebuilds: two read another control, one reads the screen
+/// controller through its own control.
+const STANDING_VIEWS: &str = r##"{
+  "namespace": "sv",
+  "root": {
+    "type": "panel", "size": ["100%", "100%"],
+    "controls": [
+      { "title": {
+          "type": "label", "text": "#title", "size": ["default", 10],
+          "bindings": [ { "binding_name": "#title" } ]
+      } },
+      { "mirror": {
+          "type": "label", "text": "#copy", "size": ["default", 10], "offset": [0, 12],
+          "bindings": [
+            { "binding_type": "view", "source_control_name": "title",
+              "source_property_name": "(#title + '!')", "target_property_name": "#copy" }
+          ]
+      } },
+      { "echo": {
+          "type": "label", "text": "#echo", "size": ["default", 10], "offset": [0, 24],
+          "bindings": [
+            { "binding_type": "view", "source_control_name": "title",
+              "source_property_name": "#title", "target_property_name": "#echo" }
+          ]
+      } },
+      { "tally": {
+          "type": "label", "text": "#tally", "size": ["default", 10], "offset": [0, 36],
+          "bindings": [
+            { "binding_type": "view", "source_property_name": "#count", "target_property_name": "#tally" }
+          ]
+      } },
+      { "counter": {
+          "type": "label", "text": "#count", "size": ["default", 10], "offset": [0, 48],
+          "bindings": [ { "binding_name": "#count" } ]
+      } }
+    ]
+  }
+}"##;
+
+// A settled screen runs only the views a change reaches: views whose control and source
+// both stand unchanged, reading no changed controller value, would observe what they last did.
+#[test]
+fn unrelated_changes_leave_settled_views_standing() {
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/sv.json"]}"#.as_slice(),
+        ),
+        ("ui/sv.json", STANDING_VIEWS.as_bytes()),
+    ])
+    .unwrap();
+    let data = |title: &str, count: i64| {
+        let mut data = DataSource::new();
+        data.set_global("#title", Scalar::Text(title.into()));
+        data.set_global("#count", Scalar::Int(count));
+        data
+    };
+    let property = |pair: &Pair, control: &str, name: &str| {
+        let bound = &pair.laid.as_ref().unwrap().bound;
+        find(bound, control).properties.get(name).cloned()
+    };
+    let mut pair = Pair::new(&catalog, "sv.root", Context::desktop());
+    let first = pair.refresh(data("a", 0), "first").views;
+    assert!(first >= 3, "the first bind runs every view, ran {first}");
+    for _ in 0..2 {
+        pair.refresh(data("a", 0), "settle");
+    }
+    let idle = pair.refresh(data("a", 0), "idle").views;
+    assert_eq!(idle, 0, "a settled refresh ran {idle} views");
+    for count in 1..4 {
+        let views = pair.refresh(data("a", count), "count").views;
+        assert!(
+            (1..first).contains(&views),
+            "a count change runs only the views of the controls it rebuilt, ran {views} of {first}"
+        );
+        assert_eq!(property(&pair, "tally", "#tally"), Some(Value::from(count)));
+    }
+    // Views reading another control follow it when it changes.
+    pair.refresh(data("b", 3), "title");
+    assert_eq!(property(&pair, "mirror", "#copy"), Some(Value::from("b!")));
+    assert_eq!(property(&pair, "echo", "#echo"), Some(Value::from("b")));
 }
 
 fn find<'a>(control: &'a ResolvedControl, name: &str) -> &'a ResolvedControl {

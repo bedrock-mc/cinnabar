@@ -35,6 +35,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     }
     runtime.player_preview_source_hash = None;
     runtime.player_preview_pose = None;
+    runtime.player_preview_raster_pose = None;
     runtime.player_preview_pixels = None;
     runtime.player_preview_drawn = None;
     runtime.gui_models.skin = None;
