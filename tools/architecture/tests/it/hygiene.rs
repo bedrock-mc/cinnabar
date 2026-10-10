@@ -429,6 +429,32 @@ fn conditional_local_definitions_cannot_hide_external_glob_bindings() {
 }
 
 #[test]
+fn local_type_qualifiers_take_precedence_over_external_globs() {
+    for source in [
+        "use std::fmt::*; pub enum Values { Thing } pub use self::Values::Thing;",
+        "use other::*; pub enum Values { Thing } use self::Values as Alias; pub use Alias::Thing;",
+        "mod local { use other::*; pub enum Values { Thing } } pub use local::Values::Thing;",
+        r#"use other::*;
+            #[cfg(feature = "local")] pub enum Values { Thing }
+            #[cfg(feature = "local")] pub use self::Values::Thing;"#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+    for source in [
+        "use other::*; fn Values() {} pub use self::Values::Thing;",
+        r#"use other::*;
+            #[cfg(feature = "local")] pub enum Values { Thing }
+            pub use self::Values::Thing;"#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(!findings(temp.path()).is_empty(), "missed {source}");
+    }
+}
+
+#[test]
 fn mutually_exclusive_external_imports_do_not_taint_local_exports() {
     for source in [
         r#"mod local { pub struct Thing; }

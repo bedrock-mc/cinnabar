@@ -711,7 +711,10 @@ fn resolve_globs(
     }
     for index in 1..absolute.len() {
         let binding = &absolute[..=index];
-        if index + 1 < absolute.len() && active_name(&symbols.modules, binding, configuration)? {
+        if index + 1 < absolute.len()
+            && (active_name(&symbols.modules, binding, configuration)?
+                || active_name(&symbols.type_definitions, binding, configuration)?)
+        {
             continue;
         }
         let module = &absolute[..index];
