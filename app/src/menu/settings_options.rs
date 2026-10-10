@@ -8,5 +8,3 @@ mod reset;
 mod runtime;
 #[cfg(test)]
 mod tests;
-
-use launcher::menu::settings_options::*;
