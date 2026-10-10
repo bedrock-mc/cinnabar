@@ -255,6 +255,31 @@ func TestSelectSessionPacksRejectsUnavailableRequiredPacks(t *testing.T) {
 	}
 }
 
+// testSessionOffer offers pack under its own identity with a content key and sub-pack.
+func testSessionOffer(pack *resource.Pack, key, subPack string) sessionOffer {
+	return sessionOffer{info: protocol.TexturePackInfo{
+		UUID: pack.UUID(), Version: pack.Version(), Size: uint64(pack.Size()), ContentKey: key, SubPackName: subPack,
+	}, pack: pack}
+}
+
+// An offer repeating one identity is ambiguous, so the join is refused rather than pairing one entry's
+// archive with another's key or sub-pack.
+func TestChooseSessionPacksRefusesARepeatedOfferIdentity(t *testing.T) {
+	pack := testAdmissionPack(t)
+	offers := []sessionOffer{testSessionOffer(pack, "first-key", ""), testSessionOffer(pack, "second-key", "high")}
+	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version(), subPack: "high"}}
+	for _, required := range []bool{false, true} {
+		var admission *PackAdmissionError
+		if _, _, err := chooseSessionPacks(offers, entries, required); !errors.As(err, &admission) {
+			t.Fatalf("required=%t: err = %v", required, err)
+		}
+	}
+	selected, _, err := chooseSessionPacks(offers[1:], entries, true)
+	if err != nil || len(selected) != 1 || selected[0].ContentKey != "second-key" {
+		t.Fatalf("single offer = %+v, %v", selected, err)
+	}
+}
+
 // An ItemRegistry carried in the handoff sets the shield ID used to decode the client's item stacks.
 func TestSessionHandoffObservesStartupItemRegistry(t *testing.T) {
 	local, peer := net.Pipe()

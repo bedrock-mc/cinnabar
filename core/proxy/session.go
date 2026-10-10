@@ -13,6 +13,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -319,42 +320,68 @@ func readSessionStartup(upstream packetSession) (startup, rest [][]byte, err err
 	}
 }
 
-// selectSessionPacks lists the archives to apply in stack order, as the client's own selection did:
-// built-in packs need no archive, while an unavailable pack, a repeated identity or a sub-pack that
-// differs from the offer is skipped, or refuses the join when the packs are required.
+// selectSessionPacks lists the archives to apply from the projected offer and the server's stack.
 func selectSessionPacks(stack *selectedResourcePackStack) ([]sessionPack, []*resource.Pack, error) {
 	if stack == nil {
 		return nil, nil, errResourcePackStackUnavailable
 	}
-	offered := stack.offer.TexturePacks()
-	offers := make(map[string]int, len(offered))
-	for index, entry := range offered {
-		info := entry.Info()
-		offers[resourcePackIdentity(info.UUID.String(), info.Version)] = index
+	var offers []sessionOffer
+	for _, entry := range stack.offer.TexturePacks() {
+		offers = append(offers, sessionOffer{info: entry.Info(), pack: entry.Pack()})
+	}
+	var entries []sessionStackEntry
+	for _, entry := range stack.snapshot.Entries() {
+		entries = append(entries, sessionStackEntry{uuid: entry.UUID(), version: entry.Version(), subPack: entry.SubPackName()})
+	}
+	return chooseSessionPacks(offers, entries, stack.required)
+}
+
+// sessionOffer is one offered pack with its acquired content.
+type sessionOffer struct {
+	info protocol.TexturePackInfo
+	pack *resource.Pack
+}
+
+// sessionStackEntry is one ResourcePackStack entry as the server sent it.
+type sessionStackEntry struct {
+	uuid, version, subPack string
+}
+
+// chooseSessionPacks selects archives in stack order, as the client's own selection did: an offer
+// repeating an identity is ambiguous and refuses the join; built-in packs need no archive; and an
+// unavailable pack, a repeated stack entry or a sub-pack that differs from the offer is skipped, or
+// refuses the join when the packs are required.
+func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, required bool) ([]sessionPack, []*resource.Pack, error) {
+	refuse := &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offers)}
+	byIdentity := make(map[string]sessionOffer, len(offers))
+	for _, offer := range offers {
+		id := resourcePackIdentity(offer.info.UUID.String(), offer.info.Version)
+		if _, repeated := byIdentity[id]; repeated {
+			return nil, nil, refuse
+		}
+		byIdentity[id] = offer
 	}
 	var selected []sessionPack
 	var packs []*resource.Pack
 	seen := make(map[string]bool)
-	for _, entry := range stack.snapshot.Entries() {
-		if minecraft.IsBuiltinResourcePack(entry.UUID(), entry.Version()) {
+	for _, entry := range entries {
+		if minecraft.IsBuiltinResourcePack(entry.uuid, entry.version) {
 			continue
 		}
-		id := resourcePackIdentity(entry.UUID(), entry.Version())
-		index, ok := offers[id]
-		pack := entry.Pack()
-		if !ok || pack == nil || seen[id] || offered[index].Info().SubPackName != entry.SubPackName() {
-			if stack.required {
-				return nil, nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: len(offered)}
+		id := resourcePackIdentity(entry.uuid, entry.version)
+		offer := byIdentity[id]
+		if offer.pack == nil || seen[id] || offer.info.SubPackName != entry.subPack {
+			if required {
+				return nil, nil, refuse
 			}
 			continue
 		}
 		seen[id] = true
-		info := offered[index].Info()
 		selected = append(selected, sessionPack{
-			UUID: info.UUID.String(), Version: info.Version, SubPack: entry.SubPackName(),
-			ContentKey: info.ContentKey, Size: uint64(max(pack.Size(), 0)),
+			UUID: offer.info.UUID.String(), Version: offer.info.Version, SubPack: entry.subPack,
+			ContentKey: offer.info.ContentKey, Size: uint64(max(offer.pack.Size(), 0)),
 		})
-		packs = append(packs, pack)
+		packs = append(packs, offer.pack)
 	}
 	return selected, packs, nil
 }
