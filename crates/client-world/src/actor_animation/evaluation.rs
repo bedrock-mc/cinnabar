@@ -37,6 +37,7 @@ pub(super) struct VariableLayout {
     variable_count: usize,
     temp_base: usize,
     temp_count: usize,
+    clip_reads: Vec<Box<[u32]>>,
     pub(super) engine: EngineSlots,
 }
 
@@ -120,7 +121,47 @@ impl VariableLayout {
     }
 
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
-        Self::from_symbols(assets.molang_symbols())
+        let mut layout = Self::from_symbols(assets.molang_symbols());
+        layout.clip_reads = assets
+            .animation_clips()
+            .iter()
+            .map(|clip| {
+                let mut reads = std::collections::BTreeSet::new();
+                let first = clip.first_channel as usize;
+                for channel in
+                    &assets.animation_channels()[first..first + clip.channel_count as usize]
+                {
+                    let first = channel.first_keyframe as usize;
+                    for keyframe in &assets.animation_keyframes()
+                        [first..first + channel.keyframe_count as usize]
+                    {
+                        for &expression in keyframe.expressions.iter().flatten() {
+                            let expression = &assets.molang_expressions()[expression as usize];
+                            let first = expression.first_op as usize;
+                            for op in &assets.molang_ops()
+                                [first..first + usize::from(expression.op_count)]
+                            {
+                                let symbol = match op {
+                                    MolangOp::LoadVariable(symbol)
+                                    | MolangOp::LoadQuery(symbol) => *symbol,
+                                    MolangOp::CallQuery(call) => call.symbol,
+                                    MolangOp::Coalesce(branch) => branch.symbol,
+                                    _ => continue,
+                                };
+                                reads.insert(symbol);
+                            }
+                        }
+                    }
+                }
+                reads.into_iter().collect::<Vec<_>>().into_boxed_slice()
+            })
+            .collect();
+        layout
+    }
+
+    /// Unique authored variable and query reads, bound once with this asset catalog.
+    pub(super) fn clip_reads(&self, clip: usize) -> &[u32] {
+        self.clip_reads.get(clip).map_or(&[], Box::as_ref)
     }
 
     pub(super) fn from_symbols(symbols: &[assets::MolangSymbol]) -> Self {
@@ -141,6 +182,7 @@ impl VariableLayout {
             variable_count,
             temp_base,
             temp_count,
+            clip_reads: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()

@@ -124,3 +124,62 @@ fn selected_camera_layer_retains_weight_and_clock_variable_writes() {
         assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
     }
 }
+
+#[test]
+fn long_numeric_clip_keeps_frame_color_updates_and_completed_poses() {
+    let mut compiled = inactive_camera_compiled();
+    compiled.rig_geometries[0].animation_count = 1;
+    compiled.rig_animations = compiled.rig_animations[..1].to_vec().into_boxed_slice();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.frame_alpha".into(),
+        },
+    );
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        match op {
+            MolangOp::LoadQuery(symbol) => *symbol += 1,
+            MolangOp::CallQuery(call) => call.symbol += 1,
+            _ => {}
+        }
+    }
+    let first_op = ops.len() as u32;
+    ops.push(MolangOp::LoadQuery(1));
+    compiled.molang_ops = ops.into_boxed_slice();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op,
+        op_count: 1,
+        max_stack: 1,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    compiled.render.layers[1].color = Some([4; 4]);
+    let mut keys = vec![compiled.animation_keyframes[0]];
+    let mut numeric = compiled.animation_keyframes[1];
+    numeric.expressions = [None; 3];
+    numeric.value[0] = EntityGeometryScalar::new(30.0).unwrap();
+    let keyframes = 4096;
+    for index in 0..keyframes {
+        numeric.time_seconds = EntityGeometryScalar::new(index as f32 / keyframes as f32).unwrap();
+        keys.push(numeric);
+    }
+    keys.push(compiled.animation_keyframes[2]);
+    compiled.animation_keyframes = keys.into_boxed_slice();
+    compiled.animation_channels[1].keyframe_count = keyframes;
+    compiled.animation_channels[2].first_keyframe = keyframes + 1;
+    compiled.animation_clips[1].length_seconds = EntityGeometryScalar::new(1.0).unwrap();
+    let store = walking_fixture(compiled);
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        assert_eq!(layers[1].color, [alpha; 4]);
+        for (layer, completed) in layers.iter().zip(&completed) {
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
