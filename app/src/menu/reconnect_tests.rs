@@ -241,3 +241,16 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         }
     }
 }
+
+#[test]
+fn featured_presence_survives_join_adoption_and_clears_on_transfer() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.request_featured_connect("example.invalid".into());
+    let intent = menu.take_join_intent().unwrap();
+    menu.remember_retry_target(&intent.address, intent.auth_cache.as_deref(), false);
+    assert!(menu.presence_is_featured());
+    menu.remember_retry_target("other.invalid", intent.auth_cache.as_deref(), false);
+    assert!(!menu.presence_is_featured());
+    menu.remember_retry_target("Local world", None, true);
+    assert!(menu.presence_address().is_none());
+}

@@ -8,6 +8,8 @@ mod packet_delay;
 mod status;
 mod store;
 mod worlds;
+mod xbox_presence;
+pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
 
 use std::path::Path;
 

@@ -284,6 +284,11 @@ mod tests {
                     .get_args()
                     .any(|argument| argument == "-control-status")
             );
+            assert!(
+                command
+                    .get_args()
+                    .all(|argument| argument != "-xbox-presence")
+            );
         }
     }
 }
