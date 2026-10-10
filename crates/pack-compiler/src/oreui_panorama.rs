@@ -18,14 +18,15 @@ struct Crop {
     top: u32,
 }
 
+/// Daylight faces only; the alternate set is a dark cave, so repeats use a higher, sky-heavy window.
 const BANNERS: [Crop; BANNER_COUNT] = [
     Crop {
         texture: "textures/ui/panorama_2.png",
         top: 256,
     },
     Crop {
-        texture: "textures/ui/panorama_alternate_0.png",
-        top: 144,
+        texture: "textures/ui/panorama_0.png",
+        top: 128,
     },
     Crop {
         texture: "textures/ui/panorama_0.png",
@@ -40,16 +41,16 @@ const BANNERS: [Crop; BANNER_COUNT] = [
         top: 256,
     },
     Crop {
-        texture: "textures/ui/panorama_alternate_1.png",
-        top: 320,
+        texture: "textures/ui/panorama_1.png",
+        top: 144,
     },
     Crop {
-        texture: "textures/ui/panorama_alternate_2.png",
-        top: 336,
+        texture: "textures/ui/panorama_2.png",
+        top: 112,
     },
     Crop {
-        texture: "textures/ui/panorama_alternate_3.png",
-        top: 320,
+        texture: "textures/ui/panorama_3.png",
+        top: 128,
     },
 ];
 
