@@ -3,7 +3,7 @@
 //! presses to the module, an opened world is joined through the launcher core
 //! and closed when its session ends, and the pause menu pauses it.
 
-use protocol::world_control::{Backend, Difficulty, GameMode};
+use bridge::{Backend, Difficulty, GameMode};
 
 use {
     super::MenuRuntime,
@@ -258,8 +258,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
-                    A::Backend(protocol::world_control::Backend::Dragonfly),
-                    A::Backend(protocol::world_control::Backend::Bds),
+                    A::Backend(bridge::Backend::Dragonfly),
+                    A::Backend(bridge::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
                 ]),

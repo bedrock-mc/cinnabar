@@ -551,7 +551,7 @@ fn inventory_data(snapshot: &StoreSnapshot, tr: Translate<'_>) -> ScreenData {
 
 #[cfg(test)]
 mod tests {
-    use protocol::store_control::{StoreOffer, StoreOfferDetail, StorePrice};
+    use bridge::{StoreOffer, StoreOfferDetail, StorePrice};
 
     use launcher::store::flow::{PurchaseDialog, PurchaseFlow};
     use {

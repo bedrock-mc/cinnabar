@@ -862,12 +862,12 @@ fn oreui_texts(view: &launcher::menu::MenuView) -> Vec<String> {
 // Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
-    use launcher::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
-    };
-    use protocol::world_control::{
+    use bridge::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
         World, WorldState, WorldStatus,
+    };
+    use launcher::local_worlds::{
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;

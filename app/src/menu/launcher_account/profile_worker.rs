@@ -55,8 +55,7 @@ fn poll_with_timeout(
             );
         }
         let result = runtime.block_on(async {
-            let mut result =
-                tokio::time::timeout(timeout, launcher_control::profile(socket_dir)).await;
+            let mut result = tokio::time::timeout(timeout, bridge::profile(socket_dir)).await;
             if let Ok(Ok(profile)) = &mut result {
                 artwork::fill(&images, artwork::profile_slots(profile)).await;
             }

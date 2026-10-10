@@ -1,6 +1,6 @@
 //! The bounded Overview achievement lists shared by drawing and artwork loading.
 
-use protocol::launcher_control::ProfileAchievement;
+use bridge::ProfileAchievement;
 /// Reads the same embedded card limit used by the core's artwork selection.
 fn visible_per_section() -> usize {
     include_str!("../../../../core/catalog/profile_overview_limit.txt")

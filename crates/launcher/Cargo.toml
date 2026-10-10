@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+bridge = { path = "../bridge" }
 assets = { path = "../assets" }
 protocol = { path = "../protocol" }
 render-api = { path = "../render-api" }

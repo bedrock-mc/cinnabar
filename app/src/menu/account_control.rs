@@ -69,7 +69,7 @@ pub(crate) trait AccountControl {
         None
     }
     /// Reports an inbox interaction through the core messaging session.
-    fn report_message(&mut self, _event: protocol::launcher_control::MessageEvent) {}
+    fn report_message(&mut self, _event: bridge::MessageEvent) {}
     /// The server rows `ping.v1` keeps fresh while the launcher shows them.
     fn set_ping_targets(&mut self, _targets: Vec<String>) {}
     /// Pongs from the latest ping round, keyed by address.

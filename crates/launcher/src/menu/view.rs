@@ -119,7 +119,7 @@ pub struct MenuProfile {
     pub statistics_error: bool,
     pub achievements_loaded: bool,
     pub achievements_error: bool,
-    pub achievements: Option<protocol::launcher_control::ProfileAchievements>,
+    pub achievements: Option<bridge::ProfileAchievements>,
     pub gamertag: String,
     pub picture_path: String,
     pub avatar_path: String,
@@ -133,7 +133,7 @@ pub struct MenuProfile {
     pub gamerscore: Option<i64>,
     pub friends: Option<u32>,
     pub followers: Option<u32>,
-    pub statistics: Option<protocol::launcher_control::ProfileStatistics>,
+    pub statistics: Option<bridge::ProfileStatistics>,
 }
 
 impl MenuProfile {

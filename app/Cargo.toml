@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+bridge = { path = "../crates/bridge" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"], optional = true }
 mod-api = { path = "../crates/mod-api", optional = true }
 mod-render = { path = "../crates/mod-render", optional = true }

@@ -114,11 +114,9 @@ impl PurchaseDialogPresentation for PurchaseDialog {
 
 #[cfg(test)]
 mod tests {
+    use bridge::{PurchaseOutcome, PurchaseStatus, StoreBalance, StoreOffer, StorePrice};
     use launcher::store::flow::Begin;
     use launcher::store::worker::StoreError;
-    use protocol::store_control::{
-        PurchaseOutcome, PurchaseStatus, StoreBalance, StoreOffer, StorePrice,
-    };
     use {
         super::*,
         launcher::store::flow::{DISABLED_BODY, PurchaseDialog, PurchaseFlow},

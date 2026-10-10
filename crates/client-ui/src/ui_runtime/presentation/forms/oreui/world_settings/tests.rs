@@ -256,7 +256,7 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
 
 #[test]
 fn advanced_world_form_exposes_backend_and_generator_separately() {
-    use protocol::world_control::{Backend, UnavailableReason};
+    use bridge::{Backend, UnavailableReason};
     let mut view = MenuView::new(true, "Fixture".into());
     view.local.tab = Tab::Advanced;
     view.local.bds_unavailable = Some(UnavailableReason::DockerMissing);

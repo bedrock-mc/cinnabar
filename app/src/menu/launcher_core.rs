@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use bevy::prelude::{Commands, Resource};
-use protocol::launcher_control::{self, ConnectTarget};
+use bridge::{self, ConnectTarget};
 
 use {
     super::{
@@ -371,11 +371,7 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
     // The timer must be created inside the runtime; building it outside panics.
     runtime
         .block_on(async {
-            tokio::time::timeout(
-                SELECT_TIMEOUT,
-                launcher_control::connect_target(socket_dir, &target),
-            )
-            .await
+            tokio::time::timeout(SELECT_TIMEOUT, bridge::connect_target(socket_dir, &target)).await
         })
         .map_err(|_| "the launcher core did not answer".to_owned())?
         .map_err(|error| error.to_string())

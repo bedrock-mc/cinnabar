@@ -71,7 +71,7 @@ fn a_round_answers_for_every_target() {
 
 #[test]
 fn tile_images_sort_into_button_layers() {
-    let image = |id: &str| protocol::launcher_control::MessageImage {
+    let image = |id: &str| bridge::MessageImage {
         id: id.into(),
         url: String::new(),
         path: format!("/art/{id}.img"),
@@ -108,16 +108,16 @@ fn featured_servers_split_into_cards_and_details() {
         player_count: Some(12_345),
         address: "a.test:19132".into(),
         news: "Update".into(),
-        background: protocol::launcher_control::Artwork {
+        background: bridge::Artwork {
             url: "https://a.test/bg.png".into(),
             path: "/art/bg.img".into(),
         },
         screenshots: vec![
-            protocol::launcher_control::Artwork {
+            bridge::Artwork {
                 url: "https://a.test/s.png".into(),
                 path: String::new(),
             },
-            protocol::launcher_control::Artwork {
+            bridge::Artwork {
                 url: "https://a.test/t.png".into(),
                 path: "/art/t.img".into(),
             },

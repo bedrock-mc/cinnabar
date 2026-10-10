@@ -170,7 +170,7 @@ pub(super) fn core_command_for_address(
 ) -> Command {
     // The fallback core needs the same default-port normalization as `connect.v1`.
     let address = match super::launcher_core::target_for(address) {
-        protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+        bridge::ConnectTarget::RakNet(address) => address,
         _ => address.to_owned(),
     };
     let mut command = Command::new(executable);
@@ -263,7 +263,7 @@ mod tests {
             let args: Vec<_> = command.get_args().collect();
             let upstream = args.windows(2).find(|pair| pair[0] == "-upstream").unwrap()[1];
             let expected = match super::super::launcher_core::target_for(address) {
-                protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+                bridge::ConnectTarget::RakNet(address) => address,
                 _ => address.to_owned(),
             };
             assert_eq!(upstream, std::ffi::OsStr::new(&expected));

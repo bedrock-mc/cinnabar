@@ -2,8 +2,8 @@
 
 use std::{collections::HashSet, path::Path, sync::Mutex};
 
+use bridge::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
 use crossbeam_channel::{Receiver, Sender};
-use protocol::launcher_control::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
 
 use super::artwork::{self, FeedArt};
 use super::{FEED_INTERVAL, FEED_RETRY, Snapshot, publish_account, settle};
@@ -28,7 +28,7 @@ pub(super) struct CoreFeeds<'a> {
 
 impl FeedSource for CoreFeeds<'_> {
     async fn home(&self) -> Result<Home, BridgeError> {
-        let mut home = launcher_control::home(self.socket_dir).await?;
+        let mut home = bridge::home(self.socket_dir).await?;
         if let Some(art) = self.art {
             art.fill_cached(artwork::home_slots(&mut home));
         }
@@ -39,9 +39,9 @@ impl FeedSource for CoreFeeds<'_> {
         include_player_counts: bool,
     ) -> Result<Vec<FeaturedServer>, BridgeError> {
         let mut servers = if include_player_counts {
-            launcher_control::list_featured_servers_with_counts(self.socket_dir).await
+            bridge::list_featured_servers_with_counts(self.socket_dir).await
         } else {
-            launcher_control::list_featured_servers(self.socket_dir).await
+            bridge::list_featured_servers(self.socket_dir).await
         }?;
         if let Some(art) = self.art {
             art.fill_cached(artwork::featured_slots(&mut servers));
@@ -49,10 +49,10 @@ impl FeedSource for CoreFeeds<'_> {
         Ok(servers)
     }
     async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
-        launcher_control::list_realms(self.socket_dir).await
+        bridge::list_realms(self.socket_dir).await
     }
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
-        launcher_control::list_friends(self.socket_dir).await
+        bridge::list_friends(self.socket_dir).await
     }
 }
 

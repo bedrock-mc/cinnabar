@@ -644,6 +644,7 @@ dependencies = [
  "async-io",
  "bevy",
  "block-transform",
+ "bridge",
  "bytes",
  "chunk-pipeline",
  "client-presentation",
@@ -2075,6 +2076,7 @@ dependencies = [
  "arboard",
  "assets",
  "bevy",
+ "bridge",
  "chunk-pipeline",
  "client-world",
  "crossbeam-channel",
@@ -4249,6 +4251,7 @@ name = "launcher"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "bridge",
  "protocol",
  "render-api",
  "resource-pack",

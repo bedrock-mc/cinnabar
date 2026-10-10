@@ -1,6 +1,6 @@
 //! Ordered inbox reports run independently of authentication and join polling.
 
-use super::{Duration, MessageEvent, PathBuf, Receiver, Sender, launcher_control, thread};
+use super::{Duration, MessageEvent, PathBuf, Receiver, Sender, thread};
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -12,7 +12,7 @@ pub(super) fn start(socket_dir: PathBuf, stop: Receiver<()>) -> Sender<MessageEv
             return;
         };
         run(&requests, &stop, RETRY_INTERVAL, |event| {
-            match runtime.block_on(launcher_control::report_message_event(&socket_dir, event)) {
+            match runtime.block_on(bridge::report_message_event(&socket_dir, event)) {
                 Ok(()) => true,
                 Err(error) => {
                     bevy::log::warn!(%error, "inbox event failed; retaining for retry");

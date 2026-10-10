@@ -1,6 +1,6 @@
 //! Inbox selection and optimistic message state, keyed by the service instance identity.
 use super::view::{MenuFeeds, MenuHome};
-use protocol::launcher_control::MessageEvent;
+use bridge::MessageEvent;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod bulk_read;

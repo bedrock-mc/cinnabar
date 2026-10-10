@@ -12,11 +12,11 @@ use std::{
 };
 
 use bevy::prelude::Resource;
-use crossbeam_channel::{Receiver, Sender, bounded};
-use protocol::launcher_control::{
+use bridge::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
     Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
+use crossbeam_channel::{Receiver, Sender, bounded};
 
 use super::account_control::{AccountControl, AccountEvent, RealmMembershipResponse};
 use launcher::menu::view::{
@@ -71,7 +71,7 @@ struct Snapshot {
     home_wake: Option<Sender<()>>,
     /// Wakes Profile independently when its account identity changes.
     profile_wake: Option<Sender<()>>,
-    xbox_presence: launcher_control::XboxPresenceState,
+    xbox_presence: bridge::XboxPresenceState,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     /// Prevents a catalog request started before acceptance from removing the new membership.
@@ -87,13 +87,13 @@ struct Snapshot {
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
-    server_trust: Option<launcher_control::ServerTrustPrompt>,
+    server_trust: Option<bridge::ServerTrustPrompt>,
     /// The prompt last answered, hidden until the core withdraws it.
     answered_trust: Option<u64>,
     /// The menu is connecting, so the events worker polls faster.
     joining: bool,
     /// The invite screen's friends list, delivered once per request.
-    people: Option<Result<Vec<launcher_control::Person>, ()>>,
+    people: Option<Result<Vec<bridge::Person>, ()>>,
     realm_membership: Option<RealmMembershipResponse>,
 }
 
@@ -206,7 +206,7 @@ impl LauncherAccount {
     }
 
     /// Publishes the newest committed world activity for the control worker.
-    pub(super) fn set_xbox_presence(&self, state: launcher_control::XboxPresenceState) {
+    pub(super) fn set_xbox_presence(&self, state: bridge::XboxPresenceState) {
         publish(&self.snapshot, |snapshot| snapshot.xbox_presence = state);
     }
 
@@ -288,7 +288,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
         };
         match requests.recv_timeout(interval) {
             Ok(()) => {
-                let _ = runtime.block_on(launcher_control::sign_out(socket_dir));
+                let _ = runtime.block_on(bridge::sign_out(socket_dir));
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
@@ -302,7 +302,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             let sent = runtime.block_on(async {
                 tokio::time::timeout(
                     Duration::from_secs(2),
-                    launcher_control::report_xbox_presence(socket_dir, &presence),
+                    bridge::report_xbox_presence(socket_dir, &presence),
                 )
                 .await
             });
@@ -315,7 +315,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             }
         }
         let generation = auth_generation(shared);
-        if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
+        if let Ok(events) = runtime.block_on(bridge::poll_events(socket_dir)) {
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
                     && snapshot.last_disconnect != Some(disconnect.sequence)
@@ -349,7 +349,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
         if !targets.is_empty() && Instant::now() >= ping_due {
             ping_due = Instant::now() + PING_INTERVAL;
             pinged = targets.clone();
-            let pongs = runtime.block_on(launcher_control::ping_servers(socket_dir, &targets));
+            let pongs = runtime.block_on(bridge::ping_servers(socket_dir, &targets));
             let pings = round_results(
                 &targets,
                 settle("ping", pongs, &mut false).unwrap_or_default(),
@@ -448,7 +448,7 @@ fn report_impressions(
             report_id: message.report_id.clone(),
             button_id: String::new(),
         };
-        let _ = runtime.block_on(launcher_control::report_message_event(socket_dir, &event));
+        let _ = runtime.block_on(bridge::report_message_event(socket_dir, &event));
     }
 }
 

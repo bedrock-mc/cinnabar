@@ -285,7 +285,7 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
 /// joiner to see it through Xbox. Realms carry no invite, a local world's comes from its host
 /// (see `MenuRuntime::hosted_world_address`), and no identifier is ever shown on the card.
 fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
-    use protocol::launcher_control::ConnectTarget;
+    use bridge::ConnectTarget;
     use rich_presence::{Destination, Target};
     if local_world {
         return Target {

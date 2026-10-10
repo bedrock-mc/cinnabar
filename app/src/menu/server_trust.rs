@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use bridge::{answer_server_trust, poll_events};
 use crossbeam_channel::{RecvTimeoutError, Sender, bounded};
 use launcher::menu::view::ServerTrustPrompt;
-use protocol::launcher_control::{answer_server_trust, poll_events};
 
 /// How often a per-session core's question is polled, matching the join's event polling.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);

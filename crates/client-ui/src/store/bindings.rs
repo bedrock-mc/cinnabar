@@ -3,8 +3,8 @@
 
 use std::collections::BTreeMap;
 
+use bridge::StoreOffer;
 use json_ui::{CollectionItem, Scalar};
-use protocol::store_control::StoreOffer;
 
 /// The vanilla `texture_file_system` value for a path outside the packs.
 pub const RAW_PATH: &str = "RawPath";
@@ -150,7 +150,7 @@ pub fn info_row_count() -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use protocol::store_control::{StorePrice, StoreRating};
+    use bridge::{StorePrice, StoreRating};
 
     use super::*;
 

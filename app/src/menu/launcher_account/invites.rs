@@ -3,7 +3,6 @@
 
 use super::profile_worker::RESPONSE_TIMEOUT;
 use super::*;
-use protocol::world_control;
 
 pub(super) enum Request {
     People,
@@ -51,10 +50,10 @@ fn people(
     runtime: &tokio::runtime::Runtime,
     socket_dir: &std::path::Path,
     images: &client_ui::remote_images::ImageDirectory,
-) -> Result<Vec<launcher_control::Person>, ()> {
+) -> Result<Vec<bridge::Person>, ()> {
     let listed = runtime.block_on(async {
         let mut listed =
-            tokio::time::timeout(RESPONSE_TIMEOUT, launcher_control::list_people(socket_dir)).await;
+            tokio::time::timeout(RESPONSE_TIMEOUT, bridge::list_people(socket_dir)).await;
         if let Ok(Ok(people)) = &mut listed {
             artwork::fill(images, artwork::people_slots(people)).await;
         }
@@ -77,11 +76,7 @@ fn people(
 fn send(runtime: &tokio::runtime::Runtime, socket_dir: &std::path::Path, xuids: &[String]) {
     for xuid in xuids {
         let sent = runtime.block_on(async {
-            tokio::time::timeout(
-                RESPONSE_TIMEOUT,
-                world_control::invite_to_world(socket_dir, xuid),
-            )
-            .await
+            tokio::time::timeout(RESPONSE_TIMEOUT, bridge::invite_to_world(socket_dir, xuid)).await
         });
         match sent {
             Ok(Ok(())) => {}

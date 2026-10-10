@@ -16,7 +16,6 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
-pub mod launcher_control;
 mod login;
 mod movement;
 mod nbt_tree;
@@ -33,12 +32,10 @@ pub use skin_change::{
     set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
-pub mod store_control;
 mod transfer;
 mod translation_parameter;
 mod ui;
 mod world;
-pub mod world_control;
 
 pub use experience::{
     EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,

@@ -44,7 +44,7 @@ pub(super) fn start(
                         match command { None => return, Some(Request::Cancel) => {}, Some(request) => pending = Some(request) }
                         continue;
                     }
-                    result = tokio::time::timeout(profile_worker::RESPONSE_TIMEOUT, launcher_control::realm_membership(&socket_dir, &code, accept)) => result,
+                    result = tokio::time::timeout(profile_worker::RESPONSE_TIMEOUT, bridge::realm_membership(&socket_dir, &code, accept)) => result,
                 };
                 let result = match result {
                     Ok(Ok(result)) => Ok(result),

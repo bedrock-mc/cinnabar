@@ -3,7 +3,7 @@
 //! header with back, a side menu in four of twelve columns (preview, hero button, tab list)
 //! and the tab's controls in eight. Unsupported settings remain visibly disabled.
 
-use protocol::world_control::{Difficulty, GameMode, Generator};
+use bridge::{Difficulty, GameMode, Generator};
 
 use super::super::super::UiPresentationError;
 use super::grid::{Grid, space};

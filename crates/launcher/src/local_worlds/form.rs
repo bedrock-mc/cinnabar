@@ -1,4 +1,4 @@
-use protocol::world_control::{Backend, Difficulty, GameMode, Generator, NewWorld, World};
+use bridge::{Backend, Difficulty, GameMode, Generator, NewWorld, World};
 
 /// Vanilla's world name field limit (`CreateNewWorld.general`, 30 characters); the core allows 64.
 pub const MAX_WORLD_NAME_CHARS: usize = 30;

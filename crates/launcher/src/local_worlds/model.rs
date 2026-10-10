@@ -1,4 +1,4 @@
-use protocol::world_control::{
+use bridge::{
     Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
     WorldState, WorldStatus, WorldUpdate,
 };
@@ -68,7 +68,7 @@ pub enum Input {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Effect {
     List,
-    Create(protocol::world_control::NewWorld),
+    Create(bridge::NewWorld),
     Delete(String),
     Update {
         id: String,

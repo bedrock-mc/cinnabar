@@ -5,7 +5,7 @@ use super::tests::{FixedText, NoTextures, screen_texts};
 // Cards drew only their price: the title and creator cells and the row header hid behind unset visibility flags.
 #[test]
 fn store_cards_draw_their_offer_titles() {
-    use protocol::store_control::{StoreOffer, StorePrice};
+    use bridge::{StoreOffer, StorePrice};
     let offer = |id: &str, title: &str| StoreOffer {
         id: id.into(),
         title: title.into(),
@@ -52,7 +52,7 @@ fn store_cards_draw_their_offer_titles() {
 // The offer page reads title, creator and description as globals; on its row item they never drew.
 #[test]
 fn store_offer_page_draws_its_title() {
-    use protocol::store_control::{StoreOffer, StoreOfferDetail, StorePrice};
+    use bridge::{StoreOffer, StoreOfferDetail, StorePrice};
     let offer = StoreOffer {
         id: "a".into(),
         title: "Castle Pack".into(),
@@ -92,7 +92,7 @@ fn store_offer_page_draws_its_title() {
 // A hero row read the page-wide hero collection, which was never filled, so it drew no offers.
 #[test]
 fn a_hero_row_draws_and_opens_its_offers() {
-    use protocol::store_control::StoreOffer;
+    use bridge::StoreOffer;
     let offer = |id: &str| StoreOffer {
         id: id.into(),
         title: id.into(),
@@ -172,7 +172,7 @@ fn a_hero_row_draws_and_opens_its_offers() {
 // Every hero row read one shared collection, so each drew the last hero row's offers.
 #[test]
 fn each_hero_row_draws_its_own_offers() {
-    use protocol::store_control::StoreOffer;
+    use bridge::StoreOffer;
     let offer = |id: &str| StoreOffer {
         id: id.into(),
         title: id.into(),
@@ -281,19 +281,19 @@ fn store_render(
     )
 }
 
-fn priced_offer(id: &str) -> protocol::store_control::StoreOffer {
-    protocol::store_control::StoreOffer {
+fn priced_offer(id: &str) -> bridge::StoreOffer {
+    bridge::StoreOffer {
         id: id.into(),
         title: "Castle".into(),
         creator: Some("Studio".into()),
         content_type: None,
         thumbnail_url: Some(format!("https://x.test/{id}.jpg")),
         store_id: None,
-        prices: vec![protocol::store_control::StorePrice {
+        prices: vec![bridge::StorePrice {
             currency: "mc".into(),
             amount: 830,
         }],
-        rating: Some(protocol::store_control::StoreRating {
+        rating: Some(bridge::StoreRating {
             average: 4.4,
             count: 120,
         }),

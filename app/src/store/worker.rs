@@ -8,9 +8,9 @@ use std::{
 };
 
 use bevy::prelude::Resource;
+use bridge::{self, BridgeError};
 use client_ui::remote_images::{ImageDirectory, STORE_ART, Surface};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
-use protocol::store_control::{self, BridgeError};
 
 const API_QUEUE: usize = 32;
 const IMAGE_QUEUE: usize = 64;
@@ -106,31 +106,29 @@ async fn handle(
 ) -> StoreEvent {
     match request {
         StoreRequest::Home(page) => StoreEvent::Page(reduce(
-            store_control::store_home(socket_dir, page.as_deref()).await,
+            bridge::store_home(socket_dir, page.as_deref()).await,
         )),
-        StoreRequest::Search(search) => StoreEvent::Search(reduce(
-            store_control::store_search(socket_dir, &search).await,
-        )),
-        StoreRequest::Offer(id) => {
-            match reduce(store_control::store_offer(socket_dir, &id).await) {
-                Ok(detail) => StoreEvent::Offer(Ok(Box::new(detail))),
-                Err(error) => StoreEvent::OfferFailed { id, error },
-            }
+        StoreRequest::Search(search) => {
+            StoreEvent::Search(reduce(bridge::store_search(socket_dir, &search).await))
         }
+        StoreRequest::Offer(id) => match reduce(bridge::store_offer(socket_dir, &id).await) {
+            Ok(detail) => StoreEvent::Offer(Ok(Box::new(detail))),
+            Err(error) => StoreEvent::OfferFailed { id, error },
+        },
         StoreRequest::Balance => {
-            StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
+            StoreEvent::Balance(reduce(bridge::store_balance(socket_dir).await))
         }
         StoreRequest::Entitlements { offset, refresh } => StoreEvent::Entitlements {
             offset,
-            result: reduce(store_control::store_entitlements(socket_dir, offset, 0, refresh).await),
+            result: reduce(bridge::store_entitlements(socket_dir, offset, 0, refresh).await),
         },
         StoreRequest::RowMore { row, continuation } => StoreEvent::RowMore {
             row,
-            result: reduce(store_control::store_row_more(socket_dir, &continuation).await),
+            result: reduce(bridge::store_row_more(socket_dir, &continuation).await),
         },
         StoreRequest::Purchase(purchase) => StoreEvent::Purchase {
             purchase_id: purchase.purchase_id().to_owned(),
-            result: reduce(store_control::store_purchase(socket_dir, &purchase).await),
+            result: reduce(bridge::store_purchase(socket_dir, &purchase).await),
         },
         StoreRequest::Image(url) => {
             let path = match images {

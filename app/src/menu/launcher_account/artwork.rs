@@ -12,8 +12,8 @@ use client_ui::remote_images::{ImageDirectory, LAUNCHER_ART};
 use crossbeam_channel::Sender;
 
 use super::ARTWORK_BUDGET;
+use bridge::{Artwork, FeaturedServer, Home, Person, Profile};
 use launcher::menu::profile_achievements::visible_achievements;
-use protocol::launcher_control::{Artwork, FeaturedServer, Home, Person, Profile};
 
 /// Friends' gamerpics live apart so a long friends list cannot evict feed art.
 const PEOPLE_DIR: &str = "people";
@@ -274,7 +274,7 @@ mod tests {
             logo: art("https://a.test/logo", ""),
             background: art("https://a.test/bg", ""),
             screenshots: vec![art("https://a.test/shot", "")],
-            games: vec![protocol::launcher_control::FeaturedGame {
+            games: vec![bridge::FeaturedGame {
                 image: art("https://a.test/game", ""),
                 ..Default::default()
             }],
@@ -297,19 +297,17 @@ mod tests {
 
     #[test]
     fn profile_slots_cover_only_overview_achievements() {
-        let entry = |id: &str, locked: bool, order: Option<u32>| {
-            protocol::launcher_control::ProfileAchievement {
-                id: id.to_owned(),
-                image: art(&format!("https://a.test/{id}"), ""),
-                locked,
-                suggested_order: order,
-                ..Default::default()
-            }
+        let entry = |id: &str, locked: bool, order: Option<u32>| bridge::ProfileAchievement {
+            id: id.to_owned(),
+            image: art(&format!("https://a.test/{id}"), ""),
+            locked,
+            suggested_order: order,
+            ..Default::default()
         };
         let mut profile = Profile {
             gamerpic: art("https://a.test/pic", ""),
             avatar: art("", "/core/persona-avatar.img"),
-            achievements: Some(protocol::launcher_control::ProfileAchievements {
+            achievements: Some(bridge::ProfileAchievements {
                 entries: vec![entry("next", true, Some(1)), entry("hidden", true, None)],
                 ..Default::default()
             }),
@@ -330,8 +328,8 @@ mod tests {
         let images = feed_images(dir.path());
         let mut home = Home {
             persona_head: art("", "/core/persona-head.img"),
-            messages: vec![protocol::launcher_control::Message {
-                images: vec![protocol::launcher_control::MessageImage {
+            messages: vec![bridge::Message {
+                images: vec![bridge::MessageImage {
                     id: "tile".to_owned(),
                     url: "http://insecure.test/t.png".to_owned(),
                     path: String::new(),

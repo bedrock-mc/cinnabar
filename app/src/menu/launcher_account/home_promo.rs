@@ -5,12 +5,11 @@ use {super::*, launcher::menu::auth::AuthState};
 #[test]
 fn home_feed_preserves_promo_and_fallback_label() {
     let mut home = Home::default();
-    home.live_events
-        .push(protocol::launcher_control::LiveEvent {
-            caption_text: "Live now".into(),
-            route_to_servers: true,
-            ..Default::default()
-        });
+    home.live_events.push(bridge::LiveEvent {
+        caption_text: "Live now".into(),
+        route_to_servers: true,
+        ..Default::default()
+    });
     let card = menu_home(&home, 0).live_event.unwrap();
     assert_eq!(card.button_text, "gathering.button.liveEventFallback");
     assert_eq!(card.caption, "Live now");
@@ -39,7 +38,7 @@ fn snapshot_core_home_promo() {
         serde_json::from_slice::<Home>(&std::fs::read(path).unwrap()).unwrap()
     } else {
         Home {
-            live_events: vec![protocol::launcher_control::LiveEvent {
+            live_events: vec![bridge::LiveEvent {
                 button_text: "Learn More".into(),
                 caption_text: "Live now".into(),
                 route_to_servers: true,
