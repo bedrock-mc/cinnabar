@@ -184,6 +184,11 @@ impl ActorStore {
         let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            if let Some(mode) = feed.game_mode {
+                let mode = Some(protocol::GameModeUpdate::Explicit(mode));
+                self.local_view_dirty |= actor.player_game_mode != mode;
+                actor.player_game_mode = mode;
+            }
             // Adopt the player-list identity once it arrives so the skin resolves by uuid.
             if let ActorKind::Player {
                 uuid: current_uuid,
@@ -213,8 +218,9 @@ impl ActorStore {
             }
             return;
         }
-        let actor =
+        let mut actor =
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.actors.insert(runtime_id, actor);
         self.apply_pending_local_health(runtime_id);

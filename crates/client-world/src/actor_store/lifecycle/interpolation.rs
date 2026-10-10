@@ -166,6 +166,7 @@ impl ActorStore {
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
             let local_flying = self.local_flying;
+            let world_game_mode = self.world_default_game_mode;
             let local_hands = self.local_hands.clone();
             let local_main_metadata = self.local_main_metadata;
             let local_main_slot = self.local_main_slot;
@@ -286,6 +287,7 @@ impl ActorStore {
                     view_bobbing: is_local.then_some(local_view_bobbing),
                     is_local,
                     is_flying: is_local && local_flying,
+                    world_game_mode,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

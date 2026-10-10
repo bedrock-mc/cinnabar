@@ -122,6 +122,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
     store.exclude_remote_state_for(1);
     let mut feed = crate::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
         username: "Player".into(),

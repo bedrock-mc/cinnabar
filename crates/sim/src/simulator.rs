@@ -10,6 +10,7 @@ mod mode;
 #[cfg(test)]
 mod numeric_tests;
 mod scaffolding;
+mod spectator;
 mod state;
 mod travel;
 mod water;
@@ -170,6 +171,10 @@ impl Simulator {
             .ok_or(SimulationError::TickOverflow)?;
         if next.velocity.length_squared() < 1.0e-12 {
             next.velocity = Vec3::ZERO;
+        }
+
+        if input.spectator {
+            return spectator::tick(next, state, input, world.registry_identity());
         }
 
         if !input.jumping {
