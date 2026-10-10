@@ -13,3 +13,6 @@ update-manifest = { path = "../../crates/update-manifest" }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true
