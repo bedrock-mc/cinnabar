@@ -105,7 +105,11 @@ impl SettingsOptions {
         let mut changed = false;
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
             if group.contains(option.name) {
-                changed |= self.set(index, option.default);
+                if option.name == "render_distance" {
+                    changed |= self.values.remove(option.name).is_some();
+                } else {
+                    changed |= self.set(index, option.default);
+                }
             }
         }
         changed

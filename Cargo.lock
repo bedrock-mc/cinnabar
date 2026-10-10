@@ -638,6 +638,7 @@ version = "0.1.12"
 dependencies = [
  "acceptance",
  "anyhow",
+ "ash",
  "assets",
  "async-io",
  "bevy",

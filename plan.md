@@ -7090,3 +7090,15 @@ every texel a uniform integer width. Rounded edges and nearest sampling do not c
 that scale/weight gate. Source line metrics also retain sub-unit rounding from the
 reviewed files. Version-matched live text-raster evidence across all GUI scales,
 locale shaping, kerning, and the remaining per-glyph metric differences are open gates.
+
+## Device render-distance defaults
+
+Ordinary Video settings now choose their default from installed RAM and the
+selected GPU's dedicated memory. Explicit saved values win, and Video reset
+restores the device recommendation. Slider stops start at 5 and extend in
+one-chunk steps to the owner-chosen 255 maximum. See
+[the rules table](docs/reference/render-distance-default.md).
+
+Incomplete parity: experimental low-memory overrides, advanced graphics presets,
+and native VRAM probes on unsupported backends are not verified. These remain
+open and do not close a parity gate.

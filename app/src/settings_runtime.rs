@@ -1,4 +1,6 @@
+mod device_render_distance;
 mod render_distance;
+pub(crate) use device_render_distance::initialize_render_distance;
 pub(crate) use render_distance::apply_render_distance;
 
 use bevy::prelude::Resource;
