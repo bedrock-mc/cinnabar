@@ -158,10 +158,18 @@ func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := downstream.ClientData()
+	// The upstream login carries the serialized claims, so check those rather than the struct.
+	encoded, err := json.Marshal(downstream.ClientData())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data login.ClientData
+	if err := json.Unmarshal(encoded, &data); err != nil {
+		t.Fatal(err)
+	}
 	if data.DeviceOS != protocol.DeviceAndroid || data.DeviceModel != profile.Model || data.DeviceID != profile.ID ||
 		data.DefaultInputMode != packet.InputModeTouch || data.CurrentInputMode != packet.InputModeMouse {
-		t.Fatalf("claimed client data = %+v", data)
+		t.Fatalf("serialized login = %s", encoded)
 	}
 }
 
