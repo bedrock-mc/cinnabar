@@ -156,6 +156,23 @@ class CrossTargetTests(unittest.TestCase):
         self.assertNotEqual(plans[1]["prefix"], plans[2]["prefix"])
         self.assertEqual(plans[0]["paths"], "cache\nmodules")
 
+    def test_native_cache_retention_preserves_cross_targets(self):
+        """Regular native CI must not prune release caches built for explicit targets."""
+        root = Path("source").resolve()
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64"}
+        for language, settings, outputs in [
+            ("rust", {"CARGO_BUILD_TARGET": "x86_64-apple-darwin"}, ["rustc 1", "revision"]),
+            ("go", {"GOOS": "darwin", "GOARCH": "amd64"}, ["go version 1", "cache\nmodules", "revision"]),
+        ]:
+            with patch.object(cache, "command", side_effect=outputs * 2):
+                native = cache.plan(root, language, "ci", env)
+                cross = cache.plan(root, language, "ci", {**env, **settings})
+            entries = [
+                {"id": 1, "key": cross["key"], "ref": "refs/heads/dev", "created_at": "2026-01-01"},
+                {"id": 2, "key": native["key"], "ref": "refs/heads/dev", "created_at": "2026-01-02"},
+            ]
+            self.assertEqual(cache.superseded(entries, native["key"], native["bucket"], "refs/heads/dev"), [])
+
 
 class RetentionTests(unittest.TestCase):
     """Protect the replacement, other platforms, and concurrent newer saves."""
