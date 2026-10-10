@@ -196,12 +196,14 @@ impl ModeTracker {
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
         if intent.spectator {
+            self.sprinting =
+                self.sprint_trigger
+                    .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
             self.last_server_flying = intent.server_flying;
             self.fly_countdown = 0;
             self.fall_fly_ticks = 0;
             self.previous_feet = Some(observed.feet);
-            self.sprinting = observed.sprinting;
             self.sneaking = observed.sneaking;
             return Ok(ModeChoice {
                 mode: self.mode,
@@ -489,6 +491,38 @@ mod tests {
             pick(&mut tracker, ModeIntent::default(), grounded),
             MovementMode::Walking
         );
+    }
+
+    #[test]
+    fn spectator_forward_double_tap_starts_and_retains_sprint_without_terrain() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            spectator: true,
+            ..Default::default()
+        };
+        for (forward, sprinting) in [
+            (1.0, false),
+            (0.0, false),
+            (1.0, true),
+            (1.0, true),
+            (0.0, false),
+        ] {
+            let observed = ModeObservation {
+                move_forward: forward,
+                ..airborne()
+            };
+            let choice = tracker.select(intent, observed, &Unavailable).unwrap();
+            assert_eq!(choice.mode, MovementMode::Flying);
+            assert_eq!(choice.sprinting, sprinting);
+            tracker.record_controls(
+                sim::MovementInput {
+                    forward: f64::from(forward),
+                    mode: choice.mode,
+                    ..Default::default()
+                },
+                false,
+            );
+        }
     }
 
     fn pick(
