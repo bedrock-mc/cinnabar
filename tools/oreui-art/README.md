@@ -35,23 +35,19 @@ playback timing:
 
 An integration must use the declared frame dimensions and playback steps
 separately. Dividing sheet width by playback steps does not give the cell width.
-The artwork is prepared for review; this change does not wire it into the client.
+The client build embeds the manifest's images. Native control drawing supplies art that
+has no raster replacement; optional prepared panorama crops replace the scenery.
 
 ## Local comparison
 
-Only `compare.py` reads reference images. It uses them to validate dimensions and
-GIF timing and to build a side-by-side review, with every animation cell shown in
-order. It never supplies reference pixels to the drawing code. Both columns use
-the same nearest-neighbour display scale. The HTML file embeds all images and
-lets the reviewer select fit, 1×, 2×, or 3× views and search by image name or key.
+The offline UI gallery writes rendered screens to `CINNABAR_FORM_SNAPSHOT_DIR`.
+To compare three already captured sets, place matching PNG filenames in `game/`,
+`none/` and `new/` below an evidence directory outside every Git checkout, then run:
 
 ```sh
-python3 tools/oreui-art/compare.py \
-  --bundle /path/to/installed/hbui \
-  --output /path/outside/all/checkouts/oreui-review
+python3 tools/oreui-art/compare.py /path/to/evidence
 ```
 
-This writes `sheet.html` and numbered PNG pages. Comparison files contain game
-images and must never be committed or redistributed. The tool rejects output
-inside any Git checkout or the installed bundle. Source-location notes, the full
-coverage audit, and review findings belong in the private task report.
+This writes a self-contained `compare.html` and numbered PNG pages. It reads only
+those screenshots. Comparison files may contain game art and must never be committed
+or redistributed. Review findings belong in the private task report.

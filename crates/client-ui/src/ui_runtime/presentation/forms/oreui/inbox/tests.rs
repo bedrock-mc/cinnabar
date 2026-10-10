@@ -104,7 +104,6 @@ fn art_runtime() -> (UiPresentationRuntime, u16) {
             sprites: Arc::new(sprites),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         })
         .unwrap();
     (runtime, page)

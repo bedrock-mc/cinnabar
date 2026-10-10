@@ -100,9 +100,12 @@ pub fn snapshot_menu_with_catalog(
         eprintln!("skipping: UI carrier absent");
         return;
     };
-    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images() {
-        presentation.enable_oreui_originals(images).unwrap();
-    }
+    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
+    presentation
+        .enable_oreui_originals(crate::ui_runtime::oreui_assets::load_oreui_images(
+            &compiled,
+        ))
+        .unwrap();
     if let Some(catalog) = catalog {
         presentation
             .form_presentation

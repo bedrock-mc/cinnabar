@@ -1,4 +1,4 @@
-//! Native artwork preserves original corners while its edges and center stretch.
+//! Draws shipped sprites, animation cells and tinted alpha masks.
 
 use super::{Bounds, Canvas, Rgba, UiPresentationError, UiVisual};
 use crate::ui_runtime::oreui_assets::OreUiSprite;
@@ -32,7 +32,7 @@ impl Canvas<'_> {
         Some((originals.page.checked_add(sprite.page)?, sprite))
     }
 
-    /// Draws original installed pixels; false means the named artwork is unavailable.
+    /// Draws shipped original pixels; false means the named artwork is unavailable.
     pub(in super::super) fn sprite(
         &mut self,
         key: &str,
@@ -53,7 +53,7 @@ impl Canvas<'_> {
         Ok(true)
     }
 
-    /// Fits installed artwork inside a box without changing its aspect ratio.
+    /// Fits original artwork inside a box without changing its aspect ratio.
     pub(in super::super) fn fitted_sprite(
         &mut self,
         key: &str,
@@ -180,60 +180,6 @@ impl Canvas<'_> {
         self.push(b, visual)?;
         Ok(true)
     }
-
-    /// Source slices are top/right/bottom/left pixels; destination border widths are rem.
-    pub(in super::super) fn nine_slice(
-        &mut self,
-        key: &str,
-        b: Bounds,
-        slices: [u16; 4],
-        widths: [f32; 4],
-        fill: bool,
-        color: Rgba,
-    ) -> Result<bool, UiPresentationError> {
-        let Some((texture_page, sprite)) = self.native_sprite(key) else {
-            return Ok(false);
-        };
-        let [left, top, right, bottom] = sprite.bounds;
-        let [t, r, d, l] = slices;
-        if l + r > right - left || t + d > bottom - top {
-            return Ok(false);
-        }
-        let [mut t, mut r, mut d, mut l] = widths.map(|width| self.r(width).max(0.0));
-        let scale_x = ((b[2] - b[0]) / (l + r).max(f32::EPSILON)).min(1.0);
-        let scale_y = ((b[3] - b[1]) / (t + d).max(f32::EPSILON)).min(1.0);
-        l *= scale_x;
-        r *= scale_x;
-        t *= scale_y;
-        d *= scale_y;
-        let xs = [b[0], b[0] + l, b[2] - r, b[2]];
-        let ys = [b[1], b[1] + t, b[3] - d, b[3]];
-        let us = [left, left + slices[3], right - slices[1], right];
-        let vs = [top, top + slices[0], bottom - slices[2], bottom];
-        for y in 0..3 {
-            for x in 0..3 {
-                if !fill && x == 1 && y == 1 {
-                    continue;
-                }
-                if xs[x + 1] <= xs[x]
-                    || ys[y + 1] <= ys[y]
-                    || us[x + 1] <= us[x]
-                    || vs[y + 1] <= vs[y]
-                {
-                    continue;
-                }
-                self.push(
-                    [xs[x], ys[y], xs[x + 1], ys[y + 1]],
-                    UiVisual::Sprite {
-                        texture_page,
-                        uv: [us[x], vs[y], us[x + 1], vs[y + 1]],
-                        color,
-                    },
-                )?;
-            }
-        }
-        Ok(true)
-    }
 }
 
 #[cfg(test)]
@@ -247,7 +193,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     #[test]
-    fn native_nine_slice_preserves_corner_texels_and_mask_role_color() {
+    fn sprite_mask_preserves_its_role_color() {
         let sprite = OreUiSprite {
             page: 1,
             bounds: [3, 4, 15, 16],
@@ -260,7 +206,6 @@ mod tests {
                 sprites: sprites.clone(),
                 loading_frames: Default::default(),
                 animations: Default::default(),
-                source: None,
             },
             sprites,
             masks: HashMap::from([(
@@ -286,18 +231,6 @@ mod tests {
             0,
             Some(&originals),
         );
-        assert!(
-            canvas
-                .nine_slice(
-                    "native",
-                    [0.0, 0.0, 100.0, 80.0],
-                    [2, 2, 4, 2],
-                    [0.4, 0.4, 0.8, 0.4],
-                    true,
-                    [255; 4]
-                )
-                .unwrap()
-        );
         canvas.alpha = 0.5;
         assert!(
             canvas
@@ -315,10 +248,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(sprites.len(), 10);
-        assert_eq!(sprites[0], (11, [3, 4, 5, 6], [255; 4]));
-        assert_eq!(sprites[8], (11, [13, 12, 15, 16], [255; 4]));
-        assert_eq!(sprites[9], (11, [20, 30, 32, 42], [153, 153, 153, 100]));
+        assert_eq!(sprites, [(11, [20, 30, 32, 42], [153, 153, 153, 100])]);
     }
 
     #[test]
@@ -340,7 +270,6 @@ mod tests {
             )])),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         };
         let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
         let start = runtime.textures.dynamic_start();

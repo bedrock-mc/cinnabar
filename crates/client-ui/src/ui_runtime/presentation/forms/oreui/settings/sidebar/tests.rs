@@ -2,21 +2,15 @@ use super::*;
 use crate::menu::MenuScreen;
 use crate::ui_runtime::{
     oreui_assets::{
-        OreUiImages, OreUiPage, OreUiSprite, SETTINGS_ICON_HIGHLIGHT_IMAGE,
-        load_optional_oreui_images,
+        OreUiImages, OreUiPage, OreUiSprite, SETTINGS_ICON_HIGHLIGHT_IMAGE, shipped_oreui_images,
     },
     presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font},
 };
 use std::{collections::HashMap, sync::Arc};
 
 #[test]
-fn installed_settings_categories_use_their_full_native_icon_cells() {
-    let Some(images) = load_optional_oreui_images() else {
-        eprintln!(
-            "skipping installed_settings_categories_use_their_full_native_icon_cells: installed OreUI bundle unavailable"
-        );
-        return;
-    };
+fn shipped_settings_categories_use_their_full_icon_cells() {
+    let images = shipped_oreui_images();
     for key in SETTINGS_ICONS {
         let sprite = images
             .sprites
@@ -64,7 +58,6 @@ fn presentation() -> (UiPresentationRuntime, u16) {
             sprites: Arc::new(sprites),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         })
         .unwrap();
     (runtime, page)

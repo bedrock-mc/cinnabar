@@ -386,6 +386,18 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+
+## OreUI original artwork
+
+- OreUI embeds the original images in `assets/oreui/`, with generated key and filename
+  mappings from its manifest. It no longer discovers or reads an installed game's UI bundle.
+  Native buttons, tabs, switches and pixel icons remain the drawn fallback.
+- The optional `oreui-panoramas` carrier prepares eight profile banners and a world preview
+  from the fetched sample pack. Missing or corrupt carriers use shipped original scenery.
+- Incomplete: native visual parity is not claimed for the original artwork. Create World's
+  unsupported categories and the remaining screen behavior gates in [OreUI](docs/oreui.md)
+  remain open.
+
 ## OreUI Settings
 
 - Global Resources is an owner-requested design exception using expandable OreUI pack cards,

@@ -3,8 +3,9 @@
 Vanilla draws some screens with OreUI (a web UI bundle, `data/gui/dist/hbui`) instead of JSON-UI.
 Cinnabar uses the target's OreUI Settings layout, including its category sidebar and grouped
 controls. The other routes below retain their documented selection policy. OreUI is drawn in our
-own code with vanilla component geometry, states, spacing and type metrics. Installed runtime
-assets supply native images. Text uses shipped Cinnangles faces; Minecraft content is never
+own code with vanilla component geometry, states, spacing and type metrics. Shipped original
+art supplies icons and illustrations. Optional panorama crops come from the fetched sample pack.
+Text uses shipped Cinnangles faces; Minecraft content is never
 bundled or committed.
 
 OreUI body text uses Cinnangles Seven and headings use Cinnangles Ten, both derived from the
@@ -17,7 +18,7 @@ Full Unicode coverage, script shaping and small-text raster parity remain open g
 
 The client picks a tech stack per screen: a non-zero dev override wins (1 OreUI, 2 JSON-UI),
 then a preference option, then OreUI only when the screen's OreUI version is both selected
-and supported. Treatment toggles are true only when the service's treatment list names them, so they default off. The local install's `routes.json` lists screen routes.
+and supported. Treatment toggles are true only when the service's treatment list names them, so they default off. The screen policy is implemented in the client.
 
 | Screen | Route | Default | Cinnabar |
 | --- | --- | --- | --- |
@@ -45,7 +46,7 @@ remains necessary to close the parity gate.
 Global Resources is an owner-requested design exception: expandable OreUI pack cards,
 an immutable Vanilla Textures base card, staged priority controls, and a variant picker.
 Apply compares the staged stack with the last runtime acknowledgement. Imported artwork
-uses the existing bounded artwork loader; vanilla artwork is read from the installed bundle.
+uses the existing bounded artwork loader; the base pack card uses shipped original art.
 Expanded card details share equal interior gutters. Settings opened from a game keeps the
 world beneath its dimming overlay; launcher Settings keeps the title background.
 
@@ -85,8 +86,8 @@ choices retain independent selection state and stay lowered while selected. Swit
 100 ms, radio diamonds ease their selection and settings/Play/Inbox icon glimmers complete in 200 ms.
 Text fields use the shared caret blink. Newly inserted characters reveal in 75 ms with a small
 rise, sharing the final line layout; edit caret travel uses the same duration. Pointer and keyboard
-caret placement stays immediate. Play tabs load their native border images and category icons.
-Inbox uses native category faces, independent sidebar/message scrolling and illustrated,
+caret placement stays immediate. Play tabs draw their bevels natively and use shipped category icons.
+Inbox uses shipped category faces, independent sidebar/message scrolling and illustrated,
 category-specific empty cards. Its category changes animate only the message pane; message views,
 maintenance pages and deletion dialogs use the same finite transitions. Background dimming eases in 100 ms and out in 80 ms. World tabs animate their content;
 joining stages animate on semantic changes without replaying for download progress updates.
@@ -96,16 +97,21 @@ their native artwork. Live animation review remains open.
 
 ## Runtime artwork
 
-- An available installed bundle supplies its atlases, standalone artwork and animations at
-  runtime. `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` selects a bundle
-  explicitly. Native button faces use the original state-specific nine-slice images. Switches,
-  sliders, segmented controls and radio diamonds use their native role fills and bevel geometry.
+- `assets/oreui/manifest.json` maps screen keys to original PNG/GIF files. The client build
+  embeds the files and generates descriptors from that one manifest. No Minecraft install,
+  bundle discovery, or game-art path override is used. Buttons, tabs, switches and action
+  icons keep their native drawing; absent raster artwork also keeps its existing drawn fallback.
+- `make oreui-panoramas-assets` prepares the optional `oreui-panoramas` carrier from the
+  already fetched sample pack. It holds eight 960×540 profile banners and one world preview,
+  cropped from the horizontal panorama faces. Preparation bounds image input; runtime checks
+  framing, SHA-256 and decompressed size. Missing or invalid carriers use the original banners
+  and preview in `assets/oreui/`. Panorama crops and carriers are local game assets, never shipped
+  in source or committed.
 - Cinnangles Seven supplies body text and Cinnangles Ten supplies headings. The compiled
   carriers retain each face's em and vertical metrics for semantic sizes, line heights and
   letter spacing. The default HUD and JSON-UI font remains independently selectable.
-- Without a native bundle, drawn artwork remains a diagnostic fallback.
-  The renderer uses that artwork only when a runtime bundle is unavailable. This fallback does not
-  satisfy the native artwork parity gate. One rem is five GUI pixels; one texel is 0.2rem.
+- Original art is an intentional visual difference. It does not close a native artwork parity
+  gate. One rem is five GUI pixels; one texel is 0.2rem.
 
 Code: `crates/client-ui/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons,
 widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.rs`
@@ -142,7 +148,7 @@ widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.
 The PlayCover install can be launched normally from PlayCover to capture reference screenshots
 by hand; do not automate its UI, and keep captures out of git (see `AGENTS.md`).
 
-Create New World uses the installed preview and category art, solid form rows and the same native
+Create New World uses the prepared panorama preview and shipped category art, solid form rows and the same native
 choice faces as Settings. Sidebar/form tabs scroll independently and retain their surrounding
 screen during quick category changes. The world backend's unsupported categories, Hardcore and
 Realm creation remain disabled; the Realms action keeps the owner's quieter commerce treatment.

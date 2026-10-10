@@ -85,7 +85,7 @@ fn snapshot_settings_signing_in_and_progress() {
     snapshot_at(&player_runtime, &connecting, "flow-connecting-1", 1_350);
 }
 
-// The connecting screen advances the installed loader without rebuilding text
+// The connecting screen advances the shipped loader without rebuilding text
 // layouts or moving the status card.
 #[test]
 fn the_connecting_loader_animates_over_its_cached_layout() {
@@ -97,14 +97,8 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
         );
         return;
     };
-    let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
-        .filter(|images| !images.loading_frames.is_empty())
-    else {
-        eprintln!(
-            "skipping the_connecting_loader_animates_over_its_cached_layout: fixture unavailable; requires the installed OreUI loading animation"
-        );
-        return;
-    };
+    let images = crate::ui_runtime::oreui_assets::shipped_oreui_images();
+    assert!(!images.loading_frames.is_empty());
     let mut elapsed = 0_u64;
     let frames: Vec<_> = images
         .loading_frames
@@ -117,12 +111,12 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
         .collect();
     let first_frame = frames
         .first()
-        .expect("installed loading animation has positive frame durations");
+        .expect("shipped loading animation has positive frame durations");
     let first_sprite = first_frame.1;
     let later_frame = frames
         .iter()
         .find(|(_, sprite)| *sprite != first_sprite)
-        .expect("installed loading animation has distinct frames");
+        .expect("shipped loading animation has distinct frames");
     let page = presentation.textures.dynamic_start() as u16;
     presentation.enable_oreui_originals(images).unwrap();
     let mut view = crate::menu::MenuView::new(true, "Test".into());
@@ -151,7 +145,7 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
                     }
                     _ => None,
                 })
-                .expect("the selected installed loader frame is painted")
+                .expect("the selected shipped loader frame is painted")
         };
     let text_layouts = |presentation: &super::super::UiPresentationRuntime| {
         super::pack_harness::menu_nodes(presentation)
@@ -202,7 +196,7 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
     assert_ne!(
         (uvs(&first), pages(&first)),
         (uvs(&later), pages(&later)),
-        "another frame of the installed loader"
+        "another frame of the shipped loader"
     );
 }
 
@@ -539,7 +533,7 @@ fn snapshot_oreui_art_gallery() {
         mobs_defeated: Some("42".into()),
         distance_travelled: Some("54321".into()),
     });
-    for index in 0..8 {
+    for index in 0..assets::oreui_panorama::BANNER_COUNT {
         profile.feeds.profile.xuid = index.to_string();
         shot(&profile, &format!("profile-overview-{index}"));
     }

@@ -69,22 +69,11 @@ fn world_sidebar_and_form_have_solid_enclosing_panels() {
 }
 
 #[test]
-fn installed_create_world_draws_its_preview_and_native_category_art() {
+fn create_world_draws_its_shipped_preview_and_category_art() {
     use crate::ui_runtime::oreui_assets::{
-        WORLD_CATEGORY_ICONS, WORLD_PREVIEW, load_optional_oreui_images,
+        WORLD_CATEGORY_ICONS, WORLD_PREVIEW, shipped_oreui_images,
     };
-    let Some(images) = load_optional_oreui_images() else {
-        eprintln!(
-            "skipping installed_create_world_draws_its_preview_and_native_category_art: installed OreUI bundle unavailable"
-        );
-        return;
-    };
-    if !images.contains(WORLD_PREVIEW) {
-        eprintln!(
-            "skipping installed_create_world_draws_its_preview_and_native_category_art: native world preview unavailable"
-        );
-        return;
-    }
+    let images = shipped_oreui_images();
     assert!(
         images.sprites.contains_key(WORLD_PREVIEW),
         "the preview must be resident before opening a menu"
@@ -110,7 +99,7 @@ fn installed_create_world_draws_its_preview_and_native_category_art() {
     let originals = runtime.form_presentation.oreui_originals.as_ref().unwrap();
     for key in [WORLD_PREVIEW].into_iter().chain(WORLD_CATEGORY_ICONS) {
         let sprite = originals.sprites[key];
-        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite {texture_page, uv, ..} if *texture_page == originals.page + sprite.page && *uv == sprite.bounds)), "missing installed world art {key}");
+        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite {texture_page, uv, ..} if *texture_page == originals.page + sprite.page && *uv == sprite.bounds)), "missing shipped world art {key}");
     }
 }
 

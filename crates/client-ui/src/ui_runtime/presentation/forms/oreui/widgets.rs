@@ -2,7 +2,6 @@
 //! solid buttons (elevated, dropping 0.4rem when pressed), panels, dividers,
 //! list rows, modal menu items, solid tabs, text fields and segmented controls.
 
-mod art;
 mod choice;
 pub(super) use choice::{choice, choice_focus, choice_height};
 
@@ -165,7 +164,7 @@ pub(super) fn button_face(
     };
     let role = canvas.role(role);
     let motion = canvas.feedback(state, enabled, false, Kind::Button);
-    // Menus art draws pressed and (unhovered) focused faces from their own nine-slices.
+    // Menu buttons retain their pressed and unhovered focus border roles.
     let active = if canvas.bundle == Bundle::Menus {
         motion.press + (1.0 - motion.press) * motion.focus * (1.0 - motion.hover)
     } else {
@@ -179,15 +178,6 @@ pub(super) fn button_face(
         b[2],
         b[3],
     ];
-    if art::elevated_motion(canvas, b, variant, state, enabled, motion)? {
-        return canvas.text_centred(
-            label,
-            [outer[0], outer[1], outer[2], outer[3] - shadow],
-            variant.label(),
-            role.text,
-            matches!(variant, Variant::Hero) && enabled,
-        );
-    }
     canvas.fill(
         outer,
         mix(role.border, canvas.appearance.surface(BORDER), active),

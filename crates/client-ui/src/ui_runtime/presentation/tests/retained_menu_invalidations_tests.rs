@@ -129,7 +129,6 @@ fn install_ping_cells(presentation: &mut UiPresentationRuntime) {
             sprites: Arc::new(sprites),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         })
         .unwrap();
 }
