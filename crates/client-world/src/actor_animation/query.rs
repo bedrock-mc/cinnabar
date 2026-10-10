@@ -88,10 +88,11 @@ pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 const FLAG_TAMED: u32 = 28;
 
-const INTEGER_QUERIES: [(&str, u32); 8] = [
+const INTEGER_QUERIES: [(&str, u32); 9] = [
     ("fuse_time", 55),
     ("invulnerable_ticks", 48),
     ("mark_variant", 43),
+    ("max_trade_tier", 102),
     ("skin_id", 104),
     ("structural_integrity", 1),
     ("swelling_dir", 21),
@@ -148,6 +149,8 @@ pub(super) struct QueryInputs<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// Seconds since the controller state being evaluated was entered.
+    pub(super) state_time: f32,
     pub(super) bones: &'a [RuntimeBone],
     pub(super) bone_names: &'a [Box<str>],
 }
@@ -373,6 +376,11 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
+        // World position on one axis (0 = x, 1 = y, 2 = z), the point camera queries measure from.
+        "position" => argument(0).map_or(0.0, |axis| match axis as i32 {
+            axis @ 0..=2 => input.position[axis as usize],
+            _ => 0.0,
+        }),
         "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
         }),
@@ -493,6 +501,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Only the one-argument forms carry a value; the bare forms read as zero.
         "head_y_rotation" => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         "head_x_rotation" => argument(0).map_or(0.0, |_| input.pitch),
+        "state_time" => evaluator.state_time,
         "all_animations_finished" => truth(evaluator.finished.0),
         "any_animation_finished" => truth(evaluator.finished.1),
         "is_item_equipped" => truth(hand_item(context, arguments.first()).is_some()),

@@ -66,6 +66,7 @@ impl SwellSampling {
                                     | "query.anim_time"
                                     | "query.all_animations_finished"
                                     | "query.any_animation_finished"
+                                    | "query.state_time"
                             )
                         })
                 {

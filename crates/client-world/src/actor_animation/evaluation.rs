@@ -647,6 +647,8 @@ pub(super) struct Evaluator<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// Seconds since the controller state being evaluated was entered.
+    pub(super) state_time: f32,
     /// The posed skeleton's bones and lowercase names, for bone queries.
     pub(super) bones: &'a [RuntimeBone],
     pub(super) bone_names: &'a [Box<str>],
@@ -935,6 +937,7 @@ impl Evaluator<'_> {
             swell_amount: self.swell_amount,
             life_tick: self.life_tick,
             finished: self.finished,
+            state_time: self.state_time,
             bones: self.bones,
             bone_names: self.bone_names,
         };

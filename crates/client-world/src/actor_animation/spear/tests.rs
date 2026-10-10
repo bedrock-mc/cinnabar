@@ -141,6 +141,7 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
                 swell_amount: None,
                 life_tick: 0,
                 finished: (false, false),
+                state_time: 0.0,
                 bones: &[],
                 bone_names: &[],
             },

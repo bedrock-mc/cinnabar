@@ -516,6 +516,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
                     swell_amount: None,
                     life_tick: 10,
                     finished: (false, false),
+                    state_time: 0.0,
                     bones: &[],
                     bone_names: &[],
                 },

@@ -382,6 +382,14 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## Controller state time and pack queries
+
+- `query.state_time`, `query.max_trade_tier` and `query.position` now compile.
+  Unsupported queries had dropped whole controller transitions and script
+  statements, leaving looping weapon recoil states and misplacing scripted markers.
+- Incomplete: `query.state_time` advances in actor ticks, like the existing
+  finished-animation queries, rather than per rendered frame.
+
 ## OreUI Settings
 
 - Global Resources is an owner-requested design exception using expandable OreUI pack cards,

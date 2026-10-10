@@ -110,6 +110,7 @@ fn query_flag(name: &str) -> u64 {
                 swell_amount: None,
                 life_tick: 0,
                 finished: (false, false),
+                state_time: 0.0,
                 bones: &[],
                 bone_names: &[],
             };

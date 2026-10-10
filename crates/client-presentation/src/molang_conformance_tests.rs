@@ -270,3 +270,51 @@ fn a_state_leaves_once_its_clips_finish_and_the_next_state_starts_its_clip_at_ze
     world.advance_actor_interpolation_ticks(1);
     assert!((authored_x_angle(&world, &entities, "hand") - 20.0).abs() < 1.0e-3);
 }
+
+#[test]
+fn a_looping_state_leaves_once_its_state_time_passes_the_threshold() {
+    let pack = write_pack(
+        "recoil",
+        vec![
+            (
+                "entity/recoil.entity.json",
+                entity_file(
+                    "recoil",
+                    serde_json::json!({"animate":["main"]}),
+                    serde_json::json!({"main":"controller.animation.recoil",
+                        "kick":"animation.recoil.kick"}),
+                ),
+            ),
+            (
+                "models/entity/recoil.geo.json",
+                geometry_file(
+                    "recoil",
+                    vec![serde_json::json!({"name":"barrel","pivot":[0,0,0]})],
+                ),
+            ),
+            (
+                "animations/recoil.animation.json",
+                serde_json::json!({"format_version":"1.8.0","animations":{
+                    "animation.recoil.kick":{"loop":true,"animation_length":0.05,
+                        "bones":{"barrel":{"rotation":[10.0,0.0,0.0]}}}}}),
+            ),
+            (
+                "animation_controllers/recoil.animation_controllers.json",
+                serde_json::json!({"format_version":"1.10.0","animation_controllers":{
+                    "controller.animation.recoil":{"initial_state":"kick","states":{
+                        "kick":{"animations":["kick"],
+                            "transitions":[{"rest":"q.state_time >= 0.15"}]},
+                        "rest":{}}}}}),
+            ),
+            (
+                "render_controllers/recoil.render_controllers.json",
+                render_file("recoil"),
+            ),
+        ],
+    );
+    let (mut world, entities) = spawned("recoil", &pack);
+    world.advance_actor_interpolation_ticks(1);
+    assert!((authored_x_angle(&world, &entities, "barrel") - 10.0).abs() < 1.0e-3);
+    world.advance_actor_interpolation_ticks(5);
+    assert!(authored_x_angle(&world, &entities, "barrel").abs() < 1.0e-3);
+}

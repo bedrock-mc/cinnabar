@@ -321,6 +321,8 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 } else {
                     self.finished(state_index, entered_tick)?
                 },
+                state_time: self.evaluator.anim_tick.saturating_sub(entered_tick) as f32
+                    * ACTOR_TICK_DURATION.as_secs_f32(),
                 ..*self.evaluator
             };
             let mut target = None;
@@ -376,6 +378,10 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 .get(controller.first_state as usize + target as usize)
                 .ok_or(EvalError::Invalid)?;
             if let Some(script) = entered.on_entry {
+                let evaluator = Evaluator {
+                    state_time: 0.0,
+                    ..evaluator
+                };
                 evaluator.run(script as usize, self.variables, 0.0, self.budget)?;
             }
             if worn {
