@@ -194,7 +194,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let surface = Surface {
-            public_only: false,
+            https_only: false,
+            public_hosts: false,
             ..STORE_ART
         };
         let worker =

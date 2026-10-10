@@ -2,14 +2,15 @@
 //! their URL and evicted least recently used beyond the surface's file and byte bounds.
 
 use std::{
+    collections::{HashMap, VecDeque},
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use sha2::{Digest, Sha256};
@@ -17,10 +18,14 @@ use tokio::sync::Semaphore;
 
 use super::{Surface, client, download, image_extension};
 
-/// Downloads in flight at once per directory.
+/// Downloads in flight at once per folder, across every cache instance using it.
 const MAX_IN_FLIGHT: usize = 8;
-/// Callers waiting for a download slot; later ones are refused rather than queued.
+/// Callers waiting for a download slot per folder; later ones are refused rather than queued.
 const MAX_WAITING: usize = 256;
+/// How long a failed URL is answered from memory before it is downloaded again.
+const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
+/// Failed URLs remembered per folder; the oldest are forgotten first.
+const MAX_FAILED: usize = 256;
 /// Extensions a signature-named file may carry.
 const EXTENSIONS: [&str; 4] = [".png", ".jpg", ".gif", ".bmp"];
 
@@ -33,46 +38,136 @@ struct Inner {
     dir: PathBuf,
     surface: Surface,
     client: Option<reqwest::Client>,
+    folder: Arc<Folder>,
+}
+
+/// State every cache instance on one folder shares within this process.
+struct Folder {
     slots: Semaphore,
     waiting: AtomicUsize,
-    /// Orders publication and eviction within this process.
+    /// Orders publication and eviction.
     writes: Mutex<()>,
+    failed: Mutex<Failures>,
+}
+
+/// Recently failed URLs, so a dead host is not asked again on every feed round.
+#[derive(Default)]
+struct Failures {
+    at: HashMap<String, Instant>,
+    order: VecDeque<String>,
+}
+
+impl Failures {
+    fn recent(&mut self, url: &str) -> bool {
+        match self.at.get(url) {
+            Some(at) if at.elapsed() < RETRY_AFTER => true,
+            Some(_) => {
+                self.at.remove(url);
+                self.order.retain(|old| old != url);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn record(&mut self, url: &str) {
+        if self.at.insert(url.to_owned(), Instant::now()).is_none() {
+            self.order.push_back(url.to_owned());
+        }
+        while self.order.len() > MAX_FAILED {
+            if let Some(oldest) = self.order.pop_front() {
+                self.at.remove(&oldest);
+            }
+        }
+    }
+}
+
+/// The shared state for `dir`, created on first use.
+fn folder(dir: &Path) -> Arc<Folder> {
+    static FOLDERS: OnceLock<Mutex<HashMap<PathBuf, Arc<Folder>>>> = OnceLock::new();
+    let mut folders = FOLDERS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let folder = folders.entry(dir.to_path_buf()).or_insert_with(|| {
+        Arc::new(Folder {
+            slots: Semaphore::new(MAX_IN_FLIGHT),
+            waiting: AtomicUsize::new(0),
+            writes: Mutex::new(()),
+            failed: Mutex::new(Failures::default()),
+        })
+    });
+    Arc::clone(folder)
 }
 
 impl ImageDirectory {
     /// A cache rooted at `dir`, created on first download.
     pub fn new(dir: PathBuf, surface: Surface) -> Self {
         Self(Arc::new(Inner {
+            folder: folder(&dir),
             dir,
             client: client(&surface),
             surface,
-            slots: Semaphore::new(MAX_IN_FLIGHT),
-            waiting: AtomicUsize::new(0),
-            writes: Mutex::new(()),
         }))
     }
 
-    /// The cached file for `url`, downloading it when absent; `None` for a refused URL,
-    /// a failed download or a payload that is not a PNG, JPEG, GIF or BMP.
+    /// A cache whose downloads go through `client`, so tests can substitute its resolver.
+    #[cfg(test)]
+    fn with_client(dir: PathBuf, surface: Surface, client: Option<reqwest::Client>) -> Self {
+        Self(Arc::new(Inner {
+            folder: folder(&dir),
+            dir,
+            client,
+            surface,
+        }))
+    }
+
+    /// The cached file for `url`, downloading it when absent; `None` for a refused URL, a
+    /// payload that is not a PNG, JPEG, GIF or BMP, or a download that failed recently.
     pub async fn fetch(&self, url: &str) -> Option<PathBuf> {
         let inner = &self.0;
-        if !inner.surface.accepts(url) {
-            return None;
-        }
-        let stem = inner.dir.join(hex(&Sha256::digest(url.as_bytes())));
+        let stem = self.stem(url)?;
         if let Some(path) = self.cached(&stem) {
             return Some(path);
         }
-        let waiting = Waiting::enter(&inner.waiting)?;
-        let _slot = inner.slots.acquire().await.ok()?;
+        if self.failed_recently(url) {
+            return None;
+        }
+        let waiting = Waiting::enter(&inner.folder.waiting)?;
+        let _slot = inner.folder.slots.acquire().await.ok()?;
         drop(waiting);
         // Another caller may have stored it while this one waited.
         if let Some(path) = self.cached(&stem) {
             return Some(path);
         }
-        let body = download(inner.client.as_ref()?, &inner.surface, url, true).await?;
-        let extension = image_extension(&body)?;
-        self.store(&stem, inner.surface.extension.unwrap_or(extension), &body)
+        let stored = match download(inner.client.as_ref()?, &inner.surface, url, true).await {
+            Some(body) => image_extension(&body).and_then(|extension| {
+                self.store(&stem, inner.surface.extension.unwrap_or(extension), &body)
+            }),
+            None => None,
+        };
+        if stored.is_none() {
+            lock(&inner.folder.failed).record(url);
+        }
+        stored
+    }
+
+    /// The file already cached for `url`, without touching the network.
+    pub fn cached_path(&self, url: &str) -> Option<PathBuf> {
+        self.cached(&self.stem(url)?)
+    }
+
+    /// Whether `url` failed within [`RETRY_AFTER`], so fetching it now would return `None`.
+    pub fn failed_recently(&self, url: &str) -> bool {
+        lock(&self.0.folder.failed).recent(url)
+    }
+
+    /// Where an accepted URL's file lives, without its extension.
+    fn stem(&self, url: &str) -> Option<PathBuf> {
+        self.0
+            .surface
+            .accepts(url)
+            .then(|| self.0.dir.join(hex(&Sha256::digest(url.as_bytes()))))
     }
 
     /// Fetches every URL with at most [`MAX_IN_FLIGHT`] downloads running, in input order;
@@ -101,7 +196,7 @@ impl ImageDirectory {
 
     /// Removes the least recently used files beyond the surface's bounds.
     pub fn prune(&self) {
-        let _writes = self.0.writes.lock().unwrap_or_else(|p| p.into_inner());
+        let _writes = lock(&self.0.folder.writes);
         self.evict();
     }
 
@@ -132,7 +227,7 @@ impl ImageDirectory {
     /// Publishes `body` atomically under `stem`, then enforces the directory bounds.
     fn store(&self, stem: &Path, extension: &str, body: &[u8]) -> Option<PathBuf> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let _writes = self.0.writes.lock().unwrap_or_else(|p| p.into_inner());
+        let _writes = lock(&self.0.folder.writes);
         create_private_dir(&self.0.dir).ok()?;
         let temporary = self.0.dir.join(format!(
             ".image-{}-{}",
@@ -198,6 +293,10 @@ impl Drop for Waiting<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 fn with_extension(stem: &Path, extension: &str) -> PathBuf {

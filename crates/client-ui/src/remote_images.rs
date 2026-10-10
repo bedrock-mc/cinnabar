@@ -2,13 +2,10 @@
 //! Marketplace artwork persist on disk. Every surface downloads through the same policy-checked
 //! client and bounded body reader.
 
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use reqwest::{StatusCode, redirect::Policy};
+use server_experience::fetch::public_address;
 use url::{Host, Url};
 
 mod disk;
@@ -33,8 +30,10 @@ pub struct Surface {
     pub user_agent: Option<&'static str>,
     /// Fixed file extension; `None` names files by their image signature.
     pub extension: Option<&'static str>,
-    /// HTTPS only, without credentials, to public addresses only.
-    pub public_only: bool,
+    /// HTTPS only, without embedded credentials.
+    pub https_only: bool,
+    /// Public addresses only: hosts must resolve, and IP literals must be, outside local networks.
+    pub public_hosts: bool,
 }
 
 /// Server form button images, as the vanilla client fetches them.
@@ -47,7 +46,8 @@ pub const FORM_IMAGES: Surface = Surface {
     timeout: Duration::from_secs(10),
     user_agent: None,
     extension: None,
-    public_only: false,
+    https_only: false,
+    public_hosts: false,
 };
 
 /// Featured, Home, Profile and friends artwork from the account's services.
@@ -60,7 +60,8 @@ pub const LAUNCHER_ART: Surface = Surface {
     timeout: Duration::from_secs(8),
     user_agent: Some("Cinnabar/1.0"),
     extension: Some(".img"),
-    public_only: true,
+    https_only: true,
+    public_hosts: true,
 };
 
 /// Marketplace offer thumbnails and key art.
@@ -73,7 +74,8 @@ pub const STORE_ART: Surface = Surface {
     timeout: Duration::from_secs(20),
     user_agent: Some("libhttpclient/1.0.0.0"),
     extension: None,
-    public_only: true,
+    https_only: true,
+    public_hosts: true,
 };
 
 impl Surface {
@@ -85,41 +87,18 @@ impl Surface {
         let Ok(url) = Url::parse(raw) else {
             return false;
         };
-        if !self.public_only {
-            return matches!(url.scheme(), "http" | "https");
-        }
+        let scheme = if self.https_only {
+            url.scheme() == "https" && url.username().is_empty() && url.password().is_none()
+        } else {
+            matches!(url.scheme(), "http" | "https")
+        };
         let host = match url.host() {
             Some(Host::Domain(domain)) => !domain.is_empty(),
-            Some(Host::Ipv4(ip)) => public_ip(ip.into()),
-            Some(Host::Ipv6(ip)) => public_ip(ip.into()),
+            Some(Host::Ipv4(ip)) => !self.public_hosts || public_address(ip.into()),
+            Some(Host::Ipv6(ip)) => !self.public_hosts || public_address(ip.into()),
             None => false,
         };
-        url.scheme() == "https" && host && url.username().is_empty() && url.password().is_none()
-    }
-}
-
-/// Whether an address is reachable outside local networks.
-fn public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            !(ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || ip.is_broadcast()
-                || ip.octets()[0] == 0)
-        }
-        IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
-            Some(mapped) => public_ip(mapped.into()),
-            None => {
-                !(ip.is_loopback()
-                    || ip.is_unspecified()
-                    || ip.is_multicast()
-                    || ip.is_unique_local()
-                    || ip.is_unicast_link_local())
-            }
-        },
+        scheme && host
     }
 }
 
@@ -136,7 +115,8 @@ impl reqwest::dns::Resolve for PublicResolver {
                 .await
                 .map_err(|error| -> ResolveError { Box::new(error) })?
                 .collect();
-            if addresses.is_empty() || !addresses.iter().all(|address| public_ip(address.ip())) {
+            if addresses.is_empty() || !addresses.iter().all(|address| public_address(address.ip()))
+            {
                 return Err(ResolveError::from("image host is not public"));
             }
             Ok::<reqwest::dns::Addrs, ResolveError>(Box::new(addresses.into_iter()))
@@ -146,6 +126,14 @@ impl reqwest::dns::Resolve for PublicResolver {
 
 /// A client enforcing `surface`'s timeout, agent, redirect bound and address policy.
 pub(crate) fn client(surface: &Surface) -> Option<reqwest::Client> {
+    client_with(surface, Arc::new(PublicResolver))
+}
+
+/// [`client`] with the resolver public hosts go through; tests substitute one.
+fn client_with<R: reqwest::dns::Resolve + 'static>(
+    surface: &Surface,
+    resolver: Arc<R>,
+) -> Option<reqwest::Client> {
     let checked = *surface;
     let mut builder = reqwest::Client::builder()
         .timeout(surface.timeout)
@@ -161,9 +149,9 @@ pub(crate) fn client(surface: &Surface) -> Option<reqwest::Client> {
     if let Some(agent) = surface.user_agent {
         builder = builder.user_agent(agent);
     }
-    if surface.public_only {
+    if surface.public_hosts {
         // A proxy would resolve the host itself, past the public-address check.
-        builder = builder.dns_resolver(Arc::new(PublicResolver)).no_proxy();
+        builder = builder.dns_resolver(resolver).no_proxy();
     }
     builder.build().ok()
 }

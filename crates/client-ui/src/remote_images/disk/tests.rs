@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use super::super::{FORM_IMAGES, LAUNCHER_ART, STORE_ART, public_ip};
+use super::super::{FORM_IMAGES, LAUNCHER_ART, STORE_ART, client_with};
 use super::*;
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
@@ -13,7 +13,8 @@ const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
 /// A loopback surface: the launcher policy without the public-address rule.
 fn local(surface: Surface) -> Surface {
     Surface {
-        public_only: false,
+        https_only: false,
+        public_hosts: false,
         ..surface
     }
 }
@@ -288,12 +289,130 @@ fn waiting_callers_are_bounded() {
     assert!(Waiting::enter(&count).is_some());
 }
 
+/// Resolves every host to loopback, as a hostile DNS answer would.
+struct Loopback;
+
+impl reqwest::dns::Resolve for Loopback {
+    fn resolve(&self, _: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async {
+            let loopback = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
+            Ok::<reqwest::dns::Addrs, Box<dyn std::error::Error + Send + Sync>>(Box::new(
+                std::iter::once(loopback),
+            ))
+        })
+    }
+}
+
+/// Whether anything connected to `listener` so far.
+fn contacted(listener: &TcpListener) -> bool {
+    listener.set_nonblocking(true).unwrap();
+    listener.accept().is_ok()
+}
+
+// The deleted Go dialer refused names resolving inward; the resolver must keep doing so.
 #[test]
-fn public_surfaces_accept_only_https_without_credentials_to_public_hosts() {
+fn a_public_surface_never_connects_to_a_host_resolving_to_loopback() {
+    let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), LAUNCHER_ART);
+    let url = format!("https://localhost:{port}/art.png");
+    assert!(LAUNCHER_ART.accepts(&url));
+    assert_eq!(runtime().block_on(cache.fetch(&url)), None);
+    assert!(!contacted(&listener), "connected to a loopback host");
+}
+
+// A public first hop must not redirect a download onto a local address.
+#[test]
+fn a_public_surface_never_follows_a_redirect_to_a_private_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = TcpListener::bind("127.0.0.1:0").unwrap();
+    let target = format!("http://{}/private.png", inner.local_addr().unwrap());
+    let outer = serve(Duration::ZERO, move |_| {
+        ("302 Found", format!("Location: {target}\r\n"), Vec::new())
+    });
+    let port = outer.base.rsplit(':').next().unwrap().to_owned();
+    // Plain HTTP so the fixture needs no certificate; the address rules are the public ones.
+    let surface = Surface {
+        https_only: false,
+        ..LAUNCHER_ART
+    };
+    let client = client_with(&surface, Arc::new(Loopback));
+    let cache = ImageDirectory::with_client(dir.path().to_path_buf(), surface, client);
+    let url = format!("http://public.example.test:{port}/art.png");
+    assert_eq!(runtime().block_on(cache.fetch(&url)), None);
+    assert_eq!(
+        outer.requests.load(Ordering::SeqCst),
+        1,
+        "first hop not served"
+    );
+    assert!(
+        !contacted(&inner),
+        "followed a redirect to a private address"
+    );
+}
+
+// A dead host was asked again on every feed round; failures are now remembered for a while.
+#[test]
+fn failed_urls_wait_before_downloading_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = serve(Duration::ZERO, |_| {
+        ("200 OK", String::new(), b"nope".to_vec())
+    });
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(LAUNCHER_ART));
+    let url = format!("{}/broken", server.base);
+    let runtime = runtime();
+    assert_eq!(runtime.block_on(cache.fetch(&url)), None);
+    assert!(cache.failed_recently(&url));
+    assert_eq!(runtime.block_on(cache.fetch(&url)), None);
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
+    lock(&cache.0.folder.failed)
+        .at
+        .insert(url.clone(), Instant::now() - RETRY_AFTER);
+    assert_eq!(runtime.block_on(cache.fetch(&url)), None);
+    assert_eq!(server.requests.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn remembered_failures_are_bounded() {
+    let mut failures = Failures::default();
+    for index in 0..MAX_FAILED + 5 {
+        failures.record(&format!("https://a.test/{index}"));
+    }
+    assert_eq!(failures.at.len(), MAX_FAILED);
+    assert!(!failures.recent("https://a.test/0"));
+    assert!(failures.recent(&format!("https://a.test/{}", MAX_FAILED + 4)));
+}
+
+// The download bound was per instance, while several workers share one folder.
+#[test]
+fn instances_on_one_folder_share_its_download_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = ImageDirectory::new(dir.path().join("x"), LAUNCHER_ART);
+    let b = ImageDirectory::new(dir.path().join("x"), LAUNCHER_ART);
+    let other = ImageDirectory::new(dir.path().join("y"), LAUNCHER_ART);
+    assert!(Arc::ptr_eq(&a.0.folder, &b.0.folder));
+    assert!(!Arc::ptr_eq(&a.0.folder, &other.0.folder));
+}
+
+#[test]
+fn cached_paths_never_touch_the_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = image_server();
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(LAUNCHER_ART));
+    let url = format!("{}/logo", server.base);
+    assert_eq!(cache.cached_path(&url), None);
+    let fetched = runtime().block_on(cache.fetch(&url));
+    assert_eq!(cache.cached_path(&url), fetched);
+    assert_eq!(server.requests.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn public_surfaces_refuse_special_use_addresses() {
     for url in [
         "https://cdn.example.test/a.png",
-        "https://93.184.216.34/a.png",
-        "https://[2606:2800:220:1::1]/a.png",
+        "https://8.8.8.8/a.png",
+        "https://[2606:4700::1111]/a.png",
     ] {
         assert!(LAUNCHER_ART.accepts(url), "{url} refused");
     }
@@ -303,11 +422,16 @@ fn public_surfaces_accept_only_https_without_credentials_to_public_hosts() {
         "https://user@cdn.example.test/a.png",
         "https://127.0.0.1/a.png",
         "https://10.0.0.8/a.png",
-        "https://192.168.1.2/a.png",
         "https://169.254.1.1/a.png",
+        "https://100.64.1.1/a.png",
+        "https://198.18.0.1/a.png",
+        "https://192.0.0.1/a.png",
+        "https://203.0.113.5/a.png",
         "https://[::1]/a.png",
         "https://[fd00::1]/a.png",
         "https://[::ffff:127.0.0.1]/a.png",
+        "https://[2002::1]/a.png",
+        "https://[64:ff9b::1]/a.png",
         "file:///etc/passwd",
         "not a url",
     ] {
@@ -316,22 +440,4 @@ fn public_surfaces_accept_only_https_without_credentials_to_public_hosts() {
     assert!(FORM_IMAGES.accepts("http://127.0.0.1/a.png"));
     assert!(!FORM_IMAGES.accepts("ftp://example.test/a.png"));
     assert!(!STORE_ART.accepts(&format!("https://cdn.example.test/{}", "a".repeat(1024))));
-}
-
-#[test]
-fn only_public_addresses_resolve_for_public_surfaces() {
-    for ip in ["8.8.8.8", "2606:4700::1111"] {
-        assert!(public_ip(ip.parse().unwrap()), "{ip}");
-    }
-    for ip in [
-        "127.0.0.1",
-        "0.1.2.3",
-        "172.16.0.1",
-        "224.0.0.1",
-        "255.255.255.255",
-        "fe80::1",
-        "::",
-    ] {
-        assert!(!public_ip(ip.parse().unwrap()), "{ip}");
-    }
 }
