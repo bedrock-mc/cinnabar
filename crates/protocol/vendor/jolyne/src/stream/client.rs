@@ -47,8 +47,9 @@ use crate::valentine::{
     McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
 };
 
-// Login has no wall-clock deadline: proxies answer only after their own upstream login and pack
-// downloads, so transport errors and dropping the join are the exits, as in vanilla.
+// Vanilla drops a join whose ResourcePacksInfo hasn't arrived within 5m. The handshake stays
+// unbounded: proxies answer it only after their own upstream login and pack downloads.
+const RESOURCE_PACKS_INFO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// Bounds the drain that surfaces a disconnect arriving with a failed startup write.
 const STARTUP_WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
@@ -379,7 +380,8 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
 
     /// Helper: Orchestrates the entire login sequence.
     ///
-    /// Returns the stream in Play state and the captured [`GameData`]; no phase times out.
+    /// Returns the stream in Play state and the captured [`GameData`]; only the ResourcePacksInfo
+    /// wait times out.
     pub async fn join(
         self,
         config: ClientHandshakeConfig,
@@ -1536,6 +1538,38 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn resource_packs_info_wait_times_out_after_5m() {
+        let stream = BedrockStream {
+            transport: BedrockTransport::new(PendingTransport),
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData,
+        };
+        let mut packs = std::pin::pin!(stream.handle_packs());
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
+                .await
+                .is_pending(),
+            "ResourcePacksInfo wait must start before time advances"
+        );
+        tokio::time::advance(RESOURCE_PACKS_INFO_TIMEOUT - std::time::Duration::from_secs(1)).await;
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(packs.as_mut().poll(cx)))
+                .await
+                .is_pending(),
+            "ResourcePacksInfo wait must stay pending before 5m"
+        );
+        tokio::time::advance(std::time::Duration::from_secs(2)).await;
+        let Err(error) = packs.await else {
+            panic!("pending ResourcePacksInfo must hit the 5m deadline");
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains("ResourcePacksInfo") && message.contains("300s"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn pack_negotiation_and_start_game_do_not_time_out() {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket::default());
         let stream = BedrockStream {
@@ -2341,7 +2375,16 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             tracing::debug!("Using early ResourcePacksInfo received during handshake");
             early
         } else {
-            let raw = recv_login_packet(&mut self.transport).await?;
+            let raw = tokio::time::timeout(
+                RESOURCE_PACKS_INFO_TIMEOUT,
+                recv_login_packet(&mut self.transport),
+            )
+            .await
+            .map_err(|_| {
+                ProtocolError::UnexpectedHandshake(format!(
+                    "timed out waiting for ResourcePacksInfo after {RESOURCE_PACKS_INFO_TIMEOUT:?}"
+                ))
+            })??;
             match raw.id {
                 McpePacketName::ResourcePacksInfoPacket => raw.decode(&self.transport.session)?,
                 McpePacketName::DisconnectPacket => {
