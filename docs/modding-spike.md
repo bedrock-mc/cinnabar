@@ -677,8 +677,10 @@ Set `hide_editor_labels: true` on the editor request to hide those labels while
 keeping draggable outlines. An empty card list can still open the editor and
 its optional extension surface. While dragging, cards snap within six GUI pixels
 of the screen edges or center; a temporary guide shows the aligned axis.
-Optional `reset_anchor` and `reset_offset` supply factory placement without
-changing the current preview. These fields affect only the layout editor.
+Each card edge and its center can align to a guide, including placement directly
+above or below the horizontal center line. Optional `reset_anchor`, `reset_offset`,
+and `reset_scale` supply factory layout without changing the current preview.
+These fields affect only the layout editor.
 
 The editor captures native pointer dragging, clamps cards to the available
 viewport, supports one-pixel arrow nudges, and offers optional eight-GUI-pixel
@@ -686,11 +688,18 @@ grid snapping. Save (or Enter) returns all card IDs and their optional normalize
 positions through `hud.read-editor-result()`. The typed result has `saved`,
 `reset`, and `placements`; `reset` indicates that Reset was used in this draft.
 Reset clears positions and uses the supplied factory anchors/offsets while
-preserving scale and opacity. Cancel (or Escape) returns `saved: false` and no
+preserving opacity and restoring scale only when `reset_scale` is supplied. Cancel (or Escape) returns `saved: false` and no
 placements, so the guest leaves its preferences untouched. Save and Cancel return
 to the personal panel, which retains exclusive gameplay input ownership.
 
-An editor request may opt into `autosave: true`. Completed pointer drags, arrow
+An editor request may opt into `resizable: true` to expose four native corner
+handles. Dragging a handle scales the card uniformly from 0.5 to 2, keeps its
+opposite corner fixed when space permits, and clamps its placement to the viewport.
+Use `hud.read-editor-layout()` to read `saved`, `reset`, and `placements` containing
+ID, normalized position, and scale. It shares result consumption with the existing
+`hud.read-editor-result()`; the legacy position-only API remains unchanged.
+
+An editor request may opt into `autosave: true`. Completed pointer drags and resizes, arrow
 nudges, and Reset then return incremental saved results while the editor stays
 open. A held or interrupted drag remains a draft. Escape closes the personal
 panel in this mode; completed placements have already been delivered, and the

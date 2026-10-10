@@ -84,6 +84,35 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
         let mut bounds = button(&format!("hud.card:{index}"), size, [0.; 2], border);
         bounds["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
         controls.push(named(&format!("bounds_{index}"), bounds));
+        if hud.resizable {
+            for corner in 0..4 {
+                let offset: [f64; 2] = std::array::from_fn(|axis| {
+                    if corner & (1 << axis) == 0 {
+                        0.
+                    } else {
+                        size[axis] - 8.
+                    }
+                });
+                let visual = rect([5.; 2], [1.5; 2], [0.3, 0.85, 1., 1.]);
+                let mut handle = button(
+                    &format!("hud.resize:{index}:{corner}"),
+                    [8.; 2],
+                    offset,
+                    vec![named("square", visual)],
+                );
+                handle["layer"] = json!(20);
+                handle["default_control"] = json!("square");
+                handle["hover_control"] = json!("hover");
+                handle["pressed_control"] = json!("pressed");
+                handle["controls"].as_array_mut().unwrap().extend([
+                    named("hover", rect([8.; 2], [0.; 2], [1.; 4])),
+                    named("pressed", rect([8.; 2], [0.; 2], [0.2, 0.65, 1., 1.])),
+                ]);
+                let mut group = json!({"type":"panel","size":size,"controls":[named("handle",handle)],"anchor_from":"top_left","anchor_to":"top_left","layer":20});
+                group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);
+                controls.push(named(&format!("resize_{index}_{corner}"), group));
+            }
+        }
         if !hud.hide_editor_labels {
             let text = if card.editor_label.is_empty() {
                 &card.id
