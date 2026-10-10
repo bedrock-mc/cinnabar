@@ -77,12 +77,12 @@ fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
 }
 
 impl SessionTransport {
-    /// Continues a handed-off session; `startup` is delivered first as one Bedrock batch.
-    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: Bytes) -> Self {
+    /// Continues a handed-off session; the `startup` Bedrock batches are delivered first, in order.
+    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: Vec<Bytes>) -> Self {
         Self {
             reader,
             frames,
-            pending: VecDeque::from([startup]),
+            pending: VecDeque::from(startup),
             ended: false,
             sending: VecDeque::new(),
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),

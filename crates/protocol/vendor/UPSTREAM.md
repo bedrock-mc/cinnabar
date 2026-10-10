@@ -46,7 +46,8 @@ required bit makes stack selection strict and is carried as
 `ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
 
 Jolyne's client can resume at StartGame (`BedrockStream::from_session_handoff`) for a session
-whose login and packs the Go core completed, so Cinnabar keeps Jolyne's spawn sequence.
+whose login and packs the Go core completed, so Cinnabar keeps Jolyne's spawn sequence; it
+exports `raw::MAX_RAW_BATCH_PACKETS` so handed-off startup packets are batched within it.
 
 Jolyne's client requests only offered packs its `ResourcePackStore` cannot supply, answering
 HaveAllPacks when nothing is missing, as the vanilla client does for its pack cache.

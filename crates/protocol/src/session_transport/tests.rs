@@ -24,7 +24,7 @@ impl Drop for Pair {
     }
 }
 
-async fn pair(name: &str, startup: Bytes) -> Pair {
+async fn pair(name: &str, startup: Vec<Bytes>) -> Pair {
     let dir = std::env::temp_dir().join(format!("cinnabar-session-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -56,7 +56,7 @@ async fn cancelled_sends_behind_a_pending_send_flush_in_order_on_drain() {
         transport,
         peer,
         dir,
-    } = &mut pair("drain", Bytes::new()).await;
+    } = &mut pair("drain", Vec::new()).await;
     let _ = dir;
     // Too large to flush while the peer is not reading.
     let mut first = vec![1; 16 * 1024 * 1024];
@@ -97,7 +97,7 @@ async fn batches_reach_jolyne_without_copying() {
     let startup = Bytes::from_static(&[0xfe, 1, 0x0b]);
     let Pair {
         transport, peer, ..
-    } = &mut pair("batches", startup.clone()).await;
+    } = &mut pair("batches", vec![startup.clone()]).await;
     write_frame(peer, &[2, 2, 0x09, 0x00]).await;
 
     let Some(Ok(TransportRecvMessage::Contiguous(first))) = receive(transport).await else {
@@ -126,8 +126,7 @@ async fn terminal_messages_become_server_packets_then_end() {
     ] {
         let Pair {
             transport, peer, ..
-        } = &mut pair(&format!("terminal-{check}"), Bytes::new()).await;
-        let _ = receive(transport).await;
+        } = &mut pair(&format!("terminal-{check}"), Vec::new()).await;
         let mut message = vec![check];
         message.extend_from_slice(frame);
         write_frame(peer, &message).await;
@@ -165,8 +164,7 @@ async fn terminal_messages_become_server_packets_then_end() {
 async fn setup_messages_after_the_handoff_are_rejected() {
     let Pair {
         transport, peer, ..
-    } = &mut pair("setup", Bytes::new()).await;
-    let _ = receive(transport).await;
+    } = &mut pair("setup", Vec::new()).await;
     write_frame(peer, &[4, 0, 0, 0, 0, 1]).await;
     assert!(matches!(
         receive(transport).await,

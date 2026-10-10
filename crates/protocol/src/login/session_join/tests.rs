@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ChunkRadiusUpdatedPacket, ItemData, ItemRegistryPacket, PlayStatusPacket,
-    StartGamePacket,
+    SetTimePacket, StartGamePacket,
 };
 
 use super::*;
@@ -263,6 +263,37 @@ async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
     )));
 }
 
+/// More startup packets than one batch may hold, as servers sending many packets before StartGame
+/// produce, still join.
+#[tokio::test]
+async fn a_startup_longer_than_one_batch_still_joins() {
+    let dir = SocketDir::new("long-startup");
+    let settings = LoginSettings::default();
+    let listener = listen(dir.path());
+    let mut startup: Vec<Packet> = (0..2_000)
+        .map(|time| SetTimePacket { time }.into())
+        .collect();
+    startup.push(start_game());
+    let core = async {
+        let mut core = FakeCore::accept(&listener).await;
+        core.receive().await;
+        core.send(handoff_frame(
+            serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
+            &startup,
+        ))
+        .await;
+        core.receive_packets().await;
+        core.send(batch_frame(&spawn_prerequisites())).await;
+        core
+    };
+    let (joined, _core) = tokio::join!(
+        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
+        core
+    );
+    let (_, game_data) = joined.expect("a long startup joins");
+    assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
+}
+
 /// A join the core could not make ends with the server's disconnect screen text.
 #[tokio::test]
 async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
@@ -280,13 +311,7 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            None,
-            None,
-            &settings
-        ),
+        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
         core
     );
     let error = joined.err().expect("the join ends");
@@ -315,13 +340,7 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            None,
-            None,
-            &settings
-        ),
+        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
         core
     );
     let target = joined

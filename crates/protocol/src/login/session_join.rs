@@ -60,7 +60,7 @@ impl LoginSequence {
         let mut transport = BedrockTransport::new(SessionTransport::new(
             reader,
             frames,
-            startup_batch(&handoff.startup),
+            startup_batches(&handoff.startup),
         ));
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let (stream, game_data) =
@@ -163,21 +163,28 @@ fn resource_pack_handoff(
     Ok(ResourcePackHandoff::from_archives(archives).with_required(handoff.packs_required))
 }
 
-/// Joins the startup packets into one uncompressed Bedrock batch for the play transport.
-fn startup_batch(packets: &[Bytes]) -> Bytes {
-    let mut batch =
-        BytesMut::with_capacity(1 + packets.iter().map(|packet| 5 + packet.len()).sum::<usize>());
-    batch.put_u8(0xfe);
-    for packet in packets {
-        let mut length = u32::try_from(packet.len()).expect("a frame bounds its packets");
-        while length >= 0x80 {
-            batch.put_u8(length as u8 | 0x80);
-            length >>= 7;
-        }
-        batch.put_u8(length as u8);
-        batch.extend_from_slice(packet);
-    }
-    batch.freeze()
+/// Groups the startup packets, which may span many upstream batches, into uncompressed Bedrock
+/// batches that each stay within Jolyne's per-batch packet bound.
+fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
+    packets
+        .chunks(jolyne::raw::MAX_RAW_BATCH_PACKETS)
+        .map(|chunk| {
+            let mut batch = BytesMut::with_capacity(
+                1 + chunk.iter().map(|packet| 5 + packet.len()).sum::<usize>(),
+            );
+            batch.put_u8(0xfe);
+            for packet in chunk {
+                let mut length = u32::try_from(packet.len()).expect("a frame bounds its packets");
+                while length >= 0x80 {
+                    batch.put_u8(length as u8 | 0x80);
+                    length >>= 7;
+                }
+                batch.put_u8(length as u8);
+                batch.extend_from_slice(packet);
+            }
+            batch.freeze()
+        })
+        .collect()
 }
 
 /// The Transfer packet a core Transfer message stands for.
