@@ -8,7 +8,7 @@ mod tests;
 
 #[cfg(test)]
 use bevy::prelude::{
-    AssetApp, Camera, Image, IntoSystem, MinimalPlugins, Mut, Transform, TransformPlugin,
+    AssetApp, Camera, Image, IntoSystem, MinimalPlugins, Mut, System, Transform, TransformPlugin,
 };
 #[cfg(test)]
 use bevy::render::render_resource::{BufferUsages, Extent3d, TextureUsages};

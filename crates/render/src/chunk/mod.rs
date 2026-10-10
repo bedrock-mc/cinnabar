@@ -12,13 +12,14 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
-#[cfg(any(test, feature = "publication-test-support"))]
-use bevy::render::renderer::RenderInstance;
+use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Fixed, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4,
     Vec3A,
 };
+#[cfg(any(test, feature = "publication-test-support"))]
+use bevy::render::renderer::RenderInstance;
 use bevy::{
     asset::{AssetId, load_internal_asset},
     camera::visibility::{self, VisibilityClass},

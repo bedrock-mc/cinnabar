@@ -3,6 +3,7 @@ use crate::viewmodel::{
     HandVertex, ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, hand_projection,
     viewmodel_depth_bytes,
 };
+use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::Assets;
 use bevy::{

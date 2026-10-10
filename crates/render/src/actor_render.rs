@@ -14,6 +14,7 @@ use crate::actor::{
     ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRuntimeWitness,
     ActorSubmitWitness, gpu::ActorDrawTracker,
 };
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{

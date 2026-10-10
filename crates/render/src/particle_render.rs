@@ -2,6 +2,7 @@
 
 use std::{ops::Range, sync::Arc};
 
+use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::Mut;
 use bevy::{

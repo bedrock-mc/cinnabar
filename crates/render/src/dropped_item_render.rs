@@ -4,8 +4,9 @@ use crate::dropped_item::{
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
     block_mesh, cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
 };
+use bevy::image::BevyDefault;
 #[cfg(test)]
-use bevy::prelude::{Camera, Camera3d, Image, IntoSystem, MinimalPlugins, Transform, Vec3};
+use bevy::prelude::{Camera, Camera3d, Image, IntoSystem, MinimalPlugins, System, Transform, Vec3};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},

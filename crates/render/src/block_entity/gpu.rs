@@ -3,8 +3,9 @@
 
 use std::mem::size_of;
 
+use bevy::image::BevyDefault;
 #[cfg(test)]
-use bevy::prelude::IntoSystem;
+use bevy::prelude::{IntoSystem, System};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{

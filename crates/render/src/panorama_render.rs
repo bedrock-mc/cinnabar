@@ -4,6 +4,7 @@
 //! It is opaque and draws in the main opaque pass: world passes queue nothing
 //! while it shows, so the menu's scene uses one pass.
 use crate::panorama::PanoramaScene;
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},

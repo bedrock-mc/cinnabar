@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use assets::{AtmosphereRole, AtmosphereTexture};
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},

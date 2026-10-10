@@ -2,6 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{IntoSystem, System};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -10,8 +13,8 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, IntoSystem, Msaa,
-        Quat, Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Quat,
+        Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,

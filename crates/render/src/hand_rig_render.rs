@@ -2,6 +2,7 @@
 //! over the scene, reusing the actor rig's packed buffers with a hand-local view and lighting.
 //! The rendered content is the player's own skin on the standard samples player geometry.
 use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
+use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{Entity, GlobalTransform, UVec4};
 use bevy::{
