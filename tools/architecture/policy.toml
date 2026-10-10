@@ -792,6 +792,10 @@ clock_free_crates = [
     "crates/world",
 ]
 sleep_exceptions = [
+    { path = "crates/bridge/tests/it/go_echo.rs", reason = "deleted with frame-echo" },
+    { path = "crates/client-ui/src/ui_runtime/presentation/forms/menu_latency.rs", reason = "paces idle frames before measuring menu navigation latency" },
+    { path = "crates/client-session/src/session/network_latency_bench.rs", reason = "paces movement packets at the simulation tick rate for a latency benchmark" },
+    { path = "crates/server-experience/src/cache.rs", reason = "delays lease release and cancellation to exercise a pending cache replacement" },
     { path = "app/src/lifecycle/children.rs", reason = "lets the detached reaper begin stopping a child without an observable ready signal" },
     { path = "app/src/menu/auth.rs", reason = "a deliberately delayed reader verifies cancellation does not wait for its thread" },
     { path = "app/src/menu/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },

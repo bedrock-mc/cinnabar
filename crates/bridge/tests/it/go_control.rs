@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use bridge::{Lifecycle, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer};
@@ -27,9 +27,9 @@ async fn go_status_endpoint_returns_the_strict_initialized_snapshot() -> Result<
     });
 
     build_core(&core_dir, &executable)?;
-    let mut child = ChildGuard::spawn(&executable, &socket_dir)?;
+    let child = ChildGuard::spawn(&executable, &socket_dir)?;
     let endpoint = bridge::control_endpoint_path(&socket_dir);
-    wait_for_publication(&mut child, &endpoint).await?;
+    let mut child = wait_for_publication(child, endpoint.clone()).await?;
 
     let status = tokio::time::timeout(IO_TIMEOUT, bridge::read_status(&socket_dir))
         .await
@@ -44,7 +44,7 @@ async fn go_status_endpoint_returns_the_strict_initialized_snapshot() -> Result<
     );
 
     child.terminate();
-    wait_for_cleanup(&endpoint).await?;
+    wait_for_cleanup(endpoint).await?;
     Ok(())
 }
 
@@ -64,9 +64,9 @@ async fn live_go_status_compatibility_outcome_decodes_as_schema_v1() -> Result<(
     });
 
     build_control_test(&core_dir, &executable)?;
-    let mut child = ChildGuard::spawn_status_helper(&executable, &socket_dir)?;
+    let child = ChildGuard::spawn_status_helper(&executable, &socket_dir)?;
     let endpoint = bridge::control_endpoint_path(&socket_dir);
-    wait_for_publication(&mut child, &endpoint).await?;
+    let mut child = wait_for_publication(child, endpoint.clone()).await?;
 
     let status = tokio::time::timeout(IO_TIMEOUT, bridge::read_status(&socket_dir))
         .await
@@ -86,7 +86,7 @@ async fn live_go_status_compatibility_outcome_decodes_as_schema_v1() -> Result<(
     );
 
     child.terminate();
-    wait_for_cleanup(&endpoint).await?;
+    wait_for_cleanup(endpoint).await?;
     Ok(())
 }
 
@@ -131,41 +131,51 @@ fn build_control_test(core_dir: &Path, executable: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_publication(child: &mut ChildGuard, endpoint: &Path) -> Result<()> {
-    let deadline = Instant::now() + START_TIMEOUT;
-    loop {
-        if endpoint.exists() {
-            return Ok(());
+/// Waits for endpoint publication on a blocking worker, preserving early process-exit errors.
+async fn wait_for_publication(mut child: ChildGuard, endpoint: PathBuf) -> Result<ChildGuard> {
+    tokio::task::spawn_blocking(move || {
+        let mut outcome = None;
+        test_time::wait_until(START_TIMEOUT, || {
+            outcome = match child.child.try_wait().context("poll bedrock-core process") {
+                Err(error) => Some(Err(error)),
+                Ok(Some(status)) => {
+                    let logs = child.collect_logs();
+                    Some(Err(anyhow::anyhow!(
+                        "bedrock-core exited before publishing endpoint ({status})\n{logs}"
+                    )))
+                }
+                Ok(None) if endpoint.exists() => Some(Ok(())),
+                Ok(None) => None,
+            };
+            outcome.is_some()
+        });
+        match outcome {
+            Some(result) => result?,
+            None => {
+                child.terminate();
+                let logs = child.collect_logs();
+                bail!("timed out waiting for {}\n{logs}", endpoint.display());
+            }
         }
-        if let Some(status) = child
-            .child
-            .try_wait()
-            .context("poll bedrock-core process")?
-        {
-            let logs = child.collect_logs();
-            bail!("bedrock-core exited before publishing endpoint ({status})\n{logs}");
-        }
-        if Instant::now() >= deadline {
-            child.terminate();
-            let logs = child.collect_logs();
-            bail!("timed out waiting for {}\n{logs}", endpoint.display());
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
+        Ok(child)
+    })
+    .await
+    .context("join endpoint publication worker")?
 }
 
-async fn wait_for_cleanup(endpoint: &Path) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while endpoint.exists() && Instant::now() < deadline {
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-    if endpoint.exists() {
-        bail!(
-            "control endpoint remained after exit: {}",
-            endpoint.display()
-        );
-    }
-    Ok(())
+/// Waits for endpoint cleanup on a blocking worker without stalling the async runtime.
+async fn wait_for_cleanup(endpoint: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        if !test_time::wait_until(Duration::from_secs(2), || !endpoint.exists()) {
+            bail!(
+                "control endpoint remained after exit: {}",
+                endpoint.display()
+            );
+        }
+        Ok(())
+    })
+    .await
+    .context("join endpoint cleanup worker")?
 }
 
 struct ChildGuard {

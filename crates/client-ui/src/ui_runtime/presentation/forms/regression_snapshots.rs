@@ -67,23 +67,23 @@ fn spirit_bundle_snapshot() {
         return;
     };
     presentation.set_server_ui_pack(&pack);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        presentation
-            .build(
-                &player_runtime,
-                &runtime,
-                0,
-                [1280, 720],
-                DpiScale::new(1.0).unwrap(),
-            )
-            .unwrap();
-        let engine = presentation.form_presentation.engine.as_ref().unwrap();
-        if engine.drawn_sprites().1.is_empty() || std::time::Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    test_time::eventually_within(
+        std::time::Duration::from_secs(5),
+        "form images resolve",
+        || {
+            presentation
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    [1280, 720],
+                    DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            let engine = presentation.form_presentation.engine.as_ref().unwrap();
+            engine.drawn_sprites().1.is_empty()
+        },
+    );
     presentation.finish_menu_artwork();
     let input = presentation
         .build(
@@ -170,8 +170,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         return;
     };
     presentation.set_server_ui_pack(&pack);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
+    test_time::eventually("button textures become resident", || {
         presentation
             .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
             .unwrap();
@@ -183,16 +182,8 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         ]
         .iter()
         .all(|key| atlas.placement(key).is_some());
-        drop(atlas);
-        if resident {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "button textures never became resident"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        resident
+    });
     presentation.finish_menu_artwork();
     let settled = presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)

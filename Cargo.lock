@@ -350,6 +350,7 @@ name = "architecture"
 version = "0.1.12"
 dependencies = [
  "clap",
+ "proc-macro2",
  "serde",
  "syn 2.0.118",
  "tempfile",
