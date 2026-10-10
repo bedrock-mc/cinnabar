@@ -180,10 +180,12 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
     ),
 >;
 
-/// Spans drawn in the sorted pass after all opaque geometry: blended materials, and
-/// always-passing depth tests, which must follow the terrain they draw through.
+/// Draws blending and always-depth spans after terrain, and dissolve color after its
+/// depth mask whether that mask draws in the opaque or sorted pass.
 pub(super) fn sorted(material: u32) -> bool {
     crate::actor::material::state(material).is_some_and(|state| state.blend || state.depth_always)
+        || material & assets::EntityRenderMaterialState::KIND_MASK
+            == assets::EntityRenderMaterial::DissolveColor as u32
 }
 
 pub(crate) struct DrawActors<const SORTED: bool>;

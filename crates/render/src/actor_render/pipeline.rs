@@ -418,7 +418,8 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         let contract = key.contract();
         descriptor.multisample.count = contract.msaa.samples();
         crate::alpha_coverage::apply(descriptor, contract.alpha_to_coverage);
-        if let Some(state) = crate::actor::material::state(key.material) {
+        let state = crate::actor::material::state(key.material);
+        if let Some(state) = state {
             descriptor.primitive.cull_mode = state
                 .cull
                 .then_some(bevy::render::render_resource::Face::Back);
@@ -427,9 +428,6 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .as_mut()
                 .unwrap()
                 .depth_write_enabled = state.depth_write;
-            if state.depth_always {
-                descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Always;
-            }
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
@@ -443,6 +441,9 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .write_mask = ColorWrites::empty();
         } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Equal;
+        }
+        if state.is_some_and(|state| state.depth_always) {
+            descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Always;
         }
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = contract.format;

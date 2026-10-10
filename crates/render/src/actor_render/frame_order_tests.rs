@@ -81,9 +81,7 @@ fn inspect_executed_frame(world: &mut World) {
         .spans
         .iter()
         .enumerate()
-        .filter(|(_, span)| {
-            crate::actor::material::state(span.material).is_some_and(|state| state.blend)
-        })
+        .filter(|(_, span)| super::super::phase::sorted(span.material))
         .map(|(index, _)| index as u32..index as u32 + 1)
         .collect::<Vec<_>>();
     assert_eq!(queued_ranges, expected_ranges);
@@ -98,10 +96,7 @@ fn inspect_executed_frame(world: &mut World) {
         .spans
         .iter()
         .copied()
-        .filter(|span| {
-            has_opaque
-                && !crate::actor::material::state(span.material).is_some_and(|state| state.blend)
-        })
+        .filter(|span| has_opaque && !super::super::phase::sorted(span.material))
         .collect::<Vec<_>>();
     for range in queued_ranges {
         executed.extend_from_slice(&gpu.spans[range.start as usize..range.end as usize]);
@@ -268,4 +263,45 @@ fn actor_render_changed_spans_queue_and_present_the_current_frame() {
     world.run_schedule(Render);
     assert_eq!(world.resource::<ActorGpu>().spans.len(), 3);
     assert_eq!(world.resource::<ExecutedFrames>().0, [(2, vec![0, 1, 2])]);
+}
+
+#[test]
+fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
+    use bevy::render::render_phase::SortedPhaseItem;
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut frame = frame(&[false; 2]);
+    let instances = Arc::make_mut(&mut frame.rig.instances);
+    instances[0].material =
+        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
+            depth_always: true,
+            ..Default::default()
+        }));
+    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    world.insert_resource(frame);
+    world.run_schedule(Render);
+    let retained = world
+        .query::<&ExtractedView>()
+        .single(world)
+        .unwrap()
+        .retained_view_entity;
+    let mut phases = world.resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
+    let items = &mut phases.get_mut(&retained).unwrap().items;
+    assert_eq!(items.len(), 2, "mask and color must share the later pass");
+    Transparent3d::sort(items);
+    let ranges = items
+        .iter()
+        .map(|item| {
+            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
+            else {
+                panic!("missing draw span");
+            };
+            range.clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ranges,
+        [0..1, 1..2],
+        "equal-distance sorting preserves mask before color"
+    );
 }

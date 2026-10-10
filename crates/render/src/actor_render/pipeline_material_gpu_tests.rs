@@ -471,3 +471,28 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
         );
     }
 }
+
+#[test]
+fn explicit_always_depth_overrides_the_dissolve_color_default() {
+    let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+    ActorPipelineSpecializer
+        .specialize(
+            ActorPipelineKey {
+                msaa: Msaa::Off,
+                hdr: false,
+                enhanced: false,
+                material: EntityRenderMaterial::DissolveColor.word(Some(
+                    EntityRenderMaterialState {
+                        depth_always: true,
+                        ..Default::default()
+                    },
+                )),
+            },
+            &mut descriptor,
+        )
+        .unwrap();
+    assert_eq!(
+        descriptor.depth_stencil.unwrap().depth_compare,
+        bevy::render::render_resource::CompareFunction::Always
+    );
+}
