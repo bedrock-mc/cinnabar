@@ -39,12 +39,11 @@ pub(super) const DAYLIGHT: f32 = 1.0;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum ModelKey {
-    Icon(Arc<str>, u32, bool),
     Block { hashed: bool, id: u32 },
     CarriedBlock { hashed: bool, id: u32 },
 }
 
-/// Models resolved so far; failed block lookups are remembered so they are not rebuilt per frame.
+/// CPU model cache with separately bounded, reclaimable atlas residency.
 #[derive(Default)]
 pub(super) struct ModelCache {
     session: u64,
@@ -55,9 +54,30 @@ pub(super) struct ModelCache {
     models: Vec<DroppedItemModel>,
     layers: usize,
     shared: Arc<[DroppedItemModel]>,
-    index: HashMap<ModelKey, Option<u32>>,
+    index: HashMap<ModelKey, usize>,
+    icon_index: HashMap<Arc<str>, HashMap<(u32, bool), usize>>,
+    records: Vec<ModelRecord>,
+    frame: u64,
+    dirty: bool,
     /// Native first-render capture, keyed by exact actor lifetime, not mutable item identity.
     spawn_poses: HashMap<(u64, u64), DroppedItemSpawnPose>,
+}
+
+/// CPU data survives atlas eviction; a resident slot stays stable while demanded.
+struct ModelRecord {
+    model: Option<DroppedItemModel>,
+    slot: Option<u32>,
+    requested: u64,
+}
+
+/// Returns the texture layers required by a model, excluding the shared white layer.
+fn layer_cost(model: &DroppedItemModel) -> usize {
+    match model {
+        DroppedItemModel::Vacant => 0,
+        DroppedItemModel::Cube(_) => 6,
+        DroppedItemModel::Block(block) => block.materials.len(),
+        DroppedItemModel::Sprite(_) | DroppedItemModel::NativeSprite(_) => 1,
+    }
 }
 
 impl ModelCache {
@@ -79,24 +99,101 @@ impl ModelCache {
         }
     }
 
+    /// Remembers supported or missing CPU geometry and attempts transient atlas admission.
     fn insert(&mut self, key: ModelKey, model: Option<DroppedItemModel>) -> Option<u32> {
-        let cost = match &model {
-            Some(DroppedItemModel::Cube(_)) => 6,
-            Some(DroppedItemModel::Block(block)) => block.materials.len(),
-            Some(DroppedItemModel::Sprite(_) | DroppedItemModel::NativeSprite(_)) => 1,
-            None => 0,
-        };
-        let index = model.and_then(|model| {
-            (self.layers + cost < MAX_ITEM_LAYERS).then(|| {
-                self.layers += cost;
-                self.models.push(model);
-                self.shared = Arc::from(self.models.as_slice());
-                self.revision = self.revision.wrapping_add(1);
-                (self.models.len() - 1) as u32
-            })
+        let record = self.records.len();
+        self.records.push(ModelRecord {
+            model,
+            slot: None,
+            requested: self.frame,
         });
-        self.index.insert(key, index);
-        index
+        self.index.insert(key, record);
+        self.admit(record)
+    }
+
+    /// Starts demand collection before any residency decisions are made.
+    fn begin_frame(&mut self) {
+        self.frame = self
+            .frame
+            .checked_add(1)
+            .expect("model demand frame overflow");
+    }
+
+    /// Protects an existing block model from reclamation during this frame.
+    fn request(&mut self, key: &ModelKey) {
+        if let Some(&record) = self.index.get(key) {
+            self.records[record].requested = self.frame;
+        }
+    }
+
+    /// Looks up an icon using borrowed text without constructing an owned key.
+    fn icon_record(&self, identifier: &str, metadata: u32, native: bool) -> Option<usize> {
+        self.icon_index
+            .get(identifier)?
+            .get(&(metadata, native))
+            .copied()
+    }
+
+    /// Protects an existing sprite model, including both placement routes.
+    fn request_icon(&mut self, identifier: &str, metadata: u32, native: bool) {
+        if let Some(record) = self.icon_record(identifier, metadata, native) {
+            self.records[record].requested = self.frame;
+        }
+    }
+
+    /// Reclaims only unrequested slots and retries records rejected by capacity previously.
+    fn admit(&mut self, record: usize) -> Option<u32> {
+        self.records[record].requested = self.frame;
+        if let Some(slot) = self.records[record].slot {
+            return Some(slot);
+        }
+        let cost = layer_cost(self.records[record].model.as_ref()?);
+        if cost == 0 || cost >= MAX_ITEM_LAYERS {
+            return None;
+        }
+        if self.layers + cost >= MAX_ITEM_LAYERS {
+            for entry in &mut self.records {
+                if entry.requested == self.frame {
+                    continue;
+                }
+                if let Some(slot) = entry.slot.take() {
+                    self.layers -= layer_cost(&self.models[slot as usize]);
+                    self.models[slot as usize] = DroppedItemModel::Vacant;
+                    self.dirty = true;
+                    if self.layers + cost < MAX_ITEM_LAYERS {
+                        break;
+                    }
+                }
+            }
+        }
+        if self.layers + cost >= MAX_ITEM_LAYERS {
+            return None;
+        }
+        let model = self.records[record].model.as_ref()?.clone();
+        let slot = if let Some(slot) = self
+            .models
+            .iter()
+            .position(|model| matches!(model, DroppedItemModel::Vacant))
+        {
+            self.models[slot] = model;
+            slot
+        } else {
+            self.models.push(model);
+            self.models.len() - 1
+        };
+        self.layers += cost;
+        self.records[record].slot = Some(slot as u32);
+        self.dirty = true;
+        Some(slot as u32)
+    }
+
+    /// Shares the resident table once after all admissions, rather than after each model.
+    fn finish_frame(&mut self) {
+        if self.dirty {
+            self.shared = Arc::from(self.models.as_slice());
+            self.revision = self.revision.wrapping_add(1);
+            self.dirty = false;
+        }
     }
 }
 
@@ -251,8 +348,8 @@ impl DroppedItemPublisher<'_, '_> {
             hashed: mode == NetworkIdMode::Hashed,
             id,
         };
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
+        if let Some(&record) = cache.index.get(&key) {
+            return cache.admit(record);
         }
         let model = block_cube(assets, mode, id)
             .map(DroppedItemModel::Cube)
@@ -267,9 +364,8 @@ impl DroppedItemPublisher<'_, '_> {
         metadata: u32,
         native_drop: bool,
     ) -> Option<u32> {
-        let key = ModelKey::Icon(Arc::from(identifier), metadata, native_drop);
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
+        if let Some(record) = cache.icon_record(identifier, metadata, native_drop) {
+            return cache.admit(record);
         }
         // An icon that is not ready yet is retried next frame rather than cached as missing.
         let pixels = icons.item_sprite(identifier, metadata, MAX_ITEM_SPRITE_SIDE)?;
@@ -283,7 +379,18 @@ impl DroppedItemPublisher<'_, '_> {
         } else {
             DroppedItemModel::Sprite(sprite)
         };
-        cache.insert(key, Some(model))
+        let record = cache.records.len();
+        cache.records.push(ModelRecord {
+            model: Some(model),
+            slot: None,
+            requested: cache.frame,
+        });
+        cache
+            .icon_index
+            .entry(Arc::from(identifier))
+            .or_default()
+            .insert((metadata, native_drop), record);
+        cache.admit(record)
     }
 
     fn carried_block_model(
@@ -297,8 +404,8 @@ impl DroppedItemPublisher<'_, '_> {
             hashed: mode == NetworkIdMode::Hashed,
             id,
         };
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
+        if let Some(&record) = cache.index.get(&key) {
+            return cache.admit(record);
         }
         let block = assets.resolve(mode, id);
         if !block.is_known() || block.kind() != VisualKind::Cube {
@@ -337,6 +444,38 @@ impl DroppedItemPublisher<'_, '_> {
         let mut terrain_instances = Vec::new();
 
         let dropped = stream.authority().dropped_items(partial_tick);
+        cache.begin_frame();
+        // Protect all current consumers before admitting new models, regardless of iteration order.
+        for view in &dropped {
+            if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
+                let hashed = mode == NetworkIdMode::Hashed;
+                cache.request(&ModelKey::CarriedBlock { hashed, id });
+                cache.request(&ModelKey::Block { hashed, id });
+            }
+            if let Some(identifier) = view.item.identifier.as_ref() {
+                let (identifier, metadata) = UiPresentationRuntime::item_icon_key(
+                    identifier,
+                    view.item.identity.metadata,
+                    view.item.charged_projectile.as_deref(),
+                    None,
+                );
+                cache.request_icon(identifier, metadata, true);
+            }
+        }
+        if let Some(placements) = self.placements.as_ref() {
+            for placement in &placements.0 {
+                cache.request_icon(&placement.identifier, placement.metadata, false);
+            }
+        }
+        let candidates = stream.authority().block_entity_candidates(partial_tick);
+        for candidate in &candidates {
+            if let Some((mode, id, _)) = entity_block_id(stream, &candidate.view.kind) {
+                cache.request(&ModelKey::Block {
+                    hashed: mode == NetworkIdMode::Hashed,
+                    id,
+                });
+            }
+        }
         let live = dropped
             .iter()
             .map(|view| (view.runtime_id, view.spawn_revision))
@@ -445,7 +584,7 @@ impl DroppedItemPublisher<'_, '_> {
                         visible: fence.sync.message == 1,
                     });
             }
-            for candidate in stream.authority().block_entity_candidates(partial_tick) {
+            for candidate in candidates {
                 let view = candidate.view;
                 let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
                     continue;
@@ -518,6 +657,7 @@ impl DroppedItemPublisher<'_, '_> {
                 );
             }
         }
+        cache.finish_frame();
         scene.publish(
             cache.revision,
             Arc::clone(&cache.shared),
@@ -547,11 +687,158 @@ mod tests {
             height: 1,
             rgba8: Arc::from([0; 4]),
         };
-        let key = ModelKey::Icon(Arc::from("minecraft:apple"), 0, true);
+        let key = ModelKey::Block {
+            hashed: false,
+            id: 1,
+        };
         cache.insert(key.clone(), Some(DroppedItemModel::NativeSprite(sprite)));
         cache.sync(1, None, 0);
         assert!(cache.index.contains_key(&key));
         cache.sync(1, None, 1);
         assert!(!cache.index.contains_key(&key) && cache.models.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod residency_tests {
+    use super::*;
+
+    /// Creates one independently keyed, one-layer model for atlas pressure tests.
+    fn sprite() -> DroppedItemModel {
+        DroppedItemModel::Sprite(DroppedItemSprite {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([255; 4]),
+        })
+    }
+
+    /// Makes a block-route key without requiring local asset carriers.
+    fn key(id: u32) -> ModelKey {
+        ModelKey::Block { hashed: false, id }
+    }
+
+    #[test]
+    fn atlas_reclaims_despawned_models_and_keeps_live_handles() {
+        let mut cache = ModelCache::default();
+        cache.begin_frame();
+        for id in 0..(MAX_ITEM_LAYERS - 1) as u32 {
+            assert_eq!(cache.insert(key(id), Some(sprite())), Some(id));
+        }
+        let delayed = key(MAX_ITEM_LAYERS as u32);
+        assert_eq!(cache.insert(delayed.clone(), Some(sprite())), None);
+        let delayed_record = cache.index[&delayed];
+        cache.begin_frame();
+        cache.request(&key(0));
+        cache.request(&key(100));
+        let live = [
+            cache.admit(cache.index[&key(0)]),
+            cache.admit(cache.index[&key(100)]),
+        ];
+        assert!(cache.admit(delayed_record).is_some());
+        assert_eq!(live, [Some(0), Some(100)]);
+        assert_eq!(cache.admit(cache.index[&key(100)]), Some(100));
+        assert!(cache.layers < MAX_ITEM_LAYERS);
+        cache.finish_frame();
+        assert_eq!(cache.shared.len(), MAX_ITEM_LAYERS - 1);
+        assert!(!matches!(cache.shared[100], DroppedItemModel::Vacant));
+    }
+
+    #[test]
+    fn evicted_cpu_geometry_can_be_readmitted_without_rebuilding() {
+        let mut cache = ModelCache::default();
+        cache.begin_frame();
+        for id in 0..(MAX_ITEM_LAYERS - 1) as u32 {
+            cache.insert(key(id), Some(sprite()));
+        }
+        cache.begin_frame();
+        let replacement = cache.insert(key(900), Some(sprite())).unwrap();
+        assert_eq!(replacement, 0);
+        assert!(cache.records[0].model.is_some());
+        cache.begin_frame();
+        let readmitted = cache.admit(0).expect("evicted CPU geometry is retried");
+        let DroppedItemModel::Sprite(resident) = &cache.models[readmitted as usize] else {
+            panic!("readmission must preserve the model kind");
+        };
+        let Some(DroppedItemModel::Sprite(cpu)) = &cache.records[0].model else {
+            panic!("CPU geometry must survive eviction");
+        };
+        assert!(Arc::ptr_eq(&resident.rgba8, &cpu.rgba8));
+    }
+
+    #[test]
+    fn borrowed_warm_icon_lookup_and_admission_do_not_allocate() {
+        let mut cache = ModelCache::default();
+        cache.records.push(ModelRecord {
+            model: Some(sprite()),
+            slot: None,
+            requested: 0,
+        });
+        cache
+            .icon_index
+            .entry(Arc::from("custom:warm"))
+            .or_default()
+            .insert((7, true), 0);
+        assert_eq!(cache.admit(0), Some(0));
+        cache.finish_frame();
+        let before = crate::test_allocations::count();
+        for _ in 0..100 {
+            cache.request_icon("custom:warm", 7, true);
+            let record = cache.icon_record("custom:warm", 7, true).unwrap();
+            assert_eq!(cache.admit(record), Some(0));
+        }
+        assert_eq!(crate::test_allocations::count() - before, 0);
+        assert_eq!(cache.icon_record("custom:warm", 7, false), None);
+        assert_eq!(cache.icon_record("custom:warm", 8, true), None);
+    }
+}
+
+#[cfg(test)]
+mod mixed_layer_tests {
+    use super::*;
+
+    #[test]
+    fn cube_admission_reclaims_six_layers_without_moving_a_live_sprite() {
+        let mut cache = ModelCache::default();
+        cache.begin_frame();
+        let sprite = DroppedItemModel::Sprite(DroppedItemSprite {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([255; 4]),
+        });
+        for id in 0..(MAX_ITEM_LAYERS - 1) as u32 {
+            cache.insert(ModelKey::Block { hashed: false, id }, Some(sprite.clone()));
+        }
+        cache.begin_frame();
+        let live_key = ModelKey::Block {
+            hashed: false,
+            id: 50,
+        };
+        cache.request(&live_key);
+        let cube = DroppedItemModel::Cube(DroppedItemCube {
+            tile: 1,
+            faces: std::array::from_fn(|_| Arc::from([255; 4])),
+            tints: [0; 6],
+        });
+        assert!(
+            cache
+                .insert(
+                    ModelKey::Block {
+                        hashed: false,
+                        id: 900
+                    },
+                    Some(cube)
+                )
+                .is_some()
+        );
+        assert_eq!(cache.admit(cache.index[&live_key]), Some(50));
+        assert_eq!(cache.layers, MAX_ITEM_LAYERS - 1);
+        assert_eq!(
+            cache
+                .models
+                .iter()
+                .filter(|model| matches!(model, DroppedItemModel::Vacant))
+                .count(),
+            5
+        );
     }
 }

@@ -120,3 +120,27 @@ fn steady_uploads_empty_item_scene_allocates_and_uploads_nothing() {
     assert_eq!(world.resource::<ItemGpu>().upload_calls, 3);
     assert_eq!(world.resource::<ItemGpu>().dynamic_count, 0);
 }
+
+#[test]
+fn reclaimed_slots_leave_live_model_indices_and_atlas_layers_intact() {
+    let mut world = item_world();
+    let sprite = DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([255; 4]),
+    });
+    world.resource_mut::<DroppedItemScene>().publish(
+        1,
+        Arc::from([sprite.clone(), DroppedItemModel::Vacant, sprite]),
+        &[],
+        &[],
+        1.0,
+    );
+    world.run_system_once(prepare_items).unwrap();
+    let gpu = world.resource::<ItemGpu>();
+    assert_eq!(gpu.ranges.len(), 3);
+    assert!(!gpu.ranges[0].is_empty());
+    assert!(gpu.ranges[1].is_empty());
+    assert!(!gpu.ranges[2].is_empty());
+    assert_eq!(gpu._atlas.as_ref().unwrap().depth_or_array_layers(), 3);
+}
