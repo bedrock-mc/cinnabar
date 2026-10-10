@@ -23,13 +23,17 @@ fn level_gap(
     let bar = named(nodes, "empty_progress_bar")[0];
     let green: Vec<_> = input
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|quad| quad.iter().all(|vertex| vertex.color == color))
         .collect();
     assert!(!green.is_empty(), "the level must paint visible glyphs");
     let bottom = input
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|quad| {
             green.iter().any(|glyph| {
                 quad.iter().zip(glyph.iter()).all(|(a, b)| {
@@ -40,7 +44,11 @@ fn level_gap(
                 })
             })
         })
-        .map(|quad| quad_bounds(quad)[3])
+        .map(|quad| {
+            quad.iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::NEG_INFINITY, f32::max)
+        })
         .fold(f32::NEG_INFINITY, f32::max);
     bar.dest.y as f32 * scale - bottom
 }

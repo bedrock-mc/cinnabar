@@ -21,10 +21,11 @@ pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use view::{
-    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, FRIEND_ADDRESS_PREFIX,
-    InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret,
-    MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard,
-    MenuView, PingInfo, SavedServer, ServerDetails, ServerTrustPrompt, pingable,
+    ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
+    FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
+    LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
+    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
+    ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 

@@ -208,7 +208,7 @@ fn repeated_zero_tick_food_updates_do_not_restart_hunger_motion() {
                 "packet restarted pulse at {update}"
             );
         }
-        for layers in rows[0].chunks_exact(2).take(9) {
+        for layers in rows[0].as_chunks::<2>().0.iter().take(9) {
             assert_eq!(layers[0], layers[1]);
         }
     }

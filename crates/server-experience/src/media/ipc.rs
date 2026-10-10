@@ -135,8 +135,10 @@ pub fn read_reply(reader: &mut impl Read, generation: u64) -> Result<Reply> {
                 pts_us: u64::from_le_bytes(body[..8].try_into()?),
                 channels: body[8],
                 samples: body[9..]
-                    .chunks_exact(4)
-                    .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| f32::from_le_bytes(*bytes))
                     .collect(),
             };
             block.validate(generation)?;

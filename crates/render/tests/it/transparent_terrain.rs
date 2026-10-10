@@ -111,12 +111,16 @@ impl Fixture {
             ];
             templates.extend(
                 positions
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|p| u32::from(p[0] as u16) | (u32::from(p[1] as u16) << 16)),
             );
             let uvs: [u16; 8] = [0, 0, 0, 4096, 4096, 4096, 4096, 0];
             templates.extend(
-                uvs.chunks_exact(2)
+                uvs.as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|p| u32::from(p[0]) | (u32::from(p[1]) << 16)),
             );
             templates.extend([1, 0]);
@@ -418,8 +422,10 @@ impl Fixture {
 }
 
 fn mismatches(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0.iter())
         .filter(|(a, b)| a != b)
         .count()
 }
@@ -497,7 +503,11 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
     gpu_snapshot::save("transparent_terrain_direct", &direct);
     let background = &expected[..4];
     assert!(
-        expected.chunks_exact(4).any(|pixel| pixel != background),
+        expected
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel != background),
         "the fixture draws something"
     );
     assert_ne!(

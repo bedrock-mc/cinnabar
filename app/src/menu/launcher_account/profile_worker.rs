@@ -9,16 +9,25 @@ pub(super) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Publishes a terminal result even if a control endpoint accepts but never answers.
 pub(super) fn poll(
     socket_dir: &std::path::Path,
+    artwork_dir: &std::path::Path,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     requests: &Receiver<()>,
 ) {
-    poll_with_timeout(socket_dir, shared, stop, requests, RESPONSE_TIMEOUT);
+    poll_with_timeout(
+        socket_dir,
+        artwork_dir,
+        shared,
+        stop,
+        requests,
+        RESPONSE_TIMEOUT,
+    );
 }
 
 /// Uses the same socket path and publication rules with a shorter deadline in fixtures.
 fn poll_with_timeout(
     socket_dir: &std::path::Path,
+    artwork_dir: &std::path::Path,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     requests: &Receiver<()>,
@@ -29,6 +38,7 @@ fn poll_with_timeout(
         log_unavailable("runtime_unavailable");
         return;
     };
+    let images = artwork::feed_images(artwork_dir);
     let mut last_log = None;
     loop {
         while requests.try_recv().is_ok() {}
@@ -45,7 +55,12 @@ fn poll_with_timeout(
             );
         }
         let result = runtime.block_on(async {
-            tokio::time::timeout(timeout, launcher_control::profile(socket_dir)).await
+            let mut result =
+                tokio::time::timeout(timeout, launcher_control::profile(socket_dir)).await;
+            if let Ok(Ok(profile)) = &mut result {
+                artwork::fill(&images, artwork::profile_slots(profile)).await;
+            }
+            result
         });
         let outcome = match &result {
             Ok(Ok(_)) => "success",
@@ -139,6 +154,7 @@ mod tests {
         let worker = thread::spawn(move || {
             poll_with_timeout(
                 &endpoint,
+                &endpoint.join("artwork"),
                 &snapshot,
                 &stop,
                 &requests,

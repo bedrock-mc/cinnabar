@@ -213,7 +213,9 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
         ];
         let visible = draw
             .vertices
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter_map(|quad| {
                 let left = quad
                     .iter()

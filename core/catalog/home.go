@@ -62,7 +62,7 @@ func (h Home) Refill(previous Home) Home {
 	return h
 }
 
-// HomeImages lists the artwork of home for CacheImages.
+// HomeImages lists the artwork of home.
 func HomeImages(home *Home) []*Image {
 	var images []*Image
 	for index := range home.Messages {

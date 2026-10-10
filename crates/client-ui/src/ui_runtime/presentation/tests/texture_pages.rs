@@ -133,9 +133,11 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
     assert!(
         scene.atlas[0]
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] != 0)
-            .all(|pixel| pixel == [255; 4])
+            .all(|pixel| *pixel == [255; 4])
     );
     for batch in input.batches.iter() {
         let logical = batch.texture_page as usize;

@@ -341,7 +341,7 @@ pub fn sha256_identity_from_hex_or_text(value: &str) -> [u8; 32] {
     if value.len() == 64 {
         let mut bytes = [0_u8; 32];
         let mut valid = true;
-        for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             let pair = std::str::from_utf8(chunk).ok();
             if let Some(parsed) = pair.and_then(|pair| u8::from_str_radix(pair, 16).ok()) {
                 bytes[index] = parsed;

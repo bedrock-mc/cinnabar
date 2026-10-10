@@ -56,13 +56,17 @@ fn animation_inventory_inspects_a_bounded_pack_without_installing_it() {
     );
     let mut strip = vec![0; (TILE_SIZE * TILE_SIZE * 2 * 4) as usize];
     for pixel in strip
-        .chunks_exact_mut(4)
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
         .take((TILE_SIZE * TILE_SIZE) as usize)
     {
         pixel.copy_from_slice(&[10, 20, 30, 255]);
     }
     for pixel in strip
-        .chunks_exact_mut(4)
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
         .skip((TILE_SIZE * TILE_SIZE) as usize)
     {
         pixel.copy_from_slice(&[40, 50, 60, 255]);

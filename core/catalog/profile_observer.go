@@ -8,13 +8,10 @@ import (
 
 // ProfileRequestEvent contains timing and status only, never account data or service errors.
 type ProfileRequestEvent struct {
-	Facet     string
-	Outcome   string
-	Elapsed   time.Duration
-	Reason    string
-	Requested int
-	Loaded    int
-	Missing   int
+	Facet   string
+	Outcome string
+	Elapsed time.Duration
+	Reason  string
 }
 
 // ErrProfilePartial marks a completed request whose optional facets were unavailable.

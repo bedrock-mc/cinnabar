@@ -43,6 +43,7 @@ members = [
     "crates/sim",
     "crates/ui",
     "crates/world",
+    "crates/update-manifest",
     "tools/visualcoverage",
     "tools/architecture",
     "tools/devtool",
@@ -53,6 +54,7 @@ members = [
     "tools/mcp-stdio",
     "tools/cinnabar-mcp",
     "tools/cxb",
+    "tools/release-manifest",
 ]
 resolver = "3"
 
@@ -149,5 +151,3 @@ lto = false
 incremental = true
 
 [workspace.lints.clippy]
-# Adopted with Rust 1.99; its `as_chunks` rewrites need type changes at each site, done separately.
-chunks_exact_to_as_chunks = "allow"

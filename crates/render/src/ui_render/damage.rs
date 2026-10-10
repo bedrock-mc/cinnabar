@@ -38,7 +38,7 @@ pub(super) fn plan(previous: &UiRenderInput, current: &UiRenderInput) -> UiDamag
     for batch in current.batches.iter() {
         let start = batch.first_index as usize;
         let end = start + batch.index_count as usize;
-        for triangle in current.indices[start..end].chunks_exact(3) {
+        for triangle in current.indices[start..end].as_chunks::<3>().0 {
             if triangle.iter().all(|&index| {
                 bytemuck::bytes_of(&previous.vertices[index as usize])
                     == bytemuck::bytes_of(&current.vertices[index as usize])

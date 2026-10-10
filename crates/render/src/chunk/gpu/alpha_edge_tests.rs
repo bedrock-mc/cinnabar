@@ -233,7 +233,7 @@ fn check_edge(held: bool) {
             &pixels,
         );
         assert!(
-            pixels.chunks_exact(4).any(|pixel| pixel[1] > 200),
+            pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[1] > 200),
             "opaque interior must render"
         );
         let mut stray = 0;

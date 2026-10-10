@@ -1,8 +1,6 @@
 package launcher
 
 import (
-	"context"
-	"errors"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
@@ -29,36 +27,5 @@ func (s *Service) logProfileRequest(event catalog.ProfileRequestEvent) {
 	if event.Reason != "" {
 		fields = append(fields, "reason", event.Reason)
 	}
-	if event.Facet == "artwork" {
-		fields = append(fields, "requested", event.Requested, "loaded", event.Loaded, "missing", event.Missing)
-	}
 	s.logger.Info("profile facet", fields...)
-}
-
-// profileArtworkOutcome counts only images with a URL; absent optional art is not a failure.
-func profileArtworkOutcome(images []*catalog.Image, err error, enabled bool) catalog.ProfileRequestEvent {
-	event := catalog.ProfileRequestEvent{Facet: "artwork", Outcome: "ok"}
-	for _, image := range images {
-		if image.URL != "" {
-			event.Requested++
-			if image.Path != "" {
-				event.Loaded++
-			} else {
-				event.Missing++
-			}
-		}
-	}
-	switch {
-	case !enabled:
-		event.Outcome, event.Reason = "skipped", "cache_disabled"
-	case errors.Is(err, context.DeadlineExceeded):
-		event.Outcome = "timed_out"
-	case errors.Is(err, context.Canceled):
-		event.Outcome = "cancelled"
-	case event.Missing > 0 && event.Loaded > 0:
-		event.Outcome = "partial"
-	case event.Missing > 0:
-		event.Outcome = "unavailable"
-	}
-	return event
 }

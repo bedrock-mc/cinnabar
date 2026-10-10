@@ -60,16 +60,12 @@ fn java_pack_geometry_on_a_real_viewport() {
     assert_eq!(level[4].dest.y, hearts[0].dest.y);
     // The frame lands in physical pixels, allowing float noise from DPI conversion.
     assert!(
-        input
-            .vertices
-            .chunks_exact(4)
-            .map(quad_bounds)
-            .any(|bounds| {
-                bounds
-                    .into_iter()
-                    .zip([364.0, 681.0, 436.0, 753.0])
-                    .all(|(actual, expected)| (actual - expected).abs() < 1e-3)
-            }),
+        quad_bounds(&input).any(|bounds| {
+            bounds
+                .into_iter()
+                .zip([364.0, 681.0, 436.0, 753.0])
+                .all(|(actual, expected)| (actual - expected).abs() < 1e-3)
+        }),
         "selection frame at Java geometry"
     );
 }

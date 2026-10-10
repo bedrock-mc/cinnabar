@@ -216,8 +216,10 @@ pub(crate) fn read_packed_storage(
         || vec![0; word_count],
         |bytes| {
             bytes
-                .chunks_exact(4)
-                .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte chunk")))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|word| u32::from_le_bytes(*word))
                 .collect()
         },
     );

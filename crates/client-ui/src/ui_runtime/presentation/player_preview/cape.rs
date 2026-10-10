@@ -62,7 +62,7 @@ pub fn render_cape_thumbnail(cape: &protocol::CapeImage) -> Option<Vec<u8>> {
     let mut pixels = vec![0; width * height * 4];
     let mut depth = vec![f32::NEG_INFINITY; width * height];
     let sample = |uv| texture.sample(uv).filter(|texel| texel[3] >= 128);
-    for triangle in thumbnail_projection().chunks_exact(3) {
+    for triangle in thumbnail_projection().as_chunks::<3>().0 {
         super::rasterize_triangle(
             &mut pixels,
             &mut depth,
@@ -149,10 +149,12 @@ mod tests {
             image.len(),
             (super::super::PREVIEW_WIDTH * super::super::PREVIEW_HEIGHT * 4) as usize
         );
-        assert!(image.chunks_exact(4).any(|pixel| pixel[3] == 0));
+        assert!(image.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0));
         assert!(
             image
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[3] == 255 && pixel[1] > pixel[0])
         );
         let transparent = protocol::CapeImage {
@@ -178,7 +180,7 @@ mod tests {
         };
         let image = render_cape_thumbnail(&cape).expect("valid cape thumbnail");
         let mut bounds = [PREVIEW_WIDTH, PREVIEW_HEIGHT, 0, 0];
-        for (index, pixel) in image.chunks_exact(4).enumerate() {
+        for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
             if pixel[3] != 0 {
                 let x = index as u32 % PREVIEW_WIDTH;
                 let y = index as u32 / PREVIEW_WIDTH;

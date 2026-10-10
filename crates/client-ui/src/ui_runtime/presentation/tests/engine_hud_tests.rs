@@ -141,35 +141,33 @@ fn build(
     build_at(player_runtime, presentation, runtime, now, [1280, 720], 1.0)
 }
 
-fn quad_bounds(quad: &[render_model::UiRenderVertex]) -> [f32; 4] {
-    quad.iter().fold(
-        [
-            f32::INFINITY,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-            f32::NEG_INFINITY,
-        ],
-        |bounds, vertex| {
+/// The `[min_x, min_y, max_x, max_y]` bounds of each quad in the frame.
+fn quad_bounds(input: &render_model::UiRenderInput) -> impl Iterator<Item = [f32; 4]> + '_ {
+    input.vertices.as_chunks::<4>().0.iter().map(|quad| {
+        quad.iter().fold(
             [
-                bounds[0].min(vertex.position[0]),
-                bounds[1].min(vertex.position[1]),
-                bounds[2].max(vertex.position[0]),
-                bounds[3].max(vertex.position[1]),
-            ]
-        },
-    )
+                f32::INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NEG_INFINITY,
+            ],
+            |bounds, vertex| {
+                [
+                    bounds[0].min(vertex.position[0]),
+                    bounds[1].min(vertex.position[1]),
+                    bounds[2].max(vertex.position[0]),
+                    bounds[3].max(vertex.position[1]),
+                ]
+            },
+        )
+    })
 }
 
 /// The crosshair: the one `side`-square quad in the frame, if any.
 fn crosshair(input: &render_model::UiRenderInput, side: f32) -> Option<[f32; 4]> {
-    input
-        .vertices
-        .chunks_exact(4)
-        .map(quad_bounds)
-        .find(|bounds| {
-            (bounds[2] - bounds[0] - side).abs() < 1e-3
-                && (bounds[3] - bounds[1] - side).abs() < 1e-3
-        })
+    quad_bounds(input).find(|bounds| {
+        (bounds[2] - bounds[0] - side).abs() < 1e-3 && (bounds[3] - bounds[1] - side).abs() < 1e-3
+    })
 }
 
 fn select_slot(player_runtime: &mut player_state::PlayerState, runtime: &mut UiRuntime) {

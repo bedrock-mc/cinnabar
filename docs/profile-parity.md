@@ -184,13 +184,13 @@ The Profile subscriber requests `getMinecraftAvatarByXuid` at
 `api/v1.0/profile/xuid/{xuid}/image/{subtype}`, resolving `persona` through
 ServicesManager. The Go fork already
 implements this contract in `minecraft/service/persona/persona.go`.
-The core caches image bytes under a content hash, publishes a local artwork path,
-and retains current avatar and achievement icons during artwork pruning.
+The core caches the rendered avatar under a content hash and publishes its local path;
+the client caches the gamerpic, featured screenshot and Overview achievement icons from their URLs.
 An avatar failure remains separate from otherwise available account data.
 
 The featured banner may be read from the existing Gallery client using the
 same discovered persona service and Minecraft service token. Cinnabar selects only
 an entry whose `isFeatured` flag is true and whose URL passes the artwork
 policy; no featured entry selects the XUID-based banner fallback. The returned
-image is downloaded through the core artwork cache. A showcased collection's
+image is downloaded through the client's artwork cache. A showcased collection's
 length never stands in for the self Profile screen's local screenshot count.

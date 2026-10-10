@@ -1,6 +1,6 @@
 //! Bounded decoding and atlas packing for service-provided launcher artwork.
 //!
-//! The authenticated Go catalog downloads remote images into the local cache.
+//! Launcher art arrives as files from the remote image cache or the core's rendered persona art.
 //! This module treats those files as untrusted input: reads, decoded dimensions,
 //! allocation and output pages are all capped before artwork enters the
 //! retained UI texture array's full-resolution art pages.

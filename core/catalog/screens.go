@@ -14,8 +14,7 @@ import (
 )
 
 // FeaturedServer is a featured server with the details the play screen's
-// server info panel shows. Image fields are HTTPS URLs; paths are filled in by
-// a caller that caches the artwork.
+// server info panel shows. Image fields are HTTPS URLs the client caches.
 type FeaturedServer struct {
 	Name         string   `json:"name"`
 	Group        string   `json:"group"`
@@ -41,7 +40,7 @@ type Game struct {
 	Image       Image  `json:"image"`
 }
 
-// Image is remote HTTPS artwork plus its locally cached copy, when one exists.
+// Image is remote HTTPS artwork, or a local path for persona art the core renders.
 type Image struct {
 	URL  string `json:"url,omitempty"`
 	Path string `json:"path,omitempty"`
@@ -179,28 +178,7 @@ func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) 
 	return env.New(tokens), nil
 }
 
-// maxCachedArtwork bounds the artwork directory; the least recently used files go first.
-const maxCachedArtwork = 256
-
-// CacheImages downloads each image into directory and fills its path; a
-// failed download leaves the path empty.
-func CacheImages(ctx context.Context, directory string, images []*Image) {
-	if len(images) == 0 {
-		return
-	}
-	cache := artworkCache(directory)
-	for _, image := range images {
-		if image == nil || image.URL == "" {
-			continue
-		}
-		if cached, err := cache.Fetch(ctx, image.URL); err == nil {
-			image.Path = cached.Path
-		}
-	}
-	cache.Prune()
-}
-
-// FeaturedImages lists the artwork of servers for CacheImages.
+// FeaturedImages lists the artwork of servers.
 func FeaturedImages(servers []FeaturedServer) []*Image {
 	var images []*Image
 	for index := range servers {

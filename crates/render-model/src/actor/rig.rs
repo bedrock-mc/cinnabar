@@ -259,7 +259,7 @@ pub fn diagnostic_geometry() -> ActorRigGeometry {
             surface: ActorRigSurface::SINGLE_FACE,
         })
         .collect::<Vec<_>>();
-    for triangle in vertices.chunks_exact_mut(3) {
+    for triangle in vertices.as_chunks_mut::<3>().0 {
         let normal = super::geometry::triangle_normal(
             triangle[0].position,
             triangle[1].position,

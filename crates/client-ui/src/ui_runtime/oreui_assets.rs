@@ -598,7 +598,9 @@ fn is_mask(key: &str) -> bool {
 
 fn alpha_mask(pixels: &[u8]) -> Vec<u8> {
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| [255, 255, 255, pixel[3]])
         .collect()
 }

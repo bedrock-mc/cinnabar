@@ -122,8 +122,10 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     let index = timestamps.ring.oldest_in_flight().unwrap();
     let mapped = timestamps.slots[index].buffer.slice(..).get_mapped_range();
     let values: Vec<_> = mapped[..16]
-        .chunks_exact(8)
-        .map(|bytes| u64::from_le_bytes(bytes.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|bytes| u64::from_le_bytes(*bytes))
         .collect();
     eprintln!("Metal owned pass timestamp values: {values:?}");
     assert!(

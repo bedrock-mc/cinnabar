@@ -42,10 +42,14 @@ pub fn build_texture_mip_chain(
     tile_size: u32,
 ) -> Result<Box<[TextureMip]>, AssetError> {
     let has_covered = base
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|pixel| pixel[3] >= ALPHA_TEST_THRESHOLD);
     let has_uncovered = base
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|pixel| pixel[3] < ALPHA_TEST_THRESHOLD);
     let cutout_layers = if has_covered && has_uncovered {
         BTreeSet::from([0])
@@ -149,7 +153,9 @@ fn build_texture_array(
 }
 
 fn alpha_survivors(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] >= ALPHA_TEST_THRESHOLD)
         .count()
 }
@@ -163,7 +169,9 @@ fn scaled_alpha(alpha: u8, scale: u32) -> u8 {
 thread_local! { static COVERAGE_PIXEL_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 fn scaled_survivors(rgba: &[u8], scale: u32) -> usize {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| {
             #[cfg(test)]
             COVERAGE_PIXEL_VISITS.with(|visits| visits.set(visits.get() + 1));
@@ -195,7 +203,7 @@ fn preserve_alpha_coverage(rgba: &mut [u8], target: usize) {
     };
     let survivor_count = scaled_survivors(rgba, candidate);
     let scale = smallest_scale_for_survivors(rgba, survivor_count, candidate);
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel[3] = scaled_alpha(pixel[3], scale);
     }
 }
@@ -205,7 +213,7 @@ fn smallest_scale_for_survivors(rgba: &[u8], survivors: usize, upper_bound: u32)
         - (1 << (ALPHA_SCALE_FRACTION_BITS - 1));
     let mut smallest = if survivors == 0 { 0 } else { upper_bound };
     let mut histogram = [0usize; 256];
-    for pixel in rgba.chunks_exact(4) {
+    for pixel in rgba.as_chunks::<4>().0 {
         histogram[usize::from(pixel[3])] += 1;
     }
     let mut suffix = [0usize; 257];
@@ -319,7 +327,9 @@ mod tests {
         assert_eq!(mips.len(), 6);
         let covered = mips[2]
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] >= ALPHA_TEST_THRESHOLD)
             .count();
         assert!(

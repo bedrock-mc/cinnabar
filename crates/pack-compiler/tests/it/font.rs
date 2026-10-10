@@ -31,8 +31,10 @@ fn font_carrier_is_deterministic_and_bounded() {
         runtime.pages()[0]
             .pixels
             .bytes()
-            .chunks_exact(4)
-            .all(|pixel| pixel == [0x7f; 4])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [0x7f; 4])
     );
 }
 

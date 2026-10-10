@@ -69,14 +69,18 @@ fn largest_font_quad_height(input: &render_model::UiRenderInput) -> f32 {
         .flat_map(|batch| {
             let start = batch.first_index as usize;
             let end = start + batch.index_count as usize;
-            input.indices[start..end].chunks_exact(6).map(|indices| {
-                let positions = indices
-                    .iter()
-                    .map(|index| input.vertices[*index as usize].position[1]);
-                let bottom = positions.clone().fold(f32::NEG_INFINITY, f32::max);
-                let top = positions.fold(f32::INFINITY, f32::min);
-                bottom - top
-            })
+            input.indices[start..end]
+                .as_chunks::<6>()
+                .0
+                .iter()
+                .map(|indices| {
+                    let positions = indices
+                        .iter()
+                        .map(|index| input.vertices[*index as usize].position[1]);
+                    let bottom = positions.clone().fold(f32::NEG_INFINITY, f32::max);
+                    let top = positions.fold(f32::INFINITY, f32::min);
+                    bottom - top
+                })
         })
         .fold(0.0, f32::max)
 }
@@ -317,7 +321,9 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
 fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2], scale: u8) {
     let crosshair = input
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| {
             quad.iter().fold(
                 [

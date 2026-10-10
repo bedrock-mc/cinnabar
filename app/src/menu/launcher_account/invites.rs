@@ -13,12 +13,14 @@ pub(super) enum Request {
 /// Starts the worker; dropping the account link stops it and drops what is still queued.
 pub(super) fn start(
     socket_dir: PathBuf,
+    artwork_dir: PathBuf,
     shared: Arc<Mutex<Snapshot>>,
     stop: Receiver<()>,
 ) -> Sender<Request> {
     let (sender, requests) = crossbeam_channel::unbounded();
     thread::spawn(move || {
         let runtime = runtime();
+        let images = artwork::people_images(&artwork_dir);
         loop {
             let request = crossbeam_channel::select_biased! {
                 recv(stop) -> _ => return,
@@ -32,7 +34,7 @@ pub(super) fn start(
                     let generation = auth_generation(&shared);
                     let people = runtime
                         .ok_or(())
-                        .and_then(|runtime| people(runtime, &socket_dir));
+                        .and_then(|runtime| people(runtime, &socket_dir, &images));
                     publish_account(&shared, generation, |snapshot| {
                         snapshot.people = Some(people)
                     });
@@ -48,9 +50,15 @@ pub(super) fn start(
 fn people(
     runtime: &tokio::runtime::Runtime,
     socket_dir: &std::path::Path,
+    images: &client_ui::remote_images::ImageDirectory,
 ) -> Result<Vec<launcher_control::Person>, ()> {
     let listed = runtime.block_on(async {
-        tokio::time::timeout(RESPONSE_TIMEOUT, launcher_control::list_people(socket_dir)).await
+        let mut listed =
+            tokio::time::timeout(RESPONSE_TIMEOUT, launcher_control::list_people(socket_dir)).await;
+        if let Ok(Ok(people)) = &mut listed {
+            artwork::fill(images, artwork::people_slots(people)).await;
+        }
+        listed
     });
     match listed {
         Ok(Ok(people)) => Ok(people),

@@ -252,6 +252,20 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
+    #[must_use]
+    pub fn launcher_artwork_dir(&self) -> PathBuf {
+        self.auth_cache()
+            .with_file_name("catalog-cache")
+            .join("artwork")
+    }
+
+    /// Downloaded Marketplace offer art.
+    #[must_use]
+    pub fn store_images_dir(&self) -> PathBuf {
+        self.auth_cache().with_file_name("store-images")
+    }
+
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {
@@ -335,7 +349,7 @@ impl InstallLayout {
     }
 }
 
-/// Cargo runs tests from its build directory, which a shared `build-dir` puts outside the
+/// Cargo runs tests from its build directory, which `build-dir` puts outside the
 /// checkout; such a binary resolves as if it ran from its workspace's `target/debug`.
 fn cargo_artifact_path(executable: PathBuf, manifest_dir: Option<&Path>) -> PathBuf {
     if development_root(&executable).is_some() {
@@ -539,9 +553,9 @@ mod tests {
     use super::{InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path};
     use std::path::{Path, PathBuf};
 
-    /// A test binary in a shared build dir outside the checkout still resolves the checkout.
+    /// A test binary in a build dir outside the checkout still resolves the checkout.
     #[test]
-    fn shared_build_dir_tests_resolve_their_workspace() {
+    fn external_build_dir_tests_resolve_their_workspace() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let root = manifest.ancestors().nth(2).unwrap();
         let shared = PathBuf::from("/cache/build/cinnabar/debug/deps/launcher-0123");
@@ -701,6 +715,15 @@ mod tests {
         assert_eq!(
             layout.auth_cache(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/microsoft-token.json")
+        );
+        // Downloaded art stays where earlier cores cached it, so upgrades keep their cache.
+        assert_eq!(
+            layout.launcher_artwork_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/catalog-cache/artwork")
+        );
+        assert_eq!(
+            layout.store_images_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/store-images")
         );
         assert_eq!(
             layout.resource_pack_cache_dir(),

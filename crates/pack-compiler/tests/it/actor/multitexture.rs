@@ -51,7 +51,9 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
         witnessed += 1;
         fractional += usize::from(
             raster
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| !matches!(pixel[3], 0 | 255)),
         );
     }
