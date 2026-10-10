@@ -1,28 +1,64 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{Arc, Once, OnceLock},
+};
 
 use bevy::log::warn;
 use client_world::{RideSeat, SeatDefaults, SeatRequirement};
 use serde_json::Value;
 
-/// Seat layouts of every rideable entity in the local behavior pack, loaded once; absent or
-/// unreadable data degrades to no defaults, so riders keep their streamed pose.
-pub(super) fn seat_defaults() -> Arc<SeatDefaults> {
-    static DEFAULTS: std::sync::OnceLock<Arc<SeatDefaults>> = std::sync::OnceLock::new();
-    Arc::clone(DEFAULTS.get_or_init(|| {
-        let defaults = launcher::install_layout::InstallLayout::discover()
-            .ok()
-            .and_then(|layout| {
-                let entities =
-                    assets::vanilla_source().installed_pack_dir("behavior_pack/entities");
-                load(&layout.resource_root.join(entities))
-            });
-        if defaults.is_none() {
-            warn!(
-                "behavior pack entities not found; riders without a streamed seat keep their pose"
-            );
+/// Starts reading rideable seat defaults on a worker; returns None until ready.
+/// Missing or unreadable data leaves riders with their streamed pose.
+pub(super) fn seat_defaults() -> Option<Arc<SeatDefaults>> {
+    static DEFAULTS: ReadOnce<Arc<SeatDefaults>> = ReadOnce::new();
+    DEFAULTS.get(installed).cloned()
+}
+
+/// Reads the installed behavior pack's layouts.
+fn installed() -> Arc<SeatDefaults> {
+    let defaults = launcher::install_layout::InstallLayout::discover()
+        .ok()
+        .and_then(|layout| {
+            let entities = assets::vanilla_source().installed_pack_dir("behavior_pack/entities");
+            load(&layout.resource_root.join(entities))
+        });
+    if defaults.is_none() {
+        warn!("behavior pack entities not found; riders without a streamed seat keep their pose");
+    }
+    Arc::new(defaults.unwrap_or_default())
+}
+
+/// A value produced once by a loader that runs off the calling thread.
+struct ReadOnce<T> {
+    value: OnceLock<T>,
+    started: Once,
+}
+
+impl<T: Send + Sync + 'static> ReadOnce<T> {
+    /// Creates an empty loader state with no reader running.
+    const fn new() -> Self {
+        Self {
+            value: OnceLock::new(),
+            started: Once::new(),
         }
-        Arc::new(defaults.unwrap_or_default())
-    }))
+    }
+
+    /// Starts `load` on its own thread at the first call and returns the value once it has
+    /// finished; the loader runs inline only if no thread can start.
+    fn get(&'static self, load: fn() -> T) -> Option<&'static T> {
+        self.started.call_once(|| {
+            let spawned = std::thread::Builder::new()
+                .name("seat-defaults".to_owned())
+                .spawn(move || {
+                    let _ = self.value.set(load());
+                });
+            if let Err(error) = spawned {
+                warn!("seat layouts are read on the frame: {error}");
+                let _ = self.value.set(load());
+            }
+        });
+        self.value.get()
+    }
 }
 
 fn load(directory: &Path) -> Option<SeatDefaults> {
@@ -115,7 +151,36 @@ fn parse_seats(seats: &Value) -> Vec<RideSeat> {
 mod tests {
     use client_world::SeatRequirement;
 
-    use super::rideable_layouts;
+    use super::{ReadOnce, rideable_layouts};
+
+    /// The first caller, a session's first frame, gets no layouts rather than waiting for the
+    /// files; a later frame gets them once the reader finishes.
+    #[test]
+    fn layouts_are_read_off_the_calling_thread() {
+        static GATE: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>> =
+            std::sync::Mutex::new(None);
+        static READER: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
+        static LAYOUTS: ReadOnce<u32> = ReadOnce::new();
+        /// Records the reader thread and waits for the fixture gate before returning its layouts.
+        fn read() -> u32 {
+            let _ = READER.set(std::thread::current().id());
+            let gate = GATE.lock().unwrap().take().unwrap();
+            // Bounded, so a reader that ran on the caller fails the test instead of hanging it.
+            let _ = gate.recv_timeout(std::time::Duration::from_secs(5));
+            7
+        }
+        let (release, gate) = std::sync::mpsc::channel();
+        *GATE.lock().unwrap() = Some(gate);
+        assert_eq!(LAYOUTS.get(read), None, "the frame does not wait");
+        release.send(()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while LAYOUTS.get(read).is_none() {
+            assert!(std::time::Instant::now() < deadline, "the reader finishes");
+            std::thread::yield_now();
+        }
+        assert_eq!(LAYOUTS.get(read), Some(&7));
+        assert_ne!(READER.get(), Some(&std::thread::current().id()));
+    }
 
     #[test]
     fn layouts_keep_group_state_and_rotation_fields() {

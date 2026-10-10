@@ -25,10 +25,51 @@ pub struct ActorPackCompilation {
 pub fn compile_actor_pack(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> Result<Option<ActorPackCompilation>, AssetError> {
+    compile_actor_pack_unless(files, &|| false).expect("an uncancellable compile completes")
+}
+
+/// Why a cancellable compile ended early.
+enum Stop {
+    Cancelled,
+    Failed(AssetError),
+}
+
+impl From<AssetError> for Stop {
+    fn from(error: AssetError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// [`compile_actor_pack`], abandoned between its stages once `cancelled` holds; `None` then.
+pub fn compile_actor_pack_unless(
+    files: Vec<(Box<str>, Vec<u8>)>,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Result<Option<ActorPackCompilation>, AssetError>> {
+    match compile_stages(files, cancelled) {
+        Ok(compiled) => Some(Ok(compiled)),
+        Err(Stop::Failed(error)) => Some(Err(error)),
+        Err(Stop::Cancelled) => None,
+    }
+}
+
+/// The stages of [`compile_actor_pack`], checking `cancelled` before each one after the first.
+fn compile_stages(
+    files: Vec<(Box<str>, Vec<u8>)>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Option<ActorPackCompilation>, Stop> {
+    let check = || {
+        if cancelled() {
+            Err(Stop::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
     let Some(pack) = compile_entity_pack(files)? else {
         return Ok(None);
     };
+    check()?;
     let runtime = assets::RuntimeEntityAssets::from_compiled(pack.assets.clone())?;
+    check()?;
     let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
         let source = &pack.assets.sources[index as usize];
         pack.payloads
@@ -37,6 +78,7 @@ pub fn compile_actor_pack(
             .ok_or_else(|| invalid("pack entity source payload is absent"))
     };
     let build = build_artwork(&pack.assets, &runtime, &mut read, true)?;
+    check()?;
     let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with(
         &pack.assets,
         &pack.equipment_bindings,
@@ -97,6 +139,41 @@ mod tests {
         .expect("entity compiles");
         assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
         assert_eq!(compiled.textures[0].height, 1024);
+    }
+
+    // A cancelled compile stops at its next stage instead of decoding artwork; uncancelled, the
+    // same files compile as the plain entry point compiles them.
+    #[test]
+    fn a_cancelled_compile_stops_between_stages() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:cube","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/cube"},"geometry":{"default":"geometry.cube"},"render_controllers":["controller.render.cube"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.cube","texture_width":1,"texture_height":1},"bones":[{"name":"root","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
+        let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.cube":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let files = || {
+            vec![
+                ("entity/cube.json".into(), entity.to_vec()),
+                ("models/entity/cube.geo.json".into(), geometry.to_vec()),
+                ("render_controllers/cube.json".into(), controller.to_vec()),
+                ("textures/entity/cube.png".into(), png.clone()),
+            ]
+        };
+        let checks = std::cell::Cell::new(0);
+        let stopped = compile_actor_pack_unless(files(), &|| {
+            checks.set(checks.get() + 1);
+            true
+        });
+        assert!(stopped.is_none());
+        assert_eq!(checks.get(), 1);
+        let completed = compile_actor_pack_unless(files(), &|| false)
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let plain = compile_actor_pack(files()).unwrap().unwrap();
+        assert_eq!(completed.identity, plain.identity);
+        assert_eq!(completed.bindings.len(), plain.bindings.len());
     }
 
     // A weighted object binding two animations (as camel's controller does) compiles both.

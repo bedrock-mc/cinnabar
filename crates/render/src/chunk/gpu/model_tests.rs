@@ -246,6 +246,7 @@ fn model_mdi_batch_emits_one_command_per_eligible_allocation() {
                 has_depth_liquid: false,
                 has_transparent_liquid: false,
                 depth_liquid_range: None,
+                order_independent_liquid: false,
                 metadata_index: start / 4,
             },
         )
@@ -361,6 +362,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         has_depth_liquid: false,
         has_transparent_liquid: true,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 7,
     };
     assert!(transparent_allocation_matches(&instance, &allocation, tint));
@@ -437,6 +439,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 7,
     };
     assert!(transparent_model_allocation_matches(&instance, &allocation));

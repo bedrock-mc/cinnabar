@@ -17,5 +17,6 @@ mod scoreboard;
 mod settings;
 mod standing_toast;
 mod text;
+mod text_device_pixels;
 mod text_style;
 mod text_wrap;

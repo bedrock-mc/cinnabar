@@ -717,6 +717,7 @@ fn depth_liquid_direct_and_mdi_draws_share_exact_addresses() {
         has_depth_liquid: true,
         has_transparent_liquid: true,
         depth_liquid_range: Some(10..16),
+        order_independent_liquid: false,
         metadata_index: 7,
     };
     let direct = depth_liquid_direct_draw_command(&allocation).unwrap();

@@ -68,7 +68,7 @@ Incomplete: the enchanting book model, rune font, the live horse renderer, banne
 pattern previews, the anvil result preview and repair cost; the paper doll's held item is
 a flat quad and it draws no offhand or armor trims. Needs native measurement: the virtual UI scale (engine
 pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
-text, tooltip and durability placement/colours, the preview's size in its box, layer
+text, tooltip and durability placement/colours, the preview's size and vertical placement in its box, layer
 relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,
 settings (sections, GUI scale, sound sliders bound to `AudioSettings` at 5% snaps whose
 granularity needs measurement; text-to-speech disabled), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue

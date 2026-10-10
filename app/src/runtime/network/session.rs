@@ -138,16 +138,15 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             physical_memory_bytes: crate::global_resources::memory::physical_bytes(),
         },
         move |preparation, game_data, cancelled| {
-            let packs = super::resource_packs::prepare_session_presentation(
+            super::resource_packs::prepare_join(
                 preparation,
                 game_data,
                 cancelled,
-            )?;
-            Some(packs.map(|mut packs| {
-                packs.prepare_actor_artwork(actor_artwork.as_ref());
-                packs.prepare_ui_catalog(ui_catalog.as_ref());
-                packs
-            }))
+                super::resource_packs::JoinBases {
+                    actor_artwork: actor_artwork.as_ref(),
+                    ui_catalog: ui_catalog.as_ref(),
+                },
+            )
         },
         client_session::SessionTrace {
             movement_line: crate::movement::pending_trace_line,

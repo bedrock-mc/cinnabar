@@ -649,7 +649,11 @@ pub fn pump_audio(
     settings: Res<AudioSettings>,
     mut engine: ResMut<AudioEngine>,
     mut device: Option<NonSendMut<AudioDevice>>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     engine.poll_server();
     let listener = super::listener::camera_listener(
         &view,
@@ -696,6 +700,30 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    /// Audio is timed inside its own systems; a span opened around the chain also counted every
+    /// system the single-threaded executor ran between its first and last system.
+    #[test]
+    fn pump_attributes_its_own_work_to_the_audio_stage() {
+        use bevy::prelude::{App, Update};
+        let profiler = render::RuntimeStageProfiler::new(true);
+        let mut app = App::new();
+        app.insert_resource(profiler.clone())
+            .init_resource::<Time>()
+            .init_resource::<LocalViewPose>()
+            .init_resource::<AudioSettings>()
+            .init_resource::<AudioEngine>()
+            .add_systems(Update, pump_audio);
+        app.update();
+        app.update();
+        let snapshot = profiler
+            .take_snapshot_if_due(std::time::Duration::ZERO)
+            .expect("enabled profiler");
+        assert_eq!(
+            snapshot.samples[render::RuntimeStage::Audio as usize].count,
+            2
+        );
     }
 
     #[test]

@@ -632,7 +632,6 @@ impl ActiveFrameProbe {
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn submit_presented_frame_probe(
-    render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     frame_probe: Res<ActiveFrameProbe>,
     presented_frame_gate: Res<PresentedFrameGate>,
@@ -663,35 +662,25 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         && transparent_snapshot.encoded_generation != transparent_snapshot.presented_generation
         && transparent_fence.try_reserve(transparent_snapshot.encoded_generation))
     .then_some(transparent_snapshot.encoded_generation);
-    let has_releasable_retirement = arena.retired_allocations.iter().any(|retirement| {
-        retirement.release_epoch.is_none()
-            && transparent_retirement_can_arm(
-                transparent_runtime.state.committed(),
-                &retirement.identity,
-            )
-    });
-    let retirement_epoch = has_releasable_retirement
-        .then(|| retirement_fence.try_reserve())
-        .flatten();
-    if let Some(epoch) = retirement_epoch {
-        for retirement in &mut arena.retired_allocations {
-            if retirement.release_epoch.is_none()
-                && transparent_retirement_can_arm(
-                    transparent_runtime.state.committed(),
-                    &retirement.identity,
-                )
-            {
-                retirement.release_epoch = Some(epoch);
-            }
-        }
-    }
+    let retirement_epoch =
+        arm_transparent_retirements(&mut arena, &transparent_runtime.state, &retirement_fence);
     let witness_generation = transparent_runtime
         .state
         .committed()
         .map_or(0, |snapshot| snapshot.generation().get());
-    let witness_missing = transparent_runtime.state.committed().map_or_else(
-        || witness_request.keys().to_vec(),
-        |snapshot| transparent_view_missing_witness_keys(snapshot.key(), &witness_request),
+    let witness_missing = transparent_view_missing_witness_keys(
+        transparent_runtime
+            .state
+            .committed()
+            .map(TransparentOrderedSnapshot::key),
+        &witness_request,
+        |key| {
+            transparent_runtime.direct_order_independent
+                && arena
+                    .transparent_liquids
+                    .get(key)
+                    .is_some_and(|resident| resident.order_independent)
+        },
     );
     let witness_token =
         witness_evidence.try_reserve_missing(&witness_request, witness_generation, witness_missing);
@@ -704,10 +693,6 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         return;
     }
     let present_returned_at = Instant::now();
-    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("presented frame completion sentinel"),
-    });
-    let command_buffer = encoder.finish();
     let callback_gate = presented_frame_gate.clone();
     let callback_metrics = transparent_metrics.clone();
     let callback_transparent_fence = transparent_fence.clone();
@@ -715,7 +700,7 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let callback_witness_evidence = witness_evidence.clone();
     let callback_visibility_diagnostics = visibility_diagnostics.clone();
     let callback_visibility_completion_fence = visibility_completion_fence.clone();
-    command_buffer.on_submitted_work_done(move || {
+    crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "terrain.completion_callback",
@@ -746,9 +731,4 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
             callback_witness_evidence.complete(token);
         }
     });
-    {
-        #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("terrain.completion_submit").entered();
-        render_queue.submit([command_buffer]);
-    }
 }

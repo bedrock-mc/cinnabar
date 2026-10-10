@@ -281,19 +281,33 @@ impl WorldAuthority {
         self.actors
             .actor_retargeted_pose(runtime_id, partial_tick, targets)
     }
+    /// [`Self::actor_retargeted_pose`] borrowed from `cache`, which keeps each rig's
+    /// tick-constant transforms so frames between ticks only blend and compose.
+    pub fn actor_retargeted_pose_cached<'c>(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: &[Option<crate::BoneTransform>],
+        cache: &'c mut crate::JavaRetargetCache,
+    ) -> Option<&'c [crate::BoneTransform]> {
+        self.actors
+            .actor_retargeted_pose_cached(runtime_id, partial_tick, targets, cache)
+    }
     /// The animated skin layers at the frame fraction, each retargeted by the model-space
-    /// targets `targets` builds from its skeleton's bone names and rest pose.
+    /// targets `targets` writes from its skeleton's bone names and rest pose.
     pub fn actor_retargeted_layers(
         &self,
         runtime_id: u64,
         partial_tick: f32,
-        targets: impl Fn(
+        targets: impl FnMut(
             &[Box<str>],
             &[crate::BoneTransform],
-        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+            &mut Vec<Option<crate::BoneTransform>>,
+        ) -> Option<()>,
+        cache: &mut crate::JavaRetargetCache,
     ) -> Option<Vec<crate::SkinRenderLayer>> {
         self.actors
-            .actor_retargeted_layers(runtime_id, partial_tick, targets)
+            .actor_retargeted_layers(runtime_id, partial_tick, targets, cache)
     }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {

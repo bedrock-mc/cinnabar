@@ -12,6 +12,10 @@ use render_model::{
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
+/// Subpixel steps per pixel that vertex positions snap to before rasterization: the
+/// eight bits of precision Direct3D, Vulkan and Metal rasterizers provide.
+const SUBPIXEL_STEPS: f32 = 256.0;
+
 /// Composes a known pack texel with the loading frame's published backdrop tint.
 pub fn loading_backdrop_texel(
     presentation: &super::super::UiPresentationRuntime,
@@ -145,16 +149,19 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Fill one triangle, sampling premultiplied `shade(uv, color, overlay, x, y)` at
-/// each covered pixel centre and blending over the image. A centre on an edge belongs
-/// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
-/// so a quad's shared diagonal is never blended twice.
+/// Samples premultiplied shade at covered pixel centres and blends with the GPU top-left rule.
+/// Snaps vertices to the subpixel grid so shared edges have exactly one owner.
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
     shade: impl Fn([f32; 2], [u8; 4], [f32; 4], u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
+    for corner in &mut corners {
+        corner.position = corner
+            .position
+            .map(|value| (value * SUBPIXEL_STEPS).round() / SUBPIXEL_STEPS);
+    }
     let [a, b, c] = corners.map(|corner| corner.position);
     let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     if area.abs() < f32::EPSILON {

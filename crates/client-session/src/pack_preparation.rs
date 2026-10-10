@@ -12,6 +12,23 @@ pub struct PackInputs {
     pub hashed: bool,
 }
 
+impl PackInputs {
+    /// Whether block visuals compiled for `other` also hold for these facts.
+    #[must_use]
+    pub fn same_blocks(&self, other: &Self) -> bool {
+        self.hashed == other.hashed && self.blocks == other.blocks
+    }
+
+    /// Whether item icons compiled for `other` also hold for these facts; icons draw custom
+    /// blocks, so they follow the blocks too.
+    #[must_use]
+    pub fn same_icons(&self, other: &Self) -> bool {
+        self.same_blocks(other)
+            && self.icons == other.icons
+            && self.block_items == other.block_items
+    }
+}
+
 /// A server-required pack the client could not apply; vanilla refuses such a join.
 #[derive(Debug, thiserror::Error)]
 #[error("required resource pack could not be applied ({rejected} of the stack rejected)")]

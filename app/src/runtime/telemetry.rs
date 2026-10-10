@@ -573,7 +573,7 @@ pub(crate) fn record_metrics(
         }
     }
     if client_world.stream.is_some() && visibility_snapshot.frame_generation != 0 {
-        let cohort = render_metrics.frame_poll.cohort;
+        let cohort = render_metrics.frame_poll.cohort_progress;
         let count = |digest: Option<render_model::VisibilityKeyDigest>| {
             digest
                 .and_then(|digest| usize::try_from(digest.count).ok())
