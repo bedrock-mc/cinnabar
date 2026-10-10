@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/df-mc/go-nethernet/endpoint"
+	"io"
 	"log/slog"
 	"net"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -328,40 +330,54 @@ func TestSignedOutAddressedNetherNetDialPresentsAnIdentity(t *testing.T) {
 	_ = conn.Close()
 }
 
-// A RakNet server that never answers fails the join instead of waiting on the caller's context.
-func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
-	silent, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer silent.Close()
-	go func() {
-		buffer := make([]byte, 2048)
-		for {
-			if _, _, err := silent.ReadFrom(buffer); err != nil {
-				return
-			}
-		}
-	}()
+// transportDialerFunc supplies an in-memory socket to the real RakNet dialer.
+type transportDialerFunc func(context.Context, string, string) (net.Conn, error)
 
-	started := time.Now()
-	result := make(chan error, 1)
-	go func() {
-		conn, err := dialTransportWithin(context.Background(), minecraft.RakNet{}, silent.LocalAddr().String(), 200*time.Millisecond)
+// DialContext forwards the dial to the test's socket factory.
+func (dial transportDialerFunc) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return dial(ctx, network, address)
+}
+
+// A RakNet server that never answers fails under the host's deadline, without OS timer races.
+func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, silent := net.Pipe()
+		defer silent.Close()
+		defer client.Close()
+		probed := make(chan int64, 1)
+		go func() {
+			bytes, _ := io.Copy(io.Discard, silent)
+			probed <- bytes
+		}()
+
+		const budget = 200 * time.Millisecond
+		start := time.Now()
+		wantDeadline := start.Add(budget)
+		dialed := false
+		network := minecraft.RakNet{
+			Logger: slog.New(slog.DiscardHandler),
+			UpstreamDialer: transportDialerFunc(func(ctx context.Context, network, address string) (net.Conn, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok || !deadline.Equal(wantDeadline) {
+					t.Fatalf("transport deadline = %v, present = %v, want %v", deadline, ok, wantDeadline)
+				}
+				dialed = true
+				return client, nil
+			}),
+		}
+		conn, err := dialTransportWithin(context.Background(), network, "silent", budget)
 		if conn = usableTransport(conn); conn != nil {
 			_ = conn.Close()
+			t.Fatal("silent server accepted the connection")
 		}
-		result <- err
-	}()
-	select {
-	case err := <-result:
 		if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "did not accept") {
 			t.Fatalf("dial error = %v, want the connect budget to expire", err)
 		}
-		if elapsed := time.Since(started); elapsed > 5*time.Second {
-			t.Fatalf("dial took %s", elapsed)
+		if elapsed := time.Since(start); elapsed != budget {
+			t.Fatalf("dial took %s in virtual time, want %s", elapsed, budget)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("dial to a silent server never failed")
-	}
+		if !dialed || <-probed == 0 {
+			t.Fatal("RakNet never probed the silent transport")
+		}
+	})
 }
