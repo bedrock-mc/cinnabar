@@ -16,6 +16,7 @@ path = "src/main.rs"
 test = false
 
 [features]
+# Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
 acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
