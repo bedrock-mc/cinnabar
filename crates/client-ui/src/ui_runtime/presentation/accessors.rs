@@ -3,6 +3,23 @@
 use super::*;
 
 impl UiPresentationRuntime {
+    /// Counts and rate-limits rejected UI frames without changing session authority.
+    pub fn record_frame_failure(&mut self, error: &UiPresentationError) {
+        self.rejected_frames = self.rejected_frames.saturating_add(1);
+        if self.rejected_frames.is_power_of_two() {
+            bevy::log::warn!(
+                rejected_frames = self.rejected_frames,
+                ?error,
+                "skipped invalid UI frame"
+            );
+        }
+    }
+
+    /// Returns the number of rejected UI frames in this presentation runtime.
+    pub const fn rejected_frame_count(&self) -> u64 {
+        self.rejected_frames
+    }
+
     pub fn set_loading_stage(&mut self, stage: Option<LoadingStage>) {
         self.loading_stage = stage;
     }

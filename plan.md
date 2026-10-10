@@ -7,6 +7,16 @@
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+## UI text and presentation failure recovery
+
+- Wrapped presentation text keeps an indivisible glyph wider than its control, with
+  existing line breaks and clipping. Newly shaped overflow layouts are counted and
+  logged with bounded frequency. Strict measurement requests still reject oversized ink.
+- Rejected runtime presentation frames count, log and skip publication without ending
+  the network session; a later valid frame can publish. Startup asset validation remains
+  fail-fast. Fitting status labels keep their width checks and ellipsis policy.
+- Exact-version native overflow behavior remains incomplete pending a matching native
+  control witness. The original reported text is unknown. No parity gate closes.
 
 ## Optional spatial anti-aliasing and cutout coverage
 
