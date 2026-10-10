@@ -8,6 +8,7 @@ use std::path::Path;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::account::{ConnectParams, ConnectTarget};
 use crate::endpoint::EndpointKind;
@@ -138,10 +139,16 @@ pub struct HandoffPack {
     pub size: u64,
 }
 
-/// A pack's content key, redacted from `Debug`.
+/// A pack's content key, redacted from `Debug` and zeroized on drop.
 #[derive(Clone, Deserialize, Eq, PartialEq)]
 #[serde(transparent)]
 pub struct PackContentKey(String);
+
+impl Drop for PackContentKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 impl PackContentKey {
     /// Borrows the key; an empty key means the archive is not encrypted.
