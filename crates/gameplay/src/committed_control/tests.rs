@@ -1,6 +1,6 @@
 use super::*;
 use crate::movement::MovementSource;
-use crate::movement::speed_authority::tests::attribute;
+use crate::test_support::movement_speed_attribute as attribute;
 use client_world::ResolvedServerPosition;
 
 /// A world that rejects any unintended spatial query during non-replay controls.

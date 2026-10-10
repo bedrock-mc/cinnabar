@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use super::coordination::physics_authority_fault_for_frame;
-use super::speed_authority::tests::attribute;
 use super::{
     LocalPhysicsController, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MovementOutboxReconciliation,
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,
@@ -10,6 +9,7 @@ use super::{
     PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
     physics_movement_input, reconcile_candidate_physics_correction, reconcile_timeline_rewind,
 };
+use crate::test_support::movement_speed_attribute as attribute;
 use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
 use protocol::{PlayerInputFlags, PlayerInputMode};
 use sha2::{Digest, Sha256};

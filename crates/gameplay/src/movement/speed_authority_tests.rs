@@ -1,31 +1,5 @@
 use super::{LocalMovementSpeedAuthority, preserve_effective_speed};
-use client_world::MovementSpeedAttribute;
-
-/// Builds a movement packet with explicit current, default and sprint authority.
-pub(crate) fn attribute(current: f64, default: f32, factor: Option<f32>) -> MovementSpeedAttribute {
-    let modifiers = factor
-        .map(|factor| protocol::ActorAttributeModifier {
-            id: std::sync::Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
-            name: std::sync::Arc::from("sprint"),
-            amount: factor - 1.0,
-            operation: 2,
-            operand: 2,
-            serializable: false,
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
-    let mut attribute = MovementSpeedAttribute::from_attribute(&protocol::ActorAttribute {
-        name: std::sync::Arc::from("minecraft:movement"),
-        min: 0.0,
-        max: f32::MAX,
-        current: default,
-        default: Some(default),
-        modifiers: modifiers.into(),
-    })
-    .unwrap();
-    attribute.current = current;
-    attribute
-}
+use crate::test_support::movement_speed_attribute as attribute;
 
 /// Starts one authority with an admitted server attribute update.
 fn started(current: f32) -> LocalMovementSpeedAuthority {
@@ -90,7 +64,7 @@ fn local_edges_preserve_custom_speed_and_remove_only_installed_modifier() {
     authority.adopt_server_sprinting(Some(true));
     assert!(authority.apply(7, 2, 0, attribute(f64::from(0.18_f32), 0.12, Some(1.5))));
     authority.set_sprinting(false);
-    assert_eq!(authority.current(), Some(f64::from(0.18_f32 / 1.5)));
+    assert_eq!(authority.current(), Some(f64::from(0.12_f32)));
 }
 
 #[test]

@@ -237,4 +237,4 @@ impl LocalMovementSpeedAuthority {
 
 #[cfg(test)]
 #[path = "speed_authority_tests.rs"]
-pub(crate) mod tests;
+mod tests;
