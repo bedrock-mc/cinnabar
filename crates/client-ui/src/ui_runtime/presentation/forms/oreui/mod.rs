@@ -69,8 +69,6 @@ pub(super) struct CharacterPreview {
 
 #[cfg(test)]
 use super::super::{TextMetrics, UiPresentationRuntime};
-#[cfg(test)]
-use launcher::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// Which look OreUI screens draw with.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

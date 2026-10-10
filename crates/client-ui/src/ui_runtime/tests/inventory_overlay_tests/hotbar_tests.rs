@@ -1,6 +1,4 @@
-use {
-    super::*, inventory::inventory_ledger, inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT,
-};
+use {super::*, inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT};
 
 /// Drains one full window-0 content event through the production queue so
 /// both retained stores agree, then selects hotbar slot 0 so slot 3 stays a

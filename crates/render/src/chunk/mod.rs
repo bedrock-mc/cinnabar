@@ -13,10 +13,11 @@ use assets::{
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
 use bevy::image::BevyDefault;
+#[cfg(feature = "enhanced")]
+use bevy::prelude::Handle;
 #[cfg(test)]
 use bevy::prelude::{
-    Assets, Camera, Fixed, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4,
-    Vec3A,
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
 };
 #[cfg(any(test, feature = "publication-test-support"))]
 use bevy::render::renderer::RenderInstance;
@@ -34,10 +35,10 @@ use bevy::{
     mesh::Mesh,
     prelude::{
         App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
-        FromWorld, GlobalTransform, Handle, Has, InheritedVisibility, IntoScheduleConfigs, Last,
-        Local, Mat4, Msaa, ParamSet, Plugin, Query, RemovedComponents, Res, ResMut, Resource,
-        Result, Schedule, SubApp, SystemSet, Time, Transform, Update, Vec3, Visibility, With,
-        World, default,
+        FromWorld, GlobalTransform, Has, InheritedVisibility, IntoScheduleConfigs, Last, Local,
+        Mat4, Msaa, ParamSet, Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result,
+        Schedule, SubApp, SystemSet, Time, Transform, Update, Vec3, Visibility, With, World,
+        default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,

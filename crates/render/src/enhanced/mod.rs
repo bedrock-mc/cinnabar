@@ -25,11 +25,13 @@ mod validation;
 #[cfg(feature = "enhanced")]
 use render_model::enhanced_rendering_enabled;
 
-#[cfg(test)]
+#[cfg(feature = "enhanced")]
+use bevy::prelude::IntoScheduleConfigs;
+#[cfg(all(test, feature = "enhanced"))]
 use bevy::prelude::{Has, World};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    prelude::{App, Assets, Component, Handle, IntoScheduleConfigs, Plugin},
+    prelude::{App, Assets, Component, Handle, Plugin},
     render::extract_component::ExtractComponent,
     shader::Shader,
 };

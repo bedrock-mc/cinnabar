@@ -12,8 +12,8 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 
+use super::*;
 use inventory::inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, SMALL_STORAGE_SLOT_COUNT};
-use {super::*, inventory::inventory_ledger};
 
 fn stack(network_id: i32) -> NetworkItemStack {
     NetworkItemStack {

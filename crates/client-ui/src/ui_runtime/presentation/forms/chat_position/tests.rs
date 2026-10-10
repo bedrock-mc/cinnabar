@@ -8,10 +8,7 @@ use ui::DpiScale;
 
 use crate::test_support::engine_presentation;
 use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
-use {
-    super::*,
-    launcher::menu::settings_options::{CHAT_POSITION_OPTION, SettingsOptions},
-};
+use launcher::menu::settings_options::{CHAT_POSITION_OPTION, SettingsOptions};
 
 fn option_index() -> usize {
     launcher::menu::settings_options::SETTINGS_OPTIONS

@@ -1,8 +1,8 @@
+use super::*;
 use protocol::{
     InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
     PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID,
 };
-use {super::*, inventory::inventory_ledger};
 
 fn pickup() -> InventoryEvent {
     let batch: Vec<_> =

@@ -1,5 +1,6 @@
 use super::*;
 use crate::queue_review_support as fixture;
+use bevy::prelude::FromWorld;
 use bevy::{
     core_pipeline::core_3d::Transparent3d, ecs::system::RunSystemOnce,
     render::render_phase::AddRenderCommand, render::view::ExtractedView,

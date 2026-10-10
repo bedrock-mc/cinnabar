@@ -35,6 +35,7 @@ pub(super) fn build(positions: &[[i32; 3]], color: [f32; 4]) -> Vec<ModVertex> {
 mod tests {
     use super::*;
     use crate::ModRenderScene;
+    use mod_api::MAX_BLOCK_HIGHLIGHTS;
     use std::sync::Arc;
 
     const PINK: [f32; 4] = [1.0, 0.08, 0.45, 1.0];
