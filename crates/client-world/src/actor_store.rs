@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+mod effect_members;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
@@ -710,6 +711,7 @@ pub(crate) struct ActorStore {
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
+    effect_members: effect_members::EffectMembers,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
     max_actor_links: usize,
