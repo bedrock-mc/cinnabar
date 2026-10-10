@@ -5704,6 +5704,17 @@ repeating server replies. Failed and inventory-screen drops stay silent on this
 route. See [the rules and regressions](docs/reference/item-drop-audio.md).
 Matched-version live audio acceptance remains incomplete.
 
+**Audio callback scheduling:** Hardware playback requests Windows MMCSS priority
+once per pulling thread, with a current-thread priority fallback. Submission-time
+resampling leaves the frame thread alone; capture playback keeps its existing
+scheduling. Windows scheduling and audible acceptance remain incomplete.
+
+**Sound-bank loading:** First-use lookups queue file descriptors; the existing
+workers read and decode the sounds. Loading queues up to four finite sounds each
+for UI, footsteps and interactions, with a 1 MiB input limit. Generation checks,
+admission limits and PCM cache accounting stay in place. Live first-play latency
+and cold-cache frame acceptance remain incomplete.
+
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides
 bedrock-samples vs. client-assets-import); performance hardening pass against budgets;

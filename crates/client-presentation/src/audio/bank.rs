@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::File,
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -28,6 +28,8 @@ const DECODE_WORKERS: usize = 2;
 /// Decodes queued at once, and their compressed bytes; a lookup beyond either is `Busy`.
 pub(super) const MAX_QUEUED_DECODES: usize = 64;
 const MAX_QUEUED_DECODE_BYTES: usize = 32 * 1024 * 1024;
+const PREWARM_SOUNDS_PER_GROUP: usize = 4;
+const PREWARM_BYTES: usize = 1024 * 1024;
 
 /// Where the sound bank sits relative to the world carrier.
 pub fn sound_bank_path(world_asset_path: &Path) -> PathBuf {
@@ -43,8 +45,7 @@ pub struct MusicEntry {
 }
 
 pub struct SoundBank {
-    /// Read only by decode workers, so a first play never waits on disk.
-    archive: Option<Arc<Mutex<File>>>,
+    file: Option<Arc<File>>,
     index: SoundBankIndex,
     tables: SoundEventTables,
     catalog: Option<Arc<RuntimeAudioCatalog>>,
@@ -74,9 +75,44 @@ pub enum PcmLookup {
 }
 
 enum DecodeSource {
-    /// A bank entry, read from the shared archive by the worker that decodes it.
-    Bank(Arc<Mutex<File>>, SoundBankEntry),
+    Bank(BankEntry),
     Server,
+}
+
+/// A queued entry that keeps the bank file opened during loading alive.
+struct BankEntry {
+    file: Arc<File>,
+    entry: SoundBankEntry,
+}
+
+impl BankEntry {
+    /// Reads this entry by offset on a worker; returns None if its bytes cannot be read.
+    fn read(&self) -> Option<Vec<u8>> {
+        let mut bytes = vec![0_u8; self.entry.len as usize];
+        let mut consumed = 0;
+        while consumed < bytes.len() {
+            let offset = self.entry.offset.checked_add(consumed as u64)?;
+            #[cfg(unix)]
+            let result =
+                std::os::unix::fs::FileExt::read_at(&*self.file, &mut bytes[consumed..], offset);
+            #[cfg(windows)]
+            let result = std::os::windows::fs::FileExt::seek_read(
+                &*self.file,
+                &mut bytes[consumed..],
+                offset,
+            );
+            match result {
+                Ok(0) => return None,
+                Ok(read) => consumed += read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    bevy::log::debug!(%error, offset, "sound bank read failed");
+                    return None;
+                }
+            }
+        }
+        Some(bytes)
+    }
 }
 
 type DecodeJob = (u64, Box<str>, DecodeSource, EncodedPermit);
@@ -103,6 +139,7 @@ struct Decoder {
 }
 
 impl Decoder {
+    /// Starts the bounded pool shared by reads and decodes across pack generations.
     fn spawn(generation: u64, server: Option<Arc<ServerSoundPack>>) -> Option<Self> {
         let (jobs, job_queue) = sync_channel::<DecodeJob>(MAX_QUEUED_DECODES);
         let (results, done) = sync_channel(DECODE_WORKERS);
@@ -129,8 +166,9 @@ impl Decoder {
                             continue;
                         }
                         let pcm = match source {
-                            DecodeSource::Bank(archive, entry) => read_entry(&archive, entry)
-                                .and_then(|bytes| decode_pcm(&bytes, &path)),
+                            DecodeSource::Bank(entry) => {
+                                entry.read().and_then(|bytes| decode_pcm(&bytes, &path))
+                            }
                             DecodeSource::Server => {
                                 let pack = {
                                     let current = server
@@ -161,6 +199,7 @@ impl Decoder {
         })
     }
 
+    /// Reserves encoded bytes until a worker finishes or discards the job.
     fn reserve(&self, bytes: usize) -> Option<EncodedPermit> {
         self.encoded_bytes
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
@@ -175,17 +214,7 @@ impl Decoder {
     }
 }
 
-/// Reads one compressed entry; only decode workers call this, never the frame thread.
-fn read_entry(archive: &Mutex<File>, entry: SoundBankEntry) -> Option<Vec<u8>> {
-    let mut bytes = vec![0_u8; entry.len as usize];
-    let mut file = archive
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    file.seek(SeekFrom::Start(entry.offset)).ok()?;
-    file.read_exact(&mut bytes).ok()?;
-    Some(bytes)
-}
-
+/// Decodes one sound into shared playback data on a worker.
 fn decode_pcm(bytes: &[u8], path: &str) -> Option<Pcm> {
     let sound = decode_sound(bytes)
         .map_err(|error| bevy::log::debug!(%error, path, "sound decode failed"))
@@ -243,7 +272,7 @@ impl SoundBank {
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
         Ok(Some(Self {
-            archive: Some(Arc::new(Mutex::new(file))),
+            file: Some(Arc::new(file)),
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -260,6 +289,50 @@ impl SoundBank {
             in_flight_bytes: 0,
             ready_streams: HashMap::new(),
         }))
+    }
+
+    /// Queues a small set of finite UI, footstep and interaction sounds during loading.
+    pub fn prewarm_common(&mut self) {
+        let Some(catalog) = &self.catalog else { return };
+        let mut counts = [0; 3];
+        let mut bytes = 0;
+        let mut paths = Vec::new();
+        for definition in catalog.definitions() {
+            let group = if definition.category.as_deref() == Some("ui") {
+                0
+            } else if definition.identifier.starts_with("step.") {
+                1
+            } else if definition.identifier.starts_with("dig.")
+                || definition.identifier.starts_with("hit.")
+            {
+                2
+            } else {
+                continue;
+            };
+            for alternative in &definition.alternatives {
+                if counts[group] == PREWARM_SOUNDS_PER_GROUP {
+                    break;
+                }
+                if alternative.stream == Some(true) || paths.contains(&alternative.name) {
+                    continue;
+                }
+                let Some(entry) = self.index.entry(&alternative.name) else {
+                    continue;
+                };
+                let size = entry.len as usize;
+                if bytes + size > PREWARM_BYTES {
+                    continue;
+                }
+                paths.push(alternative.name.clone());
+                bytes += size;
+                counts[group] += 1;
+            }
+        }
+        for path in paths {
+            if matches!(self.lookup(&path, false), PcmLookup::Busy) {
+                break;
+            }
+        }
     }
 
     /// Vanilla routing with the server pack's `sounds.json` layered on top.
@@ -322,7 +395,7 @@ impl SoundBank {
     }
 
     /// PCM for an alternative's sound path (no extension), queueing a background decode on a
-    /// miss; non-streaming sounds are cached once decoded.
+    /// miss; workers read and decode the file, and non-streaming sounds are cached.
     pub fn lookup(&mut self, path: &str, stream: bool) -> PcmLookup {
         if let Some(found) = self.cache.get(path) {
             return PcmLookup::Ready(Arc::clone(found));
@@ -342,7 +415,7 @@ impl SoundBank {
             self.failed.insert(path.into());
             return PcmLookup::Failed;
         }
-        // Only active workers retain a server pack; its queued jobs carry a path and generation.
+        // Server jobs retain a path and generation; bank jobs retain the opened file.
         let size = if server {
             0
         } else {
@@ -367,9 +440,12 @@ impl SoundBank {
         let jobs = decoder.jobs.clone();
         let source = match server {
             true => Some(DecodeSource::Server),
-            false => entry
-                .zip(self.archive.as_ref())
-                .map(|(entry, archive)| DecodeSource::Bank(Arc::clone(archive), entry)),
+            false => entry.zip(self.file.as_ref()).map(|(entry, file)| {
+                DecodeSource::Bank(BankEntry {
+                    file: Arc::clone(file),
+                    entry,
+                })
+            }),
         };
         let Some(source) = source else {
             self.failed.insert(path.into());
@@ -461,7 +537,7 @@ impl SoundBank {
         catalog: Option<Arc<RuntimeAudioCatalog>>,
     ) -> Self {
         Self {
-            archive: None,
+            file: None,
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -497,11 +573,14 @@ impl SoundBank {
 }
 
 #[cfg(test)]
+mod prewarm_tests;
+#[cfg(test)]
 mod reload_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Seek;
 
     #[test]
     fn review_ready_stream_is_shared_by_all_starts_until_released() {
@@ -536,7 +615,7 @@ mod tests {
     }
 
     /// One PCM16 mono FSB5 of two frames at 48 kHz.
-    fn tone() -> Vec<u8> {
+    pub(super) fn tone() -> Vec<u8> {
         let mut fsb = b"FSB5".to_vec();
         let mode = (9_u64 << 1) | (2_u64 << 34);
         for value in [1_u32, 1, 8, 0, 4, 2, 0, 0] {
@@ -546,6 +625,111 @@ mod tests {
         fsb.extend(mode.to_le_bytes());
         fsb.extend([0, 0x40, 0, 0xc0]);
         fsb
+    }
+
+    #[test]
+    fn lookup_queues_a_descriptor_without_touching_the_file() {
+        let bytes =
+            assets::encode_sound_bank(b"{}", b"{}", b"{}", &[("sounds/tone".to_owned(), tone())])
+                .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-no-frame-read-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
+        let mut probe = bank.file.as_ref().unwrap().try_clone().unwrap();
+        let before = probe.stream_position().unwrap();
+        let (jobs, job_queue) = sync_channel(MAX_QUEUED_DECODES);
+        let (_results, done) = sync_channel(DECODE_WORKERS);
+        bank.decoder = Some(Decoder {
+            jobs,
+            done: Mutex::new(done),
+            generation: Arc::new(AtomicU64::new(0)),
+            encoded_bytes: Arc::new(AtomicUsize::new(0)),
+            server: Arc::new(Mutex::new((0, None))),
+        });
+        assert!(matches!(
+            bank.lookup("sounds/tone", false),
+            PcmLookup::Pending
+        ));
+        assert_eq!(
+            probe.stream_position().unwrap(),
+            before,
+            "lookup must leave file I/O to workers"
+        );
+        assert!(job_queue.try_recv().is_ok());
+        drop(bank);
+        drop(probe);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn file_read_failure_is_reported_by_the_worker() {
+        let bytes =
+            assets::encode_sound_bank(b"{}", b"{}", b"{}", &[("sounds/tone".to_owned(), tone())])
+                .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-worker-read-failure-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        assert!(matches!(
+            bank.lookup("sounds/tone", false),
+            PcmLookup::Pending
+        ));
+        assert!(bank.pcm("sounds/tone", false).is_none());
+        assert!(bank.in_flight.is_empty());
+        assert_eq!(bank.in_flight_bytes, 0);
+        assert_eq!(
+            bank.decoder
+                .as_ref()
+                .unwrap()
+                .encoded_bytes
+                .load(Ordering::Relaxed),
+            0
+        );
+        drop(bank);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn queued_entries_decode_their_own_samples() {
+        let files: Vec<_> = (0..8_i16)
+            .map(|value| {
+                let mut bytes = tone();
+                let start = bytes.len() - 2 * std::mem::size_of::<i16>();
+                bytes[start..start + std::mem::size_of::<i16>()]
+                    .copy_from_slice(&value.to_le_bytes());
+                (format!("sounds/offset{value}"), bytes)
+            })
+            .collect();
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-bank-offsets-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).unwrap(),
+        )
+        .unwrap();
+        let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
+        for (name, _) in &files {
+            assert!(matches!(bank.lookup(name, false), PcmLookup::Pending));
+        }
+        for (value, (name, _)) in files.iter().enumerate() {
+            let pcm = bank.pcm(name, false).unwrap();
+            assert_eq!(pcm.samples[0], value as i16);
+        }
+        drop(bank);
+        std::fs::remove_file(path).unwrap();
     }
 
     // A first play must not read its compressed file on the frame thread that asked for it.

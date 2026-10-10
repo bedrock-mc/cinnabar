@@ -151,9 +151,11 @@ fn actual_gpu_pixels_match_the_full_rgba_page_before_the_first_glyph_draw() {
             &input.vertices,
             None,
             &input.indices,
-            &rgba,
-            source.dimensions(),
-            false,
+            Page {
+                pixels: &rgba,
+                size: source.dimensions(),
+                coverage: false,
+            },
             flags,
         );
         let after = raster(
@@ -161,9 +163,11 @@ fn actual_gpu_pixels_match_the_full_rgba_page_before_the_first_glyph_draw() {
             &input.vertices,
             Some(&fonts.vertices),
             &input.indices,
-            &atlas,
-            [side; 2],
-            true,
+            Page {
+                pixels: &atlas,
+                size: [side; 2],
+                coverage: true,
+            },
             flags,
         );
         assert!(
@@ -180,18 +184,28 @@ fn actual_gpu_pixels_match_the_full_rgba_page_before_the_first_glyph_draw() {
     }
 }
 
+/// A source page for `raster`: RGBA texels, or one coverage byte per texel.
+struct Page<'a> {
+    pixels: &'a [u8],
+    size: [u32; 2],
+    coverage: bool,
+}
+
 /// Draws the production fragment shader with fixture vertices and returns native GPU pixels.
 fn raster(
     gpu: &crate::gpu_snapshot::Gpu,
     vertices: &[UiRenderVertex],
     resident: Option<&[render_model::FontAtlasVertex]>,
     indices: &[u32],
-    pixels: &[u8],
-    size: [u32; 2],
-    coverage: bool,
+    page: Page<'_>,
     flags: u32,
 ) -> Vec<u8> {
     use wgpu::*;
+    let Page {
+        pixels,
+        size,
+        coverage,
+    } = page;
     let texture = gpu.device.create_texture(&TextureDescriptor {
         label: Some("font residency pixel witness"),
         size: Extent3d {
