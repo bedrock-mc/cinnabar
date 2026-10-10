@@ -15,6 +15,8 @@ const SWIFT_SNEAK_ENCHANTMENT_ID: i16 = 37;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LocalMovementFacts {
+    /// The committed mode forces flight and skips terrain contact.
+    pub spectator: bool,
     pub immobile: bool,
     pub vertical_physics: sim::VerticalPhysics,
     pub ride: Option<super::RideKind>,
@@ -57,6 +59,8 @@ pub fn read(
             .is_some_and(|identifier| &*identifier == LEATHER_BOOTS_IDENTIFIER);
     let capabilities = player.facts.game_mode_capabilities();
     let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
+    let spectator = player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator);
+    let hunger_exempt = can_fly || spectator;
     let hunger_below_floor = player.facts.hunger().map(|hunger| {
         u32::from(hunger.current()) <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
     });
@@ -73,6 +77,7 @@ pub fn read(
             .unwrap_or(super::RideKind::Other)
     });
     LocalMovementFacts {
+        spectator,
         immobile: player.facts.is_immobile(),
         vertical_physics: sim::VerticalPhysics {
             has_gravity: player.facts.has_gravity(),
@@ -103,8 +108,8 @@ pub fn read(
             SWIFT_SNEAK_ENCHANTMENT_ID,
         )
         .unwrap_or(0),
-        swim_hunger_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
-        sprint_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
+        swim_hunger_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
+        sprint_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
         sprint_start_blocked: item_in_use,
     }
 }

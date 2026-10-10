@@ -234,6 +234,7 @@ pub(crate) fn prepare_ui_runtime(
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
         settings.value("hide_hud") != 0,
         settings.value("hide_hand") != 0,
+        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
     );
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.

@@ -44,6 +44,8 @@ impl RideKind {
 /// Render-frame facts the tick-level selector cannot derive from simulation.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ModeIntent {
+    /// Spectator flight stays active independently of the ordinary flight toggle.
+    pub spectator: bool,
     /// The mount the player currently rides, if any.
     pub ride: Option<RideKind>,
     /// Feet position of the rider's seat on that mount, when the mount's placement is known.
@@ -193,6 +195,20 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        if intent.spectator {
+            self.mode = MovementMode::Flying;
+            self.last_server_flying = intent.server_flying;
+            self.fly_countdown = 0;
+            self.fall_fly_ticks = 0;
+            self.previous_feet = Some(observed.feet);
+            self.sprinting = observed.sprinting;
+            self.sneaking = observed.sneaking;
+            return Ok(ModeChoice {
+                mode: self.mode,
+                forced_sneak: false,
+                sprinting: self.sprinting,
+            });
+        }
         let fly_toggle = self.fly_trigger(intent, observed.jump_edge);
         if intent.ride.is_some() {
             self.last_server_flying = intent.server_flying;
@@ -453,6 +469,26 @@ mod tests {
             jumping: false,
             jump_edge: false,
         }
+    }
+
+    #[test]
+    fn spectator_stays_flying_without_mayfly_or_a_flying_ability_edge() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            spectator: true,
+            ..Default::default()
+        };
+        let grounded = ModeObservation {
+            on_ground: true,
+            ..airborne()
+        };
+        for observed in [grounded, pressed(grounded), pressed(grounded), airborne()] {
+            assert_eq!(pick(&mut tracker, intent, observed), MovementMode::Flying);
+        }
+        assert_eq!(
+            pick(&mut tracker, ModeIntent::default(), grounded),
+            MovementMode::Walking
+        );
     }
 
     fn pick(

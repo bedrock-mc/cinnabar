@@ -128,11 +128,8 @@ const AQUATIC: [&str; 10] = [
     "axolotl",
 ];
 
-// First-person and use-item queries the pack reads but the client has no timing, equipment, or
-// game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
-// (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
-// Wiring the real sources later replaces the entry, not the query name.
-const IDLE_QUERIES: [(&str, f32); 2] = [("has_head_gear", 0.0), ("is_spectator", 0.0)];
+// Equipment queries without a committed source retain their idle value.
+const IDLE_QUERIES: [(&str, f32); 1] = [("has_head_gear", 0.0)];
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -165,6 +162,15 @@ pub(super) fn query(
     let name = identifier.strip_prefix("query.").unwrap_or(identifier);
     let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
     match name {
+        "is_spectator" => MolangValue::Number(truth(match evaluator.actor.player_game_mode {
+            Some(protocol::GameModeUpdate::Explicit(mode)) => {
+                mode == protocol::PlayerGameMode::Spectator
+            }
+            Some(protocol::GameModeUpdate::WorldDefault) => {
+                evaluator.context.world_game_mode == Some(protocol::PlayerGameMode::Spectator)
+            }
+            _ => false,
+        })),
         "get_equipped_item_name" => {
             text(hand_item(evaluator.context, arguments.first()).map(item_name))
         }
