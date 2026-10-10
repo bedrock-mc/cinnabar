@@ -106,6 +106,70 @@ fn follows_an_explicit_module_file_path() {
 }
 
 #[test]
+fn conditional_module_paths_keep_local_exports_in_their_declaring_crate() {
+    for attribute in [
+        r#"#[cfg_attr(feature = "alternate", path = "alternate.rs")]"#,
+        r#"#[cfg_attr(feature = "outer", cfg_attr(feature = "inner", path = "alternate.rs"))]"#,
+        r#"#[r#cfg_attr(feature = "alternate", r#path = "alternate.rs")]"#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(
+            temp.path(),
+            &format!("pub struct Thing; {attribute} mod facade; pub use facade::Thing as Public;"),
+            "",
+        );
+        for file in ["facade.rs", "alternate.rs"] {
+            fs::write(temp.path().join("src").join(file), "pub use super::Thing;").unwrap();
+        }
+        assert!(findings(temp.path()).is_empty(), "{attribute}");
+    }
+}
+
+#[test]
+fn conditional_module_paths_check_only_the_selected_module_contents() {
+    let temp = tempfile::tempdir().unwrap();
+    fixture(
+        temp.path(),
+        r#"#[cfg_attr(feature = "alternate", path = "alternate.rs")] mod facade;
+        pub use facade::Thing;"#,
+        "",
+    );
+    fs::write(temp.path().join("src/facade.rs"), "pub struct Thing;").unwrap();
+    let alternate = temp.path().join("src/alternate.rs");
+    fs::write(
+        &alternate,
+        r#"#[cfg(not(feature = "alternate"))] pub use other::Thing;
+        #[cfg(feature = "alternate")] pub struct Thing;"#,
+    )
+    .unwrap();
+    assert!(findings(temp.path()).is_empty());
+    fs::write(alternate, "use other::Thing;").unwrap();
+    assert!(
+        findings(temp.path())
+            .iter()
+            .any(|line| line.contains("facade::Thing"))
+    );
+}
+
+#[test]
+fn conditional_inline_module_paths_select_the_child_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    fixture(
+        temp.path(),
+        r#"pub struct Thing;
+        #[cfg_attr(feature = "alternate", path = "alternate")]
+        mod inline { mod facade; pub use facade::Thing as Public; }"#,
+        "",
+    );
+    for directory in ["inline", "alternate"] {
+        let directory = temp.path().join("src").join(directory);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("facade.rs"), "pub use super::super::Thing;").unwrap();
+    }
+    assert!(findings(temp.path()).is_empty());
+}
+
+#[test]
 fn allowances_cover_only_the_named_export_in_the_named_file() {
     let temp = tempfile::tempdir().unwrap();
     fixture(

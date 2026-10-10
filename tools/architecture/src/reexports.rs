@@ -7,7 +7,7 @@ use syn::{Item, UseTree, Visibility, ext::IdentExt};
 
 use crate::{
     ArchitectureError,
-    conditions::{Condition, Configuration, any_enabled},
+    conditions::{Condition, Configuration, any_enabled, path_attributes},
     paths::relative_slash,
     policy::Policy,
     read,
@@ -279,35 +279,46 @@ fn module_edges(
         let mut name = prefix.to_vec();
         name.push(item.ident.unraw().to_string());
         let nested = directory.join(item.ident.unraw().to_string());
-        if let Some((_, items)) = &item.content {
-            module_edges(items, &nested, &nested, &name, &condition, output);
-            continue;
+        let paths = path_attributes(&item.attrs);
+        let mut variants = paths
+            .iter()
+            .map(|(path, selected)| {
+                (
+                    explicit_base.join(path),
+                    Condition::All(vec![condition.clone(), selected.clone()]),
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        if !paths
+            .iter()
+            .any(|(_, selected)| matches!(selected, Condition::Always))
+        {
+            let fallback = if paths.is_empty() {
+                condition.clone()
+            } else {
+                Condition::All(vec![
+                    condition.clone(),
+                    Condition::Not(Box::new(Condition::Any(
+                        paths.into_iter().map(|(_, selected)| selected).collect(),
+                    ))),
+                ])
+            };
+            variants.push((nested, fallback, false));
         }
-        let explicit = item.attrs.iter().find_map(|attribute| {
-            if !attribute
-                .path()
-                .get_ident()
-                .is_some_and(|name| name.unraw() == "path")
-            {
-                return None;
+        for (path, selected, explicit) in variants {
+            if let Some((_, items)) = &item.content {
+                module_edges(items, &path, &path, &name, &selected, output);
+            } else {
+                let candidates = if explicit {
+                    vec![path]
+                } else {
+                    vec![path.with_extension("rs"), path.join("mod.rs")]
+                };
+                for path in candidates {
+                    output.push((normalized_path(&path), name.clone(), selected.clone()));
+                }
             }
-            let syn::Meta::NameValue(value) = &attribute.meta else {
-                return None;
-            };
-            let syn::Expr::Lit(value) = &value.value else {
-                return None;
-            };
-            let syn::Lit::Str(value) = &value.lit else {
-                return None;
-            };
-            Some(explicit_base.join(value.value()))
-        });
-        let candidates = explicit.map_or_else(
-            || vec![nested.with_extension("rs"), nested.join("mod.rs")],
-            |path| vec![path],
-        );
-        for path in candidates {
-            output.push((normalized_path(&path), name.clone(), condition.clone()));
         }
     }
 }

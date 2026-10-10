@@ -100,6 +100,42 @@ pub(super) fn any_enabled(
     evaluate_parts(parts, configuration, true)
 }
 
+/// Collects module paths together with the cfg_attr predicates that select them.
+pub(super) fn path_attributes(attrs: &[Attribute]) -> Vec<(String, Condition)> {
+    let mut paths = Vec::new();
+    for attr in attrs {
+        collect_paths(&attr.meta, &Condition::Always, &mut paths);
+    }
+    paths
+}
+
+/// Follows nested cfg_attr lists without treating unrelated attributes as paths.
+fn collect_paths(meta: &Meta, condition: &Condition, paths: &mut Vec<(String, Condition)>) {
+    let name = meta.path().get_ident().map(|name| name.unraw().to_string());
+    match meta {
+        Meta::NameValue(value) if name.as_deref() == Some("path") => {
+            if let syn::Expr::Lit(value) = &value.value
+                && let syn::Lit::Str(value) = &value.lit
+            {
+                paths.push((value.value(), condition.clone()));
+            }
+        }
+        Meta::List(list) if name.as_deref() == Some("cfg_attr") => {
+            let Ok(parts) = list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            else {
+                return;
+            };
+            let mut parts = parts.iter();
+            let Some(gate) = parts.next() else { return };
+            let condition = Condition::All(vec![condition.clone(), predicate(gate)]);
+            for part in parts {
+                collect_paths(part, &condition, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Parses only attributes that control whether a declaration exists.
 fn attribute_condition(meta: &Meta) -> Option<Condition> {
     let Meta::List(list) = meta else { return None };
