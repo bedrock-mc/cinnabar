@@ -64,11 +64,13 @@ fn needs_pose_sampling(
     if active_clips.is_some_and(|clips| {
         clips
             .iter()
-            .any(|active| camera_clip(assets, active.clip, swing))
+            .any(|active| camera_clip_with_layers(assets, rig_binding, active.clip, swing))
     }) {
         return true;
     }
-    let samples_clip = |clip: usize| active_clips.is_none() && camera_clip(assets, clip, swing);
+    let samples_clip = |clip: usize| {
+        active_clips.is_none() && camera_clip_with_layers(assets, rig_binding, clip, swing)
+    };
     if swing
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
@@ -152,6 +154,35 @@ fn needs_pose_sampling(
                                 }
                             })
                         })
+                })
+            })
+    })
+}
+
+/// Includes the geometry variants used when a render layer maps an active animation.
+fn camera_clip_with_layers(
+    assets: &RuntimeEntityAssets,
+    rig_binding: usize,
+    clip: usize,
+    swing: bool,
+) -> bool {
+    if camera_clip(assets, clip, swing) {
+        return true;
+    }
+    let Some(clip) = assets.animation_clips().get(clip) else {
+        return false;
+    };
+    assets.render_layers(rig_binding).iter().any(|layer| {
+        let first = layer.first_geometry as usize;
+        assets
+            .render_data()
+            .geometries
+            .get(first..first + usize::from(layer.geometry_count))
+            .is_some_and(|choices| {
+                choices.iter().any(|choice| {
+                    assets
+                        .clip_for_geometry(clip.symbol, choice.geometry)
+                        .is_some_and(|mapped| camera_clip(assets, mapped as usize, swing))
                 })
             })
     })

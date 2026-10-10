@@ -102,6 +102,8 @@ impl<'a> ActorRenderFrame<'a> {
 pub(super) struct FrameState {
     pub motion: SwellMotion,
     pub samples_camera_poses: bool,
+    /// Completed channel writes survive frames that retain ordinary pose endpoints.
+    pub retained_pose_effects: evaluation::MolangEffects,
     pub previous_motion: Option<SwellMotion>,
     pub swell_poses: Option<SwellPoses>,
     pub swell_layers: BTreeMap<u32, SwellPoses>,
@@ -548,6 +550,9 @@ impl ActorAnimationStore {
             .rig_geometries()
             .get(state.geometry_binding)?
             .geometry;
+        if sampled_local.is_none() && frame.retained_pose_effects.apply(&mut variables).is_err() {
+            return Some(completed());
+        }
         if let Some((_, current)) = &endpoints {
             current.variables.publish_writes(&mut variables);
         }

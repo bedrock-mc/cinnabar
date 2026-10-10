@@ -312,10 +312,10 @@ fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
     compiled
 }
 
-#[test]
-fn inactive_camera_animation_preserves_walking_pose_interpolation() {
+/// Advances a moving actor one tick so ordinary pose endpoints differ.
+fn walking_fixture(compiled: assets::CompiledEntityAssets) -> crate::actor_store::ActorStore {
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(inactive_camera_compiled()).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
     store.apply(
         1,
@@ -336,6 +336,12 @@ fn inactive_camera_animation_preserves_walking_pose_interpolation() {
         }),
     );
     store.advance_interpolation_ticks(1);
+    store
+}
+
+#[test]
+fn inactive_camera_animation_preserves_walking_pose_interpolation() {
+    let mut store = walking_fixture(inactive_camera_compiled());
     let completed = store.actor_rig(1).unwrap().render.to_vec();
     assert_ne!(completed[1].previous_pose, completed[1].pose);
     store.set_camera_position([4.0, 3.0, 0.0]);
@@ -346,6 +352,71 @@ fn inactive_camera_animation_preserves_walking_pose_interpolation() {
             assert_eq!(layer.pose, completed.pose);
         }
     }
+}
+
+#[test]
+fn interpolated_walking_retains_channel_writes_for_render_colors() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::Variable,
+        identifier: "variable.movement_tint".into(),
+    });
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops[..4].to_vec();
+    ops.extend([
+        MolangOp::LoadQuery(1),
+        MolangOp::StoreVariable(3),
+        MolangOp::LoadQuery(1),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::LoadVariable(3),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    compiled.molang_expressions[2].op_count = 3;
+    compiled.molang_expressions[3].first_op = 7;
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op: 8,
+        op_count: 1,
+        max_stack: 1,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    for layer in &mut compiled.render.layers {
+        layer.color = Some([4; 4]);
+    }
+    let store = walking_fixture(compiled);
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    assert!(completed[0].color[0] > 0.0);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        for (layer, completed) in layers.iter().zip(&completed) {
+            assert_eq!(layer.color, completed.color);
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
+
+#[test]
+fn camera_animation_mapped_only_to_selected_geometry_samples_between_ticks() {
+    let mut compiled = inactive_camera_compiled();
+    let channel = &compiled.animation_channels[1];
+    compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
+        [Some(0), Some(1), None];
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        let expected = pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]);
+        for layer in &layers[1..] {
+            assert_rotation(layer.pose[1].rotation, expected);
+            assert_rotation(layer.pose[0].rotation, expected);
+        }
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
 }
 
 #[test]

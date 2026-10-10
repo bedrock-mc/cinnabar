@@ -395,6 +395,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
         samples_camera_poses: false,
+        retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::swell_endpoint::SwellMotion {
             variables: variables.clone(),
             sampling: state.swell_sampling.clone(),
@@ -562,6 +563,10 @@ pub(super) fn evaluate_state(
             frame.motion.controllers.clone_from(&controllers);
         }
     }
+    let pose_capture = render_frame
+        .as_ref()
+        .filter(|frame| state.samples_camera_poses && !frame.samples_camera_poses)
+        .map(|_| variables.begin_effects());
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -570,6 +575,9 @@ pub(super) fn evaluate_state(
         &weighted_clips,
         budget,
     )?;
+    if let Some(capture) = pose_capture {
+        render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
+    }
     let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
     // Render selection must not freeze the pose when it alone exceeds the budget.
     let mut swell_layers = BTreeMap::new();
