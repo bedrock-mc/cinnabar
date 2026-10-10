@@ -351,7 +351,8 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             stats,
             "{mode:?}"
         );
-        assert_eq!(customs(nodes, "mob_effects_renderer").len(), 1, "{mode:?}");
+        let effects = customs(nodes, "java_mob_effects_renderer");
+        assert_eq!(effects.len(), 1, "{mode:?}");
         let paint = hud_layout::capture_hud_paint(
             &player_runtime,
             &runtime,

@@ -431,9 +431,10 @@
 
 ## Status-effect column
 
-- `mob_effects_renderer` follows vanilla's layout for every pack, including the
-  built-in Java pack. It draws one column at the right edge, below the top band, in
-  effect-id order, and wraps leftward. Expiring icons blink at vanilla's rate.
+- Vanilla's `mob_effects_renderer` draws one column at the right edge, below the
+  top band. Effects run in id order, wrap leftward, and blink at vanilla's rate.
+- The built-in Java pack keeps its Java rows at the top-right through its own
+  `java_mob_effects_renderer`. Packs that place vanilla's control get the column.
 - Incomplete: there is no slide-in or slide-out animation. The safe-zone and
   screen-position offsets are taken as zero. The top band ignores riding hearts and
   pocket-profile rules.

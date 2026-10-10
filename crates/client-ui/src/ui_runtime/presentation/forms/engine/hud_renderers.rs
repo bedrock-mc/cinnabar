@@ -22,6 +22,8 @@ pub use mob_effects::{EffectIcon, MobEffects};
 const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 const CROSSHAIR_SIDE: f32 = 16.0;
 pub(in super::super) const HUNGER_RENDERER: &str = "hunger_renderer";
+/// The built-in Java pack's effect rows; vanilla's `mob_effects_renderer` draws the column.
+const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
 
 #[cfg(test)]
 mod cooldown_tests;
@@ -83,7 +85,10 @@ pub struct HudPaint {
     pub hunger: HungerPaint,
     pub bubbles: Vec<Cell>,
     pub mount_hearts: Vec<Cell>,
+    /// The vanilla column `mob_effects_renderer` draws.
     pub effects: MobEffects,
+    /// The Java rows `java_mob_effects_renderer` draws, relative to its control's top-right corner.
+    pub java_effects: Vec<Cell>,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub hotbar_cooldowns: [f32; 9],
@@ -95,20 +100,25 @@ pub struct HudPaint {
 impl HudPaint {
     /// Every texture path the renderers may draw this frame, pack overrides included.
     pub fn textures(&self) -> impl Iterator<Item = &str> {
-        [&self.armor, &self.bubbles, &self.mount_hearts]
-            .into_iter()
-            .flatten()
-            .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
-            .chain(self.effects.textures())
-            .chain(self.hearts.textures())
-            .chain(self.hunger.textures())
-            .chain(SLOT_ART)
-            .chain(self.crosshair.into_iter().flat_map(|_| {
-                [
-                    CROSSHAIR_TEXTURE,
-                    assets::HudTextureRole::Crosshair.source_path(),
-                ]
-            }))
+        [
+            &self.armor,
+            &self.bubbles,
+            &self.mount_hearts,
+            &self.java_effects,
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+        .chain(self.effects.textures())
+        .chain(self.hearts.textures())
+        .chain(self.hunger.textures())
+        .chain(SLOT_ART)
+        .chain(self.crosshair.into_iter().flat_map(|_| {
+            [
+                CROSSHAIR_TEXTURE,
+                assets::HudTextureRole::Crosshair.source_path(),
+            ]
+        }))
     }
 }
 
@@ -150,6 +160,7 @@ pub(super) fn paint(
         }
         "bubbles_renderer" => (&hud.bubbles, top_left),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
+        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]]),
         "mob_effects_renderer" => {
             mob_effects::paint(painter, &hud.effects, dest, alpha);
             return true;

@@ -388,6 +388,7 @@ impl UiPresentationRuntime {
         );
         if self.mod_effect_icons_hidden() {
             paint.effects.clear();
+            paint.java_effects.clear();
         }
         if self.mod_hud_visible(player_runtime, runtime) {
             paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();

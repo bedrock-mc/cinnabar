@@ -8,7 +8,10 @@ use assets::HudTextureRole;
 
 use super::{
     HudFrame, HudTexturePages, UiRuntime,
-    pinned::{MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role, heart_role},
+    pinned::{
+        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role,
+        heart_role, java_effect_blink_alpha,
+    },
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
 use crate::ui_runtime::presentation::forms::hud_renderers::{
@@ -105,6 +108,7 @@ pub(in super::super) fn capture(
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
+        java_effects: java_effects(runtime, now_tick),
         hotbar_cooldowns: frame.hotbar_cooldowns,
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
@@ -467,6 +471,45 @@ fn bubbles(runtime: &UiRuntime) -> Vec<Cell> {
             Cell::icon([-8.0 - index as f32 * 8.0, 0.0], path(role))
         })
         .collect()
+}
+
+/// The Java layout: beneficial row, then harmful, leftward from the control's
+/// top-right corner, each a 24x24 background under an 18x18 icon, blinking before expiry.
+fn java_effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
+    let mut rows: [Vec<_>; 2] = [Vec::new(), Vec::new()];
+    for effect in runtime.gameplay_hud().effects() {
+        if !effect.visible_at_tick(now_tick) || effect_icon_role(effect.effect_id).is_none() {
+            continue;
+        }
+        rows[usize::from(HARMFUL_EFFECT_IDS.contains(&effect.effect_id))].push(effect);
+    }
+    let mut cells = Vec::new();
+    for (row, effects) in rows.iter_mut().enumerate() {
+        effects.sort_by_key(|effect| effect.effect_id);
+        let y = 1.0 + row as f32 * 25.0;
+        for (column, effect) in effects.iter().enumerate() {
+            let x = -25.0 * (column as f32 + 1.0);
+            let alpha = java_effect_blink_alpha(effect, now_tick);
+            let background = if effect.ambient {
+                HudTextureRole::EffectBackgroundAmbient
+            } else {
+                HudTextureRole::EffectBackground
+            };
+            cells.push(Cell {
+                size: [24.0, 24.0],
+                alpha,
+                ..Cell::icon([x, y], path(background))
+            });
+            if let Some(icon) = effect_icon_role(effect.effect_id) {
+                cells.push(Cell {
+                    size: [18.0, 18.0],
+                    alpha,
+                    ..Cell::icon([x + 3.0, y + 3.0], path(icon))
+                });
+            }
+        }
+    }
+    cells
 }
 
 /// Visible effects in ascending effect-id order, the order vanilla's column uses.

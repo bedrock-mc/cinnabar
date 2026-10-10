@@ -18,6 +18,10 @@ pub(super) const EFFECT_BLINK_TICKS: u64 = 200;
 pub(super) const MAX_HEART_ROWS: u16 = 6;
 /// The reference caps mount hearts at 30.
 pub(super) const MAX_MOUNT_HEARTS: u16 = 30;
+/// Pinned harmful effect ids (Bedrock ids; poison family, wither, darkness,
+/// slowness, mining fatigue, instant damage, nausea, blindness, hunger,
+/// weakness, levitation, bad omen). The Java layout puts these on its second row.
+pub(super) const HARMFUL_EFFECT_IDS: [i32; 13] = [2, 4, 7, 9, 15, 17, 18, 19, 20, 24, 25, 28, 30];
 /// Boss bar tint per authoritative color. The carried track sprites are the
 /// official Bedrock progress textures; these multipliers are a recorded
 /// approximation of the reference bar hues pending the native gallery
@@ -100,7 +104,29 @@ pub(super) fn heart_role(
     })
 }
 
-/// Icon alpha: solid, except a non-ambient effect in its final ten seconds
+/// Ticks per Java blink cycle in the final seconds. Needs independent measurement.
+const JAVA_BLINK_PERIOD_TICKS: f32 = 10.0;
+/// Java blink swing around the resting opacity, growing toward expiry. Needs independent measurement.
+const JAVA_BLINK_MIN_SWING: f32 = 0.1;
+const JAVA_BLINK_MAX_SWING: f32 = 0.25;
+const JAVA_BLINK_CENTER: f32 = 0.75;
+
+/// Java-layout alpha: solid normally; through the final ten seconds it pulses on a fixed
+/// period with a swing that widens as the effect runs out.
+pub(super) fn java_effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
+    let Some(remaining) = effect.remaining_ticks(now_tick) else {
+        return 255;
+    };
+    if remaining >= EFFECT_BLINK_TICKS {
+        return 255;
+    }
+    let urgency = 1.0 - remaining as f32 / EFFECT_BLINK_TICKS as f32;
+    let swing = JAVA_BLINK_MIN_SWING + (JAVA_BLINK_MAX_SWING - JAVA_BLINK_MIN_SWING) * urgency;
+    let wave = (remaining as f32 * std::f32::consts::TAU / JAVA_BLINK_PERIOD_TICKS).cos();
+    ((JAVA_BLINK_CENTER + swing * wave).clamp(0.0, 1.0) * 255.0) as u8
+}
+
+/// Vanilla icon alpha: solid, except a non-ambient effect in its final ten seconds
 /// pulses between 0.25 and 0.75 on a ten-tick period.
 pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
     let Some(remaining) = effect.remaining_ticks(now_tick) else {
@@ -154,6 +180,20 @@ mod tests {
             ..effect(0)
         };
         assert_eq!(effect_blink_alpha(&infinite, Some(5)), 255);
+    }
+
+    #[test]
+    fn java_blink_pulses_within_bounds_and_widens_toward_expiry() {
+        let range = |from: u64, to: u64| {
+            let alphas: Vec<u8> = (from..to)
+                .map(|now| java_effect_blink_alpha(&effect(1_000), Some(now)))
+                .collect();
+            (*alphas.iter().min().unwrap(), *alphas.iter().max().unwrap())
+        };
+        let (early_low, early_high) = range(801, 821);
+        let (late_low, late_high) = range(980, 1_000);
+        assert!(late_high - late_low > early_high - early_low);
+        assert!(late_low >= 120);
     }
 
     #[test]
