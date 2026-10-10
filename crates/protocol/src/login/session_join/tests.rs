@@ -164,6 +164,7 @@ fn identity(display_name: &str) -> serde_json::Value {
 #[tokio::test]
 async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
     let dir = SocketDir::new("packs");
+    let settings = LoginSettings::default();
     let listener = listen(dir.path());
     let core = async {
         let mut core = FakeCore::accept(&listener).await;
@@ -205,6 +206,7 @@ async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
         "Fixture",
         Some(ClientBlobCache::default()),
         None,
+        &settings,
     );
     let (joined, mut core) = tokio::join!(join, core);
     let (mut session, game_data) = joined.expect("join");
@@ -265,6 +267,7 @@ async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
 #[tokio::test]
 async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
     let dir = SocketDir::new("disconnect");
+    let settings = LoginSettings::default();
     let listener = listen(dir.path());
     let core = async {
         let mut core = FakeCore::accept(&listener).await;
@@ -277,7 +280,13 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(dir.path(), "Fixture", None, None),
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            None,
+            None,
+            &settings
+        ),
         core
     );
     let error = joined.err().expect("the join ends");
@@ -293,6 +302,7 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
 #[tokio::test]
 async fn a_transfer_before_the_handoff_is_a_server_transfer() {
     let dir = SocketDir::new("transfer");
+    let settings = LoginSettings::default();
     let listener = listen(dir.path());
     let core = async {
         let mut core = FakeCore::accept(&listener).await;
@@ -305,7 +315,13 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(dir.path(), "Fixture", None, None),
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            None,
+            None,
+            &settings
+        ),
         core
     );
     let target = joined

@@ -11,6 +11,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         display_name: "cache-owner".to_owned(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
     };
@@ -24,6 +25,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         display_name: "cache-owner".to_owned(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
     };

@@ -32,7 +32,13 @@ async fn login_reaches_start_game_through_bds() {
 
     let (mut session, game_data) = tokio::time::timeout(
         LOGIN_TIMEOUT,
-        LoginSequence::connect_session(socket_dir.path(), "RustMCBEPhase0", None, None),
+        LoginSequence::connect_session(
+            socket_dir.path(),
+            "RustMCBEPhase0",
+            None,
+            None,
+            &Default::default(),
+        ),
     )
     .await
     .unwrap_or_else(|_| {
@@ -137,7 +143,13 @@ async fn offline_core_session_preserves_startup_behaviour() {
             .expect("endpoint");
         let login = tokio::time::timeout(
             LOGIN_TIMEOUT,
-            LoginSequence::connect_session(socket_dir.path(), "StartupFixture", None, None),
+            LoginSequence::connect_session(
+                socket_dir.path(),
+                "StartupFixture",
+                None,
+                None,
+                &Default::default(),
+            ),
         )
         .await
         .expect("login timeout");

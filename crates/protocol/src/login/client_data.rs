@@ -1,15 +1,43 @@
-//! The Bedrock login client-data claims the core presents upstream for this client.
+//! The Bedrock login client-data claims the core presents upstream for this client. The core claims
+//! the device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`) to match its sign-in.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bytes::BytesMut;
 use serde_json::{Value, json};
 use uuid::Uuid;
+use valentine::bedrock::codec::{BedrockCodec, VarUInt};
+use valentine::bedrock::version::v1_26_51::EnumsInputMode;
 
-use crate::{ClientSkin, GAME_VERSION};
+use crate::{ClientSkin, GAME_VERSION, PlayerInputMode};
 
-/// Returns the client-data claims for `display_name` and `skin`; `None` uploads the solid-white
-/// 64x64 placeholder skin. Like the GDK Windows client this reports Win32 with a lowercase-hex
-/// device ID, since BDS 1.26.5x drops logins that claim the retired Win10 platform.
-pub(crate) fn login_client_data(display_name: &str, skin: Option<&ClientSkin>) -> Value {
+/// The player's own settings a login reports, as vanilla's client takes them at join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoginSettings {
+    /// The active UI language, in the `en_US` form of its lang file.
+    pub language_code: String,
+    /// The input the player is using now.
+    pub input_mode: PlayerInputMode,
+    /// The GUI scale offset from the video settings.
+    pub gui_scale_offset: i8,
+}
+
+impl Default for LoginSettings {
+    fn default() -> Self {
+        Self {
+            language_code: "en_US".to_owned(),
+            input_mode: PlayerInputMode::Mouse,
+            gui_scale_offset: 0,
+        }
+    }
+}
+
+/// Returns the client-data claims for `display_name`, `skin` and `settings`; `None` uploads the
+/// solid-white 64x64 placeholder skin.
+pub(crate) fn login_client_data(
+    display_name: &str,
+    skin: Option<&ClientSkin>,
+    settings: &LoginSettings,
+) -> Value {
     let identity = Uuid::new_v4();
     let (skin_data, skin_width, skin_height, arm_size) = match skin {
         Some(skin) => (
@@ -42,16 +70,12 @@ pub(crate) fn login_client_data(display_name: &str, skin: Option<&ClientSkin>) -
     let mut claims = json!({
         "ClientRandomId": (Uuid::new_v4().as_u64_pair().0 & 0x7fff_ffff_ffff_ffff) as i64,
         "CompatibleWithClientSideChunkGen": true,
-        "CurrentInputMode": 1,
-        "DefaultInputMode": 1,
-        "DeviceId": Uuid::new_v4().simple().to_string(),
-        "DeviceModel": "JolyneClient",
-        "DeviceOS": 8,
+        "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
         "GraphicsMode": 0,
-        "GuiScale": 0,
+        "GuiScale": settings.gui_scale_offset,
         "IsEditorMode": false,
-        "LanguageCode": "en_US",
+        "LanguageCode": settings.language_code,
         "MaxViewDistance": 32,
         "MemoryTier": 5,
         "PlatformOfflineId": "",
@@ -94,6 +118,21 @@ pub(crate) fn login_client_data(display_name: &str, skin: Option<&ClientSkin>) -
     claims
 }
 
+/// The wire value of `mode`, as the generated codec encodes it.
+fn input_mode_value(mode: PlayerInputMode) -> u32 {
+    let mode = match mode {
+        PlayerInputMode::Mouse => EnumsInputMode::Mouse,
+        PlayerInputMode::Touch => EnumsInputMode::Touch,
+        PlayerInputMode::GamePad => EnumsInputMode::Gamepad,
+    };
+    let mut encoded = BytesMut::new();
+    mode.encode(&mut encoded)
+        .expect("a buffer accepts an input mode");
+    VarUInt::decode(&mut encoded.freeze(), ())
+        .expect("an encoded input mode decodes")
+        .0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,7 +164,7 @@ mod tests {
                 engine_version: "1.26.50".into(),
             }),
         };
-        let claims = login_client_data("Steve", Some(&skin));
+        let claims = login_client_data("Steve", Some(&skin), &LoginSettings::default());
         assert_eq!(decoded(&claims, "SkinData"), skin.rgba8);
         assert_eq!(
             (
@@ -153,7 +192,7 @@ mod tests {
     /// Without a skin the placeholder satisfies the core's size check and names the wide model.
     #[test]
     fn claims_without_a_skin_upload_the_placeholder() {
-        let claims = login_client_data("Alex", None);
+        let claims = login_client_data("Alex", None, &LoginSettings::default());
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
@@ -161,22 +200,39 @@ mod tests {
         assert_eq!(claims["CapeOnClassicSkin"], false);
     }
 
-    /// The fields the core validates name this client's version, platform and offline name.
+    /// The claims carry the version, offline name and the player's own settings, and leave the
+    /// device to the core.
     #[test]
-    fn claims_identify_the_client_as_the_core_requires() {
-        let claims = login_client_data("Steve", None);
+    fn claims_carry_the_players_settings_and_no_device() {
+        let settings = LoginSettings {
+            language_code: "de_DE".to_owned(),
+            input_mode: PlayerInputMode::GamePad,
+            gui_scale_offset: -1,
+        };
+        let claims = login_client_data("Steve", None, &settings);
         assert_eq!(claims["GameVersion"], GAME_VERSION);
         assert_eq!(claims["ThirdPartyName"], "Steve");
-        assert_eq!(claims["DeviceOS"], 8);
-        assert_eq!(claims["LanguageCode"], "en_US");
-        let device = claims["DeviceId"].as_str().unwrap();
-        assert!(
-            device.len() == 32
-                && device
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        assert_eq!(claims["LanguageCode"], "de_DE");
+        assert_eq!(
+            claims["CurrentInputMode"], 3,
+            "vanilla's gamepad input mode"
         );
+        assert_eq!(claims["GuiScale"], -1);
+        for device_field in ["DeviceOS", "DeviceModel", "DeviceId", "DefaultInputMode"] {
+            assert!(
+                claims.get(device_field).is_none(),
+                "{device_field} is the core's"
+            );
+        }
         assert!(claims["SkinId"].as_str().unwrap().ends_with(".Custom"));
         assert!(Uuid::parse_str(claims["SelfSignedId"].as_str().unwrap()).is_ok());
+        let mouse = login_client_data("Steve", None, &LoginSettings::default());
+        assert_eq!(
+            (
+                mouse["CurrentInputMode"].as_u64(),
+                mouse["LanguageCode"].as_str()
+            ),
+            (Some(1), Some("en_US"))
+        );
     }
 }

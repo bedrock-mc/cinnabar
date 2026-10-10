@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -35,6 +36,7 @@ type sessionServer struct {
 	onDisconnect func(DisconnectInfo)
 	selectTarget func(ctx context.Context, kind, value string) (string, error) // nil rejects targeted Connects
 	dialTarget   func(ctx context.Context, address string) (*resolvedUpstreamTarget, error)
+	device       *device.Profile // nil keeps the client's claimed device
 	delay        *PacketDelay
 	logger       *slog.Logger
 
@@ -136,7 +138,7 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 	request, err := decodeSessionConnect(frame)
 	var downstream *sessionDownstream
 	if err == nil {
-		downstream, err = newSessionDownstream(request)
+		downstream, err = newSessionDownstream(request, server.device)
 	}
 	if err != nil {
 		return errors.Join(err, refuseSessionConnect(raw, framed, err))
@@ -451,11 +453,15 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	return err
 }
 
-// newSessionDownstream accepts only the pinned protocol and valid login client data.
-func newSessionDownstream(request sessionConnectRequest) (*sessionDownstream, error) {
+// newSessionDownstream accepts only the pinned protocol and valid login client data; a device
+// replaces the client's claimed device, so the claim matches the core's sign-in.
+func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	if claimed != nil {
+		claimed.Apply(&clientData)
 	}
 	pinned := minecraft.DefaultProtocol
 	if request.Protocol != pinned.ID() || clientData.GameVersion != pinned.Ver() {

@@ -186,7 +186,8 @@ pub mod wire {
     pub use valentine;
 }
 pub use login::{
-    LoginSequence, PacketIdTraceSnapshot, PlayOutbound, PlaySession, network_stack_latency_reply,
+    LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
+    network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

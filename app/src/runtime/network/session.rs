@@ -20,6 +20,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     pub client_blob_cache: protocol::ClientBlobCache,
     pub player_skin: crate::player_skin::LocalPlayerSkin,
+    /// The player's language, input mode and GUI scale, reported at login.
+    pub login_settings: protocol::LoginSettings,
     /// Rechecked against live artwork before presentation publication.
     pub actor_artwork: Option<render::ActorArtworkPages>,
     /// The carrier catalog initial server UI resolves against on the worker.
@@ -131,6 +133,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             display_name: config.display_name,
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
+            login_settings: config.login_settings,
             physical_memory_bytes: crate::global_resources::memory::physical_bytes(),
         },
         move |preparation, game_data, cancelled| {

@@ -423,6 +423,11 @@ func runWithResourcePackCacheFactory(
 			}
 		}
 	}
+	// One device per install, consistent with the platform the account signs in as.
+	deviceProfile, deviceErr := authcache.LoadDevice(authSibling(opts.authCache, "device.json"))
+	if deviceErr != nil {
+		logger.Warn("device profile not saved; using it for this run only")
+	}
 	serveErr := serve(ctx, proxy.Config{
 		PacketDelay:         packetDelay,
 		SocketDir:           opts.socketDir,
@@ -455,6 +460,7 @@ func runWithResourcePackCacheFactory(
 		ConnectProgress:             connectProgress,
 		ServerTrust:                 serverTrust,
 		SessionTarget:               sessionTarget,
+		Device:                      &deviceProfile,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

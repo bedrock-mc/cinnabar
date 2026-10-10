@@ -669,6 +669,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
+            login_settings: protocol::LoginSettings {
+                language_code: client_session::pack_language::active_language_code(),
+                ..protocol::LoginSettings::default()
+            },
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
         })

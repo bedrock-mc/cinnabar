@@ -18,6 +18,7 @@ use valentine::bedrock::version::v1_26_51::{
     McpePacketData, TransferPacket,
 };
 
+use super::client_data::LoginSettings;
 use super::{LoginSequence, MAX_DECOMPRESSED_BATCH_SIZE, PlaySession};
 use crate::session_transport::SessionTransport;
 use crate::{
@@ -33,6 +34,7 @@ impl LoginSequence {
         display_name: &str,
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
+        settings: &LoginSettings,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let (mut reader, frames) = bridge::connect_session(socket_dir)
             .await
@@ -41,7 +43,11 @@ impl LoginSequence {
             protocol: PROTOCOL_VERSION,
             target: None,
             client_cache: cache.is_some(),
-            client_data: super::client_data::login_client_data(display_name, skin.as_ref()),
+            client_data: super::client_data::login_client_data(
+                display_name,
+                skin.as_ref(),
+                settings,
+            ),
         };
         frames
             .send(bridge::encode_connect(&request).map_err(bridge_error)?)

@@ -13,6 +13,8 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
@@ -64,7 +66,8 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: slog.New(slog.DiscardHandler)}
+	claimed := device.New(protocol.DeviceAndroid)
+	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: slog.New(slog.DiscardHandler), device: &claimed}
 	server.start(ctx)
 	defer connections.finishShutdown()
 	defer server.close()

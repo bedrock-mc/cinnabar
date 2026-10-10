@@ -37,6 +37,8 @@ pub struct NetworkConfig {
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
+    /// The player's language, input mode and GUI scale, reported at login.
+    pub login_settings: protocol::LoginSettings,
     /// Physical RAM, used only when choosing device-compatible server subpacks.
     pub physical_memory_bytes: u64,
 }

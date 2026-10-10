@@ -19,6 +19,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -118,7 +119,7 @@ func TestDecodeSessionConnectRejectsMalformedSetup(t *testing.T) {
 
 func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *testing.T) {
 	request := testSessionConnect(t)
-	downstream, err := newSessionDownstream(request)
+	downstream, err := newSessionDownstream(request, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,13 +128,40 @@ func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *test
 	}
 	wrongProtocol := request
 	wrongProtocol.Protocol++
-	if _, err := newSessionDownstream(wrongProtocol); err == nil {
+	if _, err := newSessionDownstream(wrongProtocol, nil); err == nil {
 		t.Fatal("another protocol was accepted")
 	}
 	invalid := request
 	invalid.ClientData = json.RawMessage(`{"GameVersion":"` + minecraft.DefaultProtocol.Ver() + `","DeviceOS":0}`)
-	if _, err := newSessionDownstream(invalid); !errors.Is(err, errMalformedSessionMessage) {
+	if _, err := newSessionDownstream(invalid, nil); !errors.Is(err, errMalformedSessionMessage) {
 		t.Fatalf("invalid client data: %v", err)
+	}
+}
+
+// The core's device replaces whatever device the client claims, so a client that sends none still
+// logs in, and every login claims the platform the core signs in as.
+func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
+	profile := device.New(protocol.DeviceAndroid)
+	request := testSessionConnect(t)
+	var claims map[string]any
+	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
+		t.Fatal(err)
+	}
+	delete(claims, "DeviceOS")
+	claims["DeviceModel"] = "JolyneClient"
+	claims["CurrentInputMode"] = packet.InputModeMouse
+	request.ClientData, _ = json.Marshal(claims)
+	if _, err := newSessionDownstream(request, nil); err == nil {
+		t.Fatal("a client claiming no device validated without the core's")
+	}
+	downstream, err := newSessionDownstream(request, &profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := downstream.ClientData()
+	if data.DeviceOS != protocol.DeviceAndroid || data.DeviceModel != profile.Model || data.DeviceID != profile.ID ||
+		data.DefaultInputMode != packet.InputModeTouch || data.CurrentInputMode != packet.InputModeMouse {
+		t.Fatalf("claimed client data = %+v", data)
 	}
 }
 
@@ -335,7 +363,7 @@ func TestSessionPrepareExposesThePlayerRuntimeID(t *testing.T) {
 	defer session.Close()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	downstream, err := newSessionDownstream(testSessionConnect(t))
+	downstream, err := newSessionDownstream(testSessionConnect(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
