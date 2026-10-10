@@ -178,7 +178,7 @@
 
 ## Xbox presence follow-up
 
-The account core publishes menu, world-default, Realm and experience activity.
+The account core publishes menu, world-default, Realm and generic featured/Experience activity.
 Exact heartbeat, platform configuration, server overrides, permission gates and
 friends-visible acceptance remain incomplete. No existing completion entry is
 advanced by this feature; see `docs/reference/xbox-presence.md` and `plan.md`.

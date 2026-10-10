@@ -9,6 +9,7 @@ pub(super) struct RetryTarget {
     address: String,
     auth_cache: Option<PathBuf>,
     account_id: Option<String>,
+    featured: bool,
 }
 
 impl MenuRuntime {
@@ -17,6 +18,27 @@ impl MenuRuntime {
         self.retry_target
             .as_ref()
             .map(|target| target.address.as_str())
+    }
+
+    /// Retains the selected card's featured status without mapping server identities.
+    pub(super) fn presence_is_featured(&self) -> bool {
+        self.retry_target
+            .as_ref()
+            .is_some_and(|target| target.featured)
+    }
+
+    /// Queues a featured join and keeps its activity classification through adoption and retry.
+    pub(super) fn request_featured_connect(&mut self, address: String) {
+        self.request_connect(address.clone());
+        if self
+            .intents
+            .join
+            .as_ref()
+            .is_some_and(|intent| intent.address == address)
+            && let Some(target) = self.retry_target.as_mut()
+        {
+            target.featured = true;
+        }
     }
 
     /// Prevents retrying the old server when a transfer cannot be followed safely.
@@ -31,10 +53,15 @@ impl MenuRuntime {
         auth_cache: Option<&Path>,
         local_world: bool,
     ) {
+        let featured = self
+            .retry_target
+            .as_ref()
+            .is_some_and(|target| target.address == address && target.featured);
         self.retry_target = (!local_world).then(|| RetryTarget {
             address: address.to_owned(),
             auth_cache: auth_cache.map(Path::to_path_buf),
             account_id: self.feeds.account_active_id.clone(),
+            featured,
         });
     }
 

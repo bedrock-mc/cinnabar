@@ -65,6 +65,7 @@ pub(crate) fn drive_menu_services(
                 in_session,
                 player_runtime.facts.world_default_game_mode(),
                 menu.presence_address(),
+                menu.presence_is_featured(),
             ));
             menu.sync_account_control(&mut *account);
         }

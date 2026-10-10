@@ -48,9 +48,6 @@ func New(ctx context.Context, factory Factory, logger *slog.Logger) *Worker {
 
 // Set queues the newest state and cancels a request for an older state without waiting.
 func (w *Worker) Set(state State) {
-	if !state.Valid() {
-		return
-	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.state == state || w.ctx.Err() != nil {

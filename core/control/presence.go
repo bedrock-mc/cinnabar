@@ -22,7 +22,7 @@ func (server *Server) servePresence(conn net.Conn, id uint64, raw json.RawMessag
 	var state xboxpresence.State
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil || decoder.Decode(new(any)) != io.EOF || !state.Valid() {
+	if err := decoder.Decode(&state); err != nil || decoder.Decode(new(any)) != io.EOF {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
 	}
 	server.mu.Lock()

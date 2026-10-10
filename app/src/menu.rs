@@ -641,7 +641,7 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
+                    self.request_featured_connect(server.address.clone());
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),

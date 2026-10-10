@@ -9,8 +9,7 @@ pub struct XboxPresenceState {
     pub in_world: bool,
     pub game_mode: i32,
     pub realm: bool,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub experience: String,
+    pub experience: bool,
 }
 
 #[derive(Deserialize)]
@@ -34,7 +33,7 @@ mod tests {
         let state = XboxPresenceState::default();
         assert_eq!(
             serde_json::to_value(state).unwrap(),
-            serde_json::json!({"in_world": false, "game_mode": 0, "realm": false})
+            serde_json::json!({"in_world": false, "game_mode": 0, "realm": false, "experience": false})
         );
     }
 }

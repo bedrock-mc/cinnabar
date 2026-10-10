@@ -1,11 +1,13 @@
 ## Xbox Minecraft activity
 
 - The Rust client reports menus and the committed world default, Realm and experience
-  identity to the account core. Go publishes through the existing Xbox presence API;
+  classification to the account core. Go publishes through the existing Xbox presence API;
   offline accounts do no service work and failures never block joins or gameplay.
 - Fake-client tests cover joins, default-mode changes, leaving, cancellation and title
   cleanup. The control regression failed on the previous implementation. Rust state
   tests distinguish the world default from an individual player's mode.
+- Named `COM_Experience_*` IDs are intentionally not sent. Featured servers and
+  Experiences use `COM_Experience` without server-identity mappings.
 - Exact current-version game-mode input, update trigger ordering, heartbeat cadence,
   platform-specific service configuration selection, server activity overrides and
   permission gates remain incomplete. The current heartbeat

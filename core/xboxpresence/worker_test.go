@@ -25,9 +25,9 @@ func TestWorldAndExperienceIDs(t *testing.T) {
 		{State{InWorld: true, Realm: true}, "Realm_Survival"},
 		{State{InWorld: true, Realm: true, GameMode: 1}, "Realm_Creative"},
 		{State{InWorld: true, Realm: true, GameMode: 2}, "Realm_Adventure"},
-		{State{InWorld: true, Experience: "adc666b2-1eb1-49c7-9ae7-7536da1dfb50"}, "COM_Experience_CTF"},
-		{State{InWorld: true, Experience: uuid.Nil.String()}, "COM_Experience"},
-		{State{Experience: "adc666b2-1eb1-49c7-9ae7-7536da1dfb50"}, "Menus"},
+		{State{InWorld: true, Experience: true}, "COM_Experience"},
+		{State{InWorld: true, Experience: true, Realm: true, GameMode: 1}, "COM_Experience"},
+		{State{Experience: true}, "Menus"},
 	} {
 		if got := test.state.ID(); got != test.want {
 			t.Fatalf("%+v: %s, want %s", test.state, got, test.want)
@@ -69,6 +69,8 @@ func TestPresenceTriggersAndTitleCleanup(t *testing.T) {
 	expect("Creative")
 	worker.Set(State{InWorld: true, GameMode: 2, Realm: true})
 	expect("Realm_Adventure")
+	worker.Set(State{InWorld: true, Experience: true})
+	expect("COM_Experience")
 	worker.Set(State{})
 	expect("Menus")
 	worker.Close()

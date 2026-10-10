@@ -1,7 +1,8 @@
 # Xbox activity rules
 
 The account core publishes Minecraft activity independently of Discord activity.
-The client reports its committed world default, Realm target and experience target.
+The client reports its committed world default, Realm target and featured/Experience
+classification without sending server or Experience identities.
 Xbox failures are logged without delaying gameplay or joins. Offline accounts do not
 create an Xbox presence client; sign-out and core shutdown stop updates and remove
 this title's presence.
@@ -13,12 +14,10 @@ this title's presence.
 | World default Adventure | `Adventure` |
 | Other world default modes | `Survival` |
 | Realm world | Prefix the world activity with `Realm_` |
-| Known experience | Its configured `COM_Experience_*` activity |
-| Unknown experience identity | `COM_Experience` |
+| Featured server or Experience | `COM_Experience` |
 
-The experience table includes CTF, MobMaze, SoulSteel, GenWars, TreasureHunt,
-ColosseumNova, OneBlock, VotingMap, SkyDimensions, PatientCraft, TheHive,
-SkyblockHorizons, Cubecraft, Lifeboat, Enchanted, Galaxite, MegaSMP and Mineville.
+Named `COM_Experience_*` IDs are intentionally not sent. All featured servers and
+Experiences use the generic activity; no server-identity mapping is maintained.
 The client uses the committed world default for ordinary external servers and local
 worlds. Changing only an individual player's mode does not change that default.
 
