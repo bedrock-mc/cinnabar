@@ -67,7 +67,7 @@ fn bitmap(view: &LayeredPackView, ascii: Option<&str>, unicode: Option<&str>) ->
 fn read_named_sheet(view: &LayeredPackView, high_byte: u8, name: &str) -> Option<GlyphSheet> {
     let localized = format!(
         "texts/{}/{}",
-        &super::resource_packs::active_language_code(),
+        super::resource_packs::active_language_code(),
         name
     );
     [localized.as_str(), name].into_iter().find_map(|path| {

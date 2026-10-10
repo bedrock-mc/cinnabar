@@ -6,11 +6,13 @@ Bound concurrent Cargo builds to the machine's available CPU, memory, and disk.
 Use the configured shared build limiter when available and never hold a build lock
 while waiting for another. Set `CARGO_BUILD_JOBS` explicitly when several worktrees
 are active. Prefer `cargo check -p <crate>` and avoid release builds unless the task
-requires performance measurements. Restart sccache only when no build is using it.
+requires performance measurements. Local builds do not use sccache.
 
-Keep a separate Cargo `target` directory for each active worktree; never share
-`CARGO_TARGET_DIR` across branches. Remove that directory after the work is
-integrated. Build test carriers into an isolated scratch directory so concurrent
+`.cargo/config.toml` points every worktree's intermediates at one shared Cargo
+`build-dir`, so dependencies compile once; each worktree's `target` keeps only final
+artifacts. Never share `CARGO_TARGET_DIR` across branches. Concurrent builds wait on
+the build-dir lock, so agent build slots give each slot its own build-dir. Remove a
+worktree's `target` after its work is integrated. Build test carriers into an isolated scratch directory so concurrent
 runs cannot overwrite each other's inputs. Stop only processes you started, by PID.
 
 ## Checks

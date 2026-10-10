@@ -24,3 +24,6 @@ sha2.workspace = true
 [dev-dependencies]
 sha2.workspace = true
 tempfile = "3"
+
+[lints]
+workspace = true

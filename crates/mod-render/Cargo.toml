@@ -9,3 +9,6 @@ publish = false
 bytemuck = { version = "1", features = ["derive"] }
 mod-api = { path = "../mod-api" }
 naga = { version = "27.0.3", features = ["wgsl-in"] }
+
+[lints]
+workspace = true

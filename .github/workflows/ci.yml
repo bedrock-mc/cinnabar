@@ -1,8 +1,8 @@
 name: CI
 
-# Pull requests run every Linux check plus a platform subset on Windows and macOS. Scheduled and
-# manual runs are full: every test, clippy and Go check on all three OSes. `ci-ok` is the one
-# required check; it passes when every job succeeded or was skipped by a path filter.
+# Pull requests run preflight, then Linux checks and a Windows/macOS subset when runtime inputs
+# change. Scheduled and manual runs are full: every test, clippy and Go check on all three OSes.
+# `ci-ok` passes when every job succeeded or was intentionally skipped.
 on:
   pull_request:
   schedule:
@@ -16,6 +16,8 @@ concurrency:
 # Verification needs assertions, but not large debug-symbol artifacts.
 # Must match ci-cache.yml so compiler outputs can be reused.
 env:
+  # The build cache saves target/, so CI keeps intermediates there instead of the shared build-dir.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
@@ -33,6 +35,7 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       full: ${{ steps.plan.outputs.full }}
+      runtime: ${{ github.event_name != 'pull_request' || steps.classify.outputs.runtime != 'false' }}
       os: ${{ steps.plan.outputs.os }}
       packaging: ${{ steps.plan.outputs.full == 'true' || steps.filter.outputs.packaging == 'true' }}
       physics: ${{ steps.plan.outputs.full == 'true' || steps.filter.outputs.physics == 'true' }}
@@ -63,7 +66,7 @@ jobs:
           { echo "full=$full"; echo "run=$run"; echo "os=$os"; } >> "$GITHUB_OUTPUT"
       - id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             packaging:
@@ -84,17 +87,77 @@ jobs:
               - assets/bedrock-target.json
               - assets/vanilla-source.json
               - core/go.mod
+      - name: Classify standalone documentation changes
+        id: classify
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=100" > "$RUNNER_TEMP/pr-files.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
 
-  verify:
+          # Devtool selects owning Rust packages; this allowlist skips Go and Platform work too.
+          # It is deliberately narrower than tools/devtool/src/selection.rs: reference docs,
+          # crate docs, assets, workflows, packaging and unknown doc directories keep all checks.
+          def standalone_doc(name):
+              """Accept only standalone contributor docs outside runtime and architecture inputs."""
+              path = PurePosixPath(name)
+              return name in {"README.md", "AGENTS.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} or (
+                  str(path.parent) in {"docs", "docs/agents", "docs/reviews"} and path.suffix == ".md"
+              )
+
+          comparison = json.loads((Path(os.environ["RUNNER_TEMP"]) / "pr-files.json").read_text())
+          files = comparison["files"]
+          # Compare returns at most 300 files. At the cap or with a count mismatch, run everything.
+          # Renames must be standalone docs on both sides; unknown inputs keep every check.
+          docs_only = 0 < len(files) < 300 and len(files) == int(os.environ["CHANGED_FILES"]) and all(
+              standalone_doc(file["filename"])
+              and standalone_doc(file.get("previous_filename", file["filename"]))
+              for file in files
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"runtime={str(not docs_only).lower()}", file=output)
+          PY
+
+  preflight:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - name: Enforce architecture boundaries
+        if: ${{ !cancelled() }}
+        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
+
+  # Full runs retain every diagnostic and cache writer even when preflight fails.
+  verify:
+    needs: [changes, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          components: rustfmt, clippy
+          components: clippy
       - name: Restore Rust build cache
         id: rust-cache
         uses: ./.github/actions/build-cache
@@ -110,12 +173,7 @@ jobs:
         run: |
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
-      - name: Enforce architecture boundaries
-        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       # The checks below are independent, so each reports even when an earlier one fails.
-      - name: Check formatting
-        if: ${{ !cancelled() }}
-        run: cargo fmt --check
       - name: Lint Rust workspace
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -137,8 +195,11 @@ jobs:
       contents: read
       actions: write
     name: Rust tests (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    needs: [changes, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -146,8 +207,8 @@ jobs:
       matrix:
         os: ${{ fromJSON(needs.changes.outputs.os) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
       - name: Restore Rust build cache
@@ -194,8 +255,11 @@ jobs:
       contents: read
       actions: write
     name: Go (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    needs: [changes, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -206,7 +270,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -263,8 +327,12 @@ jobs:
   # Pull requests only; full runs cover Windows and macOS through rust-tests and go.
   platform:
     name: Platform (${{ matrix.name }})
-    needs: changes
-    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.full != 'true'
+    needs: [changes, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success'
+      && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
+      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
+      && needs.changes.outputs.full != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -297,8 +365,8 @@ jobs:
         -p dist-local -p experience-runtime -p launcher -p mod-host -p pack-compiler
         -p protocol -p render -p rich-presence -p semantic-input -p server-experience -p visualcoverage
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
       - name: Restore Rust build cache
         id: rust-cache
         uses: ./.github/actions/build-cache
@@ -344,7 +412,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Test build cache reuse and invalidation
         run: python3 -m unittest discover -s .github/tests -p 'test_*.py'
       - name: Test manual release preparation
@@ -363,7 +431,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -383,7 +451,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -397,6 +465,7 @@ jobs:
     if: always()
     needs:
       - changes
+      - preflight
       - verify
       - rust-tests
       - go

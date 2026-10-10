@@ -42,7 +42,7 @@ impl Shared {
     fn publish(&self, delay: u32, show: bool) -> bool {
         let config = u64::from(delay) | if show && delay != 0 { SHOW_BIT } else { 0 };
         self.request
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
                 if old & ((1 << 33) - 1) == config {
                     None
                 } else {
