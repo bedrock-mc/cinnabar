@@ -294,7 +294,8 @@ fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_sh
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
     assert!(source.contains("@location(1) uv: vec2<f32>"));
     assert!(source.contains("output.uv = uv;"));
-    assert!(source.contains("let normalized_uv = input.uv / dimensions;"));
+    assert!(source.contains("let sample_uv = input.uv + input.atlas_offset;"));
+    assert!(source.contains("let normalized_uv = sample_uv / dimensions;"));
 }
 
 #[test]
