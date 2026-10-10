@@ -27,7 +27,7 @@ fn png(path: &Path, color: [u8; 4]) {
 
 /// A skin of one color, shaped like a starter skin.
 pub(super) fn fixture_skin(color: [u8; 4]) -> protocol::StandardSkin {
-    let side = assets::STARTER_SKIN_SIDE;
+    let side = assets::starter_skins::STARTER_SKIN_SIDE;
     standard_skin(
         side,
         side,
@@ -43,15 +43,15 @@ pub(super) fn native_fixture(layout: &InstallLayout) {
         "description":{"identifier":model.geometry(), "texture_width":protocol::CLASSIC_SKIN_SIDE,"texture_height":protocol::CLASSIC_SKIN_SIDE},
         "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]}]
     }));
-    let side = assets::STARTER_SKIN_SIDE as usize;
-    let carrier = assets::StarterSkins {
+    let side = assets::starter_skins::STARTER_SKIN_SIDE as usize;
+    let carrier = assets::starter_skins::StarterSkins {
         geometry: serde_json::json!({"format_version":"1.12.0","minecraft:geometry":models})
             .to_string()
             .into(),
-        skins: assets::STARTER_SKIN_SOURCES
+        skins: assets::starter_skins::STARTER_SKIN_SOURCES
             .iter()
             .zip([[255, 0, 0, 255], [0, 0, 255, 255]])
-            .map(|(source, color)| assets::StarterSkin {
+            .map(|(source, color)| assets::starter_skins::StarterSkin {
                 name: source.name.into(),
                 slim: source.slim,
                 rgba8: color.repeat(side * side).into(),
@@ -60,7 +60,11 @@ pub(super) fn native_fixture(layout: &InstallLayout) {
     };
     let path = layout.starter_skins_asset();
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, assets::encode_starter_skins(&carrier).unwrap()).unwrap();
+    fs::write(
+        path,
+        assets::starter_skins::encode_starter_skins(&carrier).unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]

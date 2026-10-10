@@ -103,10 +103,10 @@ impl HudEditor {
         card.position = Some(std::array::from_fn(|axis| {
             let available = (self.viewport[axis] - size[axis]).max(0.);
             let at = if self.snap
-                && !self
+                && self
                     .drag
                     .as_ref()
-                    .is_some_and(|drag| drag.guides[axis].is_some())
+                    .is_none_or(|drag| drag.guides[axis].is_none())
             {
                 (at[axis] / 8.).round() * 8.
             } else {

@@ -48,11 +48,7 @@ fn make_play_acquires_and_builds_the_required_physics_registry() {
         .lines()
         .find(|line| line.starts_with("play:"))
         .unwrap();
-    assert!(
-        play
-            .split_whitespace()
-            .any(|word| word == "physics-assets")
-    );
+    assert!(play.split_whitespace().any(|word| word == "physics-assets"));
 }
 
 /// Upper bound for one witness or install invocation of Make.

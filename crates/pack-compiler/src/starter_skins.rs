@@ -2,8 +2,11 @@ use std::{fs, io::Cursor, path::Path};
 
 use ::image::{ImageFormat, ImageReader};
 use assets::{
-    CLASSIC_SKIN_GEOMETRY, MAX_STARTER_SKIN_GEOMETRY_BYTES, SLIM_SKIN_GEOMETRY, STARTER_SKIN_SIDE,
-    STARTER_SKIN_SOURCES, StarterSkin, StarterSkins, encode_starter_skins, parse_skin_geometry,
+    parse_skin_geometry,
+    starter_skins::{
+        CLASSIC_SKIN_GEOMETRY, MAX_STARTER_SKIN_GEOMETRY_BYTES, SLIM_SKIN_GEOMETRY,
+        STARTER_SKIN_SIDE, STARTER_SKIN_SOURCES, StarterSkin, StarterSkins, encode_starter_skins,
+    },
 };
 use serde_json::{Map, Value};
 
@@ -165,7 +168,9 @@ mod tests {
             );
             return;
         }
-        let decoded = assets::decode_starter_skins(&compile_starter_skins(&pack).unwrap()).unwrap();
+        let decoded =
+            assets::starter_skins::decode_starter_skins(&compile_starter_skins(&pack).unwrap())
+                .unwrap();
         assert_eq!(decoded.skins.len(), STARTER_SKIN_SOURCES.len());
     }
 }

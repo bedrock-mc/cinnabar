@@ -1019,12 +1019,12 @@ fn modal_forms_keep_required_buttons_and_display_fallbacks() {
             button2: protocol::FormText::from("No"),
         })
     );
-    for json in [r#"{"type":"modal","button1":"Yes"}"#] {
-        assert_eq!(
-            form_event(json).unwrap().model,
-            protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls)
-        );
-    }
+    assert_eq!(
+        form_event(r#"{"type":"modal","button1":"Yes"}"#)
+            .unwrap()
+            .model,
+        protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls)
+    );
 }
 
 #[test]

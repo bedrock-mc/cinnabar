@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 pub const STARTER_SKIN_NAMES: [&str; 2] = [
-    assets::STARTER_SKIN_SOURCES[0].name,
-    assets::STARTER_SKIN_SOURCES[1].name,
+    assets::starter_skins::STARTER_SKIN_SOURCES[0].name,
+    assets::starter_skins::STARTER_SKIN_SOURCES[1].name,
 ];
 pub const MAX_SKIN_NAME_BYTES: usize = 128;
 
@@ -30,8 +30,8 @@ impl SkinModel {
     /// Classic model identifiers; custom skins carry their own identifier in the source.
     pub const fn geometry(self) -> &'static str {
         match self {
-            Self::Classic => assets::CLASSIC_SKIN_GEOMETRY,
-            Self::Slim => assets::SLIM_SKIN_GEOMETRY,
+            Self::Classic => assets::starter_skins::CLASSIC_SKIN_GEOMETRY,
+            Self::Slim => assets::starter_skins::SLIM_SKIN_GEOMETRY,
             Self::Custom => "",
         }
     }

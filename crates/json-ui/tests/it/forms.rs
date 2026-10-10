@@ -585,8 +585,10 @@ fn custom_slider_timeout_reaches_fake_clock_direction_dispatch() {
         .find(|hit| hit.kind == HitKind::Slider)
         .expect("slider");
     assert_eq!(slider.widget.slider.as_ref().unwrap().timeout, Some(0.25));
-    let mut view = ViewState::default();
-    view.focused = Some(slider.key.clone());
+    let mut view = ViewState {
+        focused: Some(slider.key.clone()),
+        ..ViewState::default()
+    };
     let mut dispatcher = json_ui::Dispatcher::default();
     dispatcher.button(
         &render.hits,

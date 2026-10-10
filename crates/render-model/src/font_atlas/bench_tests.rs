@@ -1,6 +1,9 @@
 //! Optional release measurement of first-use and churn work with an installed carrier.
 
-use crate::*;
+use crate::{
+    FontAtlasFrame, UiRenderBatch, UiRenderInput, UiRenderVertex, UiScissor, UiTextureCatalog,
+    UiTexturePage,
+};
 use std::{sync::Arc, time::Instant};
 
 #[test]

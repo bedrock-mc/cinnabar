@@ -66,7 +66,7 @@ fn default_engine_version() -> String {
 
 /// The starter skins and the classic and slim geometry they share, read from the optional carrier.
 struct Starter {
-    skins: Vec<assets::StarterSkin>,
+    skins: Vec<assets::starter_skins::StarterSkin>,
     geometries: [Arc<protocol::SkinGeometrySource>; 2],
 }
 
@@ -84,7 +84,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
         } else {
             SkinModel::Classic
         };
-        let side = assets::STARTER_SKIN_SIDE;
+        let side = assets::starter_skins::STARTER_SKIN_SIDE;
         let Ok(mut skin) = standard_skin(side, side, entry.rgba8.to_vec(), model) else {
             continue;
         };
@@ -311,8 +311,10 @@ fn starter(layout: &InstallLayout) -> Option<Starter> {
     if !path.is_file() {
         return None;
     }
-    let loaded = read_bounded(&path, assets::MAX_STARTER_SKINS_BYTES as u64)
-        .and_then(|bytes| assets::decode_starter_skins(&bytes).map_err(|error| error.to_string()))
+    let loaded = read_bounded(&path, assets::starter_skins::MAX_STARTER_SKINS_BYTES as u64)
+        .and_then(|bytes| {
+            assets::starter_skins::decode_starter_skins(&bytes).map_err(|error| error.to_string())
+        })
         .and_then(|carrier| {
             Ok(Starter {
                 geometries: geometry_catalog(&carrier.geometry)?,
