@@ -338,7 +338,11 @@ impl AttachablesRuntime {
             attachable: Some(query_context),
             main_hand: input.owner_main_hand.map(Arc::from),
             off_hand: input.owner_off_hand.map(Arc::from),
-            ..ActorTickContext::default()
+            ..owner_rig
+                .animation_variables
+                .owner_context()
+                .cloned()
+                .unwrap_or_default()
         };
         if !input.worn && input.off_hand {
             context
@@ -491,6 +495,10 @@ mod preview_tests;
 #[cfg(test)]
 #[path = "attachable/owner_reference_tests.rs"]
 mod owner_reference_tests;
+
+#[cfg(test)]
+#[path = "attachable/owner_context_tests.rs"]
+mod owner_context_tests;
 
 #[cfg(test)]
 #[path = "attachable/activation_clock_tests.rs"]

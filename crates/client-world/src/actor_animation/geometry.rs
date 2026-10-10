@@ -174,6 +174,7 @@ pub(super) fn resolve_binding(
         completed_tick,
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
+        query_context: ActorTickContext::default(),
         equipped_main: None,
         equipped_off: None,
         // Vanilla starts both offhand observations at zero.
