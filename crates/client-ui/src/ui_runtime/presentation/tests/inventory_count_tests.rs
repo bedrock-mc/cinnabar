@@ -11,8 +11,8 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::{fixture_font, fixture_hud};
-use crate::ui_runtime::presentation::{IconRef, UiPresentationRuntime};
-use crate::ui_runtime::{UiRuntime, inventory_ledger::GENERIC_STORAGE_WINDOW_TYPE};
+use {crate::ui_runtime::UiRuntime, inventory::inventory_ledger::GENERIC_STORAGE_WINDOW_TYPE};
+use {crate::ui_runtime::presentation::UiPresentationRuntime, ui::IconRef};
 
 const COUNT_QUADS: usize = 4;
 const VERTICES_PER_QUAD: usize = 4;

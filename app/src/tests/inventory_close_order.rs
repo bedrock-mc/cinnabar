@@ -20,14 +20,15 @@ use protocol::{
 };
 use ui::UiPoint;
 
-use crate::{
-    app::{ClientFrameSet, configure_client_frame_schedule},
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
-    },
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        app::{ClientFrameSet, configure_client_frame_schedule},
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
+    },
+    client_ui::test_support::fixture_font,
+};
 
 fn app() -> (App, Entity) {
     app_with(true)
@@ -378,7 +379,7 @@ fn gameplay_click_followed_by_a_key_keeps_its_edge() {
 /// A press that triggers the inventory binding opens the screen and is never also a click on it.
 #[test]
 fn inventory_binding_press_followed_by_a_key_is_not_a_click() {
-    use crate::menu::{
+    use launcher::menu::{
         MenuAction,
         settings_options::{EXTRA_KEYS, KEY_BINDINGS},
     };

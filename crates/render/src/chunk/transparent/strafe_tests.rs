@@ -1,5 +1,6 @@
 //! Strafing over an ocean drives the production transparent sort and queue systems.
 use super::*;
+use crate::chunk::draw::queue_transparent_chunks;
 use bevy::{
     core_pipeline::core_3d::{Transparent3d, graph::Core3d},
     ecs::system::RunSystemOnce,

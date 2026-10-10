@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 #[test]
 fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {

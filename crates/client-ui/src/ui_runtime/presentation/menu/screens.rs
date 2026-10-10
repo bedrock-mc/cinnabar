@@ -6,7 +6,7 @@ use status::{status_extent, status_paragraphs};
 
 use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
 
-use crate::menu::{MenuAction, MenuScreen, MenuServerCard, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuServerCard, MenuView};
 
 use super::{
     ContentArea, TextMetrics, UiPresentationError, bounded_visible_text,

@@ -174,8 +174,8 @@ pub(crate) fn update_atmosphere_frame(
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: (
-        Res<crate::camera::VisionEffects>,
-        Option<Res<crate::camera::ServerCameraView>>,
+        Res<client_presentation::camera::VisionEffects>,
+        Option<Res<client_presentation::camera::ServerCameraView>>,
     ),
     outputs: AtmosphereOutputs,
     settings: Res<crate::settings_runtime::RuntimeSettings>,
@@ -185,7 +185,7 @@ pub(crate) fn update_atmosphere_frame(
         Option<Res<crate::menu::MenuRuntime>>,
         Option<ResMut<render::CloudVisibility>>,
     ),
-    cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
+    cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let vision = vision
         .1

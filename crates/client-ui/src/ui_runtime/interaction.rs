@@ -9,10 +9,10 @@ use bevy::{
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, UiAction};
 
-#[cfg(any(test, feature = "test-support"))]
-use super::inventory_ledger::CellGesture;
-use super::inventory_ledger::{DropSource, InventoryGestureError};
 use super::{UiRuntime, presentation};
+#[cfg(any(test, feature = "test-support"))]
+use inventory::inventory_ledger::CellGesture;
+use inventory::inventory_ledger::{DropSource, InventoryGestureError};
 use presentation::inventory_pointer::InventoryCellHit;
 
 /// Admits every ready inventory packet in queue order, stopping at the first

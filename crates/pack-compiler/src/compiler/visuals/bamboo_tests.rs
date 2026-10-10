@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use serde_json::Value;
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 #[test]
 fn bamboo_stem_uses_the_stem_selector_on_every_surface() {

@@ -2,8 +2,8 @@
 
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
-use crate::menu::{MenuAction, MenuField, MenuView};
-use crate::ui_runtime::presentation::{IconRef, forms::menu_caret::with_caret};
+use launcher::menu::{MenuAction, MenuField, MenuView};
+use {crate::ui_runtime::presentation::forms::menu_caret::with_caret, ui::IconRef};
 
 use super::{
     ACCENT, BUTTON, BUTTON_FOCUSED, BUTTON_HOVERED, BUTTON_PRESSED, MUTED, PANEL_ALT, TEXT,
@@ -21,7 +21,7 @@ pub(super) fn card(
     solid_page: u16,
     action: MenuAction,
     _focus_index: usize,
-    server: &crate::menu::MenuServerCard,
+    server: &launcher::menu::MenuServerCard,
     icon: Option<IconRef>,
     position: [f32; 2],
     width: f32,

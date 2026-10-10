@@ -1,9 +1,9 @@
 use bevy::log::info;
 use client_world::CommittedControlEvent;
 
-use crate::camera::CameraSettingsAuthority;
-use crate::local_player::LocalViewPose;
 use crate::runtime::telemetry::bedrock_camera_rotation;
+use client_presentation::camera::CameraSettingsAuthority;
+use client_presentation::local_player::LocalViewPose;
 
 /// Applies one committed local-player control event to the view pose, camera
 /// authority, and pending spawn anchor.
@@ -88,8 +88,11 @@ pub(super) fn log_respawn(respawn: protocol::RespawnEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bevy::prelude::{EulerRot, Quat, Vec3};
+    use {
+        super::*, client_presentation::camera::CameraSettingsAuthority,
+        client_presentation::local_player::LocalViewPose,
+    };
 
     #[test]
     fn teleport_policy_preserves_only_teleport_aim_and_always_reconciles_position() {

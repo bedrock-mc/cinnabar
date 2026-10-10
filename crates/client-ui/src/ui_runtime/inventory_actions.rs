@@ -5,16 +5,16 @@ use protocol::{CreativeGroup, CreativeItem, NetworkItemStack, RecipeHandle, Wind
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
-use super::inventory_ledger::{
-    CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
-    InventoryTarget, PlayerInventoryLedger, ScreenCraft,
-};
 use super::presentation::inventory_pointer::InventoryCellHit;
 use super::presentation::screens::{
     BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, ReaderButton, Widget,
 };
 use super::screen_recipes::LOOM_PATTERNS;
 use super::screen_state::{ScreenState, creative_entries};
+use inventory::inventory_ledger::{
+    CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
+    InventoryTarget, PlayerInventoryLedger, ScreenCraft,
+};
 
 type Outcome = Result<i32, InventoryGestureError>;
 
@@ -847,7 +847,7 @@ impl UiRuntime {
                         .is_none()
                         && matches!(
                             ledger.slot_state(*slot),
-                            Some(super::inventory_ledger::PlayerInventorySlot::Empty)
+                            Some(inventory::inventory_ledger::PlayerInventorySlot::Empty)
                         )
                 })
                 .map_or(CreativeDestination::Cursor, CreativeDestination::Player)

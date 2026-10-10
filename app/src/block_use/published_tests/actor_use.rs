@@ -1,8 +1,8 @@
-use super::*;
 use protocol::wire::valentine::bedrock::version::v1_26_51::{
     EnumsItemUseOnActorInventoryTransactionActionType as ActorAction,
     InventoryTransactionPacketTransaction, McpePacketData,
 };
+use {super::*, gameplay::block_use::RepeatClock};
 
 /// Adds a selectable actor after the fixture's latest terrain update.
 pub(super) fn spawn(world: &mut World, z: f32) {

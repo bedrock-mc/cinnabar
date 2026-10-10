@@ -6,10 +6,14 @@ use std::{
 use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
-use super::{
-    markers::{MOVE_PLAYER_INGRESS, MUTATION_COORDINATE, TARGET_MUTATION_ARMED, WORLD_READY},
-    teleport::presented_ack_matches,
-    world_ready::{WorldReadySnapshot, authoritative_received_radius},
+use {
+    super::{
+        teleport::presented_ack_matches,
+        world_ready::{WorldReadySnapshot, authoritative_received_radius},
+    },
+    diagnostics::markers::{
+        MOVE_PLAYER_INGRESS, MUTATION_COORDINATE, TARGET_MUTATION_ARMED, WORLD_READY,
+    },
 };
 
 const MUTATION_X_OFFSET_BLOCKS: i32 = 4;
@@ -253,7 +257,7 @@ pub fn write_move_player_ingress_before_source_capture(
     source_capture();
 }
 
-pub use diagnostics::write_stdout_marker;
+use diagnostics::write_stdout_marker;
 
 pub fn target_mutation_armed_marker(
     source: [i32; 3],

@@ -7,7 +7,7 @@ use ui::DpiScale;
 fn populated_hotbar_snapshot() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use super::super::{IconRef, tests::engine_hud_tests};
+    use {super::super::tests::engine_hud_tests, ui::IconRef};
     let Some(mut presentation) = engine_hud_tests::engine_presentation() else {
         eprintln!(
             "skipping populated_hotbar_snapshot: fixture unavailable; requires installed local carriers (make assets)"

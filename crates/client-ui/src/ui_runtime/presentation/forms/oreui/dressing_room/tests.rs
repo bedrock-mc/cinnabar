@@ -1,16 +1,19 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::review_tests::paint;
-use super::*;
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font};
 use launcher::dressing_room::{
     DressingRoomCape, DressingRoomSection, DressingRoomSkin, DressingRoomView, STARTER_SKIN_NAMES,
     SkinEditor, SkinEditorMode, SkinEditorTarget, SkinModel,
 };
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn view(count: usize) -> MenuView {
     let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::DressingRoom;
+    view.screen = launcher::menu::MenuScreen::DressingRoom;
     view.dressing_room = Arc::new(DressingRoomView {
         skins: (0..count)
             .map(|index| DressingRoomSkin {

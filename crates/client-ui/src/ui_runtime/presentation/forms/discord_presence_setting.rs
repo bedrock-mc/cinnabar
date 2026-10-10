@@ -3,7 +3,7 @@
 use json_ui::Catalog;
 use serde_json::json;
 
-use crate::menu::settings_options::{ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION};
+use launcher::menu::settings_options::{ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION};
 
 pub(super) fn install(catalog: &mut Catalog) {
     let name = DISCORD_PRESENCE_OPTION.name;
@@ -31,8 +31,11 @@ pub(super) fn install(catalog: &mut Catalog) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ui_runtime::presentation::forms::pack_harness;
+    use {
+        super::*,
+        launcher::menu::settings_options::{ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION},
+    };
 
     /// The toggle follows the Animations selector it is anchored to.
     #[test]

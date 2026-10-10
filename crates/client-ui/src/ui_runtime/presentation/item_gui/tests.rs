@@ -1,5 +1,5 @@
-use super::*;
 use assets::{BlockFace, gui_item::CUBE_OFFSET};
+use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 fn face(page: u16) -> IconRef {
     IconRef {

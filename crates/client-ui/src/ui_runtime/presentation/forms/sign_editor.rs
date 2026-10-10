@@ -8,13 +8,14 @@ use json_ui::{DataSource, HitRegion, Scalar, ViewState};
 use serde_json::Value;
 use ui::{UiNode, UiPoint, UiRect};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::{UiRuntime, sign_editor::SignEdit};
+use {
+    super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 pub const SIGN_SCREEN: &str = "sign.sign_screen";
 /// The edit box caret's on and off time.

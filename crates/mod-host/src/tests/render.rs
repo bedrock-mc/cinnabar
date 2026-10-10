@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, mod_render};
 
 const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * param(0u); }";
 const DEPTH: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return vec3<f32>(depth(uv)); }";

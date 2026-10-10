@@ -37,17 +37,17 @@ pub use types::{
 };
 use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
-use super::{
-    armor::{bone_map, hidden_bone, pack_tint, remap_pose},
-    atlas::{Placement, SpriteAtlas},
-    attachable::{self, BoneChannels},
-    blocks::{self, BlockSheets},
-    display::{
-        FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
-        LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
-        first_person_display, head_block_display, held_block_display, held_sprite_display,
-        is_hand_equipped, is_rod, view_bone,
+use {
+    super::{
+        armor::{bone_map, hidden_bone, pack_tint, remap_pose},
+        atlas::{Placement, SpriteAtlas},
+        display::{
+            FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
+            LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, first_person_display,
+            head_block_display, view_bone,
+        },
     },
+    render_model::equipment::{self as attachable, blocks::BlockSheets, is_rod},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -167,7 +167,7 @@ impl EquipmentRuntime {
                 by_visual: BTreeMap::new(),
                 models: BTreeMap::new(),
             },
-            |world| blocks::collect(world, &assets),
+            |world| render_model::equipment::blocks::collect(world, &assets),
         );
         let icon_count = icons.sprites().len();
         let mut block_sheets = by_visual
@@ -744,9 +744,9 @@ impl EquipmentRuntime {
                     })
                     .collect()
             }
-            (MeshKey::Block(_) | MeshKey::SessionBlock(_), _) => {
-                textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
-            }
+            (MeshKey::Block(_) | MeshKey::SessionBlock(_), _) => textured_cube_vertices(
+                render_model::equipment::blocks::face_rects(placement.uv_rect()),
+            ),
             (_, Some(sprite)) => held_sprite_vertices(
                 usize::from(sprite.width),
                 usize::from(sprite.height),

@@ -19,10 +19,13 @@ use protocol::launcher_control::{
 };
 
 use super::account_control::{AccountControl, AccountEvent, RealmMembershipResponse};
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
     ServerDetails, ServerTrustPrompt,
+};
+use launcher::menu::{
+    auth::AuthState,
+    view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
 };
 
 #[cfg(test)]
@@ -484,7 +487,7 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .iter()
             .filter_map(|category| {
                 Some((
-                    super::inbox::category_index(&category.kind)?,
+                    launcher::menu::inbox::category_index(&category.kind)?,
                     category.unread,
                 ))
             })

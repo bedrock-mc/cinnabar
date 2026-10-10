@@ -1,5 +1,5 @@
-use super::*;
 use std::sync::Arc;
+use {super::*, ui::IconRef};
 
 fn texture() -> ParticleTexture {
     ParticleTexture {

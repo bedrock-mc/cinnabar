@@ -1,5 +1,5 @@
 use super::*;
-use crate::menu::settings_options::{
+use launcher::menu::settings_options::{
     INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
 };
 

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn bamboo_cracks_follow_columns_and_reuse_unchanged_geometry() {
-    let data = crate::asset_startup::pinned_block_registry_bytes();
+    let data = assets::pinned_block_registry_bytes();
     let protocol = assets::registry_header_protocol(data).unwrap();
     let records: Vec<_> = assets::read_registry_for_protocol(data, protocol)
         .unwrap()

@@ -1,11 +1,11 @@
 use std::sync::OnceLock;
 
-use super::super::*;
 use super::context::{
     CuboidTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, intern_cuboid_template,
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 const ALPHA_CUTOUT: u8 = 1;
 const ALPHA_BLEND: u8 = 2;
 const MAGIC: &[u8; 8] = b"CVFB1001";

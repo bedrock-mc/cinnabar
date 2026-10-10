@@ -113,7 +113,7 @@ fn death_reason_variables_and_inherited_labels_remain_literal() {
 
 #[test]
 fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
-    use crate::menu::{MenuScreen, MenuView};
+    use launcher::menu::{MenuScreen, MenuView};
     let catalog = Arc::new(Catalog::from_files([
         ("ui/_global_variables.json", b"{}".as_slice()),
         ("ui/_ui_defs.json", br#"{"ui_defs":["ui/death_screen.json"]}"#.as_slice()),
@@ -176,12 +176,12 @@ fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
 
 #[test]
 fn death_quit_popup_retains_the_modern_overlay_underneath() {
-    use crate::menu::{MenuDialog, MenuScreen, MenuView};
     use crate::ui_runtime::{
         UiRuntime,
         presentation::{TextMetrics, UiPresentationRuntime},
     };
     use assets::{RuntimeUiAssets, UiFile, encode_ui_catalog};
+    use launcher::menu::{MenuDialog, MenuScreen, MenuView};
     let files = [
         ("ui/_global_variables.json", "{}"),
         ("ui/_ui_defs.json", r#"{"ui_defs":["ui/death_screen.json","ui/popup_dialog.json"]}"#),

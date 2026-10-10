@@ -5,8 +5,8 @@ use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, EDGE, Rgba};
 use super::super::widgets::Interaction;
-use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::oreui_assets::{SWITCH_OFF_IMAGE, SWITCH_ON_IMAGE};
+use launcher::menu::{MenuAction, MenuView};
 
 const RAIL_OFF: Rgba = theme::DISABLED.shadow;
 

@@ -4,7 +4,7 @@
 use json_ui::{DataSource, Scalar};
 
 use super::menu_screens::{Translate, flags, text, translated};
-use crate::menu::{JoinKind, JoinProgress, JoinStage};
+use launcher::menu::{JoinKind, JoinProgress, JoinStage};
 
 /// Vanilla's world join progress screen.
 const WORLD_SCREEN: &str = "progress.world_loading_progress_screen";
@@ -153,7 +153,10 @@ fn format_eta(secs: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::menu::{JoinKind, JoinProgress, JoinStage},
+    };
 
     fn tr(_: &str, fallback: &str) -> String {
         fallback.to_owned()

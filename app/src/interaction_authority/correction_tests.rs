@@ -2,11 +2,19 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::{Quat, Transform, Vec3 as ViewVec3};
 
-use super::*;
-use crate::local_player::{LocalPlayerFrameCarrier, LocalPlayerFrameSample, LocalViewPose};
-use crate::movement::{
-    LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
-    reconcile_candidate_physics_correction,
+use client_presentation::local_player::{
+    LocalPlayerFrameCarrier, LocalPlayerFrameSample, LocalViewPose,
+};
+use {
+    super::*, client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::interaction_authority::FrozenBlockObservation,
+    gameplay::mining::FrozenMiningSelection,
+};
+use {
+    crate::movement::{LocalPhysicsController, MovementTicker},
+    gameplay::movement::{
+        MovementSource, PhysicsCorrectionMode, reconcile_candidate_physics_correction,
+    },
 };
 
 struct Floor;

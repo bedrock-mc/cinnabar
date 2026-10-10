@@ -8,8 +8,11 @@ use assets::{
 };
 use render_model::{RenderBoneTransform, held_sprite_vertices, textured_cube_vertices};
 
-use super::{IconRef, UiPresentationError, atlas, player_preview};
 use player_preview::{PreviewHeldModel, PreviewHeldPlacement};
+use {
+    super::{UiPresentationError, atlas, player_preview},
+    ui::IconRef,
+};
 
 pub(super) fn prepare(
     atlas: &mut atlas::Atlas,

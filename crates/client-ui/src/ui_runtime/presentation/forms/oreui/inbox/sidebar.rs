@@ -3,8 +3,12 @@
 use super::super::motion::{Kind, opacity};
 use super::super::paint::Bounds;
 use super::super::theme::{BODY, BORDER, CAPTION, EDGE, NEUTRAL80, OUTLINE, TEXT};
-use super::{Action, CATEGORIES, Canvas, MenuAction, MenuView, UNREAD, UiPresentationError, inbox};
 use crate::ui_runtime::oreui_assets::SETTINGS_ICON_HIGHLIGHT_IMAGE;
+use {
+    super::{Canvas, UNREAD, UiPresentationError},
+    launcher::menu::inbox::{Action, CATEGORIES},
+    launcher::menu::{MenuAction, MenuView},
+};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -82,7 +86,8 @@ pub(super) fn draw(
                     .inbox
                     .iter()
                     .filter(|item| {
-                        item.unread && inbox::category_index(&item.category) == Some(index)
+                        item.unread
+                            && launcher::menu::inbox::category_index(&item.category) == Some(index)
                     })
                     .count() as u32
             });

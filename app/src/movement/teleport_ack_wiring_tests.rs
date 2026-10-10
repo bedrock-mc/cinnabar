@@ -3,6 +3,10 @@
 //! MovePlayer teleports acknowledge without opt-in. Correction-snap and
 //! respawn acknowledgements remain gated until their reference is established.
 
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use bevy::prelude::{App, IntoScheduleConfigs, Update};
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
@@ -11,26 +15,30 @@ use protocol::{
 };
 
 use super::integration_tests::{evidence_context, synthetic_preg};
-use super::{
-    LocalPhysicsController, MovementSource, MovementTicker, PhysicsCollisionRegistries,
-    ProcessedMovementState, ServerTeleportKind, flush_player_auth_inputs,
-};
-use crate::acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource};
-use crate::camera::CameraSettingsAuthority;
 use crate::environment::{WeatherState, WorldClock};
-use crate::local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose};
 use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 use crate::runtime::world::{
     ClientWorld, WorldStreamFramePoll, advance_dimension_transfer,
     reconcile_world_stream_before_physics,
 };
+use acceptance::model_witness::ModelWitnessFileSource;
 use assets::read_registry_for_protocol;
 use chunk_pipeline::WorldStream;
+use client_presentation::camera::CameraSettingsAuthority;
+use client_presentation::local_player::{
+    InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+};
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
 use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
+use {
+    super::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+    gameplay::movement::{
+        MovementSource, ProcessedMovementState, ServerTeleportKind, flush_player_auth_inputs,
+    },
+};
 
 #[path = "teleport_ack_wiring_tests/camera_policy.rs"]
 mod camera_policy;
@@ -51,8 +59,8 @@ fn fixture_world_identity() -> WorldCollisionIdentity {
     .unwrap()
 }
 
-fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSample {
-    super::PhysicsMovementSample {
+fn completed_sample(tick: u64, position: [f32; 3]) -> gameplay::movement::PhysicsMovementSample {
+    gameplay::movement::PhysicsMovementSample {
         tick,
         position,
         movement: [0.125, -0.078_4, -0.25],
@@ -97,7 +105,7 @@ fn fixture_registries() -> PhysicsCollisionRegistries {
         breg,
         &records,
         &preg,
-        crate::asset_startup::active_content_registry_protocol(),
+        assets::active_content_registry_protocol(),
     )
     .expect("BREG-bound PREG facts are valid")
 }

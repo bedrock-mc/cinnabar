@@ -17,7 +17,7 @@ use super::{
     runner::{self, Compiler, Event, Selection},
     status::{Phase, Status},
 };
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
 

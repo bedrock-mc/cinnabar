@@ -2,7 +2,7 @@
 
 use crate::chunk::*;
 use crate::enhanced::CascadeBounds;
-use bevy::shader::Shader;
+use bevy::{prelude::Handle, shader::Shader};
 
 /// Returns the existing vertex-pulling layout, shader handles, and the vertex buffer 0 layout
 /// their terrain vertex entries read; [`draw_shadow_geometry`] binds the matching buffer.

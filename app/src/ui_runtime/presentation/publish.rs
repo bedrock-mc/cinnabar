@@ -1,7 +1,7 @@
 //! Per-frame HUD observation and publication.
-use super::*;
 use bevy::prelude::Transform;
-use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
+use inventory::inventory_ledger::PlayerInventorySlot;
+use {super::*, client_presentation::camera::CameraSettingsAuthority};
 
 #[cfg(test)]
 mod camera_hand_tests;
@@ -31,7 +31,7 @@ pub(crate) fn platform_safe_area_insets() -> SafeArea {
 /// CPU hand carriers follow the same camera capability as the animated hand rig.
 fn hand_first_person(
     perspective: semantic_input::PerspectiveMode,
-    server: Option<&crate::camera::ServerCameraView>,
+    server: Option<&client_presentation::camera::ServerCameraView>,
 ) -> bool {
     let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
     server.map_or(fallback, |camera| camera.renders_first_person(fallback))
@@ -46,10 +46,10 @@ type PublishExtras<'w> = (
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
     Option<Res<'w, render::PipelineWarmupReadiness>>,
-    Option<Res<'w, crate::camera::ServerCameraView>>,
+    Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     (
-        Res<'w, crate::runtime::network::ActorFramePartialTick>,
-        Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
+        Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
+        Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Res<'w, crate::runtime::network::NetworkHandle>,
@@ -168,8 +168,8 @@ pub(crate) fn prepare_ui_runtime(
     } else {
         player_preview::local_preview_skin(stream, &own_pixels)
     };
-    let dressing_room =
-        menu_runtime.is_visible() && menu_runtime.screen() == crate::menu::MenuScreen::DressingRoom;
+    let dressing_room = menu_runtime.is_visible()
+        && menu_runtime.screen() == launcher::menu::MenuScreen::DressingRoom;
     let pose = if dressing_room {
         player_preview::PlayerPreviewPose::default()
     } else {
@@ -403,7 +403,7 @@ fn observe_paper_doll(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     physics: &crate::movement::LocalPhysicsController,
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
-    use client_ui::ui_runtime::inventory_ledger::InventoryTarget;
+    use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(stream.local_player_runtime_id())?;
     let flag = |bit: u32| {
         let key = if bit < 64 { 0 } else { 92 };
@@ -461,12 +461,12 @@ fn picked_nametag_actor(
 ) -> Option<u64> {
     let eye = camera_transform.translation();
     let direction = *camera_transform.forward();
-    crate::melee::pick_actor(
+    gameplay::melee::pick_actor(
         stream.authority().remote_actors(),
         None,
         eye.to_array(),
         direction.to_array(),
-        crate::mining::survival_reach(protocol::PlayerInputMode::Mouse),
+        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
     )
     .filter(|hit| {
         let Some(collisions) = collisions else {

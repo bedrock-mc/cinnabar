@@ -1,7 +1,7 @@
 //! Serial disk work keeps staged selection and import results in submission order.
 
-use super::{Action, Snapshot};
 use bevy::prelude::Resource;
+use launcher::global_resources::{Action, Snapshot};
 use resource_pack::{GlobalPackLibrary, LibraryError, ValidatedPackStack};
 use std::{path::PathBuf, sync::Arc};
 
@@ -303,7 +303,10 @@ fn act(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::global_resources::{Action, Snapshot},
+    };
 
     fn events_for(name: &str, queued: Vec<Command>) -> Vec<Event> {
         let root = std::env::temp_dir().join(format!(

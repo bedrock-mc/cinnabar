@@ -12,15 +12,15 @@ impl MenuRuntime {
         if self.clear_settings_slider_selection() {
             return;
         }
-        if self.screen == crate::menu::MenuScreen::Inbox
+        if self.screen == launcher::menu::MenuScreen::Inbox
             && (self.feeds.inbox_state.opened.is_some()
                 || self.feeds.inbox_state.delete_pending.is_some()
                 || self.feeds.inbox_state.filters)
         {
-            self.activate_inbox(crate::menu::inbox::Action::Cancel);
+            self.activate_inbox(launcher::menu::inbox::Action::Cancel);
             return;
         }
-        if self.screen == crate::menu::MenuScreen::AddServer && self.field.is_some() {
+        if self.screen == launcher::menu::MenuScreen::AddServer && self.field.is_some() {
             self.edit_field(|editor| editor.place_cursor(editor.cursor_byte()));
             self.field = None;
             return;

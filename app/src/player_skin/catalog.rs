@@ -1,11 +1,11 @@
 //! Runtime skin catalog and private imported-image and model persistence.
 
-use super::*;
 use launcher::dressing_room::{DressingRoomSkin, DressingRoomView, SkinModel};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, PathBuf};
+use {super::*, launcher::install_layout::InstallLayout};
 
 const MAX_PNG_BYTES: u64 = resource_pack::MAX_PACK_TEXTURE_BYTES;
 const MAX_IMPORTED_ITEMS: usize = launcher::skin_import::MAX_IMPORTED_SKINS;

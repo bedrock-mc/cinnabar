@@ -1,18 +1,22 @@
 //! HUD visibility through both first-person hand publishers and retained name tags.
-use super::*;
-use crate::{
-    camera::FlyCamera,
-    environment::{WeatherState, WorldClock},
-    item_use::ItemUseRuntime,
-    local_player::LocalPlayerFrameCarrier,
-    movement::MovementTicker,
-    runtime::{
-        network::NetworkHandle, visibility::CaveVisibilityCache, world::WorldStreamFramePoll,
-    },
-    ui_runtime::presentation::prepare_ui_runtime,
-};
 use bevy::window::{PrimaryWindow, Window};
 use client_ui::ui_runtime::presentation::{PreparedUiPublication, UiPresentationRuntime};
+use {
+    super::*, client_presentation::actor_publication::HandRigBuilder,
+    client_ui::test_support::mini_engine_presentation,
+};
+use {
+    crate::{
+        environment::{WeatherState, WorldClock},
+        item_use::ItemUseRuntime,
+        movement::MovementTicker,
+        runtime::{
+            network::NetworkHandle, visibility::CaveVisibilityCache, world::WorldStreamFramePoll,
+        },
+        ui_runtime::presentation::prepare_ui_runtime,
+    },
+    client_presentation::{camera::FlyCamera, local_player::LocalPlayerFrameCarrier},
+};
 
 /// Builds a renderer-free world with gameplay overlays available.
 fn fixture_world() -> World {
@@ -25,14 +29,15 @@ fn fixture_world() -> World {
         )
         .unwrap(),
     );
-    let (equipment, artwork, _) = crate::presentation::equipment::EquipmentRuntime::build(
-        entities.clone(),
-        None,
-        icons,
-        None,
-        None,
-        render::ActorArtworkPages::default(),
-    );
+    let (equipment, artwork, _) =
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
+            entities.clone(),
+            None,
+            icons,
+            None,
+            None,
+            render::ActorArtworkPages::default(),
+        );
     let mut client = player_world(entities.clone());
     let stream = client.stream.as_mut().unwrap();
     stream

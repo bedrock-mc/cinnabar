@@ -10,7 +10,7 @@ use super::{
     theme::{CAPTION, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// Draws the invitation flow with input isolated from the underlying Play tabs.
 pub(super) fn draw(

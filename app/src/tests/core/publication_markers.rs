@@ -1,6 +1,9 @@
 //! Contracts for active visibility witnesses and current publication counters.
 
-use super::*;
+use {
+    super::*, diagnostics::AcceptanceRuntimeConfig,
+    diagnostics::markers::world_publication_snapshot_marker,
+};
 
 #[test]
 fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separate() {

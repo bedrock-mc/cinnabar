@@ -16,7 +16,10 @@ use json_ui::{
 use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 
 use super::super::player_preview::PreviewView;
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
+use {
+    super::super::{TextMetrics, UiPresentationError, rect},
+    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
+};
 
 pub(super) mod credits_renderer;
 mod fill_renderers;

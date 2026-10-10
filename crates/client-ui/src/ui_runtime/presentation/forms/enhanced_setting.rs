@@ -2,7 +2,7 @@
 
 use json_ui::{Catalog, DataSource, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 /// Add one control using the existing JSON-UI option template.
 pub(super) fn install(catalog: &mut Catalog) {

@@ -1,9 +1,11 @@
 use super::*;
 
-use crate::camera::CameraSettingsAuthority;
-use crate::local_player::{LocalAvatarPresentation, LocalViewPose, reset_local_player_session};
 use crate::runtime::world::apply_committed_control;
 use crate::semantic_controls::SemanticInputRuntime;
+use client_presentation::camera::CameraSettingsAuthority;
+use client_presentation::local_player::{
+    LocalAvatarPresentation, LocalViewPose, reset_local_player_session,
+};
 use semantic_input::{Action, DeviceFrame, KeyboardMouseFrame};
 use ui::UserSettings;
 

@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use serde_json::Value;
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 #[test]
 fn current_portal_states_compile_to_animated_blended_native_cuboids() {

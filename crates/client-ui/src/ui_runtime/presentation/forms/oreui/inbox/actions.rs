@@ -4,7 +4,10 @@ use super::super::grid::Grid;
 use super::super::motion::Surface;
 use super::super::theme::TEXT;
 use super::super::widgets::{Variant, button};
-use super::{Action, Canvas, MenuAction, MenuView, UiPresentationError, header, screen_overlay};
+use {
+    super::{Canvas, UiPresentationError, header, screen_overlay},
+    launcher::menu::{MenuAction, MenuView, inbox::Action},
+};
 
 pub(super) fn settings(
     canvas: &mut Canvas<'_>,

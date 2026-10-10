@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, ModelFamily, VisualKind,
+        encode_blob, read_registry,
+    },
+    std::path::Path,
+    tempfile::TempDir,
+};
 
 #[test]
 fn compiler_emits_exact_checked_copper_grate_models() {

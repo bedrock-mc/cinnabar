@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bevy::prelude::Resource;
 use sha2::{Digest, Sha256};
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 pub(crate) mod catalog;
 

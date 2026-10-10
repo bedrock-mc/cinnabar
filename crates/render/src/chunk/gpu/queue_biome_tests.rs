@@ -1,4 +1,5 @@
 use super::*;
+use bevy::color::ColorToPacked;
 
 #[test]
 fn biome_tint_table_is_revisioned_and_keeps_a_fallback_entry() {

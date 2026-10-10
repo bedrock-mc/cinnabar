@@ -1,5 +1,5 @@
 //! Service projections and original artwork for offline launcher frames.
-use crate::menu::{
+use launcher::menu::{
     LiveEventCard, LocalWorldCard, MenuFriendCard, MenuGameCard, MenuRealmCard, MenuServerCard,
     MenuView, PingInfo, SavedServer, ServerDetails, auth::AuthState,
 };
@@ -67,7 +67,7 @@ pub(crate) fn realm(
 
 /// Builds deterministic offline launcher fixture data.
 pub fn fixture_view(dir: &std::path::Path) -> MenuView {
-    let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
+    let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.auth_state = AuthState::Authenticated;
     view.catalog_loading = false;
     view.featured = vec![
@@ -115,7 +115,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
     view.local_worlds = vec![LocalWorldCard {
         name: "My World".to_owned(),
         game_mode: "Survival".to_owned(),
-        world_type: crate::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
+        world_type: launcher::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
         date: "9/30/2026".to_owned(),
         size: "12 MB".to_owned(),
     }];

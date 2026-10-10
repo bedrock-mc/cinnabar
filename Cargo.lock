@@ -349,6 +349,7 @@ dependencies = [
 name = "architecture"
 version = "0.1.12"
 dependencies = [
+ "cfg-expr",
  "clap",
  "serde",
  "syn 2.0.118",
@@ -653,6 +654,7 @@ dependencies = [
  "ctrlc",
  "developer-control",
  "diagnostics",
+ "experience-sdk",
  "fontdue",
  "futures-lite",
  "gameplay",
@@ -663,7 +665,9 @@ dependencies = [
  "launcher",
  "libc",
  "meshing",
+ "mod-api",
  "mod-host",
+ "mod-render",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "pack-compiler",
@@ -1919,6 +1923,7 @@ version = "0.1.12"
 dependencies = [
  "anyhow",
  "protocol",
+ "ring",
  "serde",
  "serde_json",
  "server-experience",
@@ -5336,20 +5341,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "phase2-evidence"
-version = "0.1.0"
-dependencies = [
- "clap",
- "image",
- "same-file",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7475,19 +7466,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "visualcoverage"
-version = "0.1.12"
-dependencies = [
- "assets",
- "clap",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
-]
 
 [[package]]
 name = "walkdir"

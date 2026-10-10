@@ -1,10 +1,7 @@
 //! Borrows session identity for the presentation audio lane.
 use bevy::prelude::*;
 use client_presentation::audio_ingress::SequencedAudioEvent;
-pub use client_presentation::session_audio::{
-    AudioOutcome, AudioSkipReason, MAX_SESSION_AUDIO_OUTCOMES, ResolvedPlayback, SessionAudio,
-    SessionAudioCatalog,
-};
+use client_presentation::session_audio::{SessionAudio, SessionAudioCatalog};
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]

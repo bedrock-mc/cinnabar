@@ -21,7 +21,7 @@ pub(super) struct HudSprite {
     pub(super) size: [u16; 2],
 }
 
-pub use ui::IconRef;
+use ui::IconRef;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct HudTexturePages {

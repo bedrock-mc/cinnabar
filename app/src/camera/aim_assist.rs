@@ -10,13 +10,17 @@ use client_presentation::{
 use protocol::CameraAimAssistPresetSettings;
 use semantic_input::PerspectiveMode;
 
-use crate::{
-    camera::{CameraSettingsAuthority, ServerCameraView},
-    environment::WorldClock,
-    local_player::{InteractionOriginSnapshot, LocalViewPose},
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    player_runtime::PlayerRuntime,
-    runtime::{network::NetworkHandle, world::ClientWorld},
+use {
+    crate::{
+        environment::WorldClock,
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        player_runtime::PlayerRuntime,
+        runtime::{network::NetworkHandle, world::ClientWorld},
+    },
+    client_presentation::{
+        camera::{CameraSettingsAuthority, ServerCameraView},
+        local_player::{InteractionOriginSnapshot, LocalViewPose},
+    },
 };
 
 /// Retains only activation identity; steady frames create no outbound packets.
@@ -185,7 +189,7 @@ pub(crate) fn action_rotation(frame: &AimAssistFrame, camera: &ServerCameraView)
     camera
         .active_base_preset_name()
         .is_some_and(|camera| rotates_player_on_projectile(camera, scheme))
-        .then(|| crate::camera::look_at_target(Vec3::ZERO, direction))
+        .then(|| client_presentation::camera::look_at_target(Vec3::ZERO, direction))
 }
 
 /// Writes an action facing to the view and to `tick`'s unsent movement input.

@@ -251,7 +251,7 @@ impl PortalProgress {
 
     pub(super) fn elapsed_ticks(&self) -> f32 {
         self.elapsed_ticks as f32
-            + (self.accumulated_seconds * f64::from(sim::TICKS_PER_SECOND)) as f32
+            + (self.accumulated_seconds * f64::from(world::TICKS_PER_SECOND)) as f32
     }
 
     pub(super) const fn contact_state(&self) -> (u32, bool) {
@@ -272,7 +272,7 @@ impl PortalProgress {
 
     #[must_use]
     pub fn value(&self) -> f32 {
-        let partial = (self.accumulated_seconds * f64::from(sim::TICKS_PER_SECOND)) as f32;
+        let partial = (self.accumulated_seconds * f64::from(world::TICKS_PER_SECOND)) as f32;
         self.previous + (self.current - self.previous) * partial.clamp(0.0, 1.0)
     }
 
@@ -301,7 +301,7 @@ impl PortalProgress {
         if !(delta_seconds.is_finite() && delta_seconds > 0.0) {
             return;
         }
-        let tick_seconds = 1.0 / f64::from(sim::TICKS_PER_SECOND);
+        let tick_seconds = 1.0 / f64::from(world::TICKS_PER_SECOND);
         self.accumulated_seconds += f64::from(delta_seconds);
         let ticks = ((self.accumulated_seconds + f64::EPSILON) / tick_seconds).floor() as u64;
         self.elapsed_ticks = self.elapsed_ticks.saturating_add(ticks);
@@ -519,7 +519,7 @@ mod tests {
 
     fn advance_ticks(progress: &mut PortalProgress, inside: bool, ticks: u32) {
         for _ in 0..ticks {
-            progress.advance(inside, 1.0 / sim::TICKS_PER_SECOND as f32);
+            progress.advance(inside, 1.0 / world::TICKS_PER_SECOND as f32);
         }
     }
 
@@ -580,13 +580,13 @@ mod tests {
         progress.observe_dimension(Some(0));
         progress.observe_dimension(Some(protocol::NETHER_DIMENSION_ID));
         progress.advance(false, 0.0);
-        progress.advance(false, 0.5 / sim::TICKS_PER_SECOND as f32);
+        progress.advance(false, 0.5 / world::TICKS_PER_SECOND as f32);
         assert_eq!(progress.cooldown_ticks, PORTAL_COOLDOWN_TICKS);
-        progress.advance(false, 0.5 / sim::TICKS_PER_SECOND as f32);
+        progress.advance(false, 0.5 / world::TICKS_PER_SECOND as f32);
         assert_eq!(progress.cooldown_ticks, PORTAL_COOLDOWN_TICKS - 1);
         progress.advance(
             false,
-            PORTAL_COOLDOWN_TICKS as f32 / sim::TICKS_PER_SECOND as f32 + 10.0,
+            PORTAL_COOLDOWN_TICKS as f32 / world::TICKS_PER_SECOND as f32 + 10.0,
         );
         assert_eq!(progress.cooldown_ticks, 0);
         advance_ticks(&mut progress, true, 2);
@@ -603,7 +603,7 @@ mod tests {
         assert!(!progress.contact_latched);
         assert_eq!(
             progress.cooldown_ticks,
-            PORTAL_COOLDOWN_TICKS - sim::TICKS_PER_SECOND
+            PORTAL_COOLDOWN_TICKS - world::TICKS_PER_SECOND
         );
     }
 
@@ -630,11 +630,11 @@ mod tests {
     fn contact_before_a_whole_tick_survives_an_immediate_dimension_change() {
         let mut progress = PortalProgress::default();
         progress.observe_dimension(Some(0));
-        progress.advance(true, 0.25 / sim::TICKS_PER_SECOND as f32);
+        progress.advance(true, 0.25 / world::TICKS_PER_SECOND as f32);
         assert!(progress.contact_latched);
         assert_eq!(progress.value(), 0.0);
         progress.observe_dimension(Some(protocol::NETHER_DIMENSION_ID));
-        progress.advance(true, 1.75 / sim::TICKS_PER_SECOND as f32);
+        progress.advance(true, 1.75 / world::TICKS_PER_SECOND as f32);
         assert!(progress.value() > 0.0);
         assert!(portal_alpha(progress.value()) > 0.0);
         assert_eq!(progress.cooldown_ticks, PORTAL_COOLDOWN_TICKS - 1);
@@ -648,7 +648,7 @@ mod tests {
             progress.observe_dimension(Some(destination));
             progress.advance(
                 false,
-                (PORTAL_COOLDOWN_TICKS + 2) as f32 / sim::TICKS_PER_SECOND as f32,
+                (PORTAL_COOLDOWN_TICKS + 2) as f32 / world::TICKS_PER_SECOND as f32,
             );
             progress.observe_dimension(Some(destination));
             assert_eq!(progress.cooldown_ticks, 0);
@@ -677,9 +677,9 @@ mod tests {
             assert!(!progress.contact_latched);
             // BDS permits these repeat transfers before our local counter
             // expires. A brief fresh contact must still produce feedback.
-            progress.advance(true, 0.25 / sim::TICKS_PER_SECOND as f32);
+            progress.advance(true, 0.25 / world::TICKS_PER_SECOND as f32);
             assert!(progress.contact_latched);
-            progress.advance(true, 1.75 / sim::TICKS_PER_SECOND as f32);
+            progress.advance(true, 1.75 / world::TICKS_PER_SECOND as f32);
             assert!(progress.value() > 0.0);
             assert!(portal_alpha(progress.value()) > 0.0);
             assert_eq!(progress.cooldown_ticks, PORTAL_COOLDOWN_TICKS - 1);

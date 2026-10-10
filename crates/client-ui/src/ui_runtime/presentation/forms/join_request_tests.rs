@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use super::{pack_harness, test_support::draw_menu_actions};
-use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView, join_requests};
+use launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuView, join_requests};
 
 fn asking(screen: MenuScreen) -> MenuView {
     let mut view = MenuView::new(true, "Host".into());
@@ -26,7 +26,11 @@ fn join_request_popup_answers_with_accept_and_decline() {
         let player_runtime = player_state::PlayerState::new(1);
         let actions = draw_menu_actions(&player_runtime, &mut presentation, &asking(screen));
         let texts = pack_harness::drawn_texts(pack_harness::menu_nodes(&presentation)).join(" ");
-        for expected in [join_requests::title("Alex").as_str(), "Accept", "Decline"] {
+        for expected in [
+            launcher::menu::join_requests::title("Alex").as_str(),
+            "Accept",
+            "Decline",
+        ] {
             assert!(
                 texts.contains(expected),
                 "{screen:?}: missing {expected:?} in {texts:?}"

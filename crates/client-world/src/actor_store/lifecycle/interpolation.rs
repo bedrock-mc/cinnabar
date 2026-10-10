@@ -224,7 +224,7 @@ impl ActorStore {
                 let main_hand_is_spear = attack.is_some_and(|attack| attack.is_spear);
                 let main_hand_swing_seconds = attack
                     .and_then(|attack| attack.swing_duration_ticks)
-                    .map(|ticks| ticks as f32 * crate::ACTOR_TICK_DURATION.as_secs_f32());
+                    .map(|ticks| ticks as f32 * world::TICK_DURATION.as_secs_f32());
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)

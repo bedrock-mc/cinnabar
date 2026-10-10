@@ -1103,7 +1103,7 @@ fn notched_boss_overlays_draw_their_dividers() {
 fn settings_hide_hud_suppresses_the_rendered_overlay() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let Some(mut presentation) = engine_presentation() else {
         eprintln!(
             "skipping settings_hide_hud_suppresses_the_rendered_overlay: fixture unavailable; requires installed local carriers (make assets)"
