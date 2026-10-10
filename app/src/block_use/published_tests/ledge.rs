@@ -162,3 +162,72 @@ fn sneaking_and_airborne_states_can_use_nearby_ledge_support() {
         assert_eq!(transaction_targets(&mut captured), [[4, 0, 6]]);
     }
 }
+
+/// Resolves the production target for one action without changing terrain or hold history.
+fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenBlockObservation> {
+    let mut system = bevy::ecs::system::SystemState::<(
+        BlockUseContext,
+        Res<crate::player_runtime::PlayerRuntime>,
+        Res<BlockUseRuntime>,
+        Res<MovementTicker>,
+    )>::new(world);
+    let (context, player, runtime, movement) = system.get(world);
+    let input = context.input.snapshot()?;
+    let authority = movement.interaction_authority_identity();
+    observe_use_target(
+        &player,
+        &context,
+        protocol_input_mode(input.input_mode),
+        true,
+        (input.authority_generation, input.frame_sequence),
+        authority.1,
+        &runtime,
+        runtime.pick(authority),
+        trigger,
+        &movement.build_action_state()?,
+    )
+}
+
+#[test]
+fn indirect_support_starts_use_but_does_not_repeat_without_a_line() {
+    let (mut world, _) = ledge_fixture(-0.9601);
+    assert!(observed_target(&mut world, ItemUseTrigger::PlayerInput).is_some());
+    world.resource_mut::<BlockUseRuntime>().intention.record(
+        false,
+        [4, 0, 5],
+        LocalUse::Place,
+        true,
+        false,
+        [4.5, 1.0, 6.1],
+    );
+    assert!(observed_target(&mut world, ItemUseTrigger::SimulationTick).is_none());
+}
+
+#[test]
+fn a_locked_line_uses_the_indirect_intercept_instead_of_the_forward_miss_segment() {
+    let (mut world, _) = ledge_fixture(-0.9601);
+    {
+        let mut runtime = world.resource_mut::<BlockUseRuntime>();
+        for (repeated, destination) in [(false, [4, 0, 6]), (true, [4, 0, 5])] {
+            runtime.intention.record(
+                repeated,
+                destination,
+                LocalUse::Place,
+                true,
+                false,
+                [4.5, 1.0, 6.1],
+            );
+        }
+    }
+    let ray = world.resource::<InteractionOriginSnapshot>().outbound_ray().unwrap();
+    let endpoint = ray.origin() + ray.direction() * survival_reach(PlayerInputMode::Mouse) as f32;
+    assert!(world.resource::<BlockUseRuntime>().intention.target(
+        None,
+        ray.origin().to_array(),
+        endpoint.to_array(),
+        [0.0; 3],
+        false,
+    ).is_some(), "the forward miss segment reaches the next line cell");
+    assert!(observed_target(&mut world, ItemUseTrigger::SimulationTick).is_none(),
+        "the downward support intercept does not reach that cell");
+}

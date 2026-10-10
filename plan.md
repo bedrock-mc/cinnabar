@@ -160,6 +160,8 @@
 - A steep downward look past a ledge can acquire nearby support before a placement
   line exists. Use and selection share the downward support and preserve its click
   point; mining keeps the direct ray. The support selection shape is outlined.
+- Indirect support admits the first press, while unlined held repeats require a
+  direct hit. Locked lines still test the segment to the picked intercept.
 - Incomplete: the reported floating outline in an empty destination cell has not
   been verified for the matched version and control settings.
 

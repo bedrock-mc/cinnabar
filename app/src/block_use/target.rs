@@ -17,6 +17,7 @@ pub(super) fn observe_use_target(
     position_authority_generation: u64,
     runtime: &BlockUseRuntime,
     pick: Option<FramePick>,
+    trigger: ItemUseTrigger,
     state: &gameplay::movement::UnsentSampleView,
 ) -> Option<FrozenBlockObservation> {
     let reach = if survival {
@@ -117,10 +118,12 @@ pub(super) fn observe_use_target(
                 },
             );
             let target = runtime.intention.target(
-                block.map(|hit| PlacementTarget {
-                    position: hit.block_pos,
-                    face: hit.face,
-                }),
+                block
+                    .filter(|_| indirect.is_none() || trigger == ItemUseTrigger::PlayerInput)
+                    .map(|hit| PlacementTarget {
+                        position: hit.block_pos,
+                        face: hit.face,
+                    }),
                 [origin.x as f32, origin.y as f32, origin.z as f32],
                 [endpoint.x as f32, endpoint.y as f32, endpoint.z as f32],
                 velocity,

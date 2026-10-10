@@ -239,6 +239,7 @@ pub(crate) fn produce_block_use(
             movement.interaction_authority_identity().1,
             &runtime,
             pick,
+            trigger,
             &state,
         ),
         context.client_world.stream.as_ref(),
