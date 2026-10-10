@@ -2,16 +2,25 @@
 
 use super::{MenuRuntime, ModRuntime};
 use bevy::{
-    ecs::message::MessageCursor,
+    ecs::{message::MessageCursor, system::SystemParam},
     input::{
         ButtonState,
         keyboard::KeyboardInput,
-        mouse::{AccumulatedMouseMotion, MouseButtonInput},
+        mouse::{
+            AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput, MouseScrollUnit,
+        },
     },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+
+/// Pointer messages and wheel accumulation routed while a personal panel owns input.
+#[derive(SystemParam)]
+pub(super) struct PanelPointerInput<'w> {
+    mouse_events: Option<Res<'w, Messages<MouseButtonInput>>>,
+    scroll: Option<Res<'w, AccumulatedMouseScroll>>,
+}
 
 const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
     (MouseButton::Left, "MouseLeft"),
@@ -337,7 +346,7 @@ pub(super) fn prepare_mod_input(
     extension: Option<ResMut<ModRuntime>>,
     mut physical: Local<PhysicalControls>,
     keyboard_events: Option<Res<Messages<KeyboardInput>>>,
-    mouse_events: Option<Res<Messages<MouseButtonInput>>>,
+    pointer_input: PanelPointerInput,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
@@ -350,6 +359,10 @@ pub(super) fn prepare_mod_input(
     mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
     driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
+    let PanelPointerInput {
+        mouse_events,
+        scroll,
+    } = pointer_input;
     let extension = extension.filter(|runtime| !runtime.suspended);
     if extension.is_none() {
         physical.discard_pending(keyboard_events.as_deref(), mouse_events.as_deref());
@@ -505,6 +518,13 @@ pub(super) fn prepare_mod_input(
                 was_held,
                 physical.left_held,
             ));
+            if let Some(scroll) = scroll.as_ref() {
+                presentation.scroll_mod_panel(
+                    position.to_array(),
+                    f64::from(scroll.delta.y),
+                    scroll.unit == MouseScrollUnit::Pixel,
+                );
+            }
         } else if !physical.left_held {
             // A release outside the window must end capture before a later pointer re-entry.
             presentation.cancel_mod_panel_pointer_input();
