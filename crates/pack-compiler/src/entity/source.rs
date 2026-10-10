@@ -314,7 +314,18 @@ mod tests {
             .custom_flags(unix_flags::NOFOLLOW)
             .open(&link)
             .expect_err("NOFOLLOW must reject a symlink leaf");
-        assert_eq!(followed_link.kind(), std::io::ErrorKind::FilesystemLoop);
+        // ELOOP is 90 on MIPS and 40 on every other Linux architecture.
+        let eloop = if cfg!(any(
+            target_arch = "mips",
+            target_arch = "mips32r6",
+            target_arch = "mips64",
+            target_arch = "mips64r6"
+        )) {
+            90
+        } else {
+            40
+        };
+        assert_eq!(followed_link.raw_os_error(), Some(eloop), "expected ELOOP");
 
         let opened = OpenOptions::new()
             .read(true)
