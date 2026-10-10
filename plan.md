@@ -378,6 +378,8 @@
   and native model binding name. Owner item-use timing and frame delta are passed
   to the worn scripts. Equipment, properties and local-player identity also
   remain available to owner queries when the body pose is static.
+  Attachable timing is independent of owner tick batching, and elytra scripts
+  receive the actual render delta.
 - Incomplete: worn armour still uses the binding's default geometry on remapped
   body bones. Attachable animations and controller-selected geometry or
   materials are not applied, and vanilla armour keeps its static binding.

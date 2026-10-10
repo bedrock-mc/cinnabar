@@ -141,3 +141,36 @@ fn worn_pack_armour_receives_its_native_slot_context() {
     let layer = layers(&mut runtime, &body, &owner, &input, 1);
     assert_eq!(selected_pixel(&pages, &layer[0]), PAINTED);
 }
+
+#[test]
+fn worn_elytra_receives_the_attachable_render_delta() {
+    for (delta_seconds, expected) in [(0.01, PAINTED), (0.035, PLAIN)] {
+        let mut pack = coat_pack("v.coat=q.delta_time < 0.02;");
+        let (_, bytes) = &mut pack[0];
+        let mut attachable: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        attachable["minecraft:attachable"]["description"]["identifier"] = "minecraft:elytra".into();
+        *bytes = serde_json::to_vec(&attachable).unwrap();
+        let (mut runtime, pages) = pack_runtime(pack);
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        let names = [Box::<str>::from("body")];
+        let rig = owner_rig(&owner, &names, 1);
+        let mut input = helmet();
+        let mut wings = input.armor[0].take().unwrap();
+        wings.identifier = Arc::from("minecraft:elytra");
+        input.armor[1] = Some(wings);
+        let layer = runtime
+            .layers_for(
+                &body,
+                &input,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 1.0,
+                    delta_seconds,
+                }),
+            )
+            .to_vec();
+        assert_eq!(selected_pixel(&pages, &layer[0]), expected);
+    }
+}

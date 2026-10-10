@@ -49,6 +49,7 @@ impl EquipmentRuntime {
             worn: true,
             worn_slot: ArmorSlot::Chestplate as u8,
             frame_alpha: animation.frame_alpha,
+            delta_seconds: Some(animation.delta_seconds),
             owner_variables: &variables,
             ..Default::default()
         });

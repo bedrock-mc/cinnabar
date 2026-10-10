@@ -329,6 +329,8 @@ impl AttachablesRuntime {
             owner_rig.animation_variables.item_timings();
         let owner_context = owner_rig.animation_variables.owner_context();
         let mut context = ActorTickContext {
+            // Attachables use render time, independently of the owner's tick batching.
+            animation_elapsed_ticks: None,
             main_hand_kinetic,
             main_hand_swing_seconds,
             main_hand_is_spear: owner_rig.animation_variables.is_spear(),

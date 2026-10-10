@@ -149,3 +149,43 @@ fn worn_attachable_recognizes_its_local_player_owner() {
         .unwrap();
     assert_eq!(worn.pose[0].translation_scale[0], -16.0);
 }
+
+#[test]
+fn attachable_render_delta_does_not_reuse_owner_tick_batches() {
+    let mut compiled = owner_reference_tests::compiled_fixture(true);
+    compiled.molang_symbols[1].identifier = "query.delta_time".into();
+    compiled.molang_ops = [MolangOp::LoadQuery(1)].into();
+    compiled.molang_expressions[0].op_count = 1;
+    compiled.molang_expressions[0].max_stack = 1;
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    for elapsed in [0, 4] {
+        let context = ActorTickContext {
+            animation_elapsed_ticks: Some(elapsed),
+            ..Default::default()
+        };
+        let store = owner_store(&assets, &owner, &context);
+        let rig = store.snapshots().next().unwrap();
+        for delta_seconds in [None, Some(0.01), Some(0.035)] {
+            let mut runtime = AttachablesRuntime::new(Arc::clone(&assets));
+            let worn = runtime
+                .evaluate(
+                    "minecraft:test_item",
+                    &owner,
+                    &rig,
+                    AttachableAnimationInput {
+                        worn: true,
+                        delta_seconds,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let expected = -16.0 * delta_seconds.unwrap_or(ACTOR_TICK_DURATION.as_secs_f32());
+            assert!(
+                (worn.pose[0].translation_scale[0] - expected).abs() < 0.00001,
+                "owner batch {elapsed}, render delta {delta_seconds:?}: expected {expected}, got {}",
+                worn.pose[0].translation_scale[0]
+            );
+        }
+    }
+}
