@@ -287,6 +287,76 @@ fn cobweb_and_all_signs_are_pickable_independently_of_movement_colliders() {
 }
 
 #[test]
+fn banners_are_pickable_without_movement_colliders() {
+    let fixture = fixture();
+    for (name, facing, expected) in [
+        (
+            "minecraft:standing_banner",
+            None,
+            bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]),
+        ),
+        (
+            "minecraft:wall_banner",
+            Some(2),
+            bounds([0.0, 0.0, 0.875], [1.0, 0.78125, 1.0]),
+        ),
+        (
+            "minecraft:wall_banner",
+            Some(3),
+            bounds([0.0, 0.0, 0.0], [1.0, 0.78125, 0.125]),
+        ),
+        (
+            "minecraft:wall_banner",
+            Some(4),
+            bounds([0.875, 0.0, 0.0], [1.0, 0.78125, 1.0]),
+        ),
+        (
+            "minecraft:wall_banner",
+            Some(5),
+            bounds([0.0, 0.0, 0.0], [0.125, 0.78125, 1.0]),
+        ),
+    ] {
+        let records: Vec<_> = fixture
+            .records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .filter(|record| {
+                facing.is_none_or(|facing| {
+                    let state: serde_json::Value =
+                        serde_json::from_str(&record.canonical_state).unwrap();
+                    state["facing_direction"]["value"].as_u64() == Some(facing)
+                })
+            })
+            .collect();
+        assert!(!records.is_empty(), "{name} {facing:?} must exist");
+        for record in records {
+            for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+                let registry = fixture.registries.registry(mode);
+                let id = runtime_id(record, mode);
+                assert_eq!(registry.selection_shapes(id), Some([expected].as_slice()));
+                assert!(
+                    registry.collision_shapes(id).unwrap().is_empty(),
+                    "{name} must not acquire a movement collider"
+                );
+                let store = store(mode, record);
+                let center = (expected.min + expected.max) * 0.5;
+                let hit = PaletteWorld::new(&store, registry, 0)
+                    .block_interaction_ray_current(
+                        Vec3::new(8.0 + center.x, 10.0, 8.0 + center.z),
+                        Vec3::new(0.0, -1.0, 0.0),
+                        4.0,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(hit.runtime_id, id, "{name} must stop the interaction ray");
+                assert_eq!(hit.block_pos, [8, 8, 8]);
+                assert_eq!(hit.face, 1);
+            }
+        }
+    }
+}
+
+#[test]
 fn every_reviewed_foliage_route_binds_selection_without_movement_changes() {
     let fixture = fixture();
     for record in &fixture.records {
