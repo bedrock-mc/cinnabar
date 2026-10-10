@@ -655,6 +655,15 @@ pub(super) struct Evaluator<'a> {
 }
 
 impl Evaluator<'_> {
+    /// Sets the elapsed time seen by expressions in one controller state.
+    pub(super) fn for_controller_state(self, entered_tick: u64) -> Self {
+        Self {
+            state_time: self.anim_tick.saturating_sub(entered_tick) as f32
+                * ACTOR_TICK_DURATION.as_secs_f32(),
+            ..self
+        }
+    }
+
     fn expressions(&self) -> &[assets::CompiledMolangExpression] {
         self.program.map_or_else(
             || self.assets.molang_expressions(),

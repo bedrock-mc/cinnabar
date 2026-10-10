@@ -376,11 +376,14 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
-        // World position on one axis (0 = x, 1 = y, 2 = z), the point camera queries measure from.
-        "position" => argument(0).map_or(0.0, |axis| match axis as i32 {
-            axis @ 0..=2 => input.position[axis as usize],
+        // Native actor-state position, before the actor store removes collision offsets.
+        "position" if arguments.len() == 1 => argument(0).map_or(0.0, |axis| match axis as i32 {
+            0 => input.position[0],
+            1 => input.position[1] + actor.network_position_offset(),
+            2 => input.position[2],
             _ => 0.0,
         }),
+        "position" => 0.0,
         "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
         }),

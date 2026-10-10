@@ -3,13 +3,23 @@ use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
 
 fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f32 {
     let actor = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    read_actor(&actor, context, name, arguments)
+}
+
+/// Reads a query at the fixture position with explicit actor identity and metadata.
+fn read_actor(
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    name: &str,
+    arguments: &[MolangValue],
+) -> f32 {
     let input = ActorTickInput {
         position: [1.0, 2.0, 3.0],
         ..ActorTickInput::default()
     };
     query(
         &QueryInputs {
-            actor: &actor,
+            actor,
             input: &input,
             context,
             anim_tick: 0,
@@ -200,4 +210,28 @@ fn position_reads_each_world_axis_and_rejects_others() {
         );
     }
     assert_eq!(read(&context, "query.position", &[]), 0.0);
+    assert_eq!(
+        read(
+            &context,
+            "query.position",
+            &[MolangValue::Number(0.0), MolangValue::Number(1.0)]
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn position_reads_the_native_player_origin() {
+    let mut actor = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    actor.kind = protocol::ActorKind::Player {
+        uuid: [0; 16],
+        username: "fixture".into(),
+    };
+    let actual = read_actor(
+        &actor,
+        &ActorTickContext::default(),
+        "query.position",
+        &[MolangValue::Number(1.0)],
+    );
+    assert!((actual - (2.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-6);
 }
