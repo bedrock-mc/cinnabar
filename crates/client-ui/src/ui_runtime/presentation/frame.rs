@@ -388,7 +388,8 @@ pub(super) struct BuiltFrame {
 /// A frame drawn from the last one's draw list.
 struct Redraw {
     input: Redrawn,
-    /// Nodes emitted again.
+    /// Nodes emitted again; tests read it to bound per-frame redraw work.
+    #[cfg(test)]
     emitted: usize,
 }
 
@@ -448,6 +449,7 @@ fn redraw_changed(
     };
     Ok(Some(Redraw {
         input,
+        #[cfg(test)]
         emitted: update.emitted,
     }))
 }
