@@ -137,7 +137,7 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 		profile.Statistics = stats
 	}
 	finish = ObserveProfileRequest(ctx, "achievements")
-	achievements, err := profileAchievements(ctx, xbl.HTTPClient(), info.XUID)
+	achievements, err := profileAchievements(ctx, xbl.Achievements())
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("achievements: %w", err))

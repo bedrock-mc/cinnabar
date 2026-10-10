@@ -1341,9 +1341,9 @@ older test totals below are pre-sync evidence, not verification of this merge.
 
 Profile now has vanilla responsive card/tab geometry, independent scrolling,
 Overview friend/follower and Minecraft achievement summaries, completed achievement
-ordering, and populated Stats. The Go core builds the Xbox statistics and achievement
-requests, persona avatar and featured gallery requests; authored fixtures verify the
-contracts without owner-account requests. Missing values remain unavailable rather
+ordering, and populated Stats. The Go core maps shared service clients into profile
+statistics, achievements, persona avatar and featured gallery data. Authored fixtures
+verify the contracts without owner-account requests. Missing values remain unavailable rather
 than invented zeros. Exact references are in `docs/profile-parity.md`.
 
 Full 1:1 parity remains incomplete. Dressing Room has no persona destination or hanger
