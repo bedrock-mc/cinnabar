@@ -496,3 +496,31 @@ fn explicit_always_depth_overrides_the_dissolve_color_default() {
         bevy::render::render_resource::CompareFunction::Always
     );
 }
+
+#[test]
+fn ordinary_dissolve_color_finishes_before_depth_writing_transparency() {
+    let material = EntityRenderMaterial::DissolveColor as u32;
+    let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+    ActorPipelineSpecializer
+        .specialize(
+            ActorPipelineKey {
+                msaa: Msaa::Off,
+                hdr: false,
+                enhanced: false,
+                material,
+            },
+            &mut descriptor,
+        )
+        .unwrap();
+    assert!(
+        !super::super::phase::sorted(material),
+        "an ordinary mask and color finish together before transparent terrain"
+    );
+    assert!(
+        descriptor.fragment.unwrap().targets[0]
+            .as_ref()
+            .unwrap()
+            .format
+            .is_srgb()
+    );
+}

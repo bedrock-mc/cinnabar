@@ -363,8 +363,9 @@
   opaque terrain, so terrain cannot overwrite them. Every admitted raster state
   prewarms both normal and always-passing depth variants, including blending and
   disabled depth writes.
-- Sorted instances retain separate positions. Dissolve color follows its depth
-  mask, and an explicit always-passing test overrides the color pass's default.
+- Sorted instances retain separate positions. A sorted dissolve mask carries its
+  own color layer into that pass; ordinary pairs finish before transparent terrain.
+  An explicit always-passing test overrides the color pass's default.
 - Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
   states are ignored. The sorted-pass order approximates native entity order and
   is unverified against a native capture.

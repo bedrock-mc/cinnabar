@@ -75,7 +75,11 @@ fn inspect_executed_frame(world: &mut World) {
     let gpu = world.resource::<ActorGpu>();
     let frame = world.resource::<ActorRenderFrame>();
     assert_eq!(gpu.frame_generation, frame.rig.frame_generation);
-    assert_eq!(gpu.instances.as_ref(), frame.rig.instances.as_ref());
+    for (prepared, source) in gpu.instances.iter().zip(frame.rig.instances.iter()) {
+        let mut prepared = *prepared;
+        prepared.material &= !crate::actor::material::LATE_DISSOLVE_COLOR;
+        assert_eq!(&prepared, source);
+    }
     assert!(gpu.bind_group.is_some(), "bindings are ready for execution");
     let expected_ranges = gpu
         .spans
@@ -278,6 +282,11 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
             ..Default::default()
         }));
     instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let manifest = Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity = ActorRenderIdentity {
+        layer: u8::MAX,
+        ..manifest[0].identity
+    };
     world.insert_resource(frame);
     world.run_schedule(Render);
     let retained = world
@@ -304,4 +313,36 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
         [0..1, 1..2],
         "equal-distance sorting preserves mask before color"
     );
+}
+
+#[test]
+fn an_ordinary_actors_dissolve_color_is_not_promoted_by_another_actors_mask() {
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut frame = frame(&[false; 4]);
+    let instances = Arc::make_mut(&mut frame.rig.instances);
+    instances[0].material =
+        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
+            depth_always: true,
+            ..Default::default()
+        }));
+    instances[1].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    instances[2].material = assets::EntityRenderMaterial::DissolveDepth as u32;
+    instances[3].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let manifest = Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity = ActorRenderIdentity {
+        layer: u8::MAX,
+        ..manifest[0].identity
+    };
+    manifest[3].identity = ActorRenderIdentity {
+        layer: u8::MAX,
+        ..manifest[2].identity
+    };
+    world.insert_resource(frame);
+    world.run_schedule(Render);
+    let gpu = world.resource::<ActorGpu>();
+    assert!(super::super::phase::sorted(gpu.instances[0].material));
+    assert!(super::super::phase::sorted(gpu.instances[1].material));
+    assert!(!super::super::phase::sorted(gpu.instances[2].material));
+    assert!(!super::super::phase::sorted(gpu.instances[3].material));
 }

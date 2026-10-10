@@ -130,9 +130,14 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
     });
     ordinary.chain(additive).flat_map(|material| {
         [
-            material,
-            material | assets::EntityRenderMaterialState::DEPTH_ALWAYS,
+            Some(material),
+            Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
+            (material & assets::EntityRenderMaterialState::KIND_MASK
+                == assets::EntityRenderMaterial::DissolveColor as u32)
+                .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
         ]
+        .into_iter()
+        .flatten()
     })
 }
 

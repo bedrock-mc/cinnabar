@@ -49,7 +49,7 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                     EntityRenderMaterial::DissolveColor,
                 ] {
                     for bits in 0..32 {
-                        let material = kind.word(Some(EntityRenderMaterialState {
+                        let state = EntityRenderMaterialState {
                             cull: bits & 1 != 0,
                             blend: bits & 2 != 0,
                             depth_write: bits & 4 != 0,
@@ -57,11 +57,22 @@ fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
                             additive_alpha: bits & 16 != 0,
                             depth_always: true,
                             ..Default::default()
-                        }));
+                        };
+                        let material = kind.word(Some(state));
                         assert!(
                             pipeline.draw_variant(msaa, hdr, false, material).is_some(),
                             "always-depth material must have a draw pipeline: {kind:?}, {bits}"
                         );
+                        if kind == EntityRenderMaterial::DissolveColor {
+                            let paired = kind.word(Some(EntityRenderMaterialState {
+                                depth_always: false,
+                                ..state
+                            })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                            assert!(
+                                pipeline.draw_variant(msaa, hdr, false, paired).is_some(),
+                                "paired color must retain its depth contract: {bits}"
+                            );
+                        }
                     }
                 }
             }

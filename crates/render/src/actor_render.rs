@@ -1,5 +1,6 @@
 use std::mem::size_of;
 mod artwork;
+mod dissolve;
 pub(crate) mod phase;
 mod pipeline;
 mod skins;
@@ -333,6 +334,7 @@ fn prepare_actor_resources(
             tracker.clear();
         }
         if structurally_valid {
+            let instances = dissolve::instances(&rig.instances, &rig.manifest);
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(
                 "actor.frame_upload",
@@ -347,7 +349,7 @@ fn prepare_actor_resources(
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
-                bytemuck::cast_slice::<ActorGpuInstance, u8>(&rig.instances),
+                bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
             );
             render_queue.write_buffer(
                 &gpu.previous_bone_buffer,
@@ -364,8 +366,8 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
-            gpu.instances = std::sync::Arc::clone(&rig.instances);
+            gpu.spans = draw_spans(&frame.instance_pages, &instances, &rig.geometry_spans);
+            gpu.instances = instances;
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;

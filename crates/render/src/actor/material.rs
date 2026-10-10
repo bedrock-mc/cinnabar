@@ -2,6 +2,9 @@ use assets::EntityRenderMaterialState;
 
 use super::ActorMaterial;
 
+/// Renderer-only routing for a color layer that must follow a sorted dissolve mask.
+pub(crate) const LATE_DISSOLVE_COLOR: u32 = 1 << 31;
+
 impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.
     pub fn gpu_word(self) -> u32 {
@@ -40,7 +43,7 @@ pub(crate) fn blend_state(
 }
 
 pub(crate) fn state(word: u32) -> Option<EntityRenderMaterialState> {
-    EntityRenderMaterialState::from_word(word)
+    EntityRenderMaterialState::from_word(word & !LATE_DISSOLVE_COLOR)
 }
 
 #[cfg(test)]
