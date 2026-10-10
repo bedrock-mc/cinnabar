@@ -6953,3 +6953,25 @@ Archive, geometry and library ceilings are Cinnabar resource limits. Pack minimu
 engine versions remain separate from geometry schema versions. Full native skin-pack
 import parity, animated imports, persona and Marketplace trust remain incomplete.
 No visual parity or hardware performance gate closes with this extension.
+
+
+### Shipped font grid and coverage (incomplete text parity)
+
+Shipped carriers include every mapped source scalar. Sans uses its 18-pixel raster em;
+Seven, Ten, Five and Five Bold use 20, with one atlas texel per source-grid unit.
+Semantic line and word-space metrics come from the carrier table. OreUI rounds final
+unrotated glyph edges onto the device grid while retaining semantic sizes and tracking.
+Five and Five Bold are available as roles; current screens still use Seven and Ten.
+Missing regular, bold, italic and monospace mathematical Latin letters and digits use
+original grid-based variants built from the shipped Latin artwork. This fixes the
+sampled styled MOTD boxes; unrestricted Unicode and native fallback shaping remain open.
+
+Full parity is incomplete. Glyph-specific advances and bearings differ: Ten's I advances
+0.5 em rather than 0.315. Seven's ASCII bearings match the reference grid, while
+Ten's 0.052-em bearing is represented by 0.05 em on its 20-texel carrier.
+Five and Five Bold have larger advance and stroke differences. At GUI scale 7, Seven's
+14-texel capital height maps to 39.2 screen pixels; preserving this size cannot also give
+every texel a uniform integer width. Rounded edges and nearest sampling do not close
+that scale/weight gate. Source line metrics also retain sub-unit rounding from the
+reviewed files. Version-matched live text-raster evidence across all GUI scales,
+locale shaping, kerning, and the remaining per-glyph metric differences are open gates.

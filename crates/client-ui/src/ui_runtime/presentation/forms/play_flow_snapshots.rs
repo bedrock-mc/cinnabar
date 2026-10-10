@@ -457,3 +457,87 @@ pub(super) use crate::test_support::{
 
 pub(super) use crate::test_support::fixture_view;
 use crate::test_support::play_flow::{art, server};
+
+/// Captures matched font fixtures at desktop scales without contacting services.
+#[test]
+fn snapshot_shipped_font_routes_parity() {
+    if std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_none() {
+        eprintln!("skipping font parity snapshots: missing CINNABAR_FORM_SNAPSHOT_DIR");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = fixture_view(dir.path());
+    for (physical, dpi, suffix) in [
+        ([2560, 1440], 2.0, ""),
+        ([1280, 720], 1.0, "-scale2"),
+        ([3024, 1964], 2.0, "-scale7"),
+    ] {
+        for (screen, name) in [
+            (MenuScreen::Home, "home"),
+            (MenuScreen::Play, "play"),
+            (MenuScreen::Servers, "servers"),
+            (MenuScreen::Settings, "settings"),
+        ] {
+            let mut view = base.clone();
+            view.screen = screen;
+            if screen == MenuScreen::Servers {
+                view.feeds.selected_featured = Some(0);
+            }
+            font_grid_snapshot(&view, physical, dpi, &format!("grid-{name}{suffix}"));
+        }
+    }
+}
+
+/// Captures supplied discovery text without loading account data or contacting a server.
+#[test]
+fn snapshot_shipped_font_motds() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = fixture_view(dir.path());
+    let Ok(path) = std::env::var("CINNABAR_FONT_MOTD_FIXTURE") else {
+        eprintln!("skipping font MOTD snapshot: missing CINNABAR_FONT_MOTD_FIXTURE");
+        return;
+    };
+    let rows: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let mut view = base;
+    view.screen = MenuScreen::Servers;
+    view.feeds.pings.clear();
+    view.featured = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            crate::test_support::play_flow::server(
+                row["name"].as_str().unwrap(),
+                &format!("fixture-{index}.invalid"),
+                row["motd"].as_str().unwrap(),
+                String::new(),
+            )
+        })
+        .collect();
+    font_grid_snapshot(&view, [2560, 1440], 2.0, "grid-motds");
+}
+
+/// Publishes and rasterizes a fixed offline screen at its physical size and DPI.
+fn font_grid_snapshot(view: &crate::menu::MenuView, physical: [u32; 2], dpi: f32, name: &str) {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let runtime = super::pack_harness::menu_runtime();
+    let player = player_state::PlayerState::new(1);
+    presentation.sync_menu_artwork(crate::ui_runtime::presentation::menu_artwork::view_paths(
+        view,
+    ));
+    presentation.finish_menu_artwork();
+    let dpi = DpiScale::new(dpi).unwrap();
+    for _ in 0..2 {
+        presentation.set_menu_view(Some(view.clone()));
+        presentation
+            .build(&player, &runtime, 0, physical, dpi)
+            .unwrap();
+    }
+    let input = presentation
+        .build(&player, &runtime, 0, physical, dpi)
+        .unwrap();
+    super::snapshot::write(&input, name);
+}

@@ -132,7 +132,7 @@ fn installed_shipped_carriers_fit_the_real_ui_and_keep_unicode_glyphs() {
         .any(|face| !directory.join(face.carrier().output).is_file())
     {
         eprintln!(
-            "skipping installed_shipped_carriers_fit_the_real_ui_and_keep_unicode_glyphs: missing Cinnangles Seven/Ten carrier fixtures; make font-seven-assets font-ten-assets"
+            "skipping installed_shipped_carriers_fit_the_real_ui_and_keep_unicode_glyphs: missing shipped semantic font carrier fixtures; make assets"
         );
         return;
     }
@@ -140,7 +140,9 @@ fn installed_shipped_carriers_fit_the_real_ui_and_keep_unicode_glyphs() {
     for face in OreUiFont::ALL {
         assert!(base.named_fonts().contains_key(face.name()));
         let selected = base.font_named(face.name());
-        for character in ['A', 'a', 'é', 'Ω', 'Я', '中', '日', '→', '\u{fffd}'] {
+        for character in [
+            'A', 'a', 'é', 'Ω', 'Я', '中', '日', '→', '⭐', '𝑩', '𝗦', '𝟭', '\u{fffd}',
+        ] {
             assert!(
                 selected.glyph(character).is_some(),
                 "{} lacks {character}",

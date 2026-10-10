@@ -23,8 +23,8 @@ pub const MAX_FONT_GLYPHS: usize = 65_536;
 pub const MAX_FONT_KERNING_PAIRS: usize = 65_536;
 pub const MAX_FONT_PAGE_SIDE: u32 = 4_096;
 pub const MAX_FONT_PATH_BYTES: usize = 512;
-/// Em height used to compile the shipped outline font carriers.
-pub const FONT_RASTER_EM_PIXELS: u32 = 18;
+/// Default raster em for the shipped Sans face. Semantic faces own their raster em.
+pub const FONT_RASTER_EM_PIXELS: u32 = crate::carriers::FONT.font_face.unwrap().raster_em_pixels();
 pub const FONT_FALLBACK_ATLAS_SIDE: u32 = 1024;
 pub const MAX_FONT_FALLBACK_PAGES: usize = 16;
 
