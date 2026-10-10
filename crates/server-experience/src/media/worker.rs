@@ -311,19 +311,23 @@ pub(crate) mod tests {
         )
         .unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let error = loop {
-            if let Some(result) = worker.poll() {
-                break result.unwrap_err();
-            }
-            assert!(std::time::Instant::now() < deadline, "no helper failure");
-            std::thread::sleep(Duration::from_millis(10));
-        };
+        let mut result = None;
+        test_time::eventually_within(
+            deadline.saturating_duration_since(std::time::Instant::now()),
+            "a helper failure",
+            || {
+                result = worker.poll();
+                result.is_some()
+            },
+        );
+        let error = result.unwrap().unwrap_err();
         assert!(error.to_string().contains("media helper exited"), "{error}");
         drop(worker);
-        while DECODER_ACTIVE.load(Ordering::Acquire) {
-            assert!(std::time::Instant::now() < deadline, "decoder slot leaked");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        test_time::eventually_within(
+            deadline.saturating_duration_since(std::time::Instant::now()),
+            "the decoder slot to be released",
+            || !DECODER_ACTIVE.load(Ordering::Acquire),
+        );
     }
 
     #[test]

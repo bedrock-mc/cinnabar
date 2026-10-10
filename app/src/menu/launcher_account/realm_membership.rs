@@ -129,10 +129,9 @@ mod tests {
 
     /// Waits for an asynchronous answer, with a deadline only to bound fixture failures.
     fn answer(shared: &Arc<Mutex<Snapshot>>) {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while shared.lock().unwrap().realm_membership.is_none() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
+        test_time::wait_until(Duration::from_secs(2), || {
+            shared.lock().unwrap().realm_membership.is_some()
+        });
         assert!(shared.lock().unwrap().realm_membership.is_some());
     }
 

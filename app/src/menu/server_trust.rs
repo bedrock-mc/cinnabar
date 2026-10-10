@@ -156,14 +156,9 @@ mod tests {
             trust.prompt().is_none(),
             "the answered question stayed visible"
         );
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while trust.with(|watched| watched.answered.is_some()) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the question never came back"
-            );
-            thread::sleep(Duration::from_millis(20));
-        }
+        test_time::eventually_within(Duration::from_secs(5), "the question to come back", || {
+            trust.with(|watched| watched.answered.is_none())
+        });
         trust.with(|watched| watched.prompt = Some(prompt.clone()));
         assert_eq!(trust.prompt(), Some(prompt));
     }

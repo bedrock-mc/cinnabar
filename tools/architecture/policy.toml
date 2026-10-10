@@ -238,7 +238,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "server-experience"
 path = "crates/server-experience"
-allowed_dependencies = ["protocol"]
+allowed_dependencies = ["protocol", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "asset-compiler"]
 
 [[crates]]
@@ -792,6 +792,10 @@ clock_free_crates = [
     "crates/world",
 ]
 sleep_exceptions = [
+    { path = "app/src/lifecycle/children.rs", reason = "lets the detached reaper begin stopping a child without an observable ready signal" },
+    { path = "app/src/menu/auth.rs", reason = "a deliberately delayed reader verifies cancellation does not wait for its thread" },
+    { path = "app/src/menu/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
+    { path = "crates/client-presentation/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
     { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
