@@ -137,6 +137,20 @@ fn a_glyph_wider_than_the_line_overflows() {
     assert_eq!(lines(&overflow), ["W"]);
 }
 
+#[test]
+fn clipped_glyph_wrap_keeps_wide_glyphs_and_existing_word_breaks() {
+    let wrap = TextWrap {
+        allow_visual_overflow: true,
+        ..TextWrap::default()
+    };
+    assert_eq!(lines(&layout("Wab", 1, wrap).unwrap()), ["W", "a", "b"]);
+    assert_eq!(lines(&layout("ab ab", 6, wrap).unwrap()), ["ab", "ab"]);
+    assert!(matches!(
+        layout("W", 1, TextWrap::default()),
+        Err(TextError::VisualWidthExceeded { .. })
+    ));
+}
+
 // Each wrapped line centres on its own, not the block as a whole.
 #[test]
 fn alignment_places_each_line() {
