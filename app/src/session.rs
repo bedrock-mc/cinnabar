@@ -537,7 +537,7 @@ pub(crate) fn login_settings(
         input_mode: input
             .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
             .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
-                crate::mining::protocol_input_mode(snapshot.input_mode)
+                gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
         gui_scale_offset: menu.gui_scale_offset(),
     }
