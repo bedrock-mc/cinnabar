@@ -2,6 +2,8 @@ use super::*;
 
 const COLUMNS: u32 = 4;
 const CELL_SIDE: u32 = SNAPSHOT_SIDE / COLUMNS;
+// Past every production group-0 binding, which the composed shader also declares.
+const GRID_CASES_BINDING: u32 = 23;
 
 struct GridCase {
     reference: u32,
@@ -123,7 +125,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
         });
     }
     bindings.push(wgpu::BindGroupEntry {
-        binding: 19,
+        binding: GRID_CASES_BINDING,
         resource: data.as_entire_binding(),
     });
     let production = if model {
@@ -157,7 +159,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     };
     source.push_str(&format!(
         r#"
-@group(0) @binding(19) var<storage, read> grid_cases: array<vec4<u32>>;
+@group(0) @binding({GRID_CASES_BINDING}) var<storage, read> grid_cases: array<vec4<u32>>;
 @vertex fn grid_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
     return vec4(uv * 2.0 - vec2(1.0), 0.5, 1.0);
