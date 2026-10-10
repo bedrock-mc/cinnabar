@@ -329,3 +329,66 @@ fn checks_every_conditional_import_alternative_regardless_of_order() {
         assert!(diagnostics[0].contains("other::Thing"));
     }
 }
+
+#[test]
+fn conditional_local_definitions_cannot_hide_external_glob_bindings() {
+    for source in [
+        r#"#[cfg(feature = "local")] pub struct Thing;
+            #[cfg(not(feature = "local"))] use other::*;
+            pub use self::Thing as Exported;"#,
+        r#"#[cfg(any(feature = "a", feature = "b"))] pub struct Thing;
+            #[cfg(not(any(feature = "a", feature = "b")))] use other::*;
+            pub use self::Thing as Exported;"#,
+        r#"#[cfg_attr(feature = "local", cfg(any()))] use other::*;
+            #[cfg(feature = "local")] pub struct Thing;
+            pub use self::Thing as Exported;"#,
+        r#"#[cfg(feature = "local")] mod other { pub struct Thing; }
+            #[cfg(not(feature = "local"))] pub use other::Thing;"#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert_eq!(findings(temp.path()).len(), 1, "missed {source}");
+    }
+}
+
+#[test]
+fn mutually_exclusive_external_imports_do_not_taint_local_exports() {
+    for source in [
+        r#"mod local { pub struct Thing; }
+            #[cfg(feature = "external")] use other::Thing;
+            #[cfg(not(feature = "external"))] use local::Thing;
+            #[cfg(not(feature = "external"))] pub use self::Thing as Exported;"#,
+        r#"use other::*;
+            #[cfg(feature = "local")] pub struct Thing;
+            #[cfg(not(feature = "local"))] pub struct Thing;
+            pub use self::Thing as Exported;"#,
+        r#"mod local { pub struct Thing; }
+            #[cfg(target_os = "windows")] use other::Thing;
+            #[cfg(target_os = "linux")] use local::Thing;
+            #[cfg(target_os = "linux")] pub use self::Thing as Exported;"#,
+        r#"#[cfg(feature = "local")] mod other { pub struct Thing; }
+            #[cfg(feature = "local")] pub use other::Thing;"#,
+        r#"#![cfg(any())]
+            pub use other::Thing;"#,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+}
+
+#[test]
+fn external_module_conditions_are_inherited_by_local_definitions() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fixture(
+        root,
+        r#"#[cfg(feature = "local")] mod local;
+        #[cfg(feature = "local")] use local::*;
+        #[cfg(not(feature = "local"))] use other::*;
+        pub use self::Thing as Exported;"#,
+        "",
+    );
+    fs::write(root.join("src/local.rs"), "pub struct Thing;").unwrap();
+    assert_eq!(findings(root).len(), 1);
+}

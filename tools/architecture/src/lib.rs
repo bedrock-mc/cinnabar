@@ -6,6 +6,7 @@ use std::{
 mod artifacts;
 #[cfg(test)]
 mod completion_plan;
+mod conditions;
 mod dependencies;
 mod markers;
 mod modules;
