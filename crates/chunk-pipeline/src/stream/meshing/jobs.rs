@@ -282,7 +282,7 @@ impl WorldStream {
                 drop(_zone);
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("mesh.completion_send", key = ?completion.key, revision = completion.revision).entered();
-                let _ = tx.send(completion);
+                workers::send_result(&tx, completion);
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
             self.stats.phase2_stages.mesh_jobs_dispatched = self
