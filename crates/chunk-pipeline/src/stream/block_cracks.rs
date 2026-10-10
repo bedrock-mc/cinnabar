@@ -1,4 +1,4 @@
-//! Ordered, bounded server cracking authority. Server values are not a clock.
+//! Ordered crack events and their progress across rendered frames.
 
 use super::*;
 
@@ -8,25 +8,27 @@ pub const MAX_ACTIVE_BLOCK_CRACKS: usize = 1_024;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct BlockCrackStatus {
     pub active: usize,
-    pub server_value_sum: u64,
+    pub server_value_sum: i64,
     pub consumed: u64,
     pub orphan_updates: u64,
     pub capacity_rejections: u64,
-    pub unsupported_values: u64,
     pub unsupported_targets: u64,
     pub retired_targets: u64,
+    pub completed: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ActiveBlockCrack {
     pub position: [i32; 3],
     pub start_sequence: u64,
-    /// The validated server value, without inferred progress or expiry.
-    pub server_value: u16,
+    /// The server's speed in progress units per game tick.
+    pub server_value: i32,
+    /// Progress accumulated on rendered frames; complete entries are removed.
+    pub progress: f32,
     pub layers: [Option<u32>; world::MAX_STORAGE_COUNT],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockCrackSnapshot {
     pub session_id: u64,
     pub dimension: i32,
@@ -58,12 +60,37 @@ impl WorldStream {
             status: BlockCrackStatus {
                 server_value_sum: entries
                     .iter()
-                    .map(|entry| u64::from(entry.server_value))
+                    .map(|entry| i64::from(entry.server_value))
                     .sum(),
                 ..self.block_cracks.status
             },
             entries,
         }
+    }
+
+    /// Advances cracks once per rendered frame. A zero elapsed time pauses progression.
+    pub fn advance_block_cracks(&mut self, elapsed_seconds: f32) {
+        let ticks = elapsed_seconds / world::TICK_DURATION.as_secs_f32();
+        let mut completed = 0;
+        self.block_cracks.columns.retain(|_, entries| {
+            entries.retain(|_, entry| {
+                let rate = entry.server_value as f32 / f32::from(u16::MAX);
+                entry.progress += rate * ticks;
+                if entry.progress < 1.0 {
+                    true
+                } else {
+                    completed += 1;
+                    false
+                }
+            });
+            !entries.is_empty()
+        });
+        self.block_cracks.status.active -= completed;
+        self.block_cracks.status.completed = self
+            .block_cracks
+            .status
+            .completed
+            .saturating_add(completed as u64);
     }
 
     fn crack_column(&self, position: [i32; 3]) -> ChunkKey {
@@ -114,6 +141,14 @@ impl WorldStream {
                 }
             }
             client_world::ingestion::BlockCrackAction::Start { progress_per_tick } => {
+                if self
+                    .block_cracks
+                    .columns
+                    .get(&column)
+                    .is_some_and(|entries| entries.contains_key(&event.position))
+                {
+                    return;
+                }
                 let Some(layers) = self.crack_layers(column, event.position) else {
                     self.block_cracks.status.unsupported_targets = self
                         .block_cracks
@@ -122,12 +157,7 @@ impl WorldStream {
                         .saturating_add(1);
                     return;
                 };
-                let exists = self
-                    .block_cracks
-                    .columns
-                    .get(&column)
-                    .is_some_and(|entries| entries.contains_key(&event.position));
-                if !exists && self.block_cracks.status.active >= MAX_ACTIVE_BLOCK_CRACKS {
+                if self.block_cracks.status.active >= MAX_ACTIVE_BLOCK_CRACKS {
                     self.block_cracks.status.capacity_rejections = self
                         .block_cracks
                         .status
@@ -141,12 +171,11 @@ impl WorldStream {
                         position: event.position,
                         start_sequence: sequence,
                         server_value: progress_per_tick,
+                        progress: 0.0,
                         layers,
                     },
                 );
-                if !exists {
-                    self.block_cracks.status.active += 1;
-                }
+                self.block_cracks.status.active += 1;
             }
             client_world::ingestion::BlockCrackAction::UpdateSpeed { progress_per_tick } => {
                 if let Some(entry) = self

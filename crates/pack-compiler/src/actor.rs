@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::entity::{compile_entity_assets, read_bounded_source};
 mod pack;
-pub use pack::{ActorPackCompilation, compile_actor_pack};
+pub use pack::{ActorPackCompilation, compile_actor_pack, compile_actor_pack_unless};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ActorFallback {

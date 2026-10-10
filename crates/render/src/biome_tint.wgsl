@@ -19,6 +19,24 @@ struct BiomeTintGpu {
 @group(0) @binding(7) var<storage, read> biome_records: array<u32>;
 @group(0) @binding(8) var<storage, read> biome_tints: array<BiomeTintGpu>;
 
+// Query kernel tables live in a uniform block: a dynamically indexed `const` array is copied
+// into per-invocation scratch by several compilers, once per tinted fragment.
+struct BiomeQueryTables {
+    stencils: array<vec4<u32>, BIOME_STENCIL_VEC4S>,
+    weights: array<vec4<f32>, BIOME_WEIGHT_VEC4S>,
+    permutation: array<vec4<u32>, GRASS_PERMUTATION_VEC4S>,
+}
+@group(0) @binding(BIOME_QUERY_TABLES_BINDING) var<uniform> biome_query_tables: BiomeQueryTables;
+
+fn query_stencil(index: u32) -> vec2<u32> {
+    let pair = biome_query_tables.stencils[index / 2u];
+    return select(pair.xy, pair.zw, (index & 1u) != 0u);
+}
+
+fn grass_permutation(index: u32) -> u32 {
+    return biome_query_tables.permutation[index / 4u][index % 4u];
+}
+
 // Check before addition: a stale record must not wrap into another GPU allocation.
 fn biome_record_span_valid(start: u32, words: u32) -> bool {
     let length = arrayLength(&biome_records);
@@ -86,51 +104,54 @@ fn packed_biome_tint_index(record: u32, source_coordinate: vec3<i32>) -> u32 {
     return packed_payload_tint_index(record + relative, vec3<u32>(source_coordinate & vec3(15)));
 }
 
-fn safe_biome_tint(index: u32) -> BiomeTintGpu {
-    let safe_index = select(0u, index, index < arrayLength(&biome_tints));
-    return biome_tints[safe_index];
+// Lookups take an index and read single fields: copying a whole `BiomeTintGpu` (with its
+// dynamically indexed seasonal array) per sample spills it to per-fragment scratch memory.
+fn safe_tint_index(index: u32) -> u32 {
+    return select(0u, index, index < arrayLength(&biome_tints));
 }
 
-fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32, material_flags: u32, world_position: vec3<i32>) -> vec4<f32> {
+fn tint_domain_colour(index: u32, tint_kind: u32, material_flags: u32, world_position: vec3<i32>) -> vec4<f32> {
+    let tint = safe_tint_index(index);
     if (tint_kind == 0x10u) {
-        if ((tint.flags & BIOME_SWAMP_GRASS) != 0u && arrayLength(&biome_tints) >= BIOME_TINT_MAP_SIZE) {
-            let index = grass_palette_index(world_position.xz);
-            return vec4(unpack_linear_rgb10(biome_tints[arrayLength(&biome_tints) - BIOME_TINT_MAP_SIZE + index].grass), 1.0);
+        if ((biome_tints[tint].flags & BIOME_SWAMP_GRASS) != 0u && arrayLength(&biome_tints) >= BIOME_TINT_MAP_SIZE) {
+            let palette = grass_palette_index(world_position.xz);
+            return vec4(unpack_linear_rgb10(biome_tints[arrayLength(&biome_tints) - BIOME_TINT_MAP_SIZE + palette].grass), 1.0);
         }
-        return vec4(unpack_linear_rgb10(tint.grass), 1.0);
+        return vec4(unpack_linear_rgb10(biome_tints[tint].grass), 1.0);
     }
     if (tint_kind == 0x30u) {
-        return vec4(unpack_water_rgb8(tint.water), tint.water_opacity);
+        return vec4(unpack_water_rgb8(biome_tints[tint].water), biome_tints[tint].water_opacity);
     }
     return vec4(special_foliage_tint(tint, material_flags), 1.0);
 }
 
-fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
-    if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u && (tint.flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
+fn special_foliage_tint(tint: u32, material_flags: u32) -> vec3<f32> {
+    if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u && (biome_tints[tint].flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
         var species = SEASONAL_DEFAULT_CELL;
         if ((material_flags & 0x600u) == 0x400u) { species = SEASONAL_EVERGREEN_CELL; }
         if ((material_flags & 0x600u) == 0x200u) { species = SEASONAL_BIRCH_CELL; }
         let exposed = select(0u, SEASONAL_FOLIAGE_EXPOSED_OFFSET, (material_flags & MATERIAL_EXPOSED_FOLIAGE) != 0u);
-        return tint.seasonal_foliage[min(species + exposed, SEASONAL_FOLIAGE_COUNT - 1u)].rgb;
+        return biome_tints[tint].seasonal_foliage[min(species + exposed, SEASONAL_FOLIAGE_COUNT - 1u)].rgb;
     }
     switch material_flags & 0x600u {
-        case 0x200u: { return unpack_linear_rgb10(tint.birch); }
-        case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }
-        case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }
-        default: { return unpack_linear_rgb10(tint.foliage); }
+        case 0x200u: { return unpack_linear_rgb10(biome_tints[tint].birch); }
+        case 0x400u: { return unpack_linear_rgb10(biome_tints[tint].evergreen); }
+        case 0x600u: { return unpack_linear_rgb10(biome_tints[tint].dry_foliage); }
+        default: { return unpack_linear_rgb10(biome_tints[tint].foliage); }
     }
 }
 
 // Alpha marks gamma tints that remain constant across every block of a uniform record.
+
 fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) -> vec4<f32> {
     if (tint_kind == 0u) { return vec4(1.0); }
     if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return vec4(0.0); }
     if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return vec4(0.0); }
     let index = biome_records[record + 1u];
     if (index == 0xffffffffu) { return vec4(0.0); }
-    let tint = safe_biome_tint(index);
+    let tint = safe_tint_index(index);
     // Swamp grass varies with world-position noise even in a uniform biome.
-    if (tint_kind == 0x10u && (tint.flags & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
+    if (tint_kind == 0x10u && (biome_tints[tint].flags & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
     return vec4(tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, vec3(0))).rgb, 1.0);
 }
 
@@ -150,27 +171,27 @@ fn blended_biome_tint(
     // positions leave the sub-chunk at face edges and in derivative helper lanes extrapolated
     // past the horizon; unclamped, their lattice index reads unrelated words as sample counts.
     let coordinate = clamp(vec3<i32>(floor(local_position)), vec3(0), vec3(BIOME_QUERY_SIDE - 1));
-    let fallback = tint_domain_colour(safe_biome_tint(0u), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
-    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return fallback; }
-    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return fallback; }
+    let block_position = coordinate + vec3<i32>(world_origin);
+    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
+    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
     let uniform_tint = biome_records[record + 1u];
     if (uniform_tint != 0xffffffffu) {
-        return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
+        return tint_domain_colour(uniform_tint, tint_kind, material_flags, block_position);
     }
     // Native seasonal foliage samples the block's biome directly, rather than
     // interpolating the ordinary foliage lattice.
     if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u) {
-        let tint = safe_biome_tint(packed_biome_tint_index(record, coordinate));
-        if ((tint.flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
-            return tint_domain_colour(tint, tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
+        let tint = safe_tint_index(packed_biome_tint_index(record, coordinate));
+        if ((biome_tints[tint].flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
+            return tint_domain_colour(tint, tint_kind, material_flags, block_position);
         }
     }
     let lattice_words = BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_POINT_WORDS;
-    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS + lattice_words)) { return fallback; }
+    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS + lattice_words)) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
     let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
     let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
-    if (any(residue >= vec3(BIOME_RESIDUE_SIDE))) { return fallback; }
-    let stencil = BIOME_QUERY_STENCILS[(residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z];
+    if (any(residue >= vec3(BIOME_RESIDUE_SIDE))) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
+    let stencil = query_stencil((residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z);
     let magnitude = vec3<u32>(abs(vec3<i32>(residue) - vec3(BIOME_RESIDUE_RADIUS)));
     let magnitude_side = u32(BIOME_RESIDUE_RADIUS) + 1u;
     let weights = ((magnitude.x * magnitude_side + magnitude.y) * magnitude_side + magnitude.z) * 2u;
@@ -178,14 +199,14 @@ fn blended_biome_tint(
     var denominator = 0.0;
     for (var point = 0u; point < BIOME_QUERY_POINTS; point += 1u) {
         let cell = (stencil[point / 4u] >> (point % 4u * 8u)) & 0xffu;
-        let weight = BIOME_QUERY_WEIGHTS[weights + point / 4u][point % 4u];
+        let weight = biome_query_tables.weights[weights + point / 4u][point % 4u];
         let position = base + (vec3<i32>(vec3(cell / 9u, cell / 3u % 3u, cell % 3u)) - vec3(1)) * BIOME_LATTICE_STEP;
-        if (lattice_point_index(position) >= BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE) { return fallback; }
+        if (lattice_point_index(position) >= BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
         let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
         var colour = vec4(0.0);
         let count = lattice_biome_count(start);
         for (var i = 0u; i < count; i += 1u) {
-            let tint = safe_biome_tint(biome_records[start + 1u + i]);
+            let tint = biome_records[start + 1u + i];
             let fraction = bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + i]);
             if (!(fraction >= 0.0 && fraction <= 1.0)) { continue; }
             colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))) * fraction;
@@ -211,7 +232,7 @@ fn blended_biome_tint_gamma(
 // Vanilla uses float simplex coordinates and the 12-entry gradient order.
 fn grass_corner(cell: vec2<i32>, offset: vec2<f32>) -> f32 {
     let gradients = array<vec2<f32>, 12>(vec2(1.0,1.0),vec2(-1.0,1.0),vec2(1.0,-1.0),vec2(-1.0,-1.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(0.0,1.0),vec2(0.0,-1.0),vec2(0.0,1.0),vec2(0.0,-1.0));
-    let hash = GRASS_PERMUTATION[(u32(cell.x) + GRASS_PERMUTATION[u32(cell.y) & GRASS_PERMUTATION_MASK]) & GRASS_PERMUTATION_MASK] % 12u;
+    let hash = grass_permutation((u32(cell.x) + grass_permutation(u32(cell.y) & GRASS_PERMUTATION_MASK)) & GRASS_PERMUTATION_MASK) % 12u;
     let t = max(0.0, (0.5 - offset.x * offset.x) - offset.y * offset.y);
     let gradient = gradients[hash];
     return (offset.y * gradient.y + offset.x * gradient.x) * t * t * t * t;

@@ -608,6 +608,22 @@ fn authoritative_close_settles_a_closing_window_immediately() {
     assert!(!ledger.resync_required());
 }
 
+/// A menu may close its window before rejecting the click without restating any cells.
+#[test]
+fn late_rejection_of_a_request_abandoned_by_a_server_close_lifts_its_recovery() {
+    let (mut ledger, request) = closing_with_pending(960);
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+    assert!(ledger.resync_required());
+
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.cursor_stack(), None);
+}
+
 #[test]
 fn replacing_the_window_clears_a_closing_state_immediately() {
     let (mut ledger, request) = closing_with_pending(950);
@@ -747,4 +763,96 @@ fn settling_chest_request_never_touches_the_next_chest() {
         (3, 91)
     );
     assert_eq!(ledger.pending_state(), None);
+}
+
+/// A cursor refresh retires the earlier abandonment before another window closes.
+#[test]
+fn late_rejection_ignores_refreshed_abandonment() {
+    for reject_earlier_first in [false, true] {
+        let (mut ledger, a) = closing_with_pending(960);
+        let close = InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(1),
+            window_type: 0,
+            server_initiated: true,
+        });
+        ledger.apply(&close);
+        ledger.apply(&cursor_content());
+        assert!(!ledger.resync_required());
+        ledger.apply(&open(1, 0));
+        ledger.apply(&content(1, 961, 27));
+        let b = ledger.begin_storage_click(2).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        ledger.apply(&close);
+        if reject_earlier_first {
+            ledger.apply(&response(a, StackResponseStatus::Rejected));
+            assert!(ledger.resync_required(), "B still needs an answer");
+        }
+        ledger.apply(&response(b, StackResponseStatus::Rejected));
+        assert!(
+            !ledger.resync_required(),
+            "A was already refreshed before B"
+        );
+        ledger.apply(&open(1, 0));
+        ledger.apply(&content(1, 962, 27));
+        assert!(ledger.begin_storage_click(2).is_ok());
+    }
+}
+
+/// A rejected menu click leaves the original stack's authoritative metadata intact.
+#[test]
+fn review_rejection_preserves_confirmed_response_overlay() {
+    let mut ledger = ready(27, 970);
+    ledger.apply(&player_content_with_first(stack(5, 3, 92)));
+    let overlay = super::StackResponseOverlay {
+        custom_name: Some(Arc::from("Menu item")),
+        filtered_custom_name: Some(Arc::from("Menu item")),
+        durability_correction: Some(4),
+    };
+    ledger.set_confirmed_overlay(super::Cell::Inventory(0), overlay.clone());
+    let request = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.slot_overlay(0), Some(&overlay));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 3);
+    ledger.apply(&open(1, 0));
+    ledger.apply(&content(1, 971, 27));
+    assert!(ledger.begin_click(0).is_ok());
+    assert_eq!(
+        ledger
+            .view()
+            .get(super::Cell::Cursor)
+            .unwrap()
+            .overlay
+            .as_ref(),
+        Some(&overlay)
+    );
+}
+
+/// A full personal UI refresh settles abandoned cursor ambiguity.
+#[test]
+fn review_full_ui_snapshot_releases_cursor_recovery() {
+    let (mut ledger, request) = closing_with_pending(972);
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+            slot_type: Some(0),
+            dynamic_id: None,
+        },
+        slots: vec![NetworkItemStack::default(); protocol::UI_SLOT_COUNT].into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    assert!(!ledger.resync_required());
+    ledger.apply(&response(request, StackResponseStatus::Accepted));
+    assert!(!ledger.resync_required());
 }

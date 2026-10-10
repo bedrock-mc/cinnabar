@@ -379,6 +379,7 @@ fn render_fixture(cache_admission: bool) {
     let materials = gpu.words(&materials, storage);
     let records = gpu.words(&biome_words, storage);
     let tints = gpu.words(&tint_words(), storage);
+    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let animations = gpu.words(
         &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
         storage,
@@ -412,6 +413,10 @@ fn render_fixture(cache_admission: bool) {
         (11, clock.as_entire_binding()),
         (13, streams.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),
+        (
+            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            query_tables.as_entire_binding(),
+        ),
         (20, lightmap.as_entire_binding()),
         (
             material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

@@ -111,8 +111,8 @@ fn clear_outputs(carrier: &Carrier, context: &Context) {
 struct Queue {
     /// Indices into the stale list, in table order.
     pending: Vec<usize>,
-    /// Finished recipes and whether they succeeded.
-    finished: HashMap<Recipe, bool>,
+    /// Finished carriers and whether they succeeded.
+    finished: HashMap<&'static str, bool>,
     /// The first required failure; nothing new starts once it is set.
     abort: Option<String>,
 }
@@ -144,7 +144,7 @@ fn execute(context: &Context, plan: &Plan, stamp: Stamp, report: &Reporter) -> R
                     let recorded = record(context, &stamp, plan, carrier, &result);
                     report.finish(carrier, &result, started.elapsed());
                     let mut queue = queue.lock().unwrap();
-                    queue.finished.insert(carrier.recipe, result.is_ok());
+                    queue.finished.insert(carrier.name, result.is_ok());
                     let failure = result.err().filter(|_| carrier.required).or(recorded.err());
                     if let Some(error) = failure {
                         queue
@@ -185,19 +185,19 @@ fn take_ready(
     queue: &mut Queue,
     jobs: &[&'static Carrier],
 ) -> Option<(usize, Option<&'static str>)> {
-    let planned = |recipe: Recipe| jobs.iter().any(|carrier| carrier.recipe == recipe);
+    let planned = |name: &str| jobs.iter().any(|carrier| carrier.name == name);
     let position = queue.pending.iter().position(|&index| {
         jobs[index]
             .reads
             .iter()
-            .all(|&read| !planned(read) || queue.finished.contains_key(&read))
+            .all(|&read| !planned(read) || queue.finished.contains_key(read))
     })?;
     let index = queue.pending.remove(position);
     let blocked = jobs[index]
         .reads
         .iter()
-        .find(|read| queue.finished.get(read) == Some(&false))
-        .map(|&read| carriers::by_recipe(read).name);
+        .copied()
+        .find(|read| queue.finished.get(*read) == Some(&false));
     Some((index, blocked))
 }
 
@@ -219,7 +219,7 @@ fn record(
     stamp.carriers.insert(
         carrier.name.to_owned(),
         Entry {
-            fingerprint: plan.fingerprints[&carrier.recipe].clone(),
+            fingerprint: plan.fingerprints[carrier.name].clone(),
             failed: result.is_err(),
         },
     );
@@ -251,7 +251,7 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
             .join(carrier.report.expect("recipe writes a report"))
     };
     let manifest = || context.manifest(carrier);
-    let read = |recipe| context.out.join(carriers::by_recipe(recipe).output);
+    let read = |name| context.out.join(carriers::by_name(name).unwrap().output);
     Ok(match carrier.recipe {
         Recipe::World => {
             let [registry, light_registry, biome_registry] =
@@ -312,7 +312,7 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
         Recipe::Icon => Command::IconAssets {
             pack,
             source_manifest: manifest(),
-            block_assets: Some(read(Recipe::World)),
+            block_assets: Some(read(carriers::WORLD.name)),
             out,
             report: report(),
         },
@@ -360,9 +360,10 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
         },
         Recipe::Weather => Command::WeatherAssets { pack, out },
         Recipe::HudExtras => Command::HudExtrasAssets { pack, out },
+        Recipe::StarterSkins => Command::StarterSkinAssets { pack, out },
         Recipe::AudioPcm => Command::AudioPcmAssets {
             pack,
-            catalog: read(Recipe::Audio),
+            catalog: read(carriers::AUDIO.name),
             source_manifest: manifest(),
             out,
             report: report(),

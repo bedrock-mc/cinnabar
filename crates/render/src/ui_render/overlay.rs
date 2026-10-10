@@ -654,6 +654,7 @@ impl ViewNode for UiOverlayNode {
                     vertices,
                     indices,
                     viewport.as_ref(),
+                    crate::render_bounds::extent(target.main_texture_view()),
                     std::slice::from_ref(inverted),
                     skip.as_ref(),
                     None,

@@ -4,6 +4,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ALPHA_TO_COVERAGE
 #import cinnabar::lighting::{CutoutSample, cutout_alpha_array, cutout_mix}
@@ -86,7 +87,7 @@ fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu
 }
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) normal: vec3<f32>,
@@ -94,7 +95,8 @@ struct VertexOutput {
     @location(4) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
-    @location(7) @interpolate(flat) frame_blend: f32,
+    // x: animation frame blend; yz: `greedy_uv_limit` of the face.
+    @location(7) @interpolate(flat) frame_blend_uv_limit: vec3<f32>,
     @location(8) world_position: vec3<f32>,
     @location(9) lighting: vec3<f32>,
 #ifdef ENHANCED
@@ -177,31 +179,16 @@ fn face_normal(face: u32) -> vec3<f32> {
     }
 }
 
-fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec2<f32> {
+/// Texture coordinates at in-quad `position` (see `quad_position`). The map is
+/// affine, so positions just outside the quad continue its texture mapping.
+fn greedy_uv(face: u32, position: vec2<f32>, width: f32, height: f32, flags: u32) -> vec2<f32> {
     // Native cube UV axes: West +Z/-Y, East -Z/-Y, North -X/-Y,
     // South +X/-Y, Down +X/-Z, Up +X/+Z. Opposing cutout faces
     // must not share the same projected alpha mask.
-    let horizontal_standard = array<vec2<f32>, 4>(
-        vec2(0.0, height), vec2(width, height),
-        vec2(width, 0.0), vec2(0.0, 0.0),
-    );
-    let horizontal_transposed = array<vec2<f32>, 4>(
-        vec2(0.0, 0.0), vec2(0.0, height),
-        vec2(width, height), vec2(width, 0.0),
-    );
-    let vertical_standard = array<vec2<f32>, 4>(
-        vec2(0.0, height), vec2(width, height),
-        vec2(width, 0.0), vec2(0.0, 0.0),
-    );
-    let vertical_transposed = array<vec2<f32>, 4>(
-        vec2(width, height), vec2(width, 0.0),
-        vec2(0.0, 0.0), vec2(0.0, height),
-    );
-    var uv = horizontal_standard[corner];
+    var uv = vec2(position.x, height - position.y);
     switch face {
-        case 0u, 5u: { uv = vertical_standard[corner]; }
-        case 1u, 4u: { uv = vertical_transposed[corner]; }
-        case 3u: { uv = horizontal_transposed[corner]; }
+        case 1u, 4u: { uv = vec2(width - position.x, height - position.y); }
+        case 3u: { uv = position; }
         default: {}
     }
 
@@ -229,6 +216,32 @@ fn greedy_uv(face: u32, corner: u32, width: f32, height: f32, flags: u32) -> vec
     return uv;
 }
 
+/// The two in-plane world axes of a cube face: the quad's width axis, then its height axis.
+fn quad_axes(face: u32) -> array<vec3<f32>, 2> {
+    switch face / 2u {
+        case 0u: { return array<vec3<f32>, 2>(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0)); }
+        case 1u: { return array<vec3<f32>, 2>(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0)); }
+        default: { return array<vec3<f32>, 2>(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)); }
+    }
+}
+
+/// In-quad coordinates, in blocks along the width and height axes, of an
+/// offset from the quad's origin block corner such as `quad_corner` returns.
+fn quad_position(face: u32, offset: vec3<f32>) -> vec2<f32> {
+    let axes = quad_axes(face);
+    return vec2(dot(offset, axes[0]), dot(offset, axes[1]));
+}
+
+// Pulls clamped texture coordinates inside the quad's last texel, which
+// repeat addressing would otherwise wrap to the opposite edge.
+const CUBE_UV_EDGE_INSET: f32 = 1.0 / 16384.0;
+
+/// Largest texture coordinates that still sample a quad's own last texels.
+fn greedy_uv_limit(width: f32, height: f32, flags: u32) -> vec2<f32> {
+    let extents = select(vec2(width, height), vec2(height, width), (flags & 1u) != 0u);
+    return extents - vec2(CUBE_UV_EDGE_INSET);
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -237,8 +250,40 @@ fn vertex(
     return cube_vertex(vertex_index, instance_index);
 }
 
-// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
+// Expand cube edges within their face to cover T-junction gaps from subpixel snapping.
+const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
+// Dampen nearly parallel projected edges so a thin face grows by at most a quarter pixel.
+const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
+// Largest in-plane step per unit of clip w, reached only when an edge points
+// along the view ray and moving along it barely changes the screen position.
+const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
+
+/// Returns bounded in-plane corner steps that advance both projected edges by seal_pixels.
+/// Reverses steps behind the camera to preserve sealing after near-plane clipping.
+fn seal_steps(clip: vec4<f32>, du: vec4<f32>, dv: vec4<f32>, seal_pixels: f32) -> vec2<f32> {
+    // Screen pixels moved per world unit along each axis, times w squared.
+    let half_viewport = 0.5 * view.viewport.zw;
+    let screen_u = (du.xy * clip.w - clip.xy * du.w) * half_viewport;
+    let screen_v = (dv.xy * clip.w - clip.xy * dv.w) * half_viewport;
+    let length_u = length(screen_u);
+    let length_v = length(screen_v);
+    let spanned = abs(screen_u.x * screen_v.y - screen_u.y * screen_v.x);
+    let area = max(max(spanned, CUBE_SEAM_MIN_EDGE_SINE * length_u * length_v), 1e-30);
+    // A step along one axis moves the edge running along the other axis
+    // outward, perpendicular to itself, by the seal width.
+    let scale = seal_pixels * clip.w * abs(clip.w) / area;
+    let bound = CUBE_SEAM_MAX_STEP * abs(clip.w);
+    return clamp(scale * vec2(length_v, length_u), vec2(-bound), vec2(bound));
+}
+
+/// A cube quad corner with its seams sealed by `CUBE_SEAM_SEAL_PIXELS`.
 fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
+    return sealed_cube_vertex(vertex_index, instance_index, CUBE_SEAM_SEAL_PIXELS);
+}
+
+/// Builds a cube vertex with the requested seal width; zero retains block-grid corners.
+/// vertex_index / 4 selects its origin, and instance_index selects the packed quad.
+fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) -> VertexOutput {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
     let local_origin = vec3<f32>(
@@ -262,23 +307,25 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
+    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
-    out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
 #endif
     let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
-    out.uv = greedy_uv(face, corner, width, height, uv_flags);
+    let corner_position = quad_position(face, local_position - local_origin);
+    out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
+    out.frame_blend_uv_limit = vec3(animation_sample.blend, greedy_uv_limit(width, height, uv_flags));
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
     out.material_flags = material.flags;
     out.local_position = local_position;
     out.biome_record = u32(chunk_origin.value.w);
     out.next_texture = animation_sample.next_texture;
-    out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
@@ -296,13 +343,44 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
 #ifndef ENHANCED_SHADOW
 #ifndef OPAQUE_OVERDRAW
     out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+    // A one-block face owns a single block's blend, so evaluate it here once rather than per
+    // fragment. Mixed records mesh tinted faces one block wide for exactly this.
+    if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
+        out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
+            material.flags & 0x30u,
+            material.flags,
+            out.biome_record,
+            local_origin + vec3(0.5),
+            vec3<f32>(chunk_origin.value.xyz),
+        ).rgb, 1.0);
+    }
 #endif
 #endif
 #endif
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
     out.world_position = waved_position(world_position, out.surface_class, 1.0);
-    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    out.clip_position = camera_offset_clip(
+        view.clip_from_world,
+        view.world_position,
+        camera_offset + (out.world_position - world_position),
+    );
+#endif
+#ifndef ENHANCED_SHADOW
+    // Grow within the face plane, moving positions and UVs while retaining corner light samples.
+    // World-axis motions project through the corresponding clip_from_world columns.
+    let outward = sign(2.0 * corner_position - vec2(width, height));
+    let normal_axis = face / 2u;
+    let du = select(view.clip_from_world[0], view.clip_from_world[2], normal_axis == 0u) * outward.x;
+    let dv = select(view.clip_from_world[1], view.clip_from_world[2], normal_axis == 1u) * outward.y;
+    let steps = seal_steps(out.clip_position, du, dv, seal_pixels);
+    out.clip_position += du * steps.x + dv * steps.y;
+    let moved = outward * steps;
+    let axes = quad_axes(face);
+    let shift = axes[0] * moved.x + axes[1] * moved.y;
+    out.uv = greedy_uv(face, corner_position + moved, width, height, uv_flags);
+    out.local_position += shift;
+    out.world_position += shift;
 #endif
     return out;
 }
@@ -444,9 +522,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
 #ifdef ALPHA_TO_COVERAGE
     var coverage = 1.0;
     if ((in.material_flags & (1u << 8u)) != 0u) {
-        var cutout = cube_alpha_footprint(in.current_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags);
-        if (in.frame_blend > 0.0) {
-            cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, in.uv, uv_dx, uv_dy, sampled, in.material_flags), in.frame_blend);
+        // Same face-clamped coordinates as the colour sample, so sealed edges never reach outside the face.
+        let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
+        let frame_blend = in.frame_blend_uv_limit.x;
+        var cutout = cube_alpha_footprint(in.current_texture, uv, uv_dx, uv_dy, sampled, in.material_flags);
+        if (frame_blend > 0.0) {
+            cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, uv, uv_dx, uv_dy, sampled, in.material_flags), frame_blend);
         }
         coverage = cutout.coverage;
         if (sampled.a < TERRAIN_ALPHA_THRESHOLD && coverage > 0.0) { sampled = cutout.colour; }
@@ -498,12 +579,15 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
 }
 
+// Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
 fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
-    let current_sample = sample_material_texture_ref(in.current_texture, in.uv, uv_dx, uv_dy, in.material_flags);
+    let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
+    let frame_blend = in.frame_blend_uv_limit.x;
+    let current_sample = sample_material_texture_ref(in.current_texture, uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
-    if (in.frame_blend > 0.0) {
-        let next_sample = sample_material_texture_ref(in.next_texture, in.uv, uv_dx, uv_dy, in.material_flags);
-        sampled = mix(current_sample, next_sample, in.frame_blend);
+    if (frame_blend > 0.0) {
+        let next_sample = sample_material_texture_ref(in.next_texture, uv, uv_dx, uv_dy, in.material_flags);
+        sampled = mix(current_sample, next_sample, frame_blend);
     }
     return sampled;
 }
@@ -571,8 +655,8 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     let dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
     var sampled = sample_material_texture_ref(in.current_texture, in.uv, dx, dy, in.material_flags);
-    if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend);
+    if (in.frame_blend_uv_limit.x > 0.0) {
+        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend_uv_limit.x);
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) { discard; }
 }

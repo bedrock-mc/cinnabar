@@ -13,9 +13,13 @@ pub(super) fn retained(form_id: u32, sequence: u64) -> SequencedUiEvent {
             title: Some(Arc::from("Choose 世界")),
             json: Arc::from("{}"),
             model: ServerFormModel::TextMenu(TextMenuForm {
-                title: Arc::from("Choose 世界"),
-                content: Arc::from("Pick one"),
-                buttons: vec![Arc::from("First ✓"), Arc::from("第二")].into(),
+                title: protocol::FormText::from("Choose 世界"),
+                content: protocol::FormText::from("Pick one"),
+                buttons: vec![
+                    protocol::FormText::from("First ✓"),
+                    protocol::FormText::from("第二"),
+                ]
+                .into(),
                 button_images: [].into(),
                 omitted_images: 0,
             }),

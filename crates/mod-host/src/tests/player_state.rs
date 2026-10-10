@@ -83,13 +83,17 @@ fn player_state_read_budget_traps_and_reload_starts_without_previous_facts() {
     let frame = std::iter::repeat_n(call(false, true), 9)
         .collect::<Vec<_>>()
         .join(" ");
-    let (_dir, mut host) = load("", &frame, true);
+    let (dir, mut host) = load("", &frame, true);
     assert!(
         host.frame_with_player_state(false, None, Vec::new(), Some(snapshot()), empty_controls())
             .is_err()
     );
     assert!(!host.is_active());
-    std::fs::write(&host.path, source(&call(false, false), &call(false, false))).unwrap();
+    std::fs::write(
+        dir.path().join("player-state.wat"),
+        source(&call(false, false), &call(false, false)),
+    )
+    .unwrap();
     assert!(host.reload_if_changed().unwrap());
     host.frame(false).unwrap();
     assert!(host.is_active());

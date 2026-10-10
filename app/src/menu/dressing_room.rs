@@ -1,7 +1,7 @@
 //! Skin selection work stays outside the frame loop; results publish atomically.
 
 use super::*;
-use launcher::dressing_room::{Action, DressingRoomView};
+use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
 
 mod editor;
@@ -41,14 +41,15 @@ impl Outcome {
     fn new(
         view: &DressingRoomView,
         before: Option<protocol::StandardSkin>,
-        previous_model: Option<launcher::dressing_room::SkinModel>,
+        previous_model: Option<(SkinModel, Arc<str>)>,
         uuid: [u8; 16],
         completed_command: bool,
     ) -> Self {
         let active = view.active_skin();
         let selected = view.selected_skin();
-        let changed = before != active || previous_model != selected.map(|entry| entry.model);
-        let packet = changed
+        let changed = before != active
+            || previous_model != selected.map(|entry| (entry.model, entry.engine_version.clone()));
+        let mut packet = changed
             .then(|| {
                 active.as_ref().zip(selected).map(|(skin, entry)| {
                     protocol::player_skin_packet(
@@ -61,6 +62,11 @@ impl Outcome {
                 })
             })
             .flatten();
+        if let Some(packet) = &mut packet
+            && let Some(selected) = selected
+        {
+            protocol::set_skin_packet_engine_version(packet, &selected.engine_version);
+        }
         Self {
             view: view.clone(),
             changed,
@@ -98,7 +104,7 @@ impl Worker {
                     .send(Outcome::new(
                         &view,
                         Some(fallback.standard_skin()),
-                        Some(fallback.model()),
+                        Some((fallback.model(), fallback.engine_version.clone())),
                         fallback.local_uuid,
                         true,
                     ))
@@ -120,7 +126,9 @@ impl Worker {
                 }
                 loop {
                     let before = view.active_skin();
-                    let previous_model = view.selected_skin().map(|entry| entry.model);
+                    let previous_model = view
+                        .selected_skin()
+                        .map(|entry| (entry.model, entry.engine_version.clone()));
                     let completed_command = crossbeam_channel::select! {
                         recv(incoming)->job=>{
                             let Ok(job)=job else {break;};
@@ -252,7 +260,7 @@ impl MenuRuntime {
         }
     }
 
-    /// Uses the same importer as the native PNG picker.
+    /// Uses the same skin importer as the Dressing Room file picker.
     #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn import_skin_path(&mut self, path: PathBuf) {
         if self.dressing_room.editor.is_some() {
@@ -296,6 +304,7 @@ impl MenuRuntime {
                 {
                     if let Some(active) = result.view.active_skin() {
                         self.player_skin.set_selection(&active, selected.model);
+                        self.player_skin.engine_version = selected.engine_version.clone();
                     }
                     self.skin_update_pending = true;
                     self.skin_outbound = None;
@@ -433,9 +442,9 @@ impl MenuRuntime {
                 ]
                 .into_iter()
                 .filter(|model| {
-                    self.dressing_room
-                        .selected_skin()
-                        .is_some_and(|selected| selected.model != *model)
+                    self.dressing_room.selected_skin().is_some_and(|selected| {
+                        selected.model != SkinModel::Custom && selected.model != *model
+                    })
                 })
                 .map(|model| MenuAction::DressingRoom(Action::SetModel(model))),
             );

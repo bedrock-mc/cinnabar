@@ -467,6 +467,19 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             writes.biome.push((plan.biome_start, biome_words));
         }
         writes.origins.push((metadata_index, origin));
+        // Ice and other transparent models interleave with the water's own face order.
+        let order_independent_liquid = instance.has_transparent_liquid
+            && transparent_model_draw_range.is_none()
+            && liquid_quads_are_order_independent(
+                instance
+                    .liquid_quads
+                    .get(
+                        ..instance
+                            .depth_liquid_start
+                            .map_or(instance.liquid_quads.len(), |start| start as usize),
+                    )
+                    .unwrap_or_default(),
+            );
         let gpu = GpuChunkAllocation {
             key: instance.key,
             generation: instance.generation,
@@ -485,9 +498,11 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             has_depth_liquid: instance.has_depth_liquid,
             has_transparent_liquid: instance.has_transparent_liquid,
             depth_liquid_range,
+            order_independent_liquid,
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
+        arena.transparent_liquids.record(entity, &gpu);
         arena.allocations.insert(
             entity,
             ArenaAllocation {

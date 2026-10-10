@@ -11,12 +11,16 @@ interface hud {
     record point { x: f32, y: f32 }
     record placement { id: string, position: option<point> }
     record editor-result { saved: bool, reset: bool, placements: list<placement> }
+    record layout-placement { id: string, position: option<point>, scale: f32 }
+    record layout-result { saved: bool, reset: bool, placements: list<layout-placement> }
     /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
     /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
     open-editor: func(json: string) -> result<_, string>;
     /// Stable for this callback; consumed after a successful callback that reads it.
     /// Save carries normalized placements; cancel carries no placements.
     read-editor-result: func() -> result<option<editor-result>, string>;
+    /// Reads positions and uniform scales; shares consumption with the legacy result.
+    read-editor-layout: func() -> result<option<layout-result>, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.
@@ -241,6 +245,63 @@ interface render {
     draw: func(primitives: primitives) -> result<_, string>;
 }
 
+/// The mod's JSON-UI templates beside the vanilla container screens. Templates are the
+/// `ui/<name>.json` files `mod.toml` indexes, in the mod's own namespace; they resolve only
+/// against the vanilla catalog, as a client part's modal templates do. Every function but
+/// `layout` errs when the `screen` permission is denied.
+interface screen {
+    use cinnabar:server-experience/ui@1.3.0.{value, gui-size};
+
+    /// A rectangle in GUI units, from the top left of the screen root.
+    record rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    }
+
+    /// The open container screen as laid out for this frame.
+    record screen-layout {
+        /// The vanilla JSON-UI screen drawn, such as `crafting.inventory_screen`.
+        screen: string,
+        /// The root's size in GUI units and the GUI scale, as `ui.modal-size` reports them.
+        size: gui-size,
+        /// The union of the vanilla screen's laid-out panels, an open recipe book included.
+        gui: rect,
+        /// Other vanilla areas outside `gui` that the overlay may not draw on: the recipe book's
+        /// tabs, the status effects and toasts.
+        exclusions: list<rect>,
+        /// The open view's laid-out bounds. While the view is up the vanilla screen is hidden,
+        /// and the overlay is clipped against this rect (and the exclusions) instead of `gui`.
+        view: option<rect>,
+    }
+
+    /// The modifier keys held with a wheel turn.
+    flags modifiers {
+        ctrl,
+        shift,
+        alt,
+    }
+
+    /// The open container screen's layout; none while no container screen is up.
+    layout: func() -> option<screen-layout>;
+    /// Draws `template` beside every container screen, laid out over the whole root but drawn
+    /// and hit only outside `gui` and the exclusions; none removes it.
+    set-overlay: func(template: option<string>) -> result<_, string>;
+    /// Draws `template` over the open container screen, which stays open and is hidden while
+    /// the view is up; none, Escape or closing the container returns. Errs while no container
+    /// screen is up.
+    open-view: func(template: option<string>) -> result<_, string>;
+    /// Replaces a collection's rows, as client WIT 1.2's `ui.set-collection`.
+    set-collection: func(name: string, rows-json: list<u8>) -> result<_, string>;
+    /// Binds one `#binding` name for the overlay and the view, as `ui.set-value`.
+    set-value: func(name: string, value: value) -> result<_, string>;
+    /// Sets the text of edit boxes named `control`, as `ui.set-text`.
+    set-text: func(control: string, text: string) -> result<_, string>;
+    /// Selects the drawn edit box named `control`, as a press on it would.
+    focus-text: func(control: string) -> result<_, string>;
+}
+
 /// Opt-in local camera policy; requires the explicit camera grant.
 interface camera {
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
@@ -277,4 +338,52 @@ world extension {
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.
     export frame: func();
+}
+
+/// `extension` plus screens beside the container screens, the session's read-only items and
+/// recipes, declared keys and event callbacks. A mod package (`mod.toml`) targets this world.
+///
+/// Every event export is optional: the host type-checks each one a component exports, refusing
+/// one of another signature, and never calls one it lacks. New events arrive as new exports, so
+/// a built component keeps working. `init` and `frame` stay required.
+world player-mod {
+    include extension;
+    import screen;
+    import cinnabar:session/items@0.1.0;
+    import cinnabar:session/recipes@0.1.0;
+
+    use screen.{screen-layout, modifiers};
+    use cinnabar:session/items@0.1.0.{stack};
+
+    /// What a `data-changed` reports as changed. Closed: changing it would refuse every built
+    /// `data-changed`, so a new kind of change arrives as a new optional export instead.
+    enum data-source {
+        items,
+        recipes,
+    }
+
+    /// A container screen opened, closed (`none`) or was laid out anew.
+    export screen-changed: func(layout: option<screen-layout>);
+    /// A primary press on an overlay or view control mapped to a declared action; the index is
+    /// the control's row in its nearest collection.
+    export action: func(id: string, collection-index: option<u32>);
+    /// A secondary press (a right click) on a control that maps `button.menu_secondary_select`
+    /// to a declared action.
+    export secondary-action: func(id: string, collection-index: option<u32>);
+    /// The wheel turned `delta` notches (one per detent; a pixel-precise wheel reports its
+    /// pixels / 16) with the pointer at `x`, `y` in GUI units, over the overlay's drawn area or
+    /// the view, with `modifiers` held. Positive scrolls down, towards the end.
+    export scrolled: func(delta: f64, x: f64, y: f64, modifiers: modifiers);
+    /// The text of the edit box named `control`, a declared action, changed.
+    export text-changed: func(control: string, text: string);
+    /// A declared key was pressed while a container screen or the view was up and no edit box
+    /// had focus. `hovered` is the vanilla slot's stack under the pointer; `row` is the
+    /// collection name and index of the mod's control under the pointer, overlay or view, by
+    /// the rule `action` uses (its nearest collection).
+    export key: func(id: string, hovered: option<stack>, row: option<tuple<string, u32>>);
+    /// The listed session sources changed revision, each listed once. It gets the load fuel
+    /// budget, as does `init` of a component that exports it.
+    export data-changed: func(sources: list<data-source>);
+    /// The host closed the view (Escape, or the container closing), not the mod.
+    export view-closed: func();
 }

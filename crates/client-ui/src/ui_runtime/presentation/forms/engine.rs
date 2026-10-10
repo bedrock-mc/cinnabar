@@ -528,9 +528,20 @@ fn render_with<R: Borrow<FormRender>>(
             .unwrap_or_else(|poison| poison.into_inner()),
     };
     let view = art.view;
-    for node in render.nodes.iter().chain(out.overlay) {
+    let mut top: Vec<std::ops::Range<usize>> = Vec::new();
+    let overlay_start = render.nodes.len();
+    for (index, node) in render.nodes.iter().chain(out.overlay).enumerate() {
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
+            let start = painter.nodes.len();
             painter.paint(node)?;
+            let lifted = index >= overlay_start
+                || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
+            if lifted && painter.nodes.len() > start {
+                match top.last_mut() {
+                    Some(last) if last.end == start => last.end = painter.nodes.len(),
+                    _ => top.push(start..painter.nodes.len()),
+                }
+            }
         }
     }
     let origin = [inputs.safe_area.left(), inputs.safe_area.top()];
@@ -550,6 +561,7 @@ fn render_with<R: Borrow<FormRender>>(
             origin[0],
             [inputs.metrics.gui_scale, px],
         ),
+        top,
     }))
 }
 

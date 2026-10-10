@@ -26,13 +26,24 @@ fn checkout() -> tempfile::TempDir {
         }
     }
     set_pack(dir.path(), "v1");
-    fs::write(
-        root.resolve(carriers::FONT_MANIFEST),
-        r#"{"font_file":"Font.ttf"}"#,
-    )
-    .unwrap();
     fs::create_dir_all(root.resolve("assets/fonts")).unwrap();
-    fs::write(root.resolve("assets/fonts/Font.ttf"), b"font-1").unwrap();
+    for carrier in CARRIERS {
+        for input in carrier.inputs {
+            if let carriers::Input::FontFile(manifest) = input {
+                let name = if carrier.name == FONT.name {
+                    "Font.ttf".to_owned()
+                } else {
+                    format!("{}.ttf", carrier.name)
+                };
+                fs::write(
+                    root.resolve(manifest),
+                    serde_json::json!({"font_file": name}).to_string(),
+                )
+                .unwrap();
+                fs::write(root.resolve(&format!("assets/fonts/{name}")), b"font-1").unwrap();
+            }
+        }
+    }
     dir
 }
 
@@ -84,7 +95,7 @@ fn build_all(root: &Path) {
         stamp.carriers.insert(
             carrier.name.to_owned(),
             Entry {
-                fingerprint: plan.fingerprints[&carrier.recipe].clone(),
+                fingerprint: plan.fingerprints[carrier.name].clone(),
                 failed: false,
             },
         );
@@ -115,6 +126,29 @@ fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
     );
     fs::write(registry, b"changed").unwrap();
     assert_eq!(stale(dir.path(), COMPILER), [WORLD.name, ICON.name]);
+}
+
+#[test]
+fn font_carriers_with_one_recipe_are_selected_and_stamped_independently() {
+    let dir = checkout();
+    build_all(dir.path());
+    for carrier in [carriers::FONT_SEVEN, carriers::FONT_TEN] {
+        let only = [carrier.name.to_owned()];
+        let plan = plan_for(dir.path(), COMPILER, &only);
+        assert_eq!(plan.selected.len(), 1);
+        assert_eq!(plan.selected[0].name, carrier.name);
+        assert!(!plan.needs_pack());
+        let context = context(dir.path());
+        let file = context
+            .font_file(match carrier.inputs[1] {
+                carriers::Input::FontFile(manifest) => manifest,
+                _ => unreachable!(),
+            })
+            .unwrap();
+        fs::write(file, b"changed font").unwrap();
+        assert_eq!(stale(dir.path(), COMPILER), [carrier.name]);
+        build_all(dir.path());
+    }
 }
 
 #[test]
@@ -192,7 +226,7 @@ fn queue(jobs: &[&'static Carrier], finished: &[(&Carrier, bool)]) -> Queue {
         pending: (0..jobs.len()).collect(),
         finished: finished
             .iter()
-            .map(|(carrier, ok)| (carrier.recipe, *ok))
+            .map(|(carrier, ok)| (carrier.name, *ok))
             .collect::<HashMap<_, _>>(),
         abort: None,
     }

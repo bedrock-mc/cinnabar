@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "family": "Cinnangles Seven",
+  "style": "Regular",
+  "font_file": "CinnanglesSeven.ttf",
+  "font_size_bytes": 11769548,
+  "font_sha256": "616dbdc2c3a8f53d26c8ae4351cadda0fd4f1a31971e08a0645c0d574636bfcf",
+  "glyph_source": {
+    "family": "Cinnangles Sans",
+    "font_file": "CinnanglesSans.ttf",
+    "font_sha256": "348391b6c4eeabc28e36717f6bcc149ad655efa98b9854155d9d60a48d452f0a"
+  },
+  "metrics_reference": {
+    "family": "Minecraft Seven v2",
+    "use": "em size and vertical metrics only; outlines unchanged from Sans"
+  }
+}

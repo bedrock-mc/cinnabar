@@ -65,7 +65,11 @@ fn bundle_textures_draw_and_nothing_outside_textures_resolves() {
     };
     let engine = presentation.form_presentation.engine.as_deref().unwrap();
     let files = vec![("textures/demo/panel.png".to_owned(), PIXEL.to_vec())];
-    let set = engine.textures.confined(&files, 7);
+    let set = engine.textures.confined(
+        &files,
+        7,
+        super::super::super::dynamic_textures::MODAL_UI_PAGES,
+    );
     let atlas = set.lock();
     let view = super::super::textures::Textures {
         assets: engine.assets(),
@@ -299,6 +303,40 @@ fn secondary_presses_fire_the_secondary_mapping() {
     assert_eq!(
         presentation.secondary_press_experience_modal(plain, false, true),
         None
+    );
+}
+
+/// What the user types draws in the box: the component's text reaches the label it targets.
+#[test]
+fn typed_text_draws_in_the_box() {
+    let (modal, files) = open_search();
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.experience_modal_size().unwrap().scale as f32;
+    let inside = Some([10.0 * scale, 10.0 * scale]);
+    let none: Vec<String> = Vec::new();
+    presentation.edit_experience_modal(inside, true, &none, false, 0.0);
+    presentation.edit_experience_modal(inside, false, &["iron".to_owned()], false, 0.1);
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let drawn: Vec<String> = presentation
+        .last_frame
+        .as_ref()
+        .expect("a frame")
+        .nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        drawn.iter().any(|text| text.starts_with("iron")),
+        "{drawn:?}"
     );
 }
 

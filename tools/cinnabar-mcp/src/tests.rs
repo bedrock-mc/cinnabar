@@ -38,6 +38,7 @@ fn tools_list_names_every_tool() {
             "launch_client",
             "connect",
             "input",
+            "import_skin",
             "chat",
             "camera_path",
             "test_cape",
@@ -310,5 +311,33 @@ fn default_binaries_carry_the_platform_executable_suffix() {
     assert_eq!(
         crate::tools::executable(repo, "target/debug/bedrock-client", ""),
         repo.join("target/debug/bedrock-client")
+    );
+}
+
+#[test]
+fn skin_import_resolves_paths_and_rejects_unknown_arguments() {
+    let repo = Path::new("/fixture/repo");
+    let control = repo.join(".local/control");
+    let (command, _) = commands::command(
+        "import_skin",
+        &json!({"path":"fixture.mcpack"}),
+        repo,
+        &control,
+    )
+    .unwrap();
+    assert_eq!(
+        command,
+        Command::ImportSkin {
+            path: repo.join("fixture.mcpack")
+        }
+    );
+    assert!(
+        commands::command(
+            "import_skin",
+            &json!({"path":"fixture.mcpack","extract":true}),
+            repo,
+            &control
+        )
+        .is_err()
     );
 }

@@ -904,6 +904,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 4,
         },
         GpuChunkAllocation {
@@ -922,6 +923,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 1,
         },
     ];
@@ -973,7 +975,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
         | WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
     assert_eq!(
-        select_chunk_draw_mode(indirect, first_instance, Backends::VULKAN),
+        select_chunk_draw_mode(indirect, first_instance, Backends::VULKAN, false),
         ChunkDrawMode::MultiDrawIndirect,
     );
     assert_eq!(
@@ -981,6 +983,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::BASE_VERTEX,
             first_instance,
             Backends::VULKAN,
+            false,
         ),
         ChunkDrawMode::Direct,
     );
@@ -989,6 +992,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             indirect,
             WgpuFeatures::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
             Backends::VULKAN,
+            false,
         ),
         ChunkDrawMode::Direct,
     );
@@ -997,6 +1001,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::empty(),
             WgpuFeatures::empty(),
             Backends::VULKAN,
+            false,
         ),
         ChunkDrawMode::Unsupported,
     );
@@ -1005,6 +1010,7 @@ fn multi_draw_requires_indirect_execution_and_indirect_first_instance() {
             DownlevelFlags::INDIRECT_EXECUTION,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
             Backends::VULKAN,
+            false,
         ),
         ChunkDrawMode::Unsupported,
     );
@@ -1018,6 +1024,7 @@ fn dx12_keeps_multi_draw_indirect_in_workspace_debug_builds() {
             indirect,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
             Backends::DX12,
+            false,
         ),
         ChunkDrawMode::MultiDrawIndirect,
         "the workspace dev profile disables wgpu-core 27's faulty debug-only stride assertion"
@@ -1032,6 +1039,7 @@ fn metal_uses_direct_draws_even_with_indirect_capabilities() {
             capabilities,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
             Backends::METAL,
+            false,
         ),
         ChunkDrawMode::Direct,
     );
@@ -1040,9 +1048,36 @@ fn metal_uses_direct_draws_even_with_indirect_capabilities() {
             DownlevelFlags::INDIRECT_EXECUTION,
             WgpuFeatures::INDIRECT_FIRST_INSTANCE,
             Backends::METAL,
+            false,
         ),
         ChunkDrawMode::Unsupported,
     );
+}
+
+#[test]
+fn apple_gpus_use_direct_draws_under_vulkan() {
+    let capabilities = DownlevelFlags::INDIRECT_EXECUTION | DownlevelFlags::BASE_VERTEX;
+    let features = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
+    assert_eq!(
+        select_chunk_draw_mode(capabilities, features, Backends::VULKAN, true),
+        ChunkDrawMode::Direct,
+        "Honeykrisp expands count-driven multi-draws on the CPU"
+    );
+    assert_eq!(
+        select_chunk_draw_mode(capabilities, features, Backends::VULKAN, false),
+        ChunkDrawMode::MultiDrawIndirect,
+    );
+    assert!(apple_gpu_identity(
+        0x10005,
+        "Honeykrisp",
+        "Apple M1 (G13G B1)"
+    ));
+    assert!(apple_gpu_identity(0x106B, "MoltenVK", "Apple M3 Pro"));
+    assert!(!apple_gpu_identity(
+        0x1002,
+        "radv",
+        "AMD Radeon RX 6700 XT (RADV NAVI22)"
+    ));
 }
 
 #[test]

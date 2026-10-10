@@ -544,10 +544,10 @@ impl ActorRenderScene {
         let mut invalid_references = 0u64;
         let slots = self.skin_slots.assigned();
         let submissions = submissions.into_iter().filter_map(|mut submission| {
-            let artwork_location = assignments.get(&submission.input.identity);
+            let artwork_location = assignments.get(&submission.input.identity).copied();
             let valid = submission.route == ActorRigRoute::NoDraw
                 || if let Some(location) = artwork_location {
-                    artwork.valid(submission.input.rig, *location)
+                    artwork.valid(submission.input.rig, location)
                         && submission.texture_layer == location.layer
                 } else {
                     (submission.texture_layer as usize) < skin_layer_count
@@ -562,36 +562,23 @@ impl ActorRenderScene {
             {
                 submission.texture_layer = slots[submission.texture_layer as usize];
             }
-            Some(submission)
+            Some((submission, artwork_location))
         });
-        let mut rig = self
-            .rig_builder
-            .build_paged(partial_tick, view, submissions, |identity| {
-                assignments
-                    .get(identity)
-                    .map_or(0, |location| location.page)
-            });
+        // Each submission's location is looked up once and travels with it.
+        let mut rig =
+            self.rig_builder
+                .build_located(partial_tick, view, submissions, |_, location| {
+                    location.map_or(0, |location| location.page)
+                });
         rig.rejects.invalid_geometry = rig
             .rejects
             .invalid_geometry
             .saturating_add(invalid_references);
-        for (instance, entry) in Arc::make_mut(&mut rig.instances)
-            .iter_mut()
-            .zip(rig.manifest.iter())
-        {
-            instance.multitexture_layers = assignments
-                .get(&entry.identity)
-                .and_then(|location| location.multitexture)
-                .unwrap_or([u32::MAX; 2]);
-        }
-        let instance_pages: Vec<_> = rig
-            .manifest
+        let instance_pages: Vec<_> = self
+            .rig_builder
+            .instance_locations()
             .iter()
-            .map(|entry| {
-                assignments
-                    .get(&entry.identity)
-                    .map_or(0, |location| location.page)
-            })
+            .map(|location| location.map_or(0, |location| location.page))
             .collect();
         if !skins_are_valid {
             let rejects = rig.rejects;

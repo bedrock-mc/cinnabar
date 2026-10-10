@@ -245,13 +245,7 @@ impl UiPresentationRuntime {
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
         self.gui_models.enabled = true;
-        let pack = self.gui_models.pack_equipment.source.clone();
-        self.gui_models.pack_equipment = Default::default();
-        if pack.is_some() {
-            self.set_preview_pack_equipment(pack);
-        } else {
-            self.rebuild_dynamic_textures();
-        }
+        self.place_pack_armor();
         Ok(())
     }
 
@@ -308,20 +302,13 @@ impl UiPresentationRuntime {
             uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
             glint: false,
         };
-        let texture = |texture: &player_preview::PreviewTexture| {
-            let key = atlas::key([texture.width, texture.height], &texture.rgba);
-            self.gui_models
-                .pack_equipment
-                .textures
-                .get(&key)
-                .or_else(|| self.gui_models.textures.get(&key))
-                .copied()
-        };
-        let armor = self
-            .player_preview_gear
-            .armor
-            .each_ref()
-            .map(|worn| worn.as_ref().and_then(texture));
+        let armor = std::array::from_fn(|slot| {
+            let texture = self.player_preview_gear.armor[slot].as_ref()?;
+            self.gui_models.pack_equipment.region(slot).or_else(|| {
+                let key = atlas::key([texture.width, texture.height], &texture.rgba);
+                self.gui_models.textures.get(&key).copied()
+            })
+        });
         let held = self.player_preview_gear.hands.each_ref().map(|hand| {
             let hand = hand.as_ref()?;
             let (identifier, metadata) = Self::item_icon_key(

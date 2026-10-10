@@ -13,8 +13,7 @@ use std::{
 use ::meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord,
-    chunk_publication_byte_len, mesh_dependency_mask,
-    mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
+    chunk_publication_byte_len, mesh_dependency_mask, sample_camera_medium,
 };
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
@@ -90,6 +89,7 @@ pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
 mod workers;
+pub use workers::{on_idle_world_cores, world_worker_threads};
 
 pub use client_world::ingestion::WorldStreamError;
 use client_world::ingestion::{
@@ -304,9 +304,9 @@ pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
 pub use model::{
-    ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, ViewCohortStatus,
-    WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+    CohortProgress, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
+    ViewCohortStatus, WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats,
+    WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.

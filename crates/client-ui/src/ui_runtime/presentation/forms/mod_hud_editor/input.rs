@@ -6,6 +6,32 @@ pub(in super::super) struct Drag {
     grab: [f64; 2],
     start: [f64; 2],
     moved: bool,
+    resize: Option<Resize>,
+    pub(super) guides: [Option<f64>; 2],
+}
+
+/// Captures the original geometry and opposite corner for one uniform resize.
+#[derive(Clone, Copy)]
+struct Resize {
+    corner: usize,
+    scale: f64,
+    size: [f64; 2],
+    fixed: [f64; 2],
+}
+
+/// Aligns any card edge or its center with a viewport edge or center guide.
+fn axis_target(at: f64, size: f64, viewport: f64) -> Option<(f64, f64)> {
+    let available = (viewport - size).max(0.);
+    [0., viewport * 0.5, viewport]
+        .into_iter()
+        .flat_map(|guide| {
+            [0., 0.5, 1.]
+                .into_iter()
+                .map(move |fraction| (guide - size * fraction, guide))
+        })
+        .filter(|(target, _)| *target >= 0. && *target <= available)
+        .min_by(|(a, _), (b, _)| (at - a).abs().total_cmp(&(at - b).abs()))
+        .filter(|(target, _)| (at - target).abs() <= AXIS_SNAP_DISTANCE)
 }
 
 impl HudEditor {
@@ -36,6 +62,7 @@ impl HudEditor {
                     .map(|c| Placement {
                         id: c.id.clone(),
                         position: c.position,
+                        scale: c.scale,
                     })
                     .collect()
             } else {
@@ -57,6 +84,9 @@ impl HudEditor {
             && self.autosave
         {
             self.draft.cards[drag.index] = self.committed.cards[drag.index].clone();
+            if drag.resize.is_some() {
+                self.catalog = None;
+            }
         }
     }
     /// Releases pointer feedback and rolls back an unfinished captured gesture.
@@ -72,7 +102,12 @@ impl HudEditor {
         let size = cards::dimensions(card);
         card.position = Some(std::array::from_fn(|axis| {
             let available = (self.viewport[axis] - size[axis]).max(0.);
-            let at = if self.snap {
+            let at = if self.snap
+                && self
+                    .drag
+                    .as_ref()
+                    .is_none_or(|drag| drag.guides[axis].is_none())
+            {
                 (at[axis] / 8.).round() * 8.
             } else {
                 at[axis]
@@ -84,6 +119,44 @@ impl HudEditor {
             }
         }));
     }
+    /// Scales from the captured corner while retaining the opposite corner and viewport bounds.
+    fn resize_card(&mut self, index: usize, resize: Resize, delta: [f64; 2]) {
+        let base: [f64; 2] = resize.size.map(|size| size / resize.scale);
+        let signed: [f64; 2] = std::array::from_fn(|axis| {
+            if resize.corner & (1 << axis) == 0 {
+                -base[axis]
+            } else {
+                base[axis]
+            }
+        });
+        let projection =
+            (delta[0] * signed[0] + delta[1] * signed[1]) / (base[0].powi(2) + base[1].powi(2));
+        let max_scale = (self.viewport[0] / base[0])
+            .min(self.viewport[1] / base[1])
+            .clamp(0.5, 2.);
+        let scale = (resize.scale + projection).clamp(0.5, max_scale) as f32;
+        let changed = self.draft.cards[index].scale != scale;
+        self.draft.cards[index].scale = scale;
+        let size = cards::dimensions(&self.draft.cards[index]);
+        self.draft.cards[index].position = Some(std::array::from_fn(|axis| {
+            let available = (self.viewport[axis] - size[axis]).max(0.);
+            let at = resize.fixed[axis]
+                - if resize.corner & (1 << axis) == 0 {
+                    size[axis]
+                } else {
+                    0.
+                };
+            if available > 0. {
+                (at.clamp(0., available) / available) as f32
+            } else {
+                0.
+            }
+        }));
+        if changed {
+            self.catalog = None;
+        }
+    }
+
     /// Uses rendered hit regions and retains a drag until its physical release.
     pub(in super::super) fn pointer(
         &mut self,
@@ -151,7 +224,9 @@ impl HudEditor {
                     card.anchor = card.reset_anchor.unwrap_or(card.anchor);
                     card.offset = card.reset_offset.unwrap_or(card.offset);
                     card.position = None;
+                    card.scale = card.reset_scale.unwrap_or(card.scale);
                 }
+                self.catalog = None;
                 self.reset = true;
                 self.drag = None;
                 self.checkpoint();
@@ -166,18 +241,41 @@ impl HudEditor {
         }
         if pressed {
             self.cancel_drag();
-            self.drag = action
-                .as_deref()
-                .and_then(|a| a.strip_prefix("hud.card:"))
-                .and_then(|n| n.parse::<usize>().ok())
-                .filter(|&n| n < self.draft.cards.len())
-                .map(|index| {
-                    let at = cards::origin(&self.draft.cards[index], self.viewport);
+            let capture = action.as_deref().and_then(|action| {
+                if let Some(index) = action.strip_prefix("hud.card:") {
+                    return index.parse::<usize>().ok().map(|index| (index, None));
+                }
+                let (index, corner) = action.strip_prefix("hud.resize:")?.split_once(':')?;
+                let corner = corner.parse::<usize>().ok().filter(|&corner| corner < 4)?;
+                self.draft
+                    .resizable
+                    .then_some((index.parse::<usize>().ok()?, Some(corner)))
+            });
+            self.drag = capture
+                .filter(|(index, _)| *index < self.draft.cards.len())
+                .map(|(index, corner)| {
+                    let card = &self.draft.cards[index];
+                    let at = cards::origin(card, self.viewport);
+                    let size = cards::dimensions(card);
                     Drag {
                         index,
                         grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                         start: point,
                         moved: false,
+                        guides: [None; 2],
+                        resize: corner.map(|corner| Resize {
+                            corner,
+                            scale: f64::from(card.scale),
+                            size,
+                            fixed: std::array::from_fn(|axis| {
+                                at[axis]
+                                    + if corner & (1 << axis) == 0 {
+                                        size[axis]
+                                    } else {
+                                        0.
+                                    }
+                            }),
+                        }),
                     }
                 });
             self.selected = self.drag.as_ref().map(|drag| drag.index);
@@ -188,7 +286,23 @@ impl HudEditor {
             let at = std::array::from_fn(|axis| point[axis] - drag.grab[axis]);
             let moved = drag.moved;
             if !pressed && moved {
-                self.move_card(index, at);
+                if let Some(resize) = drag.resize {
+                    let delta: [f64; 2] =
+                        std::array::from_fn(|axis| point[axis] - drag.start[axis]);
+                    self.resize_card(index, resize, delta);
+                } else {
+                    let size = cards::dimensions(&self.draft.cards[index]);
+                    let mut aligned = at;
+                    for axis in 0..2 {
+                        let target = axis_target(at[axis], size[axis], self.viewport[axis]);
+                        drag.guides[axis] =
+                            target.map(|(_, guide)| guide.min(self.viewport[axis] - GUIDE_WIDTH));
+                        if let Some((target, _)) = target {
+                            aligned[axis] = target;
+                        }
+                    }
+                    self.move_card(index, aligned);
+                }
             }
         }
         if !held {

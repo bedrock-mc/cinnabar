@@ -592,7 +592,6 @@ fn prepare_actor_bind_group(
 }
 
 fn submit_actor_presented_frame(
-    render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     tracker: Res<ActorDrawTracker>,
     gate: Res<ActorPresentationGate>,
@@ -624,13 +623,9 @@ fn submit_actor_presented_frame(
         acknowledged: false,
     });
     let present_returned_at = std::time::Instant::now();
-    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("actor presented-frame completion sentinel"),
-    });
-    let command_buffer = encoder.finish();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
-    command_buffer.on_submitted_work_done(move || {
+    crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
@@ -642,9 +637,6 @@ fn submit_actor_presented_frame(
             acknowledged,
         });
     });
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("actor.completion_submit").entered();
-    render_queue.submit([command_buffer]);
 }
 
 #[cfg(test)]

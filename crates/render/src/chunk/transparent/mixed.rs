@@ -160,11 +160,7 @@ impl MixedTerrainRuntime {
         water_pipeline: CachedRenderPipelineId,
         model_pipeline: CachedRenderPipelineId,
     ) -> Option<u32> {
-        let visible = &snapshot.key.visible_allocations;
-        let water = visible
-            .binary_search_by(|water| water.key.cmp(&group.key))
-            .ok()
-            .map(|index| &visible[index])?;
+        let water = snapshot.key.allocation(group.key)?;
         if water.mesh_generation != allocation.generation
             || water.metadata_index != allocation.metadata_index
             || !transparent_model_allocation_matches(instance, allocation)

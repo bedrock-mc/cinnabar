@@ -4,12 +4,14 @@ Vanilla draws some screens with OreUI (a web UI bundle, `data/gui/dist/hbui`) in
 Cinnabar uses the target's OreUI Settings layout, including its category sidebar and grouped
 controls. The other routes below retain their documented selection policy. OreUI is drawn in our
 own code with vanilla component geometry, states, spacing and type metrics. Installed runtime
-assets supply native images and font faces; Minecraft content is never bundled or committed.
+assets supply native images. Text uses shipped Cinnangles faces; Minecraft content is never
+bundled or committed.
 
-Native text preserves its primary face and uses the installed locale-specific Noto chain for
-missing glyphs, including CJK language names and server MOTDs. Fallback pages are shared across
-families and raster sizes. Additional characters rasterize on a worker into a bounded cache;
-unchanged text retains its layouts and textures. Full script shaping remains an open parity gate.
+OreUI body text uses Cinnangles Seven and headings use Cinnangles Ten, both derived from the
+shipped Cinnangles Sans. `make font-seven-assets` and `make font-ten-assets` build optional,
+hash-checked carriers ahead of startup. Missing or invalid carriers use the default font.
+The carriers include bounded Unicode ranges from each shipped face; no game fonts are read.
+Full Unicode coverage, script shaping and small-text raster parity remain open gates.
 
 ## Screen routes
 
@@ -98,11 +100,10 @@ their native artwork. Live animation review remains open.
   runtime. `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` selects a bundle
   explicitly. Native button faces use the original state-specific nine-slice images. Switches,
   sliders, segmented controls and radio diamonds use their native role fills and bevel geometry.
-- Minecraft Seven supplies body text and Minecraft Ten supplies headings, with native em metrics,
-  line heights and letter spacing. Minecraft Five variants are available for their native roles.
-  Native outline text uses CPU distance fields and the native coverage shader; small text
-  uses pixel-size raster variants. The default HUD and JSON-UI font remains independently selectable.
-- Without a native bundle, drawn artwork and the open font remain a diagnostic fallback.
+- Cinnangles Seven supplies body text and Cinnangles Ten supplies headings. The compiled
+  carriers retain each face's em and vertical metrics for semantic sizes, line heights and
+  letter spacing. The default HUD and JSON-UI font remains independently selectable.
+- Without a native bundle, drawn artwork remains a diagnostic fallback.
   The renderer uses that artwork only when a runtime bundle is unavailable. This fallback does not
   satisfy the native artwork parity gate. One rem is five GUI pixels; one texel is 0.2rem.
 
@@ -115,7 +116,7 @@ widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.
 
 - Settings: full native option coverage, controller binding glyphs, account management,
   Touch/Party/subscription services, and storage subroutes remain incomplete. Runtime
-  artwork, core fonts and CPU distance fields are integrated; locale shaping, hidden-tab
+  artwork and shipped Cinnangles font carriers are integrated; locale shaping, hidden-tab
   animation resumption and matched captures remain open; see `../plan.md`.
 - Bed: text colour and secondary-button theme colours (unrecovered).
 - Death: the carrier owns its gradient, title, reason and button layout. Controller

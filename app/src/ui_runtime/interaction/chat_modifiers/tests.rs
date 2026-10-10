@@ -222,7 +222,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
                             model: protocol::ServerFormModel::TextMenu(protocol::TextMenuForm {
                                 title: "Fixture".into(),
                                 content: "Choose".into(),
-                                buttons: vec![Arc::from("OK")].into(),
+                                buttons: vec!["OK".into()].into(),
                                 button_images: [].into(),
                                 omitted_images: 0,
                             }),

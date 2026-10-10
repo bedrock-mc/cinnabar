@@ -10,6 +10,7 @@ mod layout;
 mod palette;
 mod parse;
 mod single_line;
+mod units;
 
 pub use palette::FormattingPalette;
 
@@ -185,7 +186,7 @@ pub enum TextLineAlign {
 /// How a word wider than the whole line breaks.
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum WordChop {
-    /// Before the first glyph that overflows; a glyph wider than the line errors.
+    /// Before the first glyph that overflows; strict requests reject a wider glyph.
     #[default]
     Glyph,
     /// Vanilla labels: so the prefix plus `-` fits, then draw the `-`.
@@ -203,11 +204,16 @@ pub struct TextWrap {
     /// Extra pitch between lines in output 1/64 pixels (not scaled again).
     pub line_padding_64: i32,
     pub chop: WordChop,
+    /// Keeps a glyph wider than the line so the control can clip its ink.
+    pub allow_visual_overflow: bool,
     /// Lines past this drop and the last kept one ends in `...`.
     pub max_lines: Option<u16>,
     /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
     /// snaps each line to the pixel grid; zero keeps them exact.
     pub align_grid_65536: u32,
+    /// Device pixels per output pixel in 1/65536 units; zero means unknown.
+    /// Half-device-pixel font texels use exact device units to prevent fractional-scale stroke drift.
+    pub device_scale_65536: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -461,6 +467,7 @@ pub struct TextLayoutCache {
     retained_bytes: usize,
     next_id: u64,
     clock: u64,
+    visual_overflows: u64,
     entries: BTreeMap<CacheKey, CacheEntry>,
 }
 
@@ -472,6 +479,7 @@ impl TextLayoutCache {
             retained_bytes: 0,
             next_id: 1,
             clock: 0,
+            visual_overflows: 0,
             entries: BTreeMap::new(),
         }
     }
@@ -492,7 +500,15 @@ impl TextLayoutCache {
             .checked_add(1)
             .ok_or(TextError::CacheCounterOverflow)?;
         let layout = Arc::new(build_layout(id, layout_key, request)?);
+        if layout.size_64()[0] > request.width_64 {
+            self.visual_overflows = self.visual_overflows.saturating_add(1);
+        }
         self.retain(key, layout, now)
+    }
+
+    /// Counts newly shaped layouts with ink wider than their wrapping control.
+    pub const fn visual_overflow_count(&self) -> u64 {
+        self.visual_overflows
     }
 
     /// Counts shaping attempts, including failed and uncached layouts.

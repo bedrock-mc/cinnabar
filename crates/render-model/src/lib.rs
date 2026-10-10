@@ -7,7 +7,11 @@ mod chunk_metrics;
 mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
+mod font_atlas;
 mod frame_pacing;
+pub use font_atlas::{
+    FONT_ATLAS_GUTTER, FONT_ATLAS_SIDE, FontAtlas, FontAtlasFrame, FontAtlasVertex, FontRect,
+};
 mod item_geometry;
 pub mod java_animation;
 mod nametag;
@@ -27,7 +31,7 @@ pub use actor::{
     RenderBoneTransform, SKIN_CLASS_SIDES, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
     STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, actor_skin_side, append_entity_cube_vertices,
     attachable_geometry, attachable_raster_frame, default_actor_skin_rgba8, diagnostic_geometry,
-    entity_geometry, equipment_geometry, equipment_rig_id, find_geometry_index,
+    entity_geometry, equipment_geometry, equipment_rig_id, find_geometry_index, fit_rgba_within,
     geometry_bone_binding_expressions, geometry_bone_names, geometry_bone_pivots,
     geometry_from_geometry_index, geometry_from_runtime_assets, install_default_player_skin,
     is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,

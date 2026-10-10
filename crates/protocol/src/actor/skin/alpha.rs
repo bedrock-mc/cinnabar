@@ -41,6 +41,11 @@ pub fn normalize_classic_skin_rgba8(width: u32, height: u32, pixels: &mut [u8]) 
     normalize_pixels(width, height, pixels, true)
 }
 
+/// Binarizes custom skin texels without forcing humanoid body coverage.
+pub fn normalize_custom_skin_rgba8(width: u32, height: u32, pixels: &mut [u8]) -> bool {
+    normalize_pixels(width, height, pixels, false)
+}
+
 fn normalize_pixels(width: u32, height: u32, pixels: &mut [u8], protect_body: bool) -> bool {
     if width != height
         || !(width as usize == CLASSIC_SKIN_SIDE || width as usize == MAX_CLASSIC_SKIN_SIDE)

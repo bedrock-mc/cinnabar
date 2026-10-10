@@ -116,6 +116,32 @@ fn environment_and_effects_scale_speed() {
     assert!(ticks("minecraft:stone", odd).unwrap() > 2_000);
 }
 
+/// Each effect rounds the resulting rate before the next multiplier is applied.
+#[test]
+fn native_destroy_effects_round_each_multiplier() {
+    let block = block_destroy_info("minecraft:stone").unwrap();
+    for (haste, fatigue, expected) in [
+        (3, 0, 0x3dfba885),
+        (3, 2, 0x3bb191f1),
+        (4, 3, 0x3ac95d4e),
+        (7, 0, 0x3ec3b084),
+        (2, 1, 0x3c9a2404),
+        (5, 4, 0x39e1873a),
+    ] {
+        let conditions = DestroyConditions {
+            haste_amplifier: Some(haste - 1),
+            mining_fatigue_amplifier: (fatigue > 0).then_some(fatigue - 1),
+            ..grounded(Some("minecraft:wooden_pickaxe"))
+        };
+        assert_eq!(
+            destroy_progress_per_tick(&block, &conditions)
+                .unwrap()
+                .to_bits(),
+            expected
+        );
+    }
+}
+
 #[test]
 fn zero_hardness_is_instant_and_negative_is_indestructible() {
     assert_eq!(ticks("minecraft:torch", grounded(None)), Some(1));

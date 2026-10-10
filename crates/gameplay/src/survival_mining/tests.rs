@@ -42,6 +42,26 @@ const STILL: TickMotion = TickMotion {
     moved: 0.0,
 };
 
+/// Slow mining accumulates single-precision progress instead of finishing a tick early.
+#[test]
+fn native_destroy_accumulates_single_precision_ticks() {
+    let target = target([4, 5, 6], "minecraft:obsidian", None);
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &target, Server);
+    for tick in 1..=3_500 {
+        assert!(
+            held(&mut machine, &target, Server).broken.is_none(),
+            "broke at tick {tick}, rate {:?}, block {:?}",
+            target.rate(true),
+            target.block,
+        );
+    }
+    assert_eq!(
+        held(&mut machine, &target, Server).broken,
+        Some(target.position)
+    );
+}
+
 fn kinds(payload: &SurvivalTickPayload) -> Vec<(protocol::BlockActionKind, [i32; 3], u8)> {
     payload
         .actions
@@ -171,10 +191,10 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
     for _ in 0..75 {
         held(&mut machine, &second, Server);
     }
-    // 75 ticks of 1/150 per tick is half the block.
+    // Float accumulation stays just below one half, so the wire percent truncates to 49.
     assert_eq!(
         kinds(&machine.step(DestroyInput::Released, STILL, Server)),
-        [(AbortDestroy, [0, 0, 1], 50)]
+        [(AbortDestroy, [0, 0, 1], 49)]
     );
     assert!(
         machine

@@ -248,6 +248,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             pack_compiler::compile_hud_extras_to_file(&pack, &out)?;
             println!("compiled HUD extras to {}", out.display());
         }
+        Command::StarterSkinAssets { pack, out } => {
+            pack_compiler::compile_starter_skins_to_file(&pack, &out)?;
+            println!("compiled starter skins to {}", out.display());
+        }
         Command::WeatherAssets { pack, out } => {
             pack_compiler::compile_weather_textures_to_file(&pack, &out)?;
             println!("compiled weather textures to {}", out.display());

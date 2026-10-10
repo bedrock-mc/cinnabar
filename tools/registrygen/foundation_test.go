@@ -262,11 +262,15 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 	if strings.Contains(strings.ToLower(strings.Join(foundationLines, "\n")), "phy"+"sics") {
 		t.Fatal("foundation target references an unrelated registry")
 	}
-	assetsLine := makeTargetLine(t, text, "assets:")
-	clientLine := makeTargetLine(t, text, "client:")
-	for _, line := range []string{assetsLine, clientLine} {
-		if strings.Contains(line, "registry-foundation") {
-			t.Fatalf("foundation leaked into a default dependency: %s", line)
+	for _, target := range []string{"assets", "play"} {
+		command := exec.Command("make", "--dry-run", "--always-make", "--no-print-directory", target, "CARGO=echo", "GO=echo")
+		command.Dir = filepath.Join("..", "..")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("plan %s: %v; output=%s", target, err, output)
+		}
+		if strings.Contains(string(output), "cmd/foundationcheck") {
+			t.Fatalf("foundation leaked into %s: %s", target, output)
 		}
 	}
 }
@@ -315,17 +319,6 @@ func commandExitCode(err error) int {
 		return exitError.ExitCode()
 	}
 	return -1
-}
-
-func makeTargetLine(t *testing.T, text, target string) string {
-	t.Helper()
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, target) {
-			return line
-		}
-	}
-	t.Fatalf("missing Make target %q", target)
-	return ""
 }
 
 // TestRegistryFoundationFollowsTargetBlockPin rejects stale bindings after a manifest update.

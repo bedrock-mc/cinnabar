@@ -1,5 +1,7 @@
 //! Settings actions use elevated artwork; compact reset and picker faces use role colours.
 
+use crate::ui_runtime::oreui_assets::{EXTERNAL_LINK_ICON, RESET_ICON};
+
 use super::super::super::super::UiPresentationError;
 use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
@@ -10,7 +12,6 @@ use crate::menu::{MenuAction, MenuView};
 pub(super) const ACTION_HEIGHT: f32 = 4.8;
 pub(super) const ACTION_MIN_WIDTH: f32 = 14.0;
 const ELEVATION: f32 = 0.4;
-const EXTERNAL_ICON: &str = "assets/external-link@0.5x.icon-28016636e9d767b57dffe6e45fa749aa.png";
 const ICON_SIZE: f32 = 2.4;
 const ICON_GAP: f32 = 0.8;
 
@@ -62,7 +63,7 @@ pub(super) fn action(
         let size = canvas.r(ICON_SIZE);
         let top = (content_top + content_bottom - size) * 0.5;
         canvas.masked_sprite(
-            EXTERNAL_ICON,
+            EXTERNAL_LINK_ICON,
             [left, top, left + size, top + size],
             canvas.role(theme::SECONDARY).text,
         )?;
@@ -152,7 +153,7 @@ pub(super) fn binding_reset(
     let half = canvas.r(1.2);
     let centre = [(face[0] + face[2]) * 0.5, (face[1] + face[3]) * 0.5];
     canvas.masked_sprite(
-        "assets/reset@0.5x.icon-4fc2a8ff6f440b4d14293bb8e833a1bc.png",
+        RESET_ICON,
         [
             centre[0] - half,
             centre[1] - half,

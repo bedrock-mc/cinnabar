@@ -1,0 +1,82 @@
+name: Build cache
+description: Restore or save compiler outputs without creating caches on pull requests
+inputs:
+  phase:
+    description: restore or save
+    default: restore
+  language:
+    description: rust or go
+    default: rust
+  workspace:
+    description: Source checkout directory
+    default: .
+  lane:
+    description: ci or release (Rust profiles are kept separate)
+    default: ci
+  key:
+    description: Key returned by the restore step
+    default: ''
+  bucket:
+    description: Retention bucket returned by the restore step
+    default: ''
+  paths:
+    description: Paths returned by the restore step
+    default: ''
+outputs:
+  key:
+    description: Key for this source revision and compiler configuration
+    value: ${{ steps.plan.outputs.key }}
+  bucket:
+    description: Platform and profile retention bucket
+    value: ${{ steps.plan.outputs.bucket }}
+  paths:
+    description: Compiler output paths
+    value: ${{ steps.plan.outputs.paths }}
+runs:
+  using: composite
+  steps:
+    - name: Plan cache
+      if: inputs.phase == 'restore'
+      id: plan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CACHE_WORKSPACE: ${{ inputs.workspace }}
+        CACHE_LANGUAGE: ${{ inputs.language }}
+        CACHE_LANE: ${{ inputs.lane }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" plan
+    - uses: actions/cache/restore@v4
+      if: inputs.phase == 'restore'
+      with:
+        key: ${{ steps.plan.outputs.key }}
+        restore-keys: ${{ steps.plan.outputs.prefix }}
+        path: ${{ steps.plan.outputs.paths }}
+    - name: Restore unchanged source timestamps
+      if: inputs.phase == 'restore' && inputs.language == 'rust'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CACHE_WORKSPACE: ${{ inputs.workspace }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" restore-inputs
+    - name: Check cached source inputs
+      if: inputs.phase == 'save' && inputs.language == 'rust'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CACHE_WORKSPACE: ${{ inputs.workspace }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" verify-inputs
+    - uses: actions/cache/save@v4
+      if: inputs.phase == 'save'
+      with:
+        key: ${{ inputs.key }}
+        path: ${{ inputs.paths }}
+    - name: Retain the newest cache in this bucket
+      continue-on-error: true
+      if: inputs.phase == 'save'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_BUCKET: ${{ inputs.bucket }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" prune

@@ -32,6 +32,16 @@ fn actor(
             ])
         })
         .unwrap_or_default();
+    actor_with(runtime_id, identifier, feet, metadata)
+}
+
+/// Spawns an actor with arbitrary metadata for picking tests.
+fn actor_with(
+    runtime_id: u64,
+    identifier: &str,
+    feet: [f32; 3],
+    metadata: HashMap<u32, ActorMetadataValue>,
+) -> ActorSnapshot {
     let mut authority = WorldAuthority::new(
         protocol::WorldBootstrap {
             dimension: 0,
@@ -102,6 +112,55 @@ fn nearest_pickable_actor_wins_and_reports_the_inflated_entry_point() {
     let hit = pick_actor(actors.iter(), Some(10), EYE, NORTH, 5.7).unwrap();
     assert_eq!(hit.runtime_id, 2);
     assert_eq!(pick_actor(actors[..1].iter(), None, EYE, NORTH, 3.0), None);
+}
+
+/// A zombie whose only hitbox is a 1×1×1 cube centred 3 blocks above its feet.
+fn zombie_with_raised_hitbox(feet: [f32; 3]) -> ActorSnapshot {
+    let mut entry = world::NbtCompound::default();
+    for (name, value) in [
+        ("MinX", -0.5),
+        ("MinY", 0.0),
+        ("MinZ", -0.5),
+        ("MaxX", 0.5),
+        ("MaxY", 1.0),
+        ("MaxZ", 0.5),
+        ("PivotX", 0.0),
+        ("PivotY", 3.0),
+        ("PivotZ", 0.0),
+    ] {
+        entry.insert(name, world::NbtValue::Float(value));
+    }
+    let mut root = world::NbtCompound::default();
+    root.insert(
+        "Hitboxes",
+        world::NbtValue::List(vec![world::NbtValue::Compound(entry)]),
+    );
+    let bytes = root.encode_root().unwrap();
+    actor_with(
+        5,
+        "minecraft:zombie",
+        feet,
+        HashMap::from([(
+            client_world::HITBOX_METADATA_KEY,
+            ActorMetadataValue::Compound(Arc::from(bytes)),
+        )]),
+    )
+}
+
+#[test]
+fn custom_hitbox_replaces_the_collision_box_for_picks() {
+    let zombie = zombie_with_raised_hitbox([0.0, 0.0, -2.0]);
+    // Eye-level ray passes through the collision box but under the raised hitbox.
+    assert_eq!(
+        pick_actor([&zombie].into_iter(), None, EYE, NORTH, 3.0),
+        None
+    );
+    let raised = [0.0, 3.0, 0.0];
+    let hit = pick_actor([&zombie].into_iter(), None, raised, NORTH, 3.0)
+        .expect("the ray enters the raised hitbox");
+    assert_eq!(hit.runtime_id, 5);
+    // Front face at z = -2 + 0.5, grown by the pick radius.
+    assert!((hit.distance - 1.4).abs() < 1e-6, "{}", hit.distance);
 }
 
 #[test]
@@ -990,4 +1049,17 @@ fn a_fresh_unpublished_press_still_obeys_the_half_duration_guard() {
         assert!(!runtime.observe_input(false, false));
         assert_eq!(swings.take_started(), None);
     }
+}
+
+#[test]
+fn ordered_hitboxes_use_the_first_intersection_within_reach() {
+    let actor = actor(9, "minecraft:pig", [0.0; 3], None);
+    let boxes = [
+        ([5.0, 0.0, -2.0], [6.0, 3.0, -1.0]),
+        ([-0.5, 0.0, -9.0], [0.5, 3.0, -8.0]),
+        ([-0.5, 0.0, -4.0], [0.5, 3.0, -3.0]),
+        ([-0.5, 0.0, -2.0], [0.5, 3.0, -1.0]),
+    ];
+    let hit = pick_actor_by([&actor].into_iter(), |_| boxes, None, EYE, NORTH, 5.0).unwrap();
+    assert!((hit.distance - 2.9).abs() < 1e-6, "{}", hit.distance);
 }

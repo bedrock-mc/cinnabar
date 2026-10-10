@@ -8,7 +8,7 @@ fn event(position: [i32; 3], action: BlockCrackAction) -> BlockCrackEvent {
     BlockCrackEvent { position, action }
 }
 
-fn start(value: u16) -> BlockCrackAction {
+fn start(value: i32) -> BlockCrackAction {
     BlockCrackAction::Start {
         progress_per_tick: value,
     }

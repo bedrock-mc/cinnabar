@@ -236,9 +236,8 @@ pub struct DestroyConditions {
 /// Destroy progress gained per tick; `None` for indestructible blocks.
 ///
 /// Zero hardness yields exactly one. The speed/hardness/30-or-100 base follows
-/// dragonfly's `block/break_info.go` (MIT); scaling both the tool speed and the
-/// final rate by Haste and Mining Fatigue is observed vanilla behavior that needs
-/// independent measurement.
+/// dragonfly's `block/break_info.go` (MIT). Haste and Mining Fatigue modify both
+/// speed and final progress, rounding each result back to float precision.
 #[must_use]
 pub fn destroy_progress_per_tick(
     block: &BlockDestroyInfo,
@@ -255,7 +254,6 @@ pub fn destroy_progress_per_tick(
         let level = f32::from(conditions.efficiency_level);
         speed += level * level + 1.0;
     }
-    let mut rate_scale = 1.0;
     let haste = [
         conditions.haste_amplifier,
         conditions.conduit_power_amplifier,
@@ -266,20 +264,21 @@ pub fn destroy_progress_per_tick(
     .max();
     if let Some(level) = haste {
         speed *= 1.0 + 0.2 * level as f32;
-        rate_scale *= 1.2_f32.powi(level);
     }
-    if !speed.is_finite() || !rate_scale.is_finite() {
+    if !speed.is_finite() {
         return Some(0.0);
     }
-    if let Some(amplifier) = conditions.mining_fatigue_amplifier {
+    let fatigue = if let Some(amplifier) = conditions.mining_fatigue_amplifier {
         // An odd negative amplifier must never yield a faster prediction.
         if amplifier < 0 {
             return Some(0.0);
         }
         let level = effect_level(amplifier);
-        speed *= 0.3_f32.powi(level);
-        rate_scale *= 0.7_f32.powi(level);
-    }
+        speed = (f64::from(speed) * f64::from(0.3_f32).powf(f64::from(level))) as f32;
+        Some(level)
+    } else {
+        None
+    };
     if conditions.eyes_in_water && !conditions.aqua_affinity {
         speed /= 5.0;
     }
@@ -291,7 +290,13 @@ pub fn destroy_progress_per_tick(
     } else {
         100.0
     };
-    let progress = speed / block.hardness / divisor * rate_scale;
+    let mut progress = speed / block.hardness / divisor;
+    if let Some(level) = haste {
+        progress = (f64::from(progress) * f64::from(1.2_f32).powf(f64::from(level))) as f32;
+    }
+    if let Some(level) = fatigue {
+        progress = (f64::from(progress) * f64::from(0.7_f32).powf(f64::from(level))) as f32;
+    }
     Some(if progress.is_finite() && progress >= 0.0 {
         progress
     } else {

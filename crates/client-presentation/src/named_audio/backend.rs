@@ -8,6 +8,8 @@ use std::{
     },
     time::Duration,
 };
+mod priority;
+
 pub(super) const VOICE_LIMIT: usize = 16;
 /// Captured audio is interleaved stereo.
 pub const CAPTURE_CHANNELS: u16 = 2;
@@ -249,7 +251,10 @@ impl AudioDevice {
         let Some((_, handle)) = &self.output else {
             return false;
         };
-        if handle.play_raw(source).is_err() {
+        if handle
+            .play_raw(priority::CallbackSource::new(source))
+            .is_err()
+        {
             self.output = None;
             return false;
         }
@@ -268,7 +273,12 @@ impl AudioDevice {
         let Some((_, handle)) = &self.output else {
             return false;
         };
-        if handle.play_raw(source.convert_samples::<f32>()).is_err() {
+        if handle
+            .play_raw(priority::CallbackSource::new(
+                source.convert_samples::<f32>(),
+            ))
+            .is_err()
+        {
             // The rejected owned source drops normally. No permit is manually freed.
             self.output = None;
             return false;

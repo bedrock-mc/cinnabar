@@ -517,12 +517,23 @@ fn generate_chain_internal(
         skin_animation_data: "".into(),
         skin_color: "#b37b62".into(), // Default Steve skin color
         skin_data: skin_data_b64,
-        skin_geometry_data: STANDARD.encode(""), // Empty = use default
-        skin_geometry_data_engine_version: "".into(),
+        skin_geometry_data: skin
+            .and_then(|skin| skin.geometry.as_ref())
+            .map_or_else(String::new, |geometry| {
+                STANDARD.encode(&geometry.geometry_data)
+            }),
+        skin_geometry_data_engine_version: skin
+            .and_then(|skin| skin.geometry.as_ref())
+            .map_or_else(String::new, |geometry| {
+                STANDARD.encode(&geometry.engine_version)
+            }),
         skin_id: format!("{}.Custom", uuid),
         skin_image_height,
         skin_image_width,
-        skin_resource_patch: generate_skin_resource_patch(&arm_size),
+        skin_resource_patch: skin.and_then(|skin| skin.geometry.as_ref()).map_or_else(
+            || generate_skin_resource_patch(&arm_size),
+            |geometry| STANDARD.encode(&geometry.resource_patch),
+        ),
         third_party_name: display_name.into(),
         third_party_name_only: false,
         trusted_skin: false,
@@ -608,12 +619,23 @@ fn generate_client_data_token(
         skin_animation_data: "".into(),
         skin_color: "#b37b62".into(),
         skin_data: skin_data_b64,
-        skin_geometry_data: STANDARD.encode(""),
-        skin_geometry_data_engine_version: "".into(),
+        skin_geometry_data: skin
+            .and_then(|skin| skin.geometry.as_ref())
+            .map_or_else(String::new, |geometry| {
+                STANDARD.encode(&geometry.geometry_data)
+            }),
+        skin_geometry_data_engine_version: skin
+            .and_then(|skin| skin.geometry.as_ref())
+            .map_or_else(String::new, |geometry| {
+                STANDARD.encode(&geometry.engine_version)
+            }),
         skin_id: format!("{}.Custom", uuid),
         skin_image_height,
         skin_image_width,
-        skin_resource_patch: generate_skin_resource_patch(&arm_size),
+        skin_resource_patch: skin.and_then(|skin| skin.geometry.as_ref()).map_or_else(
+            || generate_skin_resource_patch(&arm_size),
+            |geometry| STANDARD.encode(&geometry.resource_patch),
+        ),
         third_party_name: display_name.into(),
         third_party_name_only: false,
         trusted_skin: false,
@@ -651,6 +673,7 @@ mod skin_upload_tests {
         let key = SecretKey::random(&mut rand::thread_rng());
         let rgba8: Vec<u8> = (0..64 * 64 * 4).map(|i| (i % 251) as u8).collect();
         let skin = ClientSkin {
+            geometry: None,
             rgba8: rgba8.clone(),
             width: 64,
             height: 64,

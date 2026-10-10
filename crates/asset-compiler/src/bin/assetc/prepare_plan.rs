@@ -148,7 +148,7 @@ pub(super) struct Plan {
     /// Every carrier in scope, in table order.
     pub selected: Vec<&'static Carrier>,
     pub stale: Vec<&'static Carrier>,
-    pub fingerprints: HashMap<Recipe, String>,
+    pub fingerprints: HashMap<&'static str, String>,
     /// Digests of every input this plan read, for the next run's stamp.
     pub inputs: BTreeMap<String, FileDigest>,
 }
@@ -175,13 +175,13 @@ pub(super) fn plan(
     };
     for carrier in &selected {
         let print = fingerprint(carrier, context, compiler, &digests, &fingerprints)?;
-        fingerprints.insert(carrier.recipe, print);
+        fingerprints.insert(carrier.name, print);
     }
     let stale = selected
         .iter()
         .copied()
         .filter(|carrier| match stamp.carriers.get(carrier.name) {
-            Some(entry) if entry.fingerprint == fingerprints[&carrier.recipe] => {
+            Some(entry) if entry.fingerprint == fingerprints[carrier.name] => {
                 !entry.failed && !carrier.outputs(&context.out).all(|path| path.exists())
             }
             _ => true,
@@ -198,9 +198,9 @@ pub(super) fn plan(
 /// The carriers in scope plus everything they read, in table order.
 fn select(scope: &Scope) -> Result<Vec<&'static Carrier>, Box<dyn Error>> {
     let in_scope = |carrier: &Carrier| carrier.installed || !scope.installed_only;
-    let mut wanted: Vec<Recipe> = Vec::new();
+    let mut wanted: Vec<&'static str> = Vec::new();
     if scope.only.is_empty() {
-        wanted.extend(CARRIERS.iter().filter(|c| in_scope(c)).map(|c| c.recipe));
+        wanted.extend(CARRIERS.iter().filter(|c| in_scope(c)).map(|c| c.name));
     }
     for name in scope.only {
         let carrier = carriers::by_name(name).ok_or_else(|| {
@@ -210,17 +210,17 @@ fn select(scope: &Scope) -> Result<Vec<&'static Carrier>, Box<dyn Error>> {
                 names.join(", ")
             )
         })?;
-        wanted.push(carrier.recipe);
+        wanted.push(carrier.name);
     }
     // Reads point at earlier entries, so one reverse pass closes over them.
     for carrier in CARRIERS.iter().rev() {
-        if wanted.contains(&carrier.recipe) {
+        if wanted.contains(&carrier.name) {
             wanted.extend(carrier.reads);
         }
     }
     Ok(CARRIERS
         .iter()
-        .filter(|carrier| wanted.contains(&carrier.recipe) && in_scope(carrier))
+        .filter(|carrier| wanted.contains(&carrier.name) && in_scope(carrier))
         .collect())
 }
 
@@ -229,7 +229,7 @@ fn fingerprint(
     context: &Context,
     compiler: &str,
     digests: &Digests,
-    earlier: &HashMap<Recipe, String>,
+    earlier: &HashMap<&'static str, String>,
 ) -> Result<String, Box<dyn Error>> {
     let mut hasher = Sha256::new();
     let mut field = |bytes: &[u8]| {

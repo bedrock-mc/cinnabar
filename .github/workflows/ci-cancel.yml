@@ -3,14 +3,16 @@ name: CI cancel
 # Closing or merging a pull request cancels its in-flight CI run: this joins ci.yml's concurrency
 # group for the pull request, and cancel-in-progress applies across workflows.
 on:
-  pull_request:
+  # Only trusted inline cleanup runs; never check out or execute the PR's code.
+  pull_request_target:
     types: [closed]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions: {}
+permissions:
+  actions: write
 
 jobs:
   cancel:
@@ -19,3 +21,11 @@ jobs:
     timeout-minutes: 2
     steps:
       - run: echo "Superseded CI runs for this pull request were cancelled."
+      - name: Remove caches scoped to the closed pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh cache list --ref "refs/pull/$PR_NUMBER/merge" --limit 100 --json id --jq '.[].id' |
+            while read -r id; do gh cache delete "$id"; done

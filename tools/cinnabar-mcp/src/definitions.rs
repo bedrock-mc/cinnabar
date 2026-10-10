@@ -73,6 +73,11 @@ pub fn definitions() -> Value {
             } }
         },
         {
+            "name": "import_skin",
+            "description": "Import a PNG, paired geometry JSON, or skin pack through the Dressing Room worker. The path is resolved against the checkout; poll state for completion.",
+            "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"], "additionalProperties": false }
+        },
+        {
             "name": "chat",
             "description": "Send a chat line as the player; a leading / sends a command (e.g. /showcase souls).",
             "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] }

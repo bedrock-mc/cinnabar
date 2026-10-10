@@ -43,7 +43,7 @@ counts use body (1.6rem font, 2rem line). J `vZ`, `EJ`, `g2`; C
 J `vZ` places both the name and status inside `yu`. C
 `.e41d8159223d4eea19af` sets `white-space: nowrap`, `overflow: hidden`, and
 `text-overflow: ellipsis`; long labels stay on one line in both card layouts.
-The reference font is Minecraft Seven v2; the project's open font remains
+The reference font is Minecraft Seven v2; the shipped Cinnangles Seven remains
 the accepted repository deviation.
 
 ## Overview content

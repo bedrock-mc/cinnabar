@@ -189,7 +189,7 @@ pub enum Command {
     },
     Disconnect,
     Input(InputCommand),
-    /// Imports a classic PNG through the same path as the Dressing Room file picker.
+    /// Imports a skin image or pack through the same path as the Dressing Room file picker.
     ImportSkin {
         path: PathBuf,
     },

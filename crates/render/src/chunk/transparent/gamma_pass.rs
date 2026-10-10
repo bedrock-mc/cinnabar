@@ -125,6 +125,12 @@ impl ViewNode for GammaTransparentPass {
             if let Some(viewport) =
                 Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
             {
+                let Some(viewport) = crate::render_bounds::viewport(
+                    &viewport,
+                    crate::render_bounds::extent(scene.color_view(false)),
+                ) else {
+                    return Ok(());
+                };
                 pass.set_camera_viewport(&viewport);
             }
             phase.render_range(&mut pass, world, graph.view_entity(), range)?;
@@ -134,13 +140,14 @@ impl ViewNode for GammaTransparentPass {
 }
 
 /// Native transparent families output encoded colour and blend through the compatible UNORM view.
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 7] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
     let primitives = crate::primitive_shapes::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
         Some(draws.id::<DrawTransparentLiquidCommands>()),
+        Some(draws.id::<DrawTransparentLiquidDirectCommands>()),
         Some(draws.id::<DrawTransparentLiquidIndirectCommands>()),
         Some(draws.id::<DrawTransparentModelCommands>()),
         Some(draws.id::<DrawMixedTerrainCommands>()),

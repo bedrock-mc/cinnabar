@@ -200,6 +200,16 @@ pub(crate) fn prepare_ui_resources(
         return;
     }
 
+    if let Err(reason) = gpu
+        .textures
+        .prepare_fonts(input, &render_queue, profile.as_deref())
+    {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
+        return;
+    }
+
     let fresh_vertices = gpu.vertex_capacity < input.vertices.len();
     let fresh_indices = gpu.index_capacity < input.indices.len();
     if fresh_vertices {
@@ -207,12 +217,12 @@ pub(crate) fn prepare_ui_resources(
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "ui.vertex_allocate",
-            bytes = arena_bytes(capacity, size_of::<UiRenderVertex>())
+            bytes = arena_bytes(capacity, size_of::<FontAtlasVertex>())
         )
         .entered();
         gpu.vertex_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI vertex arena"),
-            size: arena_bytes(capacity, size_of::<UiRenderVertex>()),
+            size: arena_bytes(capacity, size_of::<FontAtlasVertex>()),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
@@ -236,7 +246,12 @@ pub(crate) fn prepare_ui_resources(
         gpu.index_capacity = capacity;
         gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
     }
-    let upload = gpu.uploads.plan(input, fresh_vertices, fresh_indices);
+    let mut upload = gpu.uploads.plan(input, fresh_vertices, fresh_indices);
+    upload.vertices = uploads::changed_range(
+        &gpu.textures.fonts.previous_vertices,
+        &gpu.textures.fonts.vertices,
+        fresh_vertices,
+    );
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
         && !upload.vertices.is_empty()
     {
@@ -245,18 +260,18 @@ pub(crate) fn prepare_ui_resources(
             "ui.vertex_write",
             revision = input.revision,
             vertices = upload.vertices.len(),
-            bytes = upload.vertices.len() * size_of::<UiRenderVertex>(),
+            bytes = upload.vertices.len() * size_of::<FontAtlasVertex>(),
         )
         .entered();
         render_queue.write_buffer(
             buffer,
-            (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
-            bytemuck::cast_slice(&input.vertices[upload.vertices.clone()]),
+            (upload.vertices.start * size_of::<FontAtlasVertex>()) as u64,
+            bytemuck::cast_slice(&gpu.textures.fonts.vertices[upload.vertices.clone()]),
         );
         if let Some(profile) = profile.as_deref() {
             profile.record_upload(
                 profile::UploadKind::Geometry,
-                (upload.vertices.len() * size_of::<UiRenderVertex>()) as u64,
+                (upload.vertices.len() * size_of::<FontAtlasVertex>()) as u64,
             );
         }
         #[cfg(test)]
@@ -291,6 +306,7 @@ pub(crate) fn prepare_ui_resources(
             gpu.geometry_writes[1] += 1;
         }
     }
+    gpu.textures.fonts.commit_vertices();
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
@@ -349,7 +365,7 @@ fn arena_bytes(capacity: usize, stride: usize) -> u64 {
 /// Counts shared vertex, index, texture and viewport buffer storage.
 pub(super) fn retained_gpu_bytes(vertices: usize, indices: usize, texture_bytes: usize) -> u64 {
     let bytes = vertices
-        .saturating_mul(size_of::<UiRenderVertex>())
+        .saturating_mul(size_of::<FontAtlasVertex>())
         .saturating_add(indices.saturating_mul(size_of::<u32>()))
         .saturating_add(texture_bytes)
         .saturating_add(size_of::<UiViewportUniform>());

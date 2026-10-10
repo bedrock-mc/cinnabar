@@ -360,12 +360,23 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(
-        shader.matches("@group(0) @binding(").count(),
-        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
-            + material_shader::CHUNK_SAMPLER_COUNT as usize
-            - 1
-    );
+    let query_tables = module
+        .global_variables
+        .iter()
+        .find(|(_, variable)| {
+            variable.binding.as_ref().is_some_and(|resource| {
+                resource.group == 0
+                    && resource.binding == material_shader::BIOME_QUERY_TABLES_BINDING
+            })
+        })
+        .expect("chunk shaders must bind the biome query tables")
+        .1;
+    assert_eq!(query_tables.space, naga::AddressSpace::Uniform);
+    assert!(entry_points_use_binding(
+        &module,
+        naga::ShaderStage::Fragment,
+        material_shader::BIOME_QUERY_TABLES_BINDING,
+    ));
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
@@ -383,11 +394,11 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("texture_ref & 0x7ffu"));
     assert!(shader.contains("let uv_dx = dpdx(in.uv);"));
     assert!(shader.contains("let uv_dy = dpdy(in.uv);"));
-    assert!(shader.contains("if (in.frame_blend > 0.0)"));
-    assert!(shader.contains("mix(current_sample, next_sample, in.frame_blend)"));
+    assert!(shader.contains("if (frame_blend > 0.0)"));
+    assert!(shader.contains("mix(current_sample, next_sample, frame_blend)"));
     assert!(shader.contains("@interpolate(flat) current_texture: u32"));
     assert!(shader.contains("@interpolate(flat) next_texture: u32"));
-    assert!(shader.contains("@interpolate(flat) frame_blend: f32"));
+    assert!(shader.contains("@interpolate(flat) frame_blend_uv_limit: vec3<f32>"));
     assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
     assert!(shader.contains("@interpolate(flat) material_flags: u32"));
     assert_eq!(
@@ -511,14 +522,13 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bi
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.cube_bases.x"));
     assert!(shader.contains("chunk_origin.cube_bases.y + local_quad_index"));
-    assert_eq!(
-        standalone_world_shader(shader)
-            .matches("@group(0) @binding(")
-            .count(),
-        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
-            + material_shader::CHUNK_SAMPLER_COUNT as usize
-            - 1
-    );
+    let module = naga::front::wgsl::parse_str(&standalone_world_shader(shader))
+        .expect("parse packed chunk WGSL");
+    assert!(entry_points_use_binding(
+        &module,
+        naga::ShaderStage::Vertex,
+        13,
+    ));
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
 }

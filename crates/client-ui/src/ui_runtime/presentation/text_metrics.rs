@@ -1,7 +1,7 @@
 //! Per-frame text metrics shared by every HUD, chat, scoreboard and nametag run.
 
 use assets::RuntimeFontCatalog;
-use ui::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
+use ui::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, TextWrap, UiScale};
 
 use super::gui_scale;
 
@@ -60,7 +60,11 @@ impl TextMetrics {
             baseline_64: self.baseline_64,
             scale: self.scale,
             font,
-            wrap: Default::default(),
+            wrap: TextWrap {
+                device_scale_65536: (self.dpi_scale.get() * 65_536.0).round() as u32,
+                allow_visual_overflow: true,
+                ..TextWrap::default()
+            },
         }
     }
 

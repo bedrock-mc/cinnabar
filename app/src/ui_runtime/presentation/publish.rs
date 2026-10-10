@@ -120,13 +120,13 @@ pub(crate) fn prepare_ui_runtime(
     }
     let logical_width = physical_size[0] as f32 / window.scale_factor();
     let logical_height = physical_size[1] as f32 / window.scale_factor();
-    let Ok(dpi_scale) = DpiScale::new(window.scale_factor()) else {
-        hand.clear();
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            "primary window reported an unsupported UI DPI scale".to_owned(),
-        );
-        return;
+    let dpi_scale = match DpiScale::new(window.scale_factor()) {
+        Ok(scale) => scale,
+        Err(error) => {
+            hand.clear();
+            presentation.record_frame_failure(&UiPresentationError::Geometry(error));
+            return;
+        }
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);
@@ -142,7 +142,7 @@ pub(crate) fn prepare_ui_runtime(
             menu_visible: menu_runtime.is_visible(),
             snapshot: visibility_diagnostics.snapshot(),
             visible_rendered: visibility.visible_rendered,
-            cohort: frame_poll.cohort,
+            cohort: frame_poll.cohort_progress,
             render_work_drained: render_queue.retained_len() == 0
                 && upload_acknowledgements.is_empty(),
             pipelines_ready: actor_pipelines
@@ -157,7 +157,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
-    presentation.set_menu_preview_skin(&menu_skin.standard_skin());
+    let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
         height: menu_skin.height,
@@ -256,6 +256,7 @@ pub(crate) fn prepare_ui_runtime(
                 |rig| rig.java_equipped.is_some(),
             );
     let preview = PreviewCapture {
+        ready: preview_ready,
         skin,
         pose,
         shown: runtime.inventory_open()

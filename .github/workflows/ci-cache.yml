@@ -14,8 +14,9 @@ concurrency:
   group: ci-cache-${{ github.ref }}
   cancel-in-progress: false
 
-# Must match ci.yml: rust-cache keys include CARGO_* variables.
+# Must match ci.yml so compiler outputs can be reused.
 env:
+  CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
 
@@ -40,7 +41,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           SHA: ${{ github.sha }}
         run: |
-          last=$(gh api "repos/$REPO/actions/workflows/ci-cache.yml/runs?branch=dev&status=completed&per_page=20" \
+          last=$(gh api "repos/$REPO/actions/workflows/ci-cache.yml/runs?branch=dev&status=success&per_page=20" \
             --jq "[.workflow_runs[] | select(.id != $RUN_ID)][0].head_sha // \"\"")
           run=false deps=false
           if [ "$EVENT" = workflow_dispatch ] || [ "$last" != "$SHA" ]; then run=true; fi
@@ -51,7 +52,7 @@ jobs:
             if [ -n "$last" ]; then
               files=$(gh api --paginate "repos/$REPO/compare/$last...$SHA?per_page=100" --jq '.files[].filename') || files=Cargo.lock
             fi
-            if grep -qE '^(Cargo\.lock|rust-toolchain\.toml|(.*/)?go\.(sum|work\.sum)|\.github/workflows/ci(-cache)?\.yml)$' <<<"$files"; then
+            if grep -qE '^(Cargo\.lock|rust-toolchain\.toml|(.*/)?go\.(sum|work\.sum)|\.github/workflows/ci(-cache)?\.yml|\.github/actions/.*)$' <<<"$files"; then
               deps=true
             fi
           fi
@@ -73,6 +74,9 @@ jobs:
         run: gh workflow run ci.yml --repo "$REPO" --ref "$REF"
 
   linux:
+    permissions:
+      contents: read
+      actions: write
     needs: changed
     if: needs.changed.outputs.run == 'true'
     name: Warm and test Linux
@@ -83,25 +87,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # Must match ci.yml's Linux jobs, which restore this and never save.
-          shared-key: ci
-          cache-on-failure: true
+      - name: Restore Rust build cache
+        id: rust-cache
+        uses: ./.github/actions/build-cache
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
-          # Must match ci.yml.
-          cache-dependency-path: |
-            core/go.sum
-            tools/registrygen/go.sum
-            tools/chunkfix/go.sum
-            tools/localserver/go.sum
-            tools/bedsimtrace/go.sum
-            go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
       - name: Warm Go caches
         run: |
           go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
@@ -121,7 +121,7 @@ jobs:
       - continue-on-error: true
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
           cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
       - continue-on-error: true
         run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked --no-run
@@ -129,3 +129,20 @@ jobs:
         run: cargo nextest run --workspace --locked --no-fail-fast
       - name: Test Rust doc examples
         run: cargo test --doc --workspace --locked
+      - name: Save Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          language: go
+          key: ${{ steps.go-cache.outputs.key }}
+          bucket: ${{ steps.go-cache.outputs.bucket }}
+          paths: ${{ steps.go-cache.outputs.paths }}

@@ -35,41 +35,38 @@ impl UiPresentationRuntime {
         let list_top = top + 64.0;
         let list_height = (panel_height - 80.0 - base_row).max(1.0);
         let list_bottom = list_top + list_height;
-        let modal_buttons;
-        let element_buttons: Vec<Arc<str>>;
-        let npc_buttons: Vec<Arc<str>>;
-        let (title, mut body, mut buttons): (&str, &str, &[Arc<str>]) = match &entry.model {
-            ServerFormModel::TextMenu(menu) => (&menu.title, &menu.content, &menu.buttons),
-            ServerFormModel::ElementMenu(menu) => {
-                element_buttons = menu
-                    .elements
-                    .iter()
-                    .filter_map(|element| match element {
-                        MenuElement::Button { text, .. } => Some(Arc::clone(text)),
-                        _ => None,
-                    })
-                    .collect();
-                (&menu.title, &menu.content, &element_buttons)
-            }
-            ServerFormModel::NpcDialogue(npc) => {
-                npc_buttons = npc
-                    .buttons
-                    .iter()
-                    .map(|button| Arc::clone(&button.text))
-                    .collect();
-                (&npc.npc_name, &npc.dialogue, &npc_buttons)
-            }
-            ServerFormModel::Modal(modal) => {
-                modal_buttons = [Arc::clone(&modal.button1), Arc::clone(&modal.button2)];
-                (&modal.title, &modal.content, &modal_buttons)
-            }
-            // Input forms need the JSON-UI carrier; without it they can only close.
+        let resolve = |text: &protocol::FormText| runtime.resolve_form_text(text);
+        let (title, body_text, labels): (String, String, Vec<Arc<str>>) = match &entry.model {
+            ServerFormModel::TextMenu(menu) => (
+                resolve(&menu.title),
+                resolve(&menu.content),
+                menu.buttons.iter().map(|text| Arc::from(resolve(text))).collect(),
+            ),
+            ServerFormModel::ElementMenu(menu) => (
+                resolve(&menu.title),
+                resolve(&menu.content),
+                menu.elements.iter().filter_map(|element| match element {
+                    MenuElement::Button { text, .. } => Some(Arc::from(resolve(text))),
+                    _ => None,
+                }).collect(),
+            ),
+            ServerFormModel::NpcDialogue(npc) => (
+                npc.npc_name.to_string(),
+                npc.dialogue.to_string(),
+                npc.buttons.iter().map(|button| Arc::clone(&button.text)).collect(),
+            ),
+            ServerFormModel::Modal(modal) => (
+                resolve(&modal.title),
+                resolve(&modal.content),
+                vec![Arc::from(resolve(&modal.button1)), Arc::from(resolve(&modal.button2))],
+            ),
             ServerFormModel::Custom(_) | ServerFormModel::Unsupported(_) => (
-                "Unsupported server form",
-                "This form uses controls that are not supported yet. You can close it without submitting an answer.",
-                &[],
+                "Unsupported server form".into(),
+                "This form uses controls that are not supported yet. You can close it without submitting an answer.".into(), vec![],
             ),
         };
+        let mut body = body_text.as_str();
+        let mut buttons = labels.as_slice();
         // Rows grow to the tallest multi-line label; empty lines drop, as a
         // vanilla label discards them.
         let label_lines = |label: &str| {
@@ -105,7 +102,7 @@ impl UiPresentationRuntime {
         let notice_height = notice_layout
             .as_ref()
             .map_or(0.0, |layout| layout.size_64()[1] as f32 / 64.0 + 16.0);
-        let title_layout = fit_line(self, metrics, title, text_width)?;
+        let title_layout = fit_line(self, metrics, &title, text_width)?;
         let body_layout =
             match self
                 .layouts

@@ -1,15 +1,29 @@
 use crate::{
     CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
-    GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModGrants, PlayerStateSnapshot,
+    GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent, ModGrants, ModScreens,
+    PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
+use server_experience::{
+    runtime::{CALLBACK_FUEL, LOAD_FUEL},
+    screen::ScreenLayout as HostLayout,
+    session_data::SessionData,
+};
+use std::{collections::BTreeSet, sync::Arc};
 use wasmtime::{
     Engine, Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, HasSelf, Linker},
 };
 
+// `player-mod` includes `extension`, so one linker serves both worlds' components.
 wasmtime::component::bindgen!({
-    path: "../mod-api/wit", world: "extension", imports: { default: trappable },
+    path: [
+        "../experience-sdk/wit/client/deps/server-experience",
+        "../experience-sdk/wit/session",
+        "../mod-api/wit",
+    ],
+    world: "cinnabar:extension/player-mod@0.1.0",
+    imports: { default: trappable },
     additional_derives: [PartialEq],
 });
 
@@ -20,16 +34,26 @@ mod block_highlights;
 mod camera;
 #[path = "controls.rs"]
 mod controls;
+mod exports;
 #[path = "gameplay.rs"]
 mod gameplay;
 #[path = "hud.rs"]
 mod hud;
 #[path = "item_use.rs"]
 mod item_use;
+mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
 #[path = "render.rs"]
 mod render;
+
+/// What a package declares that the host checks guest output and events against.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Declared {
+    pub(crate) templates: BTreeSet<String>,
+    pub(crate) actions: BTreeSet<String>,
+    pub(crate) keys: BTreeSet<String>,
+}
 
 struct State {
     limits: StoreLimits,
@@ -66,11 +90,20 @@ struct State {
     item_use_policy: item_use::ItemUsePolicy,
     player_state: player_state::PlayerState,
     render: render::RenderState,
+    declared: Declared,
+    layout: Option<HostLayout>,
+    session: Arc<SessionData>,
+    screens: ModScreens,
+    /// This callback's screen output, applied to a copy of `screens`; committed on return.
+    pending_screens: Option<ModScreens>,
+    /// Host calls and screen output bytes of the running callback.
+    calls: usize,
+    output: usize,
     block_highlights: block_highlights::HighlightState,
 }
 
 impl State {
-    fn new(grants: ModGrants, settings: String) -> Self {
+    fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
                 .memory_size(MEMORY_BYTES)
@@ -113,6 +146,13 @@ impl State {
             item_use_policy: item_use::ItemUsePolicy::default(),
             player_state: player_state::PlayerState::default(),
             render: render::RenderState::new(),
+            declared,
+            layout: None,
+            session: Arc::default(),
+            screens: ModScreens::default(),
+            pending_screens: None,
+            calls: 0,
+            output: 0,
             block_highlights: block_highlights::HighlightState::default(),
         }
     }
@@ -127,6 +167,11 @@ impl cinnabar::extension::hud::Host for State {
         &mut self,
     ) -> Result<Result<Option<cinnabar::extension::hud::EditorResult>, String>> {
         hud::read_editor_result(self)
+    }
+    fn read_editor_layout(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::hud::LayoutResult>, String>> {
+        hud::read_editor_layout(self)
     }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         hud::set_content(self, json)
@@ -204,32 +249,47 @@ impl cinnabar::extension::input::Host for State {
 
 pub(super) struct Instance {
     store: Store<State>,
-    guest: Extension,
+    exports: exports::Exports,
     pub(super) active: bool,
+    /// Fuel the last `init` or callback consumed.
+    last_fuel: u64,
 }
 
 impl Instance {
-    /// Initializes a candidate store without changing the published instance.
+    /// Initializes a candidate store without changing the published instance. An `extension`
+    /// component's instantiation and `init` share `FRAME_FUEL`; a `player-mod` component's
+    /// `init`, which may read the whole session, gets `LOAD_FUEL`.
     pub(super) fn new(
         engine: &Engine,
         bytes: &[u8],
         grants: ModGrants,
         settings: String,
+        declared: Declared,
     ) -> Result<Self> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        Extension::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let state = State::new(grants, settings);
+        PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        let state = State::new(grants, settings, declared);
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(FRAME_FUEL)?;
-        let guest = Extension::instantiate(&mut store, &component, &linker)?;
-        guest.call_init(&mut store)?;
+        let instance = linker.instantiate(&mut store, &component)?;
+        let (init, exports) = exports::Exports::find(&mut store, &instance)?;
+        let budget = if exports.loads_session() {
+            store.set_fuel(LOAD_FUEL)?;
+            LOAD_FUEL
+        } else {
+            FRAME_FUEL
+        };
+        init.call(&mut store, ())?;
+        init.post_return(&mut store)?;
         commit(&mut store);
+        let last_fuel = budget - store.get_fuel().unwrap_or(0).min(budget);
         Ok(Self {
             store,
-            guest,
+            exports,
             active: true,
+            last_fuel,
         })
     }
 
@@ -280,58 +340,100 @@ impl Instance {
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
-        state.writes = 0;
-        state.environment_writes = 0;
-        state.gameplay_reads = 0;
-        state.camera_writes = 0;
         state.snapshot = snapshot;
         state.movement = movement;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
-        if let Err(error) = self.store.set_fuel(FRAME_FUEL) {
-            self.store.data_mut().player_state.revoke();
-            return Err(error);
-        }
-        if let Err(error) = self.guest.call_frame(&mut self.store) {
-            self.active = false;
-            self.store.data_mut().pending = None;
-            self.store.data_mut().label = None;
-            self.store.data_mut().hud = hud::HudState::default();
-            self.store.data_mut().pending_time = None;
-            self.store.data_mut().time_override = None;
-            self.store.data_mut().fullbright = false;
-            self.store.data_mut().pending_fullbright = None;
-            self.store.data_mut().snapshot = None;
-            self.store.data_mut().movement = None;
-            self.store.data_mut().pending_jump = false;
-            self.store.data_mut().pending_jump_cancel = false;
-            self.store.data_mut().jump_cancel = false;
-            self.store.data_mut().jump_pulse = false;
-            self.store.data_mut().pending_camera = None;
-            self.store.data_mut().camera_delta = None;
-            self.store.data_mut().controls.revoke();
-            self.store.data_mut().render.revoke();
-            self.store.data_mut().block_highlights.revoke();
-            self.store.data_mut().world = gameplay::WorldState::default();
-            self.store.data_mut().player_state.revoke();
-            self.store.data_mut().camera_policy = camera::CameraPolicy::default();
-            self.store.data_mut().item_use_policy = item_use::ItemUsePolicy::default();
-            self.store.data_mut().packet_delay_ms = 0;
-            self.store.data_mut().pending_packet_delay = None;
-            self.store.data_mut().show_real_position = false;
-            self.store.data_mut().pending_show_real_position = None;
-            bail!("mod quarantined after a guest trap: {error:#}");
-        }
-        commit(&mut self.store);
+        let result = self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store));
         self.store.data_mut().snapshot = None;
         self.store.data_mut().player_state.begin_frame();
         self.store.data_mut().movement = None;
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
+        result
+    }
+
+    /// Delivers one event callback, `data-changed` with `LOAD_FUEL` and every other event with
+    /// `CALLBACK_FUEL`. An `extension` component has no event exports and receives nothing.
+    pub(super) fn dispatch(&mut self, event: &ModEvent) -> Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        self.store.data().check_event(event)?;
+        let fuel = match event {
+            ModEvent::DataChanged(_) => LOAD_FUEL,
+            _ => CALLBACK_FUEL,
+        };
+        self.run(fuel, commit_event, |exports, store| {
+            exports.event(store, event)
+        })
+    }
+
+    /// Runs one callback with `fuel` and commits its output with `publish`; a trap discards
+    /// it and quarantines the guest, removing everything it presented.
+    fn run(
+        &mut self,
+        fuel: u64,
+        publish: fn(&mut Store<State>),
+        call: impl FnOnce(&exports::Exports, &mut Store<State>) -> Result<()>,
+    ) -> Result<()> {
+        let state = self.store.data_mut();
+        state.writes = 0;
+        state.environment_writes = 0;
+        state.gameplay_reads = 0;
+        state.camera_writes = 0;
+        state.movement_writes = 0;
+        state.packet_delay_writes = 0;
+        state.controls.reset_budget();
+        state.calls = 0;
+        state.output = 0;
+        state.pending_screens = None;
+        self.store.set_fuel(fuel)?;
+        let called = call(&self.exports, &mut self.store);
+        self.last_fuel = fuel - self.store.get_fuel().unwrap_or(0).min(fuel);
+        if let Err(error) = called {
+            self.quarantine();
+            bail!("mod quarantined after a guest trap: {error:#}");
+        }
+        publish(&mut self.store);
         Ok(())
+    }
+
+    /// Disables callbacks and drops everything the guest presented or staged.
+    pub(super) fn quarantine(&mut self) {
+        self.active = false;
+        let state = self.store.data_mut();
+        state.pending = None;
+        state.label = None;
+        state.hud = hud::HudState::default();
+        state.player_state.revoke();
+        state.pending_time = None;
+        state.time_override = None;
+        state.fullbright = false;
+        state.pending_fullbright = None;
+        state.snapshot = None;
+        state.movement = None;
+        state.pending_jump = false;
+        state.pending_jump_cancel = false;
+        state.jump_cancel = false;
+        state.jump_pulse = false;
+        state.pending_camera = None;
+        state.camera_delta = None;
+        state.controls.revoke();
+        state.render.revoke();
+        state.block_highlights.revoke();
+        state.world = gameplay::WorldState::default();
+        state.camera_policy = camera::CameraPolicy::default();
+        state.item_use_policy = item_use::ItemUsePolicy::default();
+        state.packet_delay_ms = 0;
+        state.pending_packet_delay = None;
+        state.show_real_position = false;
+        state.pending_show_real_position = None;
+        state.pending_screens = None;
+        state.screens = ModScreens::default();
     }
 
     pub(super) fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
@@ -451,15 +553,55 @@ impl Instance {
     pub(super) fn settings(&self) -> &str {
         self.store.data().controls.settings()
     }
+
+    pub(super) fn screens(&self) -> &ModScreens {
+        &self.store.data().screens
+    }
+
+    /// Whether the component exports `player-mod`'s event callbacks.
+    pub(super) fn has_events(&self) -> bool {
+        self.exports.has_events()
+    }
+
+    /// The open container screen's layout that `screen.layout` returns; none also closes the
+    /// view, as closing the container returns from it.
+    pub(super) fn set_layout(&mut self, layout: Option<HostLayout>) {
+        let state = self.store.data_mut();
+        if layout.is_none() && state.screens.view.is_some() {
+            state.screens.view = None;
+            state.screens.data.revision += 1;
+        }
+        state.layout = layout;
+    }
+
+    /// Closes the view without the guest, as Escape does; `true` when one was open.
+    pub(super) fn close_view(&mut self) -> bool {
+        let screens = &mut self.store.data_mut().screens;
+        let open = screens.view.take().is_some();
+        if open {
+            screens.data.revision += 1;
+        }
+        open
+    }
+
+    pub(super) fn view_open(&self) -> bool {
+        self.store.data().screens.view.is_some()
+    }
+
+    pub(super) fn last_fuel(&self) -> u64 {
+        self.last_fuel
+    }
+
+    pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
+        self.store.data_mut().session = session;
+    }
 }
 
 /// Publishes retained presentation changes after the entire callback succeeds.
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
-    state.hud.commit();
     state.jump_cancel = std::mem::take(&mut state.pending_jump_cancel);
     state.jump_pulse = std::mem::take(&mut state.pending_jump) && !state.jump_cancel;
-    state.controls.commit();
     state.render.commit();
     state.block_highlights.commit();
     state.world.commit();
@@ -477,6 +619,16 @@ fn commit(store: &mut Store<State>) {
     if let Some(show) = state.pending_show_real_position.take() {
         state.show_real_position = show;
     }
+    commit_event(store);
+}
+
+/// Publishes what an event callback may retain: the label, visual time, panel, settings and
+/// screens. Render, camera and command output belongs to `frame` alone, so an event never
+/// replaces the frame's drawn set; what an event stages there is dropped by the next frame.
+fn commit_event(store: &mut Store<State>) {
+    let state = store.data_mut();
+    state.hud.commit();
+    state.controls.commit();
     if let Some(enabled) = state.pending_fullbright.take() {
         state.fullbright = enabled;
     }
@@ -485,5 +637,8 @@ fn commit(store: &mut Store<State>) {
     }
     if let Some(text) = state.pending.take() {
         state.label = (!text.is_empty()).then_some(text);
+    }
+    if let Some(screens) = state.pending_screens.take() {
+        state.screens = screens;
     }
 }

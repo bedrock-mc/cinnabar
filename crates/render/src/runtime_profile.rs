@@ -39,6 +39,12 @@ pub enum RuntimeStage {
     AcceptanceTelemetry,
     /// Main-world wall time from frame-start timing to `Last`, including stream reclaim.
     MainFrame,
+    /// `MainFrame` split by main-schedule phase, so work outside every named stage still names
+    /// the phase that spent it: `PreUpdate`, the fixed-update loop, `Update`, and `PostUpdate`.
+    MainPreUpdate,
+    MainFixedUpdate,
+    MainUpdate,
+    MainPostUpdate,
     ActorPublication,
     /// Fixed-tick actor animation and Molang, inside `ActorPublication`.
     ActorAnimation,
@@ -102,7 +108,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 72] = [
+    pub const ALL: [Self; 76] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -128,6 +134,10 @@ impl RuntimeStage {
         Self::TransparentQueue,
         Self::AcceptanceTelemetry,
         Self::MainFrame,
+        Self::MainPreUpdate,
+        Self::MainFixedUpdate,
+        Self::MainUpdate,
+        Self::MainPostUpdate,
         Self::ActorPublication,
         Self::ActorAnimation,
         Self::ActorPreparation,
@@ -275,6 +285,10 @@ impl RuntimeStage {
             Self::TransparentQueue => "transparent_queue",
             Self::AcceptanceTelemetry => "acceptance_telemetry",
             Self::MainFrame => "main_frame",
+            Self::MainPreUpdate => "main_pre_update",
+            Self::MainFixedUpdate => "main_fixed_update",
+            Self::MainUpdate => "main_update",
+            Self::MainPostUpdate => "main_post_update",
             Self::ActorPublication => "actor_publication",
             Self::ActorAnimation => "actor_animation",
             Self::ActorPreparation => "actor_preparation",

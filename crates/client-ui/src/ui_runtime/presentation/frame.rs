@@ -89,6 +89,7 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let mut nodes = std::mem::take(&mut self.assembly_nodes);
         nodes.clear();
+        let previous_overflows = self.layouts.visual_overflow_count();
         let result = (|| {
             let mut next_id = 1u32;
             let content = [content_width, content_height];
@@ -166,6 +167,7 @@ impl UiPresentationRuntime {
                             now_millis,
                             true,
                         )?;
+                        let container_start = nodes.len();
                         self.append_container_scene(
                             player_runtime,
                             runtime,
@@ -175,6 +177,15 @@ impl UiPresentationRuntime {
                             content_width,
                             content_height,
                         )?;
+                        self.append_mod_screens(
+                            player_runtime,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                            container_start,
+                        );
                     }
                     Scene::Chat => {
                         self.append_chat_screen(
@@ -355,6 +366,15 @@ impl UiPresentationRuntime {
             Ok(input)
         })();
         self.assembly_nodes = nodes;
+        let overflows = self.layouts.visual_overflow_count();
+        if overflows > previous_overflows
+            && overflows.checked_ilog2() != previous_overflows.checked_ilog2()
+        {
+            bevy::log::warn!(
+                text_overflows = overflows,
+                "wrapped UI text exceeds its control; clipping to the UI viewport"
+            );
+        }
         result
     }
 }

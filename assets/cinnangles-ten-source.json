@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "family": "Cinnangles Ten",
+  "style": "Regular",
+  "font_file": "CinnanglesTen.ttf",
+  "font_size_bytes": 10221364,
+  "font_sha256": "e47da64f0e8e0ebedf7668b39c568ad0540af54f425315b371cf7c6aaa77f6bd",
+  "glyph_source": {
+    "family": "Cinnangles Sans",
+    "font_file": "CinnanglesSans.ttf",
+    "font_sha256": "348391b6c4eeabc28e36717f6bcc149ad655efa98b9854155d9d60a48d452f0a"
+  },
+  "metrics_reference": {
+    "family": "Minecraft Ten v2",
+    "use": "vertical metrics, cap height and stroke weight only; no outlines"
+  }
+}

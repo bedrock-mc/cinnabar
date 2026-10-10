@@ -8,6 +8,7 @@ mod frame_rate_limit;
 pub mod primitive_shapes;
 mod publication;
 mod skin;
+mod vrr;
 
 pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
@@ -20,6 +21,7 @@ pub use skin::{
     CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
     SkinRgba8, expand_legacy_skin_rgba8,
 };
+pub use vrr::VrrPreference;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 255;

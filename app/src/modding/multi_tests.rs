@@ -54,7 +54,7 @@ fn set_files_keep_order_and_per_mod_grants() {
         .to_string(),
     );
     let mods = read_set(&set).unwrap();
-    assert_eq!(mods[0].0, camera);
+    assert_eq!(mods[0].0, ModSource::Component(camera));
     assert!(mods[0].1.camera && !mods[0].1.environment);
     assert_eq!(mods[0].1.commands, ["ability"]);
     assert!(mods[1].1.environment && !mods[1].1.camera);
@@ -74,6 +74,53 @@ fn set_files_keep_order_and_per_mod_grants() {
     );
     write(&many);
     assert!(read_set(&set).is_err());
+}
+
+#[test]
+fn set_entries_name_one_component_or_one_package() {
+    let directory = tempfile::tempdir().unwrap();
+    let set = directory.path().join("mods.json");
+    let bei = directory.path().join("bei");
+    let lock = directory.path().join("lock.wasm");
+    std::fs::write(
+        &set,
+        serde_json::json!({"version":1,"mods":[
+            {"package":bei,"grants":{"screen":true,"items":true}},
+            {"component":lock}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let mods = read_set(&set).unwrap();
+    assert_eq!(mods[0].0, ModSource::Package(bei.clone()));
+    assert!(mods[0].1.screen && mods[0].1.items && !mods[0].1.keys);
+    assert_eq!(mods[1].0, ModSource::Component(lock.clone()));
+    for invalid in [
+        serde_json::json!({"version":1,"mods":[{"package":bei,"component":lock}]}),
+        serde_json::json!({"version":1,"mods":[{"grants":{"screen":true}}]}),
+    ] {
+        std::fs::write(&set, invalid.to_string()).unwrap();
+        assert!(read_set(&set).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn the_earliest_drawing_package_owns_the_screens() {
+    // (may draw, draws) in load order.
+    assert_eq!(
+        screen_owner([(false, false), (true, false)].into_iter()),
+        Some(1)
+    );
+    assert_eq!(
+        screen_owner([(true, false), (true, true), (true, true)].into_iter()),
+        Some(1)
+    );
+    // A mod without the screen grant never owns, whatever it committed.
+    assert_eq!(
+        screen_owner([(false, true), (true, false)].into_iter()),
+        Some(1)
+    );
+    assert_eq!(screen_owner([(false, false)].into_iter()), None);
 }
 
 #[test]

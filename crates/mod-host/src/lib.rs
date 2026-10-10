@@ -10,11 +10,20 @@ mod load;
 #[cfg(feature = "execution")]
 mod outputs;
 #[cfg(feature = "execution")]
+pub mod package;
+#[cfg(feature = "execution")]
 mod runtime;
+#[cfg(feature = "execution")]
+mod screens;
 #[cfg(feature = "execution")]
 pub mod server;
 #[cfg(feature = "execution")]
 mod settings;
+
+#[cfg(feature = "execution")]
+pub use experience_sdk::mod_manifest::{KEY_NAMES, KeyDecl, Modifier};
+#[cfg(feature = "execution")]
+pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 #[cfg(feature = "execution")]
 pub use mod_api::{
@@ -57,10 +66,10 @@ pub struct CameraDelta {
 }
 #[cfg(feature = "execution")]
 use {
-    anyhow::{Context, Result},
+    anyhow::Result,
     runtime::Instance,
-    sha2::{Digest, Sha256},
-    std::path::PathBuf,
+    server_experience::{screen::ScreenLayout, session_data::SessionData},
+    std::{path::PathBuf, sync::Arc},
     wasmtime::Engine,
 };
 
@@ -73,16 +82,27 @@ pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
+/// Where a mod came from, which reload reads again.
+#[cfg(feature = "execution")]
+enum Source {
+    Component(PathBuf),
+    Package(PathBuf),
+}
 /// A developer-selected component with transactional reload and trap quarantine.
 #[cfg(feature = "execution")]
 pub struct ModHost {
     engine: Engine,
     instance: Instance,
-    path: PathBuf,
+    source: Source,
     attempted: [u8; 32],
     grants: ModGrants,
+    /// The loader's authorization before the manifest narrows package permissions.
+    authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,
+    package: Option<LoadedPackage>,
+    layout: Option<ScreenLayout>,
+    session: Arc<SessionData>,
 }
 
 #[cfg(feature = "execution")]
@@ -236,26 +256,6 @@ impl ModHost {
     /// Whether this guest can still receive callbacks.
     pub fn is_active(&self) -> bool {
         self.instance.active
-    }
-
-    /// Replaces an instance only after changed bytes compile and initialize.
-    pub fn reload_if_changed(&mut self) -> Result<bool> {
-        let bytes = load::read_component(&self.path)?;
-        let digest = Sha256::digest(&bytes).into();
-        if self.attempted == digest {
-            return Ok(false);
-        }
-        self.attempted = digest;
-        let candidate = Instance::new(
-            &self.engine,
-            &bytes,
-            self.grants.clone(),
-            self.instance.settings().to_owned(),
-        )
-        .context("reload rejected; previous mod retained")?;
-        self.instance = candidate;
-        self.queue_settings();
-        Ok(true)
     }
 }
 

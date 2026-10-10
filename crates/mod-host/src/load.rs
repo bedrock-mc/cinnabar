@@ -1,9 +1,16 @@
-//! Bounded component admission and deferred settings activation.
+//! Bounded component and package admission and deferred settings activation.
 
-use crate::{MAX_COMPONENT_BYTES, ModGrants, ModHost, runtime::Instance, settings};
+use crate::{
+    DataSource, MAX_COMPONENT_BYTES, ModEvent, ModGrants, ModHost, Source,
+    package::{self, Package},
+    runtime::{Declared, Instance},
+    screens::{declared, loaded},
+    settings,
+};
 use anyhow::{Context, Result, ensure};
+use experience_sdk::mod_manifest::{ModManifest, ModPermission};
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path, sync::Arc};
 use wasmtime::{Config, Engine};
 
 impl ModHost {
@@ -25,6 +32,47 @@ impl ModHost {
         Ok(host)
     }
 
+    /// Loads the package at `dir` with what its manifest asks for granted, plus `extra`: the
+    /// developer profile of a package selected on its own.
+    pub fn load_package(dir: &Path, extra: ModGrants) -> Result<Self> {
+        let package = Package::read(dir)?;
+        let grants = ModGrants {
+            screen: true,
+            items: true,
+            recipes: true,
+            keys: true,
+            ..extra
+        };
+        Self::load_read_package(dir, package, grants)
+    }
+
+    /// Loads the package at `dir`; each package permission needs both the manifest's ask and
+    /// `grants`.
+    pub fn load_package_with_grants(dir: &Path, grants: ModGrants) -> Result<Self> {
+        let package = Package::read(dir)?;
+        Self::load_read_package(dir, package, grants)
+    }
+
+    /// Loads a verified package under the loader's original authorization policy.
+    fn load_read_package(dir: &Path, package: Package, grants: ModGrants) -> Result<Self> {
+        let source = Source::Package(dir.to_owned());
+        let authorized_grants = grants;
+        let grants = authorized_grants.with_manifest(&package.manifest);
+        let declared = declared(&package);
+        let mut host = Self::prepare(
+            source,
+            &package.component,
+            grants,
+            None,
+            declared,
+            package.digest,
+        )?;
+        host.package = Some(loaded(package));
+        host.authorized_grants = authorized_grants;
+        host.activate_settings(None);
+        Ok(host)
+    }
+
     /// Prepares a candidate without persisting init output; activation follows publication.
     /// A matching companion snapshot preserves committed preferences ahead of disk writes.
     pub fn prepare_snapshot_with_grants(
@@ -33,11 +81,32 @@ impl ModHost {
         grants: ModGrants,
         current_settings: Option<(&Path, &str)>,
     ) -> Result<Self> {
+        let source = Source::Component(path.to_owned());
+        let digest = Sha256::digest(bytes).into();
+        Self::prepare(
+            source,
+            bytes,
+            grants,
+            current_settings,
+            Declared::default(),
+            digest,
+        )
+    }
+
+    fn prepare(
+        source: Source,
+        bytes: &[u8],
+        grants: ModGrants,
+        current_settings: Option<(&Path, &str)>,
+        declared: Declared,
+        digest: [u8; 32],
+    ) -> Result<Self> {
         ensure!(
             bytes.len() <= MAX_COMPONENT_BYTES,
             "component exceeds byte limit"
         );
         grants.validate()?;
+        let path = &source.settings_anchor();
         let mut config = Config::new();
         config.wasm_component_model(true).consume_fuel(true);
         config.max_wasm_stack(256 * 1024);
@@ -62,15 +131,19 @@ impl ModHost {
             read_settings(path, &grants)?
         };
         let settings_seed = grants.settings.then(|| seed.clone());
-        let instance = Instance::new(&engine, bytes, grants.clone(), seed)?;
+        let instance = Instance::new(&engine, bytes, grants.clone(), seed, declared)?;
         Ok(Self {
             engine,
             instance,
-            path: path.to_owned(),
-            attempted: Sha256::digest(bytes).into(),
+            source,
+            attempted: digest,
+            authorized_grants: grants.clone(),
             grants,
             settings_writer,
             settings_seed,
+            package: None,
+            layout: None,
+            session: Arc::default(),
         })
     }
 
@@ -87,6 +160,56 @@ impl ModHost {
             writer.activate();
         }
         self.queue_settings();
+    }
+
+    /// Replaces an instance only after changed bytes compile and initialize. A package is
+    /// re-read whole; the new instance gets the current layout and session, and
+    /// `screen-changed` and `data-changed` when it has events.
+    pub fn reload_if_changed(&mut self) -> Result<bool> {
+        let (bytes, digest, package) = match &self.source {
+            Source::Component(path) => {
+                let bytes = read_component(path)?;
+                let digest = Sha256::digest(&bytes).into();
+                (bytes, digest, None)
+            }
+            Source::Package(dir) => {
+                let package = Package::read(dir)?;
+                (Vec::new(), package.digest, Some(package))
+            }
+        };
+        if self.attempted == digest {
+            return Ok(false);
+        }
+        self.attempted = digest;
+        let (bytes, declared) = match &package {
+            Some(package) => (&package.component, declared(package)),
+            None => (&bytes, Declared::default()),
+        };
+        let grants = package.as_ref().map_or_else(
+            || self.grants.clone(),
+            |package| self.authorized_grants.with_manifest(&package.manifest),
+        );
+        let mut candidate = Instance::new(
+            &self.engine,
+            bytes,
+            grants.clone(),
+            self.instance.settings().to_owned(),
+            declared,
+        )
+        .context("reload rejected; previous mod retained")?;
+        candidate.set_session(Arc::clone(&self.session));
+        self.instance = candidate;
+        self.grants = grants;
+        if let Some(package) = package {
+            self.package = Some(loaded(package));
+        }
+        self.queue_settings();
+        if self.instance.has_events() {
+            let layout = ModEvent::ScreenChanged(self.layout.clone());
+            let data = ModEvent::DataChanged(vec![DataSource::Items, DataSource::Recipes]);
+            self.dispatch(vec![layout, data])?;
+        }
+        Ok(true)
     }
 
     pub fn settings_path(&self) -> Option<&Path> {
@@ -108,7 +231,42 @@ impl ModHost {
     }
 }
 
+impl Source {
+    /// The path whose `.settings.json` companion holds the mod's settings: a component's own
+    /// path, or for a package one beside its directory, never inside the hashed package.
+    fn settings_anchor(&self) -> std::path::PathBuf {
+        match self {
+            Self::Component(path) => path.clone(),
+            Self::Package(dir) => package::settings_anchor(dir),
+        }
+    }
+}
+
 impl ModGrants {
+    /// Applies the manifest's requests without extending the loader's authorization.
+    fn with_manifest(&self, manifest: &ModManifest) -> Self {
+        let asked = Self::from_manifest(manifest);
+        Self {
+            screen: asked.screen && self.screen,
+            items: asked.items && self.items,
+            recipes: asked.recipes && self.recipes,
+            keys: asked.keys && self.keys,
+            ..self.clone()
+        }
+    }
+
+    /// What a package's manifest asks for, except `inventory`, which no import carries yet.
+    pub fn from_manifest(manifest: &ModManifest) -> Self {
+        let asks = |permission| manifest.permissions.contains(&permission);
+        Self {
+            screen: asks(ModPermission::Screen),
+            items: asks(ModPermission::Items),
+            recipes: asks(ModPermission::Recipes),
+            keys: asks(ModPermission::Keys),
+            ..Self::default()
+        }
+    }
+
     /// Rejects command grants that are not short bare command names.
     pub fn validate(&self) -> Result<()> {
         ensure!(

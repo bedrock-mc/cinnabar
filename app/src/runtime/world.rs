@@ -41,9 +41,11 @@ use bevy::{
     ecs::system::SystemParam,
     log::info,
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
-    time::Real,
+    time::{Real, Virtual},
 };
-use chunk_pipeline::{ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll};
+use chunk_pipeline::{
+    CohortProgress, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
+};
 use client_world::CommittedControlEvent;
 
 use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
@@ -85,6 +87,9 @@ fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct WorldStreamFramePoll {
     pub(crate) report: WorldStreamPoll,
+    /// Committed-view readiness while startup or diagnostics watch it.
+    pub(crate) cohort_progress: Option<CohortProgress>,
+    /// The full committed-view witness, only while acceptance or metrics consume it.
     pub(crate) cohort: Option<ViewCohortStatus>,
 }
 
@@ -235,13 +240,13 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// Full-world cohort witness for startup, acceptance and metrics. Normal play
-/// stops scanning retained columns and sub-chunks once startup releases.
+/// Computes startup readiness from required columns and full diagnostics only when enabled.
+/// Once startup releases, ordinary play scans neither.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,
     startup_probe_enabled: bool,
-) -> Option<ViewCohortStatus> {
+) -> (Option<CohortProgress>, Option<ViewCohortStatus>) {
     let diagnostics_enabled = {
         #[cfg(feature = "acceptance")]
         {
@@ -252,12 +257,17 @@ pub(crate) fn frame_cohort_status(
             false
         }
     };
-    if !startup_probe_enabled && !diagnostics_enabled {
-        return None;
+    let Some(target) = stream.committed_view_cohort() else {
+        return (None, None);
+    };
+    if diagnostics_enabled {
+        let status = stream.cohort_status(target);
+        (Some(status.into()), Some(status))
+    } else if startup_probe_enabled {
+        (Some(stream.cohort_progress(target)), None)
+    } else {
+        (None, None)
     }
-    stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target))
 }
 
 pub(crate) fn world_stream_fatal_message(error: chunk_pipeline::WorldStreamFatalError) -> String {
@@ -334,7 +344,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     ));
-    frame_poll.cohort = frame_cohort_status(
+    (frame_poll.cohort_progress, frame_poll.cohort) = frame_cohort_status(
         stream,
         #[cfg(feature = "acceptance")]
         &acceptance,
@@ -566,9 +576,10 @@ pub(crate) fn drive_world_stream(
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
     >,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    (frame, mut block_use): (
+    (frame, mut block_use, simulation_time): (
         Res<bevy::diagnostic::FrameCount>,
         ResMut<crate::block_use::BlockUseRuntime>,
+        Res<Time<Virtual>>,
     ),
 ) {
     let _timer = profiler
@@ -580,6 +591,7 @@ pub(crate) fn drive_world_stream(
         mut movement,
         mut ui_runtime,
         clock,
+        time,
         ..
     } = state;
     let active_session = client_world
@@ -640,6 +652,11 @@ pub(crate) fn drive_world_stream(
         );
     }
     let poll_report = std::mem::take(&mut frame_poll.report);
+    stream.advance_block_cracks(if simulation_time.is_paused() {
+        0.0
+    } else {
+        time.delta_secs()
+    });
     reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {

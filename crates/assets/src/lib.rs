@@ -7,6 +7,7 @@ mod audio_pcm;
 pub mod bamboo;
 pub mod banner;
 mod biome;
+mod biome_noise;
 mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
@@ -37,34 +38,24 @@ mod model;
 mod ogg;
 mod particle;
 mod physics_registry;
+mod pinned_content;
 mod potion;
 mod provenance;
 mod registry;
 mod runtime;
 mod seasonal_foliage;
 mod server_lang;
+mod session_entities;
 mod skin_geometry;
 mod sound_bank;
 mod sound_events;
 mod stair;
+pub mod starter_skins;
 mod texture;
 mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
 mod weather_textures;
-
-pub use potion::vanilla_potion_variant;
-
-pub use hud_extras::{
-    HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
-    MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
-};
-pub use skin_geometry::{
-    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
-    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
-    parse_skin_geometry_layer, skin_geometry_name,
-};
-
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
     MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
@@ -74,13 +65,6 @@ pub use actor::{
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
     neutral_actor_material_is_supported, neutral_actor_pose_mode,
 };
-pub use fire::{
-    FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,
-    fire_attachment_template_offset, fire_template_quad_count,
-};
-pub use fog_layers::resolve_fog_layers;
-pub use fog_transition::FogTransition;
-
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
     BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
@@ -107,6 +91,7 @@ pub use biome::{
     MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES,
     TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
+pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
     BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
@@ -177,13 +162,19 @@ pub use equipment::{
     encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
+pub use fire::{
+    FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,
+    fire_attachment_template_offset, fire_template_quad_count,
+};
+pub use fog_layers::resolve_fog_layers;
+pub use fog_transition::FogTransition;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FALLBACK_ATLAS_SIDE,
-    FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError, FontCatalogIdentity,
-    FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering, FontTexturePage, GlyphMetrics,
-    MAX_FONT_FALLBACK_PAGES, MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS, MAX_FONT_PAGE_SIDE,
-    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
-    encode_font_catalog,
+    FONT_RASTER_EM_PIXELS, FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError,
+    FontCatalogIdentity, FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering,
+    FontTexturePage, GlyphMetrics, MAX_FONT_CARRIER_BYTES, MAX_FONT_FALLBACK_PAGES,
+    MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS, MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES,
+    MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog, encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{
@@ -194,6 +185,10 @@ pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HUD_SOURCE_MANIFEST_SHA256,
     HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog,
     encode_hud_catalog,
+};
+pub use hud_extras::{
+    HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
+    MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
 };
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
@@ -244,6 +239,11 @@ pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,
     physics_registry_header_protocol, read_physics_registry, read_physics_registry_for_protocol,
 };
+pub use pinned_content::{
+    active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,
+    pinned_world_provenance,
+};
+pub use potion::vanilla_potion_variant;
 pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
     vanilla_source, vanilla_source_manifest_sha256,
@@ -263,6 +263,12 @@ pub use seasonal_foliage::{
     SeasonalFoliageBlock, seasonal_foliage_cell_shelters, seasonal_foliage_palette_index,
 };
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
+pub use session_entities::SessionEntityPack;
+pub use skin_geometry::{
+    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
+    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
+    parse_skin_geometry_layer, skin_geometry_name,
+};
 pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
     SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
@@ -285,16 +291,4 @@ pub use weather_textures::{
     END_SKY_SIDE, MAX_WEATHER_TEXTURES_BYTES, WEATHER_SHEET_SIDE, WEATHER_TEXTURES_MAGIC,
     WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
     decode_weather_textures, encode_weather_textures,
-};
-
-mod biome_noise;
-pub use biome_noise::{ClientRandom, grass_noise_permutation};
-
-mod session_entities;
-pub use session_entities::SessionEntityPack;
-
-mod pinned_content;
-pub use pinned_content::{
-    active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,
-    pinned_world_provenance,
 };

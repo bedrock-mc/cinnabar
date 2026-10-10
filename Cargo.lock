@@ -418,6 +418,7 @@ version = "0.1.12"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
+ "flate2",
  "lewton",
  "rayon",
  "rustix 1.1.4",
@@ -693,6 +694,7 @@ dependencies = [
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
+ "wit-component",
  "world",
  "zbus",
  "zip",
@@ -2026,6 +2028,7 @@ dependencies = [
  "sim",
  "thiserror 2.0.18",
  "ui",
+ "windows-sys 0.61.2",
  "world",
  "zip",
 ]
@@ -2084,6 +2087,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "ui",
@@ -3224,16 +3228,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "freetype-sys"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd0d341537074ac3189847977d23d00989e77f8fb54cdfa33a25407bb7d1db78"
-dependencies = [
- "cc",
- "pkg-config",
-]
-
-[[package]]
 name = "fs-set-times"
 version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4256,6 +4250,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "ui",
+ "zip",
 ]
 
 [[package]]
@@ -4542,6 +4537,7 @@ name = "mod-host"
 version = "0.1.12"
 dependencies = [
  "anyhow",
+ "experience-sdk",
  "mod-api",
  "mod-render",
  "serde",
@@ -4582,9 +4578,8 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "naga"
-version = "27.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "066cf25f0e8b11ee0df221219010f213ad429855f57c494f995590c861a9a7d8"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5249,14 +5244,12 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "fontdue",
- "freetype-sys",
  "image",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
- "ttf-parser 0.21.1",
 ]
 
 [[package]]
@@ -6290,6 +6283,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "screen-probe-mod"
+version = "0.1.12"
+dependencies = [
+ "experience-sdk",
+ "mod-api",
+]
+
+[[package]]
 name = "sctk-adwaita"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6755,7 +6756,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7193,9 +7194,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-tracy"
-version = "0.11.4"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eaa1852afa96e0fe9e44caa53dc0bd2d9d05e0f2611ce09f97f8677af56e4ba"
+checksum = "0b326790213b869d948a5d1ea56472ed5b20c7cefde07684ee35d6b7a980fef1"
 dependencies = [
  "tracing-core",
  "tracing-subscriber",
@@ -7215,9 +7216,9 @@ dependencies = [
 
 [[package]]
 name = "tracy-client"
-version = "0.18.4"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4f6fc3baeac5d86ab90c772e9e30620fc653bf1864295029921a15ef478e6a5"
+checksum = "d93fd676d8946eaeaff4881d26d2240a8d106fcaccbd47cb9f1389e3561ba490"
 dependencies = [
  "loom",
  "once_cell",
@@ -7226,12 +7227,12 @@ dependencies = [
 
 [[package]]
 name = "tracy-client-sys"
-version = "0.28.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5f7c95348f20c1c913d72157b3c6dee6ea3e30b3d19502c5a7f6d3f160dacbf"
+checksum = "eef8a023d2b19f44e430da334f7dfb5e5db219bb83e2b4f56a09c1cb12abe915"
 dependencies = [
  "cc",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.5",
 ]
 
 [[package]]
@@ -8041,9 +8042,8 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "wgpu"
-version = "27.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe68bac7cde125de7a731c3400723cadaaf1703795ad3f4805f187459cd7a77"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -8065,9 +8065,8 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core"
-version = "27.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27a75de515543b1897b26119f93731b385a19aea165a1ec5f0e3acecc229cae7"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -8096,18 +8095,16 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core-deps-apple"
-version = "27.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0772ae958e9be0c729561d5e3fd9a19679bcdfb945b8b1a1969d9bfe8056d233"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
-version = "27.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71197027d61a71748e4120f05a9242b2ad142e3c01f8c1b47707945a879a03c3"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "wgpu-hal",
 ]
@@ -8115,8 +8112,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "27.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b21cb61c57ee198bc4aff71aeadff4cbb80b927beb912506af9c780d64313ce"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -8156,9 +8152,8 @@ dependencies = [
 
 [[package]]
 name = "wgpu-types"
-version = "27.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afdcf84c395990db737f2dd91628706cb31e86d72e53482320d368e52b5da5eb"
+version = "27.0.4"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=295bf25607db043b5f8b2c8123e3ab6149a12e3e#295bf25607db043b5f8b2c8123e3ab6149a12e3e"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",

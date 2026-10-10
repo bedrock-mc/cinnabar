@@ -8,7 +8,7 @@ use super::{
     FIXED_POINT_DENOMINATOR, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
     REPLACEMENT_CODEPOINT, TEXT_BOLD_OFFSET_64, TextError, TextLayout, TextLayoutKey,
     TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible,
-    parse::parse_bedrock_text_with_style,
+    parse::parse_bedrock_text_with_style, units::Units,
 };
 
 pub(super) fn build_layout(
@@ -37,13 +37,20 @@ pub(super) fn build_layout(
         });
     }
     let scale_1024 = i64::from(key.scale_1024);
-    let line_height_64 = scale_metric(i64::from(request.line_height_64), scale_1024)?;
+    let units = Units::select(
+        scale_1024,
+        request.wrap.device_scale_65536,
+        request.font.line_metrics().is_some(),
+    );
+    let line_height_64 = units.texels(i64::from(request.line_height_64))?;
+    let line_padding_64 = units.output_to_layout(i64::from(request.wrap.line_padding_64))?;
     let mut lines = Lines {
         request,
         scale_1024,
+        units,
         line_height_64,
-        pitch_64: (line_height_64 + i64::from(request.wrap.line_padding_64)).max(1),
-        baseline_64: scale_metric(i64::from(request.baseline_64), scale_1024)?,
+        pitch_64: (line_height_64 + line_padding_64).max(1),
+        baseline_64: units.texels(i64::from(request.baseline_64))?,
         glyphs: Vec::with_capacity(glyph_count),
         marks: Vec::with_capacity(glyph_count),
         widths: Vec::new(),
@@ -54,7 +61,6 @@ pub(super) fn build_layout(
         x_64: 0,
         ellipsized: false,
     };
-    let width_64 = u64::from(request.width_64);
     let mut space: Option<WrapPoint> = None;
     let mut index = 0usize;
     while let Some(&(codepoint, style)) = characters.get(index) {
@@ -72,7 +78,7 @@ pub(super) fn build_layout(
         }
         let glyph = lines.glyph(codepoint, style)?;
         let mut candidate = lines.candidate(&glyph)?;
-        if lines.glyphs.len() > lines.line_start && candidate.width_64 > width_64 {
+        if lines.glyphs.len() > lines.line_start && lines.overflows(&candidate)? {
             if let Some(point) = space.take().filter(|point| point.glyphs > lines.line_start) {
                 // Drop the space and the partial word; the word restarts the next line.
                 lines.truncate(point.glyphs);
@@ -97,12 +103,15 @@ pub(super) fn build_layout(
             }
             candidate = lines.candidate(&glyph)?;
         }
-        // Only a legacy glyph break refuses a glyph wider than the whole line;
-        // a vanilla label lets it overflow.
-        if candidate.width_64 > width_64 && request.wrap.chop == WordChop::Glyph {
+        // Clipped controls keep indivisible wide glyphs; strict measurement requests
+        // still reject ink wider than the whole line.
+        if request.wrap.chop == WordChop::Glyph
+            && !request.wrap.allow_visual_overflow
+            && lines.overflows(&candidate)?
+        {
             return Err(TextError::VisualWidthExceeded {
-                actual_64: candidate.width_64,
-                limit_64: width_64,
+                actual_64: lines.output_width(&candidate)?,
+                limit_64: u64::from(request.width_64),
             });
         }
         if codepoint == ' ' {
@@ -139,7 +148,7 @@ struct Glyph {
     draw_size_64: Option<[u32; 2]>,
     advance_64: i64,
     bold_offset_64: i64,
-    scale_1024: i64,
+    units: Units,
     linear_sampling: bool,
     rendering: assets::FontRendering,
 }
@@ -152,9 +161,11 @@ struct LineCandidate {
     width_64: u64,
 }
 
+/// Line state in the layout's [`Units`]; glyph bounds become output pixels in `into_layout`.
 struct Lines<'a> {
     request: TextLayoutRequest<'a>,
     scale_1024: i64,
+    units: Units,
     line_height_64: i64,
     pitch_64: i64,
     baseline_64: i64,
@@ -184,33 +195,38 @@ fn snap_to_grid(offset_64: i64, grid_65536: u32) -> i64 {
 impl Lines<'_> {
     fn glyph(&self, codepoint: char, style: TextStyle) -> Result<Glyph, TextError> {
         let (source, resolved, metrics) = resolve_glyph(self.request.font, codepoint)?;
-        let scale_1024 = match (self.request.font.line_metrics(), source.line_metrics()) {
-            (Some(primary), Some(fallback)) => {
-                self.scale_1024 * i64::from(primary.em_64) / i64::from(fallback.em_64)
-            }
-            _ => self.scale_1024,
+        // Device units are only selected for fonts without em metrics, so a rescaled
+        // fallback glyph always measures in output units.
+        let units = match (self.request.font.line_metrics(), source.line_metrics()) {
+            (Some(primary), Some(fallback)) => Units::Output {
+                scale_1024: self.scale_1024 * i64::from(primary.em_64) / i64::from(fallback.em_64),
+            },
+            _ => self.units,
         };
         let bold_offset_64 = if style.bold {
             i64::from(TEXT_BOLD_OFFSET_64)
         } else {
             0
         };
-        let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
+        let advance_64 = units.texels(i64::from(metrics.advance_64))?;
         let advance_64 = if advance_64 > 0 {
-            advance_64 + scale_metric(bold_offset_64, self.scale_1024)?
+            advance_64 + self.units.texels(bold_offset_64)?
         } else {
             advance_64
         };
+        let letter_spacing_64 = self
+            .units
+            .output_to_layout(i64::from(self.request.wrap.letter_spacing_64))?;
         Ok(Glyph {
             codepoint,
             resolved,
             metrics,
             draw_size_64: source.draw_size_64(resolved),
             advance_64: advance_64
-                .checked_add(i64::from(self.request.wrap.letter_spacing_64))
+                .checked_add(letter_spacing_64)
                 .ok_or(TextError::FixedPointOverflow)?,
-            bold_offset_64: scale_metric(bold_offset_64, self.scale_1024)?,
-            scale_1024,
+            bold_offset_64: self.units.texels(bold_offset_64)?,
+            units,
             linear_sampling: source.linear_sampling(),
             rendering: source.rendering(),
         })
@@ -227,7 +243,7 @@ impl Lines<'_> {
         };
         let x_64 = self
             .x_64
-            .checked_add(scale_metric(i64::from(pair), self.scale_1024)?)
+            .checked_add(self.units.texels(i64::from(pair))?)
             .ok_or(TextError::FixedPointOverflow)?;
         let bounds_64 = glyph_bounds(
             glyph.metrics,
@@ -236,7 +252,7 @@ impl Lines<'_> {
             self.line,
             self.pitch_64,
             self.baseline_64,
-            glyph.scale_1024,
+            glyph.units,
         )?;
         let pen_end_64 = x_64
             .checked_add(glyph.advance_64)
@@ -257,6 +273,17 @@ impl Lines<'_> {
             max_64,
             width_64,
         })
+    }
+
+    /// `candidate`'s line width in output 1/64 pixels, as the request's wrap width is given.
+    fn output_width(&self, candidate: &LineCandidate) -> Result<u64, TextError> {
+        let width = i64::try_from(candidate.width_64).map_err(|_| TextError::FixedPointOverflow)?;
+        u64::try_from(self.units.to_output(width)?).map_err(|_| TextError::FixedPointOverflow)
+    }
+
+    /// Whether `candidate`'s line is wider than the request's wrap width.
+    fn overflows(&self, candidate: &LineCandidate) -> Result<bool, TextError> {
+        Ok(self.output_width(candidate)? > u64::from(self.request.width_64))
     }
 
     fn push(
@@ -318,10 +345,9 @@ impl Lines<'_> {
                 .unwrap_or_default()
         };
         let mut hyphen = self.glyph('-', style(self))?;
-        let width_64 = u64::from(self.request.width_64);
         let mut resume = current;
         while self.glyphs.len() - self.line_start >= 2
-            && self.candidate(&hyphen)?.width_64 > width_64
+            && self.overflows(&self.candidate(&hyphen)?)?
         {
             resume = self.marks[self.glyphs.len() - 1].source;
             self.truncate(self.glyphs.len() - 1);
@@ -369,7 +395,6 @@ impl Lines<'_> {
     /// Vanilla removes the saved newline, then visible glyphs only until `...` fits.
     fn ellipsize(&mut self) -> Result<(), TextError> {
         self.ellipsized = true;
-        let width_64 = u64::from(self.request.width_64);
         let style = self
             .glyphs
             .last()
@@ -381,7 +406,7 @@ impl Lines<'_> {
             for _ in 0..3 {
                 let dot = self.glyph('.', style)?;
                 let candidate = self.candidate(&dot)?;
-                fits &= candidate.width_64 <= width_64;
+                fits &= !self.overflows(&candidate)?;
                 self.push(dot, style, candidate, usize::MAX)?;
             }
             if fits || kept == self.line_start {
@@ -409,11 +434,13 @@ impl Lines<'_> {
             TextLineAlign::Center => 1,
             TextLineAlign::Right => 2,
         };
+        let units = self.units;
         let mut maximum_width_64 = 0i64;
-        let offsets: Vec<i64> = self
+        let offsets = self
             .widths
             .iter()
             .map(|width| {
+                let width = units.to_output(*width)?;
                 let offset = if factor == 0 {
                     0
                 } else {
@@ -421,17 +448,24 @@ impl Lines<'_> {
                     snap_to_grid(exact, self.request.wrap.align_grid_65536)
                 };
                 maximum_width_64 = maximum_width_64.max(offset + width);
-                offset
+                Ok(offset)
             })
-            .collect();
+            .collect::<Result<Vec<i64>, TextError>>()?;
+        // Each edge rounds to output pixels on its own, so no error accumulates along a line.
         for glyph in &mut self.glyphs {
             let offset = offsets[usize::from(glyph.line)];
-            glyph.bounds_64[0] = checked_i32(i64::from(glyph.bounds_64[0]) + offset)?;
-            glyph.bounds_64[2] = checked_i32(i64::from(glyph.bounds_64[2]) + offset)?;
+            let [left, top, right, bottom] = glyph.bounds_64.map(i64::from);
+            glyph.bounds_64 = [
+                checked_i32(units.to_output(left)? + offset)?,
+                checked_i32(units.to_output(top)?)?,
+                checked_i32(units.to_output(right)? + offset)?,
+                checked_i32(units.to_output(bottom)?)?,
+            ];
         }
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
-        let nominal_height_64 =
-            count * self.line_height_64 + (count - 1) * (self.pitch_64 - self.line_height_64);
+        let nominal_height_64 = units.to_output(
+            count * self.line_height_64 + (count - 1) * (self.pitch_64 - self.line_height_64),
+        )?;
         let height_64 = normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?;
         Ok(TextLayout {
             id,
@@ -491,13 +525,13 @@ fn glyph_bounds(
     line: usize,
     pitch_64: i64,
     baseline_64: i64,
-    scale_1024: i64,
+    units: Units,
 ) -> Result<[i32; 4], TextError> {
     let bearing = |value: i16| {
         i64::from(value)
             .checked_mul(FIXED_POINT_DENOMINATOR)
             .ok_or(TextError::FixedPointOverflow)
-            .and_then(|value| scale_metric(value, scale_1024))
+            .and_then(|value| units.texels(value))
     };
     let bearing_x_64 = bearing(metrics.bearing[0])?;
     let bearing_y_64 = bearing(metrics.bearing[1])?;
@@ -505,8 +539,8 @@ fn glyph_bounds(
         u32::from(metrics.uv[2].saturating_sub(metrics.uv[0])) * FIXED_POINT_DENOMINATOR as u32,
         u32::from(metrics.uv[3].saturating_sub(metrics.uv[1])) * FIXED_POINT_DENOMINATOR as u32,
     ]);
-    let width_64 = scale_metric(i64::from(texel_width_64), scale_1024)?;
-    let height_64 = scale_metric(i64::from(texel_height_64), scale_1024)?;
+    let width_64 = units.texels(i64::from(texel_width_64))?;
+    let height_64 = units.texels(i64::from(texel_height_64))?;
     let line_y_64 = i64::try_from(line)
         .ok()
         .and_then(|line| line.checked_mul(pitch_64))
@@ -526,13 +560,6 @@ fn glyph_bounds(
         checked_i32(left + width_64)?,
         checked_i32(top + height_64)?,
     ])
-}
-
-fn scale_metric(value: i64, scale_1024: i64) -> Result<i64, TextError> {
-    value
-        .checked_mul(scale_1024)
-        .and_then(|scaled| scaled.checked_div(crate::UiScale::SCALE_DENOMINATOR))
-        .ok_or(TextError::FixedPointOverflow)
 }
 
 fn checked_i32(value: i64) -> Result<i32, TextError> {

@@ -209,7 +209,34 @@ unsafe extern "C" {
     ) -> std::os::raw::c_int;
 }
 
-#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
+// Linux open flags are per-architecture: arm, aarch64 and powerpc use their own values, where
+// 0x1_0000 is `O_DIRECT`; every other Linux target uses the generic ones.
+#[cfg(all(
+    unix,
+    any(target_os = "linux", target_os = "android"),
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+mod unix_flags {
+    pub const DIRECTORY: i32 = 0x4000;
+    pub const NOFOLLOW: i32 = 0x8000;
+    pub const CLOEXEC: i32 = 0x8_0000;
+}
+
+#[cfg(all(
+    unix,
+    any(target_os = "linux", target_os = "android"),
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
 mod unix_flags {
     pub const DIRECTORY: i32 = 0x1_0000;
     pub const NOFOLLOW: i32 = 0x2_0000;
@@ -247,6 +274,78 @@ mod tests {
     use std::fs;
 
     use super::read_bounded_source;
+
+    #[test]
+    fn reads_nested_regular_source_through_directory_handles() {
+        let root = tempfile::tempdir().expect("root");
+        let parent = root.path().join("animation_controllers");
+        fs::create_dir(&parent).expect("parent");
+        let source = parent.join("agent.animation_controllers.json");
+        fs::write(&source, b"{\"format_version\": \"1.10.0\"}").expect("source");
+
+        let bytes = read_bounded_source(root.path(), &source).expect("regular source reads");
+        assert_eq!(bytes, b"{\"format_version\": \"1.10.0\"}");
+    }
+
+    /// The open flags are per-architecture constants; a wrong value silently becomes another
+    /// flag, so check each one against the kernel's behaviour instead of pinning numbers.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn open_flags_match_the_target_kernel_abi() {
+        use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
+
+        use super::unix_flags;
+
+        let root = tempfile::tempdir().expect("root");
+        let file = root.path().join("source.json");
+        fs::write(&file, b"{}").expect("file");
+        let link = root.path().join("link.json");
+        std::os::unix::fs::symlink(&file, &link).expect("symlink");
+
+        let not_a_directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(unix_flags::DIRECTORY)
+            .open(&file)
+            .expect_err("DIRECTORY must reject a regular file");
+        assert_eq!(not_a_directory.kind(), std::io::ErrorKind::NotADirectory);
+
+        let followed_link = OpenOptions::new()
+            .read(true)
+            .custom_flags(unix_flags::NOFOLLOW)
+            .open(&link)
+            .expect_err("NOFOLLOW must reject a symlink leaf");
+        // ELOOP is 90 on MIPS, 62 on SPARC and 40 on every other Linux architecture.
+        let eloop = if cfg!(any(
+            target_arch = "mips",
+            target_arch = "mips32r6",
+            target_arch = "mips64",
+            target_arch = "mips64r6"
+        )) {
+            90
+        } else if cfg!(any(target_arch = "sparc", target_arch = "sparc64")) {
+            62
+        } else {
+            40
+        };
+        assert_eq!(followed_link.raw_os_error(), Some(eloop), "expected ELOOP");
+
+        let opened = OpenOptions::new()
+            .read(true)
+            .custom_flags(unix_flags::CLOEXEC)
+            .open(&file)
+            .expect("CLOEXEC opens a regular file");
+        let flags = fcntl_getfd(std::os::unix::io::AsRawFd::as_raw_fd(&opened));
+        assert_eq!(flags & 1, 1, "expected FD_CLOEXEC");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn fcntl_getfd(descriptor: i32) -> i32 {
+        unsafe extern "C" {
+            fn fcntl(descriptor: i32, command: i32, ...) -> i32;
+        }
+        // SAFETY: F_GETFD (1) takes no argument and only inspects a live descriptor.
+        unsafe { fcntl(descriptor, 1) }
+    }
 
     #[test]
     fn rejects_parent_replaced_by_external_link_after_enumeration() {

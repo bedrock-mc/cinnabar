@@ -76,6 +76,9 @@ impl PlayerInventoryLedger {
             let Some(index) = self.queue.iter().position(|pending| {
                 pending.request_id == response.request_id && pending.accepted.is_none()
             }) else {
+                if response.status == StackResponseStatus::Rejected {
+                    self.settle_abandoned_rejection(response.request_id);
+                }
                 continue;
             };
             if response.status == StackResponseStatus::Accepted

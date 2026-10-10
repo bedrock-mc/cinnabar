@@ -111,12 +111,12 @@ fn omission_traps_and_reload_revoke_camera_policy() {
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(!trapped.preserves_teleport_rotation());
-    let (_dir, mut reloaded) = load(&call(true, false), true);
+    let (dir, mut reloaded) = load(&call(true, false), true);
     reloaded
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(reloaded.preserves_teleport_rotation());
-    std::fs::write(&reloaded.path, source("")).unwrap();
+    std::fs::write(dir.path().join("camera.wat"), source("")).unwrap();
     assert!(reloaded.reload_if_changed().unwrap());
     assert!(!reloaded.preserves_teleport_rotation());
 }
@@ -219,9 +219,9 @@ fn view_scale_trap_reload_and_shared_import_budget_revoke_output() {
     assert_eq!(host.camera_view_scale(), Some([0.25; 2]));
     assert!(view_frame(&mut host, true, false, true).is_err());
     assert_eq!(host.camera_view_scale(), None);
-    let (_dir, mut host) = load(&view_call("0.25", "0.25", false), true);
+    let (dir, mut host) = load(&view_call("0.25", "0.25", false), true);
     view_frame(&mut host, true, false, true).unwrap();
-    std::fs::write(&host.path, source("")).unwrap();
+    std::fs::write(dir.path().join("camera.wat"), source("")).unwrap();
     assert!(host.reload_if_changed().unwrap());
     assert_eq!(host.camera_view_scale(), None);
     let calls = format!(

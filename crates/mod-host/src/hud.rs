@@ -54,9 +54,6 @@ pub(super) fn open_editor(state: &mut State, json: String) -> Result<Result<(), 
     if let Err(error) = preview.validate() {
         return Ok(Err(error));
     }
-    if preview.cards.is_empty() {
-        return Ok(Err("HUD editor requires preview cards".into()));
-    }
     state.hud.pending_editor = Some(preview);
     Ok(Ok(()))
 }
@@ -82,6 +79,34 @@ pub(super) fn read_editor_result(
                 .iter()
                 .map(|p| Placement {
                     id: p.id.clone(),
+                    position: p.position.map(|[x, y]| Point { x, y }),
+                })
+                .collect(),
+        }
+    })))
+}
+/// Returns the same host result until a successful callback consumes it.
+pub(super) fn read_editor_layout(
+    state: &mut State,
+) -> Result<Result<Option<super::cinnabar::extension::hud::LayoutResult>, String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    state.hud.result_read = true;
+    Ok(Ok(state.hud.editor_result.as_ref().map(|result| {
+        use super::cinnabar::extension::hud::{LayoutPlacement, LayoutResult, Point};
+        LayoutResult {
+            saved: result.saved,
+            reset: result.reset,
+            placements: result
+                .placements
+                .iter()
+                .map(|p| LayoutPlacement {
+                    id: p.id.clone(),
+                    scale: p.scale,
                     position: p.position.map(|[x, y]| Point { x, y }),
                 })
                 .collect(),
@@ -116,7 +141,7 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         if let Err(error) = hud.validate() {
             return Ok(Err(error));
         }
-        (!hud.cards.is_empty()).then_some(hud)
+        (!hud.cards.is_empty() || hud.hide_effect_icons).then_some(hud)
     };
     state.hud.pending_content = Some(content);
     Ok(Ok(()))
@@ -149,6 +174,57 @@ mod tests {
     use super::*;
     use crate::ModGrants;
     #[test]
+    fn effect_icon_replacement_commits_without_cards_and_clears_transactionally() {
+        let mut state = State::new(
+            ModGrants {
+                hud: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        let replacement = r#"{"cards":[],"hide_effect_icons":true}"#;
+        assert!(set_content(&mut state, replacement.into()).unwrap().is_ok());
+        assert!(
+            state.hud.content.is_none(),
+            "publication waits for a successful callback"
+        );
+        state.hud.commit();
+        assert!(state.hud.content.as_ref().unwrap().hide_effect_icons);
+        assert!(
+            set_content(
+                &mut state,
+                r#"{"cards":[],"hide_effect_icons":"true"}"#.into()
+            )
+            .unwrap()
+            .is_err()
+        );
+        state.hud.commit();
+        assert!(
+            state.hud.content.as_ref().unwrap().hide_effect_icons,
+            "invalid writes retain the committed HUD"
+        );
+        assert!(
+            set_content(
+                &mut state,
+                r#"{"cards":[],"hide_effect_icons":false}"#.into()
+            )
+            .unwrap()
+            .is_ok()
+        );
+        state.hud.commit();
+        assert!(state.hud.content.is_none());
+        assert!(set_content(&mut state, replacement.into()).unwrap().is_ok());
+        state.hud.commit();
+        assert!(set_content(&mut state, String::new()).unwrap().is_ok());
+        state.hud.commit();
+        assert!(
+            state.hud.content.is_none(),
+            "clearing restores normal effect icons"
+        );
+    }
+
+    #[test]
     fn editor_requests_require_both_grants_focused_panel_and_successful_commit() {
         let preview = r#"{"cards":[{"id":"equipment","rows":[]}]}"#;
         for grants in [
@@ -162,7 +238,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let mut state = State::new(grants, String::new());
+            let mut state = State::new(grants, String::new(), Default::default());
             state.controls.frame.focused = true;
             state.controls.frame.panel_open = true;
             assert!(open_editor(&mut state, preview.into()).unwrap().is_err());
@@ -176,6 +252,7 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         assert!(open_editor(&mut state, preview.into()).unwrap().is_err());
         state.controls.frame.focused = true;
@@ -190,6 +267,13 @@ mod tests {
             state.hud.editor_request.as_ref().unwrap().cards[0].id,
             "equipment"
         );
+        assert!(
+            open_editor(&mut state, r#"{"cards":[]}"#.into())
+                .unwrap()
+                .is_ok()
+        );
+        state.hud.commit();
+        assert!(state.hud.editor_request.as_ref().unwrap().cards.is_empty());
     }
     #[test]
     fn editor_result_is_stable_during_callback_and_consumed_after_commit() {
@@ -200,15 +284,20 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         state.hud.editor_result = Some(EditorResult {
             saved: true,
             reset: true,
             placements: vec![ui::mod_hud::Placement {
                 id: "equipment".into(),
+                scale: 1.5,
                 position: Some([0.25, 0.75]),
             }],
         });
+        let layout = read_editor_layout(&mut state).unwrap().unwrap().unwrap();
+        assert_eq!(layout.placements[0].scale, 1.5);
+        assert_eq!(layout.placements[0].position.as_ref().unwrap().x, 0.25);
         for _ in 0..2 {
             let result = read_editor_result(&mut state).unwrap().unwrap().unwrap();
             assert!(result.saved && result.reset);
@@ -228,6 +317,7 @@ mod tests {
                 ..Default::default()
             },
             String::new(),
+            Default::default(),
         );
         assert!(
             set_content(&mut state, "x".repeat(MAX_HUD_BYTES + 1))

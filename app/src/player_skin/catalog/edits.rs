@@ -63,7 +63,15 @@ pub(crate) fn delete(
         .iter()
         .any(|entry| entry.path == path.to_string_lossy());
     next.skins = skins.into();
-    commit_deletion(layout, view, next, &path, remove_image)
+    commit_deletion(layout, view, next, &path, remove_image)?;
+    if remove_image {
+        match fs::remove_file(path.with_extension("json")) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => bevy::log::warn!(?error, "deleted imported model cleanup failed"),
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn commit_deletion(

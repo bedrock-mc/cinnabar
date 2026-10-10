@@ -65,7 +65,7 @@ fn runtime_decodes_exact_provenance_and_unmodified_rgba8() {
     let bytes = encode_font_catalog(SOURCE_MANIFEST_SHA256, &[glyph], &[page]).unwrap();
     let catalog = RuntimeFontCatalog::decode(&bytes, SOURCE_MANIFEST_SHA256).unwrap();
 
-    assert_eq!(catalog.identity().schema, 1);
+    assert_eq!(catalog.identity().schema, assets::FONT_CARRIER_SCHEMA);
     assert_eq!(
         catalog.identity().source_manifest_sha256,
         SOURCE_MANIFEST_SHA256

@@ -505,4 +505,35 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
             .is_none()
     );
     assert_eq!(view.get::<SceneTarget>().unwrap().texture.sample_count(), 4);
+    let owner = view.id();
+    world.init_resource::<crate::ui_render::composite::UiLayerStore>();
+    schedule.add_systems(
+        crate::ui_render::composite::prepare_ui_layers.in_set(RenderSystems::PrepareResources),
+    );
+    for [width, height] in [[352, 184], [254, 124], [1, 1]] {
+        {
+            let mut entity = world.entity_mut(owner);
+            let mut camera = entity.get_mut::<ExtractedCamera>().unwrap();
+            camera.physical_target_size = Some(UVec2::new(width, height));
+            camera.physical_viewport_size = Some(UVec2::new(width, height));
+        }
+        schedule.run(world);
+        let layer = world
+            .entity(owner)
+            .get::<crate::ui_render::composite::UiLayerTexture>()
+            .unwrap();
+        assert_eq!(
+            [layer.texture.width(), layer.texture.height()],
+            [width, height]
+        );
+        assert_eq!(
+            world
+                .entity(owner)
+                .get::<SceneTarget>()
+                .unwrap()
+                .texture
+                .size(),
+            layer.texture.size()
+        );
+    }
 }

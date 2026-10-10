@@ -5,15 +5,9 @@ use super::super::{
     theme::{BODY, BORDER, EDGE, NEUTRAL, NEUTRAL80, OUTLINE, TEXT},
 };
 use super::{MenuAction, MenuScreen, MenuView, UiPresentationError};
-use crate::ui_runtime::oreui_assets::{PLAY_TAB_ICONS, SETTINGS_ICON_HIGHLIGHT_IMAGE};
-
-const ART: [&str; 5] = [
-    "assets/tabBar_neutral_default-40e26ac9318c12909f42.png",
-    "assets/tabBar_neutral_hovered-b73d7029874500714b0f.png",
-    "assets/tabBar_neutral_pressed-9d14d8d1343a1fc3836d.png",
-    "assets/tabBar_neutral_default_focused-812a9fcda5a4e49d93d5.png",
-    "assets/tabBar_neutral_pressed_focused-c05012af3863c527b0a2.png",
-];
+use crate::ui_runtime::oreui_assets::{
+    PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE,
+};
 
 #[cfg(test)]
 mod tests;
@@ -140,16 +134,24 @@ fn artwork(
     if canvas.appearance == super::super::theme::Appearance::Dark {
         return Ok(false);
     }
-    if canvas
-        .originals
-        .is_none_or(|art| ART.iter().any(|key| !art.sprites.contains_key(*key)))
-    {
+    if canvas.originals.is_none_or(|art| {
+        PLAY_TAB_IMAGES
+            .iter()
+            .any(|key| !art.sprites.contains_key(*key))
+    }) {
         return Ok(false);
     }
     let widths = [0.4, 0.4, 0.8 - 0.4 * down, 0.4];
-    canvas.nine_slice(ART[0], face, [2, 2, 4, 2], widths, true, [255; 4])?;
     canvas.nine_slice(
-        ART[1],
+        PLAY_TAB_IMAGES[0],
+        face,
+        [2, 2, 4, 2],
+        widths,
+        true,
+        [255; 4],
+    )?;
+    canvas.nine_slice(
+        PLAY_TAB_IMAGES[1],
         face,
         [2, 2, 4, 2],
         widths,
@@ -157,7 +159,7 @@ fn artwork(
         opacity([255; 4], motion.hover * (1.0 - down)),
     )?;
     canvas.nine_slice(
-        ART[2],
+        PLAY_TAB_IMAGES[2],
         face,
         [2; 4],
         [0.4; 4],
@@ -173,7 +175,7 @@ fn artwork(
             face[3] + outset,
         ];
         canvas.nine_slice(
-            ART[3],
+            PLAY_TAB_IMAGES[3],
             focused,
             [3, 3, 5, 3],
             [0.6, 0.6, 1.0 - 0.4 * down, 0.6],
@@ -181,7 +183,7 @@ fn artwork(
             opacity([255; 4], motion.focus * (1.0 - down)),
         )?;
         canvas.nine_slice(
-            ART[4],
+            PLAY_TAB_IMAGES[4],
             focused,
             [3; 4],
             [0.6; 4],

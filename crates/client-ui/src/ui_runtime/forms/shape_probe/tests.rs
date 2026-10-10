@@ -42,8 +42,8 @@ fn supported_forms_leave_the_process_probe_for_the_first_rejected_form() {
     let budget = AtomicBool::new(false);
     let mut supported = event("not JSON");
     supported.model = ServerFormModel::TextMenu(protocol::TextMenuForm {
-        title: Arc::from(""),
-        content: Arc::from(""),
+        title: protocol::FormText::from(""),
+        content: protocol::FormText::from(""),
         buttons: Arc::from([]),
         button_images: Arc::from([]),
         omitted_images: 0,

@@ -2,6 +2,10 @@
 mod alloc_count;
 
 #[path = "../src/device_poll.rs"]
+#[allow(
+    dead_code,
+    reason = "frame completion helpers serve the library's own owners"
+)]
 mod device_poll;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
@@ -12,6 +16,8 @@ mod material_shader;
 #[path = "../src/pipeline_warmup.rs"]
 #[allow(dead_code, reason = "shared pipeline warmup")]
 mod pipeline_warmup;
+#[path = "../src/render_bounds.rs"]
+mod render_bounds;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,
@@ -288,7 +294,8 @@ fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_sh
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
     assert!(source.contains("@location(1) uv: vec2<f32>"));
     assert!(source.contains("output.uv = uv;"));
-    assert!(source.contains("let normalized_uv = input.uv / dimensions;"));
+    assert!(source.contains("let sample_uv = input.uv + input.atlas_offset;"));
+    assert!(source.contains("let normalized_uv = sample_uv / dimensions;"));
 }
 
 #[test]

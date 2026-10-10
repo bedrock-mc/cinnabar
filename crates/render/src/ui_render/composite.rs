@@ -442,6 +442,16 @@ fn encode_composite(
     pipeline: &RenderPipeline,
     layout: &BindGroupLayout,
 ) {
+    let scissor = match scissor {
+        Some((position, size)) => match crate::render_bounds::scissor(
+            render_model::UiScissor::new(position.x, position.y, size.x, size.y),
+            crate::render_bounds::extent(destination.view),
+        ) {
+            Some(rect) => Some(rect),
+            None => return,
+        },
+        None => None,
+    };
     let bind_group: BindGroup = context.render_device().create_bind_group(
         "UI composite bind group",
         layout,
@@ -462,8 +472,8 @@ fn encode_composite(
         ),
         occlusion_query_set: None,
     });
-    if let Some((position, size)) = scissor {
-        pass.set_scissor_rect(position.x, position.y, size.x, size.y);
+    if let Some(rect) = scissor {
+        pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
     }
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(0, &bind_group, &[]);

@@ -37,7 +37,7 @@ fn snapshot() -> PlayerStateSnapshot {
 
 #[test]
 fn local_facts_require_their_own_grant_and_expire_after_the_callback() {
-    let mut state = State::new(ModGrants::default(), String::new());
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
     state.player_state.set_snapshot(Some(snapshot())).unwrap();
     assert!(state.read_snapshot().unwrap().is_err());
     assert!(state.read_revision().unwrap().is_err());
@@ -61,6 +61,7 @@ fn read_budget_is_bounded_and_renews_with_the_callback() {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     for index in 0..MAX_IMPORT_WRITES {
         if index % 2 == 0 {
@@ -101,6 +102,7 @@ fn unimported_transient_facts_do_not_invalidate_the_last_full_snapshot_token() {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     let facts = observed_snapshot();
     state
@@ -165,6 +167,7 @@ fn revision_changes_for_exact_identifiers_scalars_ticks_and_session_owners() {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     let changes: &[fn(&mut PlayerStateSnapshot)] = &[
         |facts| facts.session += 1,
@@ -223,6 +226,7 @@ fn unavailable_facts_hide_reads_and_equal_contents_keep_the_token_until_revocati
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     state.player_state.set_snapshot(Some(snapshot())).unwrap();
     assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(snapshot()));
@@ -274,6 +278,7 @@ fn revision_exhaustion_releases_facts_instead_of_reusing_an_old_token() {
             ..Default::default()
         },
         String::new(),
+        Default::default(),
     );
     state.player_state.set_snapshot(Some(snapshot())).unwrap();
     assert_eq!(state.read_snapshot().unwrap().unwrap(), Some(snapshot()));

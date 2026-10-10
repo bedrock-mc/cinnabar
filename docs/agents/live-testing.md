@@ -89,9 +89,12 @@ GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
 Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
 exhausting the collector’s source-location table.
 
-Install the capture tools with `brew install tracy` if missing. Match their Tracy
-protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
-[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+Install the capture tools from the Tracy release whose protocol matches
+`tracy-client-sys` in `Cargo.lock`: `brew install tracy` on macOS when Homebrew has
+that release, or the release's `windows-*.zip` on Windows. The
+[rust_tracy_client table](https://github.com/nagisa/rust_tracy_client#readme) maps each
+`tracy-client-sys` version to its Tracy release; mismatched tools refuse the connection.
+With the hidden local scene settled:
 
 ```sh
 TRACE_DIR="$(mktemp -d)"
@@ -149,8 +152,10 @@ suppressed slow frames and the violated budgets. `main_ms` covers frame-start ti
 `Last`; `between_updates_ms` covers the rest of the preceding start-to-start
 interval. `main_stages` lists spans completed during that update, and
 `window_stages` includes the intervening render work, both in descending
-milliseconds. These are overlapping wall-time spans, not additive CPU or GPU
-time. A worker span can begin in an earlier frame; its full duration appears in
+milliseconds. `main_pre_update`, `main_fixed_update`, `main_update` and
+`main_post_update` split `main_frame` by schedule phase, so work no named stage
+covers still shows which phase spent it. These are overlapping wall-time spans,
+not additive CPU or GPU time. A worker span can begin in an earlier frame; its full duration appears in
 the window where it completes. `surface_preparation` includes drawable
 acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
@@ -246,3 +251,6 @@ and stack tables; never export the trace table of contents or process metadata,
 which can include environment variables. Use scheduler states and sampled stacks
 to separate blocked time from runnable delay and active work. Profiling overhead
 and unavailable GPU categories must be reported separately.
+
+Developer client builds include the default `acceptance` feature. Packaging opts out explicitly;
+use a developer build for acceptance evidence, even when testing with the release profile.

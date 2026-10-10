@@ -327,7 +327,8 @@ fn shared_inputs_match_map_and_vector_snapshot_results() {
         mesh.mesh(
             stream.classifier,
             stream.runtime_assets(),
-            stream.network_id_mode()
+            stream.network_id_mode(),
+            &PackedBiomeRecord::fallback(),
         ),
         legacy.mesh()
     );
@@ -472,7 +473,7 @@ fn edits_while_jobs_wait_preserve_inputs_and_requeue_stale_completions() {
     let worker_barrier = Arc::clone(&barrier);
     let worker = std::thread::spawn(move || {
         worker_barrier.wait();
-        let output = mesh.mesh(classifier, &assets, mode);
+        let output = mesh.mesh(classifier, &assets, mode, &PackedBiomeRecord::fallback());
         let light = solve_prepared_light_job(job).unwrap();
         (mesh, output, light)
     });

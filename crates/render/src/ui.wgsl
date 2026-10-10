@@ -31,6 +31,7 @@ struct UiVertexOutput {
     @location(4) @interpolate(flat) alpha_cutoff: f32,
     @location(5) model_light: f32,
     @location(6) overlay_color: vec4<f32>,
+    @location(7) @interpolate(flat) atlas_offset: vec2<f32>,
 };
 
 @vertex
@@ -42,6 +43,7 @@ fn ui_vertex(
     @location(4) alpha_cutoff: f32,
     @location(5) model_light: f32,
     @location(6) overlay_color: vec4<f32>,
+    @location(7) atlas_offset: vec2<f32>,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
     let ndc = vec2<f32>(
@@ -51,6 +53,7 @@ fn ui_vertex(
     var output: UiVertexOutput;
     output.clip_position = vec4<f32>(ndc, position.z, position.w);
     output.uv = uv;
+    output.atlas_offset = atlas_offset;
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
     output.color = color;
@@ -99,14 +102,16 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // draw it gave the leading column one pixel, every other column two, and
     // bled a column of the neighbouring glyph in on the right. Model extrusion
     // side faces instead supply native fractional texel centers; preserve those too.
-    let normalized_uv = input.uv / dimensions;
+    // Preserve source interpolation and SDF derivatives when a glyph moves in the atlas.
+    let sample_uv = input.uv + input.atlas_offset;
+    let normalized_uv = sample_uv / dimensions;
     let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
     let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
     let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
     if native_font && !sdf_font {
-        let texel = clamp(vec2<i32>(floor(input.uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
+        let texel = clamp(vec2<i32>(floor(sample_uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
         sample = textureLoad(ui_pages, texel, i32(input.texture_page), 0);
     } else if sdf_font || (input.style_flags & STYLE_BILINEAR) != 0u {
         sample = textureSampleLevel(ui_pages, ui_linear_sampler, normalized_uv, i32(input.texture_page), 0.0);

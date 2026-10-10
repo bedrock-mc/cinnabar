@@ -114,7 +114,7 @@ pub(crate) fn ui_pipeline_descriptor(
             shader: UI_SHADER_HANDLE,
             entry_point: Some("ui_vertex".into()),
             buffers: vec![VertexBufferLayout {
-                array_stride: size_of::<UiRenderVertex>() as u64,
+                array_stride: size_of::<FontAtlasVertex>() as u64,
                 step_mode: VertexStepMode::Vertex,
                 attributes: vec![
                     VertexAttribute {
@@ -151,6 +151,11 @@ pub(crate) fn ui_pipeline_descriptor(
                         format: VertexFormat::Float32x4,
                         offset: std::mem::offset_of!(UiRenderVertex, overlay_color) as u64,
                         shader_location: 6,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x2,
+                        offset: std::mem::offset_of!(FontAtlasVertex, atlas_offset) as u64,
+                        shader_location: 7,
                     },
                 ],
             }],

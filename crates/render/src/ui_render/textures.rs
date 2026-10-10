@@ -108,6 +108,7 @@ impl TextureUploadState {
 
 #[derive(Default)]
 pub(super) struct UiGpuTextures {
+    pub(super) fonts: render_model::FontAtlasFrame,
     pub(super) buckets: Vec<GpuBucket>,
     pub(super) state: TextureUploadState,
     pub(super) locations: Vec<UiTextureLocation>,
@@ -184,6 +185,7 @@ impl UiGpuTextures {
             self.buckets.clear();
             self.locations.clear();
             self.state = TextureUploadState::default();
+            self.fonts.clear();
         }
         if self.buckets.is_empty() {
             self.allocation_identity = Some(catalog.static_identity());
@@ -245,6 +247,9 @@ impl UiGpuTextures {
         }
         let buckets = &self.buckets;
         self.state.execute(catalog, &dirty, |_, page, location| {
+            if page.font_atlas_side().is_some() {
+                return Ok(());
+            }
             let [width, height] = page.dimensions();
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(

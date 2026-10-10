@@ -155,12 +155,18 @@ pub(crate) fn advance_actor_frame(
         predicted_feet: physics.render_feet_position(),
         local_equipment,
         swing_progress: None,
-        renders_game: crate::screen_policy::renders_game(
-            &player,
-            ui.as_deref(),
-            menu.as_deref(),
-            ui_presentation.as_deref(),
-        ),
+        // Resolving the screen policy is UI work, attributed as such inside actor publication.
+        renders_game: {
+            let _ui = profiler
+                .as_deref()
+                .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
+            crate::screen_policy::renders_game(
+                &player,
+                ui.as_deref(),
+                menu.as_deref(),
+                ui_presentation.as_deref(),
+            )
+        },
         custom_emote: ui
             .as_deref()
             .and_then(|ui| ui.emotes().playback())

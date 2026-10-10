@@ -68,7 +68,7 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
-    /// Predicts remote actors `ticks` ahead for [`Self::pick_bounding_box`], leaving the live
+    /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
     /// actors to [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
@@ -281,19 +281,33 @@ impl WorldAuthority {
         self.actors
             .actor_retargeted_pose(runtime_id, partial_tick, targets)
     }
+    /// [`Self::actor_retargeted_pose`] borrowed from `cache`, which keeps each rig's
+    /// tick-constant transforms so frames between ticks only blend and compose.
+    pub fn actor_retargeted_pose_cached<'c>(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: &[Option<crate::BoneTransform>],
+        cache: &'c mut crate::JavaRetargetCache,
+    ) -> Option<&'c [crate::BoneTransform]> {
+        self.actors
+            .actor_retargeted_pose_cached(runtime_id, partial_tick, targets, cache)
+    }
     /// The animated skin layers at the frame fraction, each retargeted by the model-space
-    /// targets `targets` builds from its skeleton's bone names and rest pose.
+    /// targets `targets` writes from its skeleton's bone names and rest pose.
     pub fn actor_retargeted_layers(
         &self,
         runtime_id: u64,
         partial_tick: f32,
-        targets: impl Fn(
+        targets: impl FnMut(
             &[Box<str>],
             &[crate::BoneTransform],
-        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+            &mut Vec<Option<crate::BoneTransform>>,
+        ) -> Option<()>,
+        cache: &mut crate::JavaRetargetCache,
     ) -> Option<Vec<crate::SkinRenderLayer>> {
         self.actors
-            .actor_retargeted_layers(runtime_id, partial_tick, targets)
+            .actor_retargeted_layers(runtime_id, partial_tick, targets, cache)
     }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
@@ -397,11 +411,11 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// The actor's box where this frame's due ticks put it, for interaction picks.
-    pub fn pick_bounding_box(&self, actor: &ActorSnapshot) -> Option<([f32; 3], [f32; 3])> {
+    /// The actor's interaction boxes where this frame's due ticks put it, for picks.
+    pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
         match self.actors.pick_pose(actor.runtime_id) {
-            Some((position, _)) => actor.bounding_box_at(position),
-            None => actor.bounding_box(),
+            Some((position, _)) => actor.hit_boxes_at(position),
+            None => actor.hit_boxes(),
         }
     }
     /// Counts retained actors in this session.
