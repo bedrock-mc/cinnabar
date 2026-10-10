@@ -20,6 +20,12 @@ struct Import {
     condition: Condition,
     module: Name,
     target: Name,
+    scope: Name,
+}
+
+struct Binding {
+    condition: Condition,
+    scope: Name,
 }
 
 struct Export {
@@ -33,6 +39,8 @@ struct Export {
 #[derive(Default)]
 struct Symbols {
     dependencies: BTreeSet<String>,
+    extern_roots: BTreeMap<Name, Vec<Condition>>,
+    bindings: BTreeMap<Name, Vec<Binding>>,
     modules: BTreeMap<Name, Vec<Condition>>,
     definitions: BTreeMap<Name, Vec<Condition>>,
     type_definitions: BTreeMap<Name, Vec<Condition>>,
@@ -365,6 +373,7 @@ fn collect(
             Item::Mod(item) => {
                 let mut child = module.to_vec();
                 child.push(item.ident.unraw().to_string());
+                record_binding(symbols, child.clone(), &item.vis, module, &condition);
                 if let Some((_, items)) = &item.content {
                     symbols
                         .modules
@@ -390,6 +399,7 @@ fn collect(
                                 module: module.to_vec(),
                                 target: target.clone(),
                                 condition: condition.clone(),
+                                scope: visibility_scope(&item.vis, module),
                             });
                         if !matches!(item.vis, Visibility::Inherited) {
                             diagnostics.push(format!(
@@ -401,10 +411,12 @@ fn collect(
                     }
                     let mut key = module.to_vec();
                     key.push(binding.clone());
+                    record_binding(symbols, key.clone(), &item.vis, module, &condition);
                     symbols.imports.entry(key).or_default().push(Import {
                         condition: condition.clone(),
                         module: module.to_vec(),
                         target: target.clone(),
+                        scope: visibility_scope(&item.vis, module),
                     });
                     if !matches!(item.vis, Visibility::Inherited) {
                         let mut name = target.join("::");
@@ -428,17 +440,26 @@ fn collect(
                     .as_ref()
                     .map_or_else(|| name.clone(), |(_, name)| name.unraw().to_string());
                 let target = if name == "self" {
-                    "crate".into()
+                    vec!["crate".into()]
                 } else {
                     symbols.dependencies.insert(name.clone());
-                    name.clone()
+                    vec![String::new(), name.clone()]
                 };
                 let mut key = module.to_vec();
                 key.push(binding.clone());
+                if module.len() == 1 {
+                    symbols
+                        .extern_roots
+                        .entry(key.clone())
+                        .or_default()
+                        .push(condition.clone());
+                }
+                record_binding(symbols, key.clone(), &item.vis, module, &condition);
                 symbols.imports.entry(key).or_default().push(Import {
                     condition: condition.clone(),
                     module: module.to_vec(),
-                    target: vec![target],
+                    target,
+                    scope: visibility_scope(&item.vis, module),
                 });
                 if name != "self" && !matches!(item.vis, Visibility::Inherited) {
                     diagnostics.push(format!("{file}: cross-crate re-export `extern crate {name} as {binding}` is forbidden"));
@@ -446,20 +467,34 @@ fn collect(
             }
             _ => {
                 let name = match item {
-                    Item::Struct(item) => Some(&item.ident),
-                    Item::Enum(item) => Some(&item.ident),
-                    Item::Union(item) => Some(&item.ident),
-                    Item::Type(item) => Some(&item.ident),
-                    Item::Trait(item) => Some(&item.ident),
-                    Item::TraitAlias(item) => Some(&item.ident),
-                    Item::Fn(item) => Some(&item.sig.ident),
-                    Item::Const(item) => Some(&item.ident),
-                    Item::Static(item) => Some(&item.ident),
+                    Item::Struct(item) => Some((&item.ident, &item.vis)),
+                    Item::Enum(item) => Some((&item.ident, &item.vis)),
+                    Item::Union(item) => Some((&item.ident, &item.vis)),
+                    Item::Type(item) => Some((&item.ident, &item.vis)),
+                    Item::Trait(item) => Some((&item.ident, &item.vis)),
+                    Item::TraitAlias(item) => Some((&item.ident, &item.vis)),
+                    Item::Fn(item) => Some((&item.sig.ident, &item.vis)),
+                    Item::Const(item) => Some((&item.ident, &item.vis)),
+                    Item::Static(item) => Some((&item.ident, &item.vis)),
                     _ => None,
                 };
-                if let Some(name) = name {
+                if let Some((name, visibility)) = name {
                     let mut key = module.to_vec();
                     key.push(name.unraw().to_string());
+                    record_binding(symbols, key.clone(), visibility, module, &condition);
+                    if let Item::Enum(item) = item {
+                        for variant in &item.variants {
+                            let mut variant_key = key.clone();
+                            variant_key.push(variant.ident.unraw().to_string());
+                            record_binding(
+                                symbols,
+                                variant_key,
+                                visibility,
+                                module,
+                                &condition.with_attrs(&variant.attrs),
+                            );
+                        }
+                    }
                     if !matches!(item, Item::Fn(_) | Item::Const(_) | Item::Static(_)) {
                         symbols
                             .type_definitions
@@ -523,6 +558,14 @@ fn resolve(
     let mut index = 0;
     if path.first().is_some_and(String::is_empty) {
         absolute.clear();
+        if let Some(name) = path.get(1) {
+            let binding = vec!["crate".into(), name.clone()];
+            if !seen.contains(&binding)
+                && active_name(&symbols.extern_roots, &binding, configuration)?
+            {
+                absolute.push("crate".into());
+            }
+        }
         index = 1;
     } else if path.first().is_some_and(|name| name == "crate") {
         absolute.clear();
@@ -664,6 +707,26 @@ fn resolve_globs(
                 if !branch_seen.insert(key) {
                     continue;
                 }
+                let mut namespace_seen = branch_seen.clone();
+                let namespace = resolve(
+                    module,
+                    &glob.target,
+                    symbols,
+                    &mut namespace_seen,
+                    configuration,
+                )?;
+                if namespace.first().is_some_and(|name| name == "crate")
+                    && !visible_glob_binding(
+                        &namespace,
+                        &absolute[index],
+                        module,
+                        symbols,
+                        &mut namespace_seen,
+                        configuration,
+                    )?
+                {
+                    continue;
+                }
                 let resolved = resolve(module, &target, symbols, &mut branch_seen, configuration)?;
                 if resolved.first().is_some_and(|name| name != "crate") {
                     external.get_or_insert(resolved);
@@ -678,6 +741,101 @@ fn resolve_globs(
         break;
     }
     Ok(absolute)
+}
+
+/// Records where a declaration can be imported, independently of its final owner.
+fn record_binding(
+    symbols: &mut Symbols,
+    name: Name,
+    visibility: &Visibility,
+    module: &[String],
+    condition: &Condition,
+) {
+    symbols.bindings.entry(name).or_default().push(Binding {
+        condition: condition.clone(),
+        scope: visibility_scope(visibility, module),
+    });
+}
+
+/// Returns the local module whose descendants may access a declaration.
+fn visibility_scope(visibility: &Visibility, module: &[String]) -> Name {
+    match visibility {
+        Visibility::Public(_) => vec!["crate".into()],
+        Visibility::Inherited => module.to_vec(),
+        Visibility::Restricted(restricted) => {
+            let mut scope = module.to_vec();
+            for part in &restricted.path.segments {
+                match part.ident.unraw().to_string().as_str() {
+                    "crate" => scope = vec!["crate".into()],
+                    "self" => {}
+                    "super" => {
+                        scope.pop();
+                    }
+                    name => scope.push(name.into()),
+                }
+            }
+            scope
+        }
+    }
+}
+
+/// Checks the exposed glob binding before following aliases to its original declaration.
+fn visible_glob_binding(
+    namespace: &[String],
+    name: &str,
+    requester: &[String],
+    symbols: &Symbols,
+    seen: &mut BTreeSet<Name>,
+    configuration: &Configuration,
+) -> Result<bool, String> {
+    let mut key = namespace.to_vec();
+    key.push(name.into());
+    if let Some(bindings) = symbols.bindings.get(&key) {
+        let mut declared = false;
+        for binding in bindings {
+            if binding.condition.enabled(configuration)? {
+                declared = true;
+                if requester.starts_with(&binding.scope) {
+                    return Ok(true);
+                }
+            }
+        }
+        if declared {
+            return Ok(false);
+        }
+    }
+    key.insert(0, "visibility".into());
+    if !seen.insert(key) {
+        return Ok(false);
+    }
+    if let Some(globs) = symbols.globs.get(namespace) {
+        for glob in globs {
+            if !requester.starts_with(&glob.scope) || !glob.condition.enabled(configuration)? {
+                continue;
+            }
+            let mut branch_seen = seen.clone();
+            let target = resolve(
+                namespace,
+                &glob.target,
+                symbols,
+                &mut branch_seen,
+                configuration,
+            )?;
+            if target.first().is_some_and(|name| name != "crate")
+                || visible_glob_binding(
+                    &target,
+                    name,
+                    namespace,
+                    symbols,
+                    &mut branch_seen,
+                    configuration,
+                )?
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Finds a forwarding configuration while expanding only predicates used by this export.

@@ -512,6 +512,8 @@ fn local_glob_modules_shadow_dependency_names() {
 fn self_crate_aliases_keep_exports_local() {
     for source in [
         "pub extern crate self as api; pub struct Thing; pub use api::Thing as Local;",
+        "extern crate self as api; pub struct Thing; pub use ::api::Thing as Local;",
+        "extern crate self as api; pub struct Thing; mod nested { pub use ::api::Thing as Local; }",
         "pub struct Thing; mod nested { pub extern crate self as api; pub use api::Thing as Local; }",
         "extern crate self as other; pub struct Thing; pub use other::Thing as Local;",
     ] {
@@ -522,4 +524,48 @@ fn self_crate_aliases_keep_exports_local() {
     let temp = tempfile::tempdir().unwrap();
     fixture(temp.path(), "pub extern crate other as api;", "");
     assert_eq!(findings(temp.path()).len(), 1);
+}
+
+#[test]
+fn inaccessible_glob_items_do_not_hide_external_exports() {
+    for source in [
+        "mod local { struct Arc; } use local::*; use std::sync::*; pub use Arc as Exported;",
+        "mod local { pub(self) struct Arc; } use local::*; use std::sync::*; pub use Arc as Exported;",
+        "mod owned { pub struct Arc; } mod local { use crate::owned::Arc; } use local::*; use std::sync::*; pub use Arc as Exported;",
+        "mod owned { pub struct Arc; } mod local { use crate::owned::*; } use local::*; use std::sync::*; pub use Arc as Exported;",
+        "mod parent { use std::sync::*; mod child { use super::*; pub use Arc as Exported; } }",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(!findings(temp.path()).is_empty(), "missed {source}");
+    }
+}
+
+#[test]
+fn accessible_local_glob_items_keep_their_owner() {
+    for source in [
+        "mod local { pub(super) struct Arc; } use local::*; use std::fmt::*; pub(crate) use Arc as Exported;",
+        "mod local { pub(in crate) struct Arc; } use local::*; use std::fmt::*; pub(crate) use Arc as Exported;",
+        "mod local { pub enum Values { Arc } } use local::Values::*; use std::fmt::*; pub use Arc as Exported;",
+        "mod owned { pub struct Arc; } mod local { pub use crate::owned::Arc; } use local as alias; use alias::*; use std::fmt::*; pub use Arc as Exported;",
+        "mod parent { struct Arc; mod child { use super::*; pub(super) use Arc as Exported; } }",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+}
+
+#[test]
+fn external_crate_aliases_respect_configuration_and_absolute_paths() {
+    for source in [
+        "extern crate other; pub use ::other::Thing;",
+        "extern crate other as api; pub use ::api::Thing;",
+        "mod other {} extern crate other as api; pub use api::Thing;",
+        "#[cfg(any())] extern crate self as other; pub use ::other::Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert_eq!(findings(temp.path()).len(), 1, "missed {source}");
+    }
 }
