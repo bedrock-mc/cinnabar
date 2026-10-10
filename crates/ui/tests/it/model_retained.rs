@@ -5,8 +5,8 @@ use std::sync::Arc;
 use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
-    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextShadow, TextStyle, UiBlendMode, UiDrawList, UiMesh, UiMeshBatch, UiMeshVertex, UiNode,
+    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow,
+    TextStyle, UiBlendMode, UiDrawList, UiError, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiNode,
     UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 /// Creates finite bounds for a fixture node.
@@ -195,6 +195,44 @@ fn assert_equal(retained: &Retained, nodes: &[UiNode]) {
 fn a_fresh_retained_list_equals_the_full_build() {
     let nodes = hud(&font());
     assert_equal(&retained(&nodes), &nodes);
+}
+
+#[test]
+fn retained_builds_preserve_the_full_build_clip_depth_limit() {
+    for depth in [UiLimits::MAX_CLIP_DEPTH, UiLimits::MAX_CLIP_DEPTH + 1] {
+        let nodes: Vec<_> = (0..depth * 2)
+            .map(|index| {
+                UiNode::new(
+                    id(u32::try_from(index + 1).unwrap()),
+                    (index > 0).then(|| id(u32::try_from(index).unwrap())),
+                    rect(0.0, 0.0, 10.0, 10.0),
+                )
+                .with_clip_children(index % 2 == 0)
+            })
+            .collect();
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport(), UiScale::default(), SafeArea::ZERO)
+            .unwrap();
+        let expected = tree.build_draw_list();
+        let actual = RetainedDraw::build(
+            &nodes,
+            viewport(),
+            UiScale::default(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        );
+        if depth == UiLimits::MAX_CLIP_DEPTH {
+            assert!(expected.is_ok(), "non-clipping ancestors do not count");
+            assert!(actual.is_ok(), "the clip-depth limit is inclusive");
+        } else {
+            let error = Some(UiError::ClipDepthExceeded {
+                actual: depth,
+                limit: UiLimits::MAX_CLIP_DEPTH,
+            });
+            assert_eq!(expected.err(), error);
+            assert_eq!(actual.err(), error);
+        }
+    }
 }
 
 #[test]

@@ -108,15 +108,15 @@ impl RetainedDraw {
             .collect();
         let mut counts = DrawCounts::default();
         let mut placed: Vec<Placed> = Vec::with_capacity(nodes.len());
-        let mut pending: Vec<(UiNodeId, UiRect, Option<usize>)> = tree
+        let mut pending: Vec<(UiNodeId, UiRect, usize, Option<usize>)> = tree
             .roots
             .iter()
             .rev()
-            .map(|id| (*id, layout.viewport, None))
+            .map(|id| (*id, layout.viewport, 0, None))
             .collect();
         // Draw positions whose subtrees are still being visited.
         let mut open: Vec<usize> = Vec::new();
-        while let Some((id, inherited, parent)) = pending.pop() {
+        while let Some((id, inherited, clip_depth, parent)) = pending.pop() {
             while let Some(&last) = open.last() {
                 if Some(last) == parent {
                     break;
@@ -144,17 +144,26 @@ impl RetainedDraw {
             });
             open.push(position);
             let clip = draw_clip(node, inherited)?;
-            let child_clip = if node.clip_children {
-                intersect(clip, bounds)
+            let (child_clip, child_depth) = if node.clip_children {
+                let actual = clip_depth
+                    .checked_add(1)
+                    .ok_or(UiError::DrawIndexOverflow)?;
+                if actual > UiLimits::MAX_CLIP_DEPTH {
+                    return Err(UiError::ClipDepthExceeded {
+                        actual,
+                        limit: UiLimits::MAX_CLIP_DEPTH,
+                    });
+                }
+                (intersect(clip, bounds), actual)
             } else {
-                clip
+                (clip, clip_depth)
             };
             if let Some(children) = tree.children.get(&id) {
                 pending.extend(
                     children
                         .iter()
                         .rev()
-                        .map(|child| (*child, child_clip, Some(position))),
+                        .map(|child| (*child, child_clip, child_depth, Some(position))),
                 );
             }
         }
