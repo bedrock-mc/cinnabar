@@ -52,9 +52,11 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
         &entities,
         local(&crate::install_layout::vanilla_pack_relative()),
     );
-    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images() {
-        presentation.enable_oreui_originals(images).unwrap();
-    }
+    presentation
+        .enable_oreui_originals(client_ui::ui_runtime::oreui_assets::load_oreui_images(
+            &local("assets/compiled"),
+        ))
+        .unwrap();
     presentation
         .set_gui_models(&assets::RuntimeAssets::diagnostic(), &entities)
         .unwrap();

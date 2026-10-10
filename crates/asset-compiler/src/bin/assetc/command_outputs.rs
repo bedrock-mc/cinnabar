@@ -122,9 +122,10 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
             inputs.push(source_manifest);
             outputs.push(out);
         }
-        WeatherAssets { out, .. } | HudExtrasAssets { out, .. } | StarterSkinAssets { out, .. } => {
-            outputs.push(out)
-        }
+        WeatherAssets { out, .. }
+        | HudExtrasAssets { out, .. }
+        | StarterSkinAssets { out, .. }
+        | OreUiPanoramaAssets { out, .. } => outputs.push(out),
         AudioBank { out, report, .. } => outputs.extend([out.as_path(), report.as_path()]),
         LanguageAssets { .. } | VanillaPack { .. } | Prepare { .. } => return Ok(()),
     }

@@ -109,13 +109,7 @@ fn add_server(
     let icon_top = (top + bottom - side) * 0.5;
     let icon = [start, icon_top, start + side, icon_top + side];
     let text = canvas.role(super::theme::SECONDARY).text;
-    if !canvas.masked_sprite(
-        crate::ui_runtime::oreui_assets::SERVER_ADD_IMAGE,
-        icon,
-        text,
-    )? {
-        canvas.text_centred("+", icon, BODY, text, false)?;
-    }
+    canvas.text_centred("+", icon, BODY, text, false)?;
     canvas.text_line_vertically_centred(
         "Add server",
         [

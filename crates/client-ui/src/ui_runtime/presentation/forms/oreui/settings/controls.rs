@@ -6,7 +6,6 @@ use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, EDGE, Rgba};
 use super::super::widgets::Interaction;
 use crate::menu::{MenuAction, MenuView};
-use crate::ui_runtime::oreui_assets::{SWITCH_OFF_IMAGE, SWITCH_ON_IMAGE};
 
 const RAIL_OFF: Rgba = theme::DISABLED.shadow;
 
@@ -128,11 +127,6 @@ fn toggle_at(
             symbol[0] + canvas.r(if symbol_on { EDGE } else { 1.2 }),
             symbol[1] + canvas.r(1.2),
         ];
-        let key = if symbol_on {
-            SWITCH_ON_IMAGE
-        } else {
-            SWITCH_OFF_IMAGE
-        };
         let symbol_color = if enabled {
             if symbol_on {
                 theme::TEXT
@@ -145,12 +139,10 @@ fn toggle_at(
             [109, 109, 109, 255]
         };
         let symbol_color = canvas.appearance.ink(symbol_color);
-        if !canvas.masked_sprite(key, glyph, symbol_color)? {
-            if symbol_on {
-                canvas.fill(glyph, symbol_color)?;
-            } else {
-                canvas.frame(glyph, EDGE, symbol_color)?;
-            }
+        if symbol_on {
+            canvas.fill(glyph, symbol_color)?;
+        } else {
+            canvas.frame(glyph, EDGE, symbol_color)?;
         }
     }
     let knob_x = x + canvas.r(knob);

@@ -653,14 +653,9 @@ fn focused_fields_respect_the_blink_phase_and_hide_carets_during_selection() {
 }
 
 #[test]
-fn play_tabs_draw_the_installed_native_icons() {
-    use crate::ui_runtime::oreui_assets::{PLAY_TAB_ICONS, load_optional_oreui_images};
-    let Some(images) = load_optional_oreui_images() else {
-        eprintln!(
-            "skipping play_tabs_draw_the_installed_native_icons: installed OreUI bundle unavailable"
-        );
-        return;
-    };
+fn play_tabs_draw_the_shipped_icons() {
+    use crate::ui_runtime::oreui_assets::{PLAY_TAB_ICONS, shipped_oreui_images};
+    let images = shipped_oreui_images();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.enable_oreui_originals(images).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());

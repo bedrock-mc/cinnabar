@@ -16,7 +16,8 @@ const SWITCH_DURATION: f64 = 0.100;
 pub(super) const SWITCH_TRAVEL: f32 = 2.8;
 const SLIDER_DURATION: f64 = 0.300;
 const SELECT_PRESS_DURATION: f64 = 0.150;
-pub(super) const ICON_HIGHLIGHT_FRAMES: u16 = 9;
+pub(super) const ICON_HIGHLIGHT_FRAMES: u16 =
+    crate::ui_runtime::oreui_assets::embedded::ICON_HIGHLIGHT.frames;
 const ICON_HIGHLIGHT_DURATION: f64 = 0.200;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

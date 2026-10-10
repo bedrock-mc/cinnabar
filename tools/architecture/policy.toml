@@ -24,6 +24,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/branding/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "assets/oreui/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
+
 # Existing oversized files may only shrink. New files and files below their
 # category limit remain governed by the strict limits above.
 [[line_baselines]]

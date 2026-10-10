@@ -1,5 +1,4 @@
 //! Bounded Bedrock resource-pack source readers.
-
 mod actor;
 mod atmosphere;
 mod audio;
@@ -36,6 +35,7 @@ mod material_keys;
 mod material_variations;
 mod model;
 mod ogg;
+pub mod oreui_panorama;
 mod particle;
 mod physics_registry;
 mod pinned_content;

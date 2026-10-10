@@ -94,7 +94,6 @@ mod tests {
             sprites: Default::default(),
             loading_frames: Default::default(),
             animations: Default::default(),
-            source: None,
         };
         let color = [72, 143, 199, 255];
         let source = image::RgbaImage::from_pixel(1672, 941, image::Rgba(color));

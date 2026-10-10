@@ -234,13 +234,16 @@ fn ping_strip(
             [255; 4],
         )?;
     } else {
-        let frame = ((canvas.seconds.max(0.0) * 1000.0 / 700.0 * 6.0) as u16) % 6;
+        let sheet = crate::ui_runtime::oreui_assets::embedded::PING_PENDING;
+        let frame = ((canvas.seconds.max(0.0) * 1000.0 / f64::from(sheet.duration_ms)
+            * f64::from(sheet.steps)) as u16)
+            % sheet.steps;
         canvas.sprite_frame(
             SERVER_PING_IMAGES[3],
             [x, icon_top, x + icon_side, icon_top + icon_side],
             [255; 4],
             frame,
-            6,
+            sheet.frames,
         )?;
     }
     let label = ping_label(ping, exact);
