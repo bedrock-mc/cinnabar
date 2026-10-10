@@ -16,6 +16,12 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
                 && left.title.is_empty() == right.title.is_empty()
+                && left.cells.len() == right.cells.len()
+                && left.cells.iter().zip(&right.cells).all(|(a, b)| {
+                    a.rect == b.rect
+                        && a.shadow == b.shadow
+                        && a.value.is_empty() == b.value.is_empty()
+                })
                 && left.rows.len() == right.rows.len()
                 && left.rows.iter().zip(&right.rows).all(|(a, b)| {
                     a.effect_id == b.effect_id
@@ -87,6 +93,9 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
     controls[0]["surface"]["bindings"] = json!([{ "binding_name":format!("#card_{card_index}_background"),"binding_name_override":"#color" }]);
     if card.title.is_empty() {
         controls.truncate(1);
+    }
+    if !card.cells.is_empty() {
+        controls.extend(super::cells::controls(card, card_index, header));
     }
     for (local, row) in card.rows.iter().enumerate() {
         let index = *row_index;
@@ -252,6 +261,7 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
             format!("#card_{n}_background"),
             Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
         );
+        super::cells::data(&mut data, card, n);
         for row in &card.rows {
             data.set_global(
                 format!("#row_{index}_label"),
@@ -278,6 +288,19 @@ pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
 
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    if !card.cells.is_empty() {
+        return [
+            f64::from(card.width * card.scale),
+            (if card.title.is_empty() { 0. } else { HEADER }
+                + f64::from(
+                    card.cells
+                        .iter()
+                        .map(|c| c.rect[1] + c.rect[3])
+                        .fold(0_f32, f32::max),
+                ))
+                * f64::from(card.scale),
+        ];
+    }
     let header = if card.title.is_empty() { 0. } else { HEADER };
     [
         f64::from(card.width) * f64::from(card.scale),

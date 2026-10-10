@@ -95,6 +95,7 @@ interface input {
         focused: bool,
         gameplay: bool,
         panel-open: bool,
+        /// Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle.
         keys-pressed: list<string>,
         /// Physical keys held this frame, including reserved ones.
         keys-held: list<string>,
