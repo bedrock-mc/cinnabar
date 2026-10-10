@@ -121,11 +121,11 @@ pub(super) fn raster_material_lighting(
     light: u32,
 ) -> Vec<u8> {
     raster_material_with_overlay(
-        gpu, vertices, material, below, texels, srgb, gamma, light, 0,
+        gpu, vertices, material, below, texels, srgb, gamma, light, 0, 0,
     )
 }
 
-/// Renders a material with an independent actor overlay and the fixed fixture camera.
+/// Renders independent actor tint and overlay inputs with the fixed fixture camera.
 #[allow(
     clippy::too_many_arguments,
     reason = "each knob is an independent shader input under test"
@@ -140,6 +140,7 @@ pub(super) fn raster_material_with_overlay(
     gamma: bool,
     light: u32,
     overlay_rgba8: u32,
+    tint_rgba8: u32,
 ) -> Vec<u8> {
     let clip = Mat4::from_cols(
         Vec4::new(2.0, 0.0, 0.0, 0.0),
@@ -162,6 +163,7 @@ pub(super) fn raster_material_with_overlay(
         uv_anim: render::IDENTITY_UV_ANIM,
         light,
         overlay_rgba8,
+        tint: tint_rgba8,
         multitexture_layers: [u32::MAX; 2],
         material: material.gpu_word(),
         dissolve_multiplier: 1.0,

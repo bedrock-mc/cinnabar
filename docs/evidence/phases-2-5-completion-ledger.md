@@ -35,6 +35,10 @@
 
 ## P3-MOVEMENT
 
+Spectator regressions cover forced flight without MayFly, solid and unloaded
+terrain traversal, and embedded server anchors. The full native trajectory,
+platform, and performance gates remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `docs/superpowers/plans/2026-07-17-phase-3-movement-controls-camera.md`, Tasks 8-14 |
@@ -45,6 +49,12 @@
 | Final status | Open -- deterministic integration advanced; normal Physics enable and binding live evidence remain gated. |
 
 ## P3.4-INPUT-CAMERA
+
+Spectator hand suppression and no-clip inside-block overlays have owning
+behavioral regressions. Runtime skin controller visibility precedes equipment, and
+authored opacity has a GPU regression. The spectator material fallback remains
+provisional; version-matched stock materials, custom controller geometry, persona,
+and exact native and platform comparison remain open.
 
 | Field | Evidence |
 |---|---|

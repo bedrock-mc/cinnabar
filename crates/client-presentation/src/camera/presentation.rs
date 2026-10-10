@@ -302,6 +302,10 @@ pub fn update_screen_overlays(
     overlays.layers = compute_overlays(&ScreenEffectInputs {
         first_person: server
             .renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson),
+        noclip: player_runtime
+            .facts
+            .game_mode_capabilities()
+            .is_some_and(|caps| !caps.has_collision),
         head: *medium,
         carved_pumpkin_worn: pumpkin,
         on_fire: facts.on_fire,
