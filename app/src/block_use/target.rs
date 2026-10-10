@@ -70,7 +70,16 @@ pub(super) fn observe_use_target(
                 Crosshair::Actor(actor) => Some(actor),
                 _ => None,
             };
-            let mut block = if actor.is_none() { hit.as_ref() } else { None };
+            let indirect = if hit.is_none() && actor.is_none() {
+                world.block_use_miss_support_current(origin, direction)?
+            } else {
+                None
+            };
+            let mut block = if actor.is_none() {
+                hit.as_ref().or(indirect.as_ref())
+            } else {
+                None
+            };
             // The refreshed pick is out of reach when its point lies beyond reach of the
             // pre-tick eye; block hits measure from the block centre.
             let picked = actor
@@ -88,7 +97,15 @@ pub(super) fn observe_use_target(
             let endpoint = actor.map_or_else(
                 || {
                     block.map_or(origin + direction * reach, |hit| {
-                        origin + direction * hit.distance
+                        if indirect.is_some() {
+                            sim::Vec3::new(
+                                f64::from(hit.block_pos[0]) + hit.hit_local.x,
+                                f64::from(hit.block_pos[1]) + hit.hit_local.y,
+                                f64::from(hit.block_pos[2]) + hit.hit_local.z,
+                            )
+                        } else {
+                            origin + direction * hit.distance
+                        }
                     })
                 },
                 |actor| {

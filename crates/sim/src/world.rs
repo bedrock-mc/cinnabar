@@ -23,7 +23,7 @@ mod raycast;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
-pub use raycast::{BlockHit, CameraBlockHit};
+pub use raycast::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit};
 use validate::{validate_facts, validate_shapes};
 
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;

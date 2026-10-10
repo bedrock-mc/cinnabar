@@ -7,6 +7,8 @@ use super::{MAX_COLLISION_QUERY_EXTENT, PaletteWorld, WorldCollisionIdentity, Wo
 use crate::{Aabb, Vec3};
 
 mod camera;
+mod placement;
+pub use placement::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y};
 pub use camera::CameraBlockHit;
 
 const HALO_WIDTH: usize = 3;
