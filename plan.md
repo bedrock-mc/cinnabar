@@ -429,6 +429,15 @@
   running after the requested restart. Changes are local and uncommitted;
   nothing is pushed.
 
+## Status-effect column
+
+- `mob_effects_renderer` follows vanilla's layout for every pack, including the
+  built-in Java pack. It draws one column at the right edge, below the top band, in
+  effect-id order, and wraps leftward. Expiring icons blink at vanilla's rate.
+- Incomplete: there is no slide-in or slide-out animation. The safe-zone and
+  screen-position offsets are taken as zero. The top band ignores riding hearts and
+  pocket-profile rules.
+
 ## Worn server-pack armour textures
 
 - Worn armour from server packs runs its attachable scripts with the wearer as

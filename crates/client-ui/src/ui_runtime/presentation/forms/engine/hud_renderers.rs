@@ -15,7 +15,9 @@ use super::Painter;
 use crate::ui_runtime::presentation::hud_layout::{HeartPaint, HungerPaint};
 
 mod hunger_animation;
+mod mob_effects;
 pub(in crate::ui_runtime::presentation) use hunger_animation::HungerAnimation;
+pub use mob_effects::{EffectIcon, MobEffects};
 
 const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 const CROSSHAIR_SIDE: f32 = 16.0;
@@ -81,8 +83,7 @@ pub struct HudPaint {
     pub hunger: HungerPaint,
     pub bubbles: Vec<Cell>,
     pub mount_hearts: Vec<Cell>,
-    /// Relative to the effects control's top-right corner.
-    pub effects: Vec<Cell>,
+    pub effects: MobEffects,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub hotbar_cooldowns: [f32; 9],
@@ -94,24 +95,20 @@ pub struct HudPaint {
 impl HudPaint {
     /// Every texture path the renderers may draw this frame, pack overrides included.
     pub fn textures(&self) -> impl Iterator<Item = &str> {
-        [
-            &self.armor,
-            &self.bubbles,
-            &self.mount_hearts,
-            &self.effects,
-        ]
-        .into_iter()
-        .flatten()
-        .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
-        .chain(self.hearts.textures())
-        .chain(self.hunger.textures())
-        .chain(SLOT_ART)
-        .chain(self.crosshair.into_iter().flat_map(|_| {
-            [
-                CROSSHAIR_TEXTURE,
-                assets::HudTextureRole::Crosshair.source_path(),
-            ]
-        }))
+        [&self.armor, &self.bubbles, &self.mount_hearts]
+            .into_iter()
+            .flatten()
+            .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+            .chain(self.effects.textures())
+            .chain(self.hearts.textures())
+            .chain(self.hunger.textures())
+            .chain(SLOT_ART)
+            .chain(self.crosshair.into_iter().flat_map(|_| {
+                [
+                    CROSSHAIR_TEXTURE,
+                    assets::HudTextureRole::Crosshair.source_path(),
+                ]
+            }))
     }
 }
 
@@ -153,7 +150,10 @@ pub(super) fn paint(
         }
         "bubbles_renderer" => (&hud.bubbles, top_left),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
-        "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),
+        "mob_effects_renderer" => {
+            mob_effects::paint(painter, &hud.effects, dest, alpha);
+            return true;
+        }
         "hotbar_renderer" => {
             slot_art(painter, data, dest, alpha);
             return true;
@@ -277,6 +277,28 @@ fn paint_cell(
     let x = origin[0] + cell.at[0] * px;
     let y = origin[1] + cell.at[1] * px;
     let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
+    paint_sprite(
+        painter,
+        cell.preferred,
+        cell.texture,
+        bounds,
+        cell.alpha,
+        visible,
+        alpha,
+    );
+}
+
+/// Draws `texture` (or `preferred`, when the pack holds it) at logical `bounds`
+/// when they intersect the visible region.
+fn paint_sprite(
+    painter: &mut Painter<'_>,
+    preferred: Option<&str>,
+    texture: &str,
+    bounds: [f32; 4],
+    sprite_alpha: u8,
+    visible: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
     if bounds[2] <= visible[0]
         || bounds[3] <= visible[1]
         || bounds[0] >= visible[2]
@@ -284,18 +306,10 @@ fn paint_cell(
     {
         return;
     }
-    let color = alpha([255, 255, 255, cell.alpha]);
-    let visual = cell
-        .preferred
+    let color = alpha([255, 255, 255, sprite_alpha]);
+    let visual = preferred
         .and_then(|path| painter.sprite(path, json_ui::UvRect::full(), color, Default::default()))
-        .or_else(|| {
-            painter.sprite(
-                cell.texture,
-                json_ui::UvRect::full(),
-                color,
-                Default::default(),
-            )
-        });
+        .or_else(|| painter.sprite(texture, json_ui::UvRect::full(), color, Default::default()));
     if let Some(visual) = visual {
         let _ = painter.push(visual, bounds);
     }

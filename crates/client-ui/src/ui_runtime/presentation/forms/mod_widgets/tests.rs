@@ -353,7 +353,7 @@ fn replacement_effect_icons_hide_and_restore_without_changing_player_effects() {
     let definition = serde_json::json!({"namespace":"hud", "hud_screen":{
         "type":"screen", "controls":[
             {"effects":{"type":"custom", "renderer":"mob_effects_renderer",
-                "size":[100,50], "anchor_from":"top_right", "anchor_to":"top_right"}},
+                "size":["100%","75%"], "anchor_from":"top_right", "anchor_to":"top_right"}},
             {"visible_marker":{"type":"label", "text":"Effects", "size":[100,12],
                 "bindings":[{"binding_name":"#status_effects_visible", "binding_name_override":"#visible"}]}}
         ]
