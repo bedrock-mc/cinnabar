@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bedrock-mc/protocolgen/generated/data/registry"
 )
 
 func TestDefinitionRangesFollowStableCanonicalOrdering(t *testing.T) {
@@ -101,5 +105,34 @@ func TestPinnedMetadataReproduces(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestCurrentProjectionResolvesSharedPalette protects the active projection's default source binding.
+func TestCurrentProjectionResolvesSharedPalette(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	var target targetManifest
+	if err := readJSON(filepath.Join(root, "assets/bedrock-target.json"), &target); err != nil {
+		t.Fatal(err)
+	}
+	var projection projectionManifest
+	if err := readJSON(filepath.Join(root, fmt.Sprintf("assets/block-projection-v%d.json", target.Protocol)), &projection); err != nil {
+		t.Fatal(err)
+	}
+	got, err := projectionStates(projection, target, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, registry.BlockStatesNBT()) {
+		t.Fatal("default palette differs from the pinned shared catalog")
+	}
+	projection.Projection.States++
+	if _, err := projectionStates(projection, target, ""); err == nil {
+		t.Fatal("mismatched canonical state count accepted")
+	}
+	projection.Projection.States--
+	projection.Source.SourceLockSHA256 = "wrong"
+	if _, err := projectionStates(projection, target, ""); err == nil {
+		t.Fatal("mismatched shared catalog binding accepted")
 	}
 }
