@@ -1,5 +1,6 @@
 //! Private, retained JSON-UI cards supplied as bounded cosmetic data.
 
+mod cells;
 pub(super) mod template;
 #[cfg(test)]
 pub(super) mod tests;

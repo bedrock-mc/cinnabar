@@ -945,3 +945,52 @@ fn progress_fill_stays_within_its_track_for_icon_rows_and_each_card_scale() {
         }
     }
 }
+
+#[test]
+fn rectangular_cells_center_text_resize_and_update_without_rebuilding() {
+    use ui::mod_hud::Cell;
+    let mut p = presentation(false);
+    let runtime = UiRuntime::new(1);
+    let mut hud = Hud {
+        cards: vec![Card {
+            id: "buttons".into(),
+            width: 56.,
+            cells: vec![
+                Cell {
+                    rect: [19., 0., 18., 18.],
+                    label: "W".into(),
+                    background: [0., 0., 0., 0.44],
+                    ..Default::default()
+                },
+                Cell {
+                    rect: [0., 19., 27.5, 18.],
+                    label: "LMB".into(),
+                    value: "0 CPS".into(),
+                    background: [0., 0., 0., 0.44],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    p.set_mod_hud(Some(&hud)).unwrap();
+    let before = frame(&mut p, &runtime, [1280, 720], 1.);
+    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    hud.cards[0].cells[0].background = [1., 1., 1., 0.44];
+    hud.cards[0].cells[0].color = [0., 0., 0., 1.];
+    hud.cards[0].cells[1].value = "9 CPS".into();
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert!(Arc::ptr_eq(
+        &catalog,
+        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+    ));
+    let after = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
+    assert_eq!(template::dimensions(&hud.cards[0]), [56., 37.]);
+    hud.cards[0].scale = 2.;
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert_eq!(template::dimensions(&hud.cards[0]), [112., 74.]);
+    let scaled = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert_ne!(snapshot::rasterize(&after), snapshot::rasterize(&scaled));
+}

@@ -118,7 +118,7 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
         "invalid controls key edges"
     );
     ensure!(
-        frame.events.len() <= ui::mod_panel::MAX_PANEL_CONTROLS
+        frame.events.len() <= ui::mod_panel::MAX_PANEL_EVENTS
             && frame.events.iter().all(|event| !event.id.is_empty()
                 && event.id.len() <= ui::mod_panel::MAX_PANEL_ID_BYTES
                 && event
