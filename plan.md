@@ -2146,6 +2146,12 @@ ordinary actor Molang still evaluates on fixed ticks and interpolates completed 
 poses, whereas vanilla samples interpolated motion queries during render evaluation;
 start/loop delays and shared-clip instance identity remain unported.
 
+2026-10-11 local walking: frame-sampled native player poses now use the frame's
+motion and heading samples. Direct motion-query clip clocks sample scratch values
+without changing completed tick state. Regression tests and headless offline frames
+cover third-person walking. Ordinary rigs still interpolate completed tick poses;
+the broader actor-animation parity gate remains incomplete.
+
 2026-10-04 sneaking head rotation: the compiler now retains the vanilla bone
 `relative_to.rotation` setting, and pose composition keeps the pivot parented while
 using the entity frame for the bone's rotation and scale. The player head no longer

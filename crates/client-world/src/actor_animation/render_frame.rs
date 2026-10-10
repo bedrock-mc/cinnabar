@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) mod camera;
 mod clips;
+mod motion;
 pub(super) mod sampling;
 pub(super) mod swell;
 pub(super) mod swell_endpoint;
@@ -340,18 +341,31 @@ impl ActorAnimationStore {
                 camera_rotation != motion.context.camera_rotation
                     || camera_position != motion.context.camera_position
             });
-        let pose_inputs_changed =
-            camera_inputs_changed || partial_tick != frame.motion.context.frame_alpha;
+        let motion_changed = state.history.iter().rev().nth(1).is_some_and(|previous| {
+            let current = frame.motion.input;
+            previous.position != current.position
+                || previous.body_yaw != current.body_yaw
+                || previous.yaw != current.yaw
+                || previous.head_yaw != current.head_yaw
+                || previous.pitch != current.pitch
+                || previous.distance_moved != current.distance_moved
+                || previous.move_speed != current.move_speed
+                || previous.walk_distance != current.walk_distance
+        });
+        let pose_inputs_changed = camera_inputs_changed
+            || partial_tick != frame.motion.context.frame_alpha
+            || motion_changed;
         let mut context = frame.motion.context.clone();
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;
         context.camera_position = camera_position;
+        let input = motion::input(state, frame.motion.input, partial_tick);
         let evaluator = evaluation::Evaluator {
             assets,
             layout,
             program: None,
             actor,
-            input: &frame.motion.input,
+            input: &input,
             context: &context,
             anim_tick: frame.motion.anim_tick,
             anim_time: None,
@@ -374,6 +388,10 @@ impl ActorAnimationStore {
             static_draw: None,
         };
         let mut variables = frame.motion.variables.clone();
+        variables.set(
+            layout.engine.player_x_rotation,
+            if context.is_in_ui { 0.0 } else { input.pitch },
+        );
         if let Some(swing) = swing {
             variables.set(layout.engine.attack_time, swing);
         }
@@ -390,7 +408,7 @@ impl ActorAnimationStore {
                 &mut variables,
                 actor,
                 &context,
-                &frame.motion.input,
+                &input,
                 swing.unwrap_or(frame.motion.input.attack_time),
             );
         }
@@ -459,6 +477,21 @@ impl ActorAnimationStore {
         } else {
             None
         };
+        let sampled_clips =
+            if !isolated_swell && (state.samples_camera_poses || swing_changed || swell_changed) {
+                let Ok(clips) = motion::clips(
+                    &evaluator,
+                    &mut variables,
+                    state,
+                    sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
+                    &mut budget,
+                ) else {
+                    return Some(completed());
+                };
+                Some(clips)
+            } else {
+                sampled_clips
+            };
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
             let Ok(local) = pose::sample_clips(
                 &current.evaluator,
@@ -739,3 +772,6 @@ mod orb_tests;
 
 #[cfg(test)]
 mod camera_tests;
+
+#[cfg(test)]
+mod motion_tests;
