@@ -537,11 +537,7 @@ pub(super) fn evaluate_state(
         super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
         previous_clocks.clone()
     };
-    if (state.samples_camera_poses
-        || samples_swell
-        || (state.samples_swing_poses && state.local_swing.is_some()))
-        && let Some(frame) = render_frame.as_mut()
-    {
+    if let Some(frame) = render_frame.as_mut() {
         frame.samples_camera_poses = state.samples_camera_poses
             && super::render_frame::camera::needs_active_camera_sampling(
                 assets,
@@ -565,7 +561,7 @@ pub(super) fn evaluate_state(
     }
     let pose_capture = render_frame
         .as_ref()
-        .filter(|frame| state.samples_camera_poses && !frame.samples_camera_poses)
+        .filter(|frame| !frame.samples_camera_poses)
         .map(|_| variables.begin_effects());
     let local = sample_clips(
         &evaluator,
