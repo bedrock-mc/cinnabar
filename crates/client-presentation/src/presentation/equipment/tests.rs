@@ -4,6 +4,9 @@ mod elytra_tests;
 #[path = "runtime/held_animation_tests.rs"]
 mod held_animation_tests;
 
+#[path = "runtime/worn_texture_tests.rs"]
+mod worn_texture_tests;
+
 use std::sync::Arc;
 
 use assets::IconSprite;

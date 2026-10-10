@@ -55,6 +55,7 @@ fn every_shader_parses_and_validates() {
             || name == "lighting.wgsl"
             || name == "biome_tint.wgsl"
             || name == "material.wgsl"
+            || name == "chunk_bindings.wgsl"
         {
             continue;
         }
@@ -67,6 +68,9 @@ fn every_shader_parses_and_validates() {
                 panic!("UI shader constructor must produce WGSL");
             };
             standalone(&source)
+        } else if name == "transparent_terrain.wgsl" {
+            // Composes the liquid and model modules, whose shared names only the composer resolves.
+            shader_source::composed(&raw, &[])
         } else if name == "nametag.wgsl" {
             let shader = nametag_shader::from_wgsl(&raw, path.to_string_lossy());
             let bevy::shader::Source::Wgsl(source) = shader.source else {

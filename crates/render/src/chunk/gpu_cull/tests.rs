@@ -198,7 +198,8 @@ fn args_regions_are_disjoint_and_fit_the_buffer() {
     assert_eq!(u64::from(regions.last().unwrap().1), args_words(capacity));
 }
 
-/// Count-capable backends consume compacted counts; the rest use cleared fixed regions.
+/// Every count-capable backend, DX12 included, consumes compacted counts; the rest use cleared
+/// fixed regions.
 #[test]
 fn indirect_devices_select_the_best_gpu_cull_submission() {
     let count = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
@@ -206,56 +207,25 @@ fn indirect_devices_select_the_best_gpu_cull_submission() {
     let compute = DownlevelFlags::COMPUTE_SHADERS;
     let mdi = ChunkDrawMode::MultiDrawIndirect;
     assert_eq!(
-        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Vulkan, false),
+        gpu_cull_submission(mdi, count, compute, false),
         Some(GpuCullSubmission::Count)
     );
     assert_eq!(
-        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Dx12, false),
+        gpu_cull_submission(mdi, fixed, compute, false),
         Some(GpuCullSubmission::Fixed)
     );
+    assert!(gpu_cull_supported(mdi, fixed, compute, false));
     assert_eq!(
-        gpu_cull_submission(mdi, fixed, compute, wgpu::Backend::Vulkan, false),
-        Some(GpuCullSubmission::Fixed)
+        gpu_cull_submission(mdi, WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT, compute, false),
+        None
     );
-    assert!(gpu_cull_supported(
-        mdi,
-        fixed,
-        compute,
-        wgpu::Backend::Dx12,
-        false
-    ));
+    assert_eq!(gpu_cull_submission(mdi, count, compute, true), None);
     assert_eq!(
-        gpu_cull_submission(
-            mdi,
-            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
-            compute,
-            wgpu::Backend::Vulkan,
-            false
-        ),
+        gpu_cull_submission(ChunkDrawMode::Direct, count, compute, false),
         None
     );
     assert_eq!(
-        gpu_cull_submission(mdi, count, compute, wgpu::Backend::Vulkan, true),
-        None
-    );
-    assert_eq!(
-        gpu_cull_submission(
-            ChunkDrawMode::Direct,
-            count,
-            compute,
-            wgpu::Backend::Vulkan,
-            false
-        ),
-        None
-    );
-    assert_eq!(
-        gpu_cull_submission(
-            mdi,
-            count,
-            DownlevelFlags::empty(),
-            wgpu::Backend::Vulkan,
-            false
-        ),
+        gpu_cull_submission(mdi, count, DownlevelFlags::empty(), false),
         None
     );
 }

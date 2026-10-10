@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"os"
 )
 
 // Dragonfly reports (emission 0, filter 15) for a state it has no block implementation
@@ -107,42 +103,4 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 		}
 	}
 	return changed, nil
-}
-
-// relightV2193 rewrites an existing v2193 LREG with the retail corrections applied,
-// bound to the same BREG; it returns the new LREG bytes and the changed-state count.
-func relightV2193(bregPath, lregPath, retailPath string) ([]byte, int, error) {
-	breg, err := os.ReadFile(bregPath)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read BREG: %w", err)
-	}
-	_, records, err := decodeBREGRecords(breg, v2193BlockProtocol)
-	if err != nil {
-		return nil, 0, err
-	}
-	lreg, err := os.ReadFile(lregPath)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read LREG: %w", err)
-	}
-	properties, err := decodeLREGProperties(lreg, breg, v2193BlockProtocol, len(records))
-	if err != nil {
-		return nil, 0, err
-	}
-	retail, err := readPMMPLightProperties(retailPath)
-	if err != nil {
-		return nil, 0, err
-	}
-	changed, err := applyRetailLightCorrections(records, properties, retail)
-	if err != nil {
-		return nil, 0, err
-	}
-	encoded, err := encodeResolvedLightRegistryForProtocol(v2193BlockProtocol, breg, records, properties)
-	if err != nil {
-		return nil, 0, err
-	}
-	if bytes.Equal(encoded, lreg) && changed != 0 {
-		return nil, 0, errors.New("relight produced no byte change")
-	}
-	_ = sha256.Size
-	return encoded, changed, nil
 }

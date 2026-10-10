@@ -167,15 +167,6 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
     let source = shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
-        .replace("@vertex\nfn vertex(", "fn model_vertex(")
-        .replace(
-            "@builtin(vertex_index) vertex_index: u32",
-            "vertex_index: u32",
-        )
-        .replace(
-            "@builtin(instance_index) instance_index: u32",
-            "instance_index: u32",
-        )
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let witness = WITNESS.replace(
         "INDICES",

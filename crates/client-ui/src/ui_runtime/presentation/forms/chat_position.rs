@@ -48,7 +48,12 @@ pub(super) fn install(catalog: &mut Catalog) {
 
 /// Resolution changes invalidate the retained screen when the saved placement changes.
 pub(super) fn context(context: Context, options: &SettingsOptions) -> Context {
-    context.with_flag("cinnabar_chat_top", options.chat_at_top())
+    placed(context, options.chat_at_top())
+}
+
+/// `context` with the chat at the top or bottom of the screen.
+pub(super) fn placed(context: Context, top: bool) -> Context {
+    context.with_flag("cinnabar_chat_top", top)
 }
 
 #[cfg(test)]

@@ -57,8 +57,9 @@ SOFTWARE.
 
 ## Cinnangles fonts
 
-The client ships `assets/fonts/CinnanglesSans.ttf`, `CinnanglesTen.ttf` and
-`CinnanglesSeven.ttf`. Ten and Seven are derived from Cinnangles Sans; their source
+The client ships `assets/fonts/CinnanglesSans.ttf`, `CinnanglesTen.ttf`,
+`CinnanglesSeven.ttf`, `CinnanglesFive.ttf` and `CinnanglesFive-Bold.ttf`.
+Ten, Seven, Five and Five Bold are derived from Cinnangles Sans; their source
 manifests pin the exact Sans input. Sans provenance and licensing review is pending.
 No license is asserted here for these faces.
 

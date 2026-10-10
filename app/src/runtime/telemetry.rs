@@ -390,7 +390,7 @@ pub(crate) fn record_metrics(
         && let Some(graphics_adapter) = visibility_diagnostics.graphics_adapter()
     {
         let marker = acceptance_runtime_metadata_marker(*runtime_config, &graphics_adapter);
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
         sampling.runtime_metadata_emitted = true;
     }
@@ -557,7 +557,7 @@ pub(crate) fn record_metrics(
                 client_blob_cache: client_world.client_blob_cache,
             },
         ) {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
             let observed_unix_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -622,7 +622,7 @@ pub(crate) fn record_metrics(
                     snapshot,
                 )
             {
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 write_stdout_marker(&mut stdout, &marker);
             }
         }
@@ -657,7 +657,7 @@ pub(crate) fn record_metrics(
                 snapshot.frustum_overflowed,
                 snapshot.submitted_overflowed,
             );
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
             write_stdout_marker(
                 &mut stdout,
@@ -677,7 +677,7 @@ pub(crate) fn record_metrics(
                 *runtime_config,
                 &graphics,
             );
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
     }
@@ -689,7 +689,7 @@ pub(crate) fn record_metrics(
         sampling.last_marked_transparent_sort_generation,
         transparent_sort_snapshot,
     ) {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
         sampling.last_marked_transparent_sort_generation =
             transparent_sort_snapshot.presented_generation;

@@ -341,29 +341,14 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 		t.Fatalf("air states = %d, want 1", len(airIndexes))
 	}
 	air := entries[airIndexes[0]]
-	if air.Flags != physicsFlagPassable || len(air.Boxes) != 0 || air.Friction != 90_000_000 {
+	if air.Flags != physicsFlagPassable || len(air.Boxes) != 0 || air.Friction != 89_999_900 {
 		t.Fatalf("air runtime ID %d facts changed: %+v", airIndexes[0], air)
 	}
 }
 
-func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing.T) {
+func TestProjectV2193PhysicsRecordsAppliesSharedFactsAtNewIdentifiers(t *testing.T) {
 	breg, records := loadV2193PhysicsInputs(t)
-	pmmp := make(map[string]PMMPLightProperties, len(records))
-	for _, record := range records {
-		if record.Name == retailReservedName {
-			continue
-		}
-		friction := 0.6
-		switch record.Name {
-		case "minecraft:slime", "minecraft:honey_block":
-			friction = 0.8
-		case "minecraft:air":
-			friction = 0.9
-		}
-		pmmp[record.Name] = PMMPLightProperties{Friction: friction}
-	}
-	sources := syntheticPhysicsSources(records, pmmp)
-	physics, err := projectV2193PhysicsRecords(records, sources)
+	physics, err := projectV2193PhysicsRecords(records)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +391,7 @@ func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 		t.Fatalf("honey_block facts changed: %+v", honey)
 	}
 
-	again, err := projectV2193PhysicsRecords(records, sources)
+	again, err := projectV2193PhysicsRecords(records)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +435,7 @@ func TestWriteV2193PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testi
 	dir := t.TempDir()
 	output := filepath.Join(dir, "block-physics-v2193.bin")
 	legacy := filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v1001.bin")
-	err := writeV2193PhysicsProjection(legacy, "", "", output, "", "")
+	err := writeV2193PhysicsProjection(legacy, output, "", "")
 	if err == nil || !strings.Contains(err.Error(), "protocol-2193") {
 		t.Fatalf("wrong-version rejection = %v", err)
 	}
@@ -465,7 +450,7 @@ func TestWriteV2193PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testi
 	if err := os.WriteFile(mutatedPath, mutated, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = writeV2193PhysicsProjection(mutatedPath, "", "", output, "", "")
+	err = writeV2193PhysicsProjection(mutatedPath, output, "", "")
 	if err == nil || !strings.Contains(err.Error(), "SHA-256") {
 		t.Fatalf("mutated-input rejection = %v", err)
 	}
@@ -477,185 +462,46 @@ func TestWriteV2193PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testi
 // syntheticV2193PhysicsCorpus builds a full-size v2193 identity space whose
 // non-reserved records carry the complete reviewed override families plus
 // minecraft:stone padding, so production coverage semantics hold end to end.
-func TestV2193PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
-	root := filepath.Join("..", "..", "crates", "assets", "data")
-	legacyBytes, err := os.ReadFile(filepath.Join(root, "block-registry-v1001.bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, legacy, err := decodeBREGRecords(legacyBytes, registryProtocol)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seeds := make(map[string]CollisionSeed, len(legacy))
-	for _, record := range legacy {
+// TestV2193PhysicsUsesSharedCollision checks every retained state, including connection variants and new blocks.
+func TestV2193PhysicsUsesSharedCollision(t *testing.T) {
+	_, records := loadV2193PhysicsInputs(t)
+	for _, record := range records {
 		if record.Name == retailReservedName {
 			continue
 		}
-		key := canonicalRecordKey(record.Name, record.StateJSON)
-		if _, exists := seeds[key]; exists {
-			t.Fatalf("duplicate legacy state key %q", key)
-		}
-		seeds[key] = record.CollisionSeed
-	}
-	_, records := loadV2193PhysicsInputs(t)
-	matched := 0
-	for _, record := range records {
-		if record.Name == retailReservedName || isEducationConstructionName(record.Name) {
-			continue
-		}
-		reduced, err := v2193ReducedState(record.StateJSON)
+		properties, err := sharedBlockProperties(record)
 		if err != nil {
 			t.Fatal(err)
 		}
-		seed, ok := seeds[canonicalRecordKey(record.Name, record.StateJSON)]
-		if !ok {
-			seed, ok = seeds[canonicalRecordKey(record.Name, reduced)]
+		seed, err := sharedCollisionSeed(record, properties)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if twin, twinned := v2193TwinFor(record.Name); !ok && twinned {
-			seed, ok = seeds[canonicalRecordKey(twin.twin, reduced)]
+		if seed.ShapeID != record.CollisionSeed.ShapeID || seed.Confidence != record.CollisionSeed.Confidence || !collisionBoxesEqual(seed.Boxes, record.CollisionSeed.Boxes) {
+			t.Fatalf("%s at %#x does not use shared collision", record.Name, record.NetworkHash)
 		}
-		if !ok {
-			t.Fatalf("v2193 state %d (%s) has no legacy counterpart", record.SequentialID, record.Name)
-		}
-		if seed.ShapeID != record.CollisionSeed.ShapeID || seed.Confidence != record.CollisionSeed.Confidence ||
-			!collisionBoxesEqual(seed.Boxes, record.CollisionSeed.Boxes) {
-			t.Fatalf("v2193 state %d (%s) mutated the reviewed legacy collision seed", record.SequentialID, record.Name)
-		}
-		matched++
-	}
-	if matched != 15_963+3_440+2_026 {
-		t.Fatalf("legacy fact-source states = %d, want exactly 21429", matched)
 	}
 }
 
-func TestEducationConstructionPhysicsUsesIdentifiedSolidCollision(t *testing.T) {
-	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
-	index := len(records) - 1
-	records[index].Name = "minecraft:deny"
-	records[index].CollisionSeed = CollisionSeed{Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
-	sources.PMMP["minecraft:deny"] = PMMPLightProperties{Friction: 0.6000000238418579}
-	physics, err := projectV2193PhysicsRecords(records, sources)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if physics[index].Flags&physicsFlagPassable != 0 || len(physics[index].Boxes) != 1 || physics[index].Boxes[0].MaxY != 100_000_000 {
-		t.Fatalf("Education construction block lost its solid collision: %+v", physics[index])
-	}
-}
-
-func syntheticV2193PhysicsCorpus(reserved int) ([]Record, PhysicsSourceCatalog) {
-	records := make([]Record, v2193BlockStateCount)
-	for index := 0; index < reserved && index < len(records); index++ {
-		records[index] = Record{
-			SequentialID: uint32(index),
-			NetworkHash:  uint32(index) + 1,
-			Name:         retailReservedName,
-			StateJSON:    []byte(`{}`),
-		}
-	}
-	pmmp := map[string]PMMPLightProperties{"minecraft:stone": {Friction: 0.6}}
-	prismarine := map[string]PrismarinePhysicsFact{}
-	dragonfly := map[string][]string{}
-	cursor := reserved
-	for _, override := range reviewedPhysicsOverrides {
-		pmmp[override.Name] = PMMPLightProperties{Friction: 0.6}
-		prismarine[strings.TrimPrefix(override.Name, "minecraft:")] = PrismarinePhysicsFact{BoundingBox: override.BoundingBox, StateCount: override.StateCount}
-		dragonfly[override.Name] = strings.Split(override.DragonflyTypes, ",")
-		for state := 0; state < override.StateCount; state++ {
-			if cursor >= len(records) {
-				break
+// TestProjectV2193PhysicsRejectsIdentityDrift prevents missing or mismatched states from using fallback facts.
+func TestProjectV2193PhysicsRejectsIdentityDrift(t *testing.T) {
+	_, records := loadV2193PhysicsInputs(t)
+	for _, change := range []struct {
+		name   string
+		mutate func([]Record)
+	}{
+		{"hash", func(rs []Record) { rs[1000].NetworkHash = 0 }},
+		{"name", func(rs []Record) { rs[1000].Name = "minecraft:unlisted" }},
+		{"reserved count", func(rs []Record) { rs[1000].Name = retailReservedName }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			changed := slices.Clone(records)
+			change.mutate(changed)
+			if _, err := projectV2193PhysicsRecords(changed); err == nil {
+				t.Fatal("invalid catalog identity was accepted")
 			}
-			stateJSON := []byte(`{}`)
-			if override.Behavior == behaviorBubble {
-				// The reviewed bubble route strictly parses one drag_down byte.
-				drag := byte(0)
-				if state == 1 {
-					drag = 1
-				}
-				stateJSON = []byte(fmt.Sprintf(`{"drag_down":{"type":"byte","value":%d}}`, drag))
-			}
-			records[cursor] = Record{
-				SequentialID: uint32(cursor),
-				NetworkHash:  uint32(cursor) + 1,
-				Name:         override.Name,
-				StateJSON:    stateJSON,
-			}
-			cursor++
-		}
+		})
 	}
-	for ; cursor < len(records); cursor++ {
-		records[cursor] = Record{
-			SequentialID: uint32(cursor),
-			NetworkHash:  uint32(cursor) + 1,
-			Name:         "minecraft:stone",
-			StateJSON:    []byte(`{}`),
-		}
-	}
-	return records, PhysicsSourceCatalog{PMMP: pmmp, Prismarine: prismarine, DragonflyTypes: dragonfly, RequireProductionCoverage: true}
-}
-
-func TestProjectV2193PhysicsFailsClosedListingEveryMissingPMMPName(t *testing.T) {
-	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
-	records[1000].Name = "minecraft:zeta_unlisted"
-	records[1001].Name = "minecraft:alpha_unlisted"
-	_, err := projectV2193PhysicsRecords(records, sources)
-	if err == nil {
-		t.Fatal("missing PMMP friction rows were accepted")
-	}
-	if !strings.Contains(err.Error(), "minecraft:alpha_unlisted") || !strings.Contains(err.Error(), "minecraft:zeta_unlisted") {
-		t.Fatalf("failure does not name every missing row: %v", err)
-	}
-	if strings.Contains(err.Error(), retailReservedName) {
-		t.Fatalf("reserved states leaked into the failure listing: %v", err)
-	}
-	if strings.Index(err.Error(), "minecraft:alpha_unlisted") > strings.Index(err.Error(), "minecraft:zeta_unlisted") {
-		t.Fatalf("missing-row listing is not sorted: %v", err)
-	}
-}
-
-func TestProjectV2193PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T) {
-	undercount, underSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount - 1)
-	if _, err := projectV2193PhysicsRecords(undercount, underSources); err == nil ||
-		!strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
-		t.Fatalf("undercount rejection = %v", err)
-	}
-	overcount, overSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount + 1)
-	if _, err := projectV2193PhysicsRecords(overcount, overSources); err == nil ||
-		!strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
-		t.Fatalf("overcount rejection = %v", err)
-	}
-
-	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
-	physics, err := projectV2193PhysicsRecords(records, sources)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reserved := 0
-	stones := 0
-	for index, entry := range physics {
-		switch records[index].Name {
-		case retailReservedName:
-			reserved++
-			if !v2193PhysicsEntryStructurallyNeutral(entry) {
-				t.Fatalf("reserved slot %d is not neutral: %+v", index, entry)
-			}
-		case "minecraft:stone":
-			stones++
-			if entry.FrictionQ1E8 != 60_000_000 || entry.Flags != physicsFlagPassable || entry.SurfaceResponse != SurfaceNone {
-				t.Fatalf("ordinary slot %d facts changed: %+v", index, entry)
-			}
-		}
-	}
-	if reserved != v2193PhysicsReservedCount || stones == 0 {
-		t.Fatalf("neutral reserved = %d, stone witnesses = %d", reserved, stones)
-	}
-}
-
-func v2193PhysicsEntryStructurallyNeutral(entry PhysicsRecord) bool {
-	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 && entry.SurfaceResponse == SurfaceNone &&
-		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultFrictionQ1E8 &&
-		entry.HorizontalSpeedQ1E8 == defaultSpeedQ1E8 && entry.VerticalSpeedQ1E8 == defaultSpeedQ1E8
 }
 
 func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {

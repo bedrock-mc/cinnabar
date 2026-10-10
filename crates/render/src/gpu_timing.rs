@@ -7,6 +7,8 @@ mod categories;
 mod health;
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
+#[cfg(feature = "tracy")]
+mod nodes;
 mod opaque;
 mod overdraw;
 mod pass;
@@ -42,7 +44,42 @@ use std::{
     },
 };
 
+#[cfg(feature = "tracy")]
+pub(crate) use nodes::SectionSpan;
 pub(crate) use pass::{render_pass_timestamps, ui_pass_timestamps, ui_profiling_requested};
+
+/// Records `record` into `encoder` between `span`'s marks when one was claimed. Claim spans
+/// while the node runs, so deferred command-buffer tasks still land in the frame's resolve.
+pub(crate) fn within_span<R>(
+    span: Option<&SectionSpan<'_>>,
+    encoder: &mut wgpu::CommandEncoder,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> R,
+) -> R {
+    if let Some(span) = span {
+        span.begin(encoder);
+    }
+    let result = record(encoder);
+    if let Some(span) = span {
+        span.end(encoder);
+    }
+    result
+}
+
+/// Without Tracy, no section span is ever claimed; see `nodes::SectionSpan`.
+#[cfg(not(feature = "tracy"))]
+#[derive(Clone, Copy)]
+pub(crate) struct SectionSpan<'w>(PhantomData<&'w ()>);
+
+#[cfg(not(feature = "tracy"))]
+impl SectionSpan<'_> {
+    pub(crate) fn claim<'w>(_: &'w World, _: &'static str) -> Option<SectionSpan<'w>> {
+        None
+    }
+
+    pub(crate) fn begin(&self, _: &mut wgpu::CommandEncoder) {}
+
+    pub(crate) fn end(&self, _: &mut wgpu::CommandEncoder) {}
+}
 pub use readback::GpuFrameTimes;
 pub(crate) use readback::decode_spans;
 
@@ -97,7 +134,12 @@ impl Plugin for GpuTimingPlugin {
                 ),
             );
         #[cfg(feature = "tracy")]
-        tracy::install(render_app);
+        {
+            tracy::install(render_app);
+            if nodes::requested() {
+                nodes::install(render_app);
+            }
+        }
     }
 }
 

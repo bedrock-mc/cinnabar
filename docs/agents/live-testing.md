@@ -205,6 +205,15 @@ keep them out of ordinary performance captures. See the
 [opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
+With the `tracy` feature, `RUST_MCBE_GPU_NODES=1` times every render-graph node with
+encoder timestamps and plots each as `gpu node <graph>/<label> ms`, plus named sections
+inside the late GPU-cull node as `gpu section <name> ms`; it adds a timestamp pair per node, so
+take frame-time numbers from a capture without it. Tracy builds also enable wgpu's own
+zones (`CommandEncoder::finish`, `Queue::submit`, `RenderPassInfo::start`, the DX12 present
+and barrier calls), which is where the render thread's encoding time shows: wgpu records
+passes and encodes them at `finish`, and the opaque, late-cull and transparent passes
+finish on worker tasks.
+
 `RUST_MCBE_GPU_UI=1` replaces the aggregate UI timestamp category with
 `gpu_ui_raster`, `gpu_ui_model`, `gpu_ui_composite` and `gpu_ui_invert` on
 owned passes. It also reports submitted pass, draw and index counts, layer reuse,

@@ -33,7 +33,7 @@ pub(crate) struct EnhancedShadowPipelines {
 
 impl FromWorld for EnhancedShadowPipelines {
     fn from_world(world: &mut World) -> Self {
-        let (layout, cube, model) = crate::chunk::enhanced::shadow_sources(world);
+        let (layout, cube, model, offsets) = crate::chunk::enhanced::shadow_sources(world);
         let cache = world.resource::<PipelineCache>();
         let queue = |shader: Handle<bevy::shader::Shader>, label: &'static str| {
             cache.queue_render_pipeline(RenderPipelineDescriptor {
@@ -47,7 +47,7 @@ impl FromWorld for EnhancedShadowPipelines {
                     shader: shader.clone(),
                     shader_defs: vec!["ENHANCED_SHADOW".into()],
                     entry_point: Some("vertex".into()),
-                    ..default()
+                    buffers: vec![offsets.clone()],
                 },
                 fragment: Some(FragmentState {
                     shader,

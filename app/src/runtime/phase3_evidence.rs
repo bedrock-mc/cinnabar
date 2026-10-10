@@ -149,6 +149,7 @@ impl Phase3EvidenceIdentitySource {
         .map(Self)
     }
 }
+
 /// Converts the gameplay fault into evidence fields without extending the gameplay type.
 fn authority_fault_observation(
     record: PhysicsAuthorityFaultRecord,
@@ -282,14 +283,14 @@ pub(crate) fn emit_phase3_evidence(
         debug_assert_eq!(retained, fault);
         let mut markers = evidence.observe_identity(identity);
         markers.extend(evidence.observe_authority_fault(retained));
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in markers {
             write_stdout_marker(&mut stdout, &marker);
         }
     }
     let pending_violations = evidence.take_violation_marker();
     if !pending_violations.is_empty() {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in pending_violations {
             write_stdout_marker(&mut stdout, &marker);
         }
@@ -303,7 +304,7 @@ pub(crate) fn emit_phase3_evidence(
     if markers.is_empty() {
         return;
     }
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = diagnostics::console::stdout();
     for marker in markers {
         write_stdout_marker(&mut stdout, &marker);
     }

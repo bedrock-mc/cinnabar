@@ -2,15 +2,35 @@
 
 use super::*;
 
-/// Draws the CPU path and the two-phase GPU path, from a stale history,
-/// through `vertex`, and fails when more than `tolerance` pixels differ.
+/// How the fixture consumes compacted commands: as production does, or resolved on the CPU
+/// when the device cannot draw indirectly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Submission {
+    Fixed,
+    Count,
+    Resolved,
+}
+
+/// Draws the CPU path and the two-phase GPU path, from a stale history, through `vertex` and
+/// every submission the device offers, and fails when more than `tolerance` pixels differ.
 fn compare_cull_paths(vertex: &str, tolerance: usize) {
-    // Fixed-count args address quads through a non-zero `first_instance`, as production does.
-    let features = wgpu::Features::INDIRECT_FIRST_INSTANCE;
-    let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", features) else {
+    let fixed = wgpu::Features::INDIRECT_FIRST_INSTANCE;
+    let count = fixed | wgpu::Features::MULTI_DRAW_INDIRECT_COUNT;
+    let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", count) else {
         return;
     };
-    let indirect = gpu.device.features().contains(features);
+    let features = gpu.device.features();
+    let mut submissions = [
+        (Submission::Fixed, features.contains(fixed)),
+        (Submission::Count, features.contains(count)),
+    ]
+    .into_iter()
+    .filter_map(|(submission, offered)| offered.then_some(submission))
+    .collect::<Vec<_>>();
+    if submissions.is_empty() {
+        submissions.push(Submission::Resolved);
+    }
+    eprintln!("gpu cull raster on {:?}: {submissions:?}", gpu.backend);
     let terrain = terrain();
     let slots = terrain.records.len();
     let enabled = enabled_words(|slot| slot != 7, slots);
@@ -65,80 +85,95 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
             }
         }
         gpu.queue.submit([encoder.finish()]);
-
-        // GPU path: early from the stale history, Hi-Z from that depth, then late.
-        culler.set_history(&bits_of(&history, slots));
-        let gpu_target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
-        let mut gpu_draws = 0;
-        let mut pyramid_mips = 0;
-        for phase in CullPhase::ALL {
-            let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            if indirect && phase == CullPhase::Early {
-                encoder.clear_buffer(&culler.storage.args, 0, None);
-            }
-            let pyramid = (phase == CullPhase::Late)
-                .then(|| gpu_target.pyramid(&gpu, &culler.kernels, &mut encoder));
-            if let Some(pyramid) = &pyramid {
-                pyramid_mips = pyramid.mip_count();
-            }
-            let input = view_input(camera, pyramid_mips);
-            culler.encode(&mut encoder, &input, phase, pyramid.as_ref());
-            if indirect {
-                let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
-                for stream in [CullStream::Solid, CullStream::Cutout] {
-                    raster.bind(&mut pass, stream);
-                    pass.multi_draw_indexed_indirect(
-                        &culler.storage.args,
-                        u64::from(args_region(culler.storage.capacity, phase, stream)) * 4,
-                        slots as u32 * stream.draws_per_record(),
-                    );
-                }
-                drop(pass);
-                gpu.queue.submit([encoder.finish()]);
-                let args = culler.args(phase);
-                gpu_draws += args.iter().map(Vec::len).sum::<usize>();
-            } else {
-                gpu.queue.submit([encoder.finish()]);
-                let args = culler.args(phase);
-                gpu_draws += args.iter().map(Vec::len).sum::<usize>();
-                let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                {
-                    let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
-                    for stream in [CullStream::Solid, CullStream::Cutout] {
-                        raster.draw(&mut pass, stream, &args[stream as usize]);
-                    }
-                }
-                gpu.queue.submit([encoder.finish()]);
-            }
-        }
-        let next = culler.history();
-        assert!(next.iter().all(|slot| visible.contains(slot)));
-        occluded_any |= next.len() < visible.len();
-        history = next;
-
         let expected = read_texture(&gpu, &cpu.color, 0);
-        let actual = read_texture(&gpu, &gpu_target.color, 0);
         gpu_snapshot::save(&format!("gpu_cull_cpu_{vertex}_{index}"), &expected);
-        gpu_snapshot::save(&format!("gpu_cull_gpu_{vertex}_{index}"), &actual);
         let background = &expected[..4];
         assert!(
             expected.chunks_exact(4).any(|pixel| pixel != background),
             "camera {index} sees terrain"
         );
-        let mismatched = expected
-            .chunks_exact(4)
-            .zip(actual.chunks_exact(4))
-            .filter(|(a, b)| a != b)
-            .count();
-        assert!(
-            mismatched <= tolerance,
-            "camera {index} through {vertex}: {mismatched} pixels differ"
-        );
-        eprintln!(
-            "gpu cull camera {index} through {vertex}: {mismatched} pixels differ; cpu path {cpu_draws} draws over {} sub-chunks, gpu path {gpu_draws} draws ({} sub-chunks pass Hi-Z)",
-            visible.len(),
-            history.len()
-        );
+
+        // GPU path: early from the stale history, Hi-Z from that depth, then late.
+        let mut next_history = None;
+        for &submission in &submissions {
+            culler.set_history(&bits_of(&history, slots));
+            let gpu_target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+            let mut gpu_draws = 0;
+            let mut pyramid_mips = 0;
+            for phase in CullPhase::ALL {
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                if submission == Submission::Fixed && phase == CullPhase::Early {
+                    encoder.clear_buffer(&culler.storage.args, 0, None);
+                }
+                let pyramid = (phase == CullPhase::Late)
+                    .then(|| gpu_target.pyramid(&gpu, &culler.kernels, &mut encoder));
+                if let Some(pyramid) = &pyramid {
+                    pyramid_mips = pyramid.mip_count();
+                }
+                let input = view_input(camera, pyramid_mips);
+                culler.encode(&mut encoder, &input, phase, pyramid.as_ref());
+                if submission == Submission::Resolved {
+                    gpu.queue.submit([encoder.finish()]);
+                    encoder = gpu.device.create_command_encoder(&Default::default());
+                    let args = culler.args(phase);
+                    let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
+                    for stream in [CullStream::Solid, CullStream::Cutout] {
+                        raster.draw(&mut pass, stream, &args[stream as usize]);
+                    }
+                } else {
+                    let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
+                    for stream in [CullStream::Solid, CullStream::Cutout] {
+                        raster.bind(&mut pass, stream, &culler.storage.draw_offsets);
+                        let offset = u64::from(args_region(culler.storage.capacity, phase, stream));
+                        let max = slots as u32 * stream.draws_per_record();
+                        if submission == Submission::Count {
+                            pass.multi_draw_indexed_indirect_count(
+                                &culler.storage.args,
+                                offset * 4,
+                                &culler.storage.draw_counts,
+                                u64::from(count_index(phase, stream)) * 4,
+                                max,
+                            );
+                        } else {
+                            pass.multi_draw_indexed_indirect(&culler.storage.args, offset * 4, max);
+                        }
+                    }
+                }
+                gpu.queue.submit([encoder.finish()]);
+                gpu_draws += culler.args(phase).iter().map(Vec::len).sum::<usize>();
+            }
+            let next = culler.history();
+            assert!(next.iter().all(|slot| visible.contains(slot)));
+            assert!(
+                next_history
+                    .as_ref()
+                    .is_none_or(|previous| *previous == next)
+            );
+
+            let actual = read_texture(&gpu, &gpu_target.color, 0);
+            gpu_snapshot::save(
+                &format!("gpu_cull_gpu_{vertex}_{index}_{submission:?}"),
+                &actual,
+            );
+            let mismatched = expected
+                .chunks_exact(4)
+                .zip(actual.chunks_exact(4))
+                .filter(|(a, b)| a != b)
+                .count();
+            assert!(
+                mismatched <= tolerance,
+                "camera {index} through {vertex} by {submission:?}: {mismatched} pixels differ"
+            );
+            eprintln!(
+                "gpu cull camera {index} through {vertex} by {submission:?}: {mismatched} pixels differ; cpu path {cpu_draws} draws over {} sub-chunks, gpu path {gpu_draws} draws ({} sub-chunks pass Hi-Z)",
+                visible.len(),
+                next.len()
+            );
+            next_history = Some(next);
+        }
+        let next = next_history.expect("one submission ran");
+        occluded_any |= next.len() < visible.len();
+        history = next;
     }
     assert!(occluded_any, "the wall must occlude some sub-chunks");
 }

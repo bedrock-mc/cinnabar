@@ -4,10 +4,10 @@ use super::*;
 mod preview;
 pub(super) mod static_draw;
 use preview::Preview;
-type AttachableKey = (ActorLifetimeId, bool, bool, bool);
+type AttachableKey = (ActorLifetimeId, bool, bool, bool, u8);
 
-// Every hand, perspective and worn-state key fits for all admitted owners.
-const STATES_PER_OWNER: usize = 1 << 3;
+// Every hand, perspective, worn-state and worn-slot key fits for all admitted owners.
+const STATES_PER_OWNER: usize = 1 << 5;
 const MAX_ATTACHABLE_STATES: usize = crate::actor_store::MAX_TRACKED_ACTORS * STATES_PER_OWNER;
 
 /// Native item-render inputs; duration values are ticks, not the actor VM's seconds.
@@ -17,8 +17,10 @@ pub struct AttachableAnimationInput<'a> {
     /// Whether the owner belongs to the current game window.
     pub is_local_player: bool,
     pub off_hand: bool,
-    /// A chest-slot model has independent controller state from either held item.
+    /// A worn model has independent controller state from either held item.
     pub worn: bool,
+    /// Armour slot index of a worn model, so each worn piece keeps its own state.
+    pub worn_slot: u8,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     /// Elapsed render time for clip application; absent inputs use the actor timestep.
@@ -56,6 +58,7 @@ pub(crate) struct AttachableQueryContext {
     pub first_person: bool,
     pub off_hand: bool,
     pub worn: bool,
+    pub worn_slot: u8,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub delta_seconds: Option<f32>,
@@ -63,6 +66,24 @@ pub(crate) struct AttachableQueryContext {
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
     pub owner_life_tick: u64,
+}
+
+impl AttachableQueryContext {
+    /// Returns the model binding name assigned to the rendered equipment slot.
+    pub(super) fn item_slot(self) -> &'static str {
+        if self.worn {
+            match self.worn_slot {
+                0 => "head",
+                1 => "torso",
+                4 => "body",
+                _ => "",
+            }
+        } else if self.off_hand {
+            "off_hand"
+        } else {
+            "main_hand"
+        }
+    }
 }
 
 /// Evaluated geometry and layers in the item's own model frame, before the owner bone.
@@ -202,11 +223,12 @@ impl AttachablesRuntime {
             input.off_hand,
             input.first_person,
             input.worn,
+            if input.worn { input.worn_slot } else { 0 },
         );
         if self
             .states
             .first_key_value()
-            .is_some_and(|((actor, _, _, _), _)| actor.session_id != owner_rig.actor.session_id)
+            .is_some_and(|((actor, ..), _)| actor.session_id != owner_rig.actor.session_id)
         {
             self.states.clear();
             self.previewed.clear();
@@ -223,7 +245,7 @@ impl AttachablesRuntime {
             let mut stale = [None; STATES_PER_OWNER];
             for (slot, (&key, _)) in stale.iter_mut().zip(
                 self.states
-                    .range((first, false, false, false)..=(last, true, true, true)),
+                    .range((first, false, false, false, 0)..=(last, true, true, true, u8::MAX)),
             ) {
                 if key.0 != owner_rig.actor {
                     *slot = Some(key);
@@ -292,6 +314,7 @@ impl AttachablesRuntime {
             first_person: input.first_person,
             off_hand: input.off_hand,
             worn: input.worn,
+            worn_slot: input.worn_slot,
             is_paperdoll: input.is_paperdoll,
             frame_alpha,
             delta_seconds: input
@@ -304,18 +327,23 @@ impl AttachablesRuntime {
         };
         let (main_hand_kinetic, main_hand_swing_seconds) =
             owner_rig.animation_variables.item_timings();
+        let owner_context = owner_rig.animation_variables.owner_context();
         let mut context = ActorTickContext {
+            // Attachables use render time, independently of the owner's tick batching.
+            animation_elapsed_ticks: None,
             main_hand_kinetic,
             main_hand_swing_seconds,
             main_hand_is_spear: owner_rig.animation_variables.is_spear(),
             is_local_first_person: input.first_person,
-            is_local_player: input.is_local_player || input.first_person,
+            is_local_player: input.is_local_player
+                || input.first_person
+                || owner_context.is_some_and(|owner| owner.is_local_player),
             hand_charged: input.hand_charged,
             main_hand_max_use_ticks: input.max_use_ticks,
             attachable: Some(query_context),
             main_hand: input.owner_main_hand.map(Arc::from),
             off_hand: input.owner_off_hand.map(Arc::from),
-            ..ActorTickContext::default()
+            ..owner_context.cloned().unwrap_or_default()
         };
         if !input.worn && input.off_hand {
             context
@@ -468,6 +496,10 @@ mod preview_tests;
 #[cfg(test)]
 #[path = "attachable/owner_reference_tests.rs"]
 mod owner_reference_tests;
+
+#[cfg(test)]
+#[path = "attachable/owner_context_tests.rs"]
+mod owner_context_tests;
 
 #[cfg(test)]
 #[path = "attachable/activation_clock_tests.rs"]

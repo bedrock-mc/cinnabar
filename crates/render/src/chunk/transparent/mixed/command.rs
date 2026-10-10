@@ -55,7 +55,7 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
             mixed.frame.get(range.start as usize),
             allocation,
             water.state.committed(),
-            &arena.bind_group,
+            &arena.transparent_bind_group,
         ) else {
             return RenderCommandResult::Skip;
         };
@@ -87,19 +87,18 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
         if !frame_probe.accepts(item.entity(), frame_identity) {
             return RenderCommandResult::Skip;
         }
-        let (Some(model_pipeline), Some(water_pipeline), Some(model_args)) = (
-            pipelines.get_render_pipeline(draw.model_pipeline),
-            pipelines.get_render_pipeline(draw.water_pipeline),
+        let (Some(pipeline), Some(model_args)) = (
+            pipelines.get_render_pipeline(draw.pipeline),
             transparent_model_direct_draw_command(allocation),
         ) else {
             return RenderCommandResult::Skip;
         };
+        pass.set_render_pipeline(pipeline);
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         for segment in draw.segments.iter() {
             match segment.stream {
                 MixedStream::Model => {
-                    pass.set_render_pipeline(model_pipeline);
-                    pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
                     pass.draw_indexed(
                         model_args.first_index..model_args.first_index + model_args.index_count,
                         model_args.base_vertex,
@@ -116,8 +115,6 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
                     ) else {
                         return RenderCommandResult::Skip;
                     };
-                    pass.set_render_pipeline(water_pipeline);
-                    pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
                     pass.draw_indexed(
                         args.first_index..args.first_index + args.index_count,
                         args.base_vertex,

@@ -35,6 +35,11 @@ impl<'a> ActorAnimationVariables<'a> {
         self
     }
 
+    /// Borrows all owner query inputs, including equipment and synced property definitions.
+    pub(in crate::actor_animation) fn owner_context(self) -> Option<&'a ActorTickContext> {
+        self.item_context
+    }
+
     /// Selected owner component facts also serve owning-entity queries on held attachables.
     pub(in crate::actor_animation) fn item_timings(
         self,

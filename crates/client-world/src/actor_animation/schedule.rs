@@ -538,6 +538,7 @@ impl Ledger<'_> {
 
     fn apply(&mut self, job: &mut TickJob<'_>) {
         let state = &mut *job.state;
+        state.query_context.clone_from(&job.context);
         match job.step {
             Step::Hold => {}
             Step::GeometryOnly => {

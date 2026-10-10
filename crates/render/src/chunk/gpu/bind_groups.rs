@@ -699,16 +699,19 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
 ) {
     let Some(texture_assets) = texture_assets.prepared.as_ref() else {
         arena.bind_group = None;
+        arena.transparent_bind_group = None;
         arena.bind_group_buffers = None;
         return;
     };
     let Some(view_buffer) = view_uniforms.uniforms.buffer() else {
         arena.bind_group = None;
+        arena.transparent_bind_group = None;
         arena.bind_group_buffers = None;
         return;
     };
     let Some(biome_tints) = biome_tints.prepared.as_ref() else {
         arena.bind_group = None;
+        arena.transparent_bind_group = None;
         arena.bind_group_buffers = None;
         return;
     };
@@ -730,7 +733,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         textures: texture_assets.identity,
     };
     if !bind_group_needs_rebuild(
-        arena.bind_group.is_some(),
+        arena.bind_group.is_some() && arena.transparent_bind_group.is_some(),
         arena.bind_group_buffers.as_ref(),
         &buffers,
     ) && !biome_tint_bind_group_needs_rebuild(
@@ -744,96 +747,108 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     }
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         arena.bind_group = None;
+        arena.transparent_bind_group = None;
         arena.bind_group_buffers = None;
         return;
     };
+    let entries = [
+        BindGroupEntry {
+            binding: 0,
+            resource: view_binding,
+        },
+        BindGroupEntry {
+            binding: 1,
+            resource: arena.quad_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 2,
+            resource: arena.origin_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 3,
+            resource: texture_assets.material_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 4,
+            resource: BindingResource::TextureView(&texture_assets.views[0]),
+        },
+        BindGroupEntry {
+            binding: 5,
+            resource: BindingResource::TextureView(&texture_assets.views[1]),
+        },
+        BindGroupEntry {
+            binding: 6,
+            resource: BindingResource::Sampler(&texture_assets.sampler),
+        },
+        BindGroupEntry {
+            binding: 7,
+            resource: arena.biome_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 8,
+            resource: biome_tints.buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 9,
+            resource: texture_assets.animation_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 10,
+            resource: texture_assets.animation_frame_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 11,
+            resource: clock.buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 12,
+            resource: texture_assets.model_template_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 13,
+            resource: arena.geometry_stream_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: TRANSPARENT_REFS_BINDING,
+            resource: arena.transparent_ref_buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 15,
+            resource: atmosphere.buffer.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+            resource: BindingResource::TextureView(&texture_assets.native_leaf_views[0]),
+        },
+        BindGroupEntry {
+            binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+            resource: BindingResource::TextureView(&texture_assets.native_leaf_views[1]),
+        },
+        BindGroupEntry {
+            binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+            resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
+        },
+        BindGroupEntry {
+            binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            resource: biome_tints.query_tables.as_entire_binding(),
+        },
+    ];
+    let transparent_bind_group = render_device.create_bind_group(
+        "transparent packed chunk bind group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),
+        &entries,
+    );
+    let opaque_entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
+        .collect();
     let bind_group = render_device.create_bind_group(
-        "shared packed chunk bind group",
+        "opaque packed chunk bind group",
         &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: view_binding,
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: arena.quad_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: arena.origin_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: texture_assets.material_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::TextureView(&texture_assets.views[0]),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: BindingResource::TextureView(&texture_assets.views[1]),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: BindingResource::Sampler(&texture_assets.sampler),
-            },
-            BindGroupEntry {
-                binding: 7,
-                resource: arena.biome_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 8,
-                resource: biome_tints.buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 9,
-                resource: texture_assets.animation_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 10,
-                resource: texture_assets.animation_frame_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 11,
-                resource: clock.buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 12,
-                resource: texture_assets.model_template_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 13,
-                resource: arena.geometry_stream_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 14,
-                resource: arena.transparent_ref_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 15,
-                resource: atmosphere.buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
-                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[0]),
-            },
-            BindGroupEntry {
-                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
-                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[1]),
-            },
-            BindGroupEntry {
-                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
-                resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
-            },
-            BindGroupEntry {
-                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-                resource: biome_tints.query_tables.as_entire_binding(),
-            },
-        ],
+        &opaque_entries,
     );
     arena.bind_group = Some(bind_group);
+    arena.transparent_bind_group = Some(transparent_bind_group);
     arena.bind_group_buffers = Some(buffers);
 }
 

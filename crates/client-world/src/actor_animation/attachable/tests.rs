@@ -531,6 +531,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
     );
     context.attachable = Some(AttachableQueryContext {
         worn: false,
+        worn_slot: 0,
         first_person: true,
         off_hand: false,
         is_paperdoll: false,
@@ -737,8 +738,8 @@ fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
     }
 }
 
-#[test]
-fn hand_context_is_a_string_for_shield_controller_selection() {
+/// Makes one bone's channel true when the rendered slot matches the supplied name.
+fn slot_condition_fixture(name: &str) -> CompiledEntityAssets {
     let mut compiled = compiled_fixture();
     let mut symbols = compiled.molang_symbols.into_vec();
     symbols.insert(
@@ -748,10 +749,10 @@ fn hand_context_is_a_string_for_shield_controller_selection() {
             identifier: "context.item_slot".into(),
         },
     );
-    let main_hand = symbols.len() as u32;
+    let expected_slot = symbols.len() as u32;
     symbols.push(MolangSymbol {
         kind: MolangSymbolKind::String,
-        identifier: "main_hand".into(),
+        identifier: name.into(),
     });
     compiled.molang_symbols = symbols.into_boxed_slice();
     let mut ops = compiled.molang_ops.into_vec();
@@ -769,17 +770,21 @@ fn hand_context_is_a_string_for_shield_controller_selection() {
         op_count: 3,
         max_stack: 2,
     });
-    // The exact typed condition used by the vanilla shield wield controller.
     ops.extend([
         MolangOp::LoadVariable(7),
-        MolangOp::PushString(main_hand),
+        MolangOp::PushString(expected_slot),
         MolangOp::Equal,
     ]);
     compiled.molang_ops = ops.into_boxed_slice();
     compiled.molang_expressions = expressions.into_boxed_slice();
     compiled.animation_keyframes[0].expressions[0] = Some(selection);
+    compiled
+}
+
+#[test]
+fn hand_context_is_a_string_for_shield_controller_selection() {
     let mut runtime = AttachablesRuntime::new(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(slot_condition_fixture("main_hand")).unwrap(),
     ));
     let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
     let main = runtime
@@ -807,6 +812,32 @@ fn hand_context_is_a_string_for_shield_controller_selection() {
         )
         .unwrap();
     assert_eq!(off.pose[0].translation_scale[0], 0.0);
+}
+
+#[test]
+fn worn_slot_context_selects_the_native_model_binding() {
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    for (worn_slot, name) in [(0, "head"), (1, "torso"), (2, ""), (3, ""), (4, "body")] {
+        let mut runtime = AttachablesRuntime::new(Arc::new(
+            RuntimeEntityAssets::from_compiled(slot_condition_fixture(name)).unwrap(),
+        ));
+        let rig = runtime
+            .evaluate(
+                "minecraft:test_item",
+                &owner,
+                &owner_rig(),
+                AttachableAnimationInput {
+                    worn: true,
+                    worn_slot,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            (rig.pose[0].translation_scale[0] + 1.0).abs() < 1e-6,
+            "slot {worn_slot}"
+        );
+    }
 }
 
 #[test]

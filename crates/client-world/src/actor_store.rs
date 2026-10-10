@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+#[cfg(test)]
+pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,

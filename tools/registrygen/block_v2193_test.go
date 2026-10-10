@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
-	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"github.com/segmentio/fasthash/fnv1"
 )
 
@@ -30,35 +31,6 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 	}
 	if !bytes.Equal(reencodedLegacy, legacyBytes) {
 		t.Fatal("legacy BREG changed during decode/encode identity round trip")
-	}
-	legacyLightBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-light-registry-v1001.bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyProperties, err := decodeLREGProperties(legacyLightBytes, legacyBytes, registryProtocol, len(legacy))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyLights := make(map[string]byte, len(legacy))
-	for index, record := range legacy {
-		if record.Name != retailReservedName {
-			legacyLights[canonicalRecordKey(record.Name, record.StateJSON)] = legacyProperties[index]
-		}
-	}
-	factKey := func(record Record) string {
-		reduced, err := v2193ReducedState(record.StateJSON)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := legacyLights[canonicalRecordKey(record.Name, record.StateJSON)]; ok {
-			return canonicalRecordKey(record.Name, record.StateJSON)
-		}
-		if twin, ok := v2193TwinFor(record.Name); ok {
-			if _, exact := legacyLights[canonicalRecordKey(record.Name, reduced)]; !exact {
-				return canonicalRecordKey(twin.twin, reduced)
-			}
-		}
-		return canonicalRecordKey(record.Name, reduced)
 	}
 
 	breg, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2193.bin"))
@@ -99,52 +71,14 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 	if len(properties) != len(records) || hexDigest(lreg) != lightHash {
 		t.Fatal("v2193 LREG identity mismatch")
 	}
-	transplanted := 0
-	for index, record := range records {
-		if record.Name == retailReservedName {
-			if properties[index] != 0 {
-				t.Fatalf("reserved runtime ID %d has light %#x", index, properties[index])
-			}
-			continue
-		}
-		if isEducationConstructionName(record.Name) {
-			want := byte(15 << 4)
-			if record.Name == "minecraft:border_block" {
-				want = 3 << 4
-			}
-			if properties[index] != want {
-				t.Fatalf("Education light at %d = %#x, want %#x", index, properties[index], want)
-			}
-			continue
-		}
-		want, ok := legacyLights[factKey(record)]
-		// Final native registrations override the legacy filter for these
-		// types. Keep the independent emission nibble from the fact source.
-		switch record.Name {
-		case "minecraft:portal":
-			// The unknown-axis legacy row has no emitter implementation.
-			// Native registration sets both properties for all portal states.
-			want = 11
-		case "minecraft:snow_layer":
-			want &= 0x0f
-		case "minecraft:water":
-			want = want&0x0f | 1<<4
-		case "minecraft:flowing_water":
-			want = want&0x0f | 2<<4
-		case "minecraft:ice", "minecraft:frosted_ice":
-			want = want&0x0f | 3<<4
-		}
-		// A legacy unimplemented-block default (emission 0, filter 15) may be corrected.
-		defaulted := want == unknownBlockEmission|unknownBlockFilter<<4
-		if !ok || (properties[index] != want && !defaulted) {
-			t.Fatalf("runtime ID %d (%s) light = %#x, want %#x after native overrides",
-				index, record.Name, properties[index], want)
-		}
-		transplanted++
+	expected, err := applySharedBlockFacts(records)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if transplanted != 15_963+3_440+2_026 {
-		t.Fatalf("transplanted light states = %d", transplanted)
+	if !bytes.Equal(properties, expected) {
+		t.Fatal("active light carrier differs from shared state facts and target rules")
 	}
+
 }
 
 func TestV2193NetworkHashUsesCanonicalLittleEndianNBT(t *testing.T) {
@@ -243,7 +177,7 @@ func TestV2193TwinsRequireRetailItemAndSchemaIdenticalTwinState(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := twinned.records[0]
-	if stats.twins != 1 || twinned.twins[0] != "minecraft:smooth_stone_double_slab" || got.Name != "minecraft:white_wool_double_slab" || got.ModelFamily != ModelFamilyCube || got.NetworkHash != 13 {
+	if stats.twins != 1 || twinned.classes[0] != v2193ClassTwin || got.Name != "minecraft:white_wool_double_slab" || got.ModelFamily != ModelFamilyCube || got.NetworkHash != 13 {
 		t.Fatalf("twin record = %+v %+v", got, stats)
 	}
 	if _, _, err := projectV2193BlocksForTest(source, nil, map[string]struct{}{"minecraft:white_wool_slab": {}}); err == nil {
@@ -276,8 +210,7 @@ func TestV2193ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
 		projection.States != projection.LegacyExactStates+projection.LegacyReducedStates+projection.TwinStates+projection.DeniedCount+projection.EducationStates {
 		t.Fatalf("projection aggregate = %+v", projection)
 	}
-	if manifest.Source.Version != v2193DragonflyVersion || manifest.Source.ModuleSum != v2193DragonflyModuleSum ||
-		manifest.Source.SHA256 != v2193BlockSourceSHA256 || manifest.Source.Size != v2193BlockSourceSize {
+	if manifest.Source.Module != "github.com/bedrock-mc/protocolgen/generated/data" || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
 		t.Fatalf("source identity = %+v", manifest.Source)
 	}
 	if bytes.Contains(bytes.ToLower(payload), []byte("denied_names")) || bytes.Contains(bytes.ToLower(payload), []byte("unresolved_names")) {

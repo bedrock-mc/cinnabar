@@ -23,6 +23,10 @@ pub(crate) fn layer(_app: &mut App) -> Option<BoxedLayer> {
     Some(Box::new(TracyLayer::new(ZoneConfig::default())))
 }
 
+/// Appended to the log filter: keeps wgpu's encoding and submission scopes, which
+/// `DEFAULT_FILTER`'s `wgpu=error` drops; wgpu's per-call API logging stays at trace.
+pub(crate) const WGPU_SCOPE_FILTER: &str = ",wgpu_core=info,wgpu_hal=info";
+
 /// When this frame's local physics finished.
 #[derive(Resource, Default)]
 pub(crate) struct PhysicsEnd(Option<std::time::Instant>);

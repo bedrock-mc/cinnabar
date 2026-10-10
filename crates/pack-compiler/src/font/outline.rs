@@ -9,24 +9,14 @@ use sha2::{Digest, Sha256};
 
 use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
+mod complete;
+mod mathematical;
 mod providers;
+mod source;
 pub use providers::compile_outline_font_with_fallback;
 const ATLAS_PADDING: u32 = 1;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REQUIRED_REPLACEMENT: char = '\u{fffd}';
-const REVIEWED_RANGES: &[(u32, u32)] = &[
-    (0x0020, 0x007e),
-    (0x00a0, 0x024f),
-    // IPA and phonetic extensions carry the small-capital letters servers use for styling.
-    (0x0250, 0x02af),
-    (0x0370, 0x052f),
-    (0x1d00, 0x1d7f),
-    (0x2000, 0x209f),
-    (0x20a0, 0x218f),
-    (0x2190, 0x21ff),
-    (0x2500, 0x25ff),
-    (0x2600, 0x27bf),
-];
 
 /// How a packed glyph's pen advance is derived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +28,7 @@ pub enum GlyphAdvances {
     /// inked width plus `gap_px`, the way Mojang's bitmap font is laid out.
     ///
     /// A blank glyph has no ink to measure, so `blank_advance_px` carries the
-    /// space width explicitly; `None` keeps the source advance. That matters for
+    /// space width explicitly; `None` keeps the source advance. Zero-advance blanks stay zero. That matters for
     /// a monospace source, where inheriting it leaves a space exactly as wide as
     /// the widest letter once every inked glyph has been tightened.
     ///
@@ -57,18 +47,36 @@ pub struct OutlineFontConfig {
     pub atlas_side: u32,
     pub replacement_codepoint: char,
     pub advances: GlyphAdvances,
+    /// Optional advance for ordinary and non-breaking spaces in raster 1/64 pixels.
+    pub space_advance_64: Option<i16>,
+    /// Optional left-bearing adjustment for printable ASCII and its derived variants.
+    pub ascii_bearing: Option<assets::carriers::AsciiBearing>,
+    /// Derives missing regular, bold and italic Latin mathematical glyphs from source artwork.
+    pub synthesize_mathematical_letters: bool,
+}
+
+impl OutlineFontConfig {
+    /// Uses larger shelves for the complete fallback map while respecting the requested minimum.
+    pub const fn fallback_atlas_side(self) -> u32 {
+        if self.atlas_side < 2048 {
+            2048
+        } else {
+            self.atlas_side
+        }
+    }
 }
 
 impl Default for OutlineFontConfig {
     fn default() -> Self {
         Self {
-            // The reviewed pixel grid uses 18 px/em so each design pixel lands
-            // on a stable texel boundary. Off-grid heights split design pixels
-            // across texels and render uneven stems.
+            // Sans is the default; callers select other faces from their shared metadata.
             pixel_height: assets::FONT_RASTER_EM_PIXELS,
             atlas_side: 1_024,
             replacement_codepoint: REQUIRED_REPLACEMENT,
             advances: GlyphAdvances::Source,
+            space_advance_64: None,
+            ascii_bearing: None,
+            synthesize_mathematical_letters: false,
         }
     }
 }
@@ -82,6 +90,7 @@ struct RasterizedGlyph {
     alpha: Box<[u8]>,
 }
 
+/// Compiles every mapped Unicode scalar, retaining source metrics and bounded coverage pages.
 pub fn compile_outline_font(
     source_path: &Path,
     source_bytes: &[u8],
@@ -89,84 +98,12 @@ pub fn compile_outline_font(
     config: OutlineFontConfig,
 ) -> Result<CompiledFontCarrier, FontCompileError> {
     validate_config(source_bytes, source_manifest_sha256, config)?;
-    let font = Font::from_bytes(source_bytes, FontSettings::default()).map_err(|detail| {
-        FontCompileError::OutlineFont {
-            path: source_path.to_path_buf(),
-            detail: detail.to_string().into_boxed_str(),
-        }
-    })?;
-    compile_parsed_outline(
-        source_path,
-        source_bytes,
+    let font = source::parse(source_path, source_bytes)?;
+    complete::compile(
+        &[(source_path, source_bytes, &font)],
         source_manifest_sha256,
         config,
-        &font,
     )
-}
-
-fn compile_parsed_outline(
-    source_path: &Path,
-    source_bytes: &[u8],
-    source_manifest_sha256: [u8; 32],
-    config: OutlineFontConfig,
-    font: &Font,
-) -> Result<CompiledFontCarrier, FontCompileError> {
-    let mut codepoints = REVIEWED_RANGES
-        .iter()
-        .flat_map(|(first, last)| *first..=*last)
-        .filter_map(char::from_u32)
-        .filter(|codepoint| font.lookup_glyph_index(*codepoint) != 0)
-        .collect::<Vec<_>>();
-    codepoints.push(config.replacement_codepoint);
-    codepoints.sort_unstable();
-    codepoints.dedup();
-
-    let rasterized = codepoints
-        .into_iter()
-        .map(|codepoint| {
-            if codepoint == config.replacement_codepoint && font.lookup_glyph_index(codepoint) == 0
-            {
-                synthetic_replacement(config.pixel_height)
-            } else {
-                let glyph = rasterize(font, codepoint, config.pixel_height, config.advances)?;
-                Ok(glyph)
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let (glyphs, coverage) = pack(&rasterized, config.atlas_side)?;
-    let source_sha256 = Sha256::digest(source_bytes).into();
-    let pixels_sha256 = Sha256::digest(&coverage).into();
-    let page = FontTexturePage {
-        source_path: format!("font/atlas-{}px.png", config.pixel_height).into_boxed_str(),
-        source_bytes: u32::try_from(source_bytes.len()).map_err(|_| {
-            FontCompileError::SourceTooLarge {
-                path: source_path.to_path_buf(),
-            }
-        })?,
-        source_sha256,
-        pixels_sha256,
-        width: config.atlas_side,
-        height: config.atlas_side,
-        pixels: FontPixels::Coverage(coverage),
-    };
-    let pages = [page];
-    let bytes = encode_font_catalog(source_manifest_sha256, &glyphs, &pages)?;
-    let carrier_sha256 = bytes
-        .get(bytes.len().saturating_sub(32)..)
-        .and_then(|digest| digest.try_into().ok())
-        .ok_or_else(|| invalid("encoded font carrier lacks its SHA-256"))?;
-    Ok(CompiledFontCarrier {
-        report: FontCompileReport {
-            schema: FONT_CARRIER_SCHEMA,
-            glyphs: glyphs.len(),
-            pages: 1,
-            source_bytes: source_bytes.len() as u64,
-            decoded_bytes: coverage_len(config.atlas_side)? as u64,
-            source_manifest_sha256,
-            carrier_sha256,
-        },
-        bytes,
-    })
 }
 
 fn validate_config(
@@ -203,6 +140,7 @@ fn validate_config_minimum(
     }
     if source_manifest_sha256 == [0; 32]
         || config.replacement_codepoint != REQUIRED_REPLACEMENT
+        || config.space_advance_64.is_some_and(|advance| advance <= 0)
         || !(minimum_height..=128).contains(&config.pixel_height)
         || config.atlas_side < 256
         || config.atlas_side > MAX_FONT_PAGE_SIDE
@@ -216,6 +154,8 @@ fn validate_config_minimum(
     Ok(())
 }
 
+/// Rasterizes one test glyph using the same checked coverage path as complete carriers.
+#[cfg(test)]
 fn rasterize(
     font: &Font,
     codepoint: char,
@@ -302,7 +242,7 @@ fn rasterize_checked(
         GlyphAdvances::InkPlusGap {
             blank_advance_px: Some(blank_advance_px),
             ..
-        } => (
+        } if source_advance_64 > 0.0 => (
             0,
             i64::from(blank_advance_px)
                 .checked_mul(FIXED_POINT_DENOMINATOR)
@@ -486,11 +426,15 @@ fn metric_error(codepoint: char, field: &'static str) -> FontCompileError {
 
 #[cfg(test)]
 mod tests {
+    mod coverage;
     use super::*;
 
     #[test]
     fn shipped_face_metrics_match_the_pinned_sources() {
-        for carrier in [assets::carriers::FONT_SEVEN, assets::carriers::FONT_TEN] {
+        for carrier in assets::carriers::CARRIERS
+            .iter()
+            .filter(|carrier| carrier.font_face.is_some())
+        {
             let profile = carrier.font_face.unwrap();
             let source: serde_json::Value = serde_json::from_slice(profile.manifest).unwrap();
             let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -503,7 +447,7 @@ mod tests {
             );
             let font = Font::from_bytes(bytes, FontSettings::default()).unwrap();
             let line = font
-                .horizontal_line_metrics(assets::FONT_RASTER_EM_PIXELS as f32)
+                .horizontal_line_metrics(profile.raster_em_pixels() as f32)
                 .unwrap();
             let metrics = profile.line_metrics();
             assert_eq!(metrics.ascent_64, (line.ascent * 64.0).round() as u32);
