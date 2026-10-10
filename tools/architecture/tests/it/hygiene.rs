@@ -452,3 +452,41 @@ fn value_definitions_do_not_shadow_dependency_type_paths() {
     fixture(temp.path(), "pub struct other; pub use other as Local;", "");
     assert!(findings(temp.path()).is_empty());
 }
+
+#[test]
+fn local_glob_modules_shadow_dependency_names() {
+    for source in [
+        "mod local { pub mod other { pub struct Thing; } } use local::*; pub use other::Thing;",
+        "mod local { pub mod other { pub struct Thing; } } mod nested { use crate::local::*; pub use other::Thing; }",
+        "mod local { pub mod other { pub struct Thing; } } use std::fmt::*; use local::*; pub use other::Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+    for source in [
+        "mod local { pub fn other() {} } use local::*; pub use other::Thing;",
+        "mod local { pub mod other { pub use ::other::Thing; } } use local::*; pub use other::Thing;",
+        "use other::*; pub use other::Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(!findings(temp.path()).is_empty(), "missed {source}");
+    }
+}
+
+#[test]
+fn self_crate_aliases_keep_exports_local() {
+    for source in [
+        "pub extern crate self as api; pub struct Thing; pub use api::Thing as Local;",
+        "pub struct Thing; mod nested { pub extern crate self as api; pub use api::Thing as Local; }",
+        "extern crate self as other; pub struct Thing; pub use other::Thing as Local;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+    let temp = tempfile::tempdir().unwrap();
+    fixture(temp.path(), "pub extern crate other as api;", "");
+    assert_eq!(findings(temp.path()).len(), 1);
+}

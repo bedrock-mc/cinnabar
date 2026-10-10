@@ -427,15 +427,20 @@ fn collect(
                     .rename
                     .as_ref()
                     .map_or_else(|| name.clone(), |(_, name)| name.unraw().to_string());
-                symbols.dependencies.insert(name.clone());
+                let target = if name == "self" {
+                    "crate".into()
+                } else {
+                    symbols.dependencies.insert(name.clone());
+                    name.clone()
+                };
                 let mut key = module.to_vec();
                 key.push(binding.clone());
                 symbols.imports.entry(key).or_default().push(Import {
                     condition: condition.clone(),
                     module: module.to_vec(),
-                    target: vec![name.clone()],
+                    target: vec![target],
                 });
-                if !matches!(item.vis, Visibility::Inherited) {
+                if name != "self" && !matches!(item.vis, Visibility::Inherited) {
                     diagnostics.push(format!("{file}: cross-crate re-export `extern crate {name} as {binding}` is forbidden"));
                 }
             }
@@ -572,6 +577,17 @@ fn resolve(
                 && !active_name(&symbols.type_definitions, &local, configuration)?
                 && (!has_type_import || imports_self)
             {
+                let mut branch_seen = seen.clone();
+                if branch_seen.insert(local.clone()) {
+                    let mut target =
+                        resolve_globs(local, symbols, &mut branch_seen, configuration)?;
+                    if known_local(&target, symbols, configuration)?
+                        && (path.len() == 1 || !value_only(&target, symbols, configuration)?)
+                    {
+                        target.extend_from_slice(&path[1..]);
+                        return resolve(module, &target, symbols, &mut branch_seen, configuration);
+                    }
+                }
                 absolute.clear();
             }
         }

@@ -162,7 +162,9 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             &CameraCollisionFixture::default(),
         );
         assert!(
-            (clear.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs()
+            (clear.translation.distance(subject)
+                - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+                .abs()
                 <= 1.0e-5,
             "{label} boom did not restore after collision space cleared",
         );
@@ -199,7 +201,10 @@ fn third_person_boom_retains_its_reach_when_the_boom_region_is_unloaded() {
     );
 
     assert!(
-        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5,
+        (pose.translation.distance(subject)
+            - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+            .abs()
+            <= 1.0e-5,
         "unloaded boom region must not collapse the camera onto the subject",
     );
 }
@@ -254,7 +259,10 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
     );
 
     assert!(
-        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5
+        (pose.translation.distance(subject)
+            - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+            .abs()
+            <= 1.0e-5
     );
 }
 
@@ -273,16 +281,25 @@ fn missing_world_stream_falls_back_to_eye_in_third_person() {
 
 #[test]
 fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
-    assert_eq!(camera::auto_fly_offset(0.0), Vec3::ZERO);
+    assert_eq!(
+        client_presentation::camera::auto_fly_offset(0.0),
+        Vec3::ZERO
+    );
     assert!(
-        camera::auto_fly_offset(camera::AUTO_FLY_PERIOD_SECONDS).abs_diff_eq(Vec3::ZERO, 0.001)
+        client_presentation::camera::auto_fly_offset(
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS
+        )
+        .abs_diff_eq(Vec3::ZERO, 0.001)
     );
 
     for sample in 0..=2_000 {
         let seconds =
             client_presentation::camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
         let offset = client_presentation::camera::auto_fly_offset(seconds);
-        assert!(offset.xz().length() <= camera::AUTO_FLY_MAX_HORIZONTAL_BLOCKS + 0.001);
+        assert!(
+            offset.xz().length()
+                <= client_presentation::camera::AUTO_FLY_MAX_HORIZONTAL_BLOCKS + 0.001
+        );
         assert!(offset.y.abs() <= 8.001);
         assert!(offset.x.abs() < 16.0 * 16.0);
         assert!(offset.z.abs() < 16.0 * 16.0);
@@ -388,10 +405,18 @@ fn input_requires_focus_and_a_locked_hidden_cursor() {
     };
     let released = CursorOptions::default();
 
-    assert!(camera::input_is_active(&focused, &captured));
-    assert!(!camera::input_is_active(&unfocused, &captured));
-    assert!(!camera::input_is_active(&focused, &visible));
-    assert!(!camera::input_is_active(&focused, &released));
+    assert!(client_presentation::camera::input_is_active(
+        &focused, &captured
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &unfocused, &captured
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &focused, &visible
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &focused, &released
+    ));
 }
 
 fn capture_test_app(
@@ -747,7 +772,7 @@ fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
         assert!(actual.abs_diff_eq(expected, 1.0e-4));
         assert!(
             app.world()
-                .resource::<camera::ScreenOverlays>()
+                .resource::<client_presentation::camera::ScreenOverlays>()
                 .layers
                 .is_empty()
         );
@@ -804,15 +829,15 @@ fn stable_presentation_pause_ignores_held_movement_and_look_input() {
 #[test]
 fn perspective_cycle_matches_bedrock_settings_order() {
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::FirstPerson),
+        client_presentation::camera::next_perspective(PerspectiveMode::FirstPerson),
         PerspectiveMode::ThirdPersonBack
     );
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::ThirdPersonBack),
+        client_presentation::camera::next_perspective(PerspectiveMode::ThirdPersonBack),
         PerspectiveMode::ThirdPersonFront
     );
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::ThirdPersonFront),
+        client_presentation::camera::next_perspective(PerspectiveMode::ThirdPersonFront),
         PerspectiveMode::FirstPerson
     );
 }
