@@ -62,6 +62,7 @@ impl PlayerInventoryLedger {
                     self.cursor_resync_required = false;
                     self.storage = None;
                     self.pending_closes.clear();
+                    self.abandoned.clear();
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),

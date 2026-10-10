@@ -219,6 +219,9 @@ pub struct PlayerInventoryLedger {
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
     pending_closes: VecDeque<PendingClose>,
+    /// Admitted requests abandoned unanswered and the surfaces each put into
+    /// recovery, oldest first: a late rejection lifts that recovery.
+    abandoned: VecDeque<queue::AbandonedRequest>,
     player_resync_required: bool,
     cursor_resync_required: bool,
     armor_resync_required: bool,
@@ -257,6 +260,7 @@ impl Default for PlayerInventoryLedger {
             storage: None,
             furnace_selection: None,
             pending_closes: VecDeque::new(),
+            abandoned: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
             armor_resync_required: false,

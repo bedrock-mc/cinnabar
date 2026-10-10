@@ -608,6 +608,24 @@ fn authoritative_close_settles_a_closing_window_immediately() {
     assert!(!ledger.resync_required());
 }
 
+/// A server may close the window from inside the request it then rejects (a
+/// menu button). The rejection carries no restatement, and none is needed:
+/// nothing was applied.
+#[test]
+fn late_rejection_of_a_request_abandoned_by_a_server_close_lifts_its_recovery() {
+    let (mut ledger, request) = closing_with_pending(960);
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: true,
+    }));
+    assert!(ledger.resync_required());
+
+    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.cursor_stack(), None);
+}
+
 #[test]
 fn replacing_the_window_clears_a_closing_state_immediately() {
     let (mut ledger, request) = closing_with_pending(950);
