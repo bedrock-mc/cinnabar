@@ -318,7 +318,7 @@ type Record struct {
 	Provenance      uint8
 }
 
-// BiomeRecord is one stable Dragonfly network biome registry entry.
+// BiomeRecord is one numeric biome ID and name in the client registry.
 type BiomeRecord struct {
 	ID   uint32
 	Name string
@@ -337,8 +337,6 @@ func main() {
 	physicsV2193Manifest := flag.String("physics-v2193-manifest", "", "reviewed v2193 block-projection manifest cross-checked against the projection")
 	biomeOut := flag.String("biome-out", "", "optional path to write the biome registry")
 	biomeCoverage := flag.String("biome-coverage", "", "reviewed numeric biome coverage manifest")
-	biomeV2193Executable := flag.String("biome-v2193-executable", "", "local exact public BDS executable")
-	biomeV2193PMMP := flag.String("biome-v2193-pmmp", "", "pinned PMMP biome ID map")
 	biomeV2193Allowlist := flag.String("biome-v2193-allowlist", "", "reviewed retail biome allowlist")
 	biomeV2193Manifest := flag.String("biome-v2193-manifest", "", "path to write the v2193 projection manifest")
 	blockV2193LegacyBREG := flag.String("block-v2193-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
@@ -365,7 +363,7 @@ func main() {
 			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
 			*physicsV2193Out != "" || *physicsV2193SHAOut != "" || *physicsV2193BREG != "" || *physicsV2193Manifest != "" ||
 			*biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*pmmpRoot != "" || *prismarineRoot != "" || *coverageManifest != "" ||
 			*blockItemOut != "" || *blockItemBREG != "" ||
 			*blockV2193LegacyBREG != "" ||
@@ -398,7 +396,7 @@ func main() {
 	if *physicsV2193Out != "" || *physicsV2193BREG != "" || *physicsV2193SHAOut != "" || *physicsV2193Manifest != "" {
 		if *physicsV2193Out == "" || *physicsV2193BREG == "" || *pmmpRoot != "" || *prismarineRoot != "" ||
 			*out != "" || *lightOut != "" || *lightBREG != "" || *biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings ||
 			*physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" ||
@@ -417,7 +415,7 @@ func main() {
 	if *blockV2193LegacyBREG != "" || *blockV2193Allowlist != "" || *blockV2193Manifest != "" {
 		if *out == "" || *blockV2193LegacyBREG == "" ||
 			*blockV2193Allowlist == "" || *blockV2193Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
-			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
+			*biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" ||
 			*prismarineRoot != "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
@@ -430,16 +428,16 @@ func main() {
 		}
 		return
 	}
-	if *biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" {
-		if *biomeOut == "" || *biomeV2193Executable == "" || *biomeV2193PMMP == "" || *biomeV2193Allowlist == "" || *biomeV2193Manifest == "" ||
+	if *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" {
+		if *biomeOut == "" || *biomeV2193Allowlist == "" || *biomeV2193Manifest == "" ||
 			*biomeCoverage != "" || *out != "" || *lightOut != "" || *lightBREG != "" || *physicsOut != "" ||
 			*physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" || *prismarineRoot != "" ||
 			*coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" || *fallbackIn != "" ||
 			*fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 biome mode requires only its executable, PMMP map, allowlist, output, and manifest flags")
+			fmt.Fprintln(os.Stderr, "registrygen: v2193 biome mode requires only its allowlist, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2193BiomeProjection(*biomeV2193Executable, *biomeV2193PMMP, *biomeV2193Allowlist, *biomeOut, *biomeV2193Manifest); err != nil {
+		if err := writeV2193BiomeProjection(*biomeV2193Allowlist, *biomeOut, *biomeV2193Manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}

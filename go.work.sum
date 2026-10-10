@@ -1,7 +1,7 @@
 cloud.google.com/go/compute/metadata v0.3.0 h1:Tz+eQXMEqDIKRsmY3cHTL6FVaynIjX2QxYC4trgAKZc=
 cloud.google.com/go/compute/metadata v0.3.0/go.mod h1:zFmK7XCadkQkj6TtorcaGlCW1hT1fIilQDwofLpJ20k=
-github.com/andreburgaud/crypt2go v1.8.0 h1:J73vGTb1P6XL69SSuumbKs0DWn3ulbl9L92ZXBjw6pc=
-github.com/andreburgaud/crypt2go v1.8.0/go.mod h1:L5nfShQ91W78hOWhUH2tlGRPO+POAPJAF5fKOLB9SXg=
+github.com/bedrock-mc/protocolgen/generated/data v0.0.0-20261010125127-77cf5bb40392 h1:tAMERHmgWyFF9k518W3KHwM9Sd0aCGAdzDN4LJ1Ftic=
+github.com/bedrock-mc/protocolgen/generated/data v0.0.0-20261010125127-77cf5bb40392/go.mod h1:8QbzgE3/G4AGUs6easeg/fXovGP5iu/cU76hN6zQFRM=
 github.com/df-mc/go-nethernet v1.0.20-0.20260915174748-4ead02dfc551/go.mod h1:11MfQo5F7PDKfHg1H0zM5mMkrCv29jRE0lK5B4egW9w=
 github.com/df-mc/go-playfab v1.0.0 h1:6gVukk3aQbJ934GJFdcZJHVIw9lhauK+KHOevbwJA10=
 github.com/df-mc/go-playfab v1.0.0/go.mod h1:nGOlE+JFGOH5Z0iidEgJapHhndFi/oNk17RN9pKCF+k=

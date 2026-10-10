@@ -29,16 +29,19 @@ go -C tools/registrygen run . \
 go -C tools/registrygen run . \
   -block-item-breg ../../crates/assets/data/block-registry-v2193.bin \
   -block-item-out ../../crates/assets/data/block-item-routes-v2193.json
+go -C tools/registrygen run . \
+  -biome-v2193-allowlist ../../crates/protocol/data/retail_biomes_1_26_50.txt \
+  -biome-out ../../crates/assets/data/biome-registry-v2193.bin \
+  -biome-v2193-manifest ../../assets/biome-projection-v2193.json
 python3 tools/registrygen/update_bindings.py --out .
 go -C tools/registrygen test ./...
 ```
 
-The destroy-table generator also reads shared hardness. It still needs the
-pinned Prismarine tool and harvest classifications in `assets/block-data-sources.json`.
-Those classifications are provisional; missing evidence stays unresolved.
-Its `-manifest` and `-bundle` flags now select only the tool evidence.
+The destroy-table generator reads hardness and provisional tool classifications
+from the same shared catalog. Missing tool evidence stays unresolved. Regenerate
+it with `go -C tools/registrygen run ./cmd/blockdestroy -out ../../crates/sim/data/block_destroy_1_26_50.tsv`.
 
-The shared biome catalog has climate and presentation fields but no numeric
-biome IDs. The current biome ID capture and its cross-checks remain necessary.
-Shared block data also does not supply preferred mining tools, harvest tiers,
-client rendering policy or movement algorithms.
+The active biome generator reads numeric IDs from the shared catalog and keeps
+only names in the local retail allowlist. Its source lock is recorded in the
+projection manifest. No local BDS executable or PMMP biome map is needed.
+Client rendering policy and movement algorithms remain local.
