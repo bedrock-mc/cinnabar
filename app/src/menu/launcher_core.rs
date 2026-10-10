@@ -68,10 +68,7 @@ impl Drop for LauncherCore {
         #[cfg(unix)]
         if stopped != super::core_process::CoreStopOutcome::Unreaped {
             // Long Unix socket paths live outside the owned session directory.
-            for endpoint in [
-                protocol::bridge_endpoint_path(&self.socket_dir),
-                launcher_control::control_endpoint_path(&self.socket_dir),
-            ] {
+            for endpoint in protocol::core_endpoint_paths(&self.socket_dir) {
                 if let Err(error) = std::fs::remove_file(&endpoint)
                     && error.kind() != std::io::ErrorKind::NotFound
                 {

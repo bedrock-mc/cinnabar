@@ -1,4 +1,4 @@
-//! Join-time compile results and server-pack archives persisted across launches, under one bound.
+//! Join-time compile results persisted across launches, under one bound.
 
 use std::{
     fs,
@@ -54,26 +54,6 @@ fn build_identity() -> [u8; 16] {
         identity[8..].copy_from_slice(&modified.to_le_bytes());
         identity
     })
-}
-
-/// Keys an archive by its offer identity alone: archives outlive client builds, unlike compiles.
-fn archive_key(identity: protocol::ResourcePackIdentity<'_>) -> [u8; 32] {
-    let mut key = Sha256::new();
-    part(&mut key, b"server-pack-archive");
-    part(&mut key, identity.pack_id.as_bytes());
-    part(&mut key, identity.version.as_bytes());
-    part(&mut key, &identity.size.to_le_bytes());
-    key.finalize().into()
-}
-
-impl protocol::ResourcePackStore for CompileCache {
-    fn load(&self, identity: protocol::ResourcePackIdentity<'_>) -> Option<Vec<u8>> {
-        CompileCache::load(self, &archive_key(identity))
-    }
-
-    fn store(&self, identity: protocol::ResourcePackIdentity<'_>, archive: &[u8]) {
-        CompileCache::store(self, &archive_key(identity), archive);
-    }
 }
 
 impl CompileCache {
@@ -261,56 +241,6 @@ mod tests {
         let cache = CompileCache::new(dir.path().to_owned(), 64);
         cache.store(&key(1), &[0; 64]);
         assert_eq!(cache.load(&key(1)), None);
-    }
-
-    #[test]
-    fn a_stored_archive_answers_only_its_exact_offer_identity() {
-        use protocol::{ResourcePackIdentity, ResourcePackStore};
-        let dir = tempfile::tempdir().unwrap();
-        let store: &dyn ResourcePackStore = &CompileCache::new(dir.path().to_owned(), 1 << 20);
-        let id = uuid::Uuid::from_u128(7);
-        let identity = ResourcePackIdentity {
-            pack_id: id,
-            version: "1.0.0",
-            size: 7,
-        };
-        store.store(identity, b"archive");
-        assert_eq!(store.load(identity).as_deref(), Some(&b"archive"[..]));
-        for other in [
-            ResourcePackIdentity {
-                version: "1.0.1",
-                ..identity
-            },
-            ResourcePackIdentity {
-                size: 8,
-                ..identity
-            },
-            ResourcePackIdentity {
-                pack_id: uuid::Uuid::from_u128(8),
-                ..identity
-            },
-        ] {
-            assert_eq!(store.load(other), None);
-        }
-    }
-
-    #[test]
-    fn a_corrupted_archive_is_a_miss() {
-        use protocol::{ResourcePackIdentity, ResourcePackStore};
-        let dir = tempfile::tempdir().unwrap();
-        let cache = CompileCache::new(dir.path().to_owned(), 1 << 20);
-        let store: &dyn ResourcePackStore = &cache;
-        let identity = ResourcePackIdentity {
-            pack_id: uuid::Uuid::from_u128(7),
-            version: "1.0.0",
-            size: 7,
-        };
-        store.store(identity, b"archive");
-        let path = cache.entry(&archive_key(identity));
-        let mut bytes = fs::read(&path).unwrap();
-        bytes[HEADER] ^= 1;
-        fs::write(&path, bytes).unwrap();
-        assert_eq!(store.load(identity), None);
     }
 
     #[test]

@@ -31,8 +31,8 @@ pub use packet_delay::{
 };
 pub use session::{
     ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
-    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, connect_session,
-    decode_core_message, encode_batch, encode_connect,
+    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, batch_frame_body,
+    batch_frame_from_bedrock, connect_session, decode_core_message, encode_batch, encode_connect,
 };
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
@@ -55,6 +55,12 @@ pub use worlds::{
 #[must_use]
 pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
     endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Game)
+}
+
+/// Returns the platform session endpoint used for the logical socket directory.
+#[must_use]
+pub fn session_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Session)
 }
 
 /// Returns the platform control endpoint used for the logical socket directory.

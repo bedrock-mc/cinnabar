@@ -256,3 +256,27 @@ fn content_keys_never_reach_debug_output() {
     assert!(!debug.contains("secret-key"), "{debug}");
     assert!(debug.contains("redacted"));
 }
+
+/// An outgoing Bedrock batch becomes a Batch frame with the same packets, and a Batch frame's body
+/// is the Bedrock batch body without copying.
+#[test]
+fn bedrock_batches_map_to_batch_frames_both_ways() {
+    let frame = batch_frame_from_bedrock(&[0xfe, 2, 0x09, 0x00]).unwrap();
+    assert_eq!(&frame[..], [KIND_BATCH, 2, 0x09, 0x00]);
+    let CoreMessage::Batch(packets) = decode_core_message(frame.clone()).unwrap() else {
+        panic!("batch expected")
+    };
+    assert_eq!(packets, [Bytes::from_static(&[0x09, 0x00])]);
+    let body = batch_frame_body(&frame).unwrap();
+    assert_eq!(&body[..], [2, 0x09, 0x00]);
+    assert_eq!(
+        body.as_ptr(),
+        frame[1..].as_ptr(),
+        "the body shares the frame"
+    );
+
+    for invalid in [&[][..], &[0xfe], &[0x00, 1, 1]] {
+        assert!(batch_frame_from_bedrock(invalid).is_err(), "{invalid:?}");
+    }
+    assert!(batch_frame_body(&Bytes::from_static(&[KIND_TRANSFER, b'{'])).is_none());
+}

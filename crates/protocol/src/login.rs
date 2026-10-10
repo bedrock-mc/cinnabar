@@ -1,6 +1,4 @@
 use std::collections::VecDeque;
-use std::path::Path;
-use std::sync::Arc;
 
 use bytes::Bytes;
 use jolyne::error::JolyneError;
@@ -13,18 +11,20 @@ use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
-use crate::socket_transport::SocketTransport;
+use crate::session_transport::SessionTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ResourcePackStore, ServerDisconnectEvent,
-    ServerTransferEvent, WorldEvent, into_world_event,
+    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent, WorldEvent,
+    into_world_event,
 };
 
 mod boundary;
+mod client_data;
 mod latency_probe;
 mod outbound;
 mod packet_trace;
 mod raw_equipment;
+pub(crate) mod session_join;
 use boundary::boundary_wakeup;
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
@@ -35,36 +35,10 @@ use packet_trace::{MAX_PACKET_ID_TRACE_ENTRIES, PACKET_ID_TRACE_DURATION};
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 
-/// Entry point for the offline local-core login sequence.
+/// Entry point for joining through the core.
 pub struct LoginSequence;
 
 impl LoginSequence {
-    /// Connects to the core; the owner calls `finish_loading` after presenting the world.
-    pub async fn connect(
-        socket_dir: &Path,
-        display_name: &str,
-        skin: Option<crate::ClientSkin>,
-    ) -> Result<(PlaySession, GameData), ProtocolError> {
-        let transport = SocketTransport::connect(socket_dir)
-            .await
-            .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, None, skin, None).await
-    }
-
-    /// Connects with a persistent verified cache and a fresh session-owned resolver.
-    pub async fn connect_with_blob_cache(
-        socket_dir: &Path,
-        display_name: &str,
-        cache: ClientBlobCache,
-        skin: Option<crate::ClientSkin>,
-        pack_store: Option<Arc<dyn ResourcePackStore>>,
-    ) -> Result<(PlaySession, GameData), ProtocolError> {
-        let transport = SocketTransport::connect(socket_dir)
-            .await
-            .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, Some(cache), skin, pack_store).await
-    }
-
     /// Headless test seam that treats the received spawn prerequisites as presentation readiness.
     #[doc(hidden)]
     pub async fn connect_transport<T: Transport>(
@@ -72,7 +46,7 @@ impl LoginSequence {
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, None, None, None).await?;
+            Self::connect_transport_inner(transport, display_name, None).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -85,7 +59,7 @@ impl LoginSequence {
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, Some(cache), None, None).await?;
+            Self::connect_transport_inner(transport, display_name, Some(cache)).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -94,28 +68,20 @@ impl LoginSequence {
         transport: T,
         display_name: &str,
         cache: Option<ClientBlobCache>,
-        skin: Option<crate::ClientSkin>,
-        pack_store: Option<Arc<dyn ResourcePackStore>>,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
-        let mut config = ClientHandshakeConfig::random(peer_addr, display_name)
+        let config = ClientHandshakeConfig::random(peer_addr, display_name)
             .with_client_cache_enabled(cache.is_some());
-        if let Some(skin) = skin {
-            config = config.with_skin(skin);
-        }
-        if let Some(store) = pack_store {
-            config = config.with_resource_pack_store(store);
-        }
         let (stream, game_data) = stream.join(config).await?;
         Ok((PlaySession::new(stream, cache), game_data))
     }
 }
 
 /// An authenticated, spawned Bedrock session.
-pub struct PlaySession<T: Transport = SocketTransport> {
+pub struct PlaySession<T: Transport = SessionTransport> {
     stream: BedrockStream<Play, Client, T>,
     decode_errors: u64,
     world_skips: u64,
@@ -443,7 +409,7 @@ impl<T: Transport> PlaySession<T> {
                     .as_mut()
                     .expect("the status packet came from a pending cache delivery")
                     .status_send_in_flight = true;
-                // SocketTransport retains an accepted frame until that exact frame flushes.
+                // SessionTransport retains an accepted frame until that exact frame flushes.
                 // Transfer ownership before awaiting so cancellation cannot logically resend it.
                 if let Err(error) = self.send(status_packet).await {
                     self.reset_blob_cache_pending();
@@ -951,7 +917,3 @@ mod actor_identifier_ingress_tests;
 
 #[cfg(test)]
 mod primitive_shapes_ingress_tests;
-
-#[cfg(test)]
-#[path = "login/skin_upload_tests.rs"]
-mod skin_upload_tests;

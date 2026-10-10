@@ -43,12 +43,11 @@ pub fn spawn_network<P: Send + 'static>(
             };
             run_session_runtime(runtime, async move {
                 let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect_with_blob_cache(
+                    LoginSequence::connect_session(
                         &config.socket_dir,
                         &config.display_name,
-                        config.client_blob_cache.clone(),
+                        Some(config.client_blob_cache.clone()),
                         Some(config.player_skin),
-                        config.resource_pack_store,
                     ),
                     &mut shutdown_rx,
                 )
