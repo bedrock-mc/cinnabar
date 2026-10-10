@@ -47,12 +47,15 @@ use crate::valentine::{
     McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
 };
 
-// Login timing follows the owner's requested policy: 90s for the handshake up to the
-// server's LoginSuccess PlayStatus, then 5m for ResourcePacksInfo. Once the server has
-// sent ResourcePacksInfo the connection sequence no longer times out, so slow pack
-// downloads and StartGame can take as long as the server needs. Dropping the future
-// remains the owner's cancellation path at every phase.
-const LOGIN_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+// Login timing: waiting for ResourcePacksInfo is bounded by 5m, and nothing else in
+// the connection sequence times out. In particular there is no deadline on the
+// handshake up to the server's LoginSuccess PlayStatus: relay/proxy chains (and the
+// local core itself) only serve the client-facing handshake after their own upstream
+// login completes, which includes upstream resource-pack downloads that the client
+// cannot observe. Verified live against a proxy chain whose core downloaded packs for
+// over 7 minutes before serving the handshake; any absolute pre-LoginSuccess deadline
+// (the previous 600s overall bound, or a 90s handshake bound) fires mid-download.
+// Transport errors and dropping the future remain the exits at every phase.
 const RESOURCE_PACKS_INFO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// Bounded drain after a failed startup write, only to surface a terminal
 /// transfer/disconnect that arrived alongside the failure.
@@ -385,10 +388,10 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
 
     /// Helper: Orchestrates the entire login sequence.
     ///
-    /// The handshake up to the server's LoginSuccess PlayStatus is bounded by
-    /// 90s, waiting for ResourcePacksInfo is bounded by 5m, and the rest of
-    /// the connection sequence (pack downloads, stack, StartGame) does not
-    /// time out. Returns both the stream in Play state and the captured [`GameData`].
+    /// Waiting for ResourcePacksInfo is bounded by 5m; the handshake up to the
+    /// server's LoginSuccess PlayStatus and everything after ResourcePacksInfo
+    /// (pack downloads, stack, StartGame) do not time out. Returns both the
+    /// stream in Play state and the captured [`GameData`].
     pub async fn join(
         self,
         config: ClientHandshakeConfig,
@@ -396,10 +399,10 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         self.join_phased(config).await
     }
 
-    /// Orchestrates login with an explicit overall deadline on top of the phased policy.
+    /// Orchestrates login with an explicit overall deadline on top of the default policy.
     ///
     /// The caller's `timeout` still bounds the whole sequence for callers that need one;
-    /// [`Self::join`] applies only the phased handshake/packs-info deadlines.
+    /// [`Self::join`] applies only the ResourcePacksInfo wait deadline.
     pub async fn join_with_timeout(
         self,
         config: ClientHandshakeConfig,
@@ -418,31 +421,21 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         self,
         config: ClientHandshakeConfig,
     ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
+        let key = config.identity_key.clone();
         let resource_pack_store = config.resource_pack_store.clone();
 
-        // 1-3. Settings, login and encryption up to LoginSuccess share one 90s deadline.
-        let packs = tokio::time::timeout(LOGIN_HANDSHAKE_TIMEOUT, async move {
-            let key = config.identity_key.clone();
-            let client_cache_enabled = config.client_cache_enabled;
+        // 1. Settings
+        let login = self.request_settings().await?;
 
-            // 1. Settings
-            let login = self.request_settings().await?;
+        // 2. Login
+        let secure = login.send_login(&config).await?;
 
-            // 2. Login
-            let secure = login.send_login(&config).await?;
-
-            // 3. Encryption (ends with the server's LoginSuccess PlayStatus)
-            secure
-                .await_handshake_with_client_cache(&key, client_cache_enabled)
-                .await
-        })
-        .await
-        .map_err(|_| {
-            ProtocolError::UnexpectedHandshake(format!(
-                "login handshake deadline exceeded after {:?}",
-                LOGIN_HANDSHAKE_TIMEOUT
-            ))
-        })??;
+        // 3. Encryption (ends with the server's LoginSuccess PlayStatus). No timeout:
+        // the server may still be completing its own upstream login, including
+        // pack downloads, before it answers.
+        let packs = secure
+            .await_handshake_with_client_cache(&key, config.client_cache_enabled)
+            .await?;
 
         // 4. Resource Packs (waiting for ResourcePacksInfo is bounded by 5m;
         // everything after it receives no timeout)
@@ -1533,7 +1526,11 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn login_handshake_deadline_is_90s() {
+    async fn login_handshake_does_not_time_out_while_the_server_is_slow() {
+        // Relay/proxy chains serve the client-facing handshake only after their own
+        // upstream login (including pack downloads) completes, which the client cannot
+        // observe. A silent handshake must stay pending well past the old 90s and 600s
+        // bounds; transport errors and owner cancellation remain the exits.
         let transport = BedrockTransport::new(PendingTransport);
         let stream = BedrockStream {
             transport,
@@ -1542,32 +1539,18 @@ mod tests {
         };
         let config = ClientHandshakeConfig::random(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
-            "handshake-deadline-test",
+            "handshake-no-deadline-test",
         );
 
         let mut join = std::pin::pin!(stream.join(config));
-        // Still waiting for the server's LoginSuccess just before the deadline.
-        tokio::time::advance(LOGIN_HANDSHAKE_TIMEOUT - std::time::Duration::from_secs(1)).await;
+        tokio::time::advance(std::time::Duration::from_secs(601)).await;
         assert!(
             std::future::poll_fn(|cx| Poll::Ready(join.as_mut().poll(cx)))
                 .await
                 .is_pending(),
-            "handshake must stay pending before 90s"
+            "handshake must not time out while waiting for LoginSuccess"
         );
-        tokio::time::advance(std::time::Duration::from_secs(2)).await;
-        let error = match join.await {
-            Ok(_) => panic!("pending handshake must hit the 90s deadline"),
-            Err(error) => error,
-        };
-        let message = error.to_string();
-        assert!(
-            message.contains("login handshake deadline"),
-            "unexpected handshake timeout: {message}"
-        );
-        assert!(
-            message.contains("90s"),
-            "handshake deadline must report 90s: {message}"
-        );
+        // Dropping the pending join is the owner's cancellation path.
     }
 
     #[tokio::test(start_paused = true)]
