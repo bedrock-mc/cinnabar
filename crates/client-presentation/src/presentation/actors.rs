@@ -64,9 +64,8 @@ pub fn update_actor_rig_scene(
     )
 }
 
-/// Whether a rig can pass this frame's culling, judged before its presentation is built: non-player
-/// actors must lie within vanilla's candidate cube, and no actor may be hidden by `occluded`
-/// (given its culling box's low and high corners).
+/// Checks distance and frustum bounds before building a rig's presentation.
+/// Terrain occlusion receives the box corners, except for layers with an always-passing depth test.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -94,7 +93,10 @@ pub fn rig_may_be_visible(
         return false;
     }
     let (low, high) = bounds.at(feet, scale);
-    !occluded(low, high)
+    rig.render
+        .iter()
+        .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+        || !occluded(low, high)
 }
 
 #[cfg(any(test, feature = "test-support"))]

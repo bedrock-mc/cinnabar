@@ -367,6 +367,8 @@
   own color layer into one draw item in that pass, so another actor cannot split
   the dependent passes. Ordinary pairs finish before transparent terrain.
   An explicit always-passing test overrides the color pass's default.
+  Rigs with always-passing depth layers bypass terrain occlusion while retaining
+  the candidate distance and frustum bounds.
 - Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
   states are ignored. The sorted-pass order approximates native entity order and
   is unverified against a native capture.

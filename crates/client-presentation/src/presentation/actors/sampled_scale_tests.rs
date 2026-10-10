@@ -138,6 +138,49 @@ fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
     }
 }
 
+#[test]
+fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
+    let camera = Vec3::new(0.0, 1.0, 0.0);
+    let view = ActorCullView {
+        camera_position: camera,
+        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+            90_f32.to_radians(),
+            1.0,
+            render_api::CAMERA_NEAR_PLANE_BLOCKS,
+        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        max_distance: 100.0,
+    };
+    for (feet, maximum, visible) in [
+        ([0.0, 0.0, -5.0], 100.0, true),
+        ([30.0, 0.0, -5.0], 100.0, false),
+        ([0.0, 0.0, -5.0], 4.0, false),
+    ] {
+        let world = world("1", false, feet);
+        let actor = world.actor(1).unwrap();
+        let rig = world.actor_rig(1).unwrap();
+        let view = Some(ActorCullView {
+            max_distance: maximum,
+            ..view
+        });
+        assert!(!rig_may_be_visible(&rig, actor, 0.5, view, |_, _| true));
+        let mut layers = rig.render.to_vec();
+        assert!(!layers.is_empty(), "the fixture selects a material layer");
+        layers[0].material_state = Some(assets::EntityRenderMaterialState {
+            depth_always: true,
+            ..Default::default()
+        });
+        let always = ActorRigSnapshot {
+            render: &layers,
+            ..rig
+        };
+        assert_eq!(
+            rig_may_be_visible(&always, actor, 0.5, view, |_, _| true),
+            visible,
+            "through-wall materials retain distance and frustum checks: {feet:?}, {maximum}"
+        );
+    }
+}
+
 /// Exercises scale sampling, both culling stages and body construction on compiled scripts.
 fn assert_sampled_admission(cull_completed_tick: bool) {
     let camera = Vec3::new(0.0, 1.0, 0.0);
