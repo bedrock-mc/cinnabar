@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use protocol::{
-    ActorEvent, ActorKind, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, StandardSkin,
-};
+use protocol::{ActorEvent, ActorKind, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin};
+use render_api::StandardSkin;
 
 use super::{ActorApplyResult, ActorStore, LocalPlayerFeed, tests::player_move};
 
@@ -498,7 +497,7 @@ fn cape_skin(byte: u8) -> PlayerSkin {
     let PlayerSkin::Standard(mut skin) = standard_skin(byte) else {
         unreachable!()
     };
-    skin.cape = Some(protocol::CapeImage {
+    skin.cape = Some(render_api::CapeImage {
         width: 64,
         height: 32,
         rgba8: vec![byte; 64 * 32 * 4].into(),

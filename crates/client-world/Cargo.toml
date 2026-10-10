@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+render-api = { path = "../render-api" }
 assets = { path = "../assets" }
 bytes.workspace = true
 hashbrown = "0.16"

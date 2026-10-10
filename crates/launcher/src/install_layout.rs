@@ -302,11 +302,6 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/compiled")
     }
 
-    /// Immutable extension bundles, separate from per-server trust settings.
-    pub fn experience_cache_dir(&self) -> PathBuf {
-        server_experience::cache::objects_dir(&self.user_data_root)
-    }
-
     #[must_use]
     pub fn local_worlds_dir(&self) -> PathBuf {
         self.user_data_root.join("worlds")

@@ -6,7 +6,7 @@ use std::{
 };
 
 use assets::{RuntimeEntityAssets, SkinGeometry, parse_skin_geometry};
-use protocol::SkinGeometrySource;
+use render_api::SkinGeometrySource;
 
 use super::super::{BoneTransform, RuntimeBone, compose_pose, skeleton, skin_layers};
 

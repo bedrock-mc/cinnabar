@@ -5,7 +5,10 @@ use render_model::ActorVertex;
 
 use super::PreviewTexture;
 
-pub(crate) fn same(old: Option<&protocol::CapeImage>, new: Option<&protocol::CapeImage>) -> bool {
+pub(crate) fn same(
+    old: Option<&render_api::CapeImage>,
+    new: Option<&render_api::CapeImage>,
+) -> bool {
     match (old, new) {
         (None, None) => true,
         (Some(old), Some(new)) => {
@@ -17,7 +20,7 @@ pub(crate) fn same(old: Option<&protocol::CapeImage>, new: Option<&protocol::Cap
     }
 }
 
-pub(super) fn texture(cape: &protocol::CapeImage) -> Option<PreviewTexture> {
+pub(super) fn texture(cape: &render_api::CapeImage) -> Option<PreviewTexture> {
     cape.is_valid().then(|| PreviewTexture {
         rgba: cape.rgba8.clone(),
         width: cape.width as u16,
@@ -55,7 +58,7 @@ pub(crate) fn rest_vertices() -> &'static [ActorVertex] {
 }
 
 /// Cape-gallery artwork shows the back of the attached cape without obscuring it with a body.
-pub fn render_cape_thumbnail(cape: &protocol::CapeImage) -> Option<Vec<u8>> {
+pub fn render_cape_thumbnail(cape: &render_api::CapeImage) -> Option<Vec<u8>> {
     let texture = texture(cape)?;
     let width = super::PREVIEW_WIDTH as usize;
     let height = super::PREVIEW_HEIGHT as usize;
@@ -120,7 +123,7 @@ mod tests {
 
     #[test]
     fn cape_preserves_original_hd_texels_and_rejects_malformed_images() {
-        let mut cape = protocol::CapeImage {
+        let mut cape = render_api::CapeImage {
             width: 128,
             height: 64,
             rgba8: [17, 51, 199, 255].repeat(128 * 64).into(),
@@ -139,7 +142,7 @@ mod tests {
 
     #[test]
     fn cape_card_renders_its_rectangular_net_and_keeps_transparent_pixels() {
-        let cape = protocol::CapeImage {
+        let cape = render_api::CapeImage {
             width: 64,
             height: 32,
             rgba8: [23, 211, 37, 255].repeat(64 * 32).into(),
@@ -157,7 +160,7 @@ mod tests {
                 .iter()
                 .any(|pixel| pixel[3] == 255 && pixel[1] > pixel[0])
         );
-        let transparent = protocol::CapeImage {
+        let transparent = render_api::CapeImage {
             rgba8: vec![0; 64 * 32 * 4].into(),
             ..cape
         };
@@ -172,8 +175,8 @@ mod tests {
     #[test]
     fn opaque_cape_thumbnail_fills_its_stage_with_safe_padding() {
         use super::super::{PREVIEW_HEIGHT, PREVIEW_WIDTH};
-        let (width, height) = protocol::CAPE_DIMENSIONS[0];
-        let cape = protocol::CapeImage {
+        let (width, height) = render_api::CAPE_DIMENSIONS[0];
+        let cape = render_api::CapeImage {
             width,
             height,
             rgba8: [23, 211, 37, 255].repeat((width * height) as usize).into(),

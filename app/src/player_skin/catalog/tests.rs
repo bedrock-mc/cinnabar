@@ -8,7 +8,7 @@ pub(super) fn layout() -> InstallLayout {
 }
 
 /// Decodes a PNG file as an imported classic skin.
-fn read_png(path: &Path) -> Result<protocol::StandardSkin, String> {
+fn read_png(path: &Path) -> Result<render_api::StandardSkin, String> {
     decode_png_with_model(&png_bytes(path)?, SkinModel::Classic)
 }
 
@@ -17,8 +17,8 @@ fn png(path: &Path, color: [u8; 4]) {
         fs::create_dir_all(parent).unwrap();
     }
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba(color),
     )
     .save(path)
@@ -26,7 +26,7 @@ fn png(path: &Path, color: [u8; 4]) {
 }
 
 /// A skin of one color, shaped like a starter skin.
-pub(super) fn fixture_skin(color: [u8; 4]) -> protocol::StandardSkin {
+pub(super) fn fixture_skin(color: [u8; 4]) -> render_api::StandardSkin {
     let side = assets::starter_skins::STARTER_SKIN_SIDE;
     standard_skin(
         side,
@@ -40,7 +40,7 @@ pub(super) fn fixture_skin(color: [u8; 4]) -> protocol::StandardSkin {
 /// Writes a starter-skin carrier holding red Steve and blue Alex.
 pub(super) fn native_fixture(layout: &InstallLayout) {
     let models = [SkinModel::Classic, SkinModel::Slim].map(|model| serde_json::json!({
-        "description":{"identifier":model.geometry(), "texture_width":protocol::CLASSIC_SKIN_SIDE,"texture_height":protocol::CLASSIC_SKIN_SIDE},
+        "description":{"identifier":model.geometry(), "texture_width":render_api::CLASSIC_SKIN_SIDE,"texture_height":render_api::CLASSIC_SKIN_SIDE},
         "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]}]
     }));
     let side = assets::starter_skins::STARTER_SKIN_SIDE as usize;
@@ -237,8 +237,8 @@ fn skin_png_decode_rejects_images_outside_classic_upload_limit() {
     let path = layout.user_data_root.join("large.png");
     fs::create_dir_all(&layout.user_data_root).unwrap();
     image::RgbaImage::new(
-        protocol::MAX_CLASSIC_SKIN_SIDE as u32 + 1,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::MAX_CLASSIC_SKIN_SIDE as u32 + 1,
+        render_api::CLASSIC_SKIN_SIDE as u32,
     )
     .save(&path)
     .unwrap();
@@ -251,7 +251,7 @@ fn imported_classic_alpha_matches_the_appearance_recipients_receive() {
     let path = layout.user_data_root.join("partial.png");
     png(&path, [120, 60, 240, 56]);
     let skin = read_png(&path).unwrap();
-    let side = protocol::CLASSIC_SKIN_SIDE;
+    let side = render_api::CLASSIC_SKIN_SIDE;
     assert_eq!(
         skin.rgba8[(8 * side) * 4 + 3],
         255,
@@ -364,8 +364,8 @@ fn invalid_loose_geometry_does_not_replace_the_selection_or_preferences() {
 fn native_import_sizes_exclude_128_by_64_and_custom_alpha_preserves_transparency() {
     let mut bytes = Cursor::new(Vec::new());
     image::RgbaImage::new(
-        protocol::MAX_CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::MAX_CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
     )
     .write_to(&mut bytes, image::ImageFormat::Png)
     .unwrap();
@@ -373,8 +373,8 @@ fn native_import_sizes_exclude_128_by_64_and_custom_alpha_preserves_transparency
     assert!(decode_png_with_model(bytes.get_ref(), SkinModel::Custom).is_err());
     let mut bytes = Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba([10, 20, 30, 0]),
     )
     .write_to(&mut bytes, image::ImageFormat::Png)
@@ -578,8 +578,8 @@ fn built_in_skin_pack(path: &Path, model: SkinModel, version: [u16; 3]) {
     .to_string();
     let mut png = Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba([20, 160, 230, 255]),
     )
     .write_to(&mut png, image::ImageFormat::Png)
@@ -661,6 +661,6 @@ fn legacy_png_preferences_restore_without_engine_metadata() {
     assert_eq!(restored.standard_skin(), selected);
     assert_eq!(
         restored.engine_version.as_ref(),
-        protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
+        render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
     );
 }

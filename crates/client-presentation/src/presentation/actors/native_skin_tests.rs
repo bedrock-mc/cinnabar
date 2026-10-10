@@ -2,13 +2,13 @@ use super::*;
 
 /// More remote appearances than the draw cap still share their source pixels with the hand.
 fn profiles(legacy: bool) -> Vec<PlayerProfile> {
-    let side = protocol::CLASSIC_SKIN_SIDE;
+    let side = render_api::CLASSIC_SKIN_SIDE;
     (0..=MAX_RENDERED_PLAYERS)
         .map(|index| PlayerProfile {
             unique_id: 2,
             username: "fixture".into(),
             verified: true,
-            skin: PlayerSkin::Standard(protocol::StandardSkin {
+            skin: PlayerSkin::Standard(render_api::StandardSkin {
                 width: side as u32,
                 height: if legacy { side / 2 } else { side } as u32,
                 rgba8: vec![index as u8; side * if legacy { side / 2 } else { side } * 4].into(),
@@ -50,7 +50,7 @@ fn native_skin_working_set_with_local_hand_retains_legacy_expansions() {
                 .unwrap()
         })
         .collect();
-    let bytes = protocol::CLASSIC_SKIN_SIDE * protocol::CLASSIC_SKIN_SIDE * 4;
+    let bytes = render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4;
     for _ in 0..3 {
         for (profile, prepared) in profiles.iter().zip(&skins) {
             let skin =

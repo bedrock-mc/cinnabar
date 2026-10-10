@@ -9,7 +9,7 @@ use std::{
 };
 
 use assets::RuntimeEntityAssets;
-use protocol::SkinGeometrySource;
+use render_api::SkinGeometrySource;
 
 use super::preparation::{PreparedSkin, SkinPreparationCache as WorkerCache};
 

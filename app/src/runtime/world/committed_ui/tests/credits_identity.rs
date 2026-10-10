@@ -7,7 +7,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         uuid: [7; 16],
         prefer_client_skin: false,
         username: "CurrentLocalPlayer".into(),
-        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
             geometry: None,
             cape: None,
             width: 64,

@@ -1,4 +1,5 @@
-use protocol::{ActorEvent, CLASSIC_SKIN_SIDE, PlayerSkin, WorldEvent, into_world_event};
+use protocol::{ActorEvent, PlayerSkin, WorldEvent, into_world_event};
+use render_api::CLASSIC_SKIN_SIDE;
 use valentine::bedrock::version::v1_26_51::{PlayerSkinPacket, SerializedSkinRef, SkinImage};
 
 #[test]

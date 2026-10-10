@@ -4,9 +4,10 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use client_world::WorldAuthority;
 use protocol::{
     ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, StandardSkin, WorldBootstrap, WorldEvent,
+    PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
 use render::ActorArtworkPages;
+use render_api::StandardSkin;
 
 use super::super::{
     PoseConversions, actor_rig_presentation, actor_rig_presentation_cached,

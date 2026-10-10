@@ -71,20 +71,20 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
 pub(super) fn uploaded_skin_feed(animated: bool) -> client_world::LocalPlayerFeed {
     let mut feed = head_feed();
     let geometry = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.uploaded","texture_width":64,"texture_height":64},"bones":[{"name":"head","pivot":[0,24,0]},{"name":"body","pivot":[0,24,0]},{"name":"rightarm","pivot":[4,22,0]},{"name":"leftarm","pivot":[-4,22,0]},{"name":"rightleg","pivot":[1.9,12,0]},{"name":"leftleg","pivot":[-1.9,12,0]}]}]}"#;
-    let image = protocol::SkinAnimation {
-        kind: protocol::SkinAnimationKind::Face,
+    let image = render_api::SkinAnimation {
+        kind: render_api::SkinAnimationKind::Face,
         width: 64,
         height: 64,
         rgba8: vec![255; 64 * 64 * 4].into(),
         frames: 1,
         blinking: false,
     };
-    feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    feed.skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
         width: 64,
         height: 64,
         rgba8: vec![255; 64 * 64 * 4].into(),
         cape: None,
-        geometry: Some(Arc::new(protocol::SkinGeometrySource {
+        geometry: Some(Arc::new(render_api::SkinGeometrySource {
             resource_patch: Arc::from(
                 r#"{"geometry":{"default":"geometry.uploaded","animated_face":"geometry.uploaded"}}"#,
             ),

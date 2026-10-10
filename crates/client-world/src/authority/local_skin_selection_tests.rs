@@ -1,10 +1,11 @@
 use super::*;
 
 fn skin(value: u8) -> protocol::PlayerSkin {
-    protocol::PlayerSkin::Standard(protocol::StandardSkin {
-        width: protocol::CLASSIC_SKIN_SIDE as u32,
-        height: protocol::CLASSIC_SKIN_SIDE as u32,
-        rgba8: vec![value; protocol::CLASSIC_SKIN_SIDE * protocol::CLASSIC_SKIN_SIDE * 4].into(),
+    protocol::PlayerSkin::Standard(render_api::StandardSkin {
+        width: render_api::CLASSIC_SKIN_SIDE as u32,
+        height: render_api::CLASSIC_SKIN_SIDE as u32,
+        rgba8: vec![value; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4]
+            .into(),
         cape: None,
         geometry: None,
     })

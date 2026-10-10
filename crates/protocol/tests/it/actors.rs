@@ -1,7 +1,8 @@
 use protocol::{
     ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
-    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, StandardSkin, WorldEvent, into_world_event,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, WorldEvent, into_world_event,
 };
+use render_api::StandardSkin;
 use valentine::bedrock::version::v1_26_51::{
     ActorLink, ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData,
     DataItemEntry, DataItemEntryPayload, DataItemFloatPayload, DataItemStringPayload,
@@ -515,7 +516,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
 
 #[test]
 fn player_list_retains_bounded_standard_and_persona_baked_skins() {
-    let rgba = [0x7f, 0x7f, 0x7f, 255].repeat(protocol::CLASSIC_SKIN_SIDE.pow(2));
+    let rgba = [0x7f, 0x7f, 0x7f, 255].repeat(render_api::CLASSIC_SKIN_SIDE.pow(2));
     let classic = PlayerListPacketPayloadAddEntry {
         player_name: "Classic".to_owned(),
         serialized_skin: SerializedSkinRef {
@@ -572,7 +573,7 @@ fn player_list_retains_bounded_standard_and_persona_baked_skins() {
             width: 64,
             height: 64,
             rgba8: [0x7f, 0x7f, 0x7f, 255]
-                .repeat(protocol::CLASSIC_SKIN_SIDE.pow(2))
+                .repeat(render_api::CLASSIC_SKIN_SIDE.pow(2))
                 .into(),
         })
     );

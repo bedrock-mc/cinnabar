@@ -539,7 +539,7 @@ pub struct MenuView {
     pub connecting: bool,
     pub settings_section: u8,
     pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
-    pub player_skin: Option<protocol::StandardSkin>,
+    pub player_skin: Option<render_api::StandardSkin>,
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.

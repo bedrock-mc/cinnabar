@@ -4,8 +4,9 @@ use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
     ActorProperty, ActorRemoveEvent, ActorSpawnEvent, PLAYER_NETWORK_OFFSET, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable,
 };
+use render_api::StandardSkin;
 
 use super::{ActorApplyResult, ActorStore, NAMETAG_METADATA_KEY};
 
@@ -905,7 +906,7 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
 
 #[test]
 fn render_players_join_roster_skins_and_sort_by_runtime_id() {
-    let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    let skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
         geometry: None,
         cape: None,
         width: 64,

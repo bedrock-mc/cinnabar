@@ -14,13 +14,14 @@ use meshing::{
 };
 use protocol::{
     ActorKind, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, StandardSkin, SubChunkBatchEvent,
+    LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, SubChunkBatchEvent,
     SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
 };
 use render::{
     ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadPriority,
     PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
 };
+use render_api::StandardSkin;
 use render_model::{
     GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
 };

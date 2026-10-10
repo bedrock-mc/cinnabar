@@ -83,8 +83,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["assets", "protocol", "render-model", "world"]
-forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "render-api", "bevy", "wgpu"]
+allowed_dependencies = ["render-api", "assets", "protocol", "render-model", "world"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -134,7 +134,8 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "launcher"
 path = "crates/launcher"
-allowed_dependencies = ["bridge", "assets", "protocol", "render-api", "resource-pack", "semantic-input", "server-experience", "ui"]
+allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui"]
+forbidden_dependencies = ["protocol", "server-experience"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -939,23 +940,6 @@ exports = [
 ]
 
 [[reexport_allowances]]
-path = "crates/launcher/src/skin_import.rs"
-exports = [
-    "protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION as DEFAULT_GEOMETRY_ENGINE_VERSION",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/actor.rs"
-exports = [
-    "render_api::MAX_STANDARD_SKIN_SIDE",
-    "skin::CLASSIC_SKIN_SIDE",
-    "skin::MAX_CLASSIC_SKIN_SIDE",
-    "skin::MAX_SKIN_ANIMATION_LAYERS",
-    "skin::SkinRgba8",
-    "skin::expand_legacy_skin_rgba8",
-]
-
-[[reexport_allowances]]
 path = "crates/protocol/src/lib.rs"
 exports = [
     "jolyne",
@@ -978,25 +962,9 @@ exports = [
     "render_api::primitive_shapes::PrimitiveText",
     "valentine",
     "valentine::bedrock::context::BedrockSession",
-    "actor::CLASSIC_SKIN_SIDE",
-    "actor::MAX_CLASSIC_SKIN_SIDE",
-    "actor::MAX_SKIN_ANIMATION_LAYERS",
-    "actor::MAX_STANDARD_SKIN_SIDE",
-    "actor::SkinRgba8",
-    "actor::expand_legacy_skin_rgba8",
     "transfer::MAX_TRANSFER_HOST_BYTES",
     "transfer::ServerTransferEvent",
     "transfer::ServerTransferRejection",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/actor/skin.rs"
-exports = [
-    "render_api::CLASSIC_SKIN_SIDE",
-    "render_api::MAX_CLASSIC_SKIN_SIDE",
-    "render_api::MAX_SKIN_ANIMATION_LAYERS",
-    "render_api::SkinRgba8",
-    "render_api::expand_legacy_skin_rgba8",
 ]
 
 [[reexport_allowances]]

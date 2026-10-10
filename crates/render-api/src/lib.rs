@@ -18,8 +18,10 @@ pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };
 pub use skin::{
-    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
-    SkinRgba8, expand_legacy_skin_rgba8,
+    CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION,
+    MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+    MAX_STANDARD_SKIN_SIDE, SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8,
+    StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use vrr::VrrPreference;
 
