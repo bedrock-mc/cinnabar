@@ -142,6 +142,7 @@ pub(crate) fn install_exit_hooks() {
     }));
     let installed = ctrlc::try_set_handler(|| {
         stop_all(EXIT_GRACE);
+        diagnostics::console::flush_before_exit();
         std::process::exit(130);
     });
     if let Err(error) = installed {

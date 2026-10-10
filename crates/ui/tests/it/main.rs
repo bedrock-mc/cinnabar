@@ -11,6 +11,7 @@ mod geometry_gui_scale;
 mod hud;
 mod model;
 mod model_mesh;
+mod model_retained;
 mod scoreboard;
 #[path = "../../src/settings.rs"]
 #[allow(dead_code)]

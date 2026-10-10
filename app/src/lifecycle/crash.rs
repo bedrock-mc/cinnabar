@@ -33,6 +33,8 @@ pub(crate) fn install_panic_hook(layout: &InstallLayout) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         write_report(&crash_dir, &core_log, &info.to_string());
+        // Queued log lines precede the panic message.
+        diagnostics::console::flush_before_exit();
         previous(info);
     }));
 }

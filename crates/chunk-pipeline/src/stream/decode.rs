@@ -89,7 +89,7 @@ impl WorldStream {
                 let _zone =
                     tracing::info_span!("decode.completion_send", sequence = completion.sequence)
                         .entered();
-                let _ = tx.send(completion);
+                workers::send_result(&tx, completion);
             });
         }
     }
