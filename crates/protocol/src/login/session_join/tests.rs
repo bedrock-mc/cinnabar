@@ -409,7 +409,10 @@ fn disconnect_messages_keep_reason_text_and_hidden_screen() {
     let McpePacketData::DisconnectPacket(unknown) = packet(i32::MAX, true).data else {
         panic!("a Disconnect packet")
     };
-    assert_eq!(unknown.reason, EnumsConnectionDisconnectFailReason::Unknown);
+    assert_eq!(
+        unknown.reason,
+        EnumsConnectionDisconnectFailReason::UnknownValue(i32::MAX)
+    );
     assert!(unknown.hide_disconnection_screen);
     assert_eq!(unknown.messages.message, "kicked");
 }
