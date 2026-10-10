@@ -16,6 +16,8 @@ concurrency:
 # Verification needs assertions, but not large debug-symbol artifacts.
 # Must match ci-cache.yml so compiler outputs can be reused.
 env:
+  # The build cache saves target/, so CI keeps intermediates there instead of the shared build-dir.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
