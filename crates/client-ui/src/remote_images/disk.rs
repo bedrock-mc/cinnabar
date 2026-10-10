@@ -186,6 +186,9 @@ impl ImageDirectory {
             }
             let Ok(Some(done)) = tokio::time::timeout_at(deadline, running.join_next()).await
             else {
+                // Drain now: an idle current-thread runtime would hold their sockets and slots.
+                running.abort_all();
+                while running.join_next().await.is_some() {}
                 return results;
             };
             if let Ok((index, path)) = done {

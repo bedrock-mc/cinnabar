@@ -272,10 +272,17 @@ fn fetch_all_abandons_downloads_past_its_budget_but_keeps_finished_ones() {
         format!("{}/stall", server.base),
     ];
     let started = std::time::Instant::now();
-    let results = runtime().block_on(cache.fetch_all(urls, Duration::from_millis(500)));
+    // The runtime stays alive but idle, as a worker's does between batches.
+    let runtime = runtime();
+    let results = runtime.block_on(cache.fetch_all(urls, Duration::from_millis(500)));
     assert!(started.elapsed() < Duration::from_secs(3));
     assert!(results[0].is_some());
     assert!(results[1].is_none());
+    assert_eq!(
+        cache.0.folder.slots.available_permits(),
+        MAX_IN_FLIGHT,
+        "an abandoned download still holds its slot"
+    );
 }
 
 #[test]
