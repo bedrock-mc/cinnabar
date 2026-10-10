@@ -268,14 +268,6 @@
     "to": 0
   },
 
-  // Status effects hang from the screen's top-right corner.
-  "root_panel/mob_effects_renderer": {
-    "size": [ "100%", "100%" ],
-    "offset": [ 0, 0 ],
-    "anchor_from": "top_left",
-    "anchor_to": "top_left"
-  },
-
   // The position and days-played lines keep vanilla's top-left stack; chat
   // moves to Java's ten 9-px lines upward from 40 GUI px above the bottom.
   "root_panel/chat_stack": {

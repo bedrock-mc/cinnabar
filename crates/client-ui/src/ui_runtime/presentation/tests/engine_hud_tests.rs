@@ -14,6 +14,7 @@ use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 mod absorption;
 mod boss_removal_tests;
 mod crosshair_options;
+mod effects;
 
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
@@ -358,8 +359,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             None,
             &Default::default(),
         );
-        // Background plus icon for the one effect.
-        assert_eq!(paint.effects.len(), 2, "{mode:?}");
+        assert_eq!(paint.effects.icons.len(), 1, "{mode:?}");
         assert_eq!(paint.hearts.len(), if stats { 20 } else { 0 }, "{mode:?}");
     }
 }

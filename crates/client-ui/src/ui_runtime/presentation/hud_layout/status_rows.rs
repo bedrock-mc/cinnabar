@@ -8,13 +8,12 @@ use assets::HudTextureRole;
 
 use super::{
     HudFrame, HudTexturePages, UiRuntime,
-    pinned::{
-        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role,
-        heart_role,
-    },
+    pinned::{MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role, heart_role},
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
-use crate::ui_runtime::presentation::forms::hud_renderers::{Cell, HudPaint, SheetSprite};
+use crate::ui_runtime::presentation::forms::hud_renderers::{
+    Cell, EffectIcon, HudPaint, MobEffects, SheetSprite,
+};
 
 /// The `textures/ui` path a HUD role was compiled from.
 fn path(role: HudTextureRole) -> &'static str {
@@ -127,6 +126,11 @@ pub(in super::super) fn capture(
     if let Some(rows) = heart_rows(runtime) {
         paint.hearts = hearts(runtime, frame, &rows, now_tick);
         paint.armor = armor(runtime, &rows);
+        // The effect column's top band counts health and absorption at full maximum.
+        paint.effects.status_rows = (rows.maximum + rows.absorption)
+            .div_ceil(2)
+            .div_ceil(HEART_COLUMNS)
+            + u32::from(!paint.armor.is_empty());
     }
     match frame.mount_health {
         Some(health) => paint.mount_hearts = mount_hearts(health),
@@ -465,43 +469,32 @@ fn bubbles(runtime: &UiRuntime) -> Vec<Cell> {
         .collect()
 }
 
-/// Beneficial row, then harmful, leftward from the control's top-right corner,
-/// each a 24x24 background under an 18x18 icon, blinking before expiry.
-fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
-    let mut rows: [Vec<_>; 2] = [Vec::new(), Vec::new()];
-    for effect in runtime.gameplay_hud().effects() {
-        if !effect.visible_at_tick(now_tick) || effect_icon_role(effect.effect_id).is_none() {
-            continue;
-        }
-        rows[usize::from(HARMFUL_EFFECT_IDS.contains(&effect.effect_id))].push(effect);
-    }
-    let mut cells = Vec::new();
-    for (row, effects) in rows.iter_mut().enumerate() {
-        effects.sort_by_key(|effect| effect.effect_id);
-        let y = 1.0 + row as f32 * 25.0;
-        for (column, effect) in effects.iter().enumerate() {
-            let x = -25.0 * (column as f32 + 1.0);
-            let alpha = effect_blink_alpha(effect, now_tick);
-            let background = if effect.ambient {
+/// Visible effects in ascending effect-id order, the order vanilla's column uses.
+fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> MobEffects {
+    let mut effects: Vec<_> = runtime
+        .gameplay_hud()
+        .effects()
+        .iter()
+        .filter(|effect| effect.visible_at_tick(now_tick))
+        .filter_map(|effect| Some((effect, effect_icon_role(effect.effect_id)?)))
+        .collect();
+    effects.sort_by_key(|(effect, _)| effect.effect_id);
+    let icons = effects
+        .into_iter()
+        .map(|(effect, icon)| EffectIcon {
+            background: path(if effect.ambient {
                 HudTextureRole::EffectBackgroundAmbient
             } else {
                 HudTextureRole::EffectBackground
-            };
-            cells.push(Cell {
-                size: [24.0, 24.0],
-                alpha,
-                ..Cell::icon([x, y], path(background))
-            });
-            if let Some(icon) = effect_icon_role(effect.effect_id) {
-                cells.push(Cell {
-                    size: [18.0, 18.0],
-                    alpha,
-                    ..Cell::icon([x + 3.0, y + 3.0], path(icon))
-                });
-            }
-        }
+            }),
+            icon: path(icon),
+            alpha: effect_blink_alpha(effect, now_tick),
+        })
+        .collect();
+    MobEffects {
+        icons,
+        status_rows: 0,
     }
-    cells
 }
 
 #[cfg(test)]

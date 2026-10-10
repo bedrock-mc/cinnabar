@@ -54,7 +54,7 @@ impl HudEffect {
         }
     }
 
-    /// Remaining whole seconds, used for the Java expiry blink.
+    /// Remaining ticks, used for the expiry blink.
     #[must_use]
     pub fn remaining_ticks(&self, now_tick: Option<u64>) -> Option<u64> {
         match (self.expires_at_tick, now_tick) {
