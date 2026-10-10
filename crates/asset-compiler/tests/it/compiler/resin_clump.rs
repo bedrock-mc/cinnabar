@@ -375,10 +375,10 @@ fn compiler_resin_clump_rejects_a_nonexact_route_even_when_its_descriptor_is_int
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_resin_clump_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let mut records = resin_clump_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned resin clumps");
 

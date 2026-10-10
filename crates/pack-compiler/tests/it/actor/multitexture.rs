@@ -9,9 +9,19 @@ fn a_custom_llama_material_does_not_unlock_unverified_fractional_alpha() {
 }
 
 #[test]
-#[ignore = "requires the downloaded pinned vanilla pack; set CINNABAR_VANILLA_ACTOR_ROOT"]
 fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
-    let root = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").unwrap();
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT is not set");
+        return;
+    };
+    if !root.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT at {}",
+            root.display()
+        );
+        return;
+    }
     let root = Path::new(&root);
     let entities = compile_entity_assets(root, MANIFEST).unwrap();
     let entity_bytes = encode_entity_blob(&entities).unwrap();
