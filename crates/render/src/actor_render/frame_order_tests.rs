@@ -81,12 +81,8 @@ fn inspect_executed_frame(world: &mut World) {
         assert_eq!(&prepared, source);
     }
     assert!(gpu.bind_group.is_some(), "bindings are ready for execution");
-    let expected_ranges = gpu
-        .spans
-        .iter()
-        .enumerate()
-        .filter(|(_, span)| super::super::phase::sorted(span.material))
-        .map(|(index, _)| index as u32..index as u32 + 1)
+    let expected_ranges = (0..gpu.sorted.ranges.len())
+        .map(|index| index as u32..index as u32 + 1)
         .collect::<Vec<_>>();
     assert_eq!(queued_ranges, expected_ranges);
     let has_opaque = world
@@ -103,7 +99,13 @@ fn inspect_executed_frame(world: &mut World) {
         .filter(|span| has_opaque && !super::super::phase::sorted(span.material))
         .collect::<Vec<_>>();
     for range in queued_ranges {
-        executed.extend_from_slice(&gpu.spans[range.start as usize..range.end as usize]);
+        for draw in &gpu.sorted.ranges[range.start as usize..range.end as usize] {
+            executed.extend(
+                gpu.sorted.indices[draw.clone()]
+                    .iter()
+                    .map(|&index| gpu.spans[index]),
+            );
+        }
     }
     let mut indices = executed
         .iter()
@@ -296,7 +298,7 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
         .retained_view_entity;
     let mut phases = world.resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
     let items = &mut phases.get_mut(&retained).unwrap().items;
-    assert_eq!(items.len(), 2, "mask and color must share the later pass");
+    assert_eq!(items.len(), 1, "mask and color must share one draw item");
     Transparent3d::sort(items);
     let ranges = items
         .iter()
@@ -308,11 +310,8 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
             range.clone()
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        ranges,
-        [0..1, 1..2],
-        "equal-distance sorting preserves mask before color"
-    );
+    assert_eq!(ranges, [0..1], "the pair remains one item while sorting");
+    assert_eq!(world.resource::<ActorGpu>().sorted.indices, [0, 1]);
 }
 
 #[test]
@@ -345,4 +344,67 @@ fn an_ordinary_actors_dissolve_color_is_not_promoted_by_another_actors_mask() {
     assert!(super::super::phase::sorted(gpu.instances[1].material));
     assert!(!super::super::phase::sorted(gpu.instances[2].material));
     assert!(!super::super::phase::sorted(gpu.instances[3].material));
+}
+
+#[test]
+fn a_depth_writing_blend_cannot_split_a_sorted_dissolve_pair() {
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut frame = frame(&[false, true, false]);
+    let instances = Arc::make_mut(&mut frame.rig.instances);
+    instances[0].material =
+        assets::EntityRenderMaterial::DissolveDepth.word(Some(assets::EntityRenderMaterialState {
+            depth_always: true,
+            ..Default::default()
+        }));
+    instances[2].material = assets::EntityRenderMaterial::DissolveColor as u32;
+    let manifest = Arc::make_mut(&mut frame.rig.manifest);
+    manifest[2].identity = ActorRenderIdentity {
+        layer: u8::MAX,
+        ..manifest[0].identity
+    };
+    world.insert_resource(frame);
+    world.run_schedule(Render);
+    let retained = world
+        .query::<&ExtractedView>()
+        .single(world)
+        .unwrap()
+        .retained_view_entity;
+    let phases = world.resource::<ViewSortedRenderPhases<Transparent3d>>();
+    assert_eq!(
+        phases.get(&retained).unwrap().items.len(),
+        2,
+        "mask and color must be one draw item before the equal-distance blend"
+    );
+    use bevy::render::render_phase::SortedPhaseItem;
+    let mut phases = world.resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
+    Transparent3d::sort(&mut phases.get_mut(&retained).unwrap().items);
+    let order = phases
+        .get(&retained)
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| {
+            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
+            else {
+                panic!("missing draw plan");
+            };
+            range.start as usize
+        })
+        .collect::<Vec<_>>();
+    drop(phases);
+    let gpu = world.resource::<ActorGpu>();
+    let spans = order
+        .iter()
+        .flat_map(|&index| {
+            gpu.sorted.indices[gpu.sorted.ranges[index].clone()]
+                .iter()
+                .copied()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        spans,
+        [0, 2, 1],
+        "the color finishes before the intervening blend can write depth"
+    );
 }

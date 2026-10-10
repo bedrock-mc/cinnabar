@@ -90,13 +90,8 @@ pub(super) fn queue_actors(
             .get_mut(&view.retained_view_entity)
         {
             let rangefinder = view.rangefinder3d();
-            for (index, span) in params
-                .gpu
-                .spans
-                .iter()
-                .enumerate()
-                .filter(|(_, span)| sorted(span.material))
-            {
+            for (index, range) in params.gpu.sorted.ranges.iter().enumerate() {
+                let span = &params.gpu.spans[params.gpu.sorted.indices[range.start]];
                 let Some(instance) = params.gpu.instances.get(span.first as usize) else {
                     continue;
                 };
@@ -219,19 +214,33 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         let cache = cache.into_inner();
         let mut executed_instances = 0;
         let mut bound_page = None;
-        let spans = if SORTED {
+        let span_indices = if SORTED {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index()
             else {
                 return RenderCommandResult::Skip;
             };
-            let Some(spans) = gpu.spans.get(range.start as usize..range.end as usize) else {
+            if range.is_empty() {
+                return RenderCommandResult::Skip;
+            }
+            let (Some(first), Some(last)) = (
+                gpu.sorted.ranges.get(range.start as usize),
+                gpu.sorted.ranges.get(range.end as usize - 1),
+            ) else {
                 return RenderCommandResult::Skip;
             };
-            spans
+            let Some(indices) = gpu.sorted.indices.get(first.start..last.end) else {
+                return RenderCommandResult::Skip;
+            };
+            Some(indices)
         } else {
-            gpu.spans.as_slice()
+            None
         };
-        for span in spans.iter().filter(|span| sorted(span.material) == SORTED) {
+        for ordinal in 0..span_indices.map_or(gpu.spans.len(), |indices| indices.len()) {
+            let index = span_indices.map_or(ordinal, |indices| indices[ordinal]);
+            let span = &gpu.spans[index];
+            if sorted(span.material) != SORTED {
+                continue;
+            }
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
