@@ -86,6 +86,12 @@ enum Placement {
 
 /// The base slot's range, class and allocation for `key`, found by advancing cursors
 /// through the base's key-sorted groups and allocations.
+type BaseMatch<'a> = (
+    Option<(Range<u32>, Option<FaceOrderClass>)>,
+    Option<&'a TransparentAllocationIdentity>,
+);
+
+/// Walks the base's key-sorted groups and allocations together.
 struct BaseCursor<'a> {
     base: &'a TransparentLayoutBase,
     group: usize,
@@ -94,13 +100,7 @@ struct BaseCursor<'a> {
 
 impl<'a> BaseCursor<'a> {
     /// The base group and allocation for `key`; keys must be visited in ascending order.
-    fn find(
-        &mut self,
-        key: SubChunkKey,
-    ) -> (
-        Option<(Range<u32>, Option<FaceOrderClass>)>,
-        Option<&'a TransparentAllocationIdentity>,
-    ) {
+    fn find(&mut self, key: SubChunkKey) -> BaseMatch<'a> {
         let groups = &self.base.layout.groups;
         while self.group < groups.len() && groups[self.group].key < key {
             self.group += 1;

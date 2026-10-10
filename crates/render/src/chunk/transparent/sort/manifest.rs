@@ -8,6 +8,9 @@ use crate::chunk::*;
 
 const CEILING_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Inclusive bounds of the sub-chunks near the camera.
+type NearBox = ([i32; 3], [i32; 3]);
+
 /// The last manifest and the inputs it was selected from.
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentManifest {
@@ -21,7 +24,7 @@ pub(in crate::chunk) struct TransparentManifest {
     /// Each allocation's sort input, parallel to `allocations`.
     groups: TransparentGroups,
     /// Whether any allocation lies in the cached near box.
-    near: Option<(([i32; 3], [i32; 3]), bool)>,
+    near: Option<(NearBox, bool)>,
 }
 
 /// Whether the view displaces water surfaces, so even flat water can overlap itself on screen.
@@ -211,10 +214,7 @@ impl TransparentSortRuntime {
 
 /// Whether any of the key-sorted `allocations` lies in the inclusive sub-chunk box `bounds`,
 /// in any dimension, found by binary searches over the box's few x and y columns.
-fn any_key_in_box(
-    allocations: &[TransparentAllocationIdentity],
-    (min, max): ([i32; 3], [i32; 3]),
-) -> bool {
+fn any_key_in_box(allocations: &[TransparentAllocationIdentity], (min, max): NearBox) -> bool {
     let (Some(first), Some(last)) = (allocations.first(), allocations.last()) else {
         return false;
     };

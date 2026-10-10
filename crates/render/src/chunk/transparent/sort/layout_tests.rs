@@ -85,7 +85,8 @@ fn a_new_group_writes_only_its_own_refs() {
     let patch = patched.patch.as_ref().expect("planned in place");
     assert_eq!(patched.sorted_refs, 30, "only the new group is sorted");
     assert!(Arc::ptr_eq(&patch.base, &packed.refs));
-    assert_eq!(patch.urgent, [80..110]);
+    assert_eq!(patch.urgent.len(), 1);
+    assert_eq!(patch.urgent[0], 80..110);
     assert!(patch.deferred.is_empty());
     assert_eq!(patched.refs[..80], packed.refs[..]);
     assert_eq!(
@@ -109,7 +110,8 @@ fn a_removed_group_frees_its_range_for_the_next_new_group() {
         patch.urgent.is_empty() && patch.deferred.is_empty(),
         "nothing uploads"
     );
-    assert_eq!(patched.layout.free[..], [40..70]);
+    assert_eq!(patched.layout.free[..].len(), 1);
+    assert_eq!(patched.layout.free[..][0], 40..70);
 
     let added = [removed[0].clone(), group(3, 1, 300, 25), removed[1].clone()];
     let refilled = plan(
@@ -118,8 +120,10 @@ fn a_removed_group_frees_its_range_for_the_next_new_group() {
         Some(&base_of(&patched, &removed)),
         usize::MAX,
     );
-    assert_eq!(refilled.patch.as_ref().unwrap().urgent, [40..65]);
-    assert_eq!(refilled.layout.free[..], [65..70]);
+    assert_eq!(refilled.patch.as_ref().unwrap().urgent.len(), 1);
+    assert_eq!(refilled.patch.as_ref().unwrap().urgent[0], 40..65);
+    assert_eq!(refilled.layout.free[..].len(), 1);
+    assert_eq!(refilled.layout.free[..][0], 65..70);
     assert_eq!(refilled.refs.len(), 110, "the slot does not grow");
     assert_eq!(
         by_key(&refilled),
@@ -171,7 +175,8 @@ fn a_remeshed_group_is_written_before_it_draws() {
     let patched = plan(CAMERA, &remeshed, Some(&base_of(&packed, &old)), usize::MAX);
     let patch = patched.patch.as_ref().unwrap();
     // Its old range may hold the retired mesh's records, so the new refs are urgent.
-    assert_eq!(patch.urgent, [40..80]);
+    assert_eq!(patch.urgent.len(), 1);
+    assert_eq!(patch.urgent[0], 40..80);
     assert_eq!(
         by_key(&patched),
         by_key(&plan(CAMERA, &remeshed, None, usize::MAX))

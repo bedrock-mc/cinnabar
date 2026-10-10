@@ -49,7 +49,7 @@ impl Units {
     }
 
     /// A request value in output 1/64 pixels, in layout units, rounded to nearest.
-    pub(super) fn from_output(self, value_64: i64) -> Result<i64, TextError> {
+    pub(super) fn output_to_layout(self, value_64: i64) -> Result<i64, TextError> {
         match self {
             Self::Output { .. } => Ok(value_64),
             Self::Device { device_65536, .. } => divide_rounded(value_64, device_65536, 65_536),

@@ -523,8 +523,8 @@ impl TransparentSortState {
         generation
     }
 
-    /// Accepts the latest result and returns whether it committed, patching compatible live ranges.
-    /// Stages incompatible allocations in the inactive slot until their upload completes.
+    /// Commits compatible changes that fit one upload, requiring all writes before drawing.
+    /// Stages larger changes or incompatible allocations until the inactive slot is complete.
     pub fn complete(
         &mut self,
         result: TransparentSortResult,
@@ -556,6 +556,16 @@ impl TransparentSortState {
                 }
                 _ => None,
             };
+            // Every changed ref must land before drawing; larger reorders use the inactive slot.
+            let in_place = in_place.filter(|(urgent, deferred)| {
+                urgent
+                    .iter()
+                    .chain(deferred)
+                    .chain(&self.pending_patch)
+                    .map(ExactSizeIterator::len)
+                    .sum::<usize>()
+                    <= self.upload_cap
+            });
             if let Some((urgent, deferred)) = in_place {
                 committed.generation = result.generation;
                 committed.key = result.key;
@@ -571,8 +581,8 @@ impl TransparentSortState {
                         let end = span.end.min(refs_len);
                         (span.start < end).then_some(span.start..end)
                     });
-                self.urgent_patch = urgent.len();
                 self.pending_patch = urgent.into_iter().chain(deferred).chain(lagging).collect();
+                self.urgent_patch = self.pending_patch.len();
                 self.staged = None;
                 return Ok(true);
             }

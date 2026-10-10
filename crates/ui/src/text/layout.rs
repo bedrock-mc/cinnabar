@@ -43,7 +43,7 @@ pub(super) fn build_layout(
         request.font.line_metrics().is_some(),
     );
     let line_height_64 = units.texels(i64::from(request.line_height_64))?;
-    let line_padding_64 = units.from_output(i64::from(request.wrap.line_padding_64))?;
+    let line_padding_64 = units.output_to_layout(i64::from(request.wrap.line_padding_64))?;
     let mut lines = Lines {
         request,
         scale_1024,
@@ -216,7 +216,7 @@ impl Lines<'_> {
         };
         let letter_spacing_64 = self
             .units
-            .from_output(i64::from(self.request.wrap.letter_spacing_64))?;
+            .output_to_layout(i64::from(self.request.wrap.letter_spacing_64))?;
         Ok(Glyph {
             codepoint,
             resolved,
