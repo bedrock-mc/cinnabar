@@ -38,8 +38,13 @@ pub(super) fn check_reexports(
     files: &[PathBuf],
     diagnostics: &mut Vec<String>,
 ) -> Result<(), ArchitectureError> {
+    let root = normalized_path(root);
+    let files = files
+        .iter()
+        .map(|path| normalized_path(path))
+        .collect::<Vec<_>>();
     for rule in &policy.crate_rules {
-        let directory = root.join(&rule.path);
+        let directory = normalized_path(&root.join(&rule.path));
         let manifest_path = directory.join("Cargo.toml");
         let manifest = toml::from_str::<toml::Value>(&read(&manifest_path)?).map_err(|source| {
             ArchitectureError::Policy {
@@ -70,7 +75,7 @@ pub(super) fn check_reexports(
                 collect(
                     &parsed_files[&path].items,
                     &module,
-                    &relative_slash(root, &path),
+                    &relative_slash(&root, &path),
                     &mut symbols,
                     diagnostics,
                 );
@@ -167,7 +172,7 @@ fn target_roots(
             .map_or_else(|| vec![value], |values| values.iter().collect());
         for target in targets {
             if let Some(path) = target.get("path").and_then(toml::Value::as_str) {
-                roots.insert(directory.join(path));
+                roots.insert(normalized_path(&directory.join(path)));
             }
         }
     }
@@ -224,19 +229,32 @@ fn module_edges(
             |path| vec![path],
         );
         for path in candidates {
-            let mut normalized = PathBuf::new();
-            for component in path.components() {
-                match component {
-                    std::path::Component::ParentDir => {
-                        normalized.pop();
-                    }
-                    std::path::Component::CurDir => {}
-                    _ => normalized.push(component.as_os_str()),
-                }
-            }
-            output.push((normalized, name.clone()));
+            output.push((normalized_path(&path), name.clone()));
         }
     }
+}
+
+/// Uses one lexical path form for roots, parsed files and module edges without dropping leading parents.
+fn normalized_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 /// Collects dependency keys, including renamed and target-specific dependencies.

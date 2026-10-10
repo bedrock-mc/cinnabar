@@ -290,3 +290,23 @@ fn confirmed_local_glob_bindings_win_over_external_glob_guesses() {
         }
     }
 }
+
+#[test]
+fn relative_roots_keep_parent_module_exports_local() {
+    let current = std::env::current_dir().unwrap();
+    let temp = tempfile::tempdir_in(&current).unwrap();
+    let relative = Path::new(".").join(temp.path().strip_prefix(&current).unwrap());
+    fixture(&relative, "pub struct Thing; mod nested;", "");
+    fs::write(
+        relative.join("src/nested.rs"),
+        "pub use super::Thing as Exported;",
+    )
+    .unwrap();
+    for root in [relative.clone(), relative.join("src/..")] {
+        assert!(findings(&root).is_empty());
+    }
+    fs::write(relative.join("src/nested.rs"), "pub use other::Thing;").unwrap();
+    let diagnostics = findings(&relative);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].starts_with("src/nested.rs:"));
+}
