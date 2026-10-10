@@ -926,3 +926,44 @@ fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
         );
     }
 }
+
+#[test]
+fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
+    let (mut runtime, _) = pack_runtime(held_pack());
+    let mut body = player_body(&mut runtime);
+    body.overlay_rgba8 = 0x6600_00ff;
+    let owner = owner();
+    let names = [Box::from("rightItem"), Box::from("leftItem")];
+    let rig = owner_rig(&owner, &names);
+    let input = held("test:held");
+    let layers = runtime.layers_for(
+        &body,
+        &input,
+        Some(EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 0.5,
+            delta_seconds: 0.016,
+        }),
+    );
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].submission.overlay_rgba8, 0);
+    for off_hand in [false, true] {
+        let item = runtime
+            .first_person_attachable(
+                &body,
+                input.main.as_ref().unwrap(),
+                &owner,
+                &rig,
+                client_world::AttachableAnimationInput {
+                    first_person: true,
+                    off_hand,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(item.presentation.submission.overlay_rgba8, 0);
+    }
+    assert_eq!(body.overlay_rgba8, 0x6600_00ff);
+}
