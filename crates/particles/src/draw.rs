@@ -94,14 +94,16 @@ fn basis_for(
             let right = unit(cross(world_up, flat)).unwrap_or(view.right);
             (right, world_up)
         }
-        Facing::LookatDirection | Facing::DirectionY => match direction {
+        Facing::DirectionY => match direction {
             Some(up) => {
                 let right = unit(cross(up, to_camera)).unwrap_or(view.right);
                 (right, up)
             }
             None => facing_axes(view.up),
         },
-        Facing::DirectionX => match direction {
+        // `lookat_direction` lays the quad's width along the direction, then rolls it to face
+        // the camera, so beams sized `[length, thickness]` stretch along their travel.
+        Facing::LookatDirection | Facing::DirectionX => match direction {
             Some(right) => {
                 let up = unit(cross(to_camera, right)).unwrap_or(view.up);
                 (right, up)
@@ -497,6 +499,46 @@ mod tests {
         let mut far = view();
         far.position = [0.0, 0.0, 100.0];
         assert!(system.build_draw(&far, &EmptyWorld).opaque.is_empty());
+    }
+
+    /// A server-driven beam: a point emitter offset to the beam's midpoint, with a billboard whose
+    /// width is half the beam length along the custom direction.
+    const BEAM: &str = r#"{"particle_effect":{"description":{"identifier":"test:beam","basic_render_parameters":{"material":"particles_add","texture":"textures/none"}},
+      "components":{
+        "minecraft:emitter_initialization":{"creation_expression":"variable.normal = math.pow(math.pow(variable.direction_x,2) + math.pow(variable.direction_y,2) + math.pow(variable.direction_z,2), 0.5);variable.size = variable.sizein * 0.5;"},
+        "minecraft:emitter_rate_instant":{"num_particles":1},
+        "minecraft:emitter_lifetime_once":{"active_time":1},
+        "minecraft:emitter_shape_point":{
+          "offset":["variable.direction_x * variable.size / variable.normal","variable.direction_y * variable.size / variable.normal","variable.direction_z * variable.size / variable.normal"],
+          "direction":["variable.direction_x","variable.direction_y","variable.direction_z"]},
+        "minecraft:particle_lifetime_expression":{"max_lifetime":"variable.agesec"},
+        "minecraft:particle_appearance_billboard":{"size":["variable.size",0.1],"facing_camera_mode":"lookat_direction",
+          "direction":{"mode":"custom","custom_direction":["variable.direction_x","variable.direction_y","variable.direction_z"]}}}}}"#;
+
+    #[test]
+    fn lookat_direction_stretches_the_width_along_the_direction() {
+        let mut system = ParticleSystem::default();
+        assert!(system.register_effect(BEAM.as_bytes()));
+        system.spawn(&SpawnRequest {
+            effect: "test:beam".into(),
+            position: [-2.0, 0.0, -5.0],
+            variables: vec![
+                ("direction_x".into(), 2.0),
+                ("direction_y".into(), 0.0),
+                ("direction_z".into(), 0.0),
+                ("sizein".into(), 4.0),
+                ("agesec".into(), 1.0),
+            ],
+            ..SpawnRequest::default()
+        });
+        system.tick(0.02, &EmptyWorld);
+        let lists = system.build_draw(&view(), &EmptyWorld);
+        assert_eq!(lists.add.len(), 1);
+        let instance = lists.add[0];
+        let close = |a: &[f32], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-4);
+        assert!(close(&instance.center_light, [0.0, 0.0, -5.0]), "{instance:?}");
+        assert!(close(&instance.axis_x, [2.0, 0.0, 0.0]), "{instance:?}");
+        assert!(close(&instance.axis_y, [0.0, 0.1, 0.0]), "{instance:?}");
     }
 
     #[test]
