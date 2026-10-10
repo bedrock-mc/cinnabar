@@ -293,14 +293,17 @@ func runWithResourcePackCacheFactory(
 			}
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
-		// After sign-in, credentials remain alive until bounded title cleanup finishes.
-		cancelAuthentication()
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
 			tokenSource = account
 			defer func() { closeCredentials(); _ = account.Close() }()
+		}
+		// Initialization follows shutdown; afterward credentials survive title cleanup.
+		cancelAuthentication()
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})

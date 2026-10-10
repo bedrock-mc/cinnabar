@@ -12,7 +12,8 @@ const (
 	fallbackHeartbeat = 5 * time.Minute
 	retryInterval     = 15 * time.Second
 	requestTimeout    = 10 * time.Second
-	cleanupTimeout    = 2 * time.Second
+	// Leave time for other shutdown work before the parent escalates.
+	cleanupTimeout = 500 * time.Millisecond
 )
 
 // Client owns one Xbox connection for the entire title presence lifetime.

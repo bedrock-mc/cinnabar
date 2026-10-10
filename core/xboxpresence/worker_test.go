@@ -45,7 +45,16 @@ func TestPresenceTriggersAndTitleCleanup(t *testing.T) {
 				requests <- request
 				return &presence.UpdateResult{HeartbeatAfter: time.Hour}, nil
 			},
-			Close: func(context.Context) error { once.Do(func() { close(closed) }); return nil },
+			Close: func(ctx context.Context) error {
+				if _, bounded := ctx.Deadline(); !bounded {
+					t.Error("title cleanup has no deadline")
+				}
+				if ctx.Err() != nil {
+					t.Error("shutdown canceled title cleanup before it started")
+				}
+				once.Do(func() { close(closed) })
+				return nil
+			},
 		}, nil
 	}, nil)
 	defer worker.Close()

@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
@@ -67,5 +68,35 @@ func TestPresenceLifetimeStillCancelsInitialAuthentication(t *testing.T) {
 		}, func(context.Context, proxy.Config) error { t.Fatal("served after canceled sign-in"); return nil })
 	if !called || err == nil {
 		t.Fatal("initial authentication did not follow core cancellation")
+	}
+}
+
+// presenceOAuthSource coordinates the credential read during account construction.
+type presenceOAuthSource func() (*oauth2.Token, error)
+
+// Token delegates the account's synchronous read to the fixture.
+func (source presenceOAuthSource) Token() (*oauth2.Token, error) { return source() }
+
+func TestPresenceLifetimeCancelsAccountConstruction(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	initialized, served := false, false
+	err := run(ctx, []string{"-socket-dir", "unused", "-upstream", "localhost:19132",
+		"-auth-cache", filepath.Join(t.TempDir(), "unused")}, io.Discard, io.Discard,
+		func(credentials context.Context, _ authcache.Config) (oauth2.TokenSource, error) {
+			return presenceOAuthSource(func() (*oauth2.Token, error) {
+				initialized = true
+				stop()
+				select {
+				case <-credentials.Done():
+					return nil, credentials.Err()
+				case <-time.After(5 * time.Second):
+					t.Error("account construction did not receive shutdown cancellation")
+					return nil, context.DeadlineExceeded
+				}
+			}), nil
+		}, func(context.Context, proxy.Config) error { served = true; return nil })
+	if !initialized || served || err == nil {
+		t.Fatalf("canceled construction: initialized=%v served=%v error=%v", initialized, served, err)
 	}
 }
