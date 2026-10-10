@@ -65,7 +65,7 @@ pub(super) fn queue_actors(
         let this_tick = next_tick.get() + 1;
         next_tick.set(this_tick);
         let mut view_queued = false;
-        if params.gpu.spans.iter().any(|span| !blended(span.material)) {
+        if params.gpu.spans.iter().any(|span| !sorted(span.material)) {
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function,
@@ -95,7 +95,7 @@ pub(super) fn queue_actors(
                 .spans
                 .iter()
                 .enumerate()
-                .filter(|(_, span)| blended(span.material))
+                .filter(|(_, span)| sorted(span.material))
             {
                 let Some(instance) = params.gpu.instances.get(span.first as usize) else {
                     continue;
@@ -180,13 +180,15 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
     ),
 >;
 
-fn blended(material: u32) -> bool {
-    crate::actor::material::state(material).is_some_and(|state| state.blend)
+/// Spans drawn in the sorted pass after all opaque geometry: blended materials, and
+/// always-passing depth tests, which must follow the terrain they draw through.
+pub(super) fn sorted(material: u32) -> bool {
+    crate::actor::material::state(material).is_some_and(|state| state.blend || state.depth_always)
 }
 
-pub(crate) struct DrawActors<const BLENDED: bool>;
+pub(crate) struct DrawActors<const SORTED: bool>;
 
-impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED> {
+impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
     type Param = (
         SRes<ActorGpu>,
         SRes<ActorDrawTracker>,
@@ -217,7 +219,7 @@ impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED>
         let cache = cache.into_inner();
         let mut executed_instances = 0;
         let mut bound_page = None;
-        let spans = if BLENDED {
+        let spans = if SORTED {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index()
             else {
                 return RenderCommandResult::Skip;
@@ -231,7 +233,7 @@ impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED>
         };
         for span in spans
             .iter()
-            .filter(|span| blended(span.material) == BLENDED)
+            .filter(|span| sorted(span.material) == SORTED)
         {
             if span.page != 0 && !gpu.artwork_current {
                 continue;

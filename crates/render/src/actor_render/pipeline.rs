@@ -128,7 +128,18 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             })
         })
     });
-    ordinary.chain(additive)
+    // Pack materials such as `entity_depth` and `entity_alpha_depth` that draw through walls.
+    let depth_always = [false, true].into_iter().flat_map(|cull| {
+        [false, true].into_iter().map(move |alpha_test| {
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                alpha_test,
+                cull,
+                depth_always: true,
+                ..Default::default()
+            }))
+        })
+    });
+    ordinary.chain(additive).chain(depth_always)
 }
 
 pub(super) fn prepare_actor_pipelines(
@@ -340,6 +351,7 @@ pub(super) struct ActorPipelineContract {
     cull: bool,
     blend: bool,
     depth_write: bool,
+    depth_always: bool,
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
@@ -368,7 +380,7 @@ impl ActorPipelineKey {
         };
         let format = if self.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
-        } else if state.blend
+        } else if super::phase::sorted(self.material)
             && crate::chunk::transparent::gamma_pass::admitted(self.hdr, self.msaa, self.enhanced)
         {
             TextureFormat::bevy_default().remove_srgb_suffix()
@@ -382,6 +394,7 @@ impl ActorPipelineKey {
             cull: state.cull,
             blend: state.blend,
             depth_write: state.depth_write,
+            depth_always: state.depth_always,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
             alpha_to_coverage: self.msaa.samples() > 1
@@ -420,6 +433,9 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .as_mut()
                 .unwrap()
                 .depth_write_enabled = state.depth_write;
+            if state.depth_always {
+                descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Always;
+            }
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
@@ -436,7 +452,8 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         }
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = contract.format;
-        if contract.blend
+        // Sorted-pass spans share the transparent pass's gamma-encoded target.
+        if super::phase::sorted(key.material)
             && crate::chunk::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
         {
             fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(

@@ -351,6 +351,16 @@
   build passes, and the inspection client is running after the requested
   relaunch. Changes are local and uncommitted; nothing is pushed.
 
+## Always-passing entity depth materials
+
+- Server-pack entity materials with `depthFunc: Always` (through-wall markers)
+  compile to an always-passing depth test. `LessEqual` restores normal testing,
+  and children inherit the setting. These spans draw in the sorted pass after
+  opaque terrain, so terrain cannot overwrite them.
+- Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
+  states are ignored. The sorted-pass order approximates native entity order and
+  is unverified against a native capture.
+
 ## Empty boss-text HUD slots
 
 - A captured server HUD uses eight fixed boss-text slots. Missing collection

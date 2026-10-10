@@ -428,3 +428,46 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
         );
     }
 }
+
+#[test]
+fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometry() {
+    for depth_always in [false, true] {
+        let material = crate::ActorMaterial {
+            state: Some(EntityRenderMaterialState {
+                alpha_test: true,
+                depth_always,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: material.gpu_word(),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        // Sorted-pass spans render into the transparent pass's gamma-encoded target.
+        let fragment = descriptor.fragment.as_ref().unwrap();
+        let gamma = fragment.shader_defs.iter().any(
+            |define| matches!(define, ShaderDefVal::Bool(name, true) if name == "ACTOR_GAMMA_BLEND"),
+        );
+        let srgb = fragment.targets[0].as_ref().unwrap().format.is_srgb();
+        assert_eq!((gamma, srgb), (depth_always, !depth_always));
+        let depth = descriptor.depth_stencil.unwrap();
+        assert!(depth.depth_write_enabled);
+        assert_eq!(
+            depth.depth_compare == bevy::render::render_resource::CompareFunction::Always,
+            depth_always
+        );
+        assert_eq!(
+            super::super::phase::sorted(material.gpu_word()),
+            depth_always
+        );
+    }
+}
