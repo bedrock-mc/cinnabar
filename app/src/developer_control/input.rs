@@ -181,7 +181,7 @@ fn resolve(menu: Option<&crate::menu::MenuRuntime>, control: &Control) -> Result
             ControlButton::Forward => MouseButton::Forward,
         })),
         Control::Binding(name) => {
-            match launcher::menu::settings_options::control_bindings::named_control(menu, name) {
+            match crate::menu::settings_options::control_bindings::named_control(menu, name) {
                 Some(PhysicalControl::KeyboardUsage(usage)) => KEYBOARD_USAGES
                     .iter()
                     .find(|(_, candidate)| *candidate == usage)

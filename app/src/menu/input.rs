@@ -869,7 +869,7 @@ pub(crate) fn drive_menu_input(
             menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, 1);
         }
         if gamepad.just_pressed(
-            launcher::menu::settings_options::control_bindings::gamepad_button(
+            crate::menu::settings_options::control_bindings::gamepad_button(
                 &menu.settings_options,
                 GamepadButton::South,
             ),
@@ -877,7 +877,7 @@ pub(crate) fn drive_menu_input(
             menu.activate_focused();
         }
         if gamepad.just_pressed(
-            launcher::menu::settings_options::control_bindings::gamepad_button(
+            crate::menu::settings_options::control_bindings::gamepad_button(
                 &menu.settings_options,
                 GamepadButton::East,
             ),

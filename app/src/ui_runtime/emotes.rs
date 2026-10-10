@@ -18,13 +18,13 @@ use ui::{UiAction, UiPoint};
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::{
-        menu::MenuRuntime, player_runtime::PlayerRuntime, runtime::world::ClientWorld,
-        semantic_controls::SemanticInputSnapshot,
-    },
-    launcher::menu::settings_options::control_bindings::{
+    crate::menu::MenuRuntime,
+    crate::menu::settings_options::control_bindings::{
         binding_gamepad, binding_key, binding_mouse, gamepad_button,
     },
+    crate::player_runtime::PlayerRuntime,
+    crate::runtime::world::ClientWorld,
+    crate::semantic_controls::SemanticInputSnapshot,
 };
 
 use controls::{should_stop_emote, slot_key, wheel_key};

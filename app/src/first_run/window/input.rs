@@ -127,7 +127,7 @@ fn controller_button(
         _ => return None,
     };
     match (
-        launcher::menu::settings_options::control_bindings::gamepad_button(settings, button),
+        crate::menu::settings_options::control_bindings::gamepad_button(settings, button),
         pressed,
     ) {
         (GamepadButton::South, true) => Some(Command::Press),

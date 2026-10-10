@@ -33,8 +33,8 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use launcher::menu::MenuAction;
-    use launcher::menu::settings_options::reset::*;
     /// Changes a registry option without introducing another copy of its default.
     fn change(options: &mut SettingsOptions, name: &str) -> i32 {
         let index = SETTINGS_OPTIONS

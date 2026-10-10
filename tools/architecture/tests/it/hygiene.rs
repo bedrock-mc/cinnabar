@@ -310,3 +310,22 @@ fn relative_roots_keep_parent_module_exports_local() {
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(diagnostics[0].starts_with("src/nested.rs:"));
 }
+
+#[test]
+fn checks_every_conditional_import_alternative_regardless_of_order() {
+    let external = "#[cfg(feature = \"external\")] use other::Thing;";
+    let local = "#[cfg(not(feature = \"external\"))] use local::Thing;";
+    for imports in [format!("{external} {local}"), format!("{local} {external}")] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(
+            temp.path(),
+            &format!(
+                "mod local {{ pub struct Thing; }} {imports} pub use self::Thing as Exported;"
+            ),
+            "",
+        );
+        let diagnostics = findings(temp.path());
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("other::Thing"));
+    }
+}

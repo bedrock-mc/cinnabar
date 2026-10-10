@@ -1,5 +1,6 @@
 //! Inventory pointer routing and wheel handling shared by ordered and frame input.
 use super::dispatch_bound_inventory_hotbar;
+use crate::menu::settings_options::control_bindings::binding_key;
 use bevy::{
     input::mouse::MouseScrollUnit,
     prelude::{ButtonInput, KeyCode, MouseButton, Time},
@@ -7,7 +8,6 @@ use bevy::{
     window::Window,
 };
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
-use launcher::menu::settings_options::control_bindings::binding_key;
 use ui::UiPoint;
 use {
     client_ui::ui_runtime::{

@@ -2,7 +2,7 @@
 
 mod actions;
 mod chat;
-mod control_bindings;
+pub(crate) mod control_bindings;
 mod language;
 mod reset;
 mod runtime;

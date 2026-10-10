@@ -1,13 +1,11 @@
 use semantic_input::{InputContext, PhysicalControl};
 use {
-    super::*,
+    crate::menu::settings_options::control_bindings::{
+        binding_key, binding_mouse, binding_pressed, gamepad_button, hotbar_control_slots,
+    },
     launcher::menu::settings_options::{
         EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SETTINGS_FILE,
-        SETTINGS_OPTIONS, SettingsOptions, chat,
-        control_bindings::{
-            binding_key, binding_mouse, binding_pressed, gamepad_button, hotbar_control_slots,
-        },
-        frame_rate_limit, runtime,
+        SETTINGS_OPTIONS, SettingsOptions, frame_rate_limit,
     },
 };
 
@@ -107,10 +105,7 @@ fn saved_volumes_reach_the_mixer() {
 #[test]
 fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
     use bevy::prelude::{ButtonInput, KeyCode, MouseButton};
-    use launcher::menu::settings_options::{
-        EXTRA_KEYS,
-        control_bindings::{binding_key, binding_mouse, binding_pressed},
-    };
+
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let index = KEY_BINDINGS.len()
         + EXTRA_KEYS
@@ -139,10 +134,7 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
 #[test]
 fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
     use bevy::prelude::{ButtonInput, KeyCode};
-    use launcher::menu::settings_options::{
-        EXTRA_KEYS,
-        control_bindings::{binding_key, binding_pressed},
-    };
+
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let chat = KEY_BINDINGS.len()
         + EXTRA_KEYS
@@ -180,7 +172,7 @@ fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
 #[test]
 fn controller_swaps_agree_between_display_capture_router_and_menu() {
     use bevy::input::gamepad::GamepadButton;
-    use launcher::menu::settings_options::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
+
     let mut settings = SettingsOptions::default();
     settings.set(index("swap_gamepad_ab_buttons"), 1);
     settings.set(index("swap_gamepad_xy_buttons"), 1);
@@ -389,7 +381,6 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
 
 #[test]
 fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
-    use launcher::menu::settings_options::control_bindings::hotbar_control_slots;
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
     let row = KEY_BINDINGS
         .iter()
@@ -442,7 +433,7 @@ fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
 
     use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
     use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
-    use semantic_input::{Action, PhysicalControl};
+    use semantic_input::Action;
 
     for control in [
         PhysicalControl::KeyboardUsage(0x15),
@@ -602,8 +593,8 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
 fn rebound_hotbar_keys_are_reserved_only_while_the_container_is_visible() {
     use crate::ui_runtime::interaction::inventory_consumes_key;
     use bevy::prelude::KeyCode;
-    use launcher::menu::settings_options::KEY_BINDINGS;
-    use semantic_input::{Action, PhysicalControl};
+
+    use semantic_input::Action;
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
     let row = KEY_BINDINGS
         .iter()

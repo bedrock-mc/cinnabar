@@ -137,7 +137,7 @@ fn capture_on_key(
     mut frames: ResMut<FrameCapture>,
 ) {
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || !launcher::menu::settings_options::control_bindings::binding_pressed(
+        || !crate::menu::settings_options::control_bindings::binding_pressed(
             menu.as_deref(),
             "key.screenshot",
             &keys,

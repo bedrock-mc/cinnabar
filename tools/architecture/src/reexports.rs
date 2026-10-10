@@ -27,7 +27,7 @@ struct Symbols {
     modules: BTreeSet<Name>,
     definitions: BTreeSet<Name>,
     globs: BTreeMap<Name, Vec<Name>>,
-    imports: BTreeMap<Name, Import>,
+    imports: BTreeMap<Name, Vec<Import>>,
     exports: Vec<Export>,
 }
 
@@ -321,13 +321,10 @@ fn collect(
                     }
                     let mut key = module.to_vec();
                     key.push(binding.clone());
-                    symbols.imports.insert(
-                        key,
-                        Import {
-                            module: module.to_vec(),
-                            target: target.clone(),
-                        },
-                    );
+                    symbols.imports.entry(key).or_default().push(Import {
+                        module: module.to_vec(),
+                        target: target.clone(),
+                    });
                     if !matches!(item.vis, Visibility::Inherited) {
                         let mut name = target.join("::");
                         if target.last() != Some(&binding) {
@@ -351,13 +348,10 @@ fn collect(
                 symbols.dependencies.insert(name.clone());
                 let mut key = module.to_vec();
                 key.push(binding.clone());
-                symbols.imports.insert(
-                    key,
-                    Import {
-                        module: module.to_vec(),
-                        target: vec![name.clone()],
-                    },
-                );
+                symbols.imports.entry(key).or_default().push(Import {
+                    module: module.to_vec(),
+                    target: vec![name.clone()],
+                });
                 if !matches!(item.vis, Visibility::Inherited) {
                     diagnostics.push(format!("{file}: cross-crate re-export `extern crate {name} as {binding}` is forbidden"));
                 }
@@ -449,8 +443,10 @@ fn resolve(
     } else if let Some(first) = path.first() {
         let mut local = module.to_vec();
         local.push(first.clone());
-        let imports_self = symbols.imports.get(&local).is_some_and(|import| {
-            import.module == module && import.target.len() == 1 && import.target[0] == *first
+        let imports_self = symbols.imports.get(&local).is_some_and(|imports| {
+            imports.iter().any(|import| {
+                import.module == module && import.target.len() == 1 && import.target[0] == *first
+            })
         });
         if symbols.dependencies.contains(first)
             && !symbols.modules.contains(&local)
@@ -462,14 +458,26 @@ fn resolve(
     absolute.extend_from_slice(&path[index..]);
     for length in (2..=absolute.len()).rev() {
         let prefix = absolute[..length].to_vec();
-        if let Some(import) = symbols.imports.get(&prefix) {
+        if let Some(imports) = symbols.imports.get(&prefix) {
             if seen.insert(prefix) {
-                let mut target = resolve(&import.module, &import.target, symbols, seen);
-                target.extend_from_slice(&absolute[length..]);
-                if length < absolute.len() && target.first().is_some_and(|name| name == "crate") {
-                    return resolve(module, &target, symbols, seen);
+                let mut local = None;
+                for import in imports {
+                    let mut branch_seen = seen.clone();
+                    let mut target =
+                        resolve(&import.module, &import.target, symbols, &mut branch_seen);
+                    target.extend_from_slice(&absolute[length..]);
+                    if length < absolute.len() && target.first().is_some_and(|name| name == "crate")
+                    {
+                        target = resolve(module, &target, symbols, &mut branch_seen);
+                    }
+                    if target.first().is_some_and(|name| name != "crate") {
+                        return target;
+                    }
+                    local.get_or_insert(target);
                 }
-                return target;
+                if let Some(local) = local {
+                    return local;
+                }
             }
         }
     }

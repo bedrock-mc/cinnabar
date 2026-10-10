@@ -42,11 +42,11 @@ pub(crate) fn produce_pick_block(
     context: PickBlockContext,
     ui: ResMut<UiRuntime>,
 ) {
-    if !(launcher::menu::settings_options::control_bindings::binding_gamepad(
+    if !(crate::menu::settings_options::control_bindings::binding_gamepad(
         Some(&context.menu),
         "key.pickItem",
         &context.gamepads,
-    ) || launcher::menu::settings_options::control_bindings::binding_pressed(
+    ) || crate::menu::settings_options::control_bindings::binding_pressed(
         Some(&context.menu),
         "key.pickItem",
         &context.keys,

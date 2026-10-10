@@ -59,13 +59,9 @@ impl MenuRuntime {
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
         // A real edit replaces any session override and is saved.
-        self.session_overrides.retain(|(overridden, _)| {
-            *overridden != launcher::menu::settings_options::runtime::usize::from(index)
-        });
-        if Arc::make_mut(&mut self.settings_options).set(
-            launcher::menu::settings_options::runtime::usize::from(index),
-            value,
-        ) {
+        self.session_overrides
+            .retain(|(overridden, _)| *overridden != usize::from(index));
+        if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
             self.settings_dirty = true;
             self.settings_apply = true;
         }
