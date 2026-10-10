@@ -196,7 +196,10 @@ impl LauncherCoreSlot {
             && bridge_endpoint_exists(&core.socket_dir)
         {
             core.attached = true;
-            commands.insert_resource(LauncherAccount::new(core.socket_dir.clone()));
+            commands.insert_resource(LauncherAccount::new(
+                core.socket_dir.clone(),
+                menu.layout.launcher_artwork_dir(),
+            ));
             if let Some(worlds) = worlds
                 && let Err(error) = worlds.attach(core.socket_dir.clone())
             {

@@ -48,7 +48,7 @@ func TestExperienceCountsKeepMissingSeparateFromZero(t *testing.T) {
 	}
 }
 
-// TestFeaturedCountsRefreshIndependentlyOfLayout keeps live data outside the artwork cache.
+// TestFeaturedCountsRefreshIndependentlyOfLayout keeps live data outside the feed cache.
 func TestFeaturedCountsRefreshIndependentlyOfLayout(t *testing.T) {
 	id, value := uuid.New(), int64(12)
 	layoutCalls, countCalls := 0, 0

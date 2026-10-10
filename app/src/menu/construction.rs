@@ -118,6 +118,7 @@ impl MenuRuntime {
             catalog_started: false,
             catalog_path: layout.catalog_file(std::process::id()),
             catalog_process: None,
+            catalog_art: None,
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,

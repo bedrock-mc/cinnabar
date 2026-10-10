@@ -35,12 +35,10 @@ type Config struct {
 	Store      *control.Store
 	Selector   *proxy.UpstreamSelector
 	Transfers  *proxy.TransferState
-	ArtworkDir string // screen artwork cache; empty skips caching
+	ArtworkDir string // rendered persona art; empty skips it
 	CacheFile  string // last good catalog; empty keeps it in memory only
 	Logger     *slog.Logger
 	Language   string // active UI locale used by messaging
-	// StoreImageDir holds cached Marketplace images; empty disables them.
-	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
 	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
@@ -55,7 +53,6 @@ type Config struct {
 	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
 	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
 	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
-	CacheArt                  func(ctx context.Context, directory string, images []*catalog.Image)
 	Ping                      func(ctx context.Context, addresses []string) []catalog.PingResult
 	Home                      func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
 	Report                    func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
@@ -76,8 +73,7 @@ type Service struct {
 	attempted    [2]time.Time
 	profileLogMu sync.Mutex
 	profileLogs  map[string]time.Time
-	profileArt   []string   // current avatar and achievement art pruning must keep
-	gamerpic     string     // profile artwork pruning must keep
+	profileArt   string     // current avatar that pruning must keep
 	disk         sync.Mutex // orders cache rewrites
 }
 
@@ -115,9 +111,6 @@ func New(cfg Config) *Service {
 	}
 	if cfg.ProfileAvatar == nil {
 		cfg.ProfileAvatar = catalog.ProfileAvatar
-	}
-	if cfg.CacheArt == nil {
-		cfg.CacheArt = catalog.CacheImages
 	}
 	if cfg.Ping == nil {
 		cfg.Ping = catalog.PingServers
@@ -164,7 +157,7 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 	return s.cfg.Friends(ctx, src)
 }
 
-// FeaturedServers lists the featured servers with their artwork cached, from the last good fetch.
+// FeaturedServers lists the featured servers from the last good fetch.
 func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
 	return cached(ctx, s, featuredFeed)
 }
@@ -189,7 +182,7 @@ func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.Feat
 	return withExperienceCounts(servers, counts), nil
 }
 
-// Home returns the start screen's service data with its artwork cached, from the last good fetch.
+// Home returns the start screen's service data from the last good fetch.
 func (s *Service) Home(ctx context.Context) (catalog.Home, error) {
 	return cached(ctx, s, homeFeed)
 }
@@ -206,12 +199,6 @@ func (s *Service) ReportMessage(ctx context.Context, event catalog.MessageEvent)
 // Ping pings servers for their player counts and round trip; it needs no account.
 func (s *Service) Ping(ctx context.Context, addresses []string) []catalog.PingResult {
 	return s.cfg.Ping(ctx, addresses)
-}
-
-func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
-	if s.cfg.ArtworkDir != "" {
-		s.cfg.CacheArt(ctx, s.cfg.ArtworkDir, images)
-	}
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.

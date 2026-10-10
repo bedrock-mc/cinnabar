@@ -2,9 +2,10 @@
 
 use std::{collections::HashSet, path::Path, sync::Mutex};
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use protocol::launcher_control::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
 
+use super::artwork::{self, FeedArt};
 use super::{FEED_INTERVAL, FEED_RETRY, Snapshot, publish_account, settle};
 
 /// The launcher requests the menu workers make: the core in production, fakes in tests.
@@ -18,33 +19,48 @@ pub(super) trait FeedSource {
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError>;
 }
 
-pub(super) struct CoreFeeds<'a>(pub(super) &'a std::path::Path);
+/// The core's feeds; with `art`, Home and featured artwork already on disk is filled in and the
+/// rest is queued, so a slow image host never delays a publish.
+pub(super) struct CoreFeeds<'a> {
+    pub(super) socket_dir: &'a Path,
+    pub(super) art: Option<&'a FeedArt>,
+}
 
 impl FeedSource for CoreFeeds<'_> {
     async fn home(&self) -> Result<Home, BridgeError> {
-        launcher_control::home(self.0).await
+        let mut home = launcher_control::home(self.socket_dir).await?;
+        if let Some(art) = self.art {
+            art.fill_cached(artwork::home_slots(&mut home));
+        }
+        Ok(home)
     }
     async fn featured(
         &self,
         include_player_counts: bool,
     ) -> Result<Vec<FeaturedServer>, BridgeError> {
-        if include_player_counts {
-            launcher_control::list_featured_servers_with_counts(self.0).await
+        let mut servers = if include_player_counts {
+            launcher_control::list_featured_servers_with_counts(self.socket_dir).await
         } else {
-            launcher_control::list_featured_servers(self.0).await
+            launcher_control::list_featured_servers(self.socket_dir).await
+        }?;
+        if let Some(art) = self.art {
+            art.fill_cached(artwork::featured_slots(&mut servers));
         }
+        Ok(servers)
     }
     async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
-        launcher_control::list_realms(self.0).await
+        launcher_control::list_realms(self.socket_dir).await
     }
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
-        launcher_control::list_friends(self.0).await
+        launcher_control::list_friends(self.socket_dir).await
     }
 }
 
 /// Polls featured data independently so opening details never waits for Home or its reports.
 pub(super) fn poll_featured(
     socket_dir: &Path,
+    artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
@@ -52,9 +68,14 @@ pub(super) fn poll_featured(
     let Some(runtime) = super::runtime() else {
         return;
     };
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
+    let feeds = CoreFeeds {
+        socket_dir,
+        art: Some(&art),
+    };
     loop {
         while changes.try_recv().is_ok() {}
-        let failed = runtime.block_on(featured_round(&CoreFeeds(socket_dir), shared));
+        let failed = runtime.block_on(featured_round(&feeds, shared));
         if !wait_changes(
             stop,
             changes,
@@ -68,6 +89,8 @@ pub(super) fn poll_featured(
 /// Polls Home and reports its impressions without blocking other screen feeds.
 pub(super) fn poll_home(
     socket_dir: &Path,
+    artwork_dir: &Path,
+    wake: Sender<()>,
     shared: &Mutex<Snapshot>,
     stop: &Receiver<()>,
     changes: &Receiver<()>,
@@ -76,9 +99,14 @@ pub(super) fn poll_home(
         return;
     };
     let mut reported = HashSet::new();
+    let art = FeedArt::start(artwork::feed_images(artwork_dir), wake);
+    let feeds = CoreFeeds {
+        socket_dir,
+        art: Some(&art),
+    };
     loop {
         while changes.try_recv().is_ok() {}
-        let (home, failed) = runtime.block_on(home_round(&CoreFeeds(socket_dir), shared));
+        let (home, failed) = runtime.block_on(home_round(&feeds, shared));
         if let Some(home) = home {
             super::report_impressions(&runtime, socket_dir, &home, &mut reported);
         }

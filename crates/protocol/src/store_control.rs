@@ -3,8 +3,7 @@
 
 pub use bridge::{
     BridgeError, ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance,
-    StoreEntitlements, StoreImage, StoreOffer, StoreOfferDetail, StorePage, StorePrice,
-    StoreRating, StoreRow, StoreRowMore, StoreSearch, StoreSearchResults, store_balance,
-    store_entitlements, store_home, store_image, store_offer, store_purchase, store_row_more,
-    store_search,
+    StoreEntitlements, StoreOffer, StoreOfferDetail, StorePage, StorePrice, StoreRating, StoreRow,
+    StoreRowMore, StoreSearch, StoreSearchResults, store_balance, store_entitlements, store_home,
+    store_offer, store_purchase, store_row_more, store_search,
 };

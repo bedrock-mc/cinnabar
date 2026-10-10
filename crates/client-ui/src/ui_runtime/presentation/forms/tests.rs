@@ -454,7 +454,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     .unwrap();
     let url = format!(
         "{}/remote.png",
-        super::remote_images::tests::serve(png([1, 2, 3, 255]))
+        crate::remote_images::tests::serve(png([1, 2, 3, 255]))
     );
     let mut presentation = mini_engine_presentation();
     let apple = IconRef {
@@ -498,7 +498,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         1,
         "the block decodes from the vanilla pack"
     );
-    super::remote_images::tests::settle(&remote, &url);
+    crate::remote_images::tests::settle(&remote, &url);
     let loaded = frame(&mut presentation);
     assert_eq!(on_server(&loaded), 2, "the downloaded image joins it");
     assert_eq!(presentation.server_ui_pages().len(), 1);

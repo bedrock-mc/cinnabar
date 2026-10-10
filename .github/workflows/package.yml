@@ -512,11 +512,10 @@ jobs:
           git push -f origin refs/tags/nightly
           gh release edit nightly --title "$title" --notes-file "$RUNNER_TEMP/notes.md" \
             --prerelease --latest=false --draft=false
-      - uses: actions/setup-go@v6
+      - name: Install the release tooling Rust toolchain
         if: needs.prepare.outputs.channel == 'stable'
-        with:
-          go-version: 'stable'
-          cache: false
+        working-directory: release-tools
+        run: rustup toolchain install
       - name: Sign the update manifest
         if: needs.prepare.outputs.channel == 'stable'
         env:
@@ -531,8 +530,9 @@ jobs:
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
           done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-artifacts "$base" "$GITHUB_WORKSPACE/source/dist")
-          go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable "${args[@]}" \
-            > "$RUNNER_TEMP/$UPDATE_MANIFEST"
+          # The signer comes from the workflow revision, so older source branches still sign.
+          (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \
+            sign -version "$RELEASE_VERSION" -channel stable "${args[@]}") > "$RUNNER_TEMP/$UPDATE_MANIFEST"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST" "dist/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the stable release
         if: needs.prepare.outputs.channel == 'stable'

@@ -50,10 +50,6 @@ func main() {
 		ParentGone: lifeline.WatchParent(lifeline.ParentFromEnv(), parentPollInterval),
 		Grace:      shutdownGrace,
 	})
-	if handled, code := helperMode(ctx, args, os.Stdout, os.Stderr); handled {
-		stop()
-		os.Exit(code)
-	}
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
 	stop()
 	if exitCode != 0 {
@@ -72,12 +68,9 @@ func configureRuntime(getenv func(string) string) {
 	}
 }
 
-// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
-// update helpers run with a null stdin.
+// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in
+// helper runs with a null stdin.
 func bindsStdin(args []string) bool {
-	if len(args) > 0 && args[0] == "check-update" {
-		return false
-	}
 	for _, arg := range args {
 		if arg == "-auth-events" || strings.HasPrefix(arg, "-auth-events=") {
 			return false
@@ -401,7 +394,6 @@ func runWithResourcePackCacheFactory(
 			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
-			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
 		if opts.xboxPresence {
 			presence := service.StartPresence(ctx)

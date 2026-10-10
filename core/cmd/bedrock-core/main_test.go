@@ -371,7 +371,6 @@ func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
 func TestOnlyNullStdinHelpersIgnoreStdin(t *testing.T) {
 	for _, args := range [][]string{
 		{"-auth-events", "-auth-cache", "token.json"},
-		{"check-update", "-manifest-url", "https://example.test/m.json"},
 	} {
 		if bindsStdin(args) {
 			t.Fatalf("bindsStdin(%v) = true", args)

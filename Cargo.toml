@@ -43,6 +43,7 @@ members = [
     "crates/sim",
     "crates/ui",
     "crates/world",
+    "crates/update-manifest",
     "tools/visualcoverage",
     "tools/architecture",
     "tools/devtool",
@@ -53,6 +54,7 @@ members = [
     "tools/mcp-stdio",
     "tools/cinnabar-mcp",
     "tools/cxb",
+    "tools/release-manifest",
 ]
 resolver = "3"
 

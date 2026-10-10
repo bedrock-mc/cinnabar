@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -34,11 +34,10 @@ type File struct {
 }
 
 type Server struct {
-	Name      string `json:"name"`
-	Address   string `json:"address"`
-	Caption   string `json:"caption"`
-	ImagePath string `json:"image_path,omitempty"`
-	imageURL  string
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	Caption  string `json:"caption"`
+	ImageURL string `json:"image_url,omitempty"`
 }
 
 type Realm struct {
@@ -95,10 +94,7 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		result.Errors = append(result.Errors, "Featured servers: "+err.Error())
 	} else {
 		for _, server := range values {
-			result.Featured = append(result.Featured, Server{
-				Name: server.Name, Address: server.Address, Caption: server.Caption,
-				imageURL: server.thumbnailURL,
-			})
+			result.Featured = append(result.Featured, catalogServer(server))
 		}
 	}
 	return result, nil
@@ -120,7 +116,6 @@ func Write(ctx context.Context, path string, account *authcache.Account) error {
 	if err != nil {
 		return err
 	}
-	cacheArtwork(fetchContext, filepath.Join(filepath.Dir(absolute), "catalog-images"), &result)
 	contents, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("encode catalog: %w", err)
@@ -151,34 +146,19 @@ func Write(ctx context.Context, path string, account *authcache.Account) error {
 	return nil
 }
 
-// validArtworkURL accepts the shared HTTPS image URL policy.
-func validArtworkURL(raw string) bool { return imagecache.ValidURL(raw) }
-
-func cacheArtwork(ctx context.Context, directory string, result *File) {
-	if result == nil {
-		return
+// catalogServer is the compact catalog row; the client downloads its thumbnail URL.
+func catalogServer(server FeaturedServer) Server {
+	entry := Server{Name: server.Name, Address: server.Address, Caption: server.Caption}
+	if validArtworkURL(server.thumbnailURL) {
+		entry.ImageURL = server.thumbnailURL
 	}
-	cache := artworkCache(directory)
-	for _, servers := range [][]Server{result.Featured} {
-		for index := range servers {
-			image, err := cache.Fetch(ctx, servers[index].imageURL)
-			if err == nil {
-				servers[index].ImagePath = image.Path
-			}
-		}
-	}
+	return entry
 }
 
-// artworkCache configures the shared downloader for catalog and profile images.
-func artworkCache(directory string) *imagecache.Cache {
-	return imagecache.New(directory, artworkPolicy)
-}
-
-// artworkPolicy keeps catalog paths and download limits stable across both catalog entry points.
-var artworkPolicy = imagecache.Config{
-	MaxBytes: int64(maxArtworkBytes), MaxFiles: maxCachedArtwork,
-	Timeout: 8 * time.Second, MaxRedirects: 9,
-	UserAgent: "Cinnabar/1.0", Extension: ".img",
+// validArtworkURL accepts HTTPS image URLs without embedded credentials.
+func validArtworkURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil
 }
 
 // Realms lists the Realms; the account supplies the Realms XSTS token from its shared cache.

@@ -630,13 +630,35 @@ pub struct MenuCaret {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct CatalogFile {
     #[serde(default)]
-    pub featured: Vec<MenuServerCard>,
+    pub featured: Vec<CatalogServer>,
     #[serde(default)]
     pub realms: Vec<MenuRealmCard>,
     #[serde(default)]
     pub friends: Vec<CatalogFriend>,
     #[serde(default)]
     pub errors: Vec<String>,
+}
+
+/// A featured server as the one-shot catalog lists it; the client caches `image_url` itself.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CatalogServer {
+    pub name: String,
+    pub address: String,
+    pub caption: String,
+    #[serde(default)]
+    pub image_url: String,
+}
+
+impl From<CatalogServer> for MenuServerCard {
+    fn from(server: CatalogServer) -> Self {
+        Self {
+            name: server.name,
+            address: server.address,
+            caption: server.caption,
+            image_path: String::new(),
+            icon: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
