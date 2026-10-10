@@ -651,15 +651,19 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, stay tear-free: FIFO, or Mailbox when
-  the frame-rate limit outpaces the display. No setting or flag requests tearing; only hidden
-  developer surfaces present unpaced. Every choice comes from the primary surface's probed modes.
+- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, prefer Immediate (which can tear),
+  then Mailbox, then FIFO. Hidden developer surfaces present unpaced.
+  Every choice comes from the primary surface's probed modes.
   `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
 - Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
   vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
   the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
-  variable refresh at 97% of its maximum. Incomplete: no platform reports active variable
-  refresh yet, so that cap never engages; rendered Video-screen acceptance pending.
+  variable refresh at 97% of its maximum in low-latency mode.
+- Variable Refresh Rate offers Automatic / On / Off in both Video menus. Automatic uses the
+  current macOS screen's refresh intervals and native fullscreen state; unsupported queries,
+  Windows, and Linux remain Unknown. On declares VRR enabled by the player; it does not change
+  the display or OS configuration. Off disables the VRR cap. Unknown remains conservative.
+  Incomplete: physical VRR cadence, cap overshoot, and tearing need target-display acceptance.
 
 ## Unfilled sub-chunk slots light as air
 
