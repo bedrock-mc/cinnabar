@@ -285,6 +285,25 @@ fn fetch_all_abandons_downloads_past_its_budget_but_keeps_finished_ones() {
     );
 }
 
+// Concurrent fetches of one URL each passed the cache check and downloaded it again.
+#[test]
+fn a_repeated_url_in_one_batch_downloads_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = serve(Duration::from_millis(100), |_| {
+        ("200 OK", String::new(), PNG.to_vec())
+    });
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(LAUNCHER_ART));
+    let url = format!("{}/shared.png", server.base);
+    let other = format!("{}/other.png", server.base);
+    let urls = vec![url.clone(), other, url.clone(), url];
+    let results = runtime().block_on(cache.fetch_all(urls, Duration::from_secs(30)));
+    assert!(results.iter().all(Option::is_some));
+    assert_eq!(results[0], results[2]);
+    assert_eq!(results[0], results[3]);
+    assert_ne!(results[0], results[1]);
+    assert_eq!(server.requests.load(Ordering::SeqCst), 2);
+}
+
 #[test]
 fn waiting_callers_are_bounded() {
     let count = AtomicUsize::new(0);

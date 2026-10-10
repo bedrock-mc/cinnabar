@@ -171,8 +171,28 @@ impl ImageDirectory {
     }
 
     /// Fetches every URL with at most [`MAX_IN_FLIGHT`] downloads running, in input order;
-    /// downloads still unfinished after `budget` are abandoned and left `None`.
+    /// a repeated URL downloads once, and downloads unfinished after `budget` are left `None`.
     pub async fn fetch_all(&self, urls: Vec<String>, budget: Duration) -> Vec<Option<PathBuf>> {
+        let mut unique = Vec::new();
+        let mut positions = HashMap::new();
+        let slots: Vec<usize> = urls
+            .into_iter()
+            .map(|url| {
+                *positions.entry(url.clone()).or_insert_with(|| {
+                    unique.push(url);
+                    unique.len() - 1
+                })
+            })
+            .collect();
+        let fetched = self.fetch_distinct(unique, budget).await;
+        slots
+            .into_iter()
+            .map(|slot| fetched[slot].clone())
+            .collect()
+    }
+
+    /// [`Self::fetch_all`] over URLs known to be distinct.
+    async fn fetch_distinct(&self, urls: Vec<String>, budget: Duration) -> Vec<Option<PathBuf>> {
         let deadline = tokio::time::Instant::now() + budget;
         let mut results = vec![None; urls.len()];
         let mut pending = urls.into_iter().enumerate();
