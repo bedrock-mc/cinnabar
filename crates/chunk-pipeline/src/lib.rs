@@ -10,7 +10,7 @@ pub use culling::{CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet};
 pub use stream::benchmark_support;
 pub use stream::{
     ActiveBlockCrack, ActorBlockSyncFence, BlockCrackSnapshot, BlockCrackStatus,
-    BuildProfileIdentity, CohortManifestIdentity, DECODE_DISPATCH_BUDGET_PER_POLL,
+    BuildProfileIdentity, CohortManifestIdentity, CohortProgress, DECODE_DISPATCH_BUDGET_PER_POLL,
     DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
     LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ACTIVE_BLOCK_CRACKS, MAX_ADMITTED_HEAVY_EVENTS,
     MAX_ADMITTED_WORLD_EVENTS, MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS,
@@ -22,7 +22,7 @@ pub use stream::{
     SUB_CHUNK_RESPONSE_TIMEOUT, ServicedStream, StageDurations, SubChunkOutcomeCounters,
     ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError,
     WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService,
-    WorldStreamStats,
+    WorldStreamStats, on_idle_world_cores, world_worker_threads,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};

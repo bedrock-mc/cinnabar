@@ -23,7 +23,11 @@ pub(crate) fn drain_live_named_audio(
     cameras: Query<&Transform, With<FlyCamera>>,
     state: ResMut<NamedAudio>,
     device: Option<NonSendMut<AudioDevice>>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     client_presentation::named_audio::drain_live_named_audio(
         messages,
         client_presentation::observations::WorldObservation {

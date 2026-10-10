@@ -105,34 +105,39 @@ impl UiPresentationRuntime {
         });
     }
 
-    /// Dresses the model: each armor slot's item identifier (helmet to boots)
-    /// with its leather dye, and the held item's identifier and metadata.
+    /// Dresses armor and held items using session attachables first, then the base catalog.
+    /// Armor follows world-player material rules; only leather applies the stack dye.
     pub fn set_player_preview_gear(
         &mut self,
         armor: [Option<(&str, Option<u32>)>; 4],
         held: Option<(&str, u32)>,
     ) {
-        let catalog = self.equipment_catalog.as_deref();
-        let armor = armor.map(|worn| {
-            let (identifier, dye) = worn?;
-            let catalog = self
-                .gui_models
-                .pack_equipment
-                .catalog()
-                .filter(|pack| pack.binding(identifier).is_some())
-                .or(catalog)?;
-            let binding = catalog.binding(identifier)?;
-            let texture = catalog.texture(&binding.texture.identifier)?;
-            // Undyed leather takes the default dye colour.
-            let tint = dye
-                .or_else(|| identifier.contains("leather").then_some(LEATHER_RGB))
-                .map(|rgb| [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
-            Some(PreviewTexture {
-                rgba: Arc::clone(&texture.rgba8),
-                width: texture.width,
-                height: texture.height,
-                tint,
+        let pack = self.gui_models.pack_equipment.source.clone();
+        let base = self.equipment_catalog.clone();
+        let from_pack: [bool; 4] = std::array::from_fn(|slot| {
+            armor[slot].is_some_and(|(identifier, _)| {
+                pack.as_deref()
+                    .is_some_and(|pack| pack.binding(identifier).is_some())
             })
+        });
+        let resolved: [_; 4] = std::array::from_fn(|slot| {
+            let catalog = if from_pack[slot] { &pack } else { &base };
+            worn_armor(catalog.as_deref(), armor[slot])
+        });
+        self.wear_pack_armor(std::array::from_fn(|slot| {
+            let (_, texture) = resolved[slot].as_ref().filter(|_| from_pack[slot])?;
+            Some(*texture)
+        }));
+        let armor = std::array::from_fn(|slot| {
+            // Pack art the GUI atlas could not hold falls back to the item's base art.
+            if from_pack[slot]
+                && self.gui_models.enabled
+                && resolved[slot].is_some()
+                && self.gui_models.pack_equipment.region(slot).is_none()
+            {
+                return worn_armor(base.as_deref(), armor[slot]).map(|(preview, _)| preview);
+            }
+            resolved[slot].as_ref().map(|(preview, _)| preview.clone())
         });
         let hands = [
             held.map(|(identifier, metadata)| PreviewHandItem {
@@ -163,6 +168,28 @@ impl UiPresentationRuntime {
     }
 }
 
+/// The texture `catalog` binds to a worn `(item, dye)`, tinted only when the binding's
+/// material is a color mask, and that texture's identifier.
+fn worn_armor<'a>(
+    catalog: Option<&'a RuntimeEquipmentCatalog>,
+    worn: Option<(&str, Option<u32>)>,
+) -> Option<(PreviewTexture, &'a str)> {
+    let (identifier, dye) = worn?;
+    let catalog = catalog?;
+    let binding = catalog.binding(identifier)?;
+    let texture = catalog.texture(&binding.texture.identifier)?;
+    let tint = binding
+        .color_mask_rgb(dye)
+        .map(|rgb| [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
+    let preview = PreviewTexture {
+        rgba: Arc::clone(&texture.rgba8),
+        width: texture.width,
+        height: texture.height,
+        tint,
+    };
+    Some((preview, &*texture.identifier))
+}
+
 pub const PREVIEW_WIDTH: u32 = 96;
 pub const PREVIEW_HEIGHT: u32 = 112;
 pub const HAND_WIDTH: u32 = 64;
@@ -171,10 +198,8 @@ pub const HAND_HEIGHT: u32 = 64;
 /// Raster pixels per block, and where the model's feet and centre line sit.
 pub const PREVIEW_PIXELS_PER_BLOCK: f32 = 48.0;
 pub const PREVIEW_FEET_Y: f32 = 106.0;
-/// A player's eye height above its feet, the point a live renderer centres.
-pub const PLAYER_EYE_HEIGHT: f32 = 1.62;
-/// Undyed leather armor's colour (the equipment renderer's default).
-use assets::DEFAULT_LEATHER_RGB as LEATHER_RGB;
+/// A player's eye height above its feet, the pivot of the preview model's pitch.
+pub const PLAYER_EYE_HEIGHT: f32 = protocol::STANDING_PLAYER_EYE_HEIGHT;
 /// The player entity's render scale.
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.
@@ -274,12 +299,8 @@ impl PreviewView {
     }
 }
 
-/// A player renderer's pose request and its raster's logical rect. A live
-/// renderer centres the eyes on the control at
-/// `min(w, h)` pixels per block and turns toward the pointer; a paper doll
-/// centres the model at `min(w / 20, h / 39)`
-/// pixels per model pixel, turned by `starting_rotation` under
-/// `camera_tilt_degrees`.
+/// Builds the live preview or paper-doll pose and logical rect around the model-part origin.
+/// Uses each renderer's scale and rotation; the doll also offsets by inverse GUI scale.
 pub fn renderer_frame(
     renderer: &str,
     data: &std::collections::BTreeMap<String, serde_json::Value>,
@@ -293,7 +314,9 @@ pub fn renderer_frame(
         let offset = pointer.map_or([0.0; 2], |point| {
             [centre[0] / px - point[0], centre[1] / px - point[1]]
         });
-        (PreviewView::Live { offset }, w.min(h), PLAYER_EYE_HEIGHT)
+        // The eye offset the live renderer applies cancels a player's eye-level actor
+        // position, leaving the actor's UI origin on the centre as the HUD's is.
+        (PreviewView::Live { offset }, w.min(h), PLAYER_UI_ORIGIN)
     } else if renderer == "hud_player_renderer" {
         (PreviewView::Hud, w, PLAYER_UI_ORIGIN)
     } else {

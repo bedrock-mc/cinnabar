@@ -216,7 +216,7 @@ fn leaf_vertex(@builtin(vertex_index) index: u32) -> LeafVertex {
     if (face == 2u || face == 3u) { projected = point.xz; }
     var out: LeafVertex;
     out.position = vec4(projected * 2.0 - 1.0, 0.5, 1.0);
-    out.uv = greedy_uv(face, corner, 1.0, 1.0, face_config.y);
+    out.uv = greedy_uv(face, quad_position(face, point), 1.0, 1.0, face_config.y);
     return out;
 }
 @fragment

@@ -112,6 +112,8 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) free_origins: Vec<u32>,
     pub(in crate::chunk) free_biomes: Vec<Range<u32>>,
     pub(in crate::chunk) allocations: HashMap<Entity, ArenaAllocation>,
+    /// The transparent water of `allocations`, updated wherever an allocation changes.
+    pub(in crate::chunk) transparent_liquids: TransparentLiquidResidents,
     pub(in crate::chunk) retired_allocations: Vec<RetiredArenaAllocation>,
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
@@ -188,6 +190,7 @@ impl ChunkGpuArena {
             free_origins: Vec::new(),
             free_biomes: Vec::new(),
             allocations: HashMap::new(),
+            transparent_liquids: TransparentLiquidResidents::default(),
             retired_allocations: Vec::new(),
             pending_removals: BTreeSet::new(),
             retirement_budget: TransparentRetirementBudget::with_limits(

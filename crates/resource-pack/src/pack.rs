@@ -96,6 +96,42 @@ impl ValidatedPack {
         self.read_file_with_limit(path, MAX_FILE_BYTES)
     }
 
+    /// Compares pack identity, logical index and file keys without reading archive bytes.
+    /// Together with same_bytes, this guarantees identical reads, inflation and decryption.
+    fn same_index(&self, other: &Self) -> bool {
+        /// Resolves an indexed entry's optional content key for semantic pack comparisons.
+        fn key<'a>(pack: &'a ValidatedPack, entry: &EntryIndex) -> Option<&'a ContentKey> {
+            entry.key.map(|index| &pack.keys[index])
+        }
+        self.pack_id == other.pack_id
+            && self.version == other.version
+            && self.sub_pack_name == other.sub_pack_name
+            && self.archive_bytes == other.archive_bytes
+            && self.declared_bytes == other.declared_bytes
+            && self.physical_entry_count == other.physical_entry_count
+            && self.skipped_entries == other.skipped_entries
+            && self.file_order == other.file_order
+            && self.folded == other.folded
+            && self.files.len() == other.files.len()
+            && self.files.iter().all(|(path, entry)| {
+                other.files.get(path).is_some_and(|theirs| {
+                    entry.archive_index == theirs.archive_index
+                        && entry.uncompressed_size == theirs.uncompressed_size
+                        && match (key(self, entry), key(other, theirs)) {
+                            (Some(ours), Some(theirs)) => ours.same_key(theirs),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                })
+            })
+    }
+
+    /// Whether both packs admitted identical archive bytes; shared bytes compare by address.
+    fn same_bytes(&self, other: &Self) -> bool {
+        let (ours, theirs) = (self.archive_bytes(), other.archive_bytes());
+        Arc::ptr_eq(&ours, &theirs) || ours == theirs
+    }
+
     pub(crate) fn entry(&self, path: &str) -> Option<&EntryIndex> {
         self.files.get(path).or_else(|| {
             let exact = self.folded.get(path.to_ascii_lowercase().as_str())?;
@@ -248,8 +284,29 @@ impl ValidatedPackStack {
         &self.packs
     }
 
+    /// Compares layered reads and dropped packs, checking archive bytes after every layer index matches.
+    #[must_use]
+    pub fn same_contents(&self, other: &Self) -> bool {
+        self.rejections == other.rejections
+            && self.packs.len() == other.packs.len()
+            && self
+                .packs
+                .iter()
+                .zip(other.packs.iter())
+                .all(|(ours, theirs)| ours.same_index(theirs))
+            && self
+                .packs
+                .iter()
+                .zip(other.packs.iter())
+                .all(|(ours, theirs)| ours.same_bytes(theirs))
+    }
+
     #[must_use]
     pub fn rejections(&self) -> &[PackRejection] {
         &self.rejections
     }
 }
+
+#[cfg(test)]
+#[path = "pack_tests.rs"]
+mod tests;

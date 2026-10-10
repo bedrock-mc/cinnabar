@@ -120,9 +120,21 @@ impl TransparentFaceMetric {
         self.for_chunk(key).distance(centroid)
     }
 
-    fn is_near(self, key: SubChunkKey) -> bool {
+    /// Whether `key` lies in the sub-chunks the camera block's radial neighbourhood touches.
+    pub(in crate::chunk) fn is_near(self, key: SubChunkKey) -> bool {
         let chunk = [key.x, key.y, key.z];
         (0..3).all(|axis| (self.near_min[axis]..=self.near_max[axis]).contains(&chunk[axis]))
+    }
+
+    /// The inclusive sub-chunk box [`Self::is_near`] admits; it changes only as the camera
+    /// block crosses a near boundary.
+    pub(in crate::chunk) const fn near_bounds(self) -> ([i32; 3], [i32; 3]) {
+        (self.near_min, self.near_max)
+    }
+
+    /// The sub-chunk holding the camera.
+    pub(in crate::chunk) const fn camera_chunk(self) -> [i32; 3] {
+        self.camera_chunk
     }
 
     fn direction_signs(self, key: SubChunkKey) -> [i8; 3] {
@@ -142,7 +154,11 @@ impl TransparentFaceMetric {
         self,
         keys: impl IntoIterator<Item = SubChunkKey>,
     ) -> FaceOrderCamera {
-        let near = keys.into_iter().any(|key| self.is_near(key));
+        self.order_camera_with_near(keys.into_iter().any(|key| self.is_near(key)))
+    }
+
+    /// The camera state for keys of which some are near exactly when `near` holds.
+    pub(in crate::chunk) fn order_camera_with_near(self, near: bool) -> FaceOrderCamera {
         FaceOrderCamera {
             camera_chunk: self.camera_chunk,
             near_min: self.near_min,

@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use assets::{HudTextureRole, RuntimeFontCatalog};
 use ui::{
-    SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle, UiNode, UiNodeId, UiScale,
-    UiVisual,
+    SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle, TextWrap, UiNode,
+    UiNodeId, UiScale, UiVisual,
 };
 
 use super::{HudTexturePages, IconRef, UiPresentationError, UiRuntime, rect};
@@ -127,6 +127,8 @@ pub(super) struct HudGeometry {
     /// Viewport in GUI px, inset by the safe area.
     pub gui_width: f32,
     pub gui_height: f32,
+    /// Device pixels per logical pixel, in 1/65536 units.
+    device_scale_65536: u32,
 }
 
 impl HudGeometry {
@@ -160,11 +162,20 @@ impl HudGeometry {
             scale,
             gui_width,
             gui_height,
+            device_scale_65536: (dpi_scale * 65_536.0).round() as u32,
         })
     }
 
     fn logical(&self, gui: [f32; 2]) -> [f32; 2] {
         [gui[0] * self.scale, gui[1] * self.scale]
+    }
+
+    /// Wrapping options that lay GUI-scale text out on the frame's device pixel grid.
+    fn text_wrap(&self) -> TextWrap {
+        TextWrap {
+            device_scale_65536: self.device_scale_65536,
+            ..TextWrap::default()
+        }
     }
 }
 
@@ -288,7 +299,7 @@ impl<'a> HudLayout<'a> {
                     baseline_64: super::TEXT_BASELINE_64,
                     scale,
                     font: self.font,
-                    wrap: Default::default(),
+                    wrap: self.geometry.text_wrap(),
                 })
                 .map_err(UiPresentationError::Text)?;
             let size = [
