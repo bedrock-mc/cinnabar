@@ -410,7 +410,7 @@ func runWithResourcePackCacheFactory(
 		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
-		sessionTarget = service.Target
+		sessionTarget = service.SessionTarget
 		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)

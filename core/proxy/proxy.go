@@ -56,7 +56,7 @@ type Config struct {
 	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
 	ServerTrust minecraft.ServerTrust
 	// SessionTarget, when set, maps a session Connect's connect.v1 target to a proxy target for that
-	// session alone; nil rejects targeted Connects.
+	// session alone and drops any pending transfer, as connect.v1 does; nil rejects targeted Connects.
 	SessionTarget func(ctx context.Context, kind, value string) (string, error)
 }
 
