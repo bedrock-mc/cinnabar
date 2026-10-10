@@ -14,7 +14,7 @@ mod model_mesh;
 mod model_retained;
 mod scoreboard;
 #[path = "../../src/settings.rs"]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod settings;
 mod standing_toast;
 mod text;

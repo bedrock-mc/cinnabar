@@ -14,6 +14,13 @@ use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
 const SETTINGS_RETRY: Duration = Duration::from_secs(1);
 
 impl MenuRuntime {
+    /// Refreshes untouched render distance from the selected device before settings publication.
+    pub(crate) fn sync_render_distance_device(&mut self, device: ui::RenderDistanceDevice) {
+        if Arc::make_mut(&mut self.settings_options).set_render_distance_device(device) {
+            self.settings_apply = true;
+        }
+    }
+
     /// Shares the renderer's sample-count intersection with the Video slider and settings handoff.
     pub(crate) fn sync_anti_aliasing_support(&mut self, support: ui::AntiAliasingSupport) {
         if self.settings_options.anti_aliasing_support() != support {

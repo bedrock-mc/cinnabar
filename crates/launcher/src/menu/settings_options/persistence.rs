@@ -54,6 +54,11 @@ impl SettingsOptions {
         let mut validated = Self::default();
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
             if let Some(value) = saved.values.get(option.name) {
+                if option.name == "render_distance" && *value == 4 {
+                    // Preserve the old minimum when the user explicitly saved it.
+                    validated.values.insert(option.name.to_owned(), *value);
+                    continue;
+                }
                 validated.set(index, *value);
                 validated
                     .values
