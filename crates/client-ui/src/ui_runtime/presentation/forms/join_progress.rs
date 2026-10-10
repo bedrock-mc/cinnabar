@@ -79,7 +79,19 @@ pub(super) fn shown(join: &JoinProgress, tr: &impl Fn(&str, &str) -> String) -> 
             let title = tr("progressScreen.title.downloading", "Downloading packs %1")
                 .replace("%1", &format!("[{done} / {total}]"));
             let size = |bytes| file_size(bytes, tr);
-            let message = format!("[{} / {}]", size(received_bytes), size(total_bytes));
+            let base = format!("[{} / {}]", size(received_bytes), size(total_bytes));
+            let message = match (join.bytes_per_sec(), join.eta_secs()) {
+                (Some(rate), Some(eta)) if total_bytes > received_bytes => {
+                    let stats = tr(
+                        "progressScreen.message.downloadStats",
+                        "%1/s, %2 left",
+                    )
+                    .replace("%1", &size(rate))
+                    .replace("%2", &format_eta(eta));
+                    format!("{base}\n{stats}")
+                }
+                _ => base,
+            };
             (title, message)
         }
         JoinStage::Generating => (
@@ -129,6 +141,17 @@ fn file_size(bytes: u64, tr: &impl Fn(&str, &str) -> String) -> String {
     } else {
         let gigabytes = tr("playscreen.fileSize.GB", "GB");
         format!("{:.1}{gigabytes}", bytes as f64 / GIB as f64)
+    }
+}
+
+/// Short ETA for the download line: seconds, minutes and seconds, or hours and minutes.
+fn format_eta(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h {:02}m", secs / 3600, (secs % 3600) / 60)
     }
 }
 
@@ -224,5 +247,38 @@ mod tests {
         assert_eq!(file_size(512 * 1024, &tr), "0.50MB");
         assert_eq!(file_size(MIB + MIB / 5, &tr), "1.2MB");
         assert_eq!(file_size(3 * GIB / 2, &tr), "1.5GB");
+    }
+
+    // Once the rate steadies, the download adds its speed and time left.
+    #[test]
+    fn a_steady_download_shows_rate_and_eta() {
+        use std::time::{Duration, Instant};
+
+        let stage = |received| JoinStage::Packs {
+            done: 0,
+            total: 5,
+            received_bytes: received,
+            total_bytes: 20 * MIB,
+        };
+        let mut downloading = JoinProgress::new(JoinKind::External);
+        let start = Instant::now();
+        downloading.observe_at(Some(stage(0)), start);
+        downloading.observe_at(Some(stage(5 * MIB)), start + Duration::from_secs(2));
+        assert_eq!(
+            shown(&downloading, &tr),
+            Shown {
+                title: "Downloading packs [0 / 5]".into(),
+                message: "[5.0MB / 20.0MB]\n2.5MB/s, 6s left".into(),
+                clipped: Some(0.75),
+                cancel: true,
+            }
+        );
+    }
+
+    #[test]
+    fn etas_read_as_short_durations() {
+        assert_eq!(format_eta(5), "5s");
+        assert_eq!(format_eta(65), "1m 05s");
+        assert_eq!(format_eta(3665), "1h 01m");
     }
 }
