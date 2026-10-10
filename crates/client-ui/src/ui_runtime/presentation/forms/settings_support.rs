@@ -1,11 +1,11 @@
 //! General settings links and Help Center use the pinned pack's authored controls.
 
 use super::menu_screens::{Translate, translated};
-use crate::menu::{
+use json_ui::{DataSource, HitRegion, Scalar};
+use launcher::menu::{
     MenuAction,
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };
-use json_ui::{DataSource, HitRegion, Scalar};
 
 /// Resolves each authored hyperlink control without accepting arbitrary destinations.
 pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
@@ -56,7 +56,7 @@ pub(super) fn dialog_model(
         ),
         SupportDialog::FontLicense => (
             words("options.font_license.name"),
-            crate::menu::settings_support::font_licenses(),
+            launcher::menu::settings_support::font_licenses(),
             words("gui.close"),
             words("gui.close"),
             MenuAction::DismissDialog,

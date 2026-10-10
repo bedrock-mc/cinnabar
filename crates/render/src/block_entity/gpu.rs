@@ -3,6 +3,9 @@
 
 use std::mem::size_of;
 
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{IntoSystem, System};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{
@@ -13,7 +16,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
+        Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,

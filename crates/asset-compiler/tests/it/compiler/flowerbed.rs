@@ -1,4 +1,10 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{MODEL_QUAD_FLAG_TWO_SIDED, RuntimeAssets, VisualKind, encode_blob},
+    sha2::{Digest, Sha256},
+    std::collections::HashSet,
+    std::path::Path,
+};
 
 fn write_flowerbed_pack(root: &Path, include_stem: bool) {
     write_pack(

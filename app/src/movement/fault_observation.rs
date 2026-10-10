@@ -1,6 +1,6 @@
 //! Projects gameplay faults into the existing app-owned evidence record.
 
-use super::{MovementTicker, PhysicsAuthorityFault};
+use {super::MovementTicker, gameplay::movement::PhysicsAuthorityFault};
 
 /// A fault observation consumed by the existing evidence adapter.
 /// The gameplay ticker remains the only owner of pending fault state.

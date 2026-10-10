@@ -1,4 +1,17 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        AssetError, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
+        MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+        MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_WATER_TINT, MAX_TEXTURE_LAYERS, ModelFamily,
+        ModelStateField, RegistryRecord, VisualKind,
+    },
+    std::{
+        fmt::Write as FmtWrite,
+        path::{Path, PathBuf},
+    },
+    tempfile::TempDir,
+};
 
 #[test]
 fn compiler_only_loads_full_cubes_and_builds_equivalent_lookup_tables() {

@@ -1,5 +1,5 @@
-use super::super::*;
 use super::context::{CuboidTemplateKey, intern_cuboid_template, push_model_template};
+use {super::super::*, assets::BlockFace};
 
 fn exact_family_admission(
     record: &RegistryRecord,

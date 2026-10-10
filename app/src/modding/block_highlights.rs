@@ -1,13 +1,14 @@
 //! Presentation adapter for read-only loaded-block highlights.
-use crate::{
-    app::ClientFrameSet, camera::FlyCamera, menu::MenuRuntime, runtime::world::ClientWorld,
-};
 use bevy::prelude::*;
 use client_ui::ui_runtime::UiRuntime;
 use render::ModRenderScene;
 use std::sync::{
     OnceLock,
     atomic::{AtomicBool, Ordering},
+};
+use {
+    crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::world::ClientWorld},
+    client_presentation::camera::FlyCamera,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -140,7 +141,7 @@ fn publish(
         camera.translation.to_array(),
         spec.range,
         ids,
-        render::MAX_BLOCK_HIGHLIGHTS,
+        mod_api::MAX_BLOCK_HIGHLIGHTS,
     );
     scene.set_block_highlights(if visible { positions } else { &[] }, spec.color);
 }

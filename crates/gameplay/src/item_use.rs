@@ -449,8 +449,6 @@ impl ItemUseRuntime {
     }
 }
 
-pub use inventory::crossbow_animation_frame;
-
 fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItemRequest {
     HeldItemRequest {
         selected_slot: selection.slot,

@@ -1,9 +1,12 @@
-use super::*;
 use crate::ui_runtime::{
     oreui_assets::load_optional_oreui_images,
     presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font},
 };
 use ui::UiVisual;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 #[test]
 fn focused_middle_play_tab_keeps_its_right_outline_above_the_next_tab() {

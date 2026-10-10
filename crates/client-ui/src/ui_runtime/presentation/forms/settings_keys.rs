@@ -2,7 +2,7 @@
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
-use crate::menu::{
+use launcher::menu::{
     MenuAction, MenuView,
     settings_options::{
         EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, gamepad_icon,

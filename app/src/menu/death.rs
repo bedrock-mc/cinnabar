@@ -1,6 +1,6 @@
 //! Death-route state and respawn requests retained until authoritative recovery.
 
-use super::{MenuRuntime, MenuScreen};
+use {super::MenuRuntime, launcher::menu::MenuScreen};
 
 /// Real-time delay before ordinary death controls become visible and accept input.
 #[cfg(test)]

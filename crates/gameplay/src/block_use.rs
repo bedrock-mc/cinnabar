@@ -364,7 +364,7 @@ impl RepeatClock {
     ) -> Self {
         let speed = state
             .displacement
-            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
+            .map(|axis| axis * world::TICKS_PER_SECOND as f32)
             .into_iter()
             .map(|axis| axis * axis)
             .sum::<f32>()

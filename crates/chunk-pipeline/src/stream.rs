@@ -91,7 +91,6 @@ mod transfer_priority;
 mod workers;
 pub use workers::{on_idle_world_cores, world_worker_threads};
 
-pub use client_world::ingestion::WorldStreamError;
 use client_world::ingestion::{
     BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
     DecodeJob, Footprint, LaneContext, PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob,
@@ -105,23 +104,19 @@ use request_queue::RequestQueue;
 
 pub use diagnostics::{
     BuildProfileIdentity, CohortManifestIdentity, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
-    Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
-    PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
-    StageDurations, SubChunkOutcomeCounters,
+    PresentModeIdentity, PresentationSnapshot, PublicationSnapshot, PublicationStageCounters,
+    RequestClass, RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 #[cfg(feature = "publication-test-support")]
 pub use publication_test_support::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
-pub use render_api::{
-    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
-};
+use render_api::PublicationAllowance;
 
 /// Decode and mesh workers may each have at most this many completed results
 /// waiting for the main thread. A full channel applies backpressure to Rayon.
 pub const WORK_RESULT_CAPACITY: usize = 512;
-pub use client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS};
+use client_world::ingestion::MAX_ADMITTED_HEAVY_EVENTS;
 pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = MAX_ADMITTED_HEAVY_EVENTS;
 pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = MAX_ADMITTED_HEAVY_EVENTS;
-pub use render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;

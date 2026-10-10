@@ -148,8 +148,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             )
         },
         client_session::SessionTrace {
-            movement_line: crate::movement::pending_trace_line,
-            write_movement: crate::movement::write_trace_line,
+            movement_line: gameplay::movement::pending_trace_line,
+            write_movement: gameplay::movement::write_trace_line,
             packet_trace: emit_packet_trace,
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
@@ -163,11 +163,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.
 fn emit_packet_trace(trace: &str) {
-    crate::acceptance::mutation::write_stdout_marker(
+    diagnostics::write_stdout_marker(
         &mut diagnostics::console::stdout(),
         &format!(
             "{}={trace}",
-            crate::acceptance::markers::FAST_TRANSFER_PACKET_TRACE
+            diagnostics::markers::FAST_TRANSFER_PACKET_TRACE
         ),
     );
 }

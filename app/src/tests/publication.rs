@@ -14,15 +14,8 @@ use crate::app::{
 };
 use crate::block_use::produce_block_use;
 use crate::item_use::produce_item_use;
-use crate::local_player::{
-    publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
-};
 use crate::melee::produce_melee;
 use crate::movement::advance_local_physics;
-use crate::runtime::network::{
-    advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
-    receive_network_events,
-};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
     PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -41,7 +34,17 @@ use crate::semantic_controls::{
 use crate::session::recover_session_failure;
 use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
-use chunk_pipeline::{PublicationServiceConfig, WorldMeshChange};
+use {
+    crate::local_player::{publish_local_player_frame, resolve_camera_pose},
+    client_presentation::local_player::publish_interaction_origin,
+};
+use {
+    crate::runtime::network::{
+        advance_actor_frame, prepare_actor_render_frame, receive_network_events,
+    },
+    client_presentation::actor_publication::publish_actor_render_frame,
+};
+use {chunk_pipeline::WorldMeshChange, render_api::PublicationServiceConfig};
 
 #[test]
 fn production_client_systems_are_members_of_the_behavioral_sets() {
@@ -77,7 +80,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     let fly_camera = NodeId::Set(
         graph
             .system_sets
-            .get_key(crate::camera::FlyCameraUpdateSet.intern())
+            .get_key(client_presentation::camera::FlyCameraUpdateSet.intern())
             .unwrap(),
     );
     let medium = system_node(graph, update_camera_medium, "update_camera_medium");
@@ -917,7 +920,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     let mesh = publication_fixture_mesh(&runtime_assets);
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
-    let allowance = chunk_pipeline::PublicationAllowance::new(config);
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         1,

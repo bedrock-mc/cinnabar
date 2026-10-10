@@ -189,7 +189,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                 server_tick,
                 attributes,
             } => {
-                crate::movement::trace_local_attributes(
+                gameplay::movement::trace_local_attributes(
                     clock.session_generation(),
                     sequence,
                     server_tick,

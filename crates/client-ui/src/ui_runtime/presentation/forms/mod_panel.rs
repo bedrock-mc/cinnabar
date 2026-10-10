@@ -24,13 +24,16 @@ use ui::{
     mod_panel::{Control, Event, Panel},
 };
 
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
     engine::{EngineInputs, EngineOutput, ScreenArt},
     hud::CachedScreen,
 };
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 use data::control_data;
+use {
+    super::super::{TextMetrics, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 const SCREEN: &str = "cinnabar_personal.panel";
 const ROW_HEIGHT: f64 = 26.0;

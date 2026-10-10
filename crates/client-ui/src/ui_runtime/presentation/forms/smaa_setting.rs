@@ -3,7 +3,7 @@
 use json_ui::Catalog;
 use serde_json::json;
 
-use crate::menu::settings_options::{SMAA_CHOICES, SMAA_OPTION};
+use launcher::menu::settings_options::{SMAA_CHOICES, SMAA_OPTION};
 
 /// Reuses the pack's dropdown templates immediately after its MSAA control.
 pub(super) fn install(catalog: &mut Catalog) {
@@ -47,8 +47,11 @@ pub(super) fn install(catalog: &mut Catalog) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ui_runtime::presentation::forms::pack_harness;
+    use {
+        super::*,
+        launcher::menu::settings_options::{SMAA_CHOICES, SMAA_OPTION},
+    };
 
     /// Finds a visible label throughout the inherited dropdown controls.
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
@@ -90,7 +93,7 @@ mod tests {
         assert!(has_text(selector, SMAA_OPTION.label));
         assert!(has_text(
             &section,
-            crate::menu::settings_options::MOTION_BLUR_OPTION.label
+            launcher::menu::settings_options::MOTION_BLUR_OPTION.label
         ));
         let choices = json_ui::resolve(
             &catalog,

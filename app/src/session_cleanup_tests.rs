@@ -528,10 +528,10 @@ fn windows_path_shapes_round_trip_through_the_guard() {
     assert!(!Path::new(&directory).exists());
 }
 
-fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
-    crate::install_layout::InstallLayout::resolve(
-        crate::install_layout::Platform::Linux,
-        &crate::install_layout::InstallEnvironment {
+fn development_layout_in(root: &Path) -> launcher::install_layout::InstallLayout {
+    launcher::install_layout::InstallLayout::resolve(
+        launcher::install_layout::Platform::Linux,
+        &launcher::install_layout::InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
             user_root: None,
             home: Some(root.join("home")),

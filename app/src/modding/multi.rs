@@ -2,11 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use mod_host::{
-    CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
-    GameplaySnapshot, MAX_LOADED_MODS, ModCue, ModGrants, ModHost, PlayerStateSnapshot,
-};
 use serde::Deserialize;
+use {
+    mod_api::MAX_LOADED_MODS,
+    mod_host::{
+        CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
+        GameplaySnapshot, ModCue, ModGrants, ModHost, PlayerStateSnapshot,
+    },
+};
 
 use super::ModRuntime;
 
@@ -171,9 +174,7 @@ impl ModRuntime {
     }
 
     /// Every mod's render output with its generation, in load order.
-    pub(super) fn render_outputs(
-        &self,
-    ) -> impl Iterator<Item = (&mod_host::mod_render::RenderOutput, u64)> {
+    pub(super) fn render_outputs(&self) -> impl Iterator<Item = (&mod_render::RenderOutput, u64)> {
         (0..self.host_count()).map(|index| self.host(index).render())
     }
 

@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 fn fixture() -> UiPresentationRuntime {
     fixture_with_container_overlay(false)

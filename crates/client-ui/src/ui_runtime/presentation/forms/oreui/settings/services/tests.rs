@@ -1,9 +1,9 @@
-use super::*;
-use crate::global_resources::Action as PackAction;
-use crate::menu::MenuView;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::paint;
 use crate::ui_runtime::presentation::forms::oreui::theme;
+use launcher::global_resources::Action as PackAction;
+use launcher::menu::MenuView;
 use std::collections::HashMap;
+use {super::*, launcher::menu::MenuAction, launcher::menu::auth::AuthState};
 
 /// Draws the account panel and returns its visible text and available actions.
 fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {

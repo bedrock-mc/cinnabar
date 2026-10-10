@@ -14,11 +14,11 @@ use super::theme::{
 use super::widgets::{
     Variant, button, header, panel, row, screen_overlay, segmented, text_field_on_panel,
 };
-use crate::local_worlds::{
+use launcher::local_worlds::{
     Screen, Tab, WorldsView, difficulty_description, difficulty_label, game_mode_description,
     game_mode_label, world_type_label,
 };
-use crate::menu::{LocalWorldAction as A, MenuAction, MenuField, MenuView};
+use launcher::menu::{LocalWorldAction as A, MenuAction, MenuField, MenuView};
 
 mod advanced;
 mod sections;
@@ -42,7 +42,7 @@ pub(super) fn route(screen: Screen, view: &WorldsView) -> Option<Screen> {
         Screen::BackendPrompt
             if view
                 .prompt
-                .is_some_and(|p| p.blocking == crate::local_worlds::PromptFor::CreateBds) =>
+                .is_some_and(|p| p.blocking == launcher::local_worlds::PromptFor::CreateBds) =>
         {
             Some(Screen::Create)
         }
@@ -371,8 +371,8 @@ fn edit_general(
         if let Some(world) = &local_view.edited {
             let details = format!(
                 "Size: {} - Last saved: {}",
-                crate::menu::file_size(world.size_bytes),
-                crate::menu::civil_date(world.last_played_unix.max(world.created_unix)),
+                launcher::menu::file_size(world.size_bytes),
+                launcher::menu::civil_date(world.last_played_unix.max(world.created_unix)),
             );
             let height = canvas.text(
                 &details,

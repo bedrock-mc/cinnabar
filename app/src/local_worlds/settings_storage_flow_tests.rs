@@ -1,9 +1,16 @@
 //! Storage world rows must retain the core's world identity and deletion workflow.
 
-use super::*;
-use crate::menu::{
-    LocalWorldAction, MenuAction, MenuRuntime, MenuScreen,
-    settings_storage::{SECTION_INDEX, StorageAction},
+use {
+    super::*,
+    launcher::local_worlds::model::{Event, Screen},
+};
+use {
+    crate::menu::MenuRuntime,
+    launcher::menu::{
+        MenuAction, MenuScreen,
+        settings_storage::{SECTION_INDEX, StorageAction},
+        worlds_tab::LocalWorldAction,
+    },
 };
 
 #[test]

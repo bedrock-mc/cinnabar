@@ -16,13 +16,13 @@ mod catalog_tests;
 #[cfg(test)]
 mod list_tests;
 
-use super::super::super::{IconRef, UiPresentationError};
 use super::super::play_screen::play_featured;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
-use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
+use launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
+use {super::super::super::UiPresentationError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -265,12 +265,12 @@ fn ping_label(ping: Option<&PingInfo>, exact: bool) -> std::borrow::Cow<'static,
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::PingInfo};
 
     #[test]
     fn the_first_experience_shows_until_a_server_is_picked() {
-        let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
-        view.servers = vec![crate::menu::SavedServer {
+        let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
+        view.servers = vec![launcher::menu::SavedServer {
             name: "Home".to_owned(),
             address: "127.0.0.1:19132".to_owned(),
             favorite: false,
@@ -308,11 +308,11 @@ mod tests {
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
+    use {super::*, launcher::menu::MenuServerCard};
     #[test]
     fn review_activity_extent_includes_wrapped_text() {
-        use crate::menu::{MenuGameCard, ServerDetails};
-        let mut view = crate::menu::MenuView::new(true, "Test".into());
+        use launcher::menu::{MenuGameCard, ServerDetails};
+        let mut view = launcher::menu::MenuView::new(true, "Test".into());
         let server = MenuServerCard {
             name: "Server".into(),
             address: "example.test".into(),

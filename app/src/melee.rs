@@ -15,21 +15,21 @@ use crosshair::resolve_crosshair;
 
 #[cfg(feature = "local-mods")]
 use crate::modding::interaction::{ModInteraction, effective_reach};
-use crate::{
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{hand_interaction_selection, protocol_input_mode},
-    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
-
-pub(crate) use gameplay::melee::{
-    Crosshair, PressContext, classify, obstructs_placement, pick_actor, press_admission,
-    resolve_and_send, swing_duration,
+use {
+    crate::{
+        menu::MenuRuntime,
+        mining::hand_interaction_selection,
+        movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+        runtime::{network::NetworkHandle, world::ClientWorld},
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::mining::protocol_input_mode,
 };
+
+use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send, swing_duration};
 
 /// Bevy resource adapter for the gameplay melee owner.
 #[derive(Resource, Debug, Default, Clone)]
@@ -76,7 +76,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
-    camera: Res<'w, crate::camera::ServerCameraView>,
+    camera: Res<'w, client_presentation::camera::ServerCameraView>,
     #[cfg(feature = "local-mods")]
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
@@ -93,7 +93,7 @@ pub(crate) fn produce_melee(
     mut runtime: ResMut<MeleeRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
-    mut view: ResMut<crate::local_player::LocalViewPose>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
@@ -107,7 +107,7 @@ pub(crate) fn produce_melee(
     let attack = context.input.phase(Action::Attack);
     let drop = |reason| {
         if attack.pressed {
-            crate::movement::note_click_drop("attack", reason);
+            gameplay::movement::note_click_drop("attack", reason);
         }
     };
     let Some(input) = context.input.snapshot() else {
@@ -271,6 +271,3 @@ pub(crate) fn selected_attack_timing<'a>(
 
 #[cfg(test)]
 mod session_tests;
-
-#[cfg(test)]
-pub(crate) use gameplay::melee::ActorHit;

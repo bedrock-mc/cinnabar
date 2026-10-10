@@ -1,7 +1,7 @@
 //! Actor interpolation timing and local visibility publication.
 use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier};
 use std::time::Duration;
-const ACTOR_TICK_NANOS: u128 = client_world::ACTOR_TICK_DURATION.as_nanos();
+const ACTOR_TICK_NANOS: u128 = world::TICK_DURATION.as_nanos();
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorFrameStep {
     pub ticks: u32,
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn a_stalled_frame_replays_at_most_the_vanilla_tick_cap() {
-        let tick = client_world::ACTOR_TICK_DURATION;
+        let tick = world::TICK_DURATION;
         let mut clock = ActorFrameClock::default();
         let stalled = clock.advance(tick * 240 + tick / 2);
         assert_eq!(stalled.ticks, world::MAX_TICKS_PER_FRAME);

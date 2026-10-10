@@ -17,14 +17,14 @@ use render::{
 };
 use render_model::{EntityRigId, RenderBoneTransform};
 
-use super::{
-    armor::{bone_map, hidden_bone, pack_tint, remap_pose},
-    atlas::{ATLAS_SIDE, SpriteAtlas},
-    display::{
-        FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
-        held_block_display, is_rod,
+use {
+    super::{
+        armor::{bone_map, hidden_bone, pack_tint, remap_pose},
+        atlas::{ATLAS_SIDE, SpriteAtlas},
+        display::{FirstPersonHand, FirstPersonShape, first_person_display},
+        runtime::{FirstPersonArms, layer_presentation},
     },
-    runtime::{FirstPersonArms, layer_presentation},
+    render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display, is_rod},
 };
 
 fn sprite(side: u16, fill: u8) -> IconSprite {

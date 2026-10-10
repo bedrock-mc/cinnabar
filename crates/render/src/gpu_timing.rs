@@ -22,7 +22,9 @@ use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::system::{SystemParamItem, lifetimeless::SRes},
-    prelude::*,
+    prelude::{
+        App, Commands, IntoScheduleConfigs, Plugin, Res, ResMut, Resource, Result, World, info,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

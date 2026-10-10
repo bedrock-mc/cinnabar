@@ -13,15 +13,21 @@ use anyhow::{Context, Result, anyhow};
 use bevy::prelude::{Commands, Resource};
 use protocol::launcher_control::{self, ConnectTarget};
 
-use super::{
-    AuthState, AuthSupervisor, CoreProcessGuard, MenuRuntime, account,
-    core_process::{clear_stale_bridge_endpoint, core_executable},
-    launcher_account::LauncherAccount,
-    wait_for_core,
+use {
+    super::{
+        AuthSupervisor, CoreProcessGuard, MenuRuntime, account,
+        core_process::{clear_stale_bridge_endpoint, core_executable},
+        launcher_account::LauncherAccount,
+        wait_for_core,
+    },
+    launcher::menu::auth::AuthState,
 };
-use crate::{
-    install_layout::InstallLayout, local_worlds::LocalWorlds,
-    runtime::endpoint::bridge_endpoint_exists, session_cleanup::SessionDirectoryGuard,
+use {
+    crate::{
+        local_worlds::LocalWorlds, runtime::endpoint::bridge_endpoint_exists,
+        session_cleanup::SessionDirectoryGuard,
+    },
+    launcher::install_layout::InstallLayout,
 };
 
 /// How long a join waits for the core to answer `connect.v1`.
@@ -478,7 +484,7 @@ mod tests {
         );
         menu.show_home();
         assert!(!menu.is_launcher());
-        assert_eq!(menu.screen(), super::super::MenuScreen::Home);
+        assert_eq!(menu.screen(), launcher::menu::MenuScreen::Home);
         assert!(
             slot.begin_join("example.invalid", false, false, menu.is_launcher())
                 .is_none(),

@@ -2,11 +2,11 @@
 //! Reference: vanilla ui/settings_sections/general_section.json:1552 and resource_packs_screen.json.
 
 use super::menu_screens::{MenuScreenData, retail_context};
-use crate::{
+use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
+use launcher::{
     global_resources::{Action, Snapshot},
     menu::{MenuAction, MenuView},
 };
-use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
 /// Binds the vanilla list, selection, priority and pack-settings controls.
 pub(super) fn bind(snapshot: &Snapshot, data: &mut DataSource) {

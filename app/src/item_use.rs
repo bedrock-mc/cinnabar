@@ -14,20 +14,26 @@ use client_world::LocalItemUse;
 use protocol::PlayerGameMode;
 use semantic_input::Action;
 
-use crate::{
-    block_use::{BlockUseRuntime, verified_use_selection},
-    melee::{MeleeRuntime, SwingTracker, swing_duration},
-    menu::MenuRuntime,
-    movement::{LocalMovementEffectTimeline, MovementTicker},
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        block_use::{BlockUseRuntime, verified_use_selection},
+        melee::{MeleeRuntime, SwingTracker},
+        menu::MenuRuntime,
+        movement::{LocalMovementEffectTimeline, MovementTicker},
+        runtime::{network::NetworkHandle, world::ClientWorld},
+        semantic_controls::SemanticInputSnapshot,
+    },
+    gameplay::melee::swing_duration,
+};
 
-pub(crate) use gameplay::item_use::UseFrame;
-pub(crate) use gameplay::item_use::{AirUse, Needs, classify, crossbow_animation_frame};
+use gameplay::item_use::UseFrame;
 use gameplay::item_use::{QUICK_CHARGE_ENCHANTMENT_ID, admit_on_tick};
 use inventory::ranged_animation_frame;
+use {
+    gameplay::item_use::{AirUse, Needs, classify},
+    inventory::crossbow_animation_frame,
+};
 
 /// A successful extension request is valid only in its originating world scope.
 #[derive(Resource, Debug, Default)]
@@ -222,7 +228,7 @@ fn selected_air_use_with_projectile(
         .authority()
         .item_max_use_ticks(identifier)
         .or_else(|| {
-            classify::pack_identifier(identifier)
+            gameplay::item_use::classify::pack_identifier(identifier)
                 .and_then(|pack| stream.authority().item_max_use_ticks(pack))
         });
     classify(
@@ -245,7 +251,7 @@ pub(crate) fn consume_ticks(
         .canonical_item_stack(player_runtime.selected_stack()?)?;
     match selected_air_use(player_runtime, stream)? {
         AirUse::Hold { max_ticks, .. }
-            if classify::is_consumed(canonical.identifier.as_deref()?) =>
+            if gameplay::item_use::classify::is_consumed(canonical.identifier.as_deref()?) =>
         {
             Some(max_ticks)
         }
@@ -306,7 +312,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
-    camera: Res<'w, crate::camera::ServerCameraView>,
+    camera: Res<'w, client_presentation::camera::ServerCameraView>,
 }
 
 /// Runs after block use so a press that interacted with a block starts no item use.
@@ -316,7 +322,7 @@ pub(crate) fn produce_item_use(
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
-    mut view: ResMut<crate::local_player::LocalViewPose>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -335,7 +341,7 @@ pub(crate) fn produce_item_use(
     } else if !focused || context.ui.ui_focused(&player_runtime) {
         use_phase
             .pressed
-            .then(|| crate::movement::note_click_drop("use", "screen_open"));
+            .then(|| gameplay::movement::note_click_drop("use", "screen_open"));
         false
     } else if player_runtime
         .facts
@@ -344,7 +350,7 @@ pub(crate) fn produce_item_use(
     {
         use_phase
             .pressed
-            .then(|| crate::movement::note_click_drop("use", "spectator"));
+            .then(|| gameplay::movement::note_click_drop("use", "spectator"));
         false
     } else {
         true
@@ -425,7 +431,7 @@ pub(crate) fn produce_item_use(
             || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
-        crate::movement::note_click_drop("use", reason);
+        gameplay::movement::note_click_drop("use", reason);
     }
     let duration = swing_duration(
         context
@@ -459,7 +465,7 @@ fn admit_with_action_aim(
     runtime: &mut gameplay::item_use::ItemUseRuntime,
     swings: &mut gameplay::melee::SwingTracker,
     movement: &mut MovementTicker,
-    view: &mut crate::local_player::LocalViewPose,
+    view: &mut client_presentation::local_player::LocalViewPose,
     frame: &UseFrame,
     local_runtime_id: u64,
     swing_duration: i32,

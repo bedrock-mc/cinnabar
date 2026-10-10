@@ -1,6 +1,9 @@
 //! One retained uniform and two texture bindings implement target highlight drawing.
 
 use super::{AimAssistHighlightScene, AimAssistTexture};
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{IntoSystem, Mut, System, Vec3};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -11,7 +14,10 @@ use bevy::{
             lifetimeless::{Read, SRes},
         },
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,

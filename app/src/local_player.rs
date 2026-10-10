@@ -3,20 +3,16 @@ use bevy::{
     prelude::{Entity, Res, ResMut, Single, Transform, With},
 };
 
-use crate::{
-    camera::{CameraSettingsAuthority, FlyCamera},
-    environment::WorldClock,
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
+use {
+    crate::{
+        environment::WorldClock,
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        runtime::world::ClientWorld,
+    },
+    client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
 };
 
-pub use client_presentation::local_player::{
-    CameraPose, FrozenInteractionOrigin, FrozenLocalAvatarVisibility, FrozenLocalPlayerFrame,
-    InteractionOriginSnapshot, LOCAL_AVATAR_EYE_HEIGHT_BLOCKS, LocalAvatarPresentation,
-    LocalAvatarVisibilityCarrier, LocalPlayerFrameCarrier, LocalPlayerFrameError,
-    LocalPlayerFrameReset, LocalPlayerFrameSample, LocalPlayerFrameSet, LocalViewPose,
-    publish_interaction_origin, reset_local_player_session,
-};
+use client_presentation::local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose};
 
 #[derive(SystemParam)]
 pub(crate) struct CameraPublicationContext<'w> {

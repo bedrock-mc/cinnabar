@@ -1,8 +1,8 @@
-use super::*;
 use client_presentation::camera::{CameraSettingsAuthority, ServerCameraView, motion_blur};
 use developer_control::camera::{Easing, Keyframe};
 use render::motion_blur::CameraMotionBlur;
 use std::time::Duration;
+use {super::*, client_presentation::camera::FlyCamera};
 
 fn frame(t: f32, x: f32) -> Keyframe {
     Keyframe {
@@ -18,7 +18,7 @@ fn frame(t: f32, x: f32) -> Keyframe {
 fn app(path: CameraPath) -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<Time>()
-        .init_resource::<crate::local_player::LocalViewPose>()
+        .init_resource::<client_presentation::local_player::LocalViewPose>()
         .init_resource::<ServerCameraView>()
         .init_resource::<CameraSettingsAuthority>()
         .add_systems(
@@ -71,7 +71,9 @@ fn scripted_camera_step_resets_motion_blur_on_the_rendered_cut_frame() {
         app.world().get::<Transform>(camera).unwrap().translation.x,
         0.0
     );
-    let player = *app.world().resource::<crate::local_player::LocalViewPose>();
+    let player = *app
+        .world()
+        .resource::<client_presentation::local_player::LocalViewPose>();
     advance(&mut app, 0.5);
     let cut = blur(&app, camera);
     assert_eq!(
@@ -83,7 +85,8 @@ fn scripted_camera_step_resets_motion_blur_on_the_rendered_cut_frame() {
     let mut expected_player = player;
     expected_player.reanchor_camera();
     assert_eq!(
-        *app.world().resource::<crate::local_player::LocalViewPose>(),
+        *app.world()
+            .resource::<client_presentation::local_player::LocalViewPose>(),
         expected_player
     );
     advance(&mut app, 0.125);

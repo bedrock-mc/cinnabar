@@ -15,12 +15,15 @@ use json_ui::{
 };
 use ui::{TimedText, UiNode};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, HudFrame, IconRef, TextMetrics, UiPresentationError,
-    UiPresentationRuntime, bounded_visible_text, hud_layout, resolve_chat_line,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{
+        HudFrame, TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text,
+        hud_layout, resolve_chat_line,
+    },
+    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
+};
 
 #[cfg(test)]
 mod hunger_control_tests;
@@ -463,7 +466,7 @@ fn hud_model(
     frame: &HudFrame,
     sidebar: Option<Sidebar>,
     icons: &mut Vec<IconRef>,
-    settings: &crate::menu::settings_options::SettingsOptions,
+    settings: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;

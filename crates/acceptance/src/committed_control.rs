@@ -1,6 +1,6 @@
 use client_world::CommittedControlEvent;
 
-use crate::{AcceptanceRun, markers::CAMERA_COMMITTED};
+use {crate::AcceptanceRun, diagnostics::markers::CAMERA_COMMITTED};
 /// Selects the horizontal surface cell for the observed server position.
 pub fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
     [position[0].floor() as i32, position[2].floor() as i32]

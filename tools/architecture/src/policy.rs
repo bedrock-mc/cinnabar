@@ -20,6 +20,15 @@ pub(super) struct Policy {
     pub(super) markers: Vec<MarkerRule>,
     #[serde(default)]
     pub(super) module_boundaries: Vec<ModuleBoundary>,
+    #[serde(default)]
+    pub(super) reexport_allowances: Vec<ReexportAllowance>,
+}
+
+/// Temporary, individually named forwarding APIs retained during an ownership migration.
+#[derive(Debug, Deserialize)]
+pub(super) struct ReexportAllowance {
+    pub(super) path: String,
+    pub(super) exports: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

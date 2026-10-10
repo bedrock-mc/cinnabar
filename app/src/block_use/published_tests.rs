@@ -1,9 +1,17 @@
 //! Published-tick block admission through the production producer and bounded session queue.
-use super::*;
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use bevy::prelude::*;
 use client_ui::ui_runtime::UiRuntime;
 use protocol::{ContainerIdentity, InventoryEvent, InventorySlotEvent, SlotIdentity};
 use std::time::{Duration, Instant};
+use {
+    super::*,
+    client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},
+    gameplay::block_use::{LocalUse, RepeatClock},
+};
 
 #[path = "published_tests/actor_use.rs"]
 mod actor_use_tests;
@@ -91,10 +99,10 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     movement.reset(7, 100, position);
     movement.set_source(gameplay::movement::MovementSource::Physics);
     movement.enqueue_completed_physics(sample.clone()).unwrap();
-    let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
+    let mut carrier = client_presentation::local_player::LocalPlayerFrameCarrier::default();
     let eye = Vec3::new(4.5, 2.5, 8.5);
     carrier
-        .publish(crate::local_player::LocalPlayerFrameSample {
+        .publish(client_presentation::local_player::LocalPlayerFrameSample {
             session_generation: 7,
             actor_session_id: stream.authority().actor_session_id(),
             fifo_sequence: stream.committed_sequence(),
@@ -166,7 +174,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(1_000));
-    world.init_resource::<Messages<crate::audio::LocalBlockCue>>();
+    world.init_resource::<Messages<client_presentation::audio::LocalBlockCue>>();
     world.insert_resource(player);
     world.insert_resource(block_use);
     world.init_resource::<SwingTracker>();
@@ -251,9 +259,9 @@ fn a_block_press_reports_the_last_completed_position() {
 fn frame_origin(world: &World, eye: Vec3, rotation: Quat) -> InteractionOriginSnapshot {
     let stream = world.resource::<crate::runtime::world::ClientWorld>();
     let stream = stream.stream.as_ref().unwrap();
-    let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
+    let mut carrier = client_presentation::local_player::LocalPlayerFrameCarrier::default();
     carrier
-        .publish(crate::local_player::LocalPlayerFrameSample {
+        .publish(client_presentation::local_player::LocalPlayerFrameSample {
             session_generation: 7,
             actor_session_id: stream.authority().actor_session_id(),
             fifo_sequence: stream.committed_sequence(),
@@ -422,8 +430,8 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
             }));
     });
     world.init_resource::<client_presentation::aim_assist::AimAssistFrame>();
-    world.init_resource::<crate::camera::ServerCameraView>();
-    world.init_resource::<crate::local_player::LocalViewPose>();
+    world.init_resource::<client_presentation::camera::ServerCameraView>();
+    world.init_resource::<client_presentation::local_player::LocalViewPose>();
     let position = world
         .resource::<MovementTicker>()
         .newest_unsent_sample()
@@ -519,14 +527,15 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     world
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&previous, authority);
-    world.insert_resource(crate::local_player::LocalViewPose::new(eye, Quat::IDENTITY));
-    world.insert_resource(crate::camera::AutoFly::new(false));
-    #[cfg(feature = "acceptance")]
-    world.insert_resource(crate::acceptance::AcceptanceRun::new(
-        None, None, false, false,
+    world.insert_resource(client_presentation::local_player::LocalViewPose::new(
+        eye,
+        Quat::IDENTITY,
     ));
+    world.insert_resource(client_presentation::camera::AutoFly::new(false));
+    #[cfg(feature = "acceptance")]
+    world.insert_resource(AcceptanceRun::new(None, None, false, false));
     #[cfg(not(feature = "acceptance"))]
-    world.init_resource::<crate::acceptance::AcceptanceRun>();
+    world.init_resource::<AcceptanceRun>();
     world.init_resource::<crate::movement::LocalMovementSpeedAuthority>();
     (world, captured)
 }
@@ -644,7 +653,7 @@ fn held_repeats_follow_simulation_ticks_not_render_frames() {
 
 /// Drives a tapped attack plus a Use press in one frame; melee resolves the attack against
 /// `crosshair` before the next frame. Returns the block transactions sent over both frames.
-fn attack_tap_then_use(crosshair: crate::melee::Crosshair) -> Vec<[i32; 3]> {
+fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     let (mut world, mut captured) = fixture();
     let mut router = crate::semantic_controls::SemanticInputRuntime::default();
     let frame = |router: &mut crate::semantic_controls::SemanticInputRuntime, tap: bool| {
@@ -676,7 +685,7 @@ fn attack_tap_then_use(crosshair: crate::melee::Crosshair) -> Vec<[i32; 3]> {
     assert!(melee.observe_input(true, false));
     melee.resolve(
         crosshair,
-        &crate::melee::PressContext {
+        &gameplay::melee::PressContext {
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -698,7 +707,7 @@ fn attack_tap_then_use(crosshair: crate::melee::Crosshair) -> Vec<[i32; 3]> {
 /// An attack handled first holds off a Use pressed in the same frame: only the hit lands.
 #[test]
 fn a_tapped_actor_attack_holds_off_the_same_frame_use() {
-    let hit = crate::melee::Crosshair::Actor(crate::melee::ActorHit {
+    let hit = gameplay::melee::Crosshair::Actor(gameplay::melee::ActorHit {
         runtime_id: 9,
         distance: 2.0,
         point: [4.5, 2.5, 6.5],
@@ -710,7 +719,7 @@ fn a_tapped_actor_attack_holds_off_the_same_frame_use() {
 #[test]
 fn a_tapped_block_attack_lets_the_same_frame_use_follow() {
     assert_eq!(
-        attack_tap_then_use(crate::melee::Crosshair::Block),
+        attack_tap_then_use(gameplay::melee::Crosshair::Block),
         [[4, 2, 6]]
     );
 }

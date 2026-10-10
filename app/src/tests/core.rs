@@ -1,4 +1,9 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::actor_clock::ActorFrameClock,
+    diagnostics::AcceptanceRuntimeConfig,
+    diagnostics::markers::{acceptance_runtime_metadata_marker, visibility_digest_marker_fields},
+};
 
 mod publication_markers;
 
@@ -248,7 +253,7 @@ fn visibility_capture_observes_post_deferred_upload_and_removal_generation() {
     let expected = VisibilityKeyDigest::from_keys([key]);
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(crate::runtime::world::ClientWorld::default())
         .insert_resource(CaveVisibilityCache::default())
         .insert_resource(VisibilityDiagnosticsInput::new(true))

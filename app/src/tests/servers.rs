@@ -4,8 +4,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::menu::SavedServer;
 use crate::menu::servers::{ServerWriter, load_servers, save_servers};
+use launcher::menu::view::SavedServer;
 
 fn unique_directory(label: &str) -> PathBuf {
     let unique = SystemTime::now()

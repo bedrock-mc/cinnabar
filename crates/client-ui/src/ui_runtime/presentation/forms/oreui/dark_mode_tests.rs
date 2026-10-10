@@ -1,6 +1,9 @@
-use super::*;
-use crate::menu::settings_options::{OREUI_DARK_MODE, SETTINGS_OPTIONS};
 use crate::ui_runtime::presentation::tests::fixture_font;
+use launcher::menu::settings_options::{OREUI_DARK_MODE, SETTINGS_OPTIONS};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 #[test]
 fn dark_mode_dims_the_full_home_backdrop_more_than_default() {
@@ -24,7 +27,7 @@ fn dark_mode_dims_the_full_home_backdrop_more_than_default() {
 fn home_quit_confirmation_uses_oreui_without_a_legacy_popup_and_traps_clicks() {
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Player".into());
-    view.dialog = Some(crate::menu::MenuDialog::Exit);
+    view.dialog = Some(launcher::menu::MenuDialog::Exit);
     set_dark(&mut view, true);
     runtime.set_menu_view(Some(view));
     runtime
@@ -78,7 +81,7 @@ fn dark_mode_preserves_full_color_art_and_readable_labels_on_light_tags() {
         .unwrap();
         canvas
             .icon_ref(
-                super::super::super::IconRef {
+                ui::IconRef {
                     page: 17,
                     uv: [0, 0, 32, 32],
                     glint: false,

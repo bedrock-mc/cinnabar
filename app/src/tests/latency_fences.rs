@@ -1,9 +1,9 @@
 //! Reuses the committed-authority harness to check movement/probe ordering.
 
 use super::*;
-use crate::{movement::MovementSource, runtime::network::NetworkHandle};
 use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, WorldQueryError};
 use std::time::Duration;
+use {crate::runtime::network::NetworkHandle, gameplay::movement::MovementSource};
 
 struct EmptyWorld;
 
@@ -15,8 +15,8 @@ impl CollisionWorld for EmptyWorld {
 }
 
 /// Minimal admission context; the outbox refuses to flush queued inputs without one.
-fn evidence_context() -> crate::movement::PhysicsTickEvidenceContext {
-    crate::movement::PhysicsTickEvidenceContext {
+fn evidence_context() -> gameplay::movement::PhysicsTickEvidenceContext {
+    gameplay::movement::PhysicsTickEvidenceContext {
         fifo_sequence: 1,
         pose_generation: 1,
         dimension: 0,
@@ -36,7 +36,7 @@ fn evidence_context() -> crate::movement::PhysicsTickEvidenceContext {
 fn flush_inputs(app: &mut App) {
     let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
     let network = app.world().resource::<NetworkHandle>();
-    crate::movement::flush_player_auth_inputs(
+    gameplay::movement::flush_player_auth_inputs(
         &mut ticker,
         8,
         Some(evidence_context()),

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use protocol::ScreenRecipe;
 
-use super::super::super::IconRef;
 use super::{UiRuntime, category};
+use ui::IconRef;
 
 #[derive(Debug, Default)]
 pub(crate) struct ProjectionCache {

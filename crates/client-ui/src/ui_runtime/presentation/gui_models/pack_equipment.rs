@@ -1,7 +1,7 @@
 //! Shares session armor texels between inventory previews and the HUD paper doll.
 //! Only worn textures consume bounded GUI pages, so unused attachables cannot exhaust them.
 
-use super::*;
+use {super::*, ui::IconRef};
 
 #[derive(Default)]
 pub(in super::super) struct PackEquipment {

@@ -1,10 +1,10 @@
-use super::*;
 use assets::gui_item::{
     SHIELD_GUI_MODEL_SCALE as GUI_MODEL_SCALE, SHIELD_GUI_ROTATION_RADIANS as GUI_ROTATION_RADIANS,
     SHIELD_GUI_TRANSLATION as GUI_TRANSLATION, SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT,
     SHIELD_MODEL_UNIT as MODEL_UNIT,
 };
 use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 fn scalar(value: f32) -> Scalar {
     Scalar::new(value).unwrap()

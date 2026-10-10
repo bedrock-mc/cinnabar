@@ -11,14 +11,17 @@ use json_ui::{
 use serde_json::Value;
 use ui::{UiNode, UiPoint, UiRect};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-    bounded_visible_text, resolve_chat_line,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{
+        TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text,
+        resolve_chat_line,
+    },
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
@@ -64,7 +67,7 @@ pub enum ChatHit {
     Close,
     SettingsOpen,
     SettingsClose,
-    SettingsAction(crate::menu::MenuAction),
+    SettingsAction(launcher::menu::MenuAction),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -365,7 +368,7 @@ impl ChatScreen {
 fn chat_data(
     runtime: &UiRuntime,
     now_millis: u64,
-    settings: &crate::menu::settings_options::SettingsOptions,
+    settings: &launcher::menu::settings_options::SettingsOptions,
 ) -> DataSource {
     let mut data = DataSource::new();
     data.set_strict(true);

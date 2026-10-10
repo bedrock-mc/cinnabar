@@ -429,10 +429,12 @@ pub(crate) fn reload_resource_packs(
                 world.pack_entities = packs.entities.clone();
                 world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
                 if items_changed {
-                    world.session_items = Some(Arc::new(super::entity_pack::SessionItems {
-                        components: packs.item_components.clone().unwrap_or_default(),
-                        icons: packs.item_icons.clone(),
-                    }));
+                    world.session_items = Some(Arc::new(
+                        client_presentation::session_assets::SessionItems {
+                            components: packs.item_components.clone().unwrap_or_default(),
+                            icons: packs.item_icons.clone(),
+                        },
+                    ));
                 }
                 ui.set_server_lang(packs.server_lang);
                 ui.set_session_icons(packs.item_icons);
@@ -440,7 +442,7 @@ pub(crate) fn reload_resource_packs(
                 ui.set_session_glyphs(packs.glyph_sheets);
                 ui.set_server_ui(packs.server_ui);
                 if sounds_changed {
-                    crate::audio::publish_server_sounds(packs.server_sounds);
+                    client_presentation::audio::publish_server_sounds(packs.server_sounds);
                 }
                 reload.applied = prepared.revision;
                 reload.last_duration = Some(prepared.elapsed);

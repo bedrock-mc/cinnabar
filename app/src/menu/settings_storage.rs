@@ -4,10 +4,10 @@ use std::{fs, io, path::Path, sync::Arc};
 
 mod worlds;
 
-use super::{MenuDialog, MenuRuntime};
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
+use {super::MenuRuntime, launcher::menu::MenuDialog};
 
-pub(crate) use launcher::menu::settings_storage::*;
+use launcher::menu::settings_storage::*;
 
 /// Measures real world and downloaded-pack data once when Storage opens.
 pub(crate) fn read_storage(layout: &InstallLayout) -> StorageView {

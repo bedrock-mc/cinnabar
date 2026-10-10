@@ -8,7 +8,10 @@ use std::{
 use json_ui::{CollectionItem, DataSource};
 use protocol::{CreativeContentEvent, PlayerGameMode};
 
-use super::{COLLECTION, HudFrame, IconRef, UiRuntime};
+use {
+    super::{COLLECTION, HudFrame, UiRuntime},
+    ui::IconRef,
+};
 
 pub(in super::super) struct BookCache {
     catalog: CreativeContentEvent,

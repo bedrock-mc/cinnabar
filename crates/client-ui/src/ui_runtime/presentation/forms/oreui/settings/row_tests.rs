@@ -1,6 +1,10 @@
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::settings_options::SETTINGS_OPTIONS,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 #[test]
 fn graphics_group_rows_keep_the_same_horizontal_gutters_as_regular_rows() {
@@ -206,7 +210,7 @@ fn exact_server_ping_setting_has_a_title_description_and_toggle() {
             nested: false,
         };
         content
-            .option(crate::menu::settings_options::SHOW_EXACT_SERVER_PING)
+            .option(launcher::menu::settings_options::SHOW_EXACT_SERVER_PING)
             .unwrap();
     });
     let labels: String = nodes
@@ -226,9 +230,9 @@ fn exact_server_ping_setting_has_a_title_description_and_toggle() {
     assert!(labels.contains("Showexactserverping"));
     assert!(labels.contains("milliseconds"));
     assert!(!labels.contains("options."));
-    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|d| d.name == crate::menu::settings_options::SHOW_EXACT_SERVER_PING)
+        .position(|d| d.name == launcher::menu::settings_options::SHOW_EXACT_SERVER_PING)
         .unwrap();
     assert!(
         hits.iter()

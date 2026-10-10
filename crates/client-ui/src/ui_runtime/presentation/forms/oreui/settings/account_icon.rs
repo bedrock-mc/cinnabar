@@ -3,9 +3,9 @@
 use super::super::super::super::UiPresentationError;
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme;
-use crate::menu::{MenuView, auth::AuthState};
 use crate::ui_runtime::oreui_assets::SETTINGS_ICONS;
-use crate::ui_runtime::presentation::IconRef;
+use launcher::menu::{MenuView, auth::AuthState};
+use ui::IconRef;
 
 #[cfg(test)]
 mod tests;

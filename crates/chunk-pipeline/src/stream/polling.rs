@@ -1,5 +1,8 @@
-use super::*;
 use client_world::ingestion::PLAYER_NETWORK_OFFSET;
+use {
+    super::*,
+    render_api::{MAX_VIEW_RADIUS_CHUNKS, PublicationAllowance},
+};
 
 impl WorldStream {
     /// Prioritizes the complete spawn columns and their light halo while entry is pending.
@@ -345,7 +348,7 @@ impl WorldStream {
     pub fn render_distance_blocks(&self) -> f32 {
         self.chunk_radius
             .unwrap_or_else(|| self.active_radius_chunks())
-            .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+            .clamp(0, MAX_VIEW_RADIUS_CHUNKS)
             .saturating_mul(16) as f32
     }
     pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {

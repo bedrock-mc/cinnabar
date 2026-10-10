@@ -1,9 +1,9 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::cuboid_quads;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
     record.name.as_ref() == assets::bamboo::BLOCK_NAME

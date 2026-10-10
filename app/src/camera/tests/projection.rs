@@ -1,5 +1,8 @@
-use super::*;
 use bevy::camera::CameraProjection;
+use {
+    super::*,
+    client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
+};
 
 /// Builds the app camera adapter with a primary window of the requested size.
 fn camera_app(width: u32, height: u32) -> (App, Entity) {
@@ -43,7 +46,7 @@ fn native_full_viewport_fov_sets_vertical_angle_and_aspect_only_scales_horizonta
     for degrees in [30.0_f32, 60.0, 90.0, 110.0, 120.0] {
         for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {
             let projection = PerspectiveProjection {
-                fov: camera::projection_fov_radians(degrees),
+                fov: client_presentation::camera::projection_fov_radians(degrees),
                 aspect_ratio: aspect,
                 ..default()
             };
@@ -82,7 +85,7 @@ fn replacing_user_settings_preserves_110_degree_vertical_fov() {
 #[test]
 fn projection_fov_is_finite_and_bounded_for_bad_inputs() {
     for degrees in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, 999.0] {
-        let vertical = camera::projection_fov_radians(degrees);
+        let vertical = client_presentation::camera::projection_fov_radians(degrees);
         assert!(vertical.is_finite());
         assert!(vertical > 0.0 && vertical < std::f32::consts::PI);
     }
@@ -139,7 +142,7 @@ fn zero_height_window_preserves_fov_with_a_finite_projection() {
 #[test]
 fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
     fn commit_rig(mut settings: ResMut<CameraSettingsAuthority>) {
-        settings.set_rig(Some(camera::CameraRig {
+        settings.set_rig(Some(client_presentation::camera::CameraRig {
             offset: Vec3::new(0.5, 0.5, 3.0),
             roll_radians: 0.0,
             fov_delta_degrees: 10.0,
@@ -151,9 +154,12 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
         .world()
         .resource::<CameraSettingsAuthority>()
         .horizontal_fov_degrees();
-    app.add_systems(Update, commit_rig.in_set(camera::FlyCameraUpdateSet));
+    app.add_systems(
+        Update,
+        commit_rig.in_set(client_presentation::camera::FlyCameraUpdateSet),
+    );
     app.update();
-    let expected = camera::projection_fov_radians(base + 10.0);
+    let expected = client_presentation::camera::projection_fov_radians(base + 10.0);
     assert!((projection(&mut app).fov - expected).abs() < 1.0e-6);
     let expected_half_height = (expected * 0.5).tan();
     let overlay = app.world().resource::<render::ScreenOverlayScene>();
@@ -162,13 +168,16 @@ fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
 
 #[test]
 fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_retirement() {
-    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
     use chunk_pipeline::WorldStream;
     use protocol::{
         ActorAttribute, ActorEvent, ActorKind, ActorSpawnEvent, HudEvent, UiEvent, WorldBootstrap,
         WorldEvent,
     };
     use std::sync::Arc;
+    use {
+        crate::runtime::world::ClientWorld,
+        client_presentation::actor_publication::ActorFramePartialTick,
+    };
 
     /// Advances the actor clock at the production actor preparation boundary.
     fn advance_death_clock(
@@ -250,7 +259,7 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
     assert!((projection(&mut app).fov.to_degrees() - 84.0).abs() < 1e-4);
     assert_eq!(
         app.world()
-            .resource::<camera::CameraFovInputs>()
+            .resource::<client_presentation::camera::CameraFovInputs>()
             .death_ticks,
         Some(125.25)
     );
@@ -273,7 +282,7 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
     assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
     assert_eq!(
         app.world()
-            .resource::<camera::CameraFovInputs>()
+            .resource::<client_presentation::camera::CameraFovInputs>()
             .death_ticks,
         None
     );
@@ -295,7 +304,7 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
     assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
     assert_eq!(
         app.world()
-            .resource::<camera::CameraFovInputs>()
+            .resource::<client_presentation::camera::CameraFovInputs>()
             .death_ticks,
         None
     );
@@ -303,13 +312,16 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
 
 #[test]
 fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() {
-    use crate::runtime::{network::ActorFramePartialTick, world::ClientWorld};
     use chunk_pipeline::WorldStream;
     use protocol::{
         ActorEvent, ActorKind, ActorSpawnEvent, ActorStatusEvent, ActorStatusKind, WorldBootstrap,
         WorldEvent,
     };
     use std::sync::Arc;
+    use {
+        crate::runtime::world::ClientWorld,
+        client_presentation::actor_publication::ActorFramePartialTick,
+    };
 
     /// Gives the rendered camera its ordinary pose before presentation each frame.
     fn reset_pose(mut cameras: Query<&mut Transform, With<FlyCamera>>) {

@@ -1,8 +1,8 @@
 //! Fixed lily-pad atlas tint, isolated
 //! from any untinted material which happens to share the same source image.
 
-use super::*;
 use assets::{MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_LILY_PAD, TILE_SIZE, TextureMip};
+use {super::*, assets::BlockFace};
 
 pub(super) struct Installed {
     pub pages: Box<[TexturePage]>,

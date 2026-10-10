@@ -268,20 +268,6 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			}
 		}
 	}
-	legacyVisualCoverage, err := os.ReadFile(filepath.Join(root, "tools", "visualcoverage", "src", "main.rs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, marker := range []string{"Legacy protocol-1001", "LegacyBaseline1001", "LegacyRatchet1001", "LegacyStrict1001", "LegacyGalleryInventory1001"} {
-		if !strings.Contains(string(legacyVisualCoverage), marker) {
-			t.Fatalf("historical visual-coverage CLI is not explicitly retired: missing %s", marker)
-		}
-	}
-	for _, activeCommand := range []string{"Command::Baseline", "Command::Ratchet", "Command::Strict", "Command::GalleryInventory"} {
-		if strings.Contains(string(legacyVisualCoverage), activeCommand) {
-			t.Fatalf("historical visual-coverage CLI still exposes active command %s", activeCommand)
-		}
-	}
 	centralizedAcceptanceConsumers := map[string][]string{
 		"scripts/acceptance/Common.ps1":                        {"assets\\bedrock-target.json", "Get-BedrockTargetManifest", "Resolve-BedrockTargetArtifact"},
 		"scripts/acceptance/Phase3Launcher.ps1":                {"Get-BedrockTargetManifest", "wire_protocol", "artifacts.physics_registry", "Resolve-BedrockTargetArtifact"},

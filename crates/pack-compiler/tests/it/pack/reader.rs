@@ -1,4 +1,8 @@
-use super::support::*;
+use pack_compiler::{read_pack, resolve_texture_key};
+use {
+    super::support::*,
+    assets::{AssetError, BlockFace},
+};
 
 #[test]
 fn pack_reader_strips_leading_comments_and_selects_first_terrain_variant() {

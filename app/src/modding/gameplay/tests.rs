@@ -344,7 +344,7 @@ fn protocol_players_are_remote_only_and_grants_do_not_disclose_players() {
 #[test]
 fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
     let mut stream = stream();
-    let count = mod_host::MAX_GAMEPLAY_PLAYERS + 7;
+    let count = mod_api::MAX_GAMEPLAY_PLAYERS + 7;
     // Reverse the admission order to make ordering independent of the actor map.
     for (index, id) in (2..=count as u64 + 1).rev().enumerate() {
         stream
@@ -352,11 +352,11 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
             .unwrap();
     }
     let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
-    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players.len(), mod_api::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players.first().unwrap().runtime_id, 2);
     assert_eq!(
         players.last().unwrap().runtime_id,
-        mod_host::MAX_GAMEPLAY_PLAYERS as u64 + 1
+        mod_api::MAX_GAMEPLAY_PLAYERS as u64 + 1
     );
 
     // A newly spawned nearer player must replace the furthest retained tie.
@@ -365,7 +365,7 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
         .submit(count as u64 + 1, player(near_id, [0.0; 3]))
         .unwrap();
     let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
-    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players.len(), mod_api::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players[0].runtime_id, near_id);
     assert_eq!(players[1].runtime_id, 2);
 }
@@ -480,7 +480,7 @@ fn nearby_mobs_are_non_players_in_range_nearest_first_with_health() {
     stream
         .submit(3, mob(4, "minecraft:zombie", [2.0, 0.0, 0.0]))
         .unwrap();
-    let far = mod_host::MAX_MOB_RANGE_BLOCKS + 1.0;
+    let far = mod_api::MAX_MOB_RANGE_BLOCKS + 1.0;
     stream
         .submit(4, mob(5, "minecraft:zombie", [far, 0.0, 0.0]))
         .unwrap();

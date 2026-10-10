@@ -103,7 +103,7 @@ pub const HAND_FOV_DEGREES: f32 = 70.0;
 fn apply_session_pack(
     scene: &mut ActorRenderScene,
     resources: &crate::prepared_actor_artwork::PreparedSessionResources,
-    pack: Option<&crate::session_assets::SessionEntityPack>,
+    pack: Option<&assets::SessionEntityPack>,
     session_icons: Option<StagedSessionIcons>,
     geometry_ready: &mut SessionGeometryReady,
     equipment: Option<&mut EquipmentRuntime>,
