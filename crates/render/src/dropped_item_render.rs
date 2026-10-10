@@ -208,6 +208,7 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
     let side = MAX_ITEM_SPRITE_SIDE;
     let layers_used = atlas.len() / (side * side * 4) as usize;
     match model {
+        DroppedItemModel::Vacant => None,
         DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
             let (width, height) = (sprite.width as usize, sprite.height as usize);
             if layers_used >= MAX_ITEM_LAYERS
