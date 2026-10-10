@@ -185,7 +185,7 @@ pub(super) struct FormPresentation {
     /// The sign editor's cached screen; carried across the per-frame reset.
     sign: sign_editor::SignScreen,
     credits: credits_screen::CreditsScreen,
-    /// Dev-mode OreUI originals and the look OreUI screens draw with.
+    /// Installed OreUI artwork, available in every build, and the selected screen look.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
     oreui_dark_mode: bool,

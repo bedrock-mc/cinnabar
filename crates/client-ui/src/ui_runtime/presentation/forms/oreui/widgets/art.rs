@@ -1,5 +1,10 @@
 //! Pressable artwork uses the installed state's native border-image slices.
 
+use crate::ui_runtime::oreui_assets::{
+    BUTTON_DESTRUCTIVE_IMAGES, BUTTON_DISABLED_IMAGE, BUTTON_NEUTRAL_IMAGES, BUTTON_PRIMARY_IMAGES,
+    BUTTON_SECONDARY_IMAGES,
+};
+
 use super::super::motion::{Feedback, opacity};
 use super::super::theme::{BUTTON_DEPTH, GUI_PIXELS_PER_REM};
 use super::{Bounds, Canvas, Interaction, UiPresentationError, Variant};
@@ -7,34 +12,12 @@ use super::{Bounds, Canvas, Interaction, UiPresentationError, Variant};
 #[cfg(test)]
 mod tests;
 
-const DISABLED_IMAGE: &str = "assets/pressable_elevated_disabled-d849d4185836b2229b5a.png";
-
 fn artwork(variant: Variant) -> [&'static str; 4] {
     match variant {
-        Variant::Hero | Variant::Primary => [
-            "assets/pressable_elevated_primary_default-7a6e2edf98a626b182c2.png",
-            "assets/pressable_elevated_primary_hovered-bcb21ab092446cbcecb6.png",
-            "assets/pressable_elevated_primary_focused-cc7df0bf833f92bb08dd.png",
-            "assets/pressable_primary_pressed-13b0f01c6c00e07322ca.png",
-        ],
-        Variant::Secondary => [
-            "assets/pressable_elevated_secondary_default-0aacffbfa726a8184fc5.png",
-            "assets/pressable_elevated_secondary_hovered-758970b376da9eb299da.png",
-            "assets/pressable_elevated_secondary_focused-05d59cd4654230c9b01d.png",
-            "assets/pressable_secondary_pressed-87bba1faba891ebfa7fc.png",
-        ],
-        Variant::Neutral => [
-            "assets/pressable_elevated_neutral_default-48cdf8535bfd48b47c2a.png",
-            "assets/pressable_elevated_neutral_hovered-dcbd873ad9e83d24dc7a.png",
-            "assets/pressable_elevated_neutral_focused-b28fc482cadde858740c.png",
-            "assets/pressable_neutral_pressed-aad8b64fc0f155676218.png",
-        ],
-        Variant::Destructive => [
-            "assets/pressable_elevated_destructive_default-a5fb3f173720065fcc13.png",
-            "assets/pressable_elevated_destructive_hovered-63736c555d7fc6479755.png",
-            "assets/pressable_elevated_destructive_focused-cfa496a1b2e3a06a9db4.png",
-            "assets/pressable_destructive_pressed-d5d4943d1b774ef42f85.png",
-        ],
+        Variant::Hero | Variant::Primary => BUTTON_PRIMARY_IMAGES,
+        Variant::Secondary => BUTTON_SECONDARY_IMAGES,
+        Variant::Neutral => BUTTON_NEUTRAL_IMAGES,
+        Variant::Destructive => BUTTON_DESTRUCTIVE_IMAGES,
     }
 }
 
@@ -148,7 +131,7 @@ pub(super) fn elevated(
         _ => [2, 2, 4, 2],
     };
     let key = if selected == 4 {
-        DISABLED_IMAGE
+        BUTTON_DISABLED_IMAGE
     } else {
         keys[selected]
     };
