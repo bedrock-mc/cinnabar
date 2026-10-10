@@ -57,6 +57,20 @@ pub fn loading_backdrop_texel(
 
 /// The frame composited over a mid-grey backdrop.
 pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
+    rasterize_offsets(input, |_| [0.; 2])
+}
+
+/// Applies the renderer's flat atlas offsets after interpolating the original source UVs.
+#[cfg(test)]
+pub(super) fn rasterize_resident(
+    input: &UiRenderInput,
+    vertices: &[render_model::FontAtlasVertex],
+) -> RgbaImage {
+    rasterize_offsets(input, |index| vertices[index].atlas_offset)
+}
+
+/// Samples a publication with a constant atlas relocation for each triangle.
+fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) -> RgbaImage {
     let [width, height] = input.viewport_size;
     let mut image = RgbaImage::from_pixel(width, height, Rgba([70, 90, 110, 255]));
     let pages = input.textures.pages();
@@ -72,6 +86,7 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
         for triangle in indices.chunks_exact(3) {
             let corners: [UiRenderVertex; 3] =
                 std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
+            let [du, dv] = offset(triangle[0] as usize);
             fill(
                 &mut image,
                 corners,
@@ -97,8 +112,8 @@ pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
                         }));
                     }
                     let (u, v) = (
-                        (u.floor() as u32).min(page_width - 1),
-                        (v.floor() as u32).min(page_height - 1),
+                        ((u + du).floor() as u32).min(page_width - 1),
+                        ((v + dv).floor() as u32).min(page_height - 1),
                     );
                     let at = (v * page_width + u) as usize;
                     let mut texel: [u8; 4] = match page.format() {
@@ -134,12 +149,8 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Fill one triangle, sampling premultiplied `shade(uv, color, overlay, x, y)` at
-/// each covered pixel centre and blending over the image. A centre on an edge belongs
-/// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
-/// so a quad's shared diagonal is never blended twice. Positions first snap to the
-/// GPU's subpixel grid, so float noise in a shared edge cannot leave a centre on it
-/// owned by neither triangle.
+/// Samples premultiplied shade at covered pixel centres and blends with the GPU top-left rule.
+/// Snaps vertices to the subpixel grid so shared edges have exactly one owner.
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
@@ -216,11 +227,18 @@ fn fill(
 
 /// Write `input` as `<dir>/<name>.png` when the snapshot directory is set.
 pub fn write(input: &UiRenderInput, name: &str) {
+    if std::env::var_os(SNAPSHOT_ENV).is_some() {
+        write_image(&rasterize(input), name);
+    }
+}
+
+/// Saves an already checked raster only when the local snapshot directory is configured.
+pub(super) fn write_image(image: &RgbaImage, name: &str) {
     let Ok(dir) = std::env::var(SNAPSHOT_ENV) else {
         return;
     };
     let path = Path::new(&dir).join(format!("{name}.png"));
-    rasterize(input).save(&path).unwrap();
+    image.save(&path).unwrap();
     eprintln!("snapshot: {}", path.display());
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-xsapi/v2/mpsd"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
@@ -95,7 +96,7 @@ func StartFriendHost(ctx context.Context, cfg FriendHostConfig) (host *FriendHos
 		cancel()
 		return nil, errors.Join(fmt.Errorf("friends: %w", err), host.prepared.shutdown())
 	}
-	host.listener, err = friendListenConfig(cfg.XUID, host, host.prepared).ListenNetwork(minecraft.NetherNet{Signaling: signaling, Log: log}, "")
+	host.listener, err = friendListenConfig(cfg.XUID, host, host.prepared).ListenNetwork(friendNetwork(signaling, log), "")
 	if err != nil {
 		cancel()
 		return nil, errors.Join(fmt.Errorf("friends: listen: %w", err), host.session.Close(), host.prepared.shutdown())
@@ -103,6 +104,14 @@ func StartFriendHost(ctx context.Context, cfg FriendHostConfig) (host *FriendHos
 	go host.accept(runCtx)
 	log.Info("hosting local world for friends", "world", cfg.World.ID)
 	return host, nil
+}
+
+// friendNetwork allows offers without SDP identity; Minecraft Login still authenticates the player.
+func friendNetwork(signaling nethernet.Signaling, log *slog.Logger) minecraft.NetherNet {
+	return minecraft.NetherNet{
+		Signaling: signaling, Log: log,
+		ListenConfig: nethernet.ListenConfig{AllowAnonymous: true},
+	}
 }
 
 // friendStatus is the world card vanilla shows in friends' lists.

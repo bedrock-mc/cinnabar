@@ -4,6 +4,7 @@ use super::*;
 
 const TINT: ChunkBiomeTintIdentity = ChunkBiomeTintIdentity::new(2, 2);
 
+/// Creates a small GPU arena for resident-water selection fixtures.
 fn arena() -> ChunkGpuArena {
     let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     ChunkGpuArena::new(&RenderDevice::from(device))
@@ -21,6 +22,7 @@ fn identity(x: i32, generation: u64) -> TransparentAllocationIdentity {
     )
 }
 
+/// Admits one fixture water allocation with the requested position and generation.
 fn record(arena: &mut ChunkGpuArena, x: i32, generation: u64) {
     arena.transparent_liquids.record(
         Entity::from_bits(x as u64 + 1),

@@ -53,6 +53,9 @@ pub(in crate::compiler) fn compile_rule(
         template
     } else {
         let mut quads = cuboid_quads(materials, min, max).to_vec();
+        for quad in &mut quads {
+            quad.flags |= MODEL_QUAD_FLAG_TWO_SIDED;
+        }
         // Dirt fills the opening at four pixels, below the six-pixel rim.
         // Quantize the small depth bias at the carrier's 1/256 boundary.
         let height = ((0.25_f32 - 0.001) * 256.0).round() as i16;

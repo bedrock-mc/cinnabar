@@ -1,8 +1,5 @@
-//! Visible water in key order, carried from frame to frame instead of sorted every frame.
-//!
-//! Equal phase distances keep insertion order, so water must enter the phase in a
-//! deterministic order. Bevy's visible list arrives in no fixed order; this keeps the
-//! previous frame's order and merges in only what became visible.
+//! Retains visible water in deterministic key order, merging only newly visible keys each frame.
+//! Equal phase distances preserve insertion order, so the unordered Bevy list cannot choose draw order.
 use crate::chunk::*;
 use bevy::ecs::entity::EntityHashMap;
 
@@ -100,6 +97,7 @@ pub(in crate::chunk) fn each_visible_key(
 mod tests {
     use super::*;
 
+    /// Builds a visible water fixture, alternating its order dependence by key.
     fn water(x: i32, entity: u64) -> VisibleWater {
         VisibleWater {
             key: SubChunkKey::new(0, x, 0, 0),
@@ -109,6 +107,7 @@ mod tests {
         }
     }
 
+    /// Produces the full-sort reference order for retained-order comparisons.
     fn sorted(mut water: Vec<VisibleWater>) -> Vec<VisibleWater> {
         water.sort_unstable_by_key(|water| (water.key, water.entity));
         water

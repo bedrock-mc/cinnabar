@@ -58,6 +58,7 @@ impl CohortProgress {
 }
 
 impl From<ViewCohortStatus> for CohortProgress {
+    /// Keeps the readiness fields without retaining the full diagnostic witness.
     fn from(status: ViewCohortStatus) -> Self {
         Self {
             target: status.target,
@@ -69,6 +70,7 @@ impl From<ViewCohortStatus> for CohortProgress {
 }
 
 impl ViewCohortStatus {
+    /// Requires the target view to be committed with every required column loaded.
     #[must_use]
     pub fn target_is_complete(self) -> bool {
         self.committed == Some(self.target)
@@ -573,11 +575,15 @@ pub(super) fn queue_wait(queued_at: Instant, started_at: Instant) -> Duration {
 /// Work performed by one call to [`WorldStream::poll`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamPoll {
+    /// Ordered commit steps applied, counting each partial sub-chunk batch entry.
+    pub commit_steps: usize,
     pub decoded_results: usize,
     pub light_results: usize,
     pub light_jobs_dispatched: usize,
     pub mesh_results: usize,
     pub mesh_jobs_dispatched: usize,
+    /// Mesh updates or removals queued, including replacements of pending changes.
+    pub mesh_changes_queued: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]

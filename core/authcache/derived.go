@@ -464,7 +464,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			return nil, errors.New("authentication: refresh service credential")
+			return nil, credentialError(err, "refresh service credential")
 		}
 		if err := s.lock(ctx); err != nil {
 			return nil, err
@@ -647,7 +647,7 @@ func (s *Account) loginPlayFab(ctx context.Context, env *service.AuthorizationEn
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("authentication: PlayFab login")
+		return nil, credentialError(err, "PlayFab login")
 	}
 	if err := s.lock(ctx); err != nil {
 		_ = client.Close()

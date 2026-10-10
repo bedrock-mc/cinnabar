@@ -30,6 +30,7 @@ pub(super) struct BootstrapTimings {
 }
 
 impl BootstrapTimings {
+    /// Starts phase accounting at the current monotonic time.
     pub(super) fn start() -> Self {
         let now = Instant::now();
         Self {
@@ -70,6 +71,7 @@ impl BootstrapTimings {
     }
 
     #[cfg(test)]
+    /// Returns the accumulated interval for one phase.
     fn spent(&self, phase: BootstrapPhase) -> Duration {
         self.spent[phase as usize]
     }

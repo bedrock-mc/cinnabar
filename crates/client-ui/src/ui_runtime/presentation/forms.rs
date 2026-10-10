@@ -45,6 +45,7 @@ pub mod menus;
 pub mod mod_hud;
 pub mod mod_hud_editor;
 pub mod mod_panel;
+pub mod mod_screens;
 pub mod mod_widgets;
 pub mod model;
 pub mod motion_blur_setting;
@@ -53,6 +54,10 @@ pub mod oreui;
 mod retained_menu;
 pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
+#[cfg(test)]
+pub(crate) mod compatibility_tests;
+#[cfg(test)]
+mod font_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;
@@ -94,10 +99,12 @@ pub mod snapshot;
 pub mod start_feed;
 #[cfg(test)]
 mod store_tests;
+mod template_screen;
 #[cfg(test)]
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;
+pub mod vrr_setting;
 pub mod vsync_setting;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
@@ -106,9 +113,11 @@ pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use experience_modal::ExperienceModal;
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
 pub use menu_screens::menu_reference;
+pub use mod_screens::ModScreensInput;
 pub use npc::NPC_SCREEN;
 pub use oreui::BedHit;
 pub use sign_editor::SIGN_SCREEN;
+pub use template_screen::ModalEdits;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::scene_stack::ScreenSettingsTable;
@@ -140,6 +149,8 @@ pub(super) struct FormPresentation {
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<crate::menu::MenuAction>,
+    /// Screen and popup context owning the painted menu controls.
+    pub(super) menu_focus_context: Option<(crate::menu::MenuScreen, bool)>,
     pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
     pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
@@ -157,6 +168,8 @@ pub(super) struct FormPresentation {
     experience: Option<experience::ExperienceChrome>,
     /// A client part's modal screen; carried across the per-frame reset.
     experience_modal: Option<experience_modal::ModalScreen>,
+    /// A player mod's overlay and view; carried across the per-frame reset.
+    mod_screens: Option<mod_screens::ModScreens>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -172,7 +185,7 @@ pub(super) struct FormPresentation {
     /// The sign editor's cached screen; carried across the per-frame reset.
     sign: sign_editor::SignScreen,
     credits: credits_screen::CreditsScreen,
-    /// Dev-mode OreUI originals and the look OreUI screens draw with.
+    /// Installed OreUI artwork, available in every build, and the selected screen look.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
     oreui_dark_mode: bool,
@@ -301,7 +314,8 @@ impl UiPresentationRuntime {
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
-        let changed = self.refresh_experience_modal_pages() | server;
+        let changed =
+            self.refresh_experience_modal_pages() | self.refresh_mod_screen_pages() | server;
         // Server textures too big for a server page draw from full-resolution art.
         let set = super::menu_artwork::ArtworkSet {
             paths: self.menu_artwork_set.paths.clone(),
@@ -511,6 +525,7 @@ impl UiPresentationRuntime {
             mod_panel: state.mod_panel,
             experience: state.experience,
             experience_modal: state.experience_modal,
+            mod_screens: state.mod_screens,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             furnace_cache: state.furnace_cache,
@@ -531,6 +546,9 @@ impl UiPresentationRuntime {
             previous_container,
             ..FormPresentation::default()
         };
+        if let Some(screens) = self.form_presentation.mod_screens.as_mut() {
+            screens.begin_frame();
+        }
     }
 
     /// Draws the open container's engine screen.
@@ -596,7 +614,9 @@ impl UiPresentationRuntime {
                 let state = runtime.server_forms().engine();
                 let remote = renderer.textures.remote.clone();
                 let images = |url: &str| remote.state(url);
-                match model::engine_model(&entry.model, state, &translate, &images) {
+                match model::engine_model(&entry.model, state, &translate, &images, &|text| {
+                    runtime.resolve_form_text(text)
+                }) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);

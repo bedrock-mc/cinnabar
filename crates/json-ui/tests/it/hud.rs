@@ -396,9 +396,39 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     );
 }
 
-// Java Gui geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
+/// The built-in level label shares the survival status row and clears the XP bar.
 #[test]
-fn java_pack_places_the_hud_where_java_does() {
+fn built_in_level_aligns_with_health_and_hunger() {
+    for level in [2, 27, 123] {
+        let mut hud = model();
+        hud.level = level;
+        let Some(nodes) = render_with(&hud, true) else {
+            return;
+        };
+        let text = level.to_string();
+        let label = nodes
+            .iter()
+            .find(|node| {
+                matches!(&node.draw, Draw::Text { text: value, color, .. }
+                if value == &text && color[..3] != [0, 0, 0])
+            })
+            .expect("visible level label");
+        let hearts = custom(&nodes, "heart_renderer")[0];
+        let hunger = custom(&nodes, "hunger_renderer")[0];
+        assert_eq!(label.dest.y, hearts.dest.y, "level is below the health row");
+        assert_eq!(label.dest.y, hunger.dest.y, "level is below the hunger row");
+        assert_eq!(label.dest.x + label.dest.w / 2.0, 240.0);
+        let bar = named(&nodes, "empty_progress_bar")
+            .into_iter()
+            .find(|node| node.dest.y > 200.0)
+            .expect("xp bar");
+        assert!(label.dest.y + label.dest.h < bar.dest.y);
+    }
+}
+
+// Built-in HUD geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
+#[test]
+fn java_pack_places_the_hud() {
     let Some(nodes) = render_with(&model(), true) else {
         return;
     };
@@ -417,7 +447,7 @@ fn java_pack_places_the_hud_where_java_does() {
     assert_eq!(at(selected[0]), [188.0, 247.0]);
     let icons = custom(&nodes, "inventory_item_renderer");
     assert_eq!(at(icons[0]), [152.0, 251.0]);
-    // XP bar 182x5 at H-29; level text top at H-35, outlined four ways.
+    // XP bar 182x5 at H-29; level text shares the status row, outlined four ways.
     let bar = named(&nodes, "empty_progress_bar")
         .into_iter()
         .find(|node| node.dest.y > 200.0)
@@ -428,7 +458,8 @@ fn java_pack_places_the_hud_where_java_does() {
         .filter(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "7"))
         .collect();
     assert_eq!(level.len(), 5);
-    assert_eq!(at(level[4]), [237.0, 235.0]);
+    assert_eq!(level[4].dest.x + level[4].dest.w / 2.0, 240.0);
+    assert_eq!(level[4].dest.y, custom(&nodes, "heart_renderer")[0].dest.y);
     // Count text right-aligned in the cell: right edge at cell + 19, top at +12.
     let count = text_node(&nodes, "12");
     assert_eq!(count.dest.x + count.dest.w, 169.0);

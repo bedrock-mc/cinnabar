@@ -1,3 +1,23 @@
+## Small-surface render safety
+
+- Explicit render scissors and viewports intersect their physical attachments; empty
+  intersections skip drawing. UI pipeline selection follows current resource preparation,
+  including retained layers and model depth during the first frame and resize.
+- Deterministic bounds witnesses cover oversized layouts, 254×124, 1×1, zero extents and
+  differing DPI. Native offscreen validation covers nonzero small attachments.
+- The reported unfocused macOS startup panic remains incomplete until a matching
+  headless startup capture reproduces it. No native parity or frame-budget gate closes.
+## UI text and presentation failure recovery
+
+- Wrapped presentation text keeps an indivisible glyph wider than its control, with
+  existing line breaks and clipping. Newly shaped overflow layouts are counted and
+  logged with bounded frequency. Strict measurement requests still reject oversized ink.
+- Rejected runtime presentation frames count, log and skip publication without ending
+  the network session; a later valid frame can publish. Startup asset validation remains
+  fail-fast. Fitting status labels keep their width checks and ellipsis policy.
+- Exact-version native overflow behavior remains incomplete pending a matching native
+  control witness. The original reported text is unknown. No parity gate closes.
+
 ## Optional spatial anti-aliasing and cutout coverage
 
 - Capability-aware MSAA remains the primary setting with its existing default. Spatial
@@ -50,13 +70,10 @@
   Normal supports saved overworld pre-generation and four chunk workers by default; see
   [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
   and join/streaming budgets remain incomplete.
-- Dragonfly Normal populates eligible grass habitats with persistent cows, pigs, sheep and
-  chickens through the owning world simulation. Reopening preserves saved actors and backend.
-  Exact material admission, continuous weather brightness, complete effect lifecycle and infinite-effect behavior,
-  native damage-immunity behavior across reload, complete animal AI, breeding,
-  climate variants, loot and other passive species remain incomplete; this does not close
-  the broader mob parity or performance gates.
-- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+- Dragonfly passive animal simulation and natural population remain unsupported and incomplete.
+  Stored unsupported actors are preserved without becoming live entities. Mob parity and
+  performance gates remain open.
+- Dressing Room persists classic/slim and static custom-geometry skins, independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
   preserving texels and private source files. This custom import extension leaves native cape
@@ -66,20 +83,22 @@
   settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
   terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
 
-## OreUI Unicode fallback
+- Back navigation retains an available prior control and validates Home focus against painted
+  enabled controls. Keyboard/gamepad return and pointer outline admission have regression coverage.
+  Exact native Home restoration policy and full authored frontend parity remain incomplete.
 
-- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
-  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
-  own sampling and em scale. Language names and common server symbols are warmed at startup.
-- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
-  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
-  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
-- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
-  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
-  for native controls and icons. Text coverage and opaque model color masks use independent flags.
-- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+## Shipped OreUI fonts
 
-## OreUI verification
+- Body text uses Cinnangles Seven and headings use Cinnangles Ten, derived from the shipped
+  Cinnangles Sans. Optional font carriers compile before startup and use the default font when
+  missing or invalid. OreUI no longer reads installed game fonts or rasterizes them at startup.
+- Compiled Unicode ranges supply Latin, symbols and bounded CJK coverage. The installed Noto
+  chain and its worker cache have been removed. Full Unicode coverage, script substitution,
+  bidirectional shaping and small-text raster parity remain incomplete.
+- Game-bundle artwork remains a runtime input; this font change closes no native artwork,
+  responsive-layout or font-parity gate.
+
+## Prior OreUI verification
 
 - The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
   reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
@@ -114,6 +133,9 @@
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
   and matched loading/stall behavior remain incomplete.
+- Cache responses retain valid requested columns when accompanied by repeated
+  verified blobs still in the cache. Late responses after eviction and the
+  remaining missing-terrain recovery behavior remain incomplete.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
@@ -155,6 +177,17 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Simulation reads the current admitted frame clock. Deterministic FIFO tests at 60 and
+  120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
+  manual recording clocks keep their requested steps. Live movement acceptance remains open.
+
+- Actor catch-up uses `world::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
+  advancement share one clock step, including server-defined interaction boxes after a stall.
+  Deterministic regression coverage does not close live animation or movement acceptance.
+
+- Apple pipelined rendering keeps surface creation on the UI thread while render
+  submission stays on the render thread. Main and extraction schedules retain
+  single-thread execution; runtime startup checks do not close frame-budget gates.
 - Idle native metadata publication no longer dispatches through the main thread.
   macOS frame workers use interactive scheduling; bounded-load diagnostics show
   more render-work headroom. Unloaded tail results remain adverse and unexplained:
@@ -183,6 +216,9 @@
   a cold bind rebuild most controls. Release-build hardware captures remain open.
 - Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
   batches prepare custom models while replacements retain the last complete profile.
+  Ready appearances publish within a frame budget, with the local player first; normal
+  ready joins remain visible in their arrival frame. Distant block-entity rescans rotate
+  within their budget, while nearby edits remain immediate.
   Prepared meshes retain validation and vertex fingerprints across catalog publication.
   Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
   see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
@@ -218,7 +254,7 @@
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
-- Incomplete parity: animated attachment anchors, additional actor hitboxes,
+- Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
   owner limitations. Legacy education photography output is unsupported. Packaged
@@ -373,8 +409,8 @@
 - Controller uses its native category image; category selection plays the 500ms highlight.
   Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
   detail-row top/bottom edges now retain their native state roles and group boundaries.
-  The integrated Settings regressions and installed-font tests pass. The visible macOS client
-  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  The integrated Settings control regressions pass. OreUI now uses shipped Cinnangles carriers.
+  The visible macOS client runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
   follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
 - Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
   switches, filled sliders, inline choices, and independent panel scrollbars.
@@ -385,10 +421,9 @@
   acceptance is pending; this does not close the Settings parity gate.
 - Incomplete: native options without a host model, controller binding glyphs, account management
   actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
-  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
-  kerning, CPU distance-field rasterization, coverage shading, control states and
-  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
-  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  Runtime vanilla artwork and shipped Cinnangles faces are integrated, with face metrics,
+  letter spacing, coverage shading, control states and pointer/navigation timelines. Locale shaping
+  and hidden-tab animation resumption still need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
   acceptance remains open. Reference facts are tracked in
   [OreUI](docs/oreui.md).
 
@@ -579,6 +614,22 @@
 - Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
   as is a GPU pass-time measurement once per-pass timestamps land.
 
+## Compact font carriers and glyph residency
+
+- Font carrier schema 2 stores independently compressed zlib pages, with coverage bytes for
+  outline faces and RGBA retained for colored bitmap pages. Decoding checks stored and decoded
+  hashes, exact stream lengths, dimensions, and the aggregate decoded-byte bound.
+- Font textures use bounded demand atlases. A publication resolves all sampled glyph rectangles
+  before uploading or drawing them; warm glyphs retain their placements. Full atlases repack the
+  current frame's requests, and frames exceeding the bound are rejected before texture writes.
+  New slots share row uploads to bound queue overhead. Source UVs remain unchanged during
+  interpolation so relocation preserves SDF derivatives.
+- Development-profile startup measurements reach the first completed menu GPU submission.
+  Offline mixed-script menu/chat captures and native GPU pixel comparisons cover the carrier
+  and atlas changes. Incomplete performance acceptance: release frame/hitch attribution and
+  qualification on all reference hardware tiers remain open; these measurements do not close
+  those gates.
+
 ## Menu frame passes and retained memory
 
 - The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
@@ -635,6 +686,7 @@
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- Pot bodies and lantern surfaces use double-sided alpha testing instead of fallback blending and rear-face culling.
 - The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
 - Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
 - The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
@@ -678,15 +730,19 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, stay tear-free: FIFO, or Mailbox when
-  the frame-rate limit outpaces the display. No setting or flag requests tearing; only hidden
-  developer surfaces present unpaced. Every choice comes from the primary surface's probed modes.
+- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, prefer Immediate (which can tear),
+  then Mailbox, then FIFO. Hidden developer surfaces present unpaced.
+  Every choice comes from the primary surface's probed modes.
   `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
 - Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
   vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
   the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
-  variable refresh at 97% of its maximum. Incomplete: no platform reports active variable
-  refresh yet, so that cap never engages; rendered Video-screen acceptance pending.
+  variable refresh at 97% of its maximum in low-latency mode.
+- Variable Refresh Rate offers Automatic / On / Off in both Video menus. Automatic uses the
+  current macOS screen's refresh intervals and native fullscreen state; unsupported queries,
+  Windows, and Linux remain Unknown. On declares VRR enabled by the player; it does not change
+  the display or OS configuration. Off disables the VRR cap. Unknown remains conservative.
+  Incomplete: physical VRR cadence, cap overshoot, and tearing need target-display acceptance.
 
 ## Unfilled sub-chunk slots light as air
 
@@ -1772,6 +1828,24 @@ gate is closed. Incomplete: custom component durability maxima, production API
 stability, server policy/grant UI and native cross-platform acceptance. See
 `docs/modding-spike.md` for the contract.
 
+2026-10-04 modding screens (`player-mod` world, BEI platform P1–P5): experimental,
+non-parity extension. The world joins `cinnabar:extension@0.1.0` beside `extension`.
+`CINNABAR_MOD_PACKAGE` or a `CINNABAR_MOD_SET` package entry loads a hashed package
+(`mod.toml`); its JSON-UI overlay draws beside every container screen, clipped outside the
+container's panels, and its view draws over the still-open container, with the overlay
+still taking input beside it. One mod, the earliest drawing in load order, owns the screens.
+Session items and recipes (`cinnabar:session`) are read-only. Provisional, labeled
+incomplete: the GUI rect is the bounding box of `root_panel` and every laid-out
+non-full-screen control, not a per-panel union read from the vanilla pack; the
+exclusion list is empty (vanilla status-effect and toast areas are not yet
+reported); an overlay node that meets the GUI rect (the view's drawn bounds while it
+is open) is dropped whole rather than clipped. Headless macOS captures at
+1920×1080 verified the overlay, text input beside an open view, and return to
+inventory. Other platforms and scales remain incomplete. Session data
+gaps: no smelting at 1.26.x, brewing skipped, recipes with Molang/complex/deferred
+ingredients dropped. Incomplete as for the spike: process isolation, signing,
+consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
+
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
 interpolated per frame. Local actor feet, interaction eye and network anchor are
@@ -2098,6 +2172,17 @@ Provisional, incomplete: zero scale currently produces a point box before pick-r
 inflation; the native positive minimum dimension remains unverified. Definition-specific
 collision defaults, authored picking-box collections and invalid-dimension behavior
 remain incomplete.
+
+2026-10-09 server hitboxes: the `HITBOX` actor data compound (id 118) appends
+custom interaction boxes. Each `Hitboxes` entry uses normalized Min/Max extents
+centred on its pivot relative to the native actor position. Render yaw and scale
+do not affect these boxes. Empty updates preserve previous boxes; unreadable and
+non-finite data is skipped and counted. Missing or differently typed float fields
+use zero. Crosshair, use and melee picks share the predicted geometry and use the
+first intersection in server order within each actor. Aim assist considers each
+box separately, retaining all boxes of an actor admitted before its candidate
+threshold. Collision, placement obstruction and F3 retain collision geometry.
+Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
 without withdrawing its whole namespace. Regressions reproduce top-left chat and
@@ -3037,7 +3122,9 @@ Current implementation state:
   passive retention, not effective permissions, Survival admission, or a mining
   sender; end-to-end handshake and native permission acceptance remain open.
 - Supervised first-run device-code authentication and cached-account validation have landed;
-  token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
+  token bytes remain Go-owned. Accounts without an Xbox profile can open Microsoft's hosted
+  signup and resume sign-in with the same Microsoft login. Live Xbox account creation acceptance
+  remains open. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
   an app same-frame delivery seam; a bounded session-owned outcome queue resolves named plays through the
   optional compiled sound-definition catalog into finite-checked playback records (stops catalog-free,
@@ -5367,6 +5454,24 @@ rendered-frame pass at a fractional display scale yet.
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
 
+Block cracks retain one ordered entry for their speed and rendered progress.
+Repeated starts keep the active crack, speed updates preserve progress (including
+zero speed), and completion removes the entry before later events. Progress uses
+the current speed and elapsed real time on each unpaused rendered frame; only
+positive progress draws the ten-stage overlay. Native rendered comparison remains
+open; this does not close the Phase 5.5 acceptance gate.
+Mining prediction uses single-precision accumulation and rounds each effect's
+multiplier separately.
+
+**Throwable timing (2026-10-09):** the native 200 ms action delay remains
+separate from item-category cooldowns. The opt-in Item Use Delay Fix permits
+one use after a slot change even between frames sharing an upcoming tick.
+Pearl, wind-charge and chorus-fruit cooldowns stay in their own categories;
+chorus fruit starts its 20-tick cooldown when use begins. Deterministic tests
+cover rapid slot changes, delay boundaries, rejected sends and hotbar cooldown
+publication. Live gameplay
+acceptance remains incomplete; this does not close the interaction gate.
+
 Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management
 implementation when establishing these contracts. Pin the inspected source revision
 and verify Cinnabar's end-to-end request/response behavior; the reference designation
@@ -5547,6 +5652,16 @@ gates.
   merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
+  Form display fields now retain structured text for language and live-state resolution,
+  including metadata, component precedence, nested text, and scalar display fallbacks.
+  Custom forms include multiselect checkboxes, ordered index-array responses, and slider
+  timeouts, scoped dropdown options, custom icons, and float slider edits with localized
+  value labels. Custom controls and option lists use the document byte budget instead of
+  a separate 256-item cap. Menu normalization prefers non-null buttons and ignores unused metadata.
+  Unselected edit boxes leave focused controls available through global button mappings.
+  A sanitized 346-button featured-menu capture guards complete selection indexes; that
+  menu already renders after the earlier button-limit fix. Broader visual parity remains
+  incomplete until matching native captures verify these controls at the supported scales.
 - [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
   supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
   prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,
@@ -5602,6 +5717,17 @@ emit one local `drop.slot` cue through the active pack, without waiting for or
 repeating server replies. Failed and inventory-screen drops stay silent on this
 route. See [the rules and regressions](docs/reference/item-drop-audio.md).
 Matched-version live audio acceptance remains incomplete.
+
+**Audio callback scheduling:** Hardware playback requests Windows MMCSS priority
+once per pulling thread, with a current-thread priority fallback. Submission-time
+resampling leaves the frame thread alone; capture playback keeps its existing
+scheduling. Windows scheduling and audible acceptance remain incomplete.
+
+**Sound-bank loading:** First-use lookups queue file descriptors; the existing
+workers read and decode the sounds. Loading queues up to four finite sounds each
+for UI, footsteps and interactions, with a 1 MiB input limit. Generation checks,
+admission limits and PCM cache accounting stay in place. Live first-play latency
+and cold-cache frame acceptance remain incomplete.
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides
@@ -6072,6 +6198,20 @@ scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
 
+### Between-frames world servicing (incomplete native acceptance)
+
+The production client lends `WorldStream` to a `stream-service` thread after each frame's
+last schedule and reclaims it before the next frame's first, so decode commits, light and
+mesh scheduling and retention evictions overlap extraction and pacing. The frame keeps a
+floor poll and still commits the chunk data that a ready block change, retention change
+or barrier waits behind. Resident membership, keyed stream state and terrain lookups use
+hashed indexes, and mesh halo and neighbour checks read each index once. Offline synthetic
+replays (radius 12, 120 Hz) cut frame-thread stream time several-fold and converge to the
+same presented meshes ([offline evidence](docs/evidence/async-chunk-servicing.md)); joins
+mesh the faced view sooner and rear sub-chunks of nearby columns later. Release captures on
+target hardware, live join and streaming budgets, and real-pack meshing and lighting load
+remain open.
+
 ### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
 
 Selected-item text now positions its spawned Java-look factory root above the
@@ -6115,6 +6255,14 @@ The captured Spirit Bundle witness exercises late pack installation and texture
 residency, but the black rectangle, floating labels and live FPS loss remain
 unproven. No live visual/performance gate is closed; see
 `docs/reference/jsonui-review-fixes.md`.
+
+Tiny JSON-UI disabled frames preserve authored source slices when opposing
+insets overlap, including reversed center UVs. Individual oversized insets stay
+inside the texture region as an atlas safety fallback; exact beyond-image native
+sampling remains incomplete. Original raster fixtures cover
+one-texel borders through the atlas at GUI scales 3 and 6. Exact-version authored
+frontend comparison and the broader UI visual parity gate remain incomplete.
+
 ## Go core simplification (2026-10-02)
 
 The core's packet-decoding diagnostic observers for cache boundaries, loading order,
@@ -6805,3 +6953,17 @@ Incomplete parity: exact target-version animation constants,
 respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
 client variants, and matched native frames remain open. The modern implementation
 and its focused regressions do not close the full death-screen parity gate.
+
+### Local custom models (incomplete parity acceptance, 2026-10-09)
+
+The Dressing Room imports paired PNG/geometry JSON and free static skin packs.
+It retains authored geometry and the minimum engine version across restarts and
+sends them in login and skin updates. Custom models keep their authored shape;
+rename and delete remain available. Preview preparation runs on a worker, while
+local world presentation uses the shared actor preparation cache in both perspectives.
+
+Imported raster dimensions follow the native 64×32, 64×64 and 128×128 contract.
+Archive, geometry and library ceilings are Cinnabar resource limits. Pack minimum
+engine versions remain separate from geometry schema versions. Full native skin-pack
+import parity, animated imports, persona and Marketplace trust remain incomplete.
+No visual parity or hardware performance gate closes with this extension.

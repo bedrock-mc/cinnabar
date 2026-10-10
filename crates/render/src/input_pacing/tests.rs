@@ -222,6 +222,36 @@ fn main_bound_frames_never_wait() {
     }
 }
 
+/// Work before `First`, including a stream reclaim, contributes to the next admission delay.
+#[test]
+fn reclaim_wait_counts_toward_the_predicted_main_frame() {
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, bevy::ecs::schedule::ScheduleLabel)]
+    struct SimulatedReclaim;
+
+    let clock = FakeClock::new();
+    let pacer = InputPacer::new(clock.clone(), true);
+    let mut app = App::new();
+    let mut render_thread = SubApp::new();
+    render_thread.set_extract(|_, _| {});
+    app.insert_sub_app(RenderExtractApp, render_thread);
+    app.add_plugins(InputPacingPlugin::with_pacer(pacer.clone()));
+    app.init_schedule(SimulatedReclaim);
+    app.world_mut()
+        .resource_mut::<bevy::app::MainScheduleOrder>()
+        .insert_before(First, SimulatedReclaim);
+    let reclaim_clock = clock.clone();
+    app.add_systems(SimulatedReclaim, move || reclaim_clock.advance(ms(3.0)));
+    app.add_systems(Update, move || clock.advance(ms(2.0)));
+
+    for _ in 0..MIN_SAMPLES {
+        pacer.state().model.render.record(ms(8.0));
+        app.update();
+    }
+    let state = pacer.state();
+    assert_eq!(state.model.main.quantile(MEDIAN), Some(ms(5.0)));
+    assert_eq!(state.model.delay(), ms(2.0));
+}
+
 #[test]
 fn recorded_jitter_keeps_input_fresh_without_costing_throughput() {
     // Main 1.4–2.0 ms and render 7.6–9.0 ms, from a fixed pseudo-random sequence.
@@ -359,3 +389,6 @@ fn render_bound_frames_under_a_loose_cadence_still_sample_late() {
         );
     }
 }
+
+#[path = "tests/cadence.rs"]
+mod cadence;

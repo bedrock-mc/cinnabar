@@ -1,7 +1,10 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::BTreeSet,
     sync::{Arc, Mutex, Weak},
 };
+
+// Every terrain lookup hashes a column key; seeded foldhash avoids SipHash's cost.
+use hashbrown::HashMap;
 
 use crate::{
     BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockUpdate, Chunk,

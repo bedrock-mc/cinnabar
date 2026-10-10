@@ -170,7 +170,8 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     let sound_bank = match times.time("sound bank", || {
         crate::audio::SoundBank::open(&crate::audio::sound_bank_path(world), catalog.clone())
     }) {
-        Ok(Some(bank)) => {
+        Ok(Some(mut bank)) => {
+            times.time("sound prewarm queue", || bank.prewarm_common());
             eprintln!("loaded sound bank ({} sound files)", bank.file_count());
             Some(bank)
         }

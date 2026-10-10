@@ -83,10 +83,8 @@ impl EquipmentBinding {
         self.poses.iter().find(|pose| pose.key.as_ref() == key)
     }
 
-    /// The RGB this binding's material multiplies through its color mask: the stack's dye,
-    /// else undyed leather. Only leather materials (vanilla `armor_leather`, whose
-    /// `USE_COLOR_MASK` shader reads texture alpha as the dye mask) have one; every other
-    /// material renders its texture as authored, whatever dye the stack carries.
+    /// Returns the stack dye or undyed-leather RGB only for color-mask leather materials.
+    /// Other materials keep their authored texture regardless of the stack dye.
     #[must_use]
     pub fn color_mask_rgb(&self, dye: Option<u32>) -> Option<u32> {
         self.material

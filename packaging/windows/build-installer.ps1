@@ -28,13 +28,14 @@ Copy-Item (Join-Path $release "bedrock-client.exe"), (Join-Path $release "bedroc
 Copy-Item (Join-Path $release "assetc.exe") (Join-Path $kit "bin")
 Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $resources "assets")
+Copy-Item (Join-Path $root "LICENSE") (Join-Path $resources "licenses/Cinnabar-LICENSE.md")
 Copy-Item (Join-Path $root "assets/licenses/*") (Join-Path $resources "licenses")
 $fontSource = Get-Content -Raw (Join-Path $root "assets/cinnangles-sans-source.json") | ConvertFrom-Json
 $font = Join-Path $root "assets/fonts/$($fontSource.font_file)"
 if (-not (Test-Path $font)) { throw "missing $font" }
 Copy-Item $font (Join-Path $resources "fonts")
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
-Copy-Item $font (Join-Path $kit "assets/fonts")
+Copy-Item (Join-Path $root "assets/fonts/*") (Join-Path $kit "assets/fonts")
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
 if ($env:CINNABAR_UPDATE_URL) { [System.IO.File]::WriteAllText((Join-Path $resources "update-url"), $env:CINNABAR_UPDATE_URL) }
 

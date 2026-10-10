@@ -5,6 +5,7 @@
 //! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
+mod fs_retry;
 mod prepare;
 mod runner;
 mod screen;

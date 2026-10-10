@@ -13,9 +13,8 @@ impl UiPresentationRuntime {
         self.set_player_preview_poses(skin, pose, pose);
     }
 
-    /// Poses the model at `pose` and draws the software rasters at `raster`. With model
-    /// geometry the preview raster is blank and the hand rasters read only pitch and sneaking,
-    /// so a turn changes geometry alone and never rebuilds a texture page.
+    /// Poses model geometry separately from software hand rasters.
+    /// Geometry turns do not rebuild texture pages; hand rasters follow pitch and sneaking.
     pub(super) fn set_player_preview_poses(
         &mut self,
         skin: Option<&[u8]>,

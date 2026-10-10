@@ -424,9 +424,7 @@ pub(crate) fn drive_menu_input(
         }
         return;
     }
-    menu.refresh_settings_focus(presentation.visible_menu_actions());
-    let (targets, landmarks) = presentation.settings_focus_geometry();
-    menu.refresh_settings_focus_geometry(targets, landmarks);
+    menu.refresh_presented_focus(&presentation);
     let (window_entity, window, mut cursor) = window.into_inner();
     if let Some(messages) = mouse_messages.as_deref() {
         let GuiScaleDrag {

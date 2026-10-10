@@ -310,7 +310,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             })
         }),
         "skin": world.get_resource::<crate::player_skin::LocalPlayerSkin>().map(|skin| json!({
-            "width": skin.width, "height": skin.height, "arm_size": skin.arm_size,
+            "width": skin.width, "height": skin.height, "arm_size": skin.skin_model.arm_size(),
             "content_hash": skin.rgba8.content_hash(),
             "cape": skin.cape.as_ref().map(|cape| json!({"width": cape.width, "height": cape.height})),
         })),

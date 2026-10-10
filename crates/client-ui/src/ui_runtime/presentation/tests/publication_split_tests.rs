@@ -9,6 +9,7 @@ fn suppressed_cpu_hands_do_not_republish_cached_arm_textures() {
         let prepared = PendingUiPublication {
             inventory: runtime.capture_presentation_inventory(&player),
             preview: PreviewCapture {
+                ready: true,
                 skin: None,
                 pose: Default::default(),
                 shown: false,

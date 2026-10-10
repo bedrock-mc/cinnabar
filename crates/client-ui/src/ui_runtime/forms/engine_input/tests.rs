@@ -372,3 +372,286 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
     assert_eq!(engine.view.scroll.get(&key), Some(&30.0));
     assert!(engine.drag.is_none());
 }
+
+#[test]
+fn multiselect_edits_use_the_enclosing_form_and_normalize_option_order() {
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        r#"{"type":"custom_form","content":[
+            {"type":"multiselect","text":"First","options":["A","B","C"],"default":[2,0,2,-1]},
+            {"type":"multiselect","text":"Second","options":["D","E"],"default":[1]}
+        ]}"#,
+        false,
+    );
+    runtime
+        .server_forms_mut()
+        .engine_mut()
+        .open_multiselects
+        .extend([0, 1]);
+    assert_eq!(
+        runtime.server_forms().engine().submission()[0],
+        protocol::CustomFormValue::MultiSelect(vec![2, 0, 2, -1].into())
+    );
+    pack_harness::render(&mut presentation, &runtime, [1280, 1440], 1.0);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    let option = frame
+        .hits
+        .iter()
+        .find(|hit| {
+            hit.control_name.as_deref() == Some("custom_multiselect_checkbox")
+                && hit.collections == [("custom_form".into(), 0), ("custom_multiselect".into(), 1)]
+        })
+        .expect("first form option B");
+    for checked in [true, false] {
+        assert_eq!(
+            controller(
+                &mut runtime,
+                &frame,
+                &model,
+                &ScreenEvent::Toggle {
+                    name: "custom_multiselect_checkbox".into(),
+                    key: option.key.clone(),
+                    index: Some(1),
+                    checked,
+                    by_click: true,
+                },
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            runtime.server_forms().engine().submission()[0],
+            protocol::CustomFormValue::MultiSelect(
+                if checked { vec![0, 1, 2] } else { vec![0, 2] }.into()
+            )
+        );
+        assert_eq!(
+            runtime.server_forms().engine().submission()[1],
+            protocol::CustomFormValue::MultiSelect(vec![1].into())
+        );
+        assert!(
+            runtime
+                .server_forms()
+                .engine()
+                .open_multiselects
+                .contains(&0)
+        );
+    }
+}
+
+#[test]
+fn directional_slider_edits_advance_when_the_fraction_stays_on_the_same_grid_point() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        crate::ui_runtime::presentation::forms::compatibility_tests::CONTROLS,
+        false,
+    );
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    assert_eq!(
+        set_slider(&mut runtime, &model, 4, 0.41, None, true),
+        Some(f64::from(0.6_f32))
+    );
+    assert_eq!(
+        runtime.server_forms().engine().values[4],
+        FormValue::Slider(6.0)
+    );
+}
+
+#[test]
+fn the_first_direction_after_pointer_tracking_only_snaps_the_value() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        crate::ui_runtime::presentation::forms::compatibility_tests::CONTROLS,
+        false,
+    );
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    for (pointer, expected) in [(true, 4.0), (false, 4.0), (false, 6.0)] {
+        let _ = set_slider(&mut runtime, &model, 4, 0.41, None, !pointer);
+        assert_eq!(
+            runtime.server_forms().engine().values[4],
+            FormValue::Slider(expected)
+        );
+    }
+}
+
+#[test]
+fn repeated_directional_input_uses_the_snapped_slider_position() {
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        crate::ui_runtime::presentation::forms::compatibility_tests::CONTROLS,
+        false,
+    );
+    pack_harness::render(&mut presentation, &runtime, [1280, 1440], 1.0);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    let slider = frame
+        .hits
+        .iter()
+        .find(|hit| hit.kind == HitKind::Slider && hit.collection_index == Some(4))
+        .unwrap();
+    {
+        let engine = runtime.server_forms_mut().engine_mut();
+        engine.view.focused = Some(slider.key.clone());
+        let dispatch = engine.dispatcher.button(
+            &frame.hits,
+            &mut engine.view,
+            EngineButton {
+                id: "button.menu_ok",
+                down: true,
+                point: None,
+                mode: InputMode::Gamepad,
+                now: -0.1,
+            },
+        );
+        assert_eq!(
+            engine.view.components.selected(),
+            Some(slider.key.as_str()),
+            "dispatch: {dispatch:?}"
+        );
+    }
+    for (now, expected) in [(0.0, 6.0), (0.25, 8.0)] {
+        let events = {
+            let engine = runtime.server_forms_mut().engine_mut();
+            engine
+                .dispatcher
+                .direction(&frame.hits, &mut engine.view, [1.0, 0.0], now)
+                .events
+        };
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ScreenEvent::Slider {
+                directional: true,
+                ..
+            }
+        )));
+        for event in events {
+            controller(&mut runtime, &frame, &model, &event, None);
+        }
+        assert_eq!(
+            runtime.server_forms().engine().values[4],
+            FormValue::Slider(expected)
+        );
+    }
+}
+
+#[test]
+fn dropdown_edits_answer_and_close_only_the_enclosing_form_element() {
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        r#"{"type":"custom_form","content":[
+            {"type":"dropdown","text":"First","options":["A","B"],"default":0},
+            {"type":"dropdown","text":"Second","options":["C","D"],"default":1}
+        ]}"#,
+        false,
+    );
+    runtime
+        .server_forms_mut()
+        .engine_mut()
+        .open_dropdowns
+        .extend([0, 1]);
+    pack_harness::render(&mut presentation, &runtime, [1280, 1440], 1.0);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    let option = frame
+        .hits
+        .iter()
+        .find(|hit| {
+            hit.widget.toggle.as_ref().is_some_and(|toggle| {
+                toggle.name.as_deref() == Some("custom_dropdown_radio_toggle")
+            }) && hit.collections == [("custom_form".into(), 0), ("custom_dropdown".into(), 1)]
+        })
+        .expect("first dropdown option B");
+    controller(
+        &mut runtime,
+        &frame,
+        &model,
+        &ScreenEvent::Toggle {
+            name: "custom_dropdown_radio_toggle".into(),
+            key: option.key.clone(),
+            index: Some(1),
+            checked: true,
+            by_click: true,
+        },
+        None,
+    );
+    assert_eq!(
+        runtime.server_forms().engine().submission().as_ref(),
+        [
+            protocol::CustomFormValue::Dropdown(1),
+            protocol::CustomFormValue::Dropdown(1)
+        ]
+    );
+    assert_eq!(
+        runtime
+            .server_forms()
+            .engine()
+            .open_dropdowns
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        [1]
+    );
+}
+
+#[test]
+fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::ui_runtime::presentation::forms::compatibility_tests::replay(
+        &mut player,
+        r#"{"type":"custom_form","content":[
+            {"type":"toggle","text":"Enabled","default":true},
+            {"type":"dropdown","text":"Mode","options":["A","B"],"default":1}
+        ]}"#,
+        false,
+    );
+    let model = runtime.server_forms().active().unwrap().model.clone();
+    let frame = EngineFrame {
+        identity: Some(runtime.server_forms().active().unwrap().identity),
+        hits: std::sync::Arc::from([]),
+        report: Default::default(),
+        cancel_target: None,
+        origin: [0.0; 2],
+        scale: 1.0,
+        panel: None,
+        edit_texts: Vec::new(),
+        top: Vec::new(),
+    };
+    controller(
+        &mut runtime,
+        &frame,
+        &model,
+        &ScreenEvent::Toggle {
+            name: "custom_dropdown_radio_toggle".into(),
+            key: "dropdown/option".into(),
+            index: Some(0),
+            checked: false,
+            by_click: false,
+        },
+        None,
+    );
+    assert_eq!(
+        runtime.server_forms().engine().submission().as_ref(),
+        [
+            protocol::CustomFormValue::Toggle(true),
+            protocol::CustomFormValue::Dropdown(1)
+        ]
+    );
+}

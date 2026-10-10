@@ -15,11 +15,15 @@ pub(super) const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
 pub(super) const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.
 pub(super) const SERVER_UI_PAGES: usize =
-    render_model::UI_LOCAL_FONT_PAGE_OFFSET - SERVER_UI_PAGE - MODAL_UI_PAGES;
+    render_model::UI_LOCAL_FONT_PAGE_OFFSET - SERVER_UI_PAGE - MODAL_UI_PAGES - MOD_UI_PAGES;
 /// Dynamic page offset of a client part's modal screen textures, after the server pack's.
 pub(super) const MODAL_UI_PAGE: usize = SERVER_UI_PAGE + SERVER_UI_PAGES;
 /// Dynamic pages reserved for the modal's bundle textures, apart from the server pack's.
 pub(super) const MODAL_UI_PAGES: usize = 4;
+/// Dynamic page offset of a player mod's screen textures, after the modal's.
+pub(super) const MOD_UI_PAGE: usize = MODAL_UI_PAGE + MODAL_UI_PAGES;
+/// Dynamic pages reserved for the player mod's package textures, before the local font page.
+pub(super) const MOD_UI_PAGES: usize = 4;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -252,6 +256,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     let modal_pages = runtime.experience_modal_pages();
     dynamic.extend((0..MODAL_UI_PAGES).map(|offset| {
         modal_pages
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    let mod_pages = runtime.mod_screen_pages();
+    dynamic.extend((0..MOD_UI_PAGES).map(|offset| {
+        mod_pages
             .get(offset)
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())

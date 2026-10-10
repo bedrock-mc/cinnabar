@@ -2,10 +2,11 @@
 """Resolve the package workflow's exact source commit and optional release tag.
 
 Environment: EVENT_NAME=push|schedule|workflow_dispatch, DEFAULT_BRANCH (main),
-BUMP=current|patch|minor|major|custom, CUSTOM_VERSION=X.Y.Z, TARGET_BRANCH,
+BUMP=current|patch|minor|major|custom|nightly, CUSTOM_VERSION=X.Y.Z, TARGET_BRANCH,
 optional RELEASE_TAG for a tag push, and the
 standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
-Dispatch must check out TARGET_BRANCH with full history and tags. Only a
+Dispatch must check out TARGET_BRANCH with full history and tags. A nightly
+dispatch is read-only and limited to the default branch; only a stable
 dispatch writes a release commit/tag; GitHub's token does not trigger another
 tag workflow. Outputs: channel, tag, version, ref, commit. ref is a commit SHA.
 """
@@ -133,10 +134,17 @@ def prepare() -> dict[str, str]:
         target_branch = os.environ.get("TARGET_BRANCH", "") or default_branch
         git("check-ref-format", f"refs/heads/{target_branch}")
         bump = os.environ.get("BUMP", "current")
-        if bump not in {"current", "patch", "minor", "major", "custom"}:
-            raise ReleaseError("BUMP must be current, patch, minor, major, or custom")
-        tag, source_version = dispatch(target_branch, bump)
-        channel = "stable"
+        if bump not in {"current", "patch", "minor", "major", "custom", "nightly"}:
+            raise ReleaseError("BUMP must be current, patch, minor, major, custom, or nightly")
+        if bump == "nightly":
+            if target_branch != default_branch:
+                raise ReleaseError(f"nightly builds only package {default_branch}")
+            if git("symbolic-ref", "--quiet", "--short", "HEAD") != default_branch:
+                raise ReleaseError("manual nightly builds must check out the default branch")
+            tag, source_version, channel = "nightly", version(), "nightly"
+        else:
+            tag, source_version = dispatch(target_branch, bump)
+            channel = "stable"
     elif event in {"push", "schedule"}:
         ref = os.environ.get("GITHUB_REF", "")
         source_version = version()

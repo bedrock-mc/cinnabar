@@ -24,6 +24,30 @@ pub struct SettingDefinition {
     pub default: i32,
 }
 
+/// Variable-refresh choices shared by the persisted setting and both Video menus.
+pub const VRR_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "vrr_radio_automatic",
+        label: render_api::VrrPreference::Automatic.label(),
+    },
+    SettingChoice {
+        name: "vrr_radio_on",
+        label: render_api::VrrPreference::On.label(),
+    },
+    SettingChoice {
+        name: "vrr_radio_off",
+        label: render_api::VrrPreference::Off.label(),
+    },
+];
+
+/// Automatic uses reliable platform reports; On declares VRR enabled by the player.
+pub const VRR_OPTION: SettingDefinition = dropdown(
+    "vrr",
+    "Variable Refresh Rate",
+    VRR_CHOICES,
+    render_api::VrrPreference::Automatic as i32,
+);
+
 /// Ordered animation choices shared by the registry and the Video selector.
 pub const ANIMATION_CHOICES: &[SettingChoice] = &[
     SettingChoice {
@@ -321,6 +345,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     MOTION_BLUR_OPTION,
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),
+    VRR_OPTION,
     slider(
         "field_of_view",
         "options.fov",

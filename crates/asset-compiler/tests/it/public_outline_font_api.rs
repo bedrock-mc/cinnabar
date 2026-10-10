@@ -220,8 +220,10 @@ fn pinned_monocraft_rasterizes_on_its_native_texel_grid() {
     for glyph in catalog.glyphs() {
         for y in glyph.uv[1]..glyph.uv[3] {
             for x in glyph.uv[0]..glyph.uv[2] {
-                let alpha = page.pixels.bytes()
-                    [(u32::from(y) * page.width + u32::from(x)) as usize * 4 + 3];
+                let alpha = page
+                    .pixels
+                    .texel((u32::from(y) * page.width + u32::from(x)) as usize)
+                    .unwrap()[3];
                 if alpha != 0 && alpha != 255 {
                     partial += 1;
                 }
@@ -238,7 +240,10 @@ fn packed_glyphs_carry_no_blank_border_row_or_column() {
     };
     let page = &catalog.pages()[0];
     let inked = |x: u16, y: u16| {
-        page.pixels.bytes()[(u32::from(y) * page.width + u32::from(x)) as usize * 4 + 3] != 0
+        page.pixels
+            .texel((u32::from(y) * page.width + u32::from(x)) as usize)
+            .unwrap()[3]
+            != 0
     };
     for glyph in catalog.glyphs() {
         let [x0, y0, x1, y1] = glyph.uv;

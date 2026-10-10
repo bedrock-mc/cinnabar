@@ -402,6 +402,18 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: std::num::NonZeroU64::new(
+                        (meshing::biome_lattice::BIOME_QUERY_TABLE_WORDS * 4) as u64,
+                    ),
+                },
+                count: None,
+            },
         ],
     )
 }

@@ -25,7 +25,8 @@ pub use biome::{
     MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord, biome_neighbour_index, biome_volume_index,
 };
 pub use chunk::build::{
-    mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood, mesh_sub_chunk_in_neighbourhood_with_lighting,
+    MeshOptions, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
+    mesh_sub_chunk_in_neighbourhood_with_lighting, mesh_sub_chunk_in_neighbourhood_with_options,
     mesh_sub_chunk_with_lighting,
 };
 pub use classifier::BlockClassifier;

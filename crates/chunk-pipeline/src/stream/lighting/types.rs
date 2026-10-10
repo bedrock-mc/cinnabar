@@ -22,6 +22,18 @@ pub(in crate::stream) struct LightOwnership {
     pub(in crate::stream) light_revision: u64,
 }
 
+/// How a key's light can serve a mesh or neighbour: absent, behind its blocks, or current.
+pub(in crate::stream) enum LightSourceState<'a> {
+    /// Not resident, or resident before its terrain is known.
+    Unknown,
+    /// Known terrain whose solved light is missing or older than its blocks.
+    Stale,
+    Current {
+        ownership: LightOwnership,
+        light: &'a Arc<SubChunkLight>,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::stream) struct LightFailure {
     pub(in crate::stream) revision: u64,

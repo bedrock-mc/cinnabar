@@ -951,3 +951,7 @@ mod actor_identifier_ingress_tests;
 
 #[cfg(test)]
 mod primitive_shapes_ingress_tests;
+
+#[cfg(test)]
+#[path = "login/skin_upload_tests.rs"]
+mod skin_upload_tests;

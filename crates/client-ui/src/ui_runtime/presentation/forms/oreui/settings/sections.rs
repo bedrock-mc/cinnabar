@@ -126,6 +126,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 "gamma",
                 "max_framerate",
                 "vsync",
+                crate::menu::settings_options::VRR_OPTION.name,
                 "msaa",
                 SMAA_OPTION.name,
                 MOTION_BLUR_OPTION.name,

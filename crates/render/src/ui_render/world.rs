@@ -121,6 +121,12 @@ fn draw_ui_view(
         });
         pass.set_render_pipeline(pipeline);
         if let Some(viewport) = overlay_viewport(camera.viewport.as_ref(), resolution_override) {
+            let Some(viewport) = crate::render_bounds::viewport(
+                &viewport,
+                crate::render_bounds::extent(scene_target.color_view(false)),
+            ) else {
+                return Ok(());
+            };
             pass.set_camera_viewport(&viewport);
         }
         pass.set_vertex_buffer(0, vertices.slice(..));
@@ -144,13 +150,17 @@ fn draw_ui_view(
                 pass.set_render_pipeline(pipeline);
                 invert_bound = wants_invert;
             }
-            let scissor = batch.scissor;
+            let Some(scissor) = crate::render_bounds::scissor(
+                batch.scissor,
+                crate::render_bounds::extent(scene_target.color_view(false)),
+            ) else {
+                continue;
+            };
             pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
             for range in retained_batch_ranges(batch, None).into_iter().flatten() {
                 pass.draw_indexed(range, 0, location.layer..location.layer + 1);
             }
         }
-        pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
     }
     Ok(())
 }

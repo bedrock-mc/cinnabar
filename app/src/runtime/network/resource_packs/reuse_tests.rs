@@ -64,6 +64,7 @@ fn join(kept: &CompiledStacks, archive: &ResourcePackArchive) -> PackApplication
     .expect("optional packs never refuse the join")
 }
 
+/// Returns the validated archives retained by this compiled fixture.
 fn stack(application: &PackApplication) -> &Arc<ValidatedPackStack> {
     match &application.admission {
         PackAdmission::Validated(stack) => stack,
@@ -154,7 +155,12 @@ fn different_start_game_items_recompile_only_icons() {
         &|| false,
     )
     .unwrap();
-    kept.remember(environment.clone(), &first, first.server_ui.clone());
+    kept.remember(
+        environment.clone(),
+        &first,
+        first.server_ui.clone(),
+        &|| false,
+    );
     let same_items = compile_reusing(
         &kept,
         admitted(&archive),
@@ -203,7 +209,12 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
         &|| false,
     )
     .unwrap();
-    kept.remember(environment.clone(), &first, first.server_ui.clone());
+    kept.remember(
+        environment.clone(),
+        &first,
+        first.server_ui.clone(),
+        &|| false,
+    );
     let with_block = Arc::new(PackInputs {
         blocks: protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
@@ -264,6 +275,39 @@ fn only_an_uncancelled_join_under_unchanged_tables_is_kept() {
     assert_eq!(kept.len(), 1);
 }
 
+/// Leaving after the first cancellation sample must not let the compile repopulate the cache.
+#[test]
+fn a_join_cancelled_after_its_first_check_does_not_retain_packs() {
+    let archive = ResourcePackArchive::unencrypted(
+        "00000000-0000-0000-0000-0000000c0fff".parse().unwrap(),
+        "1.0.0".into(),
+        String::new(),
+        vec![0; 32],
+    );
+    let application = PackApplication {
+        admission: PackAdmission::Validated(admitted(&archive)),
+        ..Default::default()
+    };
+    let kept = CompiledStacks::new();
+    let environment = CompileEnvironment::current();
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let sample = || {
+        let was_cancelled = cancelled.swap(true, std::sync::atomic::Ordering::SeqCst);
+        if !was_cancelled {
+            drop(kept.take());
+        }
+        was_cancelled
+    };
+    kept.keep_join(
+        environment.clone(),
+        &environment,
+        &application,
+        None,
+        &sample,
+    );
+    assert_eq!(kept.len(), 0, "leaving released the retained packs");
+}
+
 // A changed UI language or carrier table means nothing kept may stand in for a compile.
 #[test]
 fn another_environment_compiles_again() {
@@ -279,7 +323,12 @@ fn another_environment_compiles_again() {
         &|| false,
     )
     .unwrap();
-    kept.remember(environment.clone(), &first, first.server_ui.clone());
+    kept.remember(
+        environment.clone(),
+        &first,
+        first.server_ui.clone(),
+        &|| false,
+    );
     let mut tables = environment.carrier_tables;
     tables[0] = !tables[0];
     for other in [
@@ -382,7 +431,6 @@ fn a_join_compiles_on_the_idle_world_cores() {
 // Comparing archives reads every byte; a release from the frame must not wait behind it.
 #[test]
 fn kept_stacks_compare_archives_without_holding_their_lock() {
-    let kept = CompiledStacks::new();
     let archive = ResourcePackArchive::unencrypted(
         "00000000-0000-0000-0000-00000000c0de".parse().unwrap(),
         "1.0.0".into(),
@@ -390,7 +438,7 @@ fn kept_stacks_compare_archives_without_holding_their_lock() {
         vec![0; 32],
     );
     let stack = admitted(&archive);
-    kept.keep_for_test(Arc::clone(&stack));
+    let kept = CompiledStacks::from(Arc::clone(&stack));
     let unlocked = |_: &ValidatedPackStack, _: &ValidatedPackStack| {
         assert!(kept.0.try_lock().is_ok(), "compared under the lock");
         true
@@ -401,7 +449,7 @@ fn kept_stacks_compare_archives_without_holding_their_lock() {
         admission: PackAdmission::Validated(admitted(&archive)),
         ..Default::default()
     };
-    kept.remember_by(environment, &application, None, unlocked);
+    kept.remember_by(environment, &application, None, unlocked, &|| false);
     assert_eq!(kept.len(), 1, "the same contents replace their entry");
 }
 

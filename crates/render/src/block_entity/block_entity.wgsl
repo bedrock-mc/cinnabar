@@ -21,7 +21,7 @@ struct PortalParameters {
 @group(0) @binding(4) var<uniform> portal: PortalParameters;
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) native_lighting: vec3<f32>,
@@ -69,7 +69,7 @@ fn block_overlay_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutpu
 }
 
 struct SelectionLineOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) color: vec4<f32>,
 }
 
@@ -172,7 +172,7 @@ fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 struct PortalOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) @interpolate(perspective, centroid) color_uv: vec2<f32>,
     @location(1) @interpolate(perspective, centroid) parallax_uv: vec2<f32>,
     @location(2) phase: f32,

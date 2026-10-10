@@ -1,5 +1,6 @@
 use super::*;
 
+/// Creates an unparented unit-scale bone with the requested rotation and translation.
 fn root(rotation: [f32; 4], translation: [f32; 3]) -> BoneTransform {
     with_scale(rotation, translation, [1.0; 3])
 }
@@ -65,6 +66,7 @@ fn reference(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Computes one bone through the uncached transform chain for comparison.
 fn reference_bone(
     index: usize,
     bones: &[RuntimeBone],
@@ -111,6 +113,7 @@ fn reference_bone(
 struct Random(u64);
 
 impl Random {
+    /// Advances the deterministic fixture generator.
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -118,6 +121,7 @@ impl Random {
         self.0
     }
 
+    /// Returns a deterministic fixture choice below a positive bound.
     fn below(&mut self, bound: u64) -> u64 {
         self.next() % bound
     }
@@ -136,6 +140,7 @@ impl Random {
         }
     }
 
+    /// Creates a reproducible bone transform for cached-retarget comparisons.
     fn bone(&mut self) -> BoneTransform {
         let mut bone = BoneTransform {
             rotation: std::array::from_fn(|_| self.value()),
@@ -154,6 +159,7 @@ impl Random {
     }
 }
 
+/// Compares optional pose results by their exact transform bits.
 fn same(left: &Option<Vec<BoneTransform>>, right: Option<&[BoneTransform]>) -> bool {
     match (left, right) {
         (None, None) => true,

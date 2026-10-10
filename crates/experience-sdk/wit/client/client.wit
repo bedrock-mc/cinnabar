@@ -3,13 +3,14 @@
 package cinnabar:extension@0.1.0;
 
 /// Server-scoped component; optional grants return denial through these imports. A component
-/// built against 1.0.0 (imports at 1.0.0, exporting only `init` and `dispatch`) still runs.
+/// built against an earlier 1.x (imports at that version, exporting only the callbacks it had)
+/// still runs.
 world server-bundle {
-    import cinnabar:server-experience/ui@1.2.0;
-    import cinnabar:server-experience/input@1.2.0;
-    import cinnabar:server-experience/messaging@1.2.0;
-    import cinnabar:server-experience/scene@1.2.0;
-    import cinnabar:server-experience/media@1.2.0;
+    import cinnabar:server-experience/ui@1.3.0;
+    import cinnabar:server-experience/input@1.3.0;
+    import cinnabar:server-experience/messaging@1.3.0;
+    import cinnabar:server-experience/scene@1.3.0;
+    import cinnabar:server-experience/media@1.3.0;
     export init: func();
     /// A typed message or host-owned input edge; no raw packet or keyboard data.
     export dispatch: func(channel: string, record-json: list<u8>);
@@ -18,7 +19,7 @@ world server-bundle {
     export action: func(id: string, collection-index: option<u32>);
     /// The world epoch changed (a dimension change); the runtime and its state live on.
     export epoch: func();
-    use cinnabar:server-experience/ui@1.2.0.{gui-size};
+    use cinnabar:server-experience/ui@1.3.0.{gui-size, scroll-range};
     /// The open modal was first drawn, or its size changed (a window resize or a GUI scale
     /// change); `size` is what `ui.modal-size` now returns.
     export modal-resized: func(size: gui-size);
@@ -31,4 +32,8 @@ world server-bundle {
     /// `button.menu_secondary_select` to a declared action fired, while the modal has focus; the
     /// index is the control's row in its nearest collection. `action` stays the primary press.
     export secondary-action: func(id: string, collection-index: option<u32>);
+    /// The open modal's scroll view whose `scroll_view_name` is `view`, a declared action, now
+    /// shows `range`: it scrolled, or its viewport or content changed length. Changes coalesce,
+    /// so this is the latest range, not each step of a scroll.
+    export scroll-changed: func(view: string, range: scroll-range);
 }

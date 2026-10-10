@@ -1,3 +1,4 @@
+use super::super::residency::ColumnDue;
 use super::super::*;
 
 impl WorldStream {
@@ -253,7 +254,7 @@ impl WorldStream {
                 let mesh = if cancelled.load(Ordering::Acquire) {
                     ChunkMesh::default()
                 } else {
-                    snapshot.mesh(classifier, &runtime_assets, network_id_mode)
+                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome)
                 };
                 let dependency_mask = if cancelled.load(Ordering::Acquire) {
                     MeshDependencyMask::default()
@@ -367,30 +368,32 @@ impl WorldStream {
         key: SubChunkKey,
         now: Instant,
     ) -> bool {
-        let mut due = false;
-        // A loaded column with no outstanding requests owes nothing, whatever the height.
-        let settled = |column: ChunkKey| {
-            self.loaded_columns.contains(&column) && !self.requests.requested.contains_key(&column)
-        };
-        let mut unsettled = [key; 26];
+        // The 26 neighbours share nine columns, so each column's facts are read once; a loaded
+        // column with no outstanding requests owes nothing, whatever the height.
+        let mut columns = [None::<ColumnDue>; 9];
+        let mut blockers = [key; 26];
         let mut count = 0;
         for neighbour in key.mesh_neighbourhood_dependents() {
-            if neighbour != key && !settled(neighbour.chunk()) {
-                unsettled[count] = neighbour;
+            if neighbour == key {
+                continue;
+            }
+            let index = (i64::from(neighbour.x) - i64::from(key.x) + 1) * 3
+                + (i64::from(neighbour.z) - i64::from(key.z) + 1);
+            let column = *columns[index as usize]
+                .get_or_insert_with(|| self.column_due(neighbour.chunk(), now));
+            if !column.settled() && self.sub_chunk_is_due_in(neighbour, || column) {
+                blockers[count] = neighbour;
                 count += 1;
             }
         }
-        for &neighbour in &unsettled[..count] {
-            if self.sub_chunk_is_due(neighbour, now) {
-                due = true;
-                if self.requests.is_expected(neighbour) {
-                    self.requests
-                        .queue
-                        .prioritize_mesh_blocker(neighbour.chunk());
-                }
+        for &neighbour in &blockers[..count] {
+            if self.requests.is_expected(neighbour) {
+                self.requests
+                    .queue
+                    .prioritize_mesh_blocker(neighbour.chunk());
             }
         }
-        due
+        count != 0
     }
     pub(in crate::stream) fn mesh_snapshot(
         &self,
@@ -482,17 +485,13 @@ impl WorldStream {
         slot: &MeshLightSlot,
     ) -> bool {
         slot.key == key
-            && self.light_is_current(key)
-            && self.lighting.block_generations.get(&key).copied() == Some(slot.block_generation)
-            && self.lighting.ownership.get(&key).is_some_and(|ownership| {
-                ownership.block_generation == slot.block_generation
-                    && ownership.light_revision == slot.light_revision
-            })
-            && self
-                .lighting
-                .store
-                .light(key)
-                .is_some_and(|light| Arc::ptr_eq(light, &slot.light))
+            && matches!(
+                self.light_source_state(key),
+                LightSourceState::Current { ownership, light }
+                    if ownership.block_generation == slot.block_generation
+                        && ownership.light_revision == slot.light_revision
+                        && Arc::ptr_eq(light, &slot.light)
+            )
     }
     pub(in crate::stream) fn requeue_current_mesh_completion(
         &mut self,

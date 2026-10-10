@@ -56,8 +56,7 @@ fn post_world_ready_required_growth_revokes_the_emitted_cohort() {
     assert_eq!(acceptance.mutation_cohort, None);
 }
 
-/// Startup needs committed-view readiness even without acceptance flags, but not the
-/// diagnostic scan of every resident sub-chunk, which only acceptance and metrics read.
+/// Startup reads committed-view readiness without requiring a full diagnostic scan.
 /// Ordinary play computes neither once the startup probe is disabled.
 #[test]
 fn frame_cohort_status_is_computed_for_startup_acceptance_or_metrics_only() {

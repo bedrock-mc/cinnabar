@@ -96,9 +96,8 @@ impl SkinLayerCache {
             .and_then(|(_, index)| self.locations[*index])
     }
 
-    /// Rebuilds rectangular image pages only when the base artwork changes, an image without a
-    /// published cell becomes visible, or none remains visible. Images that leave view, as when
-    /// turning or on a death, keep their cells, so the pages are not repacked and rehashed then.
+    /// Rebuilds pages when base art changes, uncached images appear, or visibility becomes empty.
+    /// Images leaving view retain their cells, avoiding another repack and hash.
     fn update_pages(&mut self, base: &ActorArtworkPages) -> Option<ActorArtworkPages> {
         let published = self.base == base.identity()
             && if self.desired.is_empty() {
@@ -257,11 +256,17 @@ mod tests {
         let both = publish(&mut cache, &[&first, &second]).expect("first sight packs");
         assert!(publish(&mut cache, &[&first]).is_none(), "leaving view");
         assert!(cache.image_location(&first).is_some());
-        assert!(publish(&mut cache, &[&second, &first]).is_none(), "returning");
+        assert!(
+            publish(&mut cache, &[&second, &first]).is_none(),
+            "returning"
+        );
         assert_eq!(cache.pages.as_ref().unwrap().identity(), both.identity());
         publish(&mut cache, &[&first, &third]).expect("a new image repacks");
         assert!(cache.image_location(&third).is_some());
-        assert!(cache.image_location(&second).is_none(), "the repack drops what left");
+        assert!(
+            cache.image_location(&second).is_none(),
+            "the repack drops what left"
+        );
     }
 
     thread_local! {

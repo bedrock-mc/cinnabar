@@ -581,3 +581,25 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
         }
     }
 }
+
+#[test]
+fn rebound_hotbar_keys_are_reserved_only_while_the_container_is_visible() {
+    use crate::menu::settings_options::KEY_BINDINGS;
+    use crate::ui_runtime::interaction::inventory_consumes_key;
+    use bevy::prelude::KeyCode;
+    use semantic_input::{Action, PhysicalControl};
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".into());
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == Action::Hotbar1)
+        .unwrap();
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap(
+        row,
+        PhysicalControl::KeyboardUsage(
+            crate::semantic_controls::keyboard_usage(KeyCode::KeyR).unwrap()
+        )
+    ));
+    assert!(inventory_consumes_key(Some(&menu), KeyCode::KeyR, false));
+    assert!(!inventory_consumes_key(Some(&menu), KeyCode::KeyR, true));
+    assert!(!inventory_consumes_key(Some(&menu), KeyCode::Digit1, false));
+}

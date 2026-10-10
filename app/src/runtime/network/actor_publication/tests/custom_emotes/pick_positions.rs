@@ -5,12 +5,21 @@ use super::*;
 #[derive(Resource, Default)]
 struct Picked(Option<u64>);
 
+#[derive(Resource, Default)]
+struct PredictedBox(Option<([f32; 3], [f32; 3])>);
+
+/// Captures the custom interaction box before live actor ticks advance.
+fn capture_predicted_box(world: Res<ClientWorld>, mut predicted: ResMut<PredictedBox>) {
+    let authority = world.stream.as_ref().unwrap().authority();
+    predicted.0 = authority.pick_hit_boxes(authority.actor(2).unwrap()).next();
+}
+
 /// Casts a melee pick along +Z from between the actor's old and current-tick positions.
 fn pick_ahead(world: Res<ClientWorld>, mut picked: ResMut<Picked>) {
     let authority = world.stream.as_ref().unwrap().authority();
     picked.0 = gameplay::melee::pick_actor_by(
         authority.remote_actors(),
-        |actor| authority.pick_bounding_box(actor),
+        |actor| authority.pick_hit_boxes(actor),
         None,
         [2.0, 65.0, 1.5],
         [0.0, 0.0, 1.0],
@@ -89,6 +98,77 @@ fn production_melee_picks_remote_actors_at_current_frame_positions() {
     schedule.run(&mut world);
 
     assert_eq!(world.resource::<Picked>().0, Some(2));
+}
+
+/// A stalled frame predicts custom hitboxes at the same capped tick that live actors reach.
+#[test]
+fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
+    let mut app = App::new();
+    app.add_systems(
+        Update,
+        capture_predicted_box.in_set(crate::app::ClientFrameSet::NetworkSend),
+    );
+    let (mut schedule, mut world) = production(&mut app);
+    world.init_resource::<PredictedBox>();
+    let cap = world::MAX_TICKS_PER_FRAME;
+    let initial_tick = {
+        let mut client = world.resource_mut::<ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let mut hitbox = world::NbtCompound::default();
+        for axis in ["X", "Y", "Z"] {
+            hitbox.insert(format!("Max{axis}"), world::NbtValue::Float(1.0));
+            hitbox.insert(format!("Pivot{axis}"), world::NbtValue::Float(2.0));
+        }
+        let mut root = world::NbtCompound::default();
+        root.insert(
+            "Hitboxes",
+            world::NbtValue::List(vec![world::NbtValue::Compound(hitbox)]),
+        );
+        stream
+            .submit(
+                3,
+                WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 2,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: client_world::HITBOX_METADATA_KEY,
+                        value: protocol::ActorMetadataValue::Compound(
+                            root.encode_root().unwrap().into(),
+                        ),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: 0,
+                })),
+            )
+            .unwrap();
+        let WorldEvent::Actor(ActorEvent::Move(mut movement)) =
+            move_actor(2, [2.0, 64.0, (cap * 2) as f32], 90.0)
+        else {
+            unreachable!()
+        };
+        movement.interpolation.ticks = u64::from(cap) * 2;
+        stream
+            .submit(4, WorldEvent::Actor(ActorEvent::Move(movement)))
+            .unwrap();
+        stream.poll([0.0, 64.0, 0.0], 0);
+        stream.authority().actor_rig(2).unwrap().completed_tick
+    };
+    let tick = client_world::ACTOR_TICK_DURATION;
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(tick * (cap * 4) + tick / 2);
+    schedule.run(&mut world);
+
+    let client = world.resource::<ClientWorld>();
+    let authority = client.stream.as_ref().unwrap().authority();
+    let actor = authority.actor(2).unwrap();
+    assert_eq!(
+        authority.actor_rig(2).unwrap().completed_tick - initial_tick,
+        u64::from(cap)
+    );
+    assert!((actor.position[2] - cap as f32).abs() < 1e-4);
+    assert_eq!(world.resource::<PredictedBox>().0, actor.hit_boxes().next());
+    assert_eq!(world.resource::<ActorFramePartialTick>().0, 0.5);
 }
 
 /// Predicting picks for a three-tick frame leaves every per-tick input of that frame unchanged:
@@ -178,13 +258,41 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
     let mut world = fixture();
     let mut client = world.resource_mut::<ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
+    let mut hitbox = world::NbtCompound::default();
+    for axis in ["X", "Y", "Z"] {
+        hitbox.insert(format!("Max{axis}"), world::NbtValue::Float(1.0));
+        hitbox.insert(format!("Pivot{axis}"), world::NbtValue::Float(2.0));
+    }
+    let mut root = world::NbtCompound::default();
+    root.insert(
+        "Hitboxes",
+        world::NbtValue::List(vec![world::NbtValue::Compound(hitbox)]),
+    );
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 2,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: client_world::HITBOX_METADATA_KEY,
+                    value: protocol::ActorMetadataValue::Compound(
+                        root.encode_root().unwrap().into(),
+                    ),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })),
+        )
+        .unwrap();
+    stream.poll([0.0, 64.0, 0.0], 0);
     stream.predict_remote_actor_motion(1);
     let before = crate::tests::alloc_count::thread_allocations();
     for ticks in [1, 0, 2, 0, 1] {
         stream.predict_remote_actor_motion(ticks);
         let authority = stream.authority();
         for actor in authority.remote_actors() {
-            std::hint::black_box(authority.pick_bounding_box(actor));
+            std::hint::black_box(authority.pick_hit_boxes(actor).last());
         }
     }
     assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);

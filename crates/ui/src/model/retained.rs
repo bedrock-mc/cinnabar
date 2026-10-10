@@ -1,7 +1,4 @@
-//! A draw list kept across frames. When a frame keeps the last frame's tree shape, only the
-//! nodes whose visual or placement changed are emitted again: unchanged nodes keep their
-//! vertices, and batches are merged again from each node's own runs, so the list always equals
-//! [`UiTree::build_draw_list_with`] over the same nodes.
+//! Retains unchanged node output and merges fresh emissions in full-build draw order.
 
 use std::ops::Range;
 
@@ -76,9 +73,7 @@ struct Scratch {
 }
 
 impl RetainedDraw {
-    /// Lays out and draws `nodes` as [`UiTree::new`], [`UiTree::layout`] and
-    /// [`UiTree::build_draw_list_with`] would, with the same errors, keeping what each node
-    /// emitted.
+    /// Keeps each node's output from the same layout and drawing as a full `UiTree` build.
     pub fn build(
         nodes: &[UiNode],
         viewport: UiRect,
@@ -98,7 +93,7 @@ impl RetainedDraw {
         Self::retain(&tree, nodes, frame, effects)
             .map_err(|error| tree.build_draw_list_with(effects).err().unwrap_or(error))
     }
-
+    /// Retains each laid-out node and its independent draw runs.
     fn retain(
         tree: &UiTree,
         nodes: &[UiNode],
@@ -113,15 +108,15 @@ impl RetainedDraw {
             .collect();
         let mut counts = DrawCounts::default();
         let mut placed: Vec<Placed> = Vec::with_capacity(nodes.len());
-        let mut pending: Vec<(UiNodeId, UiRect, Option<usize>)> = tree
+        let mut pending: Vec<(UiNodeId, UiRect, usize, Option<usize>)> = tree
             .roots
             .iter()
             .rev()
-            .map(|id| (*id, layout.viewport, None))
+            .map(|id| (*id, layout.viewport, 0, None))
             .collect();
         // Draw positions whose subtrees are still being visited.
         let mut open: Vec<usize> = Vec::new();
-        while let Some((id, inherited, parent)) = pending.pop() {
+        while let Some((id, inherited, clip_depth, parent)) = pending.pop() {
             while let Some(&last) = open.last() {
                 if Some(last) == parent {
                     break;
@@ -149,17 +144,26 @@ impl RetainedDraw {
             });
             open.push(position);
             let clip = draw_clip(node, inherited)?;
-            let child_clip = if node.clip_children {
-                intersect(clip, bounds)
+            let (child_clip, child_depth) = if node.clip_children {
+                let actual = clip_depth
+                    .checked_add(1)
+                    .ok_or(UiError::DrawIndexOverflow)?;
+                if actual > UiLimits::MAX_CLIP_DEPTH {
+                    return Err(UiError::ClipDepthExceeded {
+                        actual,
+                        limit: UiLimits::MAX_CLIP_DEPTH,
+                    });
+                }
+                (intersect(clip, bounds), actual)
             } else {
-                clip
+                (clip, clip_depth)
             };
             if let Some(children) = tree.children.get(&id) {
                 pending.extend(
                     children
                         .iter()
                         .rev()
-                        .map(|child| (*child, child_clip, Some(position))),
+                        .map(|child| (*child, child_clip, child_depth, Some(position))),
                 );
             }
         }
@@ -206,12 +210,8 @@ impl RetainedDraw {
         &self.list
     }
 
-    /// Draws `nodes` by emitting only the nodes that differ from `last`, the list the draw list
-    /// was last made from, and brings `last` up to `nodes`. It applies when the tree keeps its
-    /// shape (the same ids, parents, clipping, focus and projection at each index) under the
-    /// same viewport, scale, safe area and palette. Text with `§k` re-rolls each frame, so such
-    /// frames need a full build. `None` leaves the list and `last` stale: the caller builds
-    /// afresh, which also reports any error a full build reports.
+    /// Re-emits changed nodes when shape and frame inputs match, updating `last`.
+    /// On `None`, or for animated `§k` text, the caller must discard this cache and build afresh.
     pub fn update(
         &mut self,
         last: &mut [UiNode],
@@ -429,6 +429,7 @@ impl RetainedDraw {
 }
 
 impl Scratch {
+    /// Borrows one node's output with local indices.
     fn emitted(&self) -> Emitted<'_> {
         Emitted {
             vertices: &self.vertices,

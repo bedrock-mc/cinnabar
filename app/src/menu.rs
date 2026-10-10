@@ -112,6 +112,7 @@ pub(crate) struct MenuRuntime {
     caret_revision: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
+    navigation_focus: navigation::NavigationFocus,
     /// The Play page beneath the current session's loading and in-game screens.
     session_origin: Option<MenuScreen>,
     retry_target: Option<reconnect::RetryTarget>,
@@ -357,6 +358,7 @@ impl MenuRuntime {
         if self.visible || self.is_connecting() {
             return;
         }
+        self.navigation_focus = navigation::NavigationFocus::default();
         self.history.reset(MenuScreen::Pause);
         self.screen = MenuScreen::Pause;
         self.focused = 0;
@@ -380,6 +382,7 @@ impl MenuRuntime {
     pub(crate) fn show_world(&mut self) {
         self.reset_death();
         self.visible = false;
+        self.navigation_focus = navigation::NavigationFocus::default();
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.message = None;
@@ -389,6 +392,7 @@ impl MenuRuntime {
     pub(crate) fn show_connecting(&mut self) {
         self.reset_death();
         self.visible = true;
+        self.navigation_focus = navigation::NavigationFocus::default();
         self.history.reset(MenuScreen::Home);
         self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
@@ -398,6 +402,7 @@ impl MenuRuntime {
     pub(crate) fn show_home(&mut self) {
         self.reset_death();
         self.visible = true;
+        self.navigation_focus = navigation::NavigationFocus::default();
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.focused = 0;
@@ -719,6 +724,7 @@ impl MenuRuntime {
             }
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {
+                self.navigation_focus = navigation::NavigationFocus::default();
                 self.history.reset(MenuScreen::Death);
                 self.show_top();
             }

@@ -215,6 +215,7 @@ impl ActorStore {
     ) -> Option<Vec<crate::BoneTransform>> {
         self.animation.retargeted_pose(runtime_id, alpha, targets)
     }
+    /// Borrows the retargeted pose while retaining tick transforms in the caller's cache.
     pub(crate) fn actor_retargeted_pose_cached<'c>(
         &self,
         runtime_id: u64,

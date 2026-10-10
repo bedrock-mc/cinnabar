@@ -69,6 +69,30 @@ fn local_grid_eviction_cancels_out_of_range_requests() {
     assert!(stream.pop_next_request().is_none());
 }
 
+/// A serviced stream defers terrain eviction, yet the frame's request flush right after the
+/// retention call already skips every request the new grid drops, for columns holding only
+/// requests and for loaded columns alike.
+#[test]
+fn serviced_retention_retires_dropped_requests_before_the_flush() {
+    let mut stream = stream();
+    populate_view(&mut stream, [0, 0]);
+    stream.between_frames_service = true;
+    let (loaded, bare) = (ChunkKey::new(0, 0, 0), ChunkKey::new(0, 5, 0));
+    stream.enqueue_request(loaded, 0, 1, None);
+    stream.enqueue_request(bare, 0, 1, None);
+    assert_ne!(stream.pending_request_count(), 0);
+
+    assert!(stream.retain_local([320.0, 70.0, 0.0]));
+    assert_eq!(stream.pending_request_count(), 0);
+    assert!(stream.pop_next_request().is_none());
+    assert!(
+        stream.loaded_columns.contains(&loaded),
+        "terrain eviction waits for the next poll"
+    );
+    stream.poll([320.0, 70.0, 0.0], 0);
+    assert!(!stream.loaded_columns.contains(&loaded));
+}
+
 #[test]
 fn local_retention_rejects_stale_owners_and_nonfinite_positions() {
     let mut stream = stream();
@@ -209,4 +233,63 @@ fn server_position_retention_replaces_a_stale_local_grid() {
     assert_eq!(stream.local_player_chunk, None);
     assert_eq!(stream.last_retention_center, Some(ChunkKey::new(0, 100, 0)));
     assert!(!stream.retain_for_server_position());
+}
+
+/// A stream lent to a between-frames service evicts at its next poll, which the service runs
+/// off the frame thread, instead of inside the frame's retention call.
+#[test]
+fn serviced_streams_evict_at_the_next_poll() {
+    let mut stream = stream();
+    let original = populate_view(&mut stream, [0, 0]);
+    stream.between_frames_service = true;
+    assert!(stream.retain_local([320.5, 70.0, 0.5]));
+    assert_eq!(
+        stream.loaded_columns.len(),
+        original,
+        "the request evicts nothing"
+    );
+    let leaving = ChunkKey::new(0, -2, 0);
+    assert!(stream.loaded_columns.contains(&leaving));
+
+    stream.poll([320.5, 70.0, 0.5], 0);
+    assert!(!stream.loaded_columns.contains(&leaving));
+    assert!(
+        stream
+            .tracked_columns()
+            .iter()
+            .all(|key| { chunk_in_view(stream.chunk_radius.unwrap(), [key.x, key.z], [20, 0]) })
+    );
+    assert!(
+        !stream.retain_local([320.5, 70.0, 0.5]),
+        "nothing remains due"
+    );
+}
+
+/// A chunk decoded before a retention change but committed after it is kept like on an
+/// unserviced stream: a deferred eviction runs before the next commit, not after it.
+#[test]
+fn serviced_retention_evicts_before_a_later_commit() {
+    let column = ChunkKey::new(0, 0, 0);
+    for serviced in [false, true] {
+        let mut stream = stream();
+        stream.between_frames_service = serviced;
+        stream.submit(2, inline_air_event(column.x)).unwrap();
+        while let Some(queued) = stream.pending_decode.pop_front() {
+            stream.in_flight_decode_jobs += 1;
+            let completion = queued.job.run(queued.queued_at);
+            stream.accept_decode_completion(completion);
+        }
+        assert!(
+            !stream.loaded_columns.contains(&column),
+            "decoded, not committed"
+        );
+
+        assert!(stream.retain_local([320.5, 70.0, 0.5]));
+        stream.apply_ready();
+        stream.poll([320.5, 70.0, 0.5], 0);
+        assert!(
+            stream.loaded_columns.contains(&column),
+            "serviced: {serviced}"
+        );
+    }
 }

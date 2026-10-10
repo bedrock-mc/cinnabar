@@ -217,6 +217,8 @@ impl WorldStream {
         {
             return false;
         }
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.retention").entered();
         self.last_retention_center = Some(center);
         self.last_retention_radius = Some(radius);
         let center_xz = [center.x, center.z];
@@ -261,13 +263,63 @@ impl WorldStream {
             floor_to_i32(position[0]).div_euclid(16),
             floor_to_i32(position[2]).div_euclid(16),
         ));
-        self.reevaluate_chunk_retention()
+        self.request_chunk_retention()
     }
 
     /// Retains terrain around the committed server position while no local physics owns the player.
     pub fn retain_for_server_position(&mut self) -> bool {
         self.local_player_chunk = None;
-        self.reevaluate_chunk_retention()
+        self.request_chunk_retention()
+    }
+
+    /// Re-evaluates retention now, or, for a stream its between-frames service polls, marks it
+    /// due so the terrain eviction runs before the next commit or poll, usually on the service.
+    /// Returns whether the retained grid changed.
+    fn request_chunk_retention(&mut self) -> bool {
+        if !self.between_frames_service {
+            return self.reevaluate_chunk_retention();
+        }
+        let Some(radius) = self.chunk_radius else {
+            return false;
+        };
+        let center = self.player_chunk();
+        if self.last_retention_center == Some(center) && self.last_retention_radius == Some(radius)
+        {
+            return false;
+        }
+        self.retention_due = true;
+        self.retire_dropped_requests(center, radius);
+        true
+    }
+
+    /// The frame flushes requests before a deferred eviction runs, so requests the new grid
+    /// drops retire now. A column holding only requests evicts whole, as no terrain work is
+    /// deferred for it; one holding terrain loses only its requests until the eviction.
+    fn retire_dropped_requests(&mut self, center: ChunkKey, radius: i32) {
+        let dimension = self.authority.current_dimension();
+        let (request_only, with_terrain): (BTreeSet<_>, BTreeSet<_>) = self
+            .requests
+            .requested
+            .keys()
+            .copied()
+            .filter(|key| {
+                key.dimension != dimension
+                    || !chunk_in_view(radius, [key.x, key.z], [center.x, center.z])
+            })
+            .partition(|column| {
+                !self.loaded_columns.contains(column)
+                    && self.resident.column(*column).next().is_none()
+                    && self.known_air.column(*column).next().is_none()
+            });
+        self.evict_columns(request_only);
+        self.requests.purge_columns(&with_terrain);
+    }
+
+    /// Runs a retention re-evaluation deferred by [`Self::request_chunk_retention`].
+    pub(super) fn apply_due_chunk_retention(&mut self) {
+        if std::mem::take(&mut self.retention_due) {
+            self.reevaluate_chunk_retention();
+        }
     }
 
     /// Local physics advances the player grid between server corrections.
@@ -381,7 +433,18 @@ impl WorldStream {
     /// Whether the server still owes `key`: it is in range and unknown, and either requested or
     /// in an unsent column whose local deadline has not elapsed.
     /// This retained timeout fallback is provisional; vanilla requires eligible columns.
+    #[cfg(test)]
     pub(super) fn sub_chunk_is_due(&self, key: SubChunkKey, now: Instant) -> bool {
+        self.sub_chunk_is_due_in(key, || self.column_due(key.chunk(), now))
+    }
+
+    /// [`Self::sub_chunk_is_due`] with the column's facts supplied, so keys sharing a column
+    /// read them once; `column` runs only when the key's own state does not decide.
+    pub(super) fn sub_chunk_is_due_in(
+        &self,
+        key: SubChunkKey,
+        column: impl FnOnce() -> ColumnDue,
+    ) -> bool {
         if self.light_source_is_known(key) {
             return false;
         }
@@ -394,31 +457,54 @@ impl WorldStream {
         if key.y < range.base_sub_chunk_y || key.y >= end {
             return false;
         }
-        if self.requests.is_expected(key) {
-            return true;
-        }
-        let column = key.chunk();
-        if self.loaded_columns.contains(&column) || self.requests.requested.contains_key(&column) {
-            return false;
-        }
-        (self
-            .unsent_column_deadlines
-            .get(&column)
-            .is_some_and(|deadline| now < *deadline)
-            || self.arrival_cohort.as_ref().is_some_and(|cohort| {
-                cohort.epoch == self.publisher.epoch
-                    && Some(cohort.view) == self.publisher.cohort
-                    && cohort
-                        .view
-                        .contains_column(column.dimension, [column.x, column.z])
-                    && now < cohort.deadline
-            }))
+        self.requests.is_expected(key) || column().unsent_owes
+    }
+
+    /// The column facts [`Self::sub_chunk_is_due`] reads once a key's own state is undecided.
+    pub(super) fn column_due(&self, column: ChunkKey, now: Instant) -> ColumnDue {
+        let loaded = self.loaded_columns.contains(&column);
+        let requested = self.requests.requested.contains_key(&column);
+        let unsent_owes = !loaded
+            && !requested
+            && (self
+                .unsent_column_deadlines
+                .get(&column)
+                .is_some_and(|deadline| now < *deadline)
+                || self.arrival_cohort.as_ref().is_some_and(|cohort| {
+                    cohort.epoch == self.publisher.epoch
+                        && Some(cohort.view) == self.publisher.cohort
+                        && cohort
+                            .view
+                            .contains_column(column.dimension, [column.x, column.z])
+                        && now < cohort.deadline
+                }))
             && self.column_is_data_interesting(column)
             && self.publisher.cohort.is_none_or(|cohort| {
                 let dx = i64::from(column.x) - i64::from(cohort.center[0]);
                 let dz = i64::from(column.z) - i64::from(cohort.center[1]);
                 let radius = i64::from(cohort.radius);
                 dx * dx + dz * dz <= radius * radius
-            })
+            });
+        ColumnDue {
+            loaded,
+            requested,
+            unsent_owes,
+        }
+    }
+}
+
+/// One column's residency facts for deciding whether its sections are still owed.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ColumnDue {
+    loaded: bool,
+    requested: bool,
+    /// Unloaded and unrequested, yet inside an unsent-column or cohort grace window.
+    unsent_owes: bool,
+}
+
+impl ColumnDue {
+    /// Loaded with nothing outstanding: none of its sections can be owed.
+    pub(super) const fn settled(self) -> bool {
+        self.loaded && !self.requested
     }
 }

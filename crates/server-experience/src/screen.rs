@@ -109,12 +109,72 @@ pub struct GuiSize {
     pub scale: f64,
 }
 
+/// What a modal's scroll view shows along its scrolling axis, in GUI units.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScrollRange {
+    /// How far the content is scrolled, from 0 to `content` - `viewport`.
+    pub offset: f64,
+    pub viewport: f64,
+    pub content: f64,
+}
+
+impl ScrollRange {
+    /// Whether every length is finite and not negative.
+    pub fn valid(&self) -> bool {
+        [self.offset, self.viewport, self.content]
+            .iter()
+            .all(|value| value.is_finite() && *value >= 0.0)
+    }
+}
+
 impl GuiSize {
     /// Whether every dimension is finite and positive.
     pub fn valid(&self) -> bool {
         [self.width, self.height, self.scale]
             .iter()
             .all(|value| value.is_finite() && *value > 0.0)
+    }
+}
+
+/// A rectangle in GUI units, from the top left of the screen root.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl Rect {
+    pub fn contains(&self, [x, y]: [f64; 2]) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
+    }
+}
+
+/// An open vanilla container screen as a player mod's overlay sees it: the JSON-UI screen
+/// drawn, the root's size, the union of its laid-out panels and the other vanilla areas the
+/// overlay may not cover.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenLayout {
+    pub screen: String,
+    pub size: GuiSize,
+    pub gui: Rect,
+    pub exclusions: Vec<Rect>,
+    /// The open view's laid-out bounds, which stand in for `gui` while the view is up.
+    pub view: Option<Rect>,
+}
+
+impl ScreenLayout {
+    /// What the overlay keeps clear of: the open view, else the vanilla panels.
+    pub fn panels(&self) -> &Rect {
+        self.view.as_ref().unwrap_or(&self.gui)
+    }
+
+    /// Whether a mod's overlay may draw or take input at `point`: outside the panels (the open
+    /// view's while it is up) and every exclusion.
+    pub fn overlay_allows(&self, point: [f64; 2]) -> bool {
+        !self.panels().contains(point) && !self.exclusions.iter().any(|area| area.contains(point))
     }
 }
 

@@ -1,8 +1,6 @@
 use super::*;
 
-// The reload worker reads the textures a prepared HUD names from the pack archives, so the frame
-// installing the pack draws them without inflating them; an unprepared pack reads them on that
-// frame.
+// Prepared HUD textures read on the worker; an unprepared pack reads them on first draw.
 #[test]
 fn prepared_hud_textures_read_off_the_frame() {
     const HOTBAR: &str = "textures/ui/hotbar_0";
@@ -67,6 +65,7 @@ fn cold_loading_backdrop_precedes_an_expensive_title_decode() {
     );
 }
 
+/// Encodes a deterministic PNG fixture.
 fn png(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = Vec::new();
     image::RgbaImage::from_pixel(width, height, image::Rgba([1, 2, 3, 255]))
@@ -75,6 +74,7 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes
 }
 
+/// Encodes a deterministic TGA fixture.
 fn tga(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = Vec::new();
     image::RgbaImage::from_pixel(width, height, image::Rgba([4, 5, 6, 255]))

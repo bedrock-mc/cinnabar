@@ -13,7 +13,7 @@ pub(in crate::stream) struct Lighting {
     pub(in crate::stream) block_generations: HashMap<SubChunkKey, u64>,
     pub(in crate::stream) store: LightStore,
     pub(in crate::stream) ownership: HashMap<SubChunkKey, LightOwnership>,
-    pub(in crate::stream) direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
+    pub(in crate::stream) direct_sky: HashMap<SubChunkKey, StoredDirectSky>,
     pub(in crate::stream) failures: HashMap<SubChunkKey, LightFailure>,
     pub(in crate::stream) jobs: scheduler::KeyedJobs<PendingLight, LightJobIdentity, 1>,
     pub(in crate::stream) priority_wakeups: HashMap<SubChunkKey, u64>,
@@ -36,7 +36,7 @@ impl Lighting {
             block_generations: HashMap::new(),
             store: LightStore::default(),
             ownership: HashMap::new(),
-            direct_sky: BTreeMap::new(),
+            direct_sky: HashMap::new(),
             failures: HashMap::new(),
             jobs: Default::default(),
             priority_wakeups: HashMap::new(),
@@ -119,7 +119,7 @@ impl Lighting {
             return false;
         }
         self.jobs.in_flight.remove(&key);
-        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+        if let hashbrown::hash_map::Entry::Occupied(mut entry) =
             self.in_flight_batches.entry(identity.batch_id)
         {
             if *entry.get() <= 1 {
@@ -143,9 +143,7 @@ impl Lighting {
         let mut probes = 0;
         for source in key.mesh_dependents().filter(|source| *source != key) {
             probes += 1;
-            if let std::collections::hash_map::Entry::Occupied(mut entry) =
-                self.waiters.entry(source)
-            {
+            if let hashbrown::hash_map::Entry::Occupied(mut entry) = self.waiters.entry(source) {
                 entry.get_mut().remove(&key);
                 if entry.get().is_empty() {
                     entry.remove();
@@ -321,35 +319,47 @@ impl WorldStream {
         Some(revision)
     }
     pub(in crate::stream) fn light_is_current(&self, key: SubChunkKey) -> bool {
-        if !self.light_source_is_known(key) || self.lighting.revisions.dirty(key).is_some() {
-            return false;
+        matches!(
+            self.light_source_state(key),
+            LightSourceState::Current { .. }
+        )
+    }
+    /// Classifies `key`'s light with each index read once, since every mesh halo asks this
+    /// of 27 keys.
+    pub(in crate::stream) fn light_source_state(&self, key: SubChunkKey) -> LightSourceState<'_> {
+        if !self.resident.contains(&key) {
+            return LightSourceState::Unknown;
         }
-        let Some(block_generation) = self.lighting.block_generations.get(&key).copied() else {
-            return false;
-        };
-        let Some(ownership) = self.lighting.ownership.get(&key).copied() else {
-            return false;
-        };
         let expected_kind = if self.known_air.contains(&key) {
             LightSubChunkKind::KnownAir
         } else if self.authority.terrain().contains_sub_chunk(key) {
             LightSubChunkKind::Resident
         } else {
-            LightSubChunkKind::Unknown
+            return LightSourceState::Unknown;
         };
-        ownership.block_generation == block_generation
-            && expected_kind != LightSubChunkKind::Unknown
-            && self.lighting.store.kind(key) == expected_kind
-            && self
-                .lighting
-                .store
-                .light(key)
-                .is_some_and(|light| light.generation() == ownership.light_revision)
+        if self.lighting.revisions.dirty(key).is_some() {
+            return LightSourceState::Stale;
+        }
+        let (Some(&block_generation), Some(&ownership), Some((kind, light))) = (
+            self.lighting.block_generations.get(&key),
+            self.lighting.ownership.get(&key),
+            self.lighting.store.entry(key),
+        ) else {
+            return LightSourceState::Stale;
+        };
+        let current = ownership.block_generation == block_generation
+            && kind == expected_kind
+            && light.generation() == ownership.light_revision
             && self
                 .lighting
                 .direct_sky
                 .get(&key)
-                .is_some_and(|direct| direct.light_revision == ownership.light_revision)
+                .is_some_and(|direct| direct.light_revision == ownership.light_revision);
+        if current {
+            LightSourceState::Current { ownership, light }
+        } else {
+            LightSourceState::Stale
+        }
     }
     pub(in crate::stream) fn light_source_is_known(&self, key: SubChunkKey) -> bool {
         self.resident.contains(&key)
@@ -370,19 +380,16 @@ impl WorldStream {
                     else {
                         continue;
                     };
-                    if !self.light_source_is_known(key) {
-                        continue;
-                    }
-                    if !self.light_is_current(key) {
-                        return None;
-                    }
-                    let ownership = self.lighting.ownership.get(&key).copied()?;
-                    let light = Arc::clone(self.lighting.store.light(key)?);
+                    let (ownership, light) = match self.light_source_state(key) {
+                        LightSourceState::Unknown => continue,
+                        LightSourceState::Stale => return None,
+                        LightSourceState::Current { ownership, light } => (ownership, light),
+                    };
                     slots[mesh_offset_index(offset)] = Some(MeshLightSlot {
                         key,
                         block_generation: ownership.block_generation,
                         light_revision: ownership.light_revision,
-                        light,
+                        light: Arc::clone(light),
                     });
                 }
             }

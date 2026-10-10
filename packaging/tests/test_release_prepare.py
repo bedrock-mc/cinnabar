@@ -224,6 +224,21 @@ else:
                                          "ref": self.initial, "commit": self.initial})
         self.assertEqual(self.refs(), before)
 
+    def test_manual_nightly_is_read_only_and_limited_to_the_default_branch(self):
+        before = self.refs()
+        self.prepare(BUMP="nightly")
+        self.assertEqual(self.outputs(), {"channel": "nightly", "tag": "nightly", "version": SOURCE_VERSION,
+                                         "ref": self.initial, "commit": self.initial})
+        self.assertEqual(self.refs(), before)
+        self.assertFalse(self.log.exists())
+        self.git("checkout", "-b", "feature")
+        self.git("push", "origin", "feature")
+        for changes in [{"TARGET_BRANCH": "feature"}, {"TARGET_BRANCH": "main"}]:
+            result = self.prepare(check=False, BUMP="nightly", **changes)
+            self.assertNotEqual(result.returncode, 0)
+            self.assert_no_outputs()
+        self.assertEqual(self.git("tag"), "")
+
     def test_current_creates_one_annotated_tag_and_no_version_commit(self):
         self.prepare()
         self.assertEqual(self.git("rev-parse", "HEAD"), self.initial)

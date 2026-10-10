@@ -259,10 +259,10 @@ pub(super) fn collection(
                     view,
                     cell,
                     &entry.name,
-                    if entry.model == launcher::dressing_room::SkinModel::Slim {
-                        "Slim arms"
-                    } else {
-                        "Classic arms"
+                    match entry.model {
+                        launcher::dressing_room::SkinModel::Classic => "Classic arms",
+                        launcher::dressing_room::SkinModel::Slim => "Slim arms",
+                        launcher::dressing_room::SkinModel::Custom => "Custom model",
                     },
                     &menu_artwork::thumbnail_key(&entry.id),
                     view.dressing_room.selected == Some(index),

@@ -18,11 +18,10 @@ use thiserror::Error;
 mod outline;
 
 pub use outline::{
-    GlyphAdvances, NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, OutlineFontConfig,
-    compile_native_fallback_fonts, compile_native_outline_font, compile_native_outline_font_sizes,
-    compile_outline_font, compile_outline_font_with_fallback, compile_runtime_outline_font,
+    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
 };
 
+const FONT_DESCRIPTOR_SCHEMA: u32 = 1;
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,7 +139,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
     let descriptor_bytes = read_source(&descriptor_source, MAX_FONT_SOURCE_BYTES)?;
     let descriptor = serde_json::from_slice::<Descriptor>(&descriptor_bytes)
         .map_err(|source| FontCompileError::DescriptorJson { source })?;
-    if descriptor.schema != FONT_CARRIER_SCHEMA
+    if descriptor.schema != FONT_DESCRIPTOR_SCHEMA
         || decode_runtime_sha256(&descriptor.source_manifest_sha256)
             != Some(assets::vanilla_source_manifest_sha256())
     {
@@ -519,7 +518,34 @@ unsafe extern "C" {
     ) -> std::os::raw::c_int;
 }
 
-#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
+// Linux open flags are per-architecture: arm, aarch64 and powerpc use their own values, where
+// 0x1_0000 is `O_DIRECT`; every other Linux target uses the generic ones.
+#[cfg(all(
+    unix,
+    any(target_os = "linux", target_os = "android"),
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+mod unix_open_flags {
+    pub const DIRECTORY: i32 = 0x4000;
+    pub const NOFOLLOW: i32 = 0x8000;
+    pub const CLOEXEC: i32 = 0x8_0000;
+}
+
+#[cfg(all(
+    unix,
+    any(target_os = "linux", target_os = "android"),
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
 mod unix_open_flags {
     pub const DIRECTORY: i32 = 0x1_0000;
     pub const NOFOLLOW: i32 = 0x2_0000;

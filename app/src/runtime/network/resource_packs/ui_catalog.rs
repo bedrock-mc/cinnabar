@@ -17,6 +17,7 @@ struct Cached {
 struct CatalogCache(Mutex<Option<Cached>>);
 
 impl CatalogCache {
+    /// Reuses a live catalog for identical source and base allocations, preparing a changed pair.
     fn prepare(
         &self,
         source: &Arc<ServerUiPack>,

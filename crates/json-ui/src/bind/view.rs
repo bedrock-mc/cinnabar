@@ -194,10 +194,8 @@ impl Binder<'_> {
         (missed, false)
     }
 
-    /// Whether a view would observe what it last did: its control and its source stand as
-    /// the last bind left them, it reads the same source control, and no screen-controller
-    /// global its own control may answer changed. Skipping such a view writes nothing a run
-    /// would have written.
+    /// Skips a settled view only when its control, source identity and controller reads stand.
+    /// Such a view would observe and write the same values as its last run.
     fn stands(&self, root: &Node, path: &Path, index: usize, source: Option<&[usize]>) -> bool {
         let Some(changes) = &self.changes else {
             return false;

@@ -60,3 +60,54 @@ fn positional_materials_keep_one_cell_per_quad_on_every_cube_face() {
         }
     }
 }
+
+#[test]
+fn mixed_biome_option_keeps_tinted_faces_one_block_wide() {
+    let base = RuntimeAssets::diagnostic();
+    let texture = TextureRef::new(1, 0).unwrap();
+    let mut page = base.texture_array().clone();
+    page.layers = 2;
+    for mip in &mut page.mips {
+        mip.rgba8 = mip.rgba8.repeat(2).into();
+    }
+    let overlay = assets::BlockOverlay {
+        visuals: vec![BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            support: assets::VisualSupport::VanillaFallback,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        }],
+        light_properties: vec![assets::LightProperties::OPAQUE_DARK],
+        materials: vec![Material {
+            texture,
+            flags: assets::MATERIAL_FLAG_GRASS_TINT,
+            ..Material::unvaried()
+        }],
+        texture: Some(page),
+        ..Default::default()
+    };
+    let assets = base.with_block_overlay(1, &overlay).unwrap();
+    let sub = uniform(1);
+    for split in [false, true] {
+        let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &classifier(),
+            &assets,
+            NetworkIdMode::Sequential,
+            &world::MeshNeighbourhood::new(&sub),
+            &meshing::lighting::FullBrightLightSampler,
+            meshing::MeshOptions {
+                split_tinted_faces: split,
+            },
+        );
+        if split {
+            assert_eq!(mesh.quad_count(), 6 * 16 * 16);
+            assert!(mesh.quads().iter().all(|q| q.width() == 1 && q.height() == 1));
+        } else {
+            assert_eq!(mesh.quad_count(), 6, "uniform biomes keep merged tinted faces");
+        }
+    }
+}

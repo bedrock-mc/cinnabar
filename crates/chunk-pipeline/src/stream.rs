@@ -1,6 +1,8 @@
 use bytes::Bytes;
+// Keyed stream state uses hashbrown's seeded foldhash: SipHash dominated frame-thread lookups.
+use hashbrown::{HashMap, HashSet};
 use std::{
-    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -11,8 +13,7 @@ use std::{
 use ::meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, BlockClassifier, CameraMedium, ChunkBiomeTintIdentity, ChunkMesh,
     FaceConnectivity, MeshLightSample, MeshLightSampler, PackedBiomeRecord,
-    chunk_publication_byte_len, mesh_dependency_mask,
-    mesh_sub_chunk_in_neighbourhood_with_lighting, sample_camera_medium,
+    chunk_publication_byte_len, mesh_dependency_mask, sample_camera_medium,
 };
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
@@ -83,6 +84,8 @@ mod retries;
 mod scheduler;
 mod seasonal_foliage;
 mod sequencing;
+mod service;
+pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
 mod workers;
@@ -369,6 +372,20 @@ pub struct WorldStream {
     polling: bool,
     /// The poll's one heavy commit allowed past its deadline is still unspent.
     poll_heavy_guarantee: bool,
+    /// Set while a between-frames service owns the stream; a raised flag ends its work early.
+    service_yield: Option<Arc<AtomicBool>>,
+    /// Lent to a between-frames service every frame: retention evictions wait for the next poll,
+    /// which the service reaches first, and frame polls leave heavy work to a service that had
+    /// a full allocation's window.
+    between_frames_service: bool,
+    /// How long the service last held the stream, which bounds what it could take over.
+    service_window: Duration,
+    /// A deferred retention re-evaluation awaits the next poll.
+    retention_due: bool,
+    /// This frame poll leaves chunk-data commits to the service.
+    chunk_data_offloaded: bool,
+    /// Ordered commit steps applied so far, so a poll can report commit progress.
+    commit_steps: u64,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: MeshChangeQueue,
     publisher: cohort::PublisherScope,

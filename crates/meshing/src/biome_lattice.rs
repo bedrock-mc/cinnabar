@@ -62,8 +62,7 @@ pub fn nearest_lattice_points(coordinate: [i32; 3]) -> [([i32; 3], f32); LATTICE
     selected
 }
 
-/// Shader query kernel: FXC copies a const array through a by-value constructor, so one flat
-/// 2744-entry table overflows its 4096 temp registers; these two stay far below it.
+/// Shader query kernel tables; `query_table_words` packs them for the renderer's uniform block.
 pub(crate) struct QueryTables {
     /// Per residue, the nearest points' 3x3x3 stencil indices in blend order, one byte each.
     pub(crate) stencils: Vec<[u32; 2]>,
@@ -76,6 +75,34 @@ const _: () = assert!(
     "stencils pack four bytes per word"
 );
 const MAGNITUDE_SIDE: usize = BIOME_RESIDUE_RADIUS as usize + 1;
+
+/// `vec4` slots of each table in the shader's uniform block, in `query_table_words` order.
+pub const BIOME_STENCIL_VEC4S: usize = (BIOME_RESIDUE_SIDE as usize).pow(3).div_ceil(2);
+pub const BIOME_WEIGHT_VEC4S: usize = MAGNITUDE_SIDE.pow(3) * LATTICE_QUERY_POINTS / 4;
+pub const GRASS_PERMUTATION_VEC4S: usize = assets::GRASS_PERMUTATION_SIZE / 4;
+pub const BIOME_QUERY_TABLE_WORDS: usize =
+    (BIOME_STENCIL_VEC4S + BIOME_WEIGHT_VEC4S + GRASS_PERMUTATION_VEC4S) * 4;
+
+/// The query kernel's lookup tables packed for a uniform buffer: stencils two per `vec4<u32>`,
+/// weights as `vec4<f32>` bit patterns, then the grass noise permutation four per `vec4<u32>`.
+/// Shader `const` arrays indexed dynamically are copied into per-invocation scratch memory by
+/// several compilers, which made every tinted fragment copy about 7 KB before sampling.
+pub fn query_table_words() -> Vec<u32> {
+    let tables = query_tables();
+    let mut words = Vec::with_capacity(BIOME_QUERY_TABLE_WORDS);
+    words.extend(tables.stencils.iter().flatten());
+    words.resize(BIOME_STENCIL_VEC4S * 4, 0);
+    words.extend(
+        tables
+            .weights
+            .iter()
+            .flatten()
+            .map(|weight| weight.to_bits()),
+    );
+    words.extend(assets::grass_noise_permutation());
+    assert_eq!(words.len(), BIOME_QUERY_TABLE_WORDS);
+    words
+}
 
 pub(crate) fn query_tables() -> QueryTables {
     let mut stencils = Vec::new();
@@ -221,28 +248,10 @@ pub fn shader_source(source: &str) -> String {
         LATTICE_QUERY_POINTS,
         BIOME_QUERY_SIDE,
     );
-    let tables = query_tables();
     constants.push_str(&format!(
-        "const BIOME_QUERY_STENCILS = array<vec2<u32>, {}>(\n",
-        tables.stencils.len()
+        "const BIOME_STENCIL_VEC4S: u32 = {}u;\nconst BIOME_WEIGHT_VEC4S: u32 = {}u;\nconst GRASS_PERMUTATION_VEC4S: u32 = {}u;\n",
+        BIOME_STENCIL_VEC4S, BIOME_WEIGHT_VEC4S, GRASS_PERMUTATION_VEC4S,
     ));
-    for [low, high] in tables.stencils {
-        constants.push_str(&format!("vec2<u32>({low}u, {high}u),\n"));
-    }
-    constants.push_str(&format!(
-        ");\nconst BIOME_QUERY_WEIGHTS = array<vec4<f32>, {}>(\n",
-        tables.weights.len() * 2
-    ));
-    for weights in tables.weights {
-        for half in weights.chunks_exact(4) {
-            constants.push_str(&format!(
-                "vec4<f32>({:?}, {:?}, {:?}, {:?}),\n",
-                half[0], half[1], half[2], half[3]
-            ));
-        }
-    }
-    constants.push_str(");\n");
-    let permutation = assets::grass_noise_permutation();
     constants.push_str(&format!(
         "const SEASONAL_FOLIAGE_COUNT: u32 = {}u;\nconst SEASONAL_FOLIAGE_EXPOSED_OFFSET: u32 = {}u;\nconst BIOME_SEASONAL_FOLIAGE: u32 = {}u;\nconst MATERIAL_SEASONAL_FOLIAGE: u32 = {}u;\nconst MATERIAL_EXPOSED_FOLIAGE: u32 = {}u;\n",
         assets::SEASONAL_FOLIAGE_COUNT,
@@ -258,14 +267,10 @@ pub fn shader_source(source: &str) -> String {
         assets::seasonal_foliage_palette_index(0, false),
     ));
     constants.push_str(&format!(
-        "const BIOME_TINT_MAP_SIZE: u32 = {}u;\nconst BIOME_SWAMP_GRASS: u32 = {}u;\nconst GRASS_PERMUTATION_MASK: u32 = {}u;\nconst GRASS_PERMUTATION = array<u32, {}>({});\n",
+        "const BIOME_TINT_MAP_SIZE: u32 = {}u;\nconst BIOME_SWAMP_GRASS: u32 = {}u;\nconst GRASS_PERMUTATION_MASK: u32 = {}u;\n",
         assets::TINT_MAP_SIZE,
         assets::BIOME_TINT_FLAG_SWAMP_GRASS,
-        permutation.len() - 1,
-        permutation.len(),
-        permutation
-            .map(|value| format!("{value}u"))
-            .join(",")
+        assets::GRASS_PERMUTATION_SIZE - 1,
     ));
     source.replace("// BIOME_CONSTANTS", &constants)
 }
@@ -275,6 +280,29 @@ mod tests {
     use super::*;
 
     /// The shader's compact query tables must reproduce the CPU kernel's points, order and bits.
+    /// The shader reads each table at a fixed `vec4` offset, so the packing must not drift.
+    #[test]
+    fn query_table_words_pack_each_table_at_its_vec4_offset() {
+        let tables = query_tables();
+        let words = query_table_words();
+        assert_eq!(words.len(), BIOME_QUERY_TABLE_WORDS);
+        assert_eq!(words.len() % 4, 0);
+        for (index, [low, high]) in tables.stencils.iter().enumerate() {
+            assert_eq!(words[index * 2], *low, "stencil {index} low word");
+            assert_eq!(words[index * 2 + 1], *high, "stencil {index} high word");
+        }
+        let weights = BIOME_STENCIL_VEC4S * 4;
+        for (index, weight) in tables.weights.iter().flatten().enumerate() {
+            assert_eq!(words[weights + index], weight.to_bits(), "weight {index}");
+        }
+        let permutation = weights + BIOME_WEIGHT_VEC4S * 4;
+        assert_eq!(
+            &words[permutation..],
+            &assets::grass_noise_permutation()[..],
+            "permutation follows the weights"
+        );
+    }
+
     #[test]
     fn query_tables_decode_to_the_exact_cpu_kernel() {
         let tables = query_tables();

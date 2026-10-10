@@ -418,6 +418,7 @@ version = "0.1.12"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
+ "flate2",
  "lewton",
  "rayon",
  "rustix 1.1.4",
@@ -693,6 +694,7 @@ dependencies = [
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
+ "wit-component",
  "world",
  "zbus",
  "zip",
@@ -2026,6 +2028,7 @@ dependencies = [
  "sim",
  "thiserror 2.0.18",
  "ui",
+ "windows-sys 0.61.2",
  "world",
  "zip",
 ]
@@ -2084,6 +2087,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "ui",
@@ -3224,16 +3228,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "freetype-sys"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd0d341537074ac3189847977d23d00989e77f8fb54cdfa33a25407bb7d1db78"
-dependencies = [
- "cc",
- "pkg-config",
-]
-
-[[package]]
 name = "fs-set-times"
 version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4256,6 +4250,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "ui",
+ "zip",
 ]
 
 [[package]]
@@ -4542,6 +4537,7 @@ name = "mod-host"
 version = "0.1.12"
 dependencies = [
  "anyhow",
+ "experience-sdk",
  "mod-api",
  "mod-render",
  "serde",
@@ -5248,14 +5244,12 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "fontdue",
- "freetype-sys",
  "image",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
- "ttf-parser 0.21.1",
 ]
 
 [[package]]
@@ -6289,6 +6283,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "screen-probe-mod"
+version = "0.1.12"
+dependencies = [
+ "experience-sdk",
+ "mod-api",
+]
+
+[[package]]
 name = "sctk-adwaita"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6754,7 +6756,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7192,9 +7194,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-tracy"
-version = "0.11.4"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eaa1852afa96e0fe9e44caa53dc0bd2d9d05e0f2611ce09f97f8677af56e4ba"
+checksum = "0b326790213b869d948a5d1ea56472ed5b20c7cefde07684ee35d6b7a980fef1"
 dependencies = [
  "tracing-core",
  "tracing-subscriber",
@@ -7214,9 +7216,9 @@ dependencies = [
 
 [[package]]
 name = "tracy-client"
-version = "0.18.4"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4f6fc3baeac5d86ab90c772e9e30620fc653bf1864295029921a15ef478e6a5"
+checksum = "d93fd676d8946eaeaff4881d26d2240a8d106fcaccbd47cb9f1389e3561ba490"
 dependencies = [
  "loom",
  "once_cell",
@@ -7225,12 +7227,12 @@ dependencies = [
 
 [[package]]
 name = "tracy-client-sys"
-version = "0.28.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5f7c95348f20c1c913d72157b3c6dee6ea3e30b3d19502c5a7f6d3f160dacbf"
+checksum = "eef8a023d2b19f44e430da334f7dfb5e5db219bb83e2b4f56a09c1cb12abe915"
 dependencies = [
  "cc",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.5",
 ]
 
 [[package]]

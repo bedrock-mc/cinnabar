@@ -607,3 +607,18 @@ fn sort_key_is_fnv1_64_of_the_name() {
     assert_eq!(block_name_sort_key(""), 0xcbf2_9ce4_8422_2325);
     assert_eq!(block_name_sort_key("a"), 0xaf63_bd4c_8601_b7be);
 }
+
+// A server Experience's block has at most the Experience runtime's state combinations and
+// permutations (its limits, in the Go adapter's limits fixture), which this client takes whole.
+#[test]
+fn experience_blocks_fit_the_client_bounds() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/localserver/experience/testdata/protocol/limits.json"
+    );
+    let limits: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let limit = |name: &str| limits[name].as_u64().unwrap();
+    assert!(limit("max_state_combinations") <= super::MAX_STATES_PER_BLOCK);
+    assert!(limit("max_permutations") <= super::MAX_PERMUTATIONS as u64);
+}

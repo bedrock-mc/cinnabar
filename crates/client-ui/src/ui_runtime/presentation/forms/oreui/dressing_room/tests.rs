@@ -14,6 +14,7 @@ fn view(count: usize) -> MenuView {
     view.dressing_room = Arc::new(DressingRoomView {
         skins: (0..count)
             .map(|index| DressingRoomSkin {
+                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: index.to_string(),
                 name: STARTER_SKIN_NAMES
                     .get(index)
@@ -773,5 +774,27 @@ fn editor_errors_remain_visible_inside_the_modal_without_covering_controls() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn custom_skin_models_keep_item_edits_without_classic_arm_actions() {
+    let mut view = view(STARTER_SKIN_NAMES.len() + 1);
+    let selected = STARTER_SKIN_NAMES.len();
+    let wardrobe = Arc::make_mut(&mut view.dressing_room);
+    wardrobe.selected = Some(selected);
+    Arc::make_mut(&mut wardrobe.skins)[selected].model = SkinModel::Custom;
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let hits = append(&mut presentation, &view, [1920.0, 1080.0]);
+    assert!(
+        !hits
+            .iter()
+            .any(|(action, _)| matches!(action, MenuAction::DressingRoom(Action::SetModel(_))))
+    );
+    for action in [Action::BeginRename(selected), Action::BeginDelete(selected)] {
+        assert!(
+            hits.iter()
+                .any(|(candidate, _)| *candidate == command(action))
+        );
     }
 }

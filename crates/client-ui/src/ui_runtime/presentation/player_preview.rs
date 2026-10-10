@@ -117,10 +117,8 @@ impl UiPresentationRuntime {
         });
     }
 
-    /// Dresses the model: each armor slot's item identifier (helmet to boots)
-    /// with its stack dye, and the held item's identifier and metadata. Armor resolves as the
-    /// world player's does: the session pack's attachable first, else the base catalog's, and
-    /// only a leather material applies the dye.
+    /// Dresses armor and held items using session attachables first, then the base catalog.
+    /// Armor follows world-player material rules; only leather applies the stack dye.
     pub fn set_player_preview_gear(
         &mut self,
         armor: [Option<(&str, Option<u32>)>; 4],
@@ -313,12 +311,8 @@ impl PreviewView {
     }
 }
 
-/// A player renderer's pose request and its raster's logical rect. A live
-/// renderer centres the model at `min(w, h)` pixels per block and turns toward
-/// the pointer; a paper doll centres it at `min(w / 20, h / 39)` pixels per
-/// model pixel, turned by `starting_rotation` under `camera_tilt_degrees`. Each
-/// centres the UI model-part origin, not the eyes or feet; the paper doll first
-/// subtracts the inverse GUI scale in model pixels.
+/// Builds the live preview or paper-doll pose and logical rect around the model-part origin.
+/// Uses each renderer's scale and rotation; the doll also offsets by inverse GUI scale.
 pub fn renderer_frame(
     renderer: &str,
     data: &std::collections::BTreeMap<String, serde_json::Value>,

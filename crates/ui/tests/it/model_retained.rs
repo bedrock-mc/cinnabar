@@ -5,11 +5,11 @@ use std::sync::Arc;
 use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
-    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextShadow, TextStyle, UiBlendMode, UiDrawList, UiMesh, UiMeshBatch, UiMeshVertex, UiNode,
+    RetainedDraw, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow,
+    TextStyle, UiBlendMode, UiDrawList, UiError, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiNode,
     UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
-
+/// Creates finite bounds for a fixture node.
 fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {
     UiRect::new(
         UiPoint::new(left, top).unwrap(),
@@ -18,6 +18,7 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {
     .unwrap()
 }
 
+/// Creates a stable fixture node identity.
 fn id(value: u32) -> UiNodeId {
     UiNodeId::new(value)
 }
@@ -48,6 +49,7 @@ fn font() -> CompiledFontCatalog {
     CompiledFontCatalog::decode(&bytes, [9; 32]).unwrap()
 }
 
+/// Lays out fixture text with fixed font metrics.
 fn text(font: &CompiledFontCatalog, value: &str) -> Arc<TextLayout> {
     TextLayoutCache::new(4, 64 * 1024)
         .layout(TextLayoutRequest {
@@ -63,6 +65,7 @@ fn text(font: &CompiledFontCatalog, value: &str) -> Arc<TextLayout> {
         .unwrap()
 }
 
+/// Creates one triangle whose geometry varies by offset.
 fn mesh(offset: f32) -> Arc<UiMesh> {
     let vertex = |position: [f32; 2]| UiMeshVertex {
         position,
@@ -98,6 +101,7 @@ fn mesh(offset: f32) -> Arc<UiMesh> {
     )
 }
 
+/// Creates a one-texel sprite on the requested page.
 fn sprite(page: u16, color: [u8; 4]) -> UiVisual {
     UiVisual::Sprite {
         texture_page: page,
@@ -130,11 +134,12 @@ fn hud(font: &CompiledFontCatalog) -> Vec<UiNode> {
 }
 
 const VIEWPORT: [f32; 4] = [0.0, 0.0, 400.0, 300.0];
-
+/// Returns the reference logical viewport.
 fn viewport() -> UiRect {
     rect(VIEWPORT[0], VIEWPORT[1], VIEWPORT[2], VIEWPORT[3])
 }
 
+/// Builds a fresh draw list for comparison.
 fn full(nodes: &[UiNode]) -> UiDrawList {
     let mut tree = UiTree::new(nodes.to_vec()).unwrap();
     tree.layout(viewport(), UiScale::new(2.0).unwrap(), SafeArea::ZERO)
@@ -148,6 +153,7 @@ struct Retained {
     last: Vec<UiNode>,
 }
 
+/// Builds a retained draw list and its previous node input.
 fn retained(nodes: &[UiNode]) -> Retained {
     let draw = RetainedDraw::build(
         nodes,
@@ -163,6 +169,7 @@ fn retained(nodes: &[UiNode]) -> Retained {
     }
 }
 
+/// Updates the retained list at the reference viewport.
 fn redraw(retained: &mut Retained, nodes: &[UiNode]) -> Option<ui::DrawUpdate> {
     retained.draw.update(
         &mut retained.last,
@@ -174,6 +181,7 @@ fn redraw(retained: &mut Retained, nodes: &[UiNode]) -> Option<ui::DrawUpdate> {
     )
 }
 
+/// Compares retained vertices, indices and batches with a fresh build.
 fn assert_equal(retained: &Retained, nodes: &[UiNode]) {
     assert_eq!(retained.last, nodes);
     let expected = full(nodes);
@@ -187,6 +195,44 @@ fn assert_equal(retained: &Retained, nodes: &[UiNode]) {
 fn a_fresh_retained_list_equals_the_full_build() {
     let nodes = hud(&font());
     assert_equal(&retained(&nodes), &nodes);
+}
+
+#[test]
+fn retained_builds_preserve_the_full_build_clip_depth_limit() {
+    for depth in [UiLimits::MAX_CLIP_DEPTH, UiLimits::MAX_CLIP_DEPTH + 1] {
+        let nodes: Vec<_> = (0..depth * 2)
+            .map(|index| {
+                UiNode::new(
+                    id(u32::try_from(index + 1).unwrap()),
+                    (index > 0).then(|| id(u32::try_from(index).unwrap())),
+                    rect(0.0, 0.0, 10.0, 10.0),
+                )
+                .with_clip_children(index % 2 == 0)
+            })
+            .collect();
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport(), UiScale::default(), SafeArea::ZERO)
+            .unwrap();
+        let expected = tree.build_draw_list();
+        let actual = RetainedDraw::build(
+            &nodes,
+            viewport(),
+            UiScale::default(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        );
+        if depth == UiLimits::MAX_CLIP_DEPTH {
+            assert!(expected.is_ok(), "non-clipping ancestors do not count");
+            assert!(actual.is_ok(), "the clip-depth limit is inclusive");
+        } else {
+            let error = Some(UiError::ClipDepthExceeded {
+                actual: depth,
+                limit: UiLimits::MAX_CLIP_DEPTH,
+            });
+            assert_eq!(expected.err(), error);
+            assert_eq!(actual.err(), error);
+        }
+    }
 }
 
 #[test]
@@ -320,4 +366,14 @@ fn a_new_node_or_viewport_needs_a_full_build() {
             )
             .is_none()
     );
+}
+
+/// Changing inherited clipping invalidates the whole retained subtree.
+#[test]
+fn changing_a_parent_clip_rebuilds_before_drawing_its_children() {
+    let mut nodes = hud(&font());
+    let mut draw = retained(&nodes);
+    nodes[5] = nodes[5].clone().with_clip_children(false);
+    assert!(redraw(&mut draw, &nodes).is_none());
+    assert_equal(&retained(&nodes), &nodes);
 }

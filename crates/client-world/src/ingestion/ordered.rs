@@ -84,6 +84,10 @@ struct Entry {
 pub struct CommitBudget {
     /// Heavy terrain steps are allowed; light steps always are.
     pub heavy: bool,
+    /// Heavy steps may include pure chunk data. When false, heavy chunk data commits only
+    /// while a ready later event waits behind it alone, so mutations, retention changes and
+    /// barriers never wait for a pass that skips terrain.
+    pub chunk_data: bool,
     /// The server position scopes retention, so positional events order with terrain.
     pub couple_position: bool,
 }
@@ -91,6 +95,7 @@ pub struct CommitBudget {
 impl CommitBudget {
     pub const UNLIMITED: Self = Self {
         heavy: true,
+        chunk_data: true,
         couple_position: true,
     };
 }
@@ -117,6 +122,8 @@ pub struct OrderedCommitState {
     applying: Option<u64>,
     last_step_heavy: bool,
     earlier: EarlierEvents,
+    /// Chunk data a pass without the chunk-data allowance skips, for its lookahead.
+    skipped_chunk_data: EarlierEvents,
 }
 
 impl OrderedCommitState {
@@ -137,6 +144,7 @@ impl OrderedCommitState {
             applying: None,
             last_step_heavy: false,
             earlier: EarlierEvents::default(),
+            skipped_chunk_data: EarlierEvents::default(),
         }
     }
 
@@ -407,27 +415,17 @@ impl OrderedCommitState {
         if self.applying.is_some() {
             return None;
         }
-        if budget.heavy
-            && let Some(pending) = self.pending_sub_chunks.as_mut()
-        {
-            let event = pending
-                .entries
-                .next()
-                .map_or(PreparedWorldEvent::CommitOnly, |entry| {
-                    PreparedWorldEvent::SubChunks {
-                        dimension: pending.dimension,
-                        entries: vec![entry],
-                        duration: pending.duration,
-                    }
-                });
-            self.applying = Some(pending.sequence);
-            self.last_step_heavy = true;
-            return Some(CommitStep::Apply {
-                sequence: pending.sequence,
-                event,
-            });
+        if budget.heavy && budget.chunk_data && self.pending_sub_chunks.is_some() {
+            return Some(self.continue_sub_chunks());
         }
         let sequence = self.find_unblocked(budget)?;
+        if self
+            .pending_sub_chunks
+            .as_ref()
+            .is_some_and(|pending| pending.sequence == sequence)
+        {
+            return Some(self.continue_sub_chunks());
+        }
         let entry = self
             .entries
             .get_mut(&sequence)
@@ -480,9 +478,58 @@ impl OrderedCommitState {
         })
     }
 
+    /// Applies the partial sub-chunk batch's next entry, or finishes the batch.
+    fn continue_sub_chunks(&mut self) -> CommitStep {
+        let pending = self
+            .pending_sub_chunks
+            .as_mut()
+            .expect("a partial sub-chunk batch is pending");
+        let event = pending
+            .entries
+            .next()
+            .map_or(PreparedWorldEvent::CommitOnly, |entry| {
+                PreparedWorldEvent::SubChunks {
+                    dimension: pending.dimension,
+                    entries: vec![entry],
+                    duration: pending.duration,
+                }
+            });
+        self.applying = Some(pending.sequence);
+        self.last_step_heavy = true;
+        CommitStep::Apply {
+            sequence: pending.sequence,
+            event,
+        }
+    }
+
+    /// The first ready event `budget` may commit that no earlier unfinished event blocks; a
+    /// partial sub-chunk batch's sequence means continuing that batch. Leaves `earlier`
+    /// summarising everything before a returned ready event.
+    fn find_unblocked(&mut self, budget: CommitBudget) -> Option<u64> {
+        if let Some(sequence) = self.scan_unblocked(budget) {
+            return Some(sequence);
+        }
+        if !budget.heavy || budget.chunk_data {
+            return None;
+        }
+        let skipped = self.chunk_data_holding_ready_work(budget.couple_position)?;
+        if self
+            .pending_sub_chunks
+            .as_ref()
+            .is_some_and(|pending| pending.sequence == skipped)
+        {
+            return Some(skipped);
+        }
+        // The earliest skipped chunk data is the first event the full allowance unblocks.
+        self.scan_unblocked(CommitBudget {
+            chunk_data: true,
+            ..budget
+        })
+    }
+
     /// Scans in wire order for the first ready event no earlier unfinished event blocks.
     /// Leaves `earlier` summarising everything before the returned sequence.
-    fn find_unblocked(&mut self, budget: CommitBudget) -> Option<u64> {
+    fn scan_unblocked(&mut self, budget: CommitBudget) -> Option<u64> {
         self.earlier.clear();
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
@@ -496,6 +543,7 @@ impl OrderedCommitState {
             match &entry.slot {
                 Slot::Ready(event)
                     if (budget.heavy || !(entry.footprint.heavy || entry.footprint.barrier))
+                        && (budget.chunk_data || !is_heavy_chunk_data(&entry.footprint))
                         && self.kind_is_free(event)
                         && !self
                             .earlier
@@ -505,6 +553,56 @@ impl OrderedCommitState {
                 }
                 _ => self.earlier.add(&entry.footprint, budget.couple_position),
             }
+        }
+        None
+    }
+
+    /// Finds chunk data that can progress when a ready later event waits only on chunk data.
+    /// A queued sub-chunk batch first needs the active batch to release its shared slot.
+    fn chunk_data_holding_ready_work(&mut self, couple_position: bool) -> Option<u64> {
+        self.earlier.clear();
+        self.skipped_chunk_data.clear();
+        let mut first_skipped = None;
+        let mut expected = self.frontier;
+        for (&sequence, entry) in self.entries.range(self.frontier..) {
+            if sequence != self.finished_through(expected).saturating_add(1) {
+                self.earlier.add_unknown();
+            }
+            if self.earlier.is_barrier() {
+                return None;
+            }
+            expected = sequence.saturating_add(1);
+            let blocked = self.earlier.blocks(&entry.footprint, couple_position);
+            let partial_batch = self
+                .pending_sub_chunks
+                .as_ref()
+                .is_some_and(|pending| pending.sequence == sequence);
+            let free = matches!(&entry.slot, Slot::Ready(event) if self.kind_is_free(event));
+            let batch_waits_for = match &entry.slot {
+                Slot::Ready(PreparedWorldEvent::SubChunks { .. }) => self
+                    .pending_sub_chunks
+                    .as_ref()
+                    .map(|pending| pending.sequence),
+                _ => None,
+            };
+            if !blocked
+                && is_heavy_chunk_data(&entry.footprint)
+                && (free || partial_batch || batch_waits_for.is_some())
+            {
+                first_skipped.get_or_insert(batch_waits_for.unwrap_or(sequence));
+                self.skipped_chunk_data
+                    .add(&entry.footprint, couple_position);
+                continue;
+            }
+            if !blocked
+                && free
+                && self
+                    .skipped_chunk_data
+                    .blocks(&entry.footprint, couple_position)
+            {
+                return first_skipped;
+            }
+            self.earlier.add(&entry.footprint, couple_position);
         }
         None
     }
@@ -718,4 +816,10 @@ fn block_updates_can_coalesce(events: &[BlockUpdateEvent]) -> bool {
     events
         .iter()
         .all(|event| event.layer < world::MAX_STORAGE_COUNT)
+}
+
+/// Terrain that spends the heavy allowance with nothing local waiting on it; a pass without
+/// the chunk-data allowance skips it.
+fn is_heavy_chunk_data(footprint: &Footprint) -> bool {
+    footprint.heavy && footprint.is_chunk_data()
 }

@@ -68,6 +68,9 @@ impl WorldStream {
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.poll").entered();
+        let mesh_changes_queued = self.stats.phase2_stages.mesh_changes_queued;
+        // Before any commit, as the request preceded every commit still to come.
+        self.apply_due_chunk_retention();
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_camera_position = camera_position;
             self.requests.last_player_chunk = Some(ChunkKey::new(
@@ -76,16 +79,8 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
-        let now = Instant::now();
-        let frame_deadline = self
-            .frame_deadline
-            .take()
-            .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
-        let remaining = frame_deadline.saturating_duration_since(now);
-        self.poll_deadline
-            .get_or_insert(now + remaining - remaining / commit_budget::WORLD_SCHEDULING_SHARE);
-        self.polling = true;
-        self.poll_heavy_guarantee = true;
+        let frame_deadline = self.begin_poll_work(Instant::now());
+        let commit_steps = self.commit_steps;
         let mut report = WorldStreamPoll::default();
         while report.decoded_results == 0 || !self.poll_budget_exhausted() {
             let Ok(completion) = self.decode_rx.try_recv() else {
@@ -160,6 +155,13 @@ impl WorldStream {
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
         self.poll_deadline = None;
         self.polling = false;
+        self.chunk_data_offloaded = false;
+        report.commit_steps = self.commit_steps.wrapping_sub(commit_steps) as usize;
+        report.mesh_changes_queued = self
+            .stats
+            .phase2_stages
+            .mesh_changes_queued
+            .saturating_sub(mesh_changes_queued) as usize;
         report
     }
     /// Dispatches the light and mesh work a live block change made urgent, without
@@ -407,7 +409,10 @@ impl WorldStream {
         }
         None
     }
-    pub fn cave_visible_sub_chunks(&self, camera: SubChunkKey) -> HashSet<SubChunkKey> {
+    pub fn cave_visible_sub_chunks(
+        &self,
+        camera: SubChunkKey,
+    ) -> std::collections::HashSet<SubChunkKey> {
         crate::culling::cave_visible_sub_chunks(camera, &self.connectivity)
     }
     /// Whether the face-connectivity graph covers `key`; the cave culler can only hide those.

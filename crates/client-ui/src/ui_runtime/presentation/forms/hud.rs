@@ -350,6 +350,9 @@ impl UiPresentationRuntime {
                 &mut icons,
                 options,
             );
+            if self.mod_effect_icons_hidden() {
+                model.effects_visible = false;
+            }
             super::settings_chat::apply_hud(options, &mut model);
             let opacity = options.value("interface_opacity");
             let hud = &mut self.form_presentation.hud;
@@ -383,6 +386,9 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        if self.mod_effect_icons_hidden() {
+            paint.effects.clear();
+        }
         if self.mod_hud_visible(player_runtime, runtime) {
             paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();
         }

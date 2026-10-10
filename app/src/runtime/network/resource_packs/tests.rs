@@ -5,6 +5,7 @@ use super::ResourcePackAdmissionState;
 /// Serializes tests that go through the process-wide block overlay cache.
 static OVERLAY_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Serializes fixtures that share the retained block-overlay cache.
 pub(super) fn overlay_cache() -> std::sync::MutexGuard<'static, ()> {
     OVERLAY_CACHE_LOCK
         .lock()
@@ -463,6 +464,7 @@ pub(super) fn every_subscriber_archive(id: u128, lang: &[u8]) -> protocol::Resou
     )
 }
 
+/// Creates a fixture supplying inputs to every pack subscriber.
 pub(super) fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
     std::sync::Arc::new(super::super::pack_reload::PackInputs {
         icons: vec![("x:gem".into(), "gem".into())],

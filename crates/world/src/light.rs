@@ -528,6 +528,14 @@ impl LightStore {
         self.entries.get(&key).map(|entry| &entry.light)
     }
 
+    /// Returns a known boundary's kind and light volume from one lookup.
+    #[must_use]
+    pub fn entry(&self, key: SubChunkKey) -> Option<(LightSubChunkKind, &Arc<SubChunkLight>)> {
+        self.entries
+            .get(&key)
+            .map(|entry| (entry.kind, &entry.light))
+    }
+
     /// Marks an explicitly received empty sub-chunk and stores its light.
     pub fn insert_known_air(&mut self, key: SubChunkKey, light: SubChunkLight) {
         self.insert(key, LightSubChunkKind::KnownAir, light);

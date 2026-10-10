@@ -9,7 +9,9 @@ impl BlobCacheResolver {
         let mut unique = Vec::<(u64, Vec<u8>)>::new();
         let mut positions = HashMap::<u64, usize>::new();
         for blob in response.missing_blobs {
-            if !self.pending_by_hash.contains_key(&blob.blob_id) {
+            if !self.pending_by_hash.contains_key(&blob.blob_id)
+                && !self.cache.contains(blob.blob_id)
+            {
                 return Err(BlobCacheError::UnsolicitedBlob(blob.blob_id));
             }
             if let Some(&index) = positions.get(&blob.blob_id) {
@@ -18,9 +20,7 @@ impl BlobCacheResolver {
                 }
                 continue;
             }
-            // Deliberate security divergence from current vanilla: the public cache-poisoning
-            // disclosure at https://gist.github.com/JustTalDevelops/1abfdae7ab7618af2ec82f709ffa93bb
-            // reports that vanilla stopped validating this hash. Cinnabar keeps validation.
+            // Validate repeated payloads too, before publishing any part of the response.
             let actual = client_blob_hash(&blob.blob_data);
             if actual != blob.blob_id {
                 return Err(BlobCacheError::HashMismatch {

@@ -1,8 +1,5 @@
-//! Session armor texels shared by inventory previews and the HUD paper doll.
-//!
-//! Only the pack textures the dressed model wears take GUI model pages. A pack ships far more
-//! attachable art than the bounded model atlas holds, so placing all of it would fail as a
-//! whole; placing the worn few, each on its own terms, keeps every other texture usable.
+//! Shares session armor texels between inventory previews and the HUD paper doll.
+//! Only worn textures consume bounded GUI pages, so unused attachables cannot exhaust them.
 
 use super::*;
 

@@ -17,6 +17,8 @@ use anyhow::{Context, Result, anyhow};
 use assets::carriers;
 use serde::Deserialize;
 
+use super::fs_retry;
+
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
 /// The user stopped setup; the compiler is killed and nothing is published.
@@ -269,14 +271,14 @@ pub(super) fn publish(staged: &Path, final_dir: &Path) -> Result<()> {
     }
     let old = previous(final_dir);
     if old.exists() {
-        fs::remove_dir_all(&old).with_context(|| format!("remove {}", old.display()))?;
+        fs_retry::remove_dir_all(&old).with_context(|| format!("remove {}", old.display()))?;
     }
     if final_dir.exists() {
-        fs::rename(final_dir, &old)
+        fs_retry::rename(final_dir, &old)
             .with_context(|| format!("move {} aside", final_dir.display()))?;
     }
-    if let Err(error) = fs::rename(staged, final_dir) {
-        let _ = fs::rename(&old, final_dir);
+    if let Err(error) = fs_retry::rename(staged, final_dir) {
+        let _ = fs_retry::rename(&old, final_dir);
         return Err(error)
             .with_context(|| format!("move {} to {}", staged.display(), final_dir.display()));
     }
@@ -300,7 +302,7 @@ pub(super) fn publish_if_active(
 pub(super) fn recover(final_dir: &Path) {
     let old = previous(final_dir);
     if !final_dir.exists() && old.is_dir() {
-        let _ = fs::rename(&old, final_dir);
+        let _ = fs_retry::rename(&old, final_dir);
     }
 }
 
@@ -474,6 +476,18 @@ mod tests {
         fs::write(final_dir.join("old"), b"1").unwrap();
         publish(&staged, &final_dir).unwrap();
         assert!(final_dir.join("new").is_file() && !final_dir.join("old").exists());
+        assert!(!previous(&final_dir).exists());
+    }
+
+    #[test]
+    fn a_failed_publish_restores_the_earlier_directory() {
+        let dir = Dir::new("publish-rollback");
+        let staged = dir.path().join("missing-staged");
+        let final_dir = dir.path().join("compiled");
+        fs::create_dir(&final_dir).unwrap();
+        fs::write(final_dir.join("carrier"), b"old assets").unwrap();
+        assert!(publish(&staged, &final_dir).is_err());
+        assert_eq!(fs::read(final_dir.join("carrier")).unwrap(), b"old assets");
         assert!(!previous(&final_dir).exists());
     }
 }

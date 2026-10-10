@@ -241,3 +241,59 @@ fn near_columns_rescan_past_a_spent_budget() {
     assert!(is_near_column([0, 0], 1, -1));
     assert!(!is_near_column([0, 0], 2, 0));
 }
+
+/// Repeated edits to early columns cannot starve later columns waiting for their first scan.
+#[test]
+fn continuously_changed_columns_do_not_starve_later_rescans() {
+    let count = 3 * MAX_COLUMN_RESCANS_PER_FRAME;
+    let mut store = ChunkStore::new();
+    for x in 0..count as i32 {
+        store
+            .commit_sub_chunk(SubChunkKey::new(0, x, 4, 0), uniform_sub_chunk(1))
+            .unwrap();
+    }
+    let mut scans: Vec<Option<ColumnScan>> = (0..count).map(|_| None).collect();
+    let mut order = RescanOrder::default();
+    for frame in 0..count.div_ceil(MAX_COLUMN_RESCANS_PER_FRAME) {
+        for x in 0..MAX_COLUMN_RESCANS_PER_FRAME as i32 {
+            store
+                .commit_sub_chunk(
+                    SubChunkKey::new(0, x, 4, 0),
+                    uniform_sub_chunk(2 + frame as u8),
+                )
+                .unwrap();
+        }
+        let selected = order.select(
+            (0..count as i32)
+                .map(|x| world::ChunkKey::new(0, x, 0))
+                .filter(|key| {
+                    let chunk = store.chunk(*key).unwrap();
+                    scans[key.x as usize]
+                        .as_ref()
+                        .is_none_or(|scan| !scan.is_current(chunk))
+                }),
+        );
+        let mut left = MAX_COLUMN_RESCANS_PER_FRAME;
+        for (x, scan) in scans.iter_mut().enumerate() {
+            let key = world::ChunkKey::new(0, x as i32, 0);
+            let chunk = store.chunk(key).unwrap();
+            let mut deferred = 0;
+            let budget = if selected.contains(&Some(key)) {
+                &mut left
+            } else {
+                &mut deferred
+            };
+            *scan = frame_scan(scan.take(), chunk, false, budget, |previous| {
+                ColumnScan::new(
+                    chunk,
+                    Vec::new(),
+                    routed_entities(chunk, previous, |_, _, _, _| None),
+                )
+            });
+        }
+    }
+    assert!(
+        scans.iter().all(Option::is_some),
+        "every distant column eventually appears"
+    );
+}

@@ -16,6 +16,11 @@ const ENDER_PEARL_COOLDOWN: Cooldown = Cooldown {
     category: "ender_pearl",
     ticks: 20,
 };
+/// The vanilla food component's chorus fruit cooldown.
+const CHORUS_FRUIT_COOLDOWN: Cooldown = Cooldown {
+    category: "chorusfruit",
+    ticks: 20,
+};
 /// The vanilla pack's `wind_charge` `minecraft:cooldown` (0.5 s).
 const WIND_CHARGE_COOLDOWN: Cooldown = Cooldown {
     category: "wind_charge",
@@ -24,7 +29,6 @@ const WIND_CHARGE_COOLDOWN: Cooldown = Cooldown {
 /// Vanilla foods whose `minecraft:food` sets `can_always_eat`.
 const ALWAYS_EDIBLE: &[&str] = &[
     "enchanted_golden_apple",
-    "chorus_fruit",
     "golden_apple",
     "honey_bottle",
     "suspicious_stew",
@@ -68,6 +72,8 @@ pub enum AirUse {
         max_ticks: u32,
         needs: Needs,
         slowdown: f64,
+        /// The category cooldown that starts when this use begins.
+        cooldown: Option<Cooldown>,
     },
     /// Consumes one item outside creative and swings, as a thrown projectile does.
     Throw { cooldown: Option<Cooldown> },
@@ -76,18 +82,21 @@ pub enum AirUse {
 }
 
 impl AirUse {
+    /// Creates a held use without an item cooldown.
     const fn hold(max_ticks: u32, needs: Needs) -> Self {
         Self::Hold {
             max_ticks,
             needs,
             slowdown: DEFAULT_USE_SLOWDOWN,
+            cooldown: None,
         }
     }
 
+    /// The category cooldown started by an accepted use.
     pub const fn cooldown(self) -> Option<Cooldown> {
         match self {
-            Self::Throw { cooldown } => cooldown,
-            Self::Hold { .. } | Self::Instant => None,
+            Self::Throw { cooldown } | Self::Hold { cooldown, .. } => cooldown,
+            Self::Instant => None,
         }
     }
 
@@ -121,6 +130,16 @@ pub fn pack_identifier(identifier: &str) -> Option<&'static str> {
         .map(|(_, pack)| *pack)
 }
 
+/// The vanilla item's shared cooldown, independent of its use duration or charge state.
+pub fn item_cooldown(identifier: &str) -> Option<Cooldown> {
+    match identifier.strip_prefix("minecraft:")? {
+        "ender_pearl" => Some(ENDER_PEARL_COOLDOWN),
+        "wind_charge" => Some(WIND_CHARGE_COOLDOWN),
+        "chorus_fruit" => Some(CHORUS_FRUIT_COOLDOWN),
+        _ => None,
+    }
+}
+
 /// The air use of `identifier`; `pack_ticks` is the use duration its pack or item components
 /// state. `None` sends only the click-air transaction.
 pub fn classify(
@@ -147,10 +166,10 @@ pub fn classify(
         "snowball" | "egg" | "blue_egg" | "brown_egg" | "experience_bottle" | "splash_potion"
         | "lingering_potion" => AirUse::Throw { cooldown: None },
         "ender_pearl" => AirUse::Throw {
-            cooldown: Some(ENDER_PEARL_COOLDOWN),
+            cooldown: item_cooldown(identifier),
         },
         "wind_charge" => AirUse::Throw {
-            cooldown: Some(WIND_CHARGE_COOLDOWN),
+            cooldown: item_cooldown(identifier),
         },
         // Placed with its block; its pack use duration is not an air use.
         "camera" => return None,
@@ -158,6 +177,13 @@ pub fn classify(
             max_ticks: pack_ticks?,
             needs: Needs::Nothing,
             slowdown: SPEAR_USE_SLOWDOWN,
+            cooldown: None,
+        },
+        "chorus_fruit" => AirUse::Hold {
+            cooldown: item_cooldown(identifier),
+            max_ticks: pack_ticks?,
+            needs: Needs::Nothing,
+            slowdown: DEFAULT_USE_SLOWDOWN,
         },
         // Every other vanilla item with a pack use duration is a food.
         _ => AirUse::hold(

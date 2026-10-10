@@ -652,9 +652,8 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
         .collect()
 }
 
-/// Draws cube quads exactly on the block grid. Sealed quads overlap coplanar
-/// neighbours by a sub-pixel sliver whose colour follows draw order, and the
-/// culling paths compared here legitimately draw sub-chunks in different orders.
+/// Uses unsealed block-grid quads so different culling draw orders compare identical pixels.
+/// Sealed coplanar edges can overlap by a sliver and legitimately depend on draw order.
 const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
     @builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32,\
 ) -> VertexOutput { return sealed_cube_vertex(vertex_index, instance_index, 0.0); }";
@@ -770,6 +769,10 @@ impl Raster {
         );
         let records = gpu.buffer(&[0.0], storage);
         let tints = gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage);
+        let query_tables = gpu.words(
+            &meshing::biome_lattice::query_table_words(),
+            wgpu::BufferUsages::UNIFORM,
+        );
         let mut atmosphere = [0.0; 32];
         atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
         atmosphere[19] = 8.0;
@@ -797,6 +800,10 @@ impl Raster {
                 (11, clock.as_entire_binding()),
                 (13, streams.as_entire_binding()),
                 (15, atmosphere.as_entire_binding()),
+                (
+                    crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                    query_tables.as_entire_binding(),
+                ),
                 (20, lightmap.as_entire_binding()),
                 (
                     material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

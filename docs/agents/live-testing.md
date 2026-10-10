@@ -89,9 +89,12 @@ GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
 Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
 exhausting the collector’s source-location table.
 
-Install the capture tools with `brew install tracy` if missing. Match their Tracy
-protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
-[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+Install the capture tools from the Tracy release whose protocol matches
+`tracy-client-sys` in `Cargo.lock`: `brew install tracy` on macOS when Homebrew has
+that release, or the release's `windows-*.zip` on Windows. The
+[rust_tracy_client table](https://github.com/nagisa/rust_tracy_client#readme) maps each
+`tracy-client-sys` version to its Tracy release; mismatched tools refuse the connection.
+With the hidden local scene settled:
 
 ```sh
 TRACE_DIR="$(mktemp -d)"
@@ -136,8 +139,8 @@ For main-thread attribution, set `RUST_MCBE_STAGE_PROFILE=1` only on an
 instrumented release acceptance run. The client emits one
 `RUST_MCBE_STAGE_PROFILE` record per second with count, cumulative milliseconds,
 and maximum milliseconds for each runtime stage; `main_frame` is the main world's
-`First`..`Last` wall time, against which the chunk, actor, UI, particle, audio and
-block-entity stages attribute it. Compare runs with the same
+frame-start-to-`Last` wall time, including stream reclaim. The chunk, actor, UI,
+particle, audio and block-entity stages attribute that time. Compare runs with the same
 scene, BDS state, duration, release profile, and present mode. Treat overlapping
 worker and main-thread stages as attribution rather than additive wall time, and
 run the final performance gate again without the variable because profiling
@@ -145,7 +148,7 @@ changes the measured workload.
 
 Normal play also emits `RUST_MCBE_SLOW_FRAME` without any environment setting,
 on the trigger in Frame budgets, at most once per second with the number of
-suppressed slow frames and the violated budgets. `main_ms` covers `First` to
+suppressed slow frames and the violated budgets. `main_ms` covers frame-start timing to
 `Last`; `between_updates_ms` covers the rest of the preceding start-to-start
 interval. `main_stages` lists spans completed during that update, and
 `window_stages` includes the intervening render work, both in descending
@@ -163,6 +166,13 @@ extraction. `input_pacing_wait` is the deliberate main-thread delay before the n
 later of its frame-rate cadence slot and the predicted render-thread completion;
 `frame_pacing_lateness` is how far past that deadline the wait woke. `RUST_MCBE_INPUT_PACING=0`
 stops only the render-completion delay; a frame-rate cap still applies.
+`world_service` is the world-stream service thread's polling time between frames, recorded
+at reclaim; it overlaps extraction and pacing and is not main-thread time. Trace exports
+show it as a background-work counter at receipt, not a continuous execution span.
+`world_service_reclaim` is the main-thread wait to take the stream back before `First`.
+Both `main_frame` and input pacing's main-thread estimate include that wait.
+`RUST_MCBE_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
+same-binary control for chunk-streaming comparisons.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
@@ -241,3 +251,6 @@ and stack tables; never export the trace table of contents or process metadata,
 which can include environment variables. Use scheduler states and sampled stacks
 to separate blocked time from runnable delay and active work. Profiling overhead
 and unavailable GPU categories must be reported separately.
+
+Developer client builds include the default `acceptance` feature. Packaging opts out explicitly;
+use a developer build for acceptance evidence, even when testing with the release profile.

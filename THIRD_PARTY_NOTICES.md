@@ -55,11 +55,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 <!-- END BEDSIM-MIT -->
 
+## Cinnangles fonts
+
+The client ships `assets/fonts/CinnanglesSans.ttf`, `CinnanglesTen.ttf` and
+`CinnanglesSeven.ttf`. Ten and Seven are derived from Cinnangles Sans; their source
+manifests pin the exact Sans input. Sans provenance and licensing review is pending.
+No license is asserted here for these faces.
+
 ## Optional outline-font fixtures
 
-The default client ships the bundled Cinnangles Sans source from
-`assets/fonts/CinnanglesSans.ttf`. The licenses below belong to the dormant
-`outline-font-assets` path and its explicit compatibility fixtures.
+The licenses below belong to the dormant `outline-font-assets` path and its explicit
+compatibility fixtures.
 
 - Source: https://github.com/IdreesInc/Monocraft
 - Commit: `e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9`

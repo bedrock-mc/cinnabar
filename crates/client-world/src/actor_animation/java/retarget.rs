@@ -93,6 +93,7 @@ fn bits(bone: &BoneTransform) -> [u32; 11] {
     [r0, r1, r2, r3, t0, t1, t2, t3, s0, s1, s2]
 }
 
+/// Compares every transform field by float bits, including signed zero and NaN payloads.
 fn same_bits(left: &[BoneTransform], right: &[BoneTransform]) -> bool {
     left.len() == right.len() && left.iter().zip(right).all(|(a, b)| bits(a) == bits(b))
 }
@@ -346,6 +347,7 @@ impl ActorAnimationStore {
     }
 }
 
+/// Reads the translation component without including the packed scale.
 pub(super) fn translation(bone: BoneTransform) -> [f32; 3] {
     [
         bone.translation_scale[0],
@@ -376,6 +378,7 @@ fn relative(parent: BoneTransform, child: BoneTransform) -> BoneTransform {
     )
 }
 
+/// Places a local transform in its parent frame, including nonuniform scale.
 fn compose(parent: BoneTransform, local: BoneTransform) -> BoneTransform {
     let parent_scale = total_scale(&parent);
     let scaled = std::array::from_fn(|axis| translation(local)[axis] * parent_scale[axis]);
@@ -388,10 +391,12 @@ fn compose(parent: BoneTransform, local: BoneTransform) -> BoneTransform {
     )
 }
 
+/// Inverts a unit rotation quaternion.
 fn conjugate([x, y, z, w]: [f32; 4]) -> [f32; 4] {
     [-x, -y, -z, w]
 }
 
+/// Interpolates translation and scale with a normalized shortest-path rotation.
 fn blend(from: BoneTransform, to: BoneTransform, alpha: f32) -> BoneTransform {
     let lerp = |a: f32, b: f32| a + (b - a) * alpha;
     let mut end = to.rotation;

@@ -39,17 +39,16 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 
 /// Stacks of their own, keeping one admitted stack as a finished join would.
 fn kept_stacks() -> &'static CompiledStacks {
-    let kept: &'static CompiledStacks = Box::leak(Box::new(CompiledStacks::new()));
-    kept.keep_for_test(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
             protocol::ResourcePackArchive::unencrypted(
                 "00000000-0000-0000-0000-00000000ca7e".parse().unwrap(),
                 "1.0.0".into(),
                 String::new(),
                 vec![0; 32],
             ),
-        ]),
-    ));
+        ]));
+    let kept = Box::leak(Box::new(CompiledStacks::from(stack)));
     assert_eq!(kept.len(), 1);
     kept
 }

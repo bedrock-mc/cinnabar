@@ -1,6 +1,5 @@
-//! Recently compiled server stacks. A later join, or the reload that follows a join, reuses one
-//! whose stack reads exactly alike under the same process tables. Only blocks and icons also read
-//! StartGame facts, so only they recompile when those facts differ.
+//! Retains equivalent server stacks under the same process tables for joins and reloads.
+//! Only blocks and icons recompile when their StartGame inputs change.
 
 use std::{
     collections::VecDeque,
@@ -87,10 +86,12 @@ impl std::fmt::Debug for CompiledStacks {
 pub(in crate::runtime::network) static LATEST: CompiledStacks = CompiledStacks::new();
 
 impl CompiledStacks {
+    /// Creates an empty bounded cache of compiled server stacks.
     pub(crate) const fn new() -> Self {
         Self(Mutex::new(VecDeque::new()))
     }
 
+    /// Borrows the retained stacks, recovering their ownership after a poisoned lock.
     fn lock(&self) -> MutexGuard<'_, VecDeque<Kept>> {
         self.0
             .lock()
@@ -124,19 +125,21 @@ impl CompiledStacks {
         candidates.into_iter().find(|(kept, _)| same(kept, stack))
     }
 
-    /// Keeps a join's application, newest first, replacing any entry for the same contents.
+    /// Retains an active join, newest first. `cancelled` must not access this cache.
     /// `source_ui` is the server UI before the worker catalog prepared `application`'s.
     pub(in crate::runtime::network) fn remember(
         &self,
         environment: CompileEnvironment,
         application: &PackApplication,
         source_ui: Option<Arc<ServerUiPack>>,
+        cancelled: &dyn Fn() -> bool,
     ) {
         self.remember_by(
             environment,
             application,
             source_ui,
             ValidatedPackStack::same_contents,
+            cancelled,
         );
     }
 
@@ -148,6 +151,7 @@ impl CompiledStacks {
         application: &PackApplication,
         source_ui: Option<Arc<ServerUiPack>>,
         same: impl Fn(&ValidatedPackStack, &ValidatedPackStack) -> bool,
+        cancelled: &dyn Fn() -> bool,
     ) {
         let PackAdmission::Validated(stack) = &application.admission else {
             return;
@@ -172,6 +176,9 @@ impl CompiledStacks {
         };
         let evicted = {
             let mut kept = self.lock();
+            if cancelled() {
+                return;
+            }
             let (mut evicted, retained): (Vec<Kept>, Vec<Kept>) = kept
                 .drain(..)
                 .partition(|kept| replaced.iter().any(|stack| Arc::ptr_eq(stack, &kept.stack)));
@@ -196,7 +203,7 @@ impl CompiledStacks {
         cancelled: &dyn Fn() -> bool,
     ) {
         if !cancelled() && compiled_under == *now {
-            self.remember(compiled_under, application, source_ui);
+            self.remember(compiled_under, application, source_ui, cancelled);
         }
     }
 
@@ -217,24 +224,28 @@ impl CompiledStacks {
     pub(crate) fn len(&self) -> usize {
         self.lock().len()
     }
+}
 
-    /// Keeps `stack` as a join would, with nothing compiled from it.
-    #[cfg(test)]
-    pub(crate) fn keep_for_test(&self, stack: Arc<ValidatedPackStack>) {
-        self.remember(
+#[cfg(test)]
+impl From<Arc<ValidatedPackStack>> for CompiledStacks {
+    /// Builds an isolated fixture with one admitted stack and no compiled presentation.
+    fn from(stack: Arc<ValidatedPackStack>) -> Self {
+        let kept = Self::new();
+        kept.remember(
             CompileEnvironment::current(),
             &PackApplication {
                 admission: PackAdmission::Validated(stack),
                 ..Default::default()
             },
             None,
+            &|| false,
         );
+        kept
     }
 }
 
-/// Compiles `stack`, starting from a kept application whose contents and environment match:
-/// then only subscribers reading StartGame facts that differ compile, and the result admits the
-/// kept stack so one copy of the archives stays alive. `None` once cancelled.
+/// Compiles from an equivalent retained stack, rebuilding only changed StartGame subscribers.
+/// Keeps one archive copy and returns None after cancellation.
 pub(in crate::runtime::network) fn compile_reusing(
     kept: &CompiledStacks,
     stack: Arc<ValidatedPackStack>,

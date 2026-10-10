@@ -38,7 +38,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `docs/superpowers/plans/2026-07-17-phase-3-movement-controls-camera.md`, Tasks 8-14 |
-| Deterministic tests | Current integration tranche: 282/282 `bedrock-client` library tests and strict all-target/all-feature Clippy green; bounded Phase 3 evidence validator 5/5 green. See `docs/evidence/phase-3-movement-controls-camera.md`. |
+| Deterministic tests | Current integration tranche: 282/282 `bedrock-client` library tests and strict all-target/all-feature Clippy green; bounded Phase 3 evidence validator 5/5 green. See `docs/evidence/phase-3-movement-controls-camera.md`. Render frame-clock tests also cover 20 Hz tick flush cadence at 60/120 Hz FIFO and uncapped, with manual recording clock preservation; live movement cadence remains unverified. |
 | Review commit | Pending independent review of the final integration commit. |
 | Live/native witness | Current tranche not run; local BDS, Lunar, Zeqa, LBSG, and matching native gates remain required. |
 | Performance/resource witness | Current tranche not run; bounded live JSON records remain required. |
@@ -59,11 +59,11 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Owning plan/task | `plan.md`: local custom models; static imports reuse actor preparation. |
+| Deterministic tests | Focused custom-import, rollback, persistence, login/update encoding, preview-worker and shared first/third-person preparation tests pass. |
+| Review commit | The PR description records independent review of static imports; full parity review remains open. |
+| Live/native witness | Headless before/after preview and local-avatar frames, restart persistence and second-client login/update frames are attached to the PR; complete native parity remains open. |
+| Performance/resource witness | Worker preparation is bounded; hardware frame budgets remain open. |
 | Final status | Open |
 
 ## P4.4-LIVE-ACTOR
@@ -92,11 +92,11 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | `plan.md`: Compact font carriers and glyph residency; broader UI parity remains open. |
+| Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. |
 | Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
+| Live/native witness | Exact coverage/SDF GPU pixels and mixed-script offline frames; native Bedrock UI parity remains open. |
+| Performance/resource witness | Font storage is bounded and development-profile first-menu startup is measured; release hitch and hardware-tier qualification remain open. |
 | Final status | Open |
 
 ## P5.2-HUD
@@ -137,7 +137,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage; see the Local placement prediction section in plan.md. |
-| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. |
+| Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. |
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |

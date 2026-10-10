@@ -3,6 +3,8 @@ use super::*;
 
 pub struct PreviewCapture {
     pub skin: Option<Arc<[u8]>>,
+    /// Model and texels publish together once the menu worker has completed.
+    pub ready: bool,
     pub pose: player_preview::PlayerPreviewPose,
     pub shown: bool,
     pub hands: bool,
@@ -29,13 +31,15 @@ pub fn render_prepared_ui(
     prepared: PendingUiPublication,
 ) -> Result<UiRenderInput, UiPresentationError> {
     let preview = prepared.preview;
-    presentation.sync_player_preview(
-        preview.skin.as_deref(),
-        preview.pose,
-        preview.shown,
-        preview.hands,
-        prepared.now_millis as f64 / 1000.0,
-    );
+    if preview.ready {
+        presentation.sync_player_preview(
+            preview.skin.as_deref(),
+            preview.pose,
+            preview.shown,
+            preview.hands,
+            prepared.now_millis as f64 / 1000.0,
+        );
+    }
     let icon = presentation.player_preview_icon();
     let (left, right) = presentation.player_hand_icons();
     presentation.hud_frame.player_preview = icon;

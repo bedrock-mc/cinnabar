@@ -134,9 +134,8 @@ fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiR
     })
 }
 
-/// `previous` with the vertices in `ranges` adapted again from `draw_list`, which must be the
-/// list `previous` was adapted from with only those vertices changed. Indices and batches stay
-/// shared. `None` when every rewritten vertex already matches, so `previous` stands.
+/// Patches only changed vertices from the list previously adapted, sharing indices and batches.
+/// Returns `None` when all rewritten vertices still match.
 pub fn patch_ui_vertices(
     previous: &UiRenderInput,
     draw_list: &UiDrawList,

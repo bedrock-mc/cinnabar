@@ -47,6 +47,8 @@ pub const TRANSPARENT_WITNESS_STAGE: &str = "RUST_MCBE_TRANSPARENT_WITNESS_STAGE
 pub const VISIBILITY_SNAPSHOT: &str = "RUST_MCBE_VISIBILITY_SNAPSHOT";
 pub const WORLD_PUBLICATION_SNAPSHOT: &str = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT";
 pub const WORLD_READY: &str = "RUST_MCBE_WORLD_READY";
+/// `0` keeps every world-stream poll on the frame thread, for same-binary comparisons.
+pub const WORLD_SERVICE: &str = "RUST_MCBE_WORLD_SERVICE";
 
 #[cfg(test)]
 use client_ui::diagnostic_markers::{
@@ -133,6 +135,7 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (VISIBILITY_SNAPSHOT, MarkerContract::LogOnlyDiagnostic),
     (WORLD_PUBLICATION_SNAPSHOT, MarkerContract::ParsedEvidence),
     (WORLD_READY, MarkerContract::ParsedEvidence),
+    (WORLD_SERVICE, MarkerContract::EnvironmentVariable),
 ];
 
 pub fn cumulative_counter_delta(current: u64, previous: u64) -> u64 {

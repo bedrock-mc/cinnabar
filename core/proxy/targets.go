@@ -53,10 +53,9 @@ func dialTransport(ctx context.Context, network minecraft.Network, address strin
 	return dialTransportWithin(ctx, network, address, rakNetConnectBudget)
 }
 
+// dialTransportWithin applies a connect deadline to RakNet, including probed fallbacks.
 func dialTransportWithin(ctx context.Context, network minecraft.Network, address string, budget time.Duration) (net.Conn, error) {
-	switch network.(type) {
-	case minecraft.RakNet, *minecraft.RakNet:
-	default:
+	if !minecraft.IsRakNet(network) {
 		return network.DialContext(ctx, address)
 	}
 	bounded, cancel := context.WithTimeout(ctx, budget)

@@ -4,7 +4,8 @@
 use std::{
     io::Write,
     sync::{
-        OnceLock,
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
         mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
     time::{Duration, Instant},
@@ -33,6 +34,7 @@ enum Message {
 /// An ordered queue in front of two output streams, drained by its own thread.
 pub struct Console {
     queue: Option<SyncSender<Message>>,
+    dropped: Arc<AtomicU64>,
 }
 
 impl Console {
@@ -43,10 +45,17 @@ impl Console {
     ) -> Self {
         let (queue, pending): (SyncSender<Message>, Receiver<Message>) =
             sync_channel(QUEUED_WRITES);
+        let dropped = Arc::new(AtomicU64::new(0));
+        let lost = Arc::clone(&dropped);
         let spawned = std::thread::Builder::new()
             .name("console-writer".to_owned())
             .spawn(move || {
                 for message in pending {
+                    let count = lost.swap(0, Ordering::Relaxed);
+                    if count > 0 {
+                        let _ = writeln!(stderr, "console queue full: dropped {count} writes");
+                        let _ = stderr.flush();
+                    }
                     match message {
                         Message::Write(stream, bytes) => {
                             let sink: &mut dyn Write = match stream {
@@ -64,20 +73,25 @@ impl Console {
             });
         Self {
             queue: spawned.is_ok().then_some(queue),
+            dropped,
         }
     }
 
-    /// Queues `bytes` behind every earlier write; waits only while the queue is full.
+    /// Queues bytes without waiting; a full queue drops this write and reports the loss later.
     pub fn write(&self, stream: Stream, bytes: Vec<u8>) {
         let Some(queue) = &self.queue else {
             write_inline(stream, &bytes);
             return;
         };
-        if let Err(error) = queue.send(Message::Write(stream, bytes)) {
-            let Message::Write(stream, bytes) = error.0 else {
-                return;
-            };
-            write_inline(stream, &bytes);
+        match queue.try_send(Message::Write(stream, bytes)) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(TrySendError::Disconnected(Message::Write(stream, bytes))) => {
+                write_inline(stream, &bytes);
+            }
+            Err(TrySendError::Disconnected(Message::Flush(_))) => unreachable!(),
         }
     }
 
@@ -202,12 +216,16 @@ mod tests {
     /// A stream that waits for a release before its first write, then records everything.
     struct Stalled {
         release: Option<mpsc::Receiver<()>>,
+        entered: Option<mpsc::Sender<()>>,
         written: Arc<Mutex<Vec<u8>>>,
     }
 
     impl Write for Stalled {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             if let Some(release) = self.release.take() {
+                if let Some(entered) = self.entered.take() {
+                    let _ = entered.send(());
+                }
                 let _ = release.recv_timeout(Duration::from_secs(30));
             }
             self.written.lock().unwrap().extend_from_slice(bytes);
@@ -227,6 +245,7 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let stdout = Stalled {
             release: Some(stalled),
+            entered: None,
             written: Arc::clone(&written),
         };
         let console = Arc::new(Console::spawn(stdout, std::io::sink()));
@@ -258,6 +277,7 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let stdout = Stalled {
             release: Some(stalled),
+            entered: None,
             written: Arc::clone(&written),
         };
         let console = Console::spawn(stdout, std::io::sink());
@@ -266,5 +286,38 @@ mod tests {
         release.send(()).unwrap();
         assert!(console.flush_within(Duration::from_secs(10)));
         assert_eq!(written.lock().unwrap().as_slice(), b"last line\n");
+    }
+
+    /// A full stalled queue drops excess writes instead of blocking the frame.
+    #[test]
+    fn a_full_queue_never_blocks_the_writer() {
+        let (release, stalled) = mpsc::channel();
+        let (entered, started) = mpsc::channel();
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let console = Arc::new(Console::spawn(
+            Stalled {
+                release: Some(stalled),
+                entered: Some(entered),
+                written,
+            },
+            std::io::sink(),
+        ));
+        console.write(Stream::Stdout, b"first\n".to_vec());
+        started.recv_timeout(Duration::from_secs(10)).unwrap();
+        let (done, finished) = mpsc::channel();
+        let writer = Arc::clone(&console);
+        let worker = std::thread::spawn(move || {
+            for _ in 0..QUEUED_WRITES + 2 {
+                writer.write(Stream::Stdout, b"line\n".to_vec());
+            }
+            done.send(()).unwrap();
+        });
+        let result = finished.recv_timeout(Duration::from_secs(10));
+        let dropped = console.dropped.load(Ordering::Relaxed);
+        release.send(()).unwrap();
+        worker.join().unwrap();
+        result.expect("a full console queue returns before the sink resumes");
+        assert!(dropped > 0);
+        console.flush();
     }
 }

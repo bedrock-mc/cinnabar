@@ -6,6 +6,7 @@ use super::*;
 struct Random(u64);
 
 impl Random {
+    /// Advances the deterministic fixture generator.
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -13,11 +14,13 @@ impl Random {
         self.0
     }
 
+    /// Returns a deterministic fixture choice below a positive bound.
     fn below(&mut self, bound: u64) -> u64 {
         self.next() % bound
     }
 }
 
+/// Creates a reproducible render-bone transform from its seed.
 fn bone(seed: u64) -> RenderBoneTransform {
     let value = |shift: u64| ((seed >> shift) % 97) as f32 / 48.0 - 1.0;
     RenderBoneTransform {
@@ -27,6 +30,7 @@ fn bone(seed: u64) -> RenderBoneTransform {
     }
 }
 
+/// Creates a shared seeded pose for repeated actor-draw comparisons.
 fn pose(seed: u64, bones: usize) -> Arc<[RenderBoneTransform]> {
     (0..bones as u64)
         .map(|index| bone(seed ^ index.wrapping_mul(0x9e37_79b9)))
@@ -49,6 +53,7 @@ fn geometries() -> Vec<ActorRigGeometry> {
         .collect()
 }
 
+/// Creates an actor draw with the chosen identity, rig and previous/current poses.
 fn submission(
     runtime_id: u64,
     layer: u8,
@@ -91,6 +96,7 @@ fn submission(
     }
 }
 
+/// Chooses a repeatable fixture bone count from the rig identity.
 fn bone_count(rig: u32) -> usize {
     match rig {
         3 => 4,
@@ -173,13 +179,12 @@ fn persistent_poses(seed: u64) -> Vec<Arc<[RenderBoneTransform]>> {
         .collect()
 }
 
+/// Combines actor and frame identities into a reproducible fixture seed.
 fn random_seed(runtime_id: u64, frame: u64) -> u64 {
     runtime_id.wrapping_mul(0x2545_f491_4f6c_dd1d) ^ frame.wrapping_mul(0x9e37_79b9_7f4a_7c15)
 }
 
-/// The draw a build made before index sorting and carried locations: stable sorts of the
-/// submissions themselves, a page lookup per comparison, uncached matrices, and multitexture
-/// and pages read back from the assignments per instance.
+/// Rebuilds the prior draw path with stable submission sorts and repeated page/matrix lookup.
 fn reference(
     catalog: &GeometryCatalog,
     partial_tick: f32,

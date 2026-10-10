@@ -604,6 +604,12 @@ pub(crate) fn draw_before_hud(
     if let Some(viewport) =
         crate::ui_render::overlay::overlay_viewport(camera.viewport.as_ref(), resolution)
     {
+        let Some(viewport) = crate::render_bounds::viewport(
+            &viewport,
+            crate::render_bounds::extent(target.main_texture_view()),
+        ) else {
+            return;
+        };
         pass.set_camera_viewport(&viewport);
     }
     pass.set_render_pipeline(pipeline);

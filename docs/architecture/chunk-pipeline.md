@@ -61,6 +61,46 @@ The manifest identifies the real package; the architecture checker resolves that
 identity through the alias. Future consumers can depend on `client-world` directly
 when they only need authority. This adapter owns no duplicate state.
 
+## Between-frames servicing
+
+`WorldStreamService` owns one `stream-service` thread. The production app lends it
+`ClientWorld.stream` in a schedule after `Last` and its network flush, and reclaims it
+after frame timing starts but before `First`, so frame systems from `First` onward
+find the stream present and pacing includes any reclaim wait. While
+lent, the thread runs the unchanged `WorldStream::poll` in 250 µs slices: decode
+acceptance, ordered commits, light and mesh acceptance and dispatch. That work overlaps
+render extraction and frame pacing instead of the next frame. A reclaim raises a yield
+flag that `poll_budget_exhausted` and the heavy-commit budget honour, so it waits for
+at most one slice plus one work item. A run sleeps on the decode, light and mesh result
+channels and a wake signal only after a slice commits, accepts and dispatches nothing.
+A panic on the thread resumes on the reclaiming thread.
+
+Ownership stays exclusive: exactly one thread holds the stream, every input it reads is
+part of it, and `poll` keeps its ordered commit frontier, stale-result checks and
+bounds. Once lent, the stream changes two policies:
+
+- Retention requests mark retention due instead of evicting; the next commit or poll,
+  normally the service's, re-evaluates it first. Frame systems after the request still
+  see the retiring out-of-view columns until then. Chunk requests the new grid drops
+  retire at the request, so the frame never flushes them; a column that holds only
+  requests is evicted then.
+- After a service window at least as long as the frame's allocation, the frame's poll
+  keeps the 1 ms floor allocation and leaves heavy chunk data to the service. Chunk
+  data that a ready block change, retention change or barrier waits behind still
+  commits, so local authority sees those this frame. A shorter window restores the full
+  allocation, so terrain cannot stall when frames leave no gap.
+
+Per-poll budgets bound each service slice like a frame poll, so a lent stream can
+dispatch more light and mesh work per frame. Publication permits and worker caps still
+bound throughput, and the scheduler's ranking (distance, quadrupled behind the view)
+orders the larger committed backlog. A view-wide join therefore meshes the faced
+surface sooner and the deep or behind sub-chunks of adjacent columns later.
+
+Without the service resource (tests, `RUST_MCBE_WORLD_SERVICE=0`) the stream never
+leaves the frame thread and both policies stay off. The vanilla rule that rebuild setup
+and completion run on the main thread is met in observable order, not thread identity:
+the stream's single owner performs them in the same sequence.
+
 ## Enforced dependency boundaries
 
 - `client-world` may depend on `assets`, `protocol` and `world`; it cannot depend

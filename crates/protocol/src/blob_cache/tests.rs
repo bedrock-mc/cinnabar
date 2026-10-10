@@ -257,6 +257,144 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
     assert_eq!(resolver.ready.len(), 2);
 }
 
+/// A repeated resolved blob must not discard a different column's outstanding payload.
+#[test]
+fn late_duplicate_blob_does_not_abandon_another_column() {
+    use valentine::bedrock::version::v1_26_51::MissingBlobData;
+
+    let old_payload = b"previously resolved column";
+    let new_payload = b"new outstanding column";
+    let old_hash = client_blob_hash(old_payload);
+    let new_hash = client_blob_hash(new_payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_level_chunk(1, vec![old_hash]).into())
+        .unwrap();
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![MissingBlobData {
+                blob_id: old_hash,
+                blob_data: old_payload.to_vec(),
+            }],
+        })
+        .unwrap();
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::Packet(_))
+    ));
+
+    resolver
+        .accept_cached_packet(cached_level_chunk(2, vec![new_hash]).into())
+        .unwrap();
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![
+                MissingBlobData {
+                    blob_id: old_hash,
+                    blob_data: old_payload.to_vec(),
+                },
+                MissingBlobData {
+                    blob_id: new_hash,
+                    blob_data: new_payload.to_vec(),
+                },
+            ],
+        })
+        .unwrap();
+
+    let ready = resolver.pop_ready();
+    let Some(BlobCacheReady::Packet(packet)) = ready else {
+        panic!("a valid current column must reconstruct without recovery: {ready:?}");
+    };
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
+        panic!("expected the current column");
+    };
+    assert_eq!(packet.chunk_position.x, 2);
+    assert_eq!(packet.serialized_chunk_data, new_payload);
+    assert_eq!(resolver.stats().abandoned_cached_transactions, 0);
+    assert_eq!(
+        resolver.cache().get(old_hash).unwrap().as_ref(),
+        old_payload
+    );
+}
+
+/// An invalid repeated payload cannot admit an earlier valid entry in the same response.
+#[test]
+fn late_duplicate_response_still_validates_entire_batch() {
+    use valentine::bedrock::version::v1_26_51::MissingBlobData;
+
+    let old_payload = b"previously verified column";
+    let new_payload = b"new outstanding column";
+    let cache = ClientBlobCache::default();
+    let old_hash = cache.insert(old_payload).unwrap();
+    let new_hash = client_blob_hash(new_payload);
+    let mut resolver = BlobCacheResolver::new(cache);
+    resolver
+        .accept_cached_packet(cached_level_chunk(2, vec![new_hash]).into())
+        .unwrap();
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![
+                MissingBlobData {
+                    blob_id: new_hash,
+                    blob_data: new_payload.to_vec(),
+                },
+                MissingBlobData {
+                    blob_id: old_hash,
+                    blob_data: b"changed repeated payload".to_vec(),
+                },
+            ],
+        })
+        .unwrap();
+
+    assert!(!resolver.cache().contains(new_hash));
+    assert_eq!(
+        resolver.cache().get(old_hash).unwrap().as_ref(),
+        old_payload
+    );
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+    assert_eq!(resolver.stats().miss_response_integrity_rejection, 1);
+}
+
+/// A valid hash alone does not authorize an unknown payload or the rest of its batch.
+#[test]
+fn unsolicited_blob_still_rejects_a_mixed_response() {
+    use valentine::bedrock::version::v1_26_51::MissingBlobData;
+
+    let requested_payload = b"requested column";
+    let unknown_payload = b"never requested column";
+    let requested_hash = client_blob_hash(requested_payload);
+    let unknown_hash = client_blob_hash(unknown_payload);
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_level_chunk(2, vec![requested_hash]).into())
+        .unwrap();
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![
+                MissingBlobData {
+                    blob_id: requested_hash,
+                    blob_data: requested_payload.to_vec(),
+                },
+                MissingBlobData {
+                    blob_id: unknown_hash,
+                    blob_data: unknown_payload.to_vec(),
+                },
+            ],
+        })
+        .unwrap();
+
+    assert!(!resolver.cache().contains(requested_hash));
+    assert!(!resolver.cache().contains(unknown_hash));
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+    assert_eq!(resolver.stats().miss_response_unsolicited, 1);
+}
+
 #[test]
 fn retained_cached_subchunk_emits_admission_before_reconstruction() {
     let payload = b"admitted-subchunk";

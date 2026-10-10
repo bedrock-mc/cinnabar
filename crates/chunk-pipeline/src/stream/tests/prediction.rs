@@ -741,6 +741,25 @@ fn a_single_block_update_publishes_its_mesh_within_one_poll() {
     assert!(polls <= 1, "published after {polls} polls");
 }
 
+/// A frame poll that leaves chunk data to the between-frames service still commits a ready
+/// server block change, so local physics and collision see it in this frame.
+#[test]
+fn chunk_data_offload_still_commits_a_ready_block_change() {
+    let (mut stream, next_sequence, position, _, camera_position) = settled_neighbourhood();
+    stream.begin_frame_work();
+    stream.poll_deadline = Some(Instant::now());
+    server_update(&mut stream, next_sequence, position, 1);
+    assert_ne!(
+        block(&stream, position),
+        Some(1),
+        "the spent ingress allocation left the change ready"
+    );
+    stream.between_frames_service = true;
+    stream.service_window = stream.poll_budget;
+    stream.poll(camera_position, 0);
+    assert_eq!(block(&stream, position), Some(1));
+}
+
 /// A prediction dispatches its urgent work at once, before any poll.
 #[test]
 fn a_prediction_dispatches_its_work_without_a_poll() {

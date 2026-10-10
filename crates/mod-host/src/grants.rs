@@ -35,6 +35,14 @@ pub struct ModGrants {
     pub commands: Vec<String>,
     /// Allows bounded post-login packet delay through the private core endpoint.
     pub packet_delay: bool,
+    /// Allows a package's overlay and view beside the container screens.
+    pub screen: bool,
+    /// Allows reading the session's items.
+    pub items: bool,
+    /// Allows reading the session's recipes.
+    pub recipes: bool,
+    /// Allows delivering a package's declared keys.
+    pub keys: bool,
     /// Allows retained full-block highlights of matching loaded blocks.
     pub block_highlights: bool,
     /// Allows retained local fullbright lighting, without altering server light data.

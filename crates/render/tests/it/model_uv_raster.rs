@@ -141,6 +141,10 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
+    let query_tables = gpu.words(
+        &meshing::biome_lattice::query_table_words(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let bindings = [
         (0, view.as_entire_binding()),
         (2, origins.as_entire_binding()),
@@ -154,6 +158,10 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         (11, clock.as_entire_binding()),
         (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
+        (
+            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+            query_tables.as_entire_binding(),
+        ),
         (20, lightmap.as_entire_binding()),
         (21, expected.as_entire_binding()),
     ]

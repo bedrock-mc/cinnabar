@@ -9,7 +9,7 @@ use crate::runtime::phase3_evidence::{
 };
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
-use std::{ffi::OsStr, fs, sync::Arc};
+use std::{ffi::OsStr, fs, io::Write, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -28,6 +28,7 @@ use render::{
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
+mod logging;
 mod startup;
 
 #[cfg(feature = "acceptance")]
@@ -98,7 +99,7 @@ use crate::{
         },
     },
 };
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{UiRuntime, oreui_fonts, presentation::UiPresentationRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 
@@ -354,6 +355,10 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
     crate::runtime::network::session::configure_network_frame_flush(app);
+    crate::runtime::world::configure_world_service(
+        app,
+        crate::runtime::network::session::NetworkFrameFlush,
+    );
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
         .configure_sets(
@@ -560,8 +565,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    let font_runtime =
-        crate::asset_startup::oreui_fonts::install(font_runtime, &layout.resource_root);
+    let font_dir = loaded_assets.selected_path.parent();
+    let font_runtime = oreui_fonts::install(font_runtime, font_dir.unwrap_or(Path::new(".")));
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -731,24 +736,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(bevy::log::LogPlugin {
-        // The presence library logs an error on every retry while Discord is closed; rich-presence reports it once.
-        filter: format!(
-            "{}discord_presence::connection=off",
-            bevy::log::DEFAULT_FILTER
-        ),
-        #[cfg(feature = "tracy")]
-        custom_layer: crate::tracy::layer,
-        // Log lines reach stderr through one ordered writer thread, so a slow or paused console
-        // never stalls the frame that logs.
-        fmt_layer: |_| {
-            Some(Box::new(
-                bevy::log::tracing_subscriber::fmt::Layer::default()
-                    .with_writer(diagnostics::console::stderr),
-            ))
-        },
-        ..default()
-    });
+    let plugins = plugins.set(logging::plugin());
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
@@ -900,7 +888,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<render::RuntimeStageSpans>()
         .add_plugins(render::GpuTimingPlugin)
         .add_systems(
-            First,
+            render::FrameStart,
             (
                 crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
@@ -966,6 +954,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    if let Some(service) = crate::runtime::world::WorldServiceSlot::from_environment()? {
+        app.insert_resource(service);
+    }
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
@@ -975,16 +966,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
-    executor::run_frame_schedules_on_one_thread(&mut app);
+    executor::configure_frame_schedule_executors(&mut app);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
     drop(app);
+    let _ = writeln!(
+        diagnostics::console::stderr(),
+        "{SHUTDOWN_COMPLETED} exit_code={}",
+        app_exit_code(&exit)
+    );
+    diagnostics::console::flush_before_exit();
     shutdown_watchdog.complete();
-    diagnostics::console::flush();
-    eprintln!("{SHUTDOWN_COMPLETED} exit_code={}", app_exit_code(&exit));
     if exit.is_error() {
         bail!("Bevy app exited after a fatal runtime error");
     }

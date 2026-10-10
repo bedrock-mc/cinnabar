@@ -14,7 +14,7 @@ use world::{ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CachedCrackShape, CrackClock, crack_shape},
+    cracks::{CachedCrackShape, crack_instances, crack_shape},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -99,10 +99,10 @@ struct BlockInfo {
 
 #[derive(Resource)]
 pub(crate) struct BlockEntityRuntime {
-    cracks: CrackClock,
     lids: ContainerLids,
     /// Scan results per loaded column, rebuilt when the column changes.
     columns: HashMap<ChunkKey, columns::ColumnScan>,
+    rescans: columns::RescanOrder,
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
@@ -119,9 +119,9 @@ pub(crate) struct BlockEntityRuntime {
 impl BlockEntityRuntime {
     pub(crate) fn new() -> Self {
         Self {
-            cracks: CrackClock::default(),
             lids: ContainerLids::default(),
             columns: HashMap::new(),
+            rescans: columns::RescanOrder::default(),
             frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
@@ -140,10 +140,10 @@ impl BlockEntityRuntime {
             return;
         }
         self.session = session;
-        self.cracks = CrackClock::default();
         self.lids = ContainerLids::default();
         self.missing_maps.clear();
         self.columns.clear();
+        self.rescans = columns::RescanOrder::default();
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
@@ -316,17 +316,15 @@ pub(crate) fn update_block_entity_scene(
         .map_or_else(Vec::new, |snapshot| {
             let assets = stream.runtime_assets();
             let shapes = &mut runtime.shapes;
-            runtime
-                .cracks
-                .instances(&snapshot.entries, now_seconds, |entry| {
-                    crack_shape(
-                        shapes,
-                        assets,
-                        mode,
-                        entry.layers.iter().flatten().next().copied(),
-                        entry.position,
-                    )
-                })
+            crack_instances(&snapshot.entries, |entry| {
+                crack_shape(
+                    shapes,
+                    assets,
+                    mode,
+                    entry.layers.iter().flatten().next().copied(),
+                    entry.position,
+                )
+            })
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
@@ -342,6 +340,16 @@ pub(crate) fn update_block_entity_scene(
         ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
             ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
+    let selected = runtime.rescans.select(
+        chunk_range(eye.x)
+            .flat_map(|x| chunk_range(eye.z).map(move |z| ChunkKey::new(dimension, x, z)))
+            .filter(|key| {
+                !columns::is_near_column(eye_column, key.x, key.z)
+                    && store.chunk(*key).is_some_and(|chunk| {
+                        scans.get(key).is_none_or(|scan| !scan.is_current(chunk))
+                    })
+            }),
+    );
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
             let chunk_key = ChunkKey::new(dimension, chunk_x, chunk_z);
@@ -350,25 +358,26 @@ pub(crate) fn update_block_entity_scene(
             };
             let previous = scans.remove(&chunk_key);
             let near = columns::is_near_column(eye_column, chunk_x, chunk_z);
-            let Some(mut scan) =
-                columns::frame_scan(previous, chunk, near, &mut rescans_left, |previous| {
-                    let portals = portals::column_cells(chunk_key, chunk, |id| {
-                        portal_kind(runtime, &collisions, mode, id)
+            let mut deferred = 0;
+            let budget = if near || selected.contains(&Some(chunk_key)) {
+                &mut rescans_left
+            } else {
+                &mut deferred
+            };
+            let Some(mut scan) = columns::frame_scan(previous, chunk, near, budget, |previous| {
+                let portals = portals::column_cells(chunk_key, chunk, |id| {
+                    portal_kind(runtime, &collisions, mode, id)
+                });
+                let entities =
+                    columns::routed_entities(chunk, previous, |id, runtime_id, nbt, position| {
+                        block_info(runtime, &collisions, mode, runtime_id)
+                            .zip(nbt.parse())
+                            .and_then(|(info, root)| {
+                                describe(id, &info.name, &info.state, &root, position)
+                            })
                     });
-                    let entities = columns::routed_entities(
-                        chunk,
-                        previous,
-                        |id, runtime_id, nbt, position| {
-                            block_info(runtime, &collisions, mode, runtime_id)
-                                .zip(nbt.parse())
-                                .and_then(|(info, root)| {
-                                    describe(id, &info.name, &info.state, &root, position)
-                                })
-                        },
-                    );
-                    columns::ColumnScan::new(chunk, portals, entities)
-                })
-            else {
+                columns::ColumnScan::new(chunk, portals, entities)
+            }) else {
                 continue;
             };
             scan.seen_frame = frame_stamp;
@@ -746,6 +755,7 @@ fn prune_bell_rings(
         cue(position) == Some(*sequence) || now_seconds - *start < BELL_RING_RETAIN_SECONDS
     });
 }
+
 /// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
 const BEAM_TOP: i32 = 320;
 

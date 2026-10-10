@@ -2,9 +2,7 @@
 use super::{ActorKind, ActorStore, PlayerProfile, PlayerSkin, retained_skin_bytes};
 use std::{collections::HashMap, sync::Arc};
 
-/// Appearances one frame may publish. Each becomes a drawable player with first-time skin,
-/// equipment and layer work, and finished preparation batches can release a lobby's worth at
-/// once; the rest publish on the following frames, the local player first.
+/// Maximum appearances published per frame to smooth bursts; the local player publishes first.
 pub(crate) const MAX_APPEARANCES_PUBLISHED_PER_FRAME: usize = 8;
 
 #[derive(Debug, Default)]
@@ -14,9 +12,8 @@ pub(super) struct ReadyAppearances {
 }
 
 impl ActorStore {
-    /// Ready profiles have their own byte ceiling, including replacements retained during a job.
-    /// First appearances publish on any frame; replacements wait for a tick so a visible pose never drops to rest.
-    /// At most [`MAX_APPEARANCES_PUBLISHED_PER_FRAME`] publish per call.
+    /// Publishes bounded ready profiles, retaining old replacements until a tick.
+    /// First appearances may publish without a tick; retained bytes have their own ceiling.
     pub(crate) fn prepare_appearances(&mut self, tick: bool) {
         if !self.animation.has_skin_preparation() {
             return;

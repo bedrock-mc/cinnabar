@@ -32,10 +32,20 @@ fn env() -> LayoutEnv<'static> {
     }
 }
 
+/// Loads the installed UI fixture, reporting a named skip when it is absent.
 fn catalog() -> Option<Catalog> {
     let dir = support::vanilla_pack().join("ui");
-    dir.is_dir()
-        .then(|| Catalog::load_dir(&dir).expect("index files load"))
+    if !dir.is_dir() {
+        eprintln!(
+            "skipping {}: missing UI fixture {}",
+            std::thread::current()
+                .name()
+                .unwrap_or("server form rendering"),
+            dir.display()
+        );
+        return None;
+    }
+    Some(Catalog::load_dir(&dir).expect("index files load"))
 }
 
 /// Depth-first search for the first descendant (or self) with `name`.
@@ -251,6 +261,7 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
         return;
     };
     let model = FormModel::Custom(CustomForm {
+        icon: None,
         title: "Options".into(),
         elements: vec![
             CustomElement::Label {
@@ -264,6 +275,7 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
             CustomElement::Slider {
                 text: "Volume: 5".into(),
                 fraction: 0.5,
+                timeout: 0.0,
                 tooltip: String::new(),
             },
             CustomElement::Dropdown {
@@ -323,6 +335,7 @@ fn custom_form_hides_the_submit_button_when_not_visible() {
         return;
     };
     let model = FormModel::Custom(CustomForm {
+        icon: None,
         title: "Options".into(),
         elements: vec![CustomElement::Label {
             text: "Intro".into(),
@@ -412,6 +425,7 @@ fn custom_toggle_reports_its_name_and_index() {
         return;
     };
     let model = FormModel::Custom(CustomForm {
+        icon: None,
         title: "Options".into(),
         elements: vec![
             CustomElement::Label {
@@ -477,5 +491,246 @@ fn gamepad_only_chrome_stays_hidden_in_forms() {
     assert_eq!(
         outline.properties.get("visible"),
         Some(&serde_json::Value::Bool(false))
+    );
+}
+
+#[test]
+fn multiselect_options_render_as_independent_scoped_checkboxes() {
+    let Some(catalog) = catalog() else {
+        eprintln!(
+            "skipping multiselect_options_render_as_independent_scoped_checkboxes: missing installed vanilla UI pack"
+        );
+        return;
+    };
+    let model = FormModel::Custom(CustomForm {
+        icon: None,
+        title: "Choose".into(),
+        submit_text: "Done".into(),
+        submit_visible: true,
+        elements: vec![
+            CustomElement::MultiSelect {
+                text: "First".into(),
+                options: vec!["A".into(), "B".into()],
+                selected: vec![1],
+                open: true,
+                tooltip: "First tip".into(),
+            },
+            CustomElement::MultiSelect {
+                text: "Second".into(),
+                options: vec!["C".into()],
+                selected: vec![0],
+                open: true,
+                tooltip: "Second tip".into(),
+            },
+        ],
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let labels = texts(&render.nodes);
+    for label in ["First", "Second", "A", "B", "C"] {
+        assert!(
+            labels.iter().any(|text| text == label),
+            "missing {label}: {labels:?}"
+        );
+    }
+    let checks: Vec<_> = render
+        .hits
+        .iter()
+        .filter(|hit| hit.control_name.as_deref() == Some("custom_multiselect_checkbox"))
+        .collect();
+    assert_eq!(checks.len(), 3, "{checks:?}");
+    assert_eq!(
+        checks
+            .iter()
+            .map(|hit| hit.collections.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![("custom_form".into(), 0), ("custom_multiselect".into(), 0)],
+            vec![("custom_form".into(), 0), ("custom_multiselect".into(), 1)],
+            vec![("custom_form".into(), 1), ("custom_multiselect".into(), 0)],
+        ]
+    );
+    assert_eq!(
+        checks
+            .iter()
+            .map(|hit| hit.checked.unwrap())
+            .collect::<Vec<_>>(),
+        [false, true, true]
+    );
+}
+
+#[test]
+fn custom_slider_timeout_reaches_fake_clock_direction_dispatch() {
+    let Some(catalog) = catalog() else {
+        eprintln!(
+            "skipping custom_slider_timeout_reaches_fake_clock_direction_dispatch: missing installed vanilla UI pack"
+        );
+        return;
+    };
+    let model = FormModel::Custom(CustomForm {
+        icon: None,
+        title: "Timing".into(),
+        submit_text: "Submit".into(),
+        submit_visible: true,
+        elements: vec![CustomElement::Slider {
+            text: "Volume: 0".into(),
+            fraction: 0.0,
+            timeout: 0.25,
+            tooltip: String::new(),
+        }],
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let slider = render
+        .hits
+        .iter()
+        .find(|hit| hit.kind == HitKind::Slider)
+        .expect("slider");
+    assert_eq!(slider.widget.slider.as_ref().unwrap().timeout, Some(0.25));
+    let mut view = ViewState {
+        focused: Some(slider.key.clone()),
+        ..ViewState::default()
+    };
+    let mut dispatcher = json_ui::Dispatcher::default();
+    dispatcher.button(
+        &render.hits,
+        &mut view,
+        json_ui::ButtonInput {
+            id: "button.menu_ok",
+            down: true,
+            point: None,
+            mode: json_ui::InputMode::Gamepad,
+            now: -0.1,
+        },
+    );
+    assert_eq!(view.components.selected(), Some(slider.key.as_str()));
+    let changed = |events: &[json_ui::ScreenEvent]| {
+        events
+            .iter()
+            .any(|event| matches!(event, json_ui::ScreenEvent::Slider { .. }))
+    };
+    assert!(changed(
+        &dispatcher
+            .direction(&render.hits, &mut view, [1.0, 0.0], 0.0)
+            .events
+    ));
+    assert!(!changed(
+        &dispatcher
+            .direction(&render.hits, &mut view, [1.0, 0.0], 0.24)
+            .events
+    ));
+    assert!(changed(
+        &dispatcher
+            .direction(&render.hits, &mut view, [1.0, 0.0], 0.25)
+            .events
+    ));
+}
+
+#[test]
+fn custom_icons_answer_resource_pack_bindings_for_each_image_state() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text("ui/icon_probe.json", &serde_json::json!({
+        "namespace":"icon_probe", "root":{"type":"stack_panel","size":[200,80],"controls":[
+            {"icon":{"type":"label","text":"#text","size":[200,20],"bindings":[{"binding_name":"#server_icon","binding_name_override":"#text"}]}},
+            {"outline":{"type":"label","text":"#text","size":[200,20],"bindings":[{"binding_name":"#server_outline_icon","binding_name_override":"#text"}]}},
+            {"source":{"type":"label","text":"#text","size":[200,20],"bindings":[{"binding_name":"#server_icon_file_system","binding_name_override":"#text"}]}}
+        ]}
+    }).to_string());
+    let root = json_ui::resolve(&catalog, "icon_probe.root", &Context::desktop())
+        .control
+        .unwrap();
+    for (icon, texture, source) in [
+        (None, "", "InUserPackage"),
+        (
+            Some(ButtonImage::Path("textures/items/apple".into())),
+            "textures/items/apple",
+            "InUserPackage",
+        ),
+        (Some(ButtonImage::Loading), "loading", "InUserPackage"),
+        (
+            Some(ButtonImage::Url("https://example.invalid/icon.png".into())),
+            "https://example.invalid/icon.png",
+            "RawPath",
+        ),
+    ] {
+        let model = FormModel::Custom(CustomForm {
+            icon,
+            ..CustomForm::default()
+        });
+        let data = json_ui::form_data_source(&model);
+        let bound = json_ui::bind(&root, &data, &json_ui::EmptyLibrary);
+        let laid = layout(&bound, ROOT, &env());
+        let nodes = json_ui::emit(&laid, &env());
+        let values = texts(&nodes);
+        if !texture.is_empty() {
+            assert_eq!(&values[..2], &[texture, texture]);
+        }
+        assert_eq!(values.last().unwrap(), source);
+    }
+}
+
+#[test]
+fn dropdown_options_belong_to_their_own_form_element() {
+    let Some(catalog) = catalog() else {
+        eprintln!(
+            "skipping dropdown_options_belong_to_their_own_form_element: missing installed vanilla UI pack"
+        );
+        return;
+    };
+    let model = FormModel::Custom(CustomForm {
+        icon: None,
+        title: "Choose".into(),
+        submit_text: "Done".into(),
+        submit_visible: true,
+        elements: vec![
+            CustomElement::Dropdown {
+                text: "First".into(),
+                options: vec!["A".into(), "B".into()],
+                index: 1,
+                open: true,
+                tooltip: "First tip".into(),
+            },
+            CustomElement::Dropdown {
+                text: "Second".into(),
+                options: vec!["C".into()],
+                index: 0,
+                open: true,
+                tooltip: "Second tip".into(),
+            },
+        ],
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let labels = texts(&render.nodes);
+    for label in ["First", "Second", "A", "B", "C"] {
+        assert!(
+            labels.iter().any(|text| text == label),
+            "missing {label}: {labels:?}"
+        );
+    }
+    let checks: Vec<_> = render
+        .hits
+        .iter()
+        .filter(|hit| {
+            hit.widget.toggle.as_ref().is_some_and(|toggle| {
+                toggle.name.as_deref() == Some("custom_dropdown_radio_toggle")
+            })
+        })
+        .collect();
+    assert_eq!(checks.len(), 3, "{checks:?}");
+    assert_eq!(
+        checks
+            .iter()
+            .map(|hit| hit.collections.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![("custom_form".into(), 0), ("custom_dropdown".into(), 0)],
+            vec![("custom_form".into(), 0), ("custom_dropdown".into(), 1)],
+            vec![("custom_form".into(), 1), ("custom_dropdown".into(), 0)],
+        ]
+    );
+    assert_eq!(
+        checks
+            .iter()
+            .map(|hit| hit.checked.unwrap())
+            .collect::<Vec<_>>(),
+        [false, true, true]
     );
 }

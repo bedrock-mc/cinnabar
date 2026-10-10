@@ -1,6 +1,10 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
+mod guest;
+
+pub use guest::PlayerMod;
+
 /// Ticks in one Bedrock day, shared by capability validation and sky math.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
 /// Maximum remote players exposed by one local gameplay snapshot.
@@ -88,10 +92,36 @@ pub struct BlockHighlightSpec {
     pub color: [f32; 4],
 }
 
+/// The `extension` world: HUD label, input, visual time, gameplay, panel, settings, events and
+/// render. The package also defines `player-mod`, whose types and links reach other packages.
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "wit",
-        world: "extension",
+        path: [
+            "../experience-sdk/wit/client/deps/server-experience",
+            "../experience-sdk/wit/session",
+            "wit",
+        ],
+        world: "cinnabar:extension/extension@0.1.0",
         pub_export_macro: true,
+    });
+}
+
+/// The `player-mod` world: `extension` plus screens beside the container screens, the
+/// session's items and recipes, declared keys and event callbacks.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "wit-bindgen flattens screen-layout records into canonical ABI parameters"
+)]
+pub mod player_mod {
+    wit_bindgen::generate!({
+        path: [
+            "../experience-sdk/wit/client/deps/server-experience",
+            "../experience-sdk/wit/session",
+            "wit",
+        ],
+        world: "cinnabar:extension/player-mod@0.1.0",
+        generate_all,
+        pub_export_macro: true,
+        export_macro_name: "export_player_mod",
     });
 }

@@ -1,5 +1,8 @@
 //! Client-authored classic appearance updates.
 
+/// Minimum engine version for model inputs without a manifest requirement.
+pub const DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION: &str = "0.0.0";
+
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_51::{
     EnumsSharedTypespersonaArmSizeType, PlayerSkinPacket, SerializedSkinRef, SkinImage,
@@ -18,6 +21,15 @@ pub fn set_skin_packet_uuid(packet: &mut crate::Packet, uuid: [u8; 16]) {
         &mut packet.data
     {
         skin.uuid = uuid::Uuid::from_bytes(uuid);
+    }
+}
+
+/// Retains the selected model version on a client-authored appearance update.
+pub fn set_skin_packet_engine_version(packet: &mut crate::Packet, version: &str) {
+    if let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(skin) =
+        &mut packet.data
+    {
+        skin.serialized_skin.geometry_data_min_engine_version = version.to_owned();
     }
 }
 
@@ -61,6 +73,7 @@ pub fn player_skin_packet(
             },
             geometry_data: geometry
                 .map_or_else(String::new, |source| source.geometry_data.to_string()),
+            geometry_data_min_engine_version: DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             arm_size: if arm_size == "slim" {
                 EnumsSharedTypespersonaArmSizeType::Slim
             } else {
@@ -104,6 +117,8 @@ mod tests {
         };
         let packet = player_skin_packet([9; 16], &skin, "slim", "imported", "Fixture");
         let session = crate::BedrockSession { shield_item_id: 0 };
+        let mut packet = packet;
+        set_skin_packet_engine_version(&mut packet, "1.12.0");
         let encoded = crate::encode(&packet, &session).unwrap();
         let packet = crate::decode_batch(encoded, &session)
             .unwrap()
@@ -127,6 +142,13 @@ mod tests {
             wire.serialized_skin.geometry_data,
             skin.geometry.as_ref().unwrap().geometry_data.as_ref()
         );
+        assert_eq!(
+            wire.serialized_skin.geometry_data_min_engine_version,
+            "1.12.0"
+        );
+        assert!(wire.serialized_skin.animation_data.is_empty());
+        assert!(!wire.serialized_skin.is_persona);
+        assert!(!wire.serialized_skin.is_premium);
         assert_eq!(wire.localized_new_skin_name, "Fixture");
         let cape = skin.cape.as_ref().unwrap();
         assert_eq!(

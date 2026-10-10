@@ -18,8 +18,10 @@ use committed_ui::refresh_player_list_cache_for_controls;
 pub(crate) use dimension::advance_dimension_transfer;
 #[cfg(test)]
 mod player_list_tests;
+mod service;
 mod shutdown_watchdog;
 mod sub_chunk_requests;
+pub(crate) use service::{WorldServiceSlot, configure_world_service};
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
 #[cfg(feature = "acceptance")]
@@ -39,7 +41,7 @@ use bevy::{
     ecs::system::SystemParam,
     log::info,
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
-    time::Real,
+    time::{Real, Virtual},
 };
 use chunk_pipeline::{
     CohortProgress, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
@@ -238,9 +240,8 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// The committed view's readiness for startup, and its full-world witness only for
-/// acceptance and metrics: loading reads the required columns alone, and normal play
-/// scans nothing once startup releases.
+/// Computes startup readiness from required columns and full diagnostics only when enabled.
+/// Once startup releases, ordinary play scans neither.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,
@@ -338,10 +339,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     };
     stream.set_view_forward((view.rotation() * Vec3::NEG_Z).to_array());
-    frame_poll.report = stream.poll(
+    // Adds to the between-frames service's work already recorded for this frame.
+    frame_poll.report.accumulate(stream.poll(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
-    );
+    ));
     (frame_poll.cohort_progress, frame_poll.cohort) = frame_cohort_status(
         stream,
         #[cfg(feature = "acceptance")]
@@ -574,9 +576,10 @@ pub(crate) fn drive_world_stream(
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
     >,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    (frame, mut block_use): (
+    (frame, mut block_use, simulation_time): (
         Res<bevy::diagnostic::FrameCount>,
         ResMut<crate::block_use::BlockUseRuntime>,
+        Res<Time<Virtual>>,
     ),
 ) {
     let _timer = profiler
@@ -588,6 +591,7 @@ pub(crate) fn drive_world_stream(
         mut movement,
         mut ui_runtime,
         clock,
+        time,
         ..
     } = state;
     let active_session = client_world
@@ -648,6 +652,11 @@ pub(crate) fn drive_world_stream(
         );
     }
     let poll_report = std::mem::take(&mut frame_poll.report);
+    stream.advance_block_cracks(if simulation_time.is_paused() {
+        0.0
+    } else {
+        time.delta_secs()
+    });
     reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {

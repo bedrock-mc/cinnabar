@@ -10,6 +10,7 @@
 //! frame's input, so events arriving meanwhile are read fresh, and since every update passes
 //! through it, input events can wake the loop but never admit an extra frame.
 
+mod frame_time;
 mod wait;
 
 use std::{
@@ -21,7 +22,8 @@ use std::{
 };
 
 use bevy::{
-    ecs::schedule::MainThreadExecutor,
+    app::MainScheduleOrder,
+    ecs::schedule::{MainThreadExecutor, ScheduleLabel},
     prelude::*,
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
@@ -50,6 +52,21 @@ const INITIAL_SPIN: Duration = Duration::from_micros(200);
 const MIN_SPIN: Duration = Duration::from_micros(50);
 const MAX_SPIN: Duration = Duration::from_micros(500);
 const SPIN_HEADROOM: Duration = Duration::from_micros(25);
+
+/// Starts frame timing before reclaiming background work and running `First`.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FrameStart;
+
+impl FrameStart {
+    /// Installs the timing boundary once, preserving schedules already placed after it.
+    pub fn install(app: &mut App) {
+        app.init_schedule(Self);
+        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
+        if !order.labels.contains(&Self.intern()) {
+            order.insert_before(First, Self);
+        }
+    }
+}
 
 /// The cadence the next frames are admitted at; the app's presentation policy writes it.
 #[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -398,10 +415,12 @@ impl InputPacingPlugin {
 
 impl Plugin for InputPacingPlugin {
     fn build(&self, app: &mut App) {
+        FrameStart::install(app);
         let pacer = self.pacer();
         app.init_resource::<FramePacing>()
             .insert_resource(pacer.clone())
-            .add_systems(First, mark_update_start);
+            .add_systems(FrameStart, mark_update_start);
+        frame_time::install(app);
         let inner = app
             .get_sub_app_mut(RenderExtractApp)
             .and_then(|extract_app| extract_app.take_extract());

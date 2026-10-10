@@ -62,6 +62,7 @@ impl PlayerInventoryLedger {
                     self.cursor_resync_required = false;
                     self.storage = None;
                     self.pending_closes.clear();
+                    self.abandoned.clear();
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
@@ -121,6 +122,12 @@ impl PlayerInventoryLedger {
                         && close.window_type == storage.window_type
                 }) {
                     self.acknowledge_storage_close(close.server_initiated);
+                    // Confirm the server's close so Geyser can open the next menu window.
+                    if close.server_initiated
+                        && let Some(window_id) = close.container.window_id
+                    {
+                        self.queue_close(window_id, close.window_type, PendingCloseOwner::Cleanup);
+                    }
                 }
             }
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -239,12 +246,15 @@ impl PlayerInventoryLedger {
             None if protocol::is_personal_ui_inventory(&content.container)
                 && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
             {
+                self.set_authoritative_cell(Cell::Cursor, Held::new(&content.slots[0]));
                 for slot in 0..protocol::UI_SLOT_COUNT as u8 {
                     if let Some(cell) = ui_cell(slot) {
                         let stack = &content.slots[usize::from(slot)];
                         self.set_authoritative_cell(cell, Held::new(stack));
                     }
                 }
+                self.cursor_resync_required = false;
+                self.surface_refreshed(CellSurface::Cursor);
                 self.crafting_resync_required = false;
                 self.surface_refreshed(CellSurface::Crafting);
             }
@@ -328,7 +338,14 @@ impl PlayerInventoryLedger {
             self.apply_bundle_slot(dynamic_id, identity.slot, stack);
             return;
         }
-        match project_container_cell(&identity.container, identity.slot) {
+        // Geyser updates the cursor through personal UI slot 0 under the default name.
+        let cell = if identity.slot == 0 && protocol::is_personal_ui_inventory(&identity.container)
+        {
+            Some(CanonicalCell::Cursor)
+        } else {
+            project_container_cell(&identity.container, identity.slot)
+        };
+        match cell {
             Some(CanonicalCell::PlayerInventory(index)) => {
                 self.set_authoritative_cell(Cell::Inventory(index), Held::new(stack));
                 self.known[usize::from(index)] = true;

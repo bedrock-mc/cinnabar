@@ -111,7 +111,7 @@ pub(super) fn draw(
     if !cape_tab {
         let skin = view.dressing_room.selected_skin();
         let mut y = details_top + canvas.r(6.2);
-        if custom {
+        if custom && skin.is_some_and(|skin| skin.model != SkinModel::Custom) {
             widgets::tabs(
                 canvas,
                 view,

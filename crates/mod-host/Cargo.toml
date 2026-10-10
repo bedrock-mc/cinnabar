@@ -8,7 +8,15 @@ publish = false
 [features]
 default = ["execution"]
 # The Wasmtime component host (local mods and the server helper); clients spawning helpers opt out.
-execution = ["dep:mod-api", "dep:mod-render", "dep:sha2", "dep:wasmtime", "dep:wit-component", "dep:ui"]
+execution = [
+    "dep:experience-sdk",
+    "dep:mod-api",
+    "dep:mod-render",
+    "dep:sha2",
+    "dep:ui",
+    "dep:wasmtime",
+    "dep:wit-component",
+]
 # Links the native AV1/Opus decoders into the memory-limited media helper.
 media = ["server-experience/developer-media"]
 
@@ -22,6 +30,7 @@ name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
+experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"], optional = true }
 mod-api = { path = "../mod-api", optional = true }
 mod-render = { path = "../mod-render", optional = true }
 ui = { path = "../ui", optional = true }

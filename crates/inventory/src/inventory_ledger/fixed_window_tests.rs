@@ -278,3 +278,69 @@ fn ui_inventory_content_and_named_updates_fill_crafting_cells() {
     );
     assert_eq!(ledger.skipped_unknown_containers(), 0);
 }
+
+/// Geyser sets and clears the cursor with a slot update for slot 0 of the
+/// personal UI inventory under the default name.
+#[test]
+fn personal_ui_slot_zero_update_sets_and_clears_the_cursor() {
+    let mut ledger = open_ledger(0, NetworkItemStack::default());
+    let cursor = |stack| {
+        InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(124),
+                    slot_type: Some(0),
+                    dynamic_id: None,
+                },
+                slot: 0,
+            },
+            stack,
+            storage_item: None,
+        })
+    };
+    ledger.apply(&cursor(stack(7, 1)));
+    assert_eq!(
+        ledger.cursor_stack().map(|held| held.stack_network_id),
+        Some(7)
+    );
+    ledger.apply(&cursor(NetworkItemStack::default()));
+    assert_eq!(ledger.cursor_stack(), None);
+    assert_eq!(ledger.skipped_unknown_containers(), 0);
+}
+
+/// Full UI snapshots replace the cursor alias while retaining crafting-slot routing.
+#[test]
+fn review_full_ui_snapshot_replaces_aliased_cursor() {
+    for count in [0, 2] {
+        let mut ledger = open_ledger(0, NetworkItemStack::default());
+        let identity = ContainerIdentity {
+            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+            slot_type: Some(0),
+            dynamic_id: None,
+        };
+        ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: identity,
+                slot: 0,
+            },
+            stack: stack(7, 1),
+            storage_item: None,
+        }));
+        let mut slots = vec![NetworkItemStack::default(); protocol::UI_SLOT_COUNT];
+        slots[0] = stack(8, count);
+        slots[28] = stack(9, 1);
+        ledger.apply(&content(identity, slots));
+        assert_eq!(
+            ledger.cursor_stack().map(|held| held.count),
+            (count > 0).then_some(count)
+        );
+        assert_eq!(
+            ledger
+                .target_stack(InventoryTarget::Craft(28))
+                .unwrap()
+                .stack_network_id,
+            9
+        );
+        assert_eq!(ledger.skipped_unknown_containers(), 0);
+    }
+}

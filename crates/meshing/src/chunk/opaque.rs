@@ -89,6 +89,7 @@ pub(crate) struct CubeMeshOutput<'a> {
     streams: &'a mut CubeQuadStreams,
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
     materials: &'a [assets::Material],
+    split_tinted_faces: bool,
 }
 
 impl<'a> CubeMeshOutput<'a> {
@@ -96,11 +97,13 @@ impl<'a> CubeMeshOutput<'a> {
         streams: &'a mut CubeQuadStreams,
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
         materials: &'a [assets::Material],
+        split_tinted_faces: bool,
     ) -> Self {
         Self {
             streams,
             diagnostic_geometry,
             materials,
+            split_tinted_faces,
         }
     }
 }
@@ -311,7 +314,11 @@ pub(crate) fn greedy_slice(
                 || material.flags & assets::MATERIAL_FLAG_ISOTROPIC != 0
                 // Native leaf faces have block-local rotations and clamped
                 // atlas edges. A merged quad would stretch/clamp its mask.
-                || material.flags & assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0;
+                || material.flags & assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0
+                // Mixed biomes vary tint per block; one-block faces let the renderer blend
+                // it once per face rather than once per pixel.
+                || (output.split_tinted_faces
+                    && material.flags & assets::MATERIAL_FLAG_TINT_MASK != 0);
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;

@@ -7,7 +7,7 @@ fn state() -> State {
         render: true,
         ..Default::default()
     };
-    State::new(grants, String::new())
+    State::new(grants, String::new(), Default::default())
 }
 
 #[test]

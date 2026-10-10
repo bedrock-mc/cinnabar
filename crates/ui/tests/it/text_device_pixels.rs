@@ -22,6 +22,7 @@ const GLYPHS: [(char, u16, u16, i16, i16); 8] = [
     ('\u{fffd}', 10, 14, -14, 12),
 ];
 
+/// Creates a small fixed-cell font fixture with varied glyph advances.
 fn font() -> CompiledFontCatalog {
     let rgba8 = vec![255u8; 128 * 16 * 4].into_boxed_slice();
     let page = FontTexturePage {
@@ -84,6 +85,7 @@ fn gui_text_scale(gui_scale: u32, dpi: f32) -> f32 {
     gui_scale as f32 / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)
 }
 
+/// Creates a long mixed-width line that exposes cumulative device-grid drift.
 fn paragraph() -> String {
     ["Him", "lHm", "iHl", "mHi", "Hll", "mimH", "H.i-l"]
         .iter()
@@ -135,9 +137,7 @@ fn whole_display_scales_lay_out_as_before() {
     }
 }
 
-/// At 1.25, 1.5 and 1.75 every glyph edge of a long line lands where its texel offset puts it
-/// on the device grid, within the half output 1/64 pixel each edge rounds to, rather than
-/// drifting a device pixel along the line.
+/// Checks long lines at fractional display scales against the device grid and final edge-rounding tolerance.
 #[test]
 fn fractional_display_scales_keep_glyph_edges_on_whole_device_pixels() {
     let font = font();

@@ -1,8 +1,5 @@
-//! What the snapshot sorts: resident water whose faces need order, chosen without the frustum.
-//!
-//! A sub-chunk's faces sort by camera position alone and each sub-chunk is its own phase
-//! item, so a sorted snapshot of every resident stays valid however the camera turns. The
-//! queue then draws whichever of its groups are visible.
+//! Selects resident water needing sort without the frustum; face order depends only on camera position.
+//! Camera turns therefore retain sorted groups and change only which ones are drawn.
 use super::groups::{TransparentGroupInput, TransparentGroups, build_transparent_group};
 use super::state::{TransparentAllocationIdentity, TransparentSortRuntime, ViewSortKey};
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
@@ -10,6 +7,9 @@ use crate::chunk::transparent::residents::{TransparentLiquidResident, select_sor
 use crate::chunk::*;
 
 const CEILING_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Inclusive bounds of the sub-chunks near the camera.
+type NearBox = ([i32; 3], [i32; 3]);
 
 /// The last manifest and the inputs it was selected from.
 #[derive(Debug)]
@@ -24,7 +24,7 @@ pub(in crate::chunk) struct TransparentManifest {
     /// Each allocation's sort input, parallel to `allocations`.
     groups: TransparentGroups,
     /// Whether any allocation lies in the cached near box.
-    near: Option<(([i32; 3], [i32; 3]), bool)>,
+    near: Option<(NearBox, bool)>,
 }
 
 /// Whether the view displaces water surfaces, so even flat water can overlap itself on screen.
@@ -80,12 +80,8 @@ pub(in crate::chunk) fn sorted_addresses_are_resident(
 }
 
 impl TransparentSortRuntime {
-    /// The resident allocations to sort, in key order.
-    ///
-    /// The choice is rebuilt only when the residents or tint table change, or, while the ref
-    /// ceiling admits only the nearest water, when the camera enters another sub-chunk. A
-    /// resident whose sort input cannot be built yet is left to draw unsorted until its
-    /// pending upload changes the residents.
+    /// Returns key-ordered sort inputs, rebuilding only for changed residents, tints or ceiling selection.
+    /// Residents whose inputs are pending continue drawing directly until an upload makes them ready.
     pub(in crate::chunk) fn resident_manifest(
         &mut self,
         arena: &ChunkGpuArena,
@@ -218,10 +214,7 @@ impl TransparentSortRuntime {
 
 /// Whether any of the key-sorted `allocations` lies in the inclusive sub-chunk box `bounds`,
 /// in any dimension, found by binary searches over the box's few x and y columns.
-fn any_key_in_box(
-    allocations: &[TransparentAllocationIdentity],
-    (min, max): ([i32; 3], [i32; 3]),
-) -> bool {
+fn any_key_in_box(allocations: &[TransparentAllocationIdentity], (min, max): NearBox) -> bool {
     let (Some(first), Some(last)) = (allocations.first(), allocations.last()) else {
         return false;
     };

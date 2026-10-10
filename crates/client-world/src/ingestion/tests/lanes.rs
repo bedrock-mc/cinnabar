@@ -114,6 +114,18 @@ fn commit_one(state: &mut OrderedCommitState) -> Option<u64> {
     Some(sequence)
 }
 
+/// A pass that leaves heavy chunk data to a later one.
+const SKIP_CHUNK_DATA: CommitBudget = CommitBudget {
+    chunk_data: false,
+    ..CommitBudget::UNLIMITED
+};
+
+fn commit_within(state: &mut OrderedCommitState, budget: CommitBudget) -> Option<u64> {
+    let sequence = applied(state.next_commit_within(budget))?;
+    state.finish_commit(sequence);
+    Some(sequence)
+}
+
 #[test]
 fn full_heavy_admission_leaves_light_capacity() {
     let mut state = OrderedCommitState::new(1);
@@ -215,6 +227,7 @@ fn exhausted_heavy_budget_still_commits_light_events() {
     admit(&mut state, 2, actor_move(9), true);
     let light_only = CommitBudget {
         heavy: false,
+        chunk_data: true,
         couple_position: true,
     };
     assert_eq!(applied(state.next_commit_within(light_only)), Some(2));
@@ -332,7 +345,19 @@ fn randomized_interleavings_match_strict_wire_order() {
         let mut order = Vec::new();
         let mut fenced = 0..0;
         loop {
-            while let Some(step) = state.next_commit() {
+            loop {
+                // Passes that skip chunk data interleave with full ones without reordering.
+                let budget = if next(2) == 0 {
+                    SKIP_CHUNK_DATA
+                } else {
+                    CommitBudget::UNLIMITED
+                };
+                let Some(step) = state
+                    .next_commit_within(budget)
+                    .or_else(|| state.next_commit())
+                else {
+                    break;
+                };
                 // Each test packet carries one update, so a merged burst spans its length.
                 let (sequence, span) = match &step {
                     CommitStep::BlockUpdates { sequence, events } => (*sequence, events.len()),
@@ -421,4 +446,147 @@ fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
         state.validate_sequence(5_000),
         Err(WorldStreamError::DuplicateOrPast { .. })
     ));
+}
+
+/// A pass that skips chunk data still commits the chunk a ready block change waits behind,
+/// then the change, while unrelated chunk data stays for a full pass.
+#[test]
+fn skipping_chunk_data_still_commits_what_a_ready_mutation_waits_behind() {
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, level_chunk(0), true);
+    admit(&mut state, 2, block_update(0), true);
+    admit(&mut state, 3, level_chunk(1), true);
+    admit(&mut state, 4, actor_move(9), true);
+    let order =
+        std::iter::from_fn(|| commit_within(&mut state, SKIP_CHUNK_DATA)).collect::<Vec<_>>();
+    assert_eq!(order, [4, 1, 2]);
+    assert_eq!(commit_one(&mut state), Some(3));
+}
+
+/// A teleport changes retention, so a pass that skips chunk data commits every chunk ahead
+/// of it in wire order before the teleport itself.
+#[test]
+fn skipping_chunk_data_still_commits_what_a_ready_teleport_waits_behind() {
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, level_chunk(0), true);
+    admit(&mut state, 2, level_chunk(1), true);
+    admit(
+        &mut state,
+        3,
+        WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            mode: protocol::MovePlayerMode::Teleport,
+            ..Default::default()
+        }),
+        true,
+    );
+    let order =
+        std::iter::from_fn(|| commit_within(&mut state, SKIP_CHUNK_DATA)).collect::<Vec<_>>();
+    assert_eq!(order, [1, 2, 3]);
+}
+
+/// Light terrain cues are not chunk data a pass skips.
+#[test]
+fn skipping_chunk_data_still_commits_light_terrain_events() {
+    let mut state = OrderedCommitState::new(1);
+    admit(
+        &mut state,
+        1,
+        WorldEvent::BlockEvent(protocol::BlockEventEvent {
+            dimension: 0,
+            position: [0, 0, 0],
+            event_type: 1,
+            event_value: 1,
+        }),
+        true,
+    );
+    assert_eq!(commit_within(&mut state, SKIP_CHUNK_DATA), Some(1));
+}
+
+/// A partial sub-chunk batch continues in a pass that skips chunk data when a ready block
+/// change on its column waits behind it, even with an earlier ready batch that cannot start
+/// until this one finishes.
+#[test]
+fn skipping_chunk_data_still_finishes_a_batch_a_ready_mutation_waits_behind() {
+    let two_air_entries = || PreparedWorldEvent::SubChunks {
+        dimension: 0,
+        entries: (0..2).map(air_slot).collect(),
+        duration: Duration::ZERO,
+    };
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, sub_chunks(1), false);
+    admit(&mut state, 2, sub_chunks(0), false);
+    state.insert_ready(2, two_air_entries()).unwrap();
+    assert!(matches!(
+        state.next_commit(),
+        Some(CommitStep::BatchStarted)
+    ));
+    assert_eq!(
+        commit_within(&mut state, CommitBudget::UNLIMITED),
+        Some(2),
+        "the first entry"
+    );
+    state.insert_ready(1, two_air_entries()).unwrap();
+    admit(&mut state, 3, block_update(0), true);
+    let order =
+        std::iter::from_fn(|| commit_within(&mut state, SKIP_CHUNK_DATA)).collect::<Vec<_>>();
+    assert_eq!(order, [2, 3], "the batch's last entry, then the change");
+    assert_eq!(state.committed_sequence(), 0, "the earlier batch waits");
+}
+
+/// A mutation behind a queued batch can finish the active batch that holds its slot,
+/// regardless of which batch came first on the wire, while respecting the heavy budget.
+#[test]
+fn skipping_chunk_data_follows_a_queued_batch_dependency() {
+    let decoded = |x| PreparedWorldEvent::SubChunks {
+        dimension: 0,
+        entries: (0..2)
+            .map(|y| PreparedSubChunk {
+                position: [x, y, 0],
+                ..air_slot(y)
+            })
+            .collect(),
+        duration: Duration::ZERO,
+    };
+    for (active, queued) in [(1, 2), (2, 1)] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, active, sub_chunks(0), false);
+        admit(&mut state, queued, sub_chunks(1), false);
+        state.insert_ready(active, decoded(0)).unwrap();
+        assert!(matches!(
+            state.next_commit(),
+            Some(CommitStep::BatchStarted)
+        ));
+        assert_eq!(
+            commit_within(&mut state, CommitBudget::UNLIMITED),
+            Some(active)
+        );
+        state.insert_ready(queued, decoded(1)).unwrap();
+        assert!(state.next_commit_within(SKIP_CHUNK_DATA).is_none());
+        admit(&mut state, 3, block_update(1), true);
+        admit(&mut state, 4, level_chunk(2), true);
+        assert!(
+            state
+                .next_commit_within(CommitBudget {
+                    heavy: false,
+                    ..SKIP_CHUNK_DATA
+                })
+                .is_none()
+        );
+
+        let mut order = Vec::new();
+        while let Some(step) = state.next_commit_within(SKIP_CHUNK_DATA) {
+            if let Some(sequence) = applied(Some(step)) {
+                order.push(sequence);
+                state.finish_commit(sequence);
+            }
+        }
+        assert_eq!(order, [active, queued, queued, 3]);
+        assert_eq!(state.committed_sequence(), 3);
+        assert_eq!(
+            state.admitted_count(),
+            1,
+            "unrelated chunk data stays offloaded"
+        );
+    }
 }

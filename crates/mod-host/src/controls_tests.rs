@@ -1,13 +1,17 @@
 use super::*;
-use crate::{GameplaySnapshot, GameplayVector3, ModGrants};
+use crate::{
+    GameplaySnapshot, GameplayVector3, ModGrants,
+    runtime::{CALLBACK_FUEL, FRAME_FUEL, Instance, commit_event},
+};
 use cinnabar::extension::{
     input::{Host as _, Selection},
     panel::Host as _,
     settings::Host as _,
 };
+use wasmtime::Engine;
 
 fn state(grants: ModGrants) -> State {
-    State::new(grants, "{\"cps\":12}".into())
+    State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
 fn panel() -> String {
@@ -306,4 +310,71 @@ fn rejects_malformed_controls_and_bounded_import_spam() {
         value: 1.0,
     });
     assert!(validate_frame(&frame).is_err());
+}
+
+#[test]
+fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true);
+    let engine = Engine::new(&config).unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            settings: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+    )
+    .unwrap();
+    let state = instance.store.data_mut();
+    state.set_content(panel()).unwrap().unwrap();
+    state.reserve_keys(vec!["KeyR".into()]).unwrap().unwrap();
+    state.controls.commit();
+    state.controls.begin_frame();
+    state.controls.frame = control_frame();
+    for (fuel, settings_reads) in [
+        (FRAME_FUEL, false),
+        (CALLBACK_FUEL, true),
+        (CALLBACK_FUEL, false),
+    ] {
+        instance
+            .run(fuel, commit_event, |_, store| {
+                for _ in 0..MAX_IMPORT_WRITES {
+                    let state = store.data_mut();
+                    if settings_reads {
+                        assert_eq!(state.load()?.unwrap(), "{}");
+                    } else {
+                        assert_eq!(state.read_controls()?.unwrap(), control_frame());
+                    }
+                    state.save("{}".into())?.unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert!(instance.active);
+        let controls = &instance.store.data().controls;
+        assert_eq!(controls.frame, control_frame());
+        assert!(controls.panel.is_some());
+        assert_eq!(controls.keys, ["KeyR"]);
+        assert_eq!(controls.settings(), "{}");
+    }
+    assert!(
+        instance
+            .run(CALLBACK_FUEL, commit_event, |_, store| {
+                for _ in 0..=MAX_IMPORT_WRITES {
+                    store.data_mut().read_controls()?.unwrap();
+                }
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(!instance.active);
 }

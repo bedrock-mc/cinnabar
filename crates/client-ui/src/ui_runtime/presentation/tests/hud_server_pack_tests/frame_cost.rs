@@ -212,6 +212,7 @@ fn lobby_ui_publication_cost() {
         let prepared = PendingUiPublication {
             inventory: runtime.capture_presentation_inventory(&player),
             preview: PreviewCapture {
+                ready: true,
                 skin: None,
                 pose: Default::default(),
                 shown: false,
@@ -294,6 +295,7 @@ fn lobby_ui_publication_cost() {
             let prepared = PendingUiPublication {
                 inventory: runtime.capture_presentation_inventory(&player),
                 preview: PreviewCapture {
+                    ready: true,
                     skin: None,
                     pose: Default::default(),
                     shown: false,

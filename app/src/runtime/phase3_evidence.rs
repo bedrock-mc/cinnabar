@@ -149,6 +149,7 @@ impl Phase3EvidenceIdentitySource {
         .map(Self)
     }
 }
+
 /// Converts the gameplay fault into evidence fields without extending the gameplay type.
 fn authority_fault_observation(
     record: PhysicsAuthorityFaultRecord,

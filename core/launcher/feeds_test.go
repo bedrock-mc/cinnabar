@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -185,4 +186,88 @@ func TestLoadDropsMissingImagePaths(t *testing.T) {
 	if servers[0].Logo.Path != "" || servers[0].Logo.URL == "" {
 		t.Fatalf("logo = %+v", servers[0].Logo)
 	}
+}
+
+// A version-one cache survives a failed refresh, migrates on disk, and loads after restart.
+func TestVersionOneCacheSurvivesRefreshFailureAndRestart(t *testing.T) {
+	f := newFeedFixture(t)
+	f.writeCache(t, "Cached", "")
+	data, err := os.ReadFile(f.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.Version = 1
+	data, err = json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.featured = func() ([]catalog.FeaturedServer, error) { return nil, errors.New("offline") }
+	for range 2 {
+		service := f.service()
+		servers, err := service.FeaturedServers(context.Background())
+		settle(service)
+		if err != nil || len(servers) != 1 || servers[0].Name != "Cached" || servers[0].Group != "featured" {
+			t.Fatalf("servers = %+v, err = %v", servers, err)
+		}
+		home, err := service.Home(context.Background())
+		settle(service)
+		if err != nil || home.RealmInvites != 3 {
+			t.Fatalf("home = %+v, err = %v", home, err)
+		}
+	}
+	data, err = os.ReadFile(f.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &snap); err != nil || snap.Version != cacheVersion {
+		t.Fatalf("persisted version = %d, err = %v", snap.Version, err)
+	}
+}
+
+// Cached data stays available even when a refresh stalls beyond the requester's lifetime.
+func TestCachedFeaturedSurvivesStalledRefresh(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFeedFixture(t)
+		f.writeCache(t, "Cached", "")
+		release := make(chan struct{})
+		f.featured = func() ([]catalog.FeaturedServer, error) { <-release; return nil, errors.New("offline") }
+		service := f.service()
+		service.Prefetch()
+		synctest.Wait()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		servers, err := service.FeaturedServers(ctx)
+		close(release)
+		settle(service)
+		if err != nil || len(servers) != 1 || servers[0].Name != "Cached" {
+			t.Fatalf("servers = %+v, err = %v", servers, err)
+		}
+		if f.cachedFeatured(t) != "Cached" {
+			t.Fatal("failed refresh lost persisted data")
+		}
+	})
+}
+
+// A stalled cold fetch finishes before the caller's longer deadline expires.
+func TestStalledFeaturedFetchIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		service := New(Config{Account: testAccount(), Featured: func(ctx context.Context, _ *authcache.Account) ([]catalog.FeaturedServer, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, err := service.FeaturedServers(ctx)
+		settle(service)
+		if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			t.Fatalf("fetch err = %v, caller err = %v", err, ctx.Err())
+		}
+	})
 }

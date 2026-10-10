@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	cacheVersion   = 2
-	listTTL        = 5 * time.Minute
-	homeTTL        = 15 * time.Minute
-	refreshTimeout = 2 * time.Minute
+	cacheVersion       = 2
+	legacyCacheVersion = 1
+	listTTL            = 5 * time.Minute
+	homeTTL            = 15 * time.Minute
+	refreshTimeout     = 40 * time.Second
 )
 
 // snapshot is the last good catalog, persisted as CacheFile.
@@ -186,9 +187,17 @@ func (s *Service) load() {
 		return
 	}
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil || snap.Version != cacheVersion {
+	if err := json.Unmarshal(data, &snap); err != nil || (snap.Version != cacheVersion && snap.Version != legacyCacheVersion) {
 		s.logger.Warn("launcher catalog cache discarded", "version", snap.Version)
 		return
+	}
+	legacy := snap.Version == legacyCacheVersion
+	if legacy {
+		for i := range snap.Featured.Value {
+			if snap.Featured.Value[i].Group == "" {
+				snap.Featured.Value[i].Group = "featured"
+			}
+		}
 	}
 	for _, image := range snap.images() {
 		if image.Path != "" {
@@ -198,6 +207,9 @@ func (s *Service) load() {
 		}
 	}
 	s.snap = snap
+	if legacy {
+		s.persist()
+	}
 }
 
 // persist atomically rewrites CacheFile with the current snapshot.

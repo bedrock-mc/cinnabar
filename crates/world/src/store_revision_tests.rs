@@ -1,7 +1,6 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
+
+use hashbrown::HashMap;
 
 use super::ChunkStore;
 use crate::{

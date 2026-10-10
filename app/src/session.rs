@@ -370,9 +370,8 @@ impl SessionResources<'_> {
     }
 }
 
-/// Drops a retired session's world and pack snapshots on a thread of their own, since freeing
-/// every column, actor and cache can take longer than a frame. They drop here only if no thread
-/// can start.
+/// Drops retired world and pack snapshots on a worker to avoid frame-thread destruction.
+/// Falls back to dropping here only when the worker cannot start.
 fn release_off_frame(retired: impl Send + 'static) {
     let spawned = std::thread::Builder::new()
         .name("session-release".to_owned())

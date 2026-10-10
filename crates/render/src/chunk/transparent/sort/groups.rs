@@ -1,7 +1,4 @@
-//! Per-sub-chunk water face orders.
-//!
-//! Each sub-chunk is drawn by its own phase item, so only a group whose class or mesh
-//! changed is sorted again; the rest keep their range of the committed slot.
+//! Keeps each sub-chunk's face order and committed range until its mesh or class changes.
 use super::layout::plan_transparent_slot;
 use super::state::{
     TransparentAllocationIdentity, TransparentSortError, TransparentSortWork,

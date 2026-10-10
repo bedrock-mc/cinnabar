@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use super::{GlyphMetrics, merge_glyphs};
 
+/// Creates metrics for one deterministic glyph record.
 fn glyph(codepoint: u32, page: u16) -> GlyphMetrics {
     GlyphMetrics {
         codepoint: char::from_u32(codepoint).unwrap(),

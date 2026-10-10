@@ -43,6 +43,9 @@ enum TraceArgs {
         game_seconds: f64,
     },
     SlowFrame(SlowFrameEvent),
+    BackgroundSample {
+        nanos: u64,
+    },
     GpuSample {
         sequence: u64,
         nanos: u64,
@@ -91,6 +94,19 @@ impl FrameTrace {
             elapsed,
             thread: std::thread::current().id(),
             args: TraceArgs::None,
+        });
+    }
+
+    /// Records accumulated worker time at receipt, without inventing an execution interval.
+    pub(crate) fn background_sample(&self, stage: RuntimeStage, elapsed: Duration) {
+        self.push(TraceEvent {
+            name: stage.name(),
+            started: self.epoch.elapsed(),
+            elapsed: Duration::ZERO,
+            thread: std::thread::current().id(),
+            args: TraceArgs::BackgroundSample {
+                nanos: u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
+            },
         });
     }
 
@@ -195,6 +211,9 @@ impl FrameTrace {
                         "violations": slow.reasons(),
                         "frame_ms": slow.frame.as_secs_f64() * 1e3,
                     })),
+                    TraceArgs::BackgroundSample { nanos } => Some(json!({
+                        "duration_ns": nanos,
+                    })),
                     TraceArgs::GpuSample { sequence, nanos } => Some(json!({
                         "sample_sequence": sequence,
                         "duration_ns": nanos,
@@ -205,6 +224,10 @@ impl FrameTrace {
                         record["ph"] = json!("C");
                         record["cat"] = json!("gpu_readback");
                         record["timestamp_kind"] = json!("readback_received");
+                    } else if matches!(event.args, TraceArgs::BackgroundSample { .. }) {
+                        record["ph"] = json!("C");
+                        record["cat"] = json!("background_work");
+                        record["timestamp_kind"] = json!("sample_received");
                     } else {
                         record["ph"] = json!("i");
                         record["s"] = json!("t");

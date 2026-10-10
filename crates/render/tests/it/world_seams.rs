@@ -10,10 +10,8 @@ use meshing::{Face, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, Packed
 const SIDE: u8 = world::SUB_CHUNK_SIDE as u8;
 const FRAMES: u32 = 24;
 
-/// Top faces of a floor whose surface is at local y = 1 in every section.
-/// Even rows are one merged cube quad. Odd rows repeat cube, top slab, cube,
-/// water, so slab and water corners lie on merged cube edges and meet unit
-/// cube corners.
+/// Builds a y=1 floor alternating merged rows with cube, top-slab and water unit faces.
+/// Their shared corners create T-junctions across the three render passes.
 #[derive(Default)]
 struct Floor {
     origins: Vec<[i32; 3]>,
@@ -74,6 +72,7 @@ struct Streams {
 }
 
 impl Streams {
+    /// Uploads mixed-floor cube, model and liquid streams with section indices.
     fn new(gpu: &Gpu, floor: &Floor) -> Self {
         let storage = wgpu::BufferUsages::STORAGE;
         let cube_count = floor.cubes.len();
@@ -218,6 +217,7 @@ struct Shaders {
 }
 
 impl Shaders {
+    /// Composes production shaders with section-mapped witness entry points.
     fn new(streams: &Streams) -> Self {
         let indices = chunk_constants::STATIC_QUAD_INDICES
             .map(|index| format!("{index}u"))
@@ -260,6 +260,7 @@ struct Fixture {
     zeros: wgpu::Buffer,
     clock: wgpu::Buffer,
     tints: wgpu::Buffer,
+    query_tables: wgpu::Buffer,
     atmosphere: wgpu::Buffer,
     lightmap: wgpu::Buffer,
     atlas: wgpu::TextureView,
@@ -267,6 +268,7 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// Creates production mixed-floor resources, skipping an absent native GPU adapter.
     fn new(name: &str) -> Option<Self> {
         let gpu = Gpu::for_fixture(name)?;
         let storage = wgpu::BufferUsages::STORAGE;
@@ -277,6 +279,10 @@ impl Fixture {
             zeros: gpu.words(&UNUSED, storage),
             clock: gpu.words(&[0; 4], uniform),
             tints: gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage),
+            query_tables: gpu.words(
+                &meshing::biome_lattice::query_table_words(),
+                wgpu::BufferUsages::UNIFORM,
+            ),
             atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
             lightmap: gpu.buffer(
                 bytemuck::cast_slice(&render::LightmapInputs::default().build()),
@@ -298,7 +304,7 @@ impl Fixture {
         streams: &'a Streams,
         uniform: &'a wgpu::Buffer,
         geometry: &'a wgpu::Buffer,
-    ) -> [(u32, wgpu::BindingResource<'a>); 20] {
+    ) -> [(u32, wgpu::BindingResource<'a>); 21] {
         [
             (0, uniform.as_entire_binding()),
             (1, streams.cube_quads.as_entire_binding()),
@@ -309,6 +315,10 @@ impl Fixture {
             (6, wgpu::BindingResource::Sampler(&self.sampler)),
             (7, self.zeros.as_entire_binding()),
             (8, self.tints.as_entire_binding()),
+            (
+                material_shader::BIOME_QUERY_TABLES_BINDING,
+                self.query_tables.as_entire_binding(),
+            ),
             (9, self.zeros.as_entire_binding()),
             (10, self.zeros.as_entire_binding()),
             (11, self.clock.as_entire_binding()),
@@ -332,9 +342,8 @@ impl Fixture {
         ]
     }
 
-    /// Draws the cube, slab and water passes into one target. `pass_vertices`
-    /// names the model and liquid vertex entries, so a control can swap in the
-    /// world-coordinate projection the passes used before.
+    /// Draws cube, slab and water passes together; pass_vertices selects model/liquid entry points.
+    /// Controls can substitute the former world-coordinate projection.
     fn render(
         &self,
         streams: &Streams,
@@ -490,6 +499,7 @@ fn far_from_origin_floors_of_cubes_slabs_and_water_leave_no_seam_pixels() {
 
 /// Production cube vertices with each quad's section from the geometry stream.
 const CUBE_ENTRIES: &str = r#"
+/// Draws sealed cube vertices with section indices from the fixture stream.
 @vertex fn seam_cube_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var indices = array<u32, 6>(INDICES);
     return cube_vertex(geometry_streams[index / 6u] * 4u + indices[index % 6u], index / 6u);
@@ -499,16 +509,19 @@ const CUBE_ENTRIES: &str = r#"
 /// Production model vertices, and a control that projects their world
 /// position directly, as the pass did before it shared terrain's projection.
 const MODEL_ENTRIES: &str = r#"
+/// Maps fixture model instances to their section before running production geometry.
 fn sectioned_model_vertex(index: u32) -> VertexOutput {
     var indices = array<u32, 6>(INDICES);
     let slab = index / 6u;
     return model_vertex(geometry_streams[SECTIONS + slab] * 4u + indices[index % 6u], slab);
 }
 
+/// Uses production camera-relative model projection in the shared-floor witness.
 @vertex fn seam_model_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     return sectioned_model_vertex(index);
 }
 
+/// Projects the same model geometry through the former absolute-coordinate control.
 @vertex fn absolute_model_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var out = sectioned_model_vertex(index);
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
@@ -518,6 +531,7 @@ fn sectioned_model_vertex(index: u32) -> VertexOutput {
 
 /// Production liquid vertices, and the matching world-coordinate control.
 const LIQUID_ENTRIES: &str = r#"
+/// Maps fixture liquid instances to their section before running production geometry.
 fn sectioned_liquid_vertex(index: u32) -> VertexOutput {
     var indices = array<u32, 6>(INDICES);
     let water = index / 6u;
@@ -525,10 +539,12 @@ fn sectioned_liquid_vertex(index: u32) -> VertexOutput {
     return vertex_for_ref(TransparentDrawRef(water, section), section * 4u + indices[index % 6u]);
 }
 
+/// Uses production camera-relative liquid projection in the shared-floor witness.
 @vertex fn seam_liquid_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     return sectioned_liquid_vertex(index);
 }
 
+/// Projects the same liquid geometry through the former absolute-coordinate control.
 @vertex fn absolute_liquid_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var out = sectioned_liquid_vertex(index);
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);

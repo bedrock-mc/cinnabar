@@ -55,6 +55,7 @@ fn server_forms_hide_container_overlays_and_preserve_normal_hover_text() {
             ..Default::default()
         }),
         FormModel::Custom(CustomForm {
+            icon: None,
             title: "Choose an item".into(),
             ..Default::default()
         }),

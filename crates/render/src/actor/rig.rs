@@ -487,9 +487,8 @@ impl ActorRigFrameBuilder {
         )
     }
 
-    /// [`Self::build_paged`] for submissions paired with their artwork locations, which also
-    /// supply each instance's multitexture samplers. `page_of` is asked once per submission
-    /// that survives deduplication; [`Self::instance_locations`] then lists each instance's.
+    /// Builds paged draws with carried artwork and multitexture locations.
+    /// Calls page_of once per deduplicated submission and publishes per-instance locations.
     #[must_use]
     pub(crate) fn build_located(
         &mut self,

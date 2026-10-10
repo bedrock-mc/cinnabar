@@ -44,9 +44,10 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
+/// Builds both lantern poses with double-sided alpha-tested surfaces.
 fn lantern_quads(material: u32, hanging: bool) -> Vec<ModelQuad> {
     let base = if hanging { 2 } else { 0 };
-    let mut quads = Vec::with_capacity(16);
+    let mut quads = Vec::with_capacity(14);
     quads.extend(sprite_cuboid(
         material,
         [5 * 16, base * 16, 5 * 16],
@@ -77,20 +78,18 @@ fn lantern_quads(material: u32, hanging: bool) -> Vec<ModelQuad> {
         ),
     ];
     for (positions, uvs) in planes {
-        let mut quad = ModelQuad {
+        let quad = ModelQuad {
             positions: positions.map(|position| position.map(|value| value * 16)),
             uvs: uvs.map(|uv| uv.map(|value| value * 256)),
             material,
-            flags: 0,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED,
         };
-        quads.push(quad);
-        quad.positions.reverse();
-        quad.uvs.reverse();
         quads.push(quad);
     }
     quads
 }
 
+/// Fits each double-sided cuboid face to its authored sprite rectangle.
 fn sprite_cuboid(
     material: u32,
     min: [i16; 3],
@@ -100,6 +99,7 @@ fn sprite_cuboid(
 ) -> [ModelQuad; 6] {
     let mut quads = super::geometry::vanilla_cuboid_quads([material; 6], min, max);
     for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        quad.flags |= MODEL_QUAD_FLAG_TWO_SIDED;
         let region = match face {
             BlockFace::Down | BlockFace::Up => horizontal,
             _ => side,

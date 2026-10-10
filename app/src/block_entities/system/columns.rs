@@ -52,10 +52,46 @@ impl ColumnScan {
     }
 }
 
-/// Column rescans one frame may run beyond the player's own columns. Joining a lobby streams
-/// in every nearby column at once, and each rescan reads all of a column's sub-chunk palettes
-/// and new block entities.
+/// Maximum distant-column rescans per frame; near edits bypass this streaming budget.
 pub(super) const MAX_COLUMN_RESCANS_PER_FRAME: usize = 8;
+
+/// Rotates distant rescan admission without changing the scene's submission order.
+#[derive(Default)]
+pub(super) struct RescanOrder {
+    cursor: Option<world::ChunkKey>,
+}
+
+impl RescanOrder {
+    /// Selects at most the frame limit from sorted dirty keys, wrapping after the last admission.
+    pub(super) fn select(
+        &mut self,
+        dirty: impl Iterator<Item = world::ChunkKey>,
+    ) -> [Option<world::ChunkKey>; MAX_COLUMN_RESCANS_PER_FRAME] {
+        let mut selected = [None; MAX_COLUMN_RESCANS_PER_FRAME];
+        let mut wrapped = [None; MAX_COLUMN_RESCANS_PER_FRAME];
+        let (mut next, mut first) = (0, 0);
+        for key in dirty {
+            if self.cursor.is_none_or(|cursor| key > cursor) {
+                selected[next] = Some(key);
+                next += 1;
+                if next == selected.len() {
+                    break;
+                }
+            } else if first < wrapped.len() {
+                wrapped[first] = Some(key);
+                first += 1;
+            }
+        }
+        for key in wrapped.into_iter().take(first).take(selected.len() - next) {
+            selected[next] = key;
+            next += 1;
+        }
+        if next > 0 {
+            self.cursor = selected[next - 1];
+        }
+        selected
+    }
+}
 /// Columns within this many columns of the eye's rescan on every change outside the budget,
 /// so blocks the player edits within reach never wait for streaming elsewhere.
 const NEAR_COLUMN_REACH: i32 = 1;
@@ -66,9 +102,8 @@ pub(super) fn is_near_column(eye_column: [i32; 2], chunk_x: i32, chunk_z: i32) -
         && (chunk_z - eye_column[1]).abs() <= NEAR_COLUMN_REACH
 }
 
-/// This frame's scan of `chunk`: the cached scan while current, a fresh one from `rescan` for a
-/// near column or while the frame's budget lasts, else the stale previous scan until a later
-/// frame rescans it, or `None` for a column not yet scanned.
+/// Reuses current scans and refreshes near or budgeted columns.
+/// Deferred columns keep their stale scan, or return `None` until first scanned.
 pub(super) fn frame_scan(
     previous: Option<ColumnScan>,
     chunk: &Chunk,

@@ -68,10 +68,18 @@ fn fullbright_does_not_publish_failed_callback_output_and_revokes_on_trap() {
 #[test]
 fn fullbright_resets_on_successful_reload_and_survives_rejected_reload() {
     let (_directory, mut host) = load("call $on", "", true);
-    std::fs::write(&host.path, source("unreachable", "", false)).unwrap();
+    std::fs::write(
+        _directory.path().join("fullbright.wat"),
+        source("unreachable", "", false),
+    )
+    .unwrap();
     assert!(host.reload_if_changed().is_err());
     assert!(host.fullbright());
-    std::fs::write(&host.path, source("", "", false)).unwrap();
+    std::fs::write(
+        _directory.path().join("fullbright.wat"),
+        source("", "", false),
+    )
+    .unwrap();
     assert!(host.reload_if_changed().unwrap());
     assert!(!host.fullbright());
 }

@@ -10,7 +10,7 @@
 //! VSync-off presentation may tear: Immediate is the only mode that cannot be backpressured by
 //! the display refresh. Mailbox remains the non-tearing fallback when Immediate is unavailable.
 
-use render_api::FrameRateLimit;
+use render_api::{FrameRateLimit, VrrPreference};
 
 use crate::frame_pacing::FrameRate;
 
@@ -47,6 +47,19 @@ pub struct DisplayTiming {
     /// Current refresh rate; under variable refresh, its maximum.
     pub refresh: Option<FrameRate>,
     pub vrr: VrrStatus,
+}
+
+impl DisplayTiming {
+    /// Applies the player's VRR declaration while retaining the observed refresh ceiling.
+    #[must_use]
+    pub const fn with_vrr_preference(mut self, preference: VrrPreference) -> Self {
+        self.vrr = match preference {
+            VrrPreference::Automatic => self.vrr,
+            VrrPreference::On => VrrStatus::Active,
+            VrrPreference::Off => VrrStatus::Inactive,
+        };
+        self
+    }
 }
 
 /// A surface presentation mode, named after the backend modes it maps to one-to-one.

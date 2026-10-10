@@ -402,71 +402,7 @@ pub fn capture_hud_frame(
             }
         }
         // The tooltip follows the hovered cell's stack.
-        let hovered = runtime.screen_state().hover.and_then(|hit| {
-            use super::inventory_pointer::InventoryCellHit as Hit;
-            let ledger = runtime.inventory_ledger(player_runtime);
-            let (stack, name) = match hit {
-                Hit::Player(slot) => (
-                    ledger.displayed_stack(slot),
-                    ledger
-                        .presented_slot_overlay(slot)
-                        .and_then(|overlay| overlay.custom_name.clone()),
-                ),
-                Hit::Storage(slot) => (ledger.storage_stack(slot), None),
-                Hit::Craft(slot) => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot),
-                    ),
-                    None,
-                ),
-                Hit::Armor(row) => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(row),
-                    ),
-                    None,
-                ),
-                Hit::Offhand => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand,
-                    ),
-                    None,
-                ),
-                Hit::CraftOutput => (ledger.created_output_stack(), None),
-                Hit::CreativeGrid(index) => {
-                    let position = runtime.screen_state().creative_row
-                        * super::screens::GRID_COLUMNS
-                        + usize::from(index);
-                    let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                        ledger,
-                        runtime.screen_state(),
-                    );
-                    (entries.get(position).map(|item| &item.stack), None)
-                }
-                Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
-                    let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
-                        + usize::from(index);
-                    let output = runtime
-                        .book_recipes(player_runtime, skip, 1)
-                        .first()
-                        .map(protocol::RecipeHandle::output);
-                    return output.map(|output| {
-                        let stack = protocol::NetworkItemStack {
-                            network_id: output.network_id,
-                            metadata: u32::from(output.aux),
-                            count: u16::from(output.count),
-                            block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
-                            ..protocol::NetworkItemStack::empty()
-                        };
-                        (stack, None)
-                    });
-                }
-                Hit::RecipeBook(index) => {
-                    return super::forms::recipe_book_hover(player_runtime, runtime, index);
-                }
-                Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
-            };
-            stack.map(|stack| (stack.clone(), name))
-        });
+        let hovered = hovered_stack(player_runtime, runtime);
         if let Some((stack, name)) = hovered {
             let identifier = resolve_identifier(&stack);
             window_text.tooltip = super::inventory_tooltip::tooltip_lines(
@@ -679,4 +615,74 @@ impl UiPresentationRuntime {
         self.last_input = Some(input.clone());
         input
     }
+}
+
+/// The hovered container cell's stack and its custom name: what the tooltip shows, and what a
+/// player mod's key reports as the slot under the pointer (JEI's `getSlotUnderMouse`).
+pub fn hovered_stack(
+    player_runtime: &player_state::PlayerState,
+    runtime: &UiRuntime,
+) -> Option<(protocol::NetworkItemStack, Option<std::sync::Arc<str>>)> {
+    runtime.screen_state().hover.and_then(|hit| {
+        use super::inventory_pointer::InventoryCellHit as Hit;
+        let ledger = runtime.inventory_ledger(player_runtime);
+        let (stack, name) = match hit {
+            Hit::Player(slot) => (
+                ledger.displayed_stack(slot),
+                ledger
+                    .presented_slot_overlay(slot)
+                    .and_then(|overlay| overlay.custom_name.clone()),
+            ),
+            Hit::Storage(slot) => (ledger.storage_stack(slot), None),
+            Hit::Craft(slot) => (
+                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
+                    slot,
+                )),
+                None,
+            ),
+            Hit::Armor(row) => (
+                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(
+                    row,
+                )),
+                None,
+            ),
+            Hit::Offhand => (
+                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand),
+                None,
+            ),
+            Hit::CraftOutput => (ledger.created_output_stack(), None),
+            Hit::CreativeGrid(index) => {
+                let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
+                    + usize::from(index);
+                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                    ledger,
+                    runtime.screen_state(),
+                );
+                (entries.get(position).map(|item| &item.stack), None)
+            }
+            Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
+                let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
+                    + usize::from(index);
+                let output = runtime
+                    .book_recipes(player_runtime, skip, 1)
+                    .first()
+                    .map(protocol::RecipeHandle::output);
+                return output.map(|output| {
+                    let stack = protocol::NetworkItemStack {
+                        network_id: output.network_id,
+                        metadata: u32::from(output.aux),
+                        count: u16::from(output.count),
+                        block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                        ..protocol::NetworkItemStack::empty()
+                    };
+                    (stack, None)
+                });
+            }
+            Hit::RecipeBook(index) => {
+                return super::forms::recipe_book_hover(player_runtime, runtime, index);
+            }
+            Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
+        };
+        stack.map(|stack| (stack.clone(), name))
+    })
 }

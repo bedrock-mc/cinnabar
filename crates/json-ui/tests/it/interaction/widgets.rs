@@ -64,6 +64,60 @@ fn radio_groups_stay_exclusive() {
     );
 }
 
+#[test]
+fn nested_radio_groups_keep_other_parents_checked() {
+    for scoped in [false, true] {
+        let controls = [("a", true, 0), ("b", false, 50), ("c", true, 100)]
+        .into_iter()
+        .map(|(name, checked, x)| {
+            toggle(
+                name,
+                json!({"radio_toggle_group": true, "#toggle_state": checked, "offset": [x, 0], "toggle_grid_collection_name": if scoped { Some("custom_dropdown") } else { None }}),
+            )
+        })
+        .collect();
+        let mut screen = Screen::new(page(controls));
+        let mut regions = screen.regions();
+        for region in &mut regions {
+            let (parent, option) = match region.name.as_str() {
+                "a" => (0, 0),
+                "b" => (0, 1),
+                "c" => (1, 0),
+                _ => continue,
+            };
+            region.collections = vec![
+                ("custom_form".into(), parent),
+                ("custom_dropdown".into(), option),
+            ];
+        }
+        let second = regions.iter().find(|region| region.name == "b").unwrap();
+        screen.view.focused = Some(second.key.clone());
+        screen.dispatcher.button(
+            &regions,
+            &mut screen.view,
+            json_ui::ButtonInput {
+                id: "button.menu_select",
+                down: true,
+                point: None,
+                mode: InputMode::Gamepad,
+                now: 0.0,
+            },
+        );
+        for (name, expected) in [("a", false), ("b", true), ("c", scoped)] {
+            let region = regions.iter().find(|region| region.name == name).unwrap();
+            let checked = screen
+                .view
+                .components
+                .bag(&region.key)
+                .and_then(|bag| bag.get("#toggle_state"))
+                .and_then(serde_json::Value::as_bool)
+                .or(region.checked)
+                .unwrap_or(false);
+            assert_eq!(checked, expected, "radio {name}");
+        }
+    }
+}
+
 // T6: toggle_on_hover flips a plain toggle as the pointer enters.
 #[test]
 fn toggle_on_hover_flips_on_entry() {
@@ -640,4 +694,26 @@ fn host_sets_edit_box_text_by_name() {
         .dispatcher
         .text(&regions, &mut screen.view, "\u{8}", None);
     assert_eq!(text_of(&screen, "display"), "ston");
+}
+
+#[test]
+fn unselected_edit_global_mapping_leaves_focused_slider_input_available() {
+    let mut screen = Screen::new(page(vec![
+        slider(
+            json!({
+                "slider_selected_button": "button.choose",
+                "button_mappings": [{"from_button_id":"button.menu_ok","to_button_id":"button.choose","mapping_type":"focused"}]
+            }),
+            vec![],
+        ),
+        edit_box(json!({"button_mappings": [{
+            "from_button_id":"button.menu_ok","to_button_id":"button.text_edit_box_selected",
+            "mapping_type":"global","handle_select":false,"handle_deselect":true
+        }]})),
+    ]));
+    screen.view.focused = Some("/root/s".to_owned());
+    assert_eq!(screen.view.components.selected(), None);
+    let dispatched = screen.press("button.menu_ok", true, [150.0, 150.0], 0.0);
+    assert!(dispatched.consumed);
+    assert_eq!(screen.view.components.selected(), Some("/root/s"));
 }

@@ -427,7 +427,11 @@ impl MenuRuntime {
     fn sign_in_in_flight(&self) -> bool {
         matches!(
             self.auth_process.as_ref().map(AuthSupervisor::state),
-            Some(AuthState::Checking | AuthState::AwaitingCode { .. })
+            Some(
+                AuthState::Checking
+                    | AuthState::AwaitingCode { .. }
+                    | AuthState::AwaitingXboxSignup { .. }
+            )
         )
     }
 }

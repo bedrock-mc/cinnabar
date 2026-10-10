@@ -21,6 +21,10 @@ pub enum RuntimeStage {
     ActorEquipmentSetup,
     NetworkIngestion,
     WorldStream,
+    /// Summed between-frames service polls, received as a sample when the stream returns.
+    WorldService,
+    /// Frame-thread wait for the world-stream service to hand the stream back.
+    WorldServiceReclaim,
     CaveVisibility,
     RenderQueueApplication,
     ChunkExtraction,
@@ -33,7 +37,7 @@ pub enum RuntimeStage {
     OpaqueBatchPlanning,
     TransparentQueue,
     AcceptanceTelemetry,
-    /// Main-world wall time from `First` to `Last`.
+    /// Main-world wall time from frame-start timing to `Last`, including stream reclaim.
     MainFrame,
     /// `MainFrame` split by main-schedule phase, so work outside every named stage still names
     /// the phase that spent it: `PreUpdate`, the fixed-update loop, `Update`, and `PostUpdate`.
@@ -104,7 +108,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 74] = [
+    pub const ALL: [Self; 76] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -115,6 +119,8 @@ impl RuntimeStage {
         Self::ActorEquipmentSetup,
         Self::NetworkIngestion,
         Self::WorldStream,
+        Self::WorldService,
+        Self::WorldServiceReclaim,
         Self::CaveVisibility,
         Self::RenderQueueApplication,
         Self::ChunkExtraction,
@@ -264,6 +270,8 @@ impl RuntimeStage {
             Self::ActorEquipmentSetup => "actor_equipment_setup",
             Self::NetworkIngestion => "network_ingestion",
             Self::WorldStream => "world_stream",
+            Self::WorldService => "world_service",
+            Self::WorldServiceReclaim => "world_service_reclaim",
             Self::CaveVisibility => "cave_visibility",
             Self::RenderQueueApplication => "render_queue_application",
             Self::ChunkExtraction => "chunk_extraction",
@@ -518,9 +526,22 @@ impl RuntimeStageProfiler {
     }
 
     /// Records a span measured outside a system, such as across the render handoff.
-    pub(crate) fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
+    pub fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
         if self.active() {
             record_elapsed(&self.state, stage, started, elapsed);
+        }
+    }
+
+    /// Records accumulated worker time as a counter received on the calling thread.
+    pub fn record_background_sample(&self, stage: RuntimeStage, elapsed: Duration) {
+        if self.state.enabled {
+            self.state.stages[stage as usize].record(elapsed);
+        }
+        if let Some(slow) = &self.state.slow {
+            slow.record(stage, elapsed);
+        }
+        if let Some(trace) = &self.state.trace {
+            trace.background_sample(stage, elapsed);
         }
     }
 
@@ -738,6 +759,41 @@ mod tests {
             .count();
         assert_eq!(markers, 2);
         assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 2);
+    }
+
+    /// Summed worker polls remain available as diagnostics without becoming a fictitious
+    /// execution span on the frame thread that receives them.
+    #[test]
+    fn background_work_exports_a_counter_while_reclaim_stays_a_cpu_span() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("background.json");
+        let profiler = RuntimeStageProfiler::for_gameplay(true, Some(path.clone()));
+        profiler.record_background_sample(RuntimeStage::WorldService, Duration::from_millis(3));
+        profiler.record(
+            RuntimeStage::WorldServiceReclaim,
+            Instant::now(),
+            Duration::from_millis(1),
+        );
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        let background_sample = snapshot.samples[RuntimeStage::WorldService as usize];
+        assert_eq!(background_sample.count, 1);
+        assert_eq!(background_sample.total, Duration::from_millis(3));
+        profiler.flush_trace();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let events = saved["traceEvents"].as_array().unwrap();
+        assert_eq!(events.len(), 2);
+        let background = &events[0];
+        assert_eq!(background["name"], "world_service");
+        assert_eq!(background["ph"], "C");
+        assert_eq!(background["dur"], 0.0);
+        assert_eq!(background["cat"], "background_work");
+        assert_eq!(background["timestamp_kind"], "sample_received");
+        assert_eq!(background["args"]["duration_ns"], 3_000_000);
+        let reclaim = &events[1];
+        assert_eq!(reclaim["name"], "world_service_reclaim");
+        assert_eq!(reclaim["ph"], "X");
+        assert_eq!(reclaim["dur"], 1000.0);
     }
 
     #[test]

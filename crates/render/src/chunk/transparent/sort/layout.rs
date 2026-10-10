@@ -1,9 +1,5 @@
-//! Where each sub-chunk's sorted refs live in a snapshot slot, and how a new sort moves in.
-//!
-//! Every group keeps its own range of the committed slot. A sort of a changed manifest is
-//! planned against that slot: unchanged groups keep their range and refs, a new or
-//! re-meshed group is written into free space, and a removed group frees its range. Only
-//! the changed groups upload, so one new shore costs its own refs, not the whole slot.
+//! Assigns sorted refs to per-group ranges, retaining unchanged groups in the committed slot.
+//! Only added or changed groups upload; removed groups free their ranges.
 use super::groups::{TransparentGroupInput, sort_group};
 use super::state::TransparentAllocationIdentity;
 use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentLiquidPhaseGroup};
@@ -90,6 +86,12 @@ enum Placement {
 
 /// The base slot's range, class and allocation for `key`, found by advancing cursors
 /// through the base's key-sorted groups and allocations.
+type BaseMatch<'a> = (
+    Option<(Range<u32>, Option<FaceOrderClass>)>,
+    Option<&'a TransparentAllocationIdentity>,
+);
+
+/// Walks the base's key-sorted groups and allocations together.
 struct BaseCursor<'a> {
     base: &'a TransparentLayoutBase,
     group: usize,
@@ -98,13 +100,7 @@ struct BaseCursor<'a> {
 
 impl<'a> BaseCursor<'a> {
     /// The base group and allocation for `key`; keys must be visited in ascending order.
-    fn find(
-        &mut self,
-        key: SubChunkKey,
-    ) -> (
-        Option<(Range<u32>, Option<FaceOrderClass>)>,
-        Option<&'a TransparentAllocationIdentity>,
-    ) {
+    fn find(&mut self, key: SubChunkKey) -> BaseMatch<'a> {
         let groups = &self.base.layout.groups;
         while self.group < groups.len() && groups[self.group].key < key {
             self.group += 1;
@@ -129,13 +125,8 @@ impl<'a> BaseCursor<'a> {
     }
 }
 
-/// Sorts `groups`, parallel to the key-sorted `allocations`, for `camera` into a slot.
-///
-/// Against `base`, groups whose allocation and class are unchanged keep their range and
-/// refs; the others are sorted and written in place or into free space, and groups that
-/// left the manifest free their ranges, so the patch covers only what changed. Without a
-/// base, or when the patch would write more than `upload_cap` urgent refs or fragment the
-/// slot well past its live refs, the groups are packed afresh in key order.
+/// Sorts changed key-ordered groups for camera, retaining valid base ranges and patching changed refs.
+/// Repacks when no base exists, urgent writes exceed upload_cap, or free space fragments excessively.
 pub(in crate::chunk) fn plan_transparent_slot(
     camera: Vec3,
     allocations: &[TransparentAllocationIdentity],

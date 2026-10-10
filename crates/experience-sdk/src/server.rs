@@ -8,6 +8,12 @@
 //! [`Experience::client_message`] receives what that client part sends back, and
 //! [`Experience::epoch`] when it moved to a new world epoch; both may read and write the block
 //! of the player's focus, [`Callback::focus`].
+//!
+//! Server WIT 0.5 declares blocks with states, placement traits, visuals and network membership,
+//! and items, through [`Experience::registration`]; a guest that only has plain cube blocks
+//! implements [`Experience::register`] instead. Its callbacks add [`Callback::block_states`],
+//! [`Callback::set_block_state`], [`Callback::network`], [`Callback::inventory`],
+//! [`Callback::set_slot`] and [`Callback::drop_item`].
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -24,8 +30,11 @@ pub mod bindings {
 pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
-        BlockChange, BlockDef, BlockPos, CallbackInfo, ChangeCause, Face, GuestError, LogLevel,
-        Mining, PlayerId, Scalar, TextureBinding, ValueNode, WorldError,
+        BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
+        ChangeCause, Condition, Face, Flipbook, GuestError, Inventory, ItemDef, ItemStack,
+        LogLevel, Material, Mining, Network, NewStack, Permutation, Pixel, PixelBox,
+        PlacementStates, PlayerId, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
+        StateTest, StateValue, StateValues, TextureBinding, ValueNode, Visual, WorldError,
     },
     world_access::Callback,
 };
@@ -35,13 +44,37 @@ use crate::Value;
 
 mod nodes;
 
+/// The block type of a plain block: a stateless cube with `def`'s textures, in no network.
+pub fn cube(def: BlockDef) -> BlockType {
+    BlockType {
+        def,
+        states: Vec::new(),
+        placement: PlacementStates::empty(),
+        visual: None,
+        permutations: Vec::new(),
+        network: false,
+    }
+}
+
 /// One server Experience, mirroring the exports of the `server` world.
 ///
-/// Only [`Experience::register`] is required; the callbacks default to `Ok(())`, which accepts
-/// the event without staging anything.
+/// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
+/// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
-    /// Declares the blocks this Experience owns. It runs once, at startup.
-    fn register() -> Result<Vec<BlockDef>, GuestError>;
+    /// Declares the plain cube blocks this Experience owns. It runs once, at startup, through
+    /// the default [`Experience::registration`].
+    fn register() -> Result<Vec<BlockDef>, GuestError> {
+        Ok(Vec::new())
+    }
+
+    /// Declares this Experience's blocks and items. It runs once, at startup; by default it
+    /// declares [`Experience::register`]'s blocks as [`cube`]s and no items.
+    fn registration() -> Result<Registration, GuestError> {
+        Ok(Registration {
+            blocks: Self::register()?.into_iter().map(cube).collect(),
+            items: Vec::new(),
+        })
+    }
 
     /// Handles `on-place` for one of this Experience's blocks.
     fn on_place(_ctx: &Callback, _change: BlockChange) -> Result<(), GuestError> {
@@ -102,10 +135,10 @@ macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
             fn register() -> ::core::result::Result<
-                ::std::vec::Vec<$crate::server::BlockDef>,
+                $crate::server::Registration,
                 $crate::server::GuestError,
             > {
-                <$ty as $crate::server::Experience>::register()
+                <$ty as $crate::server::Experience>::registration()
             }
 
             fn on_place(

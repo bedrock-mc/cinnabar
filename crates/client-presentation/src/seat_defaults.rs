@@ -7,10 +7,8 @@ use bevy::log::warn;
 use client_world::{RideSeat, SeatDefaults, SeatRequirement};
 use serde_json::Value;
 
-/// Seat layouts of every rideable entity in the local behavior pack. The first call starts
-/// reading them on a thread of their own, so a frame never waits on the files; `None` until
-/// they are ready. Absent or unreadable data degrades to no defaults, so riders keep their
-/// streamed pose.
+/// Starts reading rideable seat defaults on a worker; returns None until ready.
+/// Missing or unreadable data leaves riders with their streamed pose.
 pub(super) fn seat_defaults() -> Option<Arc<SeatDefaults>> {
     static DEFAULTS: ReadOnce<Arc<SeatDefaults>> = ReadOnce::new();
     DEFAULTS.get(installed).cloned()
@@ -37,6 +35,7 @@ struct ReadOnce<T> {
 }
 
 impl<T: Send + Sync + 'static> ReadOnce<T> {
+    /// Creates an empty loader state with no reader running.
     const fn new() -> Self {
         Self {
             value: OnceLock::new(),
@@ -162,6 +161,7 @@ mod tests {
             std::sync::Mutex::new(None);
         static READER: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
         static LAYOUTS: ReadOnce<u32> = ReadOnce::new();
+        /// Records the reader thread and waits for the fixture gate before returning its layouts.
         fn read() -> u32 {
             let _ = READER.set(std::thread::current().id());
             let gate = GATE.lock().unwrap().take().unwrap();

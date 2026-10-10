@@ -78,7 +78,7 @@ pub(super) fn resolve_crosshair(
                 None => true,
             }
         }),
-        |actor| authority.pick_bounding_box(actor),
+        |actor| authority.pick_hit_boxes(actor),
         context.ui.gameplay_hud().mount_unique_id(),
         origin,
         ray.direction().to_array(),

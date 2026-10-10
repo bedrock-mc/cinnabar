@@ -229,6 +229,7 @@ fn normalized_terrain_keeps_heavy_admission_until_it_commits_as_light_work() {
     assert_eq!(state.heavy_count(), 1);
     let light_only = CommitBudget {
         heavy: false,
+        chunk_data: true,
         couple_position: true,
     };
     assert!(matches!(

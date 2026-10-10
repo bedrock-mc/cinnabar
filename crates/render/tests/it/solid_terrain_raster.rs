@@ -139,6 +139,10 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     let streams = gpu.words(&lighting_words(quads.len()), storage);
     let records = gpu.buffer(&[0.0], storage);
     let tints = gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage);
+    let query_tables = gpu.words(
+        &meshing::biome_lattice::query_table_words(),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let mut atmosphere = [0.0; 32];
     atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
     atmosphere[19] = 8.0;
@@ -191,6 +195,10 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
             (11, clock.as_entire_binding()),
             (13, streams.as_entire_binding()),
             (15, atmosphere.as_entire_binding()),
+            (
+                crate::material_shader::BIOME_QUERY_TABLES_BINDING,
+                query_tables.as_entire_binding(),
+            ),
             (20, lightmap.as_entire_binding()),
             (
                 material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

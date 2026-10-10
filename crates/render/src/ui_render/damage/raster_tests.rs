@@ -10,9 +10,17 @@ use render_model::{UiRenderBatch, UiTextureCatalog, UiTexturePage};
 impl Raster {
     /// Clears the whole layer or its damage rectangle, then replays every overlapping batch in order.
     fn draw(&self, input: &UiRenderInput, output: &wgpu::Texture, damage: Option<UiScissor>) {
+        let resident: Vec<_> = input
+            .vertices
+            .iter()
+            .map(|&source| render_model::FontAtlasVertex {
+                source,
+                atlas_offset: [0.; 2],
+            })
+            .collect();
         let vertices = buffer(
             &self.gpu,
-            bytemuck::cast_slice(&input.vertices),
+            bytemuck::cast_slice(&resident),
             wgpu::BufferUsages::VERTEX,
         );
         let indices = buffer(
@@ -78,7 +86,11 @@ impl Raster {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            if initial && let Some(rect) = damage {
+            if initial
+                && let Some(rect) = damage.and_then(|rect| {
+                    crate::render_bounds::scissor(rect, [output.width(), output.height()])
+                })
+            {
                 pass.set_pipeline(&self.clear);
                 pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
                 pass.draw(0..3, 0..1);
@@ -90,7 +102,11 @@ impl Raster {
                 &self.materials[usize::from(mode.1 != 0) * 2 + usize::from(mode.2 != 0)],
             );
             for batch in batches {
-                let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage) else {
+                let Some(rect) = super::super::layer::clipped_scissor(batch.scissor, damage)
+                    .and_then(|rect| {
+                        crate::render_bounds::scissor(rect, [output.width(), output.height()])
+                    })
+                else {
                     continue;
                 };
                 pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
@@ -109,9 +125,12 @@ impl Raster {
 
     /// Reads all RGBA bytes without image conversion or comparison tolerances.
     fn pixels(&self, texture: &wgpu::Texture) -> Vec<u8> {
+        let (width, height) = (texture.width(), texture.height());
+        let stride = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let readback = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(SIDE * SIDE * 4),
+            size: u64::from(stride) * u64::from(height),
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -122,8 +141,8 @@ impl Raster {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(SIDE * 4),
-                    rows_per_image: Some(SIDE),
+                    bytes_per_row: Some(stride),
+                    rows_per_image: Some(height),
                 },
             },
             texture.size(),
@@ -138,7 +157,31 @@ impl Raster {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        readback.slice(..).get_mapped_range().to_vec()
+        readback
+            .slice(..)
+            .get_mapped_range()
+            .chunks_exact(stride as usize)
+            .flat_map(|row| row[..width as usize * 4].iter().copied())
+            .collect()
+    }
+
+    /// Writes optional native offscreen frames without opening a window.
+    fn snapshot(&self, texture: &wgpu::Texture) {
+        let Some(directory) = std::env::var_os("CINNABAR_UI_RASTER_SNAPSHOT_DIR") else {
+            return;
+        };
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let image =
+            image::RgbaImage::from_raw(texture.width(), texture.height(), self.pixels(texture))
+                .unwrap();
+        image
+            .save(directory.join(format!(
+                "native-ui-{}x{}.png",
+                texture.width(),
+                texture.height()
+            )))
+            .unwrap();
     }
 }
 
@@ -366,5 +409,58 @@ fn analytic_radial_gradient_interpolates_premultiplied_stops_and_extent() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn oversized_layout_on_small_targets_emits_valid_scissors() {
+    let mut input = scene();
+    input.viewport_size = [352, 184];
+    for batch in Arc::make_mut(&mut input.batches) {
+        batch.scissor = UiScissor::new(0, 0, 352, 184);
+        batch.depth_test = 0;
+        batch.depth_write = 0;
+        batch.isolated_depth_scope = None;
+    }
+    let Some(raster) = Raster::new(&input) else {
+        return;
+    };
+    for [width, height] in [[352, 184], [254, 124], [1, 1]] {
+        let output = raster.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("small UI surface"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: super::super::composite::UI_LAYER_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        raster
+            .gpu
+            .device
+            .push_error_scope(wgpu::ErrorFilter::Validation);
+        raster.draw(&input, &output, None);
+        raster
+            .gpu
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        let error = bevy::tasks::block_on(raster.gpu.device.pop_error_scope());
+        assert!(error.is_none(), "{width}x{height}: {error:?}");
+        if width > 1 {
+            assert!(
+                raster
+                    .pixels(&output)
+                    .chunks_exact(4)
+                    .any(|pixel| pixel[3] != 0),
+                "valid small-target drawing must produce pixels"
+            );
+        }
+        raster.snapshot(&output);
     }
 }

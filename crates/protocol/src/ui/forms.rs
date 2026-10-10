@@ -8,6 +8,9 @@
 
 mod custom;
 mod npc;
+mod text;
+pub use text::FormText;
+use text::{literal_value, optional_text, text_value};
 
 use std::sync::Arc;
 
@@ -29,14 +32,15 @@ use valentine::bedrock::version::v1_26_51::{
 use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 
 pub const MAX_FORM_JSON_DEPTH: usize = 16;
-pub const MAX_CUSTOM_FORM_ITEMS: usize = 256;
+/// Array entries remain bounded by the document size, including their separators.
+pub const MAX_CUSTOM_FORM_ITEMS: usize = MAX_FORM_JSON_BYTES / 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextMenuForm {
-    pub title: Arc<str>,
-    pub content: Arc<str>,
+    pub title: FormText,
+    pub content: FormText,
     /// Array order is the zero-based wire selection index. Never truncate it.
-    pub buttons: Arc<[Arc<str>]>,
+    pub buttons: Arc<[FormText]>,
     /// Per-button image, aligned by index with `buttons` (`None` when the button has
     /// none). Retained for the renderer; the atlas step still decides what loads.
     pub button_images: Arc<[Option<FormButtonImage>]>,
@@ -58,8 +62,8 @@ pub enum FormButtonImage {
 /// buttons answer; a button's response index counts buttons alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementMenuForm {
-    pub title: Arc<str>,
-    pub content: Arc<str>,
+    pub title: FormText,
+    pub content: FormText,
     pub elements: Arc<[MenuElement]>,
 }
 
@@ -75,21 +79,21 @@ impl ElementMenuForm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuElement {
     Button {
-        text: Arc<str>,
+        text: FormText,
         image: Option<FormButtonImage>,
     },
-    Label(Arc<str>),
-    Header(Arc<str>),
+    Label(FormText),
+    Header(FormText),
     Divider,
 }
 
 /// The `"modal"` family: `button1` answers `true`, `button2` answers `false`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalDialogForm {
-    pub title: Arc<str>,
-    pub content: Arc<str>,
-    pub button1: Arc<str>,
-    pub button2: Arc<str>,
+    pub title: FormText,
+    pub content: FormText,
+    pub button1: FormText,
+    pub button2: FormText,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,10 +127,7 @@ pub enum FormKind {
 }
 
 impl FormKind {
-    /// Only the `"form"` spelling is pinned by a gophertunnel fixture; the
-    /// `"modal"` and `"custom_form"` classifications are provisional pending
-    /// a version-matched wire reference, and anything else stays
-    /// [`FormKind::Unknown`].
+    /// Classifies the native family spellings; unknown families remain unsupported.
     fn from_wire(type_member: &str) -> Self {
         match type_member {
             "modal" => Self::Modal,
@@ -183,37 +184,17 @@ fn form_model(json: &str, kind: FormKind) -> ServerFormModel {
     }
 }
 
-/// A member that must be a bounded string when present; absent reads as empty.
-/// `Err` carries the unsupported reason for a wrong type or an oversized value.
-fn optional_text<'a>(
-    object: &'a serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Result<&'a str, UnsupportedForm> {
-    match object.get(key) {
-        None => Ok(""),
-        Some(value) => required_text_value(value),
-    }
-}
-
-fn required_text_value(value: &serde_json::Value) -> Result<&str, UnsupportedForm> {
-    let text = value.as_str().ok_or(UnsupportedForm::Controls)?;
-    if text.len() > MAX_UI_TEXT_BYTES {
-        return Err(UnsupportedForm::Limit);
-    }
-    Ok(text)
-}
-
 fn modal_model(object: &serde_json::Map<String, serde_json::Value>) -> ServerFormModel {
     let field = |key: &str| match object.get(key) {
-        Some(value) => required_text_value(value),
+        Some(value) => text_value(value),
         None => Err(UnsupportedForm::Controls),
     };
     let parsed = (|| {
         Ok::<_, UnsupportedForm>(ModalDialogForm {
-            title: Arc::from(optional_text(object, "title")?),
-            content: Arc::from(optional_text(object, "content")?),
-            button1: Arc::from(field("button1")?),
-            button2: Arc::from(field("button2")?),
+            title: optional_text(object, "title")?,
+            content: optional_text(object, "content")?,
+            button1: field("button1")?,
+            button2: field("button2")?,
         })
     })();
     match parsed {
@@ -222,136 +203,109 @@ fn modal_model(object: &serde_json::Map<String, serde_json::Value>) -> ServerFor
     }
 }
 
-/// A non-button `elements` entry: label/header need `text`, a divider may omit
-/// it, and `image` may only be null.
+/// Reads a decoration without letting unused metadata reject the menu.
 fn menu_decoration(
     element: &serde_json::Map<String, serde_json::Value>,
     kind: &str,
 ) -> Result<MenuElement, UnsupportedForm> {
-    if element
-        .keys()
-        .any(|key| key != "type" && key != "text" && key != "image")
-        || element.get("image").is_some_and(|image| !image.is_null())
-    {
-        return Err(UnsupportedForm::Controls);
-    }
-    let text = match element.get("text") {
-        Some(value) => required_text_value(value)?,
-        None if kind == "divider" => "",
-        None => return Err(UnsupportedForm::Controls),
-    };
     Ok(match kind {
-        "label" => MenuElement::Label(Arc::from(text)),
-        "header" => MenuElement::Header(Arc::from(text)),
+        "label" => MenuElement::Label(optional_text(element, "text")?),
+        "header" => MenuElement::Header(optional_text(element, "text")?),
         _ => MenuElement::Divider,
     })
 }
 
+/// Selects buttons before elements, preserving button-only response indexes.
 fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> ServerFormModel {
-    let unsupported = ServerFormModel::Unsupported;
-    // A menu has one controls representation. Never combine arrays or drop
-    // unsupported elements, since either would change response indexes.
-    let (controls, element_controls) = match (object.get("buttons"), object.get("elements")) {
-        (Some(buttons), None) => (buttons, false),
-        (None, Some(elements)) => (elements, true),
-        _ => return unsupported(UnsupportedForm::Controls),
-    };
-    let text = |key: &str| match object.get(key) {
-        None => Some(""),
-        Some(value) => value.as_str(),
-    };
-    let (Some(title), Some(content), Some(buttons)) =
-        (text("title"), text("content"), controls.as_array())
-    else {
-        return unsupported(UnsupportedForm::Controls);
-    };
-    if title.len() > MAX_UI_TEXT_BYTES || content.len() > MAX_UI_TEXT_BYTES {
-        return unsupported(UnsupportedForm::Limit);
+    match parse_menu(object) {
+        Ok(form) => form,
+        Err(reason) => ServerFormModel::Unsupported(reason),
     }
-    let mut labels = Vec::with_capacity(buttons.len());
-    let mut images = Vec::with_capacity(buttons.len());
-    let mut elements = Vec::new();
+}
+
+/// Normalizes either menu representation and ignores fields the client does not use.
+fn parse_menu(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Result<ServerFormModel, UnsupportedForm> {
+    let (controls, typed) = match object.get("buttons").filter(|value| !value.is_null()) {
+        Some(buttons) => (buttons, false),
+        None => (
+            object.get("elements").ok_or(UnsupportedForm::Controls)?,
+            true,
+        ),
+    };
+    let controls = controls.as_array().ok_or(UnsupportedForm::Controls)?;
+    let title = optional_text(object, "title")?;
+    let content = optional_text(object, "content")?;
+    let mut labels = Vec::with_capacity(controls.len());
+    let mut images = Vec::with_capacity(controls.len());
+    let mut elements = Vec::with_capacity(controls.len());
     let mut decorated = false;
-    let mut omitted_images = 0;
-    for button in buttons {
-        let Some(button) = button.as_object() else {
-            return unsupported(UnsupportedForm::Controls);
-        };
-        if element_controls
-            && let Some(kind @ ("label" | "header" | "divider")) =
-                button.get("type").and_then(serde_json::Value::as_str)
-        {
-            match menu_decoration(button, kind) {
-                Ok(element) => elements.push(element),
-                Err(reason) => return unsupported(reason),
+    for control in controls {
+        let control = control.as_object().ok_or(UnsupportedForm::Controls)?;
+        if typed {
+            match control.get("type").and_then(serde_json::Value::as_str) {
+                Some(kind @ ("label" | "header" | "divider")) => {
+                    elements.push(menu_decoration(control, kind)?);
+                    decorated = true;
+                    continue;
+                }
+                Some("button") => (),
+                _ => return Err(UnsupportedForm::Controls),
             }
-            decorated = true;
-            continue;
         }
-        if button
-            .keys()
-            .any(|key| key != "text" && key != "image" && (!element_controls || key != "type"))
-        {
-            return unsupported(UnsupportedForm::Controls);
-        }
-        if element_controls
-            && button.get("type").and_then(serde_json::Value::as_str) != Some("button")
-        {
-            return unsupported(UnsupportedForm::Controls);
-        }
-        let mut image = None;
-        // Vanilla normalizes both representations through the same image value. Absent
-        // and null images both mean a text-only button.
-        if let Some(value) = button.get("image").filter(|value| !value.is_null()) {
-            let Some(object) = value.as_object() else {
-                return unsupported(UnsupportedForm::Controls);
-            };
-            let kind = object.get("type").and_then(serde_json::Value::as_str);
-            if object.keys().any(|key| key != "type" && key != "data")
-                || !matches!(kind, Some("url" | "path"))
-            {
-                return unsupported(UnsupportedForm::Controls);
-            }
-            let Some(data) = object.get("data").and_then(serde_json::Value::as_str) else {
-                return unsupported(UnsupportedForm::Controls);
-            };
-            if data.len() > MAX_UI_TEXT_BYTES {
-                return unsupported(UnsupportedForm::Limit);
-            }
-            image = Some(match kind {
-                Some("path") => FormButtonImage::Path(Arc::from(data)),
-                _ => FormButtonImage::Url(Arc::from(data)),
-            });
-            omitted_images += 1;
-        }
-        let Some(label) = button.get("text").and_then(serde_json::Value::as_str) else {
-            return unsupported(UnsupportedForm::Controls);
-        };
-        if label.len() > MAX_UI_TEXT_BYTES {
-            return unsupported(UnsupportedForm::Limit);
-        }
-        let label: Arc<str> = Arc::from(label);
+        let label = optional_text(control, "text")?;
+        let image = button_image(control.get("image"))?;
         elements.push(MenuElement::Button {
-            text: Arc::clone(&label),
+            text: label.clone(),
             image: image.clone(),
         });
         labels.push(label);
         images.push(image);
     }
     if decorated {
-        return ServerFormModel::ElementMenu(ElementMenuForm {
-            title: Arc::from(title),
-            content: Arc::from(content),
+        Ok(ServerFormModel::ElementMenu(ElementMenuForm {
+            title,
+            content,
             elements: elements.into(),
-        });
+        }))
+    } else {
+        let omitted_images = images
+            .iter()
+            .filter(|image| image.is_some())
+            .count()
+            .min(u16::MAX as usize) as u16;
+        Ok(ServerFormModel::TextMenu(TextMenuForm {
+            title,
+            content,
+            buttons: labels.into(),
+            button_images: images.into(),
+            omitted_images,
+        }))
     }
-    ServerFormModel::TextMenu(TextMenuForm {
-        title: Arc::from(title),
-        content: Arc::from(content),
-        buttons: labels.into(),
-        button_images: images.into(),
-        omitted_images,
-    })
+}
+
+/// Retains supported image sources; unknown source kinds have no button texture.
+fn button_image(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<FormButtonImage>, UnsupportedForm> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let object = value.as_object().ok_or(UnsupportedForm::Controls)?;
+    let kind = object.get("type").and_then(serde_json::Value::as_str);
+    if !matches!(kind, Some("path" | "url")) {
+        return Ok(None);
+    }
+    let data = object
+        .get("data")
+        .ok_or(UnsupportedForm::Controls)
+        .and_then(literal_value)?;
+    Ok(Some(if kind == Some("path") {
+        FormButtonImage::Path(data)
+    } else {
+        FormButtonImage::Url(data)
+    }))
 }
 
 fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
@@ -510,10 +464,12 @@ pub enum CustomFormValue {
     Toggle(bool),
     Slider(f64),
     /// Step-slider selected step index.
-    Step(u32),
+    Step(i32),
     /// Dropdown selected option index.
-    Dropdown(u32),
+    Dropdown(i32),
     Input(String),
+    /// Untouched defaults retain wire order; edited selections use ascending option order.
+    MultiSelect(Arc<[i32]>),
     Null,
 }
 
@@ -556,6 +512,7 @@ fn custom_value_json(value: &CustomFormValue) -> serde_json::Value {
         CustomFormValue::Step(index) | CustomFormValue::Dropdown(index) => {
             serde_json::Value::Number((*index).into())
         }
+        CustomFormValue::MultiSelect(indexes) => serde_json::json!(indexes.as_ref()),
         CustomFormValue::Input(text) => serde_json::Value::String(text.clone()),
         CustomFormValue::Null => serde_json::Value::Null,
     }

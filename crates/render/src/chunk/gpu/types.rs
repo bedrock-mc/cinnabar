@@ -130,10 +130,23 @@ pub(in crate::chunk) enum ChunkDrawMode {
     Unsupported,
 }
 
+/// Selects direct draws for Apple hardware, including Vulkan drivers that expand indirect draws.
+/// Their per-slot robustness work makes count-driven multi-draws more expensive.
+pub(in crate::chunk) fn apple_gpu(info: &wgpu::AdapterInfo) -> bool {
+    apple_gpu_identity(info.vendor, &info.driver, &info.name)
+}
+
+/// Recognizes Apple hardware through its vendor ID or Vulkan driver and adapter names.
+pub(in crate::chunk) fn apple_gpu_identity(vendor: u32, driver: &str, name: &str) -> bool {
+    const APPLE_VENDOR_ID: u32 = 0x106B;
+    vendor == APPLE_VENDOR_ID || driver == "Honeykrisp" || name.starts_with("Apple ")
+}
+
 pub(in crate::chunk) fn select_chunk_draw_mode(
     downlevel_flags: DownlevelFlags,
     features: WgpuFeatures,
     backend: Backends,
+    apple_gpu: bool,
 ) -> ChunkDrawMode {
     if !downlevel_flags.contains(DownlevelFlags::BASE_VERTEX) {
         ChunkDrawMode::Unsupported
@@ -143,6 +156,7 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
         // WindowServer. Keep the equivalent CPU-validated direct draws on
         // Metal until indirect submission has passed a native stability gate.
         && !backend.contains(Backends::METAL)
+        && !apple_gpu
     {
         ChunkDrawMode::MultiDrawIndirect
     } else {
@@ -380,10 +394,7 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     depth_liquid_draw_command(allocation)
 }
 
-/// Draws the transparent water records in mesh order without the sorted ref buffer.
-///
-/// `first_instance` selects the first record, and `base_vertex / 4` is the metadata index
-/// plus one, which the liquid vertex shader reads instead of a ref.
+/// Draws water records directly: first_instance selects a record; base_vertex encodes (metadata index + 1) * 4.
 pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {

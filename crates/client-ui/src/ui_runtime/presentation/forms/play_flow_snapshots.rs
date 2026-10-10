@@ -9,6 +9,24 @@ use crate::menu::MenuAction;
 use crate::menu::{MenuScreen, auth::AuthState};
 use crate::ui_runtime::UiRuntime;
 
+/// Captures the shipped menu routes without account or server fixtures.
+#[test]
+fn snapshot_shipped_font_routes() {
+    let player = player_state::PlayerState::new(1);
+    for (screen, name) in [
+        (MenuScreen::Home, "fonts-home"),
+        (MenuScreen::Play, "fonts-play"),
+        (MenuScreen::Settings, "fonts-settings"),
+        (MenuScreen::Profile, "fonts-profile"),
+        (MenuScreen::Pause, "fonts-pause"),
+    ] {
+        let mut view = crate::menu::MenuView::new(true, "Player".into());
+        view.screen = screen;
+        view.over_world = screen == MenuScreen::Pause;
+        snapshot(&player, &view, name);
+    }
+}
+
 // Writes PNGs of each play-flow state (local only).
 #[test]
 fn snapshot_play_flow() {

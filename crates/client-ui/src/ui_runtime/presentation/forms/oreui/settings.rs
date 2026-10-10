@@ -402,7 +402,9 @@ impl Content<'_, '_> {
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if name == "screen_animations" {
+        let description = if name == crate::menu::settings_options::VRR_OPTION.name {
+            "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
             || name == "max_framerate"

@@ -26,12 +26,20 @@ pub(super) fn primary_window(
 
 pub(super) fn render_plugin() -> RenderPlugin {
     let mut settings = WgpuSettings::default();
-    settings.limits.max_storage_buffers_per_shader_stage = settings
-        .limits
-        .max_storage_buffers_per_shader_stage
-        .max(render::required_vertex_storage_buffers());
+    configure_render_settings(&mut settings);
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
         settings.backends = Some(backends);
+    }
+    #[cfg(windows)]
+    {
+        static LOG_COMPILER: std::sync::Once = std::sync::Once::new();
+        // Renderer settings are selected before the log plugin is installed.
+        LOG_COMPILER.call_once(|| {
+            eprintln!(
+                "Configured DX12 shader compiler: {:?}",
+                settings.dx12_shader_compiler
+            );
+        });
     }
     RenderPlugin {
         render_creation: RenderCreation::Automatic(settings),
@@ -39,10 +47,18 @@ pub(super) fn render_plugin() -> RenderPlugin {
     }
 }
 
-/// The backends the renderer may choose from, or `None` to keep wgpu's defaults. An explicit
-/// `WGPU_BACKEND` keeps full operator control. Windows admits Vulkan before DX12: Vulkan's
-/// count-driven GPU culling skips the per-draw indirect validation DX12 needs. DX12 remains the
-/// fallback for drivers without a usable Vulkan adapter.
+/// Applies renderer limits and compiler policy to Bevy's defaults.
+fn configure_render_settings(settings: &mut WgpuSettings) {
+    // Shipping installs use FXC; a DLL in the launch directory must not change that.
+    settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
+    settings.limits.max_storage_buffers_per_shader_stage = settings
+        .limits
+        .max_storage_buffers_per_shader_stage
+        .max(render::required_vertex_storage_buffers());
+}
+
+/// Preserves explicit backend choices; otherwise Windows admits Vulkan before DX12.
+/// Vulkan uses count-driven GPU culling, with DX12 available as a fallback.
 fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
     if explicit.is_some() || !cfg!(target_os = "windows") {
         return None;
@@ -53,6 +69,22 @@ fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shader_compiler_does_not_inherit_a_launch_directory_dxc() {
+        let mut settings = WgpuSettings {
+            dx12_shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
+                dxc_path: "dxcompiler.dll".into(),
+                max_shader_model: wgpu::DxcShaderModel::V6_7,
+            },
+            ..Default::default()
+        };
+        configure_render_settings(&mut settings);
+        assert!(matches!(
+            settings.dx12_shader_compiler,
+            wgpu::Dx12Compiler::Fxc
+        ));
+    }
 
     #[test]
     fn windows_admits_vulkan_before_dx12_without_overriding_an_explicit_backend() {

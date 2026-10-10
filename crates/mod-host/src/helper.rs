@@ -104,6 +104,12 @@ pub enum Event {
     /// The text of the modal's edit box `control`, a declared action, changed while the modal had
     /// focus, to `text-changed`.
     Text { control: String, text: String },
+    /// The open modal's scroll view `view`, a declared action, now shows `range`, to
+    /// `scroll-changed`.
+    Scrolled {
+        view: String,
+        range: screen::ScrollRange,
+    },
 }
 
 impl Event {
@@ -122,6 +128,9 @@ impl Event {
             Event::Text { control, text } => {
                 server_experience::manifest::identifier(control) && screen::edit_text(text)
             }
+            Event::Scrolled { view, range } => {
+                server_experience::manifest::identifier(view) && range.valid()
+            }
         };
         ensure!(valid, "helper event too large or malformed");
         Ok(())
@@ -138,6 +147,7 @@ impl Event {
             Event::SecondaryAction { .. } => "secondary-action",
             Event::Resized { .. } => "modal-resized",
             Event::Text { .. } => "text-changed",
+            Event::Scrolled { .. } => "scroll-changed",
         }
     }
 }

@@ -87,17 +87,18 @@ impl ShutdownWatchdog {
                     )
                     .is_ok()
                 {
-                    // Queued log lines precede the marker that ends the process.
-                    diagnostics::console::flush_before_exit();
-                    eprintln!(
+                    let _ = writeln!(
+                        diagnostics::console::stderr(),
                         "{SHUTDOWN_WATCHDOG_FIRED_MARKER} timeout_ms={} exit_code={exit_code}",
                         timeout.as_millis()
                     );
+                    diagnostics::console::flush_before_exit();
                     terminate(exit_code);
                 }
             });
         if spawned.is_err() {
             self.state.store(SHUTDOWN_WATCHDOG_FIRED, Ordering::Release);
+            diagnostics::console::flush_before_exit();
             (self.terminate)(exit_code);
         }
         true

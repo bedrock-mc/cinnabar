@@ -42,9 +42,8 @@ pub(crate) fn install(render_app: &mut SubApp) {
         );
 }
 
-/// Runs `callback` once every submission made so far, including this frame's graph, has
-/// completed on the GPU. It fires from a device poll, at the earliest this frame's, and needs
-/// no submit of its own; call it from a [`FrameSubmissions`] system.
+/// Runs callback from a device poll after all submissions so far, including this frame, complete.
+/// Call from a FrameSubmissions system; registering it requires no extra submit.
 pub(crate) fn on_frame_complete(queue: &RenderQueue, callback: impl FnOnce() + Send + 'static) {
     queue.on_submitted_work_done(callback);
 }

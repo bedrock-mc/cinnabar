@@ -1,6 +1,4 @@
-//! Pack textures the reload worker reads before the first frame that draws them, so that frame
-//! finds their sources, sidecars and animation frames instead of inflating them from the pack
-//! archives.
+//! Reads HUD images, sidecars and animation frames on the reload worker before first use.
 
 use std::collections::{BTreeMap, BTreeSet};
 

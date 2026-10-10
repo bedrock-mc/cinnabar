@@ -77,9 +77,9 @@ fn installed_play_tabs_use_native_faces_and_keep_fixed_targets_while_pressed() {
     assert_eq!(rest_hits, press_hits);
     assert_eq!(rest_hits, settled_hits);
     let originals = runtime.form_presentation.oreui_originals.as_ref().unwrap();
-    for key in [ART[0], ART[2]] {
+    for key in [PLAY_TAB_IMAGES[0], PLAY_TAB_IMAGES[2]] {
         let sprite = originals.sprites[key];
-        let bottom = if key == ART[0] { 4 } else { 2 };
+        let bottom = if key == PLAY_TAB_IMAGES[0] { 4 } else { 2 };
         let center = [
             sprite.bounds[0] + 2,
             sprite.bounds[1] + 2,

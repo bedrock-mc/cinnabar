@@ -1,6 +1,7 @@
 mod chat;
 mod chat_coordinates;
-mod chat_modifiers;
+pub(crate) mod chat_modifiers;
+mod inventory;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -30,19 +31,16 @@ use crate::menu::settings_options::{
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use client_ui::ui_runtime::inventory_ledger::DropSource;
 use client_ui::ui_runtime::presentation::{
-    UiPresentationRuntime,
-    inventory_pointer::{InventoryCellHit, InventoryScreen},
+    UiPresentationRuntime, inventory_pointer::InventoryCellHit,
 };
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 
 use client_ui::ui_runtime::interaction::{
     ChatFlushError, PointerRouter, PressRoute, dispatch_chat_ui_action, dispatch_inventory_hotbar,
-    dispatch_inventory_key, flush_chat_sends, flush_inventory_send, gamepad_chat_action,
-    is_chat_edit_shortcut, ordered_pointer_presses, paste_chat_shortcut,
-    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-    suppress_gameplay_input_for_inventory,
+    flush_chat_sends, flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut,
+    ordered_pointer_presses, paste_chat_shortcut, restore_gameplay_input_after_chat,
+    suppress_gameplay_input_for_chat, suppress_gameplay_input_for_inventory,
 };
 
 /// Dispatches inventory hotbar shortcuts bound to one physical press.
@@ -200,7 +198,7 @@ pub(crate) fn drive_inventory_ui_actions(
     let now_millis = time.map_or(0, |time| {
         u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
     });
-    apply_inventory_pointer(
+    inventory::apply_inventory_pointer(
         &mut player_runtime,
         &mut runtime,
         &window,
@@ -223,8 +221,23 @@ fn route_press(
     menu: Option<&crate::menu::MenuRuntime>,
     player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
+    mut presentation: Option<&mut UiPresentationRuntime>,
+    pointer: (Option<[f32; 2]>, f64),
 ) -> (PressRoute, bool) {
-    if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
+    if runtime.inventory_open()
+        && button == MouseButton::Left
+        && let Some(view) = presentation.as_deref_mut()
+    {
+        view.focus_mod_screen_pointer(pointer.0, pointer.1);
+    }
+    let mod_text = presentation
+        .as_deref()
+        .is_some_and(UiPresentationRuntime::mod_text_focused);
+    let mod_view = presentation
+        .as_deref()
+        .is_some_and(UiPresentationRuntime::mod_view_shown);
+    if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
+    {
         if binding_mouse_button(menu, "key.inventory", button) {
             runtime.toggle_inventory(player_runtime);
             return (PressRoute::Binding, true);
@@ -243,220 +256,31 @@ fn route_press(
     (router.route(runtime.inventory_open()), false)
 }
 
-/// Applies presses routed to the open inventory screen, after any keys already queued for it.
-#[allow(clippy::too_many_arguments)]
-fn apply_screen_presses(
-    buttons: &[MouseButton],
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
-    runtime: &mut UiRuntime,
-    window: &Window,
-    presentation: Option<&UiPresentationRuntime>,
+/// Reserves vanilla container keys from mod declarations. While a mod view hides the
+/// container, only the inventory key and Escape stay reserved.
+#[cfg_attr(
+    not(feature = "local-mods"),
+    allow(dead_code, reason = "only player mods declare keys")
+)]
+pub(crate) fn inventory_consumes_key(
     menu: Option<&crate::menu::MenuRuntime>,
-    focus: Option<&mut client_presentation::camera::CursorFocus>,
-    time: &Time<Real>,
-) {
-    let Some(presentation) =
-        presentation.filter(|_| !buttons.is_empty() && runtime.inventory_open())
-    else {
-        return;
-    };
-    let mut pressed = ButtonInput::<MouseButton>::default();
-    for button in buttons {
-        pressed.press(*button);
+    key: KeyCode,
+    view: bool,
+) -> bool {
+    if binding_key(menu, "key.inventory", key) || key == KeyCode::Escape {
+        return true;
     }
-    let frame = runtime.inventory_keys_mut().take_frame();
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    apply_inventory_pointer(
-        player_runtime,
-        runtime,
-        window,
-        presentation,
-        menu,
-        &mut pressed,
-        (false, false),
-        frame,
-        &[],
-        focus,
-        now_millis,
-    );
-}
-
-/// Applies one frame's buttons, key presses and wheel notches to the open inventory screen.
-#[allow(clippy::too_many_arguments)]
-fn apply_inventory_pointer(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
-    runtime: &mut UiRuntime,
-    window: &Window,
-    presentation: &UiPresentationRuntime,
-    menu: Option<&crate::menu::MenuRuntime>,
-    mouse_buttons: &mut ButtonInput<MouseButton>,
-    (raw_primary_release, raw_secondary_release): (bool, bool),
-    (presses, shift, control): (Vec<KeyCode>, bool, bool),
-    notches: &[(f32, MouseScrollUnit)],
-    mut focus: Option<&mut client_presentation::camera::CursorFocus>,
-    now_millis: u64,
-) {
-    let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
-    let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
-    let primary_released = mouse_buttons.just_released(MouseButton::Left) || raw_primary_release;
-    let secondary_released =
-        mouse_buttons.just_released(MouseButton::Right) || raw_secondary_release;
-    let mouse_hotbar: Vec<_> = mouse_buttons
-        .get_just_pressed()
-        .filter_map(|button| {
-            crate::semantic_controls::physical::mouse_button_code(*button)
-                .map(semantic_input::PhysicalControl::MouseButton)
-        })
-        .collect();
-    // The inventory owns pointer buttons while open. Preserve the edges long
-    // enough to resolve their cell, then clear every button before gameplay
-    // systems can observe this frame.
-    mouse_buttons.reset_all();
-    let generation = runtime
-        .inventory_ledger(player_runtime)
-        .storage_generation();
-    runtime.screen_state_mut().observe_window(generation);
-    let screen = InventoryScreen::of_runtime(player_runtime, runtime);
-    runtime.observe_inventory_search_focus(player_runtime);
-    let Some(position) = window.cursor_position() else {
-        runtime.set_inventory_pointer_gui(None);
-        runtime.screen_state_mut().hover = None;
-        return;
-    };
-    let Ok(point) = UiPoint::new(position.x, position.y) else {
-        runtime.set_inventory_pointer_gui(None);
-        runtime.screen_state_mut().hover = None;
-        return;
-    };
-    let physical_size = [window.physical_width(), window.physical_height()];
-    let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
-    runtime.set_inventory_pointer_gui(gui);
-    let book_open = runtime.screen_state().book_open;
-    let reader_mode = runtime
-        .screen_state()
-        .book
-        .as_ref()
-        .map(|book| (book.editable, book.signing));
-    let hit = gui.and_then(|gui| {
-        if let Some((editable, signing)) = reader_mode {
-            return presentation.inventory_reader_hit(
-                gui,
-                physical_size,
-                window.scale_factor(),
-                editable,
-                signing,
-            );
-        }
-        presentation
-            .inventory_book_hit(gui, physical_size, window.scale_factor(), screen, book_open)
-            .or_else(|| {
-                presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
+    !view
+        && (binding_key(menu, "key.drop", key)
+            || crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+                hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
+                    .next()
+                    .is_some()
             })
-    });
-    runtime.screen_state_mut().hover = hit;
-    if let (Some(gui), Some(frame)) = (gui, presentation.engine_container_frame()) {
-        scroll_container(runtime, frame, gui, notches);
-    }
-    for key in presses {
-        if crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
-            dispatch_bound_inventory_hotbar(
-                menu,
-                semantic_input::PhysicalControl::KeyboardUsage(code),
-                player_runtime,
-                runtime,
-                hit,
-            )
-        }) {
-            continue;
-        }
-        let drop = binding_key(menu, "key.drop", key);
-        let _ = dispatch_inventory_key(player_runtime, runtime, hit, key, control, None, drop);
-    }
-    for control in mouse_hotbar {
-        dispatch_bound_inventory_hotbar(menu, control, player_runtime, runtime, hit);
-    }
-    let frame = super::inventory_drag::PointerFrame {
-        primary_pressed,
-        primary_released,
-        secondary_pressed,
-        secondary_released,
-        shift,
-        holding: runtime
-            .inventory_ledger(player_runtime)
-            .cursor_stack()
-            .is_some(),
-        hit,
-        now_millis,
-    };
-    let actions = runtime.screen_state_mut().pointer.step(frame);
-    for action in actions {
-        let was_open = runtime.inventory_open();
-        runtime.perform_pointer_action(player_runtime, action);
-        if was_open
-            && !runtime.inventory_open()
-            && let Some(focus) = focus.as_deref_mut()
-        {
-            focus.authorize_screen_return();
-        }
-    }
-    if hit.is_none() {
-        // A held stack released outside the panel is dropped: all of it on a
-        // primary click, one item on a secondary click.
-        let outside = gui.is_some_and(|gui| {
-            !presentation.inventory_panel_contains(
-                gui,
-                physical_size,
-                window.scale_factor(),
-                screen,
-            )
-        });
-        if outside && (primary_pressed || secondary_pressed) {
-            let amount = (!primary_pressed).then_some(1);
-            let _ = runtime
-                .inventory_ledger_mut(player_runtime)
-                .begin_drop(DropSource::Cursor, amount);
-        }
-    }
-}
-
-/// Wheel notches over an engine-drawn screen scroll the view under the pointer.
-fn scroll_container(
-    runtime: &mut UiRuntime,
-    frame: &client_ui::ui_runtime::forms::EngineFrame,
-    gui: [f32; 2],
-    notches: &[(f32, MouseScrollUnit)],
-) {
-    let point = [f64::from(gui[0]), f64::from(gui[1])];
-    let Some(view) = json_ui::scroll_target(&frame.hits, &frame.report, point) else {
-        return;
-    };
-    let Some(metrics) = frame.report.scrolls.get(&view.key) else {
-        return;
-    };
-    let mut offset = runtime
-        .screen_state()
-        .container_scroll
-        .get(&view.key)
-        .copied()
-        .unwrap_or(metrics.offset);
-    for (notch, unit) in notches {
-        let at = json_ui::ScrollMetrics {
-            offset,
-            ..metrics.clone()
-        };
-        offset = match unit {
-            MouseScrollUnit::Line => at.offset_for_wheel(f64::from(*notch)),
-            MouseScrollUnit::Pixel => {
-                (offset - f64::from(*notch / frame.scale)).clamp(0.0, metrics.max_offset())
-            }
-        };
-    }
-    if !notches.is_empty() {
-        runtime
-            .screen_state_mut()
-            .container_scroll
-            .insert(view.key.clone(), offset);
-    }
+            || matches!(
+                key,
+                KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::PageUp | KeyCode::PageDown
+            ))
 }
 
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
@@ -642,7 +466,25 @@ pub(crate) fn drive_chat_keyboard_input(
     let mut consumed_gameplay = runtime.ui_focused(&player_runtime);
     // With ordered window events, mouse bindings act at their press's place in the sequence.
     let mouse_bindings = pointer_presses.is_empty();
-    if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
+    let pointer = (
+        window.cursor_position().map(|point| point.to_array()),
+        time.elapsed_secs_f64(),
+    );
+    if mouse_bindings
+        && runtime.inventory_open()
+        && mouse_buttons.just_pressed(MouseButton::Left)
+        && let Some(view) = presentation.as_deref_mut()
+    {
+        view.focus_mod_screen_pointer(pointer.0, pointer.1);
+    }
+    let mod_text = presentation
+        .as_deref()
+        .is_some_and(UiPresentationRuntime::mod_text_focused);
+    let mod_view = presentation
+        .as_deref()
+        .is_some_and(UiPresentationRuntime::mod_view_shown);
+    if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
+    {
         if (mouse_bindings && binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons))
             || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
         {
@@ -680,6 +522,8 @@ pub(crate) fn drive_chat_keyboard_input(
                 menu.as_deref(),
                 &mut player_runtime,
                 &mut runtime,
+                presentation.as_deref_mut(),
+                pointer,
             );
             match route {
                 PressRoute::Gameplay => kept.push(button),
@@ -695,7 +539,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 }
                 PressRoute::Screen { .. } => {
                     consumed.push(button);
-                    apply_screen_presses(
+                    inventory::apply_screen_presses(
                         &[button],
                         &mut player_runtime,
                         &mut runtime,
@@ -733,7 +577,14 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         if runtime.inventory_open() {
             consumed_gameplay = true;
-            if runtime.screen_state().text_focused() {
+            if presentation
+                .as_deref()
+                .is_some_and(UiPresentationRuntime::mod_text_focused)
+            {
+                // A player mod's edit box takes typing and Escape (`modding`).
+                continue;
+            }
+            if runtime.screen_state().text_focused() && !mod_view {
                 // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {
@@ -759,6 +610,10 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
+                // Escape returns from a player mod's view to the container, and the hidden
+                // screen's own keys do nothing under the view (`modding`).
+                KeyCode::Escape if mod_view => {}
+                _ if mod_view => {}
                 KeyCode::Escape => {
                     runtime.close_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
@@ -920,6 +775,8 @@ pub(crate) fn drive_chat_keyboard_input(
                 menu.as_deref(),
                 &mut player_runtime,
                 &mut runtime,
+                presentation.as_deref_mut(),
+                pointer,
             );
             match route {
                 PressRoute::Binding => {
@@ -936,7 +793,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 // buttons.
                 PressRoute::Screen { opening } if opening > 0 => {
                     consumed.push(button);
-                    apply_screen_presses(
+                    inventory::apply_screen_presses(
                         &[button],
                         &mut player_runtime,
                         &mut runtime,
@@ -990,5 +847,24 @@ pub(crate) fn drive_chat_keyboard_input(
                 &mut mouse_motion,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod consumes_key_tests {
+    use super::*;
+
+    /// Over a container screen its keys are vanilla's; over a player mod's view, which hides the
+    /// screen, only the keys that close it are.
+    #[test]
+    fn a_shown_view_frees_the_container_screens_keys() {
+        for key in [KeyCode::PageUp, KeyCode::Digit1, KeyCode::KeyQ] {
+            assert!(inventory_consumes_key(None, key, false), "{key:?}");
+            assert!(!inventory_consumes_key(None, key, true), "{key:?}");
+        }
+        assert!(inventory_consumes_key(None, KeyCode::Escape, true));
+        assert!(inventory_consumes_key(None, KeyCode::KeyE, true));
+        assert!(!inventory_consumes_key(None, KeyCode::KeyR, false));
+        assert!(!inventory_consumes_key(None, KeyCode::Backspace, false));
     }
 }

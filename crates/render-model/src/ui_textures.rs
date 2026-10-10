@@ -126,13 +126,35 @@ impl UiTexturePage {
         if source.pixels.bytes().len() != page_bytes_in(dimensions, format)? {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
-        // RuntimeFontCatalog can only be obtained through its authenticated decoder.
+        // A demand page must not alias a fully uploaded page with identical source pixels.
+        let mut identity = Sha256::new();
+        identity.update(b"font demand atlas");
+        identity.update(source.pixels_sha256);
+        for side in dimensions {
+            identity.update(side.to_le_bytes());
+        }
         Ok(Self {
             dimensions,
-            identity: source.pixels_sha256,
+            identity: identity.finalize().into(),
             format,
             pixels: Pixels::Font { catalog, page },
         })
+    }
+
+    /// Font pages reserve a bounded demand atlas; source texels remain in catalog coordinates.
+    pub fn font_atlas_side(&self) -> Option<u32> {
+        matches!(self.pixels, Pixels::Font { .. }).then(|| {
+            self.dimensions[0]
+                .max(self.dimensions[1])
+                .next_power_of_two()
+                .clamp(64, crate::FONT_ATLAS_SIDE)
+        })
+    }
+
+    /// Returns the GPU extent, which can be smaller than a font's source page.
+    pub fn resident_dimensions(&self) -> [u32; 2] {
+        self.font_atlas_side()
+            .map_or(self.dimensions, |side| [side; 2])
     }
 
     pub fn pixels(&self) -> &[u8] {
@@ -337,7 +359,7 @@ impl UiTextureCatalog {
         }
         let planned = pages
             .iter()
-            .map(|page| (page.dimensions, page.format))
+            .map(|page| (page.resident_dimensions(), page.format))
             .collect::<Vec<_>>();
         let plan = UiTexturePlan::with_formats(&planned)?;
         let fixed_bytes = fixed_budget_bytes(&pages, dynamic_start);

@@ -306,10 +306,8 @@ impl CellPool {
         self.last_used.resize(self.keys.len(), 0);
     }
 
-    /// The slot holding `key`, rasterizing `make` (a cell-sized RGBA8 canvas) on a miss into an
-    /// empty slot, else the least recently used slot no rect of this frame refers to, else a
-    /// new page. `None` when the canvas has the wrong size, the page cap is reached, or this
-    /// frame already rasterized [`MAX_NEW_CELLS_PER_FRAME`] canvases; a later frame retries.
+    /// Returns the slot for key, rasterizing make on a miss with bounded per-frame work.
+    /// Evicts only unused slots; returns None for invalid canvases or exhausted page/raster budgets.
     fn slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
         self.clock += 1;
         if let Some(slot) = self.keys.iter().position(|entry| *entry == Some(key)) {
@@ -479,7 +477,10 @@ mod tests {
             }
             text.begin_frame();
         }
-        assert!(most <= MAX_NEW_CELLS_PER_FRAME, "{most} canvases in one frame");
+        assert!(
+            most <= MAX_NEW_CELLS_PER_FRAME,
+            "{most} canvases in one frame"
+        );
         for key in 0..TEXTS as u64 {
             assert_eq!(
                 text.text_slot(key, || panic!("a hit must not rasterize")),

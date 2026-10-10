@@ -106,6 +106,14 @@ impl Dispatcher {
                 mapping.scope,
             );
             let previous_down = previous == Some(true);
+            // An edit box consumes only interactions allowed by its selection flags.
+            let accepts = region.widget.edit.is_none()
+                || (fired.interacted
+                    && if view.components.selected() == Some(region.key.as_str()) {
+                        mapping.handle_deselect
+                    } else {
+                        mapping.handle_select
+                    });
             self.deliver(
                 regions,
                 region,
@@ -116,7 +124,7 @@ impl Dispatcher {
                 &mut out,
             );
             out.events.push(ScreenEvent::Button(fired));
-            if mapping.consume_event && region.widget.consume {
+            if accepts && mapping.consume_event && region.widget.consume {
                 out.consumed = true;
                 break;
             }
@@ -334,6 +342,25 @@ impl Dispatcher {
         true
     }
 
+    /// Clears selection and its button edges without input events, preserving component writes.
+    pub fn clear_selection(&mut self, regions: &[HitRegion], view: &mut ViewState) {
+        let selected = view.components.selected().map(str::to_owned);
+        if let Some(key) = &selected {
+            self.last.retain(|(control, _), _| control != key);
+        }
+        if let Some(region) = selected
+            .as_ref()
+            .and_then(|key| regions.iter().find(|region| &region.key == key))
+        {
+            if region.widget.edit.is_some() {
+                deselect(region, &mut view.components, &mut Dispatch::default());
+            } else if region.widget.slider.is_some() {
+                set_slider_selected(region, false, &mut view.components);
+            }
+        }
+        view.components.set_selected(None);
+    }
+
     fn double_press(&mut self, region: &HitRegion, input: &ButtonInput<'_>) -> bool {
         let tracked =
             region.input.mappings.iter().any(|mapping| {
@@ -487,7 +514,7 @@ impl Dispatcher {
                 {
                     let value = current_slider(member, components);
                     let step = meta.is_step().then_some(value.max(0.0) as usize);
-                    publish_slider(member, value, step, true, components, out);
+                    publish_slider(member, value, step, true, false, components, out);
                 }
             }
         }
@@ -678,6 +705,23 @@ fn event(
     }
 }
 
+/// Returns a collection-backed radio's parent path; unscoped radios share a group.
+fn radio_parent(region: &HitRegion) -> &[(String, usize)] {
+    let Some(collection) = region
+        .widget
+        .toggle
+        .as_ref()
+        .and_then(|meta| meta.grid_collection.as_deref())
+    else {
+        return &[];
+    };
+    region
+        .collections
+        .iter()
+        .rposition(|(name, _)| name == collection)
+        .map_or(&[], |index| &region.collections[..index])
+}
+
 fn checked(region: &HitRegion, components: &Components) -> bool {
     components
         .bag(&region.key)
@@ -703,7 +747,10 @@ fn set_toggle(
     if meta.radio && state {
         for other in regions {
             let same_group = other.widget.toggle.as_ref().is_some_and(|candidate| {
-                candidate.radio && candidate.name == meta.name && other.key != region.key
+                candidate.radio
+                    && candidate.name == meta.name
+                    && other.key != region.key
+                    && radio_parent(other) == radio_parent(region)
             });
             if same_group {
                 components.write(&other.key, "#toggle_state", Value::Bool(false));
@@ -745,7 +792,7 @@ fn set_slider_at(
     };
     let rect = [region.rect.x, region.rect.y, region.rect.w, region.rect.h];
     let (value, step) = meta.value_at(rect, point);
-    publish_slider(region, value, step, finished, components, out);
+    publish_slider(region, value, step, finished, false, components, out);
 }
 
 fn step_slider(
@@ -758,7 +805,7 @@ fn step_slider(
         return;
     };
     let (value, step) = meta.stepped(current_slider(region, components), direction);
-    publish_slider(region, value, step, true, components, out);
+    publish_slider(region, value, step, true, true, components, out);
 }
 
 fn publish_slider(
@@ -766,6 +813,7 @@ fn publish_slider(
     value: f64,
     step: Option<usize>,
     finished: bool,
+    directional: bool,
     components: &mut Components,
     out: &mut Dispatch,
 ) {
@@ -780,6 +828,7 @@ fn publish_slider(
         value,
         step,
         finished,
+        directional,
     });
 }
 

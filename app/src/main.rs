@@ -2,6 +2,7 @@ use bedrock_client::{
     args::{ClientArgs, ParseOutcome},
     lifecycle, run,
 };
+use std::io::Write;
 
 fn main() {
     if std::env::args_os()
@@ -22,13 +23,15 @@ fn main() {
                 }
             }
             let result = run(*args);
-            // Lines still queued, as from teardown, reach the console before the process
-            // exits and precede the failure that ends it.
-            diagnostics::console::flush();
             if let Err(error) = result {
-                eprintln!("bedrock-client failed: {error:#}");
+                let _ = writeln!(
+                    diagnostics::console::stderr(),
+                    "bedrock-client failed: {error:#}"
+                );
+                diagnostics::console::flush_before_exit();
                 std::process::exit(1);
             }
+            diagnostics::console::flush_before_exit();
         }
         Err(error) => {
             eprintln!("{error}");

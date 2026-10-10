@@ -13,6 +13,7 @@ const LEATHER: [u8; 4] = [160, 160, 160, 255];
 /// A team colour a server writes into armor's `customColor`.
 const TEAM_RED: u32 = 0x00b0_2e26;
 
+/// Creates chest armor with the requested texture and material for dye-rule comparisons.
 fn chestplate(identifier: &str, texture: &str, material: &str) -> EquipmentBinding {
     let reference = |identifier: &str| EquipmentReference {
         identifier: identifier.into(),

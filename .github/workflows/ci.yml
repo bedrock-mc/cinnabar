@@ -14,8 +14,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Verification needs assertions, but not large debug-symbol artifacts.
-# Must match ci-cache.yml: rust-cache keys include CARGO_* variables.
+# Must match ci-cache.yml so compiler outputs can be reused.
 env:
+  CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
 
@@ -68,6 +69,8 @@ jobs:
             packaging:
               - .github/workflows/ci.yml
               - .github/workflows/package.yml
+              - .github/actions/**
+              - .github/tests/**
               - packaging/**
             physics:
               - .github/workflows/ci.yml
@@ -92,15 +95,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          # ci-cache.yml alone saves the Linux cache on dev, so every pull request starts warm.
-          shared-key: ci
-          save-if: false
+      - name: Restore Rust build cache
+        id: rust-cache
+        uses: ./.github/actions/build-cache
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
+          go-version: 'stable'
           cache: false
       - name: Install Linux desktop development libraries
         run: |
@@ -133,6 +133,9 @@ jobs:
         run: bash scripts/tests/acceptance_test.sh
 
   rust-tests:
+    permissions:
+      contents: read
+      actions: write
     name: Rust tests (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -147,27 +150,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Full runs on dev save the Windows and macOS caches; ci-cache.yml saves Linux's.
-          shared-key: ci
-          save-if: ${{ github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
-          cache-on-failure: true
+      - name: Restore Rust build cache
+        id: rust-cache
+        uses: ./.github/actions/build-cache
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
-          # One Go cache per OS, shared by every job here and by ci-cache.yml.
-          cache-dependency-path: |
-            core/go.sum
-            tools/registrygen/go.sum
-            tools/chunkfix/go.sum
-            tools/localserver/go.sum
-            tools/bedsimtrace/go.sum
-            go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
       - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
@@ -183,7 +180,19 @@ jobs:
         if: ${{ !cancelled() && runner.os != 'Linux' }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Save Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
+
   go:
+    permissions:
+      contents: read
+      actions: write
     name: Go (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -200,14 +209,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
-          cache-dependency-path: |
-            core/go.sum
-            tools/registrygen/go.sum
-            tools/chunkfix/go.sum
-            tools/localserver/go.sum
-            tools/bedsimtrace/go.sum
-            go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
       - name: Build release Go core
         run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
       - name: Test and vet Go core
@@ -242,6 +250,16 @@ jobs:
           go test ./... -count=1
           go vet ./...
 
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          language: go
+          key: ${{ steps.go-cache.outputs.key }}
+          bucket: ${{ steps.go-cache.outputs.bucket }}
+          paths: ${{ steps.go-cache.outputs.paths }}
+
   # Pull requests only; full runs cover Windows and macOS through rust-tests and go.
   platform:
     name: Platform (${{ matrix.name }})
@@ -261,7 +279,8 @@ jobs:
             client: false
             skip: test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
           - { name: windows client, os: windows-latest, crates: false, client: true }
-          - { name: macos, os: macos-latest, crates: true, client: true }
+          - { name: macos, os: macos-latest, crates: true, client: false }
+          - { name: macos client, os: macos-latest, crates: false, client: true }
     defaults:
       run:
         shell: bash
@@ -275,24 +294,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-          save-if: false
+      - name: Restore Rust build cache
+        id: rust-cache
+        uses: ./.github/actions/build-cache
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
-          cache-dependency-path: |
-            core/go.sum
-            tools/registrygen/go.sum
-            tools/chunkfix/go.sum
-            tools/localserver/go.sum
-            tools/bedsimtrace/go.sum
-            go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
       - name: Check Rust workspace
         if: matrix.crates
         run: cargo check --workspace --all-targets --locked
@@ -324,6 +340,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Test build cache reuse and invalidation
+        run: python3 -m unittest discover -s .github/tests -p 'test_*.py'
       - name: Test manual release preparation
         env:
           PYTHONDONTWRITEBYTECODE: 1
@@ -343,14 +361,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
-          cache-dependency-path: |
-            core/go.sum
-            tools/registrygen/go.sum
-            tools/chunkfix/go.sum
-            tools/localserver/go.sum
-            tools/bedsimtrace/go.sum
-            go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        id: go-cache
+        uses: ./.github/actions/build-cache
+        with:
+          language: go
       - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets
 
@@ -364,7 +381,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
-          go-version: 1.26.x
+          go-version: 'stable'
           cache: false
       - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
         shell: powershell

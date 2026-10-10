@@ -95,6 +95,9 @@ struct Harness {
     terrain: fn(SubChunkKey) -> bool,
     payloads: HashMap<SubChunkKey, Vec<u8>>, // An empty payload answers ChunkNotFound.
     highest: u16,
+    /// Polls between frames, as the app does; the spare stands in while it holds the stream.
+    service: Option<(WorldStreamService, Option<WorldStream>)>,
+    service_work: WorldStreamPoll,
 }
 
 impl Harness {
@@ -131,7 +134,16 @@ impl Harness {
             terrain: solid,
             payloads: HashMap::new(),
             highest: 10,
+            service: None,
+            service_work: WorldStreamPoll::default(),
         }
+    }
+
+    /// Lends the stream to a between-frames service during every frame's sleep.
+    fn with_service(mut self) -> Self {
+        let spare = Self::new(0, 1).stream;
+        self.service = Some((WorldStreamService::spawn().unwrap(), Some(spare)));
+        self
     }
 
     fn for_tests() -> Self {
@@ -425,11 +437,11 @@ impl Harness {
         }
         let pending_light = light_blockers
             .iter()
-            .filter(|key| self.stream.lighting.jobs.pending.contains_key(key))
+            .filter(|&key| self.stream.lighting.jobs.pending.contains_key(key))
             .count();
         let running_light = light_blockers
             .iter()
-            .filter(|key| self.stream.lighting.jobs.in_flight.contains_key(key))
+            .filter(|&key| self.stream.lighting.jobs.in_flight.contains_key(key))
             .count();
         println!(
             "near frame={} [shown,absent,due,center_light,halo_light,mesh_running,runnable]={counts:?} light_blockers_pending={pending_light} running={running_light} first_blockers={:?} first_runnable={:?}",
@@ -496,7 +508,17 @@ impl Harness {
             self.trace_near_waits();
         }
         self.frame += 1;
+        let Some((service, spare)) = self.service.as_mut() else {
+            std::thread::sleep(self.frame_sleep);
+            return;
+        };
+        let placeholder = spare.take().expect("the spare is home between frames");
+        let stream = std::mem::replace(&mut self.stream, placeholder);
+        service.launch(stream, self.camera, MESH_JOBS_PER_FRAME);
         std::thread::sleep(self.frame_sleep);
+        let serviced = service.reclaim().expect("the service holds the stream");
+        *spare = Some(std::mem::replace(&mut self.stream, serviced.stream));
+        self.service_work.accumulate(serviced.report);
     }
 
     /// Runs until the stream is idle and reports against the converged meshes.
@@ -941,6 +963,33 @@ fn batch_eviction_preserves_overlap_and_snapshot() {
     assert!(harness.stream.mesh_jobs.pending.contains_key(&removed));
     assert!(harness.stream.mesh_jobs.pending.contains_key(&retained));
     assert_eq!(snapshot.runtime_id(0, 0, 0, 0), Some(STONE));
+}
+
+/// Lending the stream to its between-frames service converges, across a request-mode join and
+/// a disjoint teleport, to exactly the meshes frame-only polling presents, never presenting a
+/// darker or differently shaped intermediate mesh.
+#[test]
+fn between_frames_service_converges_to_the_frame_polled_view() {
+    let converge = |harness: &mut Harness| {
+        for (center, teleport) in [
+            (ChunkKey::new(0, 0, 0), false),
+            (ChunkKey::new(0, 125, 137), true),
+        ] {
+            harness.send_view(center, teleport);
+            let report = harness.run();
+            assert!(harness.idle());
+            assert_eq!((report.dark_meshes, report.geometry_meshes), (0, 0));
+        }
+        harness.presented.clone()
+    };
+    let frame_polled = converge(&mut Harness::for_tests());
+    let mut serviced = Harness::for_tests().with_service();
+    assert_eq!(converge(&mut serviced), frame_polled);
+    let work = serviced.service_work;
+    assert!(
+        work.decoded_results > 0 && work.light_results > 0 && work.mesh_results > 0,
+        "the service carried decode, light and mesh work: {work:?}"
+    );
 }
 
 /// Reports complete initial-load and disjoint-teleport convergence through real stream polling.

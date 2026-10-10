@@ -7,6 +7,11 @@ use super::UiPresentationRuntime;
 mod tests;
 
 impl UiPresentationRuntime {
+    /// Identifies the painted controls, so outgoing frames cannot drive another screen's focus.
+    pub fn drawn_menu_context(&self) -> Option<(crate::menu::MenuScreen, bool)> {
+        self.form_presentation.menu_focus_context
+    }
+
     /// Native focus uses full control rectangles and the current screen's landmark tree.
     pub fn settings_focus_geometry(
         &self,

@@ -1,5 +1,7 @@
 //! Chooses the frame admission cadence from the session's frame-rate limit and window state.
 
+mod display;
+
 use std::time::{Duration, Instant};
 
 use bevy::{
@@ -92,6 +94,7 @@ impl FramePacingRuntime {
 pub(crate) fn update_frame_pacing(
     mut runtime: ResMut<FramePacingRuntime>,
     presentation: Res<PresentModeRuntime>,
+    settings: Res<crate::settings_runtime::RuntimeSettings>,
     display: Res<DisplayRefresh>,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut occlusion: MessageReader<WindowOccluded>,
@@ -107,7 +110,9 @@ pub(crate) fn update_frame_pacing(
     let next = runtime.pacing(
         presentation.intent(),
         presentation.limit(),
-        display.0,
+        display
+            .0
+            .with_vrr_preference(settings.user_settings_update().1.video.vrr),
         focused,
     );
     if *pacing != next {
@@ -115,7 +120,7 @@ pub(crate) fn update_frame_pacing(
     }
 }
 
-/// Re-reads the primary window's monitor refresh; changes only when it does.
+/// Re-reads the primary window's display timing, clearing stale reports if it is absent.
 pub(crate) fn track_display_refresh(
     windows: Query<Entity, With<PrimaryWindow>>,
     mut display: ResMut<DisplayRefresh>,
@@ -127,18 +132,14 @@ pub(crate) fn track_display_refresh(
         return;
     }
     *checked = Some(now);
-    let refresh = windows.single().ok().and_then(|window| {
+    let timing = windows.single().ok().and_then(|window| {
         WINIT_WINDOWS.with_borrow(|windows| {
             windows
-                .get_window(window)?
-                .current_monitor()?
-                .refresh_rate_millihertz()
+                .get_window(window)
+                .map(|window| display::window_display_timing(window))
         })
     });
-    let next = DisplayRefresh(DisplayTiming {
-        refresh: refresh.and_then(FrameRate::from_millihertz),
-        ..display.0
-    });
+    let next = DisplayRefresh(timing.unwrap_or_default());
     if *display != next {
         *display = next;
     }

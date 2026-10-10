@@ -203,9 +203,8 @@ struct SessionPacks {
     applied: bool,
 }
 
-/// Validates the login handoff and prepares presentation from it unless `cancelled`, keeping
-/// only the facts the session reads later. The validated archives go with the preparation, so a
-/// presentation reusing an earlier compile of the same packs holds the only copy.
+/// Validates and prepares the login handoff unless cancelled, retaining needed session facts.
+/// Reused presentation carries the retained archives so equivalent packs have one copy.
 fn prepare_session<P>(
     handoff: protocol::ResourcePackHandoff,
     game_data: &protocol::GameData,

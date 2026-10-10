@@ -378,19 +378,18 @@ The component world is `server-bundle` in
 [`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
 `cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
 guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
-`cinnabar:server-experience@1.2.0`, defined in
+`cinnabar:server-experience@1.3.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
-collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)` and
-`secondary-action(id, collection-index)`.
-A component built against 1.0.0 or 1.1.0 still links (its imports resolve to the 1.2.0
-host by semver): one built against 1.0.0 exports only `init` and `dispatch`, and the host
-skips `action`, `epoch` and 1.2's callbacks for it; one built against 1.1.0 also exports
-`action` and `epoch`, and the host skips 1.2's callbacks for it, so a 1.1 bundle only
-ever receives primary presses. 1.1's two callbacks and 1.2's three are each exported all
-or none. SP5's planned `items.lookup(id)` (item icons and
-names) is to join 1.2 as an import of its own, which leaves components built against 1.2
-now linking.
+collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)`,
+`secondary-action(id, collection-index)` and `scroll-changed(view, range)`.
+A component built against an earlier 1.x still links (its imports resolve to the 1.3.0 host
+by semver) and receives only the callbacks it exports: one built against 1.0.0 exports only
+`init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
+`epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
+`text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`. 1.1's two callbacks and
+1.2's three are each exported all or none. SP5's planned `items.lookup(id)` (item icons and
+names) is to join as an import of its own, which leaves components built against 1.3 linking.
 
 | Permission | Host contract | App adapter today |
 | --- | --- | --- |
@@ -435,6 +434,10 @@ Data binds through the engine's own `#name` bindings:
   a JSON array of objects from `#name` to a value in the same encoding as channel leaves,
   `{"type":"bool|integer|number|text|numbers","value":…}`, so each row can carry its own
   text, texture path, count or visibility.
+- The host fills `inventory_items` (main inventory) and `hotbar_items` read-only with the
+  player's stacks, as vanilla's container screens bind them: vanilla's `common.item_renderer`
+  with `$item_collection_name` draws each slot's icon, and its count and durability bind as
+  there. Rows a client part sets under those names are replaced.
 - A button whose `$pressed_button_name` is a declared manifest action delivers
   `action(id, collection-index)` on release, with the row of its nearest collection, if
   the bundle holds `input`; other presses do nothing. A secondary press (a right click)
@@ -449,6 +452,14 @@ Data binds through the engine's own `#name` bindings:
   when the modal is first drawn after opening and on each change (a window resize or a
   GUI scale change), the latest replacing one still waiting, so a guest can lay out its
   rows and columns for the space it has.
+- A `scroll_view` whose `scroll_view_name` is a declared manifest action (a Cinnabar property
+  for these modals, which vanilla ignores) delivers `scroll-changed(view, range)` (1.3), if
+  the bundle holds `input`: when first drawn, and whenever it scrolls or its viewport or
+  content changes length. `range` is what the engine laid out along the view's scrolling
+  axis, in GUI units: `offset` (from 0 to `content` - `viewport`), `viewport` and `content`.
+  Changes coalesce to the latest range per view, so dragging a scrollbar queues one callback,
+  not one per frame. A client part can bind only the rows the view shows: give the view's
+  content the full list's length (`#size_binding_y`) and lay a fixed grid over the viewport.
 - Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
   screens, driven by the engine's input components: a press selects one, typing,
   Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or

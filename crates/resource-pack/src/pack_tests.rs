@@ -10,6 +10,7 @@ const PACK_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_5a3e)
 const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
 const FILE_KEY: &str = "abcdefghijklmnopqrstuvwxyz012345";
 
+/// Creates an in-memory archive from the requested file entries.
 fn zip_files(files: &[(&str, &[u8])]) -> Vec<u8> {
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{PACK_ID}","version":[1,0,0]}},"modules":[{{"type":"resources"}}],"subpacks":[{{"folder_name":"high","name":"High","memory_tier":1}}]}}"#
@@ -26,12 +27,14 @@ fn zip_files(files: &[(&str, &[u8])]) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
+/// Validates an archive fixture with the chosen subpack and decryption key.
 fn admit(archive: Vec<u8>, subpack: &str, key: Option<ContentKey>) -> ValidatedPack {
     validate_archive_parts(PACK_ID, "1.0.0", subpack, archive, key, None)
         .unwrap()
         .0
 }
 
+/// Creates a validated stack with the chosen layers and rejection metadata.
 fn stack(packs: Vec<ValidatedPack>, rejections: &[PackRejection]) -> ValidatedPackStack {
     ValidatedPackStack {
         packs: packs.into_boxed_slice(),
