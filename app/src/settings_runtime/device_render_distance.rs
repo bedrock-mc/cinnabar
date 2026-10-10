@@ -38,7 +38,6 @@ fn dedicated_graphics_bytes(
         let native = adapter.as_hal::<wgpu::hal::api::Dx12>()?;
         native
             .raw_adapter()
-            .as_raw()
             .GetDesc1()
             .ok()
             .map(|desc| desc.DedicatedVideoMemory as u64)
