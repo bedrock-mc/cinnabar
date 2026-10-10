@@ -2,6 +2,7 @@ use bedrock_client::{
     args::{ClientArgs, ParseOutcome},
     lifecycle, run,
 };
+use std::io::Write;
 
 fn main() {
     if std::env::args_os()
@@ -21,10 +22,16 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            if let Err(error) = run(*args) {
-                eprintln!("bedrock-client failed: {error:#}");
+            let result = run(*args);
+            if let Err(error) = result {
+                let _ = writeln!(
+                    diagnostics::console::stderr(),
+                    "bedrock-client failed: {error:#}"
+                );
+                diagnostics::console::flush_before_exit();
                 std::process::exit(1);
             }
+            diagnostics::console::flush_before_exit();
         }
         Err(error) => {
             eprintln!("{error}");

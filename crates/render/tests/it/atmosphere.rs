@@ -601,8 +601,10 @@ fn every_world_shader_uses_the_shared_distance_fog_uniform() {
         ("model", include_str!("../../src/model.wgsl")),
         ("liquid", include_str!("../../src/liquid.wgsl")),
     ] {
+        // The liquid and model modules declare the uniform through `cinnabar::chunk_bindings`.
         assert!(
-            shader.contains("@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;"),
+            crate::shader_source::standalone(shader, &[])
+                .contains("@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;"),
             "{name} is missing the shared atmosphere uniform"
         );
         assert!(

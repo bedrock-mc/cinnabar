@@ -99,7 +99,11 @@ pub(super) fn sample_clips(
         let evaluator = &Evaluator {
             anim_tick: clip_tick,
             anim_time: Some(weighted.time),
-            ..*evaluator
+            ..if weighted.clock == super::clock::Basis::Controller {
+                evaluator.for_controller_state(weighted.started_tick)
+            } else {
+                *evaluator
+            }
         };
         if clip.loop_mode == EntityAnimationLoop::Once && weighted.time > length {
             continue;

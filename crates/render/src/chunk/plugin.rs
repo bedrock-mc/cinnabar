@@ -92,6 +92,15 @@ impl Plugin for ChunkRenderPlugin {
             )
         );
         crate::enhanced::load_shader_imports(app);
+        load_internal_asset!(
+            app,
+            CHUNK_BINDINGS_SHADER_HANDLE,
+            "../chunk_bindings.wgsl",
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
+        );
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", |source, path| {
             crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
         });
@@ -102,6 +111,15 @@ impl Plugin for ChunkRenderPlugin {
             app,
             LIQUID_SHADER_HANDLE,
             "../liquid.wgsl",
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
+        );
+        load_internal_asset!(
+            app,
+            TRANSPARENT_SHADER_HANDLE,
+            "../transparent_terrain.wgsl",
             |source, path| crate::shader_safety::from_wgsl(
                 crate::material_shader::source(source),
                 path

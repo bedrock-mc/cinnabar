@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use ui::{
     DpiScale, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, UiNode, UiNodeId, UiPoint,
-    UiRect, UiScale, UiTree, UiVisual,
+    UiRect, UiScale, UiVisual,
 };
 
 use super::scene_stack::Scene;
@@ -133,6 +133,9 @@ pub struct UiPresentationRuntime {
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
+    /// Nodes emitted again by frames drawn from the last frame's draw list.
+    #[cfg(test)]
+    redrawn_nodes: usize,
     #[cfg(test)]
     oreui_paints: usize,
     scoreboard: PresentedScoreboardCache,
@@ -157,6 +160,8 @@ pub struct UiPresentationRuntime {
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
+    /// The pose the software rasters were drawn at; with model geometry only the hands read it.
+    player_preview_raster_pose: Option<player_preview::PlayerPreviewPose>,
     /// How the UI last asked to show the model, and the idle sway it was drawn at.
     player_preview_view: player_preview::PreviewView,
     menu_preview_model: player_preview::model::MenuPreviewModel,

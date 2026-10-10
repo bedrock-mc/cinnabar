@@ -475,7 +475,7 @@ pub fn observe_world_ready(
             }
             let proof = teleport_proof(cohort, &teleport);
             metrics.record_teleport_proof(proof.clone());
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             let _ = writeln!(stdout, "{}", teleport_settled_marker(&proof));
             let _ = writeln!(
                 stdout,
@@ -494,7 +494,7 @@ pub fn observe_world_ready(
                 observed_at,
             )
         {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             let _ = writeln!(stdout, "{marker}");
             let _ = stdout.flush();
         }
@@ -572,7 +572,7 @@ pub fn observe_world_ready(
                     error!("target mutation armed without complete manifest-comparable evidence");
                     return;
                 };
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 let _ = writeln!(stdout, "{}", forced_remesh_settled_marker(&proof));
                 let _ = writeln!(stdout, "{mutation_marker}");
                 let _ = stdout.flush();
@@ -682,7 +682,7 @@ pub fn observe_world_ready(
         .gallery_anchor
         .observe(model_witness_configured, snapshot)
     {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
     let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
@@ -700,7 +700,7 @@ pub fn observe_world_ready(
     let asset_marker = metrics
         .asset_metrics()
         .world_ready_marker(snapshot.resident_sub_chunks, snapshot.visible_sub_chunks);
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = diagnostics::console::stdout();
     for marker in markers {
         let _ = writeln!(stdout, "{marker}");
     }

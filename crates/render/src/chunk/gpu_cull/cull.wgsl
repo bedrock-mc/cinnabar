@@ -1,6 +1,11 @@
 // Terrain cull: frustum, enabled bit, two-phase Hi-Z and facing runs into compacted,
 // slot-ordered indirect args. `count` decides, `scan` offsets workgroups, `emit` writes.
 // `cull_occlusion` instead writes one occluded bit per slot for CPU readback.
+//
+// Commands never rely on the vertex_index or instance_index builtins seeing their base vertex
+// or first instance; DX12 count draws drop both. Each command's base vertex instead addresses
+// its own four `draw_offsets` entries, which vertex fetch offsets on every backend, and those
+// entries carry the record's base vertex plus corner and the run's first instance.
 
 const WORKGROUP: u32 = CULL_WORKGROUP;
 const SIDE: i32 = CULL_SIDE;
@@ -53,6 +58,7 @@ struct CullView {
 @group(0) @binding(7) var<storage, read_write> draw_counts: array<u32>;
 @group(0) @binding(8) var hiz: texture_2d<f32>;
 @group(0) @binding(9) var<storage, read_write> occluded: array<u32>;
+@group(0) @binding(10) var<storage, read_write> draw_offsets: array<vec2<u32>>;
 
 var<workgroup> sums: array<vec4<u32>, WORKGROUP>;
 var<workgroup> occluded_bits: array<atomic<u32>, OCCLUSION_WORDS>;
@@ -225,12 +231,17 @@ fn solid_runs(record: CullRecord, write: bool, base: u32) -> u32 {
 }
 
 fn write_args(index: u32, stream: u32, record: CullRecord, first: u32, count: u32) {
-    let word = view.regions[stream] + index * 5u;
+    let draw = view.regions[stream] / 5u + index;
+    let word = draw * 5u;
     args[word] = view.index_counts[stream];
     args[word + 1u] = count;
     args[word + 2u] = 0u;
-    args[word + 3u] = bitcast<u32>(record.base_vertex);
-    args[word + 4u] = first;
+    args[word + 3u] = draw * 4u;
+    args[word + 4u] = 0u;
+    let base_vertex = bitcast<u32>(record.base_vertex);
+    for (var corner = 0u; corner < 4u; corner++) {
+        draw_offsets[draw * 4u + corner] = vec2(base_vertex + corner, first);
+    }
 }
 
 fn cutout_range(record: CullRecord) -> vec2<u32> {

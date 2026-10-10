@@ -124,6 +124,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedSolidChunk {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         for command in commands {
             pass.draw_indexed(
                 command.first_index..command.first_index + command.index_count,
@@ -171,6 +172,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedSolidChunksIndirect {
         if cubes.command_count != 0 {
             pass.set_bind_group(0, bind_group, &[view_offset.offset]);
             pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+            pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
             pass.multi_draw_indexed_indirect(
                 &arena.indirect_buffer,
                 cubes.indirect_offset,

@@ -214,6 +214,8 @@ pub struct TextWrap {
     /// Device pixels per output pixel in 1/65536 units; zero means unknown.
     /// Half-device-pixel font texels use exact device units to prevent fractional-scale stroke drift.
     pub device_scale_65536: u32,
+    /// Rounds final glyph vertices to device pixels without changing line or pen metrics.
+    pub snap_glyphs_to_device_pixels: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+#[cfg(test)]
+pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
@@ -397,7 +399,8 @@ impl ActorSnapshot {
         feet
     }
 
-    fn network_position_offset(&self) -> f32 {
+    /// Offset from stored collision feet to the native actor-state position.
+    pub(crate) fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
                 if self.player_is_sleeping() {

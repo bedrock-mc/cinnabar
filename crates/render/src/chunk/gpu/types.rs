@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
 
 pub(in crate::chunk) const MODEL_INDEX_COUNT: u32 = 6;
 
@@ -394,7 +395,9 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     depth_liquid_draw_command(allocation)
 }
 
-/// Draws water records directly: first_instance selects a record; base_vertex encodes (metadata index + 1) * 4.
+/// Draws water records directly through the transparent pipeline: first_instance selects a
+/// record and carries [`TRANSPARENT_WATER_DRAW_FLAG`]; base_vertex encodes
+/// (metadata index + 1) * 4.
 pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {
@@ -412,12 +415,13 @@ pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
         .as_ref()
         .map_or(liquid.end / 4, |depth| depth.start);
     let instance_count = end.checked_sub(first_instance)?;
-    (instance_count != 0).then_some(DrawIndexedIndirectArgs {
+    // Every flagged instance must still name its record below the flag bit.
+    (instance_count != 0 && end <= TRANSPARENT_WATER_DRAW_FLAG).then_some(DrawIndexedIndirectArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
         instance_count,
         first_index: 0,
         base_vertex: metadata_base_vertex(allocation.metadata_index.checked_add(1)?)?,
-        first_instance,
+        first_instance: first_instance | TRANSPARENT_WATER_DRAW_FLAG,
     })
 }
 

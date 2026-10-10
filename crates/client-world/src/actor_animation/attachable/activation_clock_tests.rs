@@ -148,7 +148,7 @@ fn visible_held_crowd_retains_each_owners_authored_clock() {
     assert!((sample(&mut runtime, &rig) + 0.48).abs() < 1.0e-5);
     rig.actor.spawn_revision += 1;
     assert!((sample(&mut runtime, &rig) + 0.16).abs() < 1.0e-5);
-    assert!(runtime.states.keys().all(|(actor, _, _, _)| {
+    assert!(runtime.states.keys().all(|(actor, ..)| {
         actor.runtime_id != 1 || actor.spawn_revision == rig.actor.spawn_revision
     }));
     rig.actor.session_id += 1;

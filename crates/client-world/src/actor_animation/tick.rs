@@ -338,6 +338,7 @@ pub(super) fn evaluate_state(
         query_history: None,
         life_tick,
         finished: (false, false),
+        state_time: 0.0,
         bones: state.posed_bones(),
         bone_names: state.posed_bone_names(),
     };
@@ -383,14 +384,7 @@ pub(super) fn evaluate_state(
             f32::from(attachable.first_person),
         );
         variables.set(engine.context_paperdoll, f32::from(attachable.is_paperdoll));
-        variables.set_string(
-            engine.context_item_slot,
-            if attachable.off_hand {
-                "off_hand"
-            } else {
-                "main_hand"
-            },
-        );
+        variables.set_string(engine.context_item_slot, attachable.item_slot());
         variables.set(engine.attack_time, observed.attack_time);
     }
     variables.clear_temporaries();

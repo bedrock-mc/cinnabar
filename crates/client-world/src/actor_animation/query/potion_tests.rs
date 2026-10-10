@@ -19,6 +19,7 @@ fn variant(actor: &ActorSnapshot, held_metadata: u32) -> f32 {
             swell_amount: None,
             life_tick: 0,
             finished: (false, false),
+            state_time: 0.0,
             bones: &[],
             bone_names: &[],
         },

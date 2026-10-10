@@ -551,7 +551,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
     }

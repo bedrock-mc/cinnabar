@@ -242,12 +242,16 @@ fn greedy_uv_limit(width: f32, height: f32, flags: u32) -> vec2<f32> {
     return extents - vec2(CUBE_UV_EDGE_INSET);
 }
 
+// Every terrain draw fetches its vertex index and first instance from vertex buffer 0, which
+// vertex fetch offsets by the draw's base vertex on every backend: GPU-culled commands bind the
+// cull kernel's draw offsets (`chunk/gpu_cull/cull.wgsl`), CPU-planned draws an identity buffer
+// whose instance part is zero, keeping their builtin first instance.
 @vertex
 fn vertex(
-    @builtin(vertex_index) vertex_index: u32,
+    @location(0) offsets: vec2<u32>,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    return cube_vertex(vertex_index, instance_index);
+    return cube_vertex(offsets.x, offsets.y + instance_index);
 }
 
 // Expand cube edges within their face to cover T-junction gaps from subpixel snapping.

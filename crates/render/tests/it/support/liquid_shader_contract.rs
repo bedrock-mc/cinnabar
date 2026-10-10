@@ -24,7 +24,10 @@ impl LiquidShaderContract {
             flow_angle_offset: parse_f32(shader, "FLOW_ANGLE_OFFSET"),
             side_height_bias: parse_f32(shader, "SIDE_HEIGHT_BIAS"),
             side_height_scale: parse_f32(shader, "SIDE_HEIGHT_SCALE"),
-            face_inset: parse_f32(&crate::material_shader::source(shader), "LIQUID_FACE_INSET"),
+            face_inset: parse_f32(
+                &crate::shader_source::standalone(shader, &[]),
+                "LIQUID_FACE_INSET",
+            ),
             flow_face: parse_u32(shader, "FLOW_FACE") as usize,
             side_face_mask: parse_u32(shader, "SIDE_FACE_MASK"),
             flow_direction_operator: parse_flow_direction_operator(shader),

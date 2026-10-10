@@ -17,7 +17,7 @@ fn files() -> Vec<(String, Vec<u8>)> {
 }
 
 /// Admits an archive containing the supplied artwork as a server pack.
-fn view(files: &[(String, Vec<u8>)]) -> resource_pack::LayeredPackView {
+pub(super) fn view(files: &[(String, Vec<u8>)]) -> resource_pack::LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000011";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#

@@ -235,15 +235,6 @@ impl Shaders {
             model: prepare(
                 include_str!("../../src/model.wgsl"),
                 &MODEL_ENTRIES.replace("SECTIONS", &format!("{}u", streams.model_sections)),
-            )
-            .replace("@vertex\nfn vertex(", "fn model_vertex(")
-            .replace(
-                "@builtin(vertex_index) vertex_index: u32",
-                "vertex_index: u32",
-            )
-            .replace(
-                "@builtin(instance_index) instance_index: u32",
-                "instance_index: u32",
             ),
             liquid: prepare(
                 include_str!("../../src/liquid.wgsl"),

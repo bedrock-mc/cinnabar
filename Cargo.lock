@@ -668,6 +668,7 @@ dependencies = [
  "pack-compiler",
  "particles",
  "player-state",
+ "profiling",
  "protocol",
  "raw-window-handle",
  "rayon",

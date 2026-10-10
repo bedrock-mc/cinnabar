@@ -23,7 +23,8 @@ use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
 use kernels::{CullKernels, CullStorage, HizPyramid};
 use model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullRecordSource, CullStream, CullViewInput,
-    CullViewUniform, STREAM_COUNT, args_region, count_index, frustum_slack, reference_args,
+    CullViewUniform, OFFSET_CORNERS, STREAM_COUNT, args_region, count_index, frustum_slack,
+    reference_args, resolve_culled_args,
 };
 
 const SIDE: f32 = world::SUB_CHUNK_SIDE as f32;
@@ -199,18 +200,37 @@ impl<'a> Culler<'a> {
         self.args(phase)
     }
 
+    /// The draws each compacted command performs, resolved through its offset entries.
     fn args(&self, phase: CullPhase) -> Args {
         let counts = read_buffer(self.gpu, &self.storage.draw_counts, 32);
         let counts = bytemuck::cast_slice::<u8, u32>(&counts).to_vec();
         let words = read_buffer(self.gpu, &self.storage.args, self.storage.args.size());
         let words = bytemuck::cast_slice::<u8, u32>(&words);
+        let offsets = read_buffer(
+            self.gpu,
+            &self.storage.draw_offsets,
+            self.storage.draw_offsets.size(),
+        );
+        let offsets = bytemuck::cast_slice::<u8, u32>(&offsets)
+            .chunks_exact(2)
+            .map(|pair| [pair[0], pair[1]])
+            .collect::<Vec<_>>();
         CullStream::ALL.map(|stream| {
             let start = args_region(self.storage.capacity, phase, stream) as usize;
             let count = counts[count_index(phase, stream) as usize] as usize;
             assert!(count as u32 <= stream.draws_per_record() * self.slots);
             words[start..start + count * ARGS_WORDS as usize]
                 .chunks_exact(ARGS_WORDS as usize)
-                .map(|chunk| chunk.try_into().unwrap())
+                .map(|chunk| {
+                    let command: [u32; ARGS_WORDS as usize] = chunk.try_into().unwrap();
+                    // Builtins see neither offset on DX12 count draws, so both stay zero.
+                    assert_eq!((command[2], command[4]), (0, 0));
+                    let entries = &offsets[command[3] as usize..][..OFFSET_CORNERS as usize];
+                    for (corner, entry) in (0..).zip(entries) {
+                        assert_eq!(*entry, [entries[0][0] + corner, entries[0][1]]);
+                    }
+                    resolve_culled_args(command, &offsets)
+                })
                 .collect()
         })
     }
@@ -653,16 +673,19 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
 }
 
 /// Uses unsealed block-grid quads so different culling draw orders compare identical pixels.
-/// Sealed coplanar edges can overlap by a sliver and legitimately depend on draw order.
+/// Sealed coplanar edges can overlap by a sliver and legitimately depend on draw order. Like
+/// production's `vertex`, it fetches its offsets from vertex buffer 0.
 const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
-    @builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32,\
-) -> VertexOutput { return sealed_cube_vertex(vertex_index, instance_index, 0.0); }";
+    @location(0) offsets: vec2<u32>, @builtin(instance_index) instance_index: u32,\
+) -> VertexOutput { return sealed_cube_vertex(offsets.x, offsets.y + instance_index, 0.0); }";
 
 struct Raster {
     solid: wgpu::RenderPipeline,
     cutout: wgpu::RenderPipeline,
     solid_group: wgpu::BindGroup,
     cutout_group: wgpu::BindGroup,
+    /// Vertex buffer 0 of CPU-planned draws: entry `i` is `(i, 0)` for every slot's corners.
+    identity: wgpu::Buffer,
     indices: wgpu::Buffer,
     view: wgpu::Buffer,
 }
@@ -704,6 +727,11 @@ impl Raster {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
+        let offsets = [wgpu::VertexBufferLayout {
+            array_stride: model::OFFSET_ENTRY_BYTES,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Uint32x2],
+        }];
         let pipeline = |fragment, cull_mode| {
             gpu.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -713,7 +741,7 @@ impl Raster {
                         module: &module,
                         entry_point: Some(vertex),
                         compilation_options: Default::default(),
-                        buffers: &[],
+                        buffers: &offsets,
                     },
                     primitive: wgpu::PrimitiveState {
                         cull_mode,
@@ -825,11 +853,15 @@ impl Raster {
                 entries: &entries,
             })
         };
+        let identity = (0..terrain.chunks.len() as u32 * model::OFFSET_CORNERS)
+            .flat_map(|vertex| [vertex, 0])
+            .collect::<Vec<_>>();
         Self {
             solid_group: group(&solid),
             cutout_group: group(&cutout),
             solid,
             cutout,
+            identity: gpu.words(&identity, wgpu::BufferUsages::VERTEX),
             indices: gpu.words(
                 &chunk_constants::STATIC_QUAD_INDICES,
                 wgpu::BufferUsages::INDEX,
@@ -844,7 +876,8 @@ impl Raster {
             .write_buffer(&self.view, 0, bytemuck::cast_slice(&words));
     }
 
-    fn bind(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream) {
+    /// Binds `stream`'s pipeline with vertex buffer 0 reading `offsets`.
+    fn bind(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream, offsets: &wgpu::Buffer) {
         let (pipeline, group) = match stream {
             CullStream::Solid => (&self.solid, &self.solid_group),
             _ => (&self.cutout, &self.cutout_group),
@@ -852,10 +885,12 @@ impl Raster {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, group, &[]);
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, offsets.slice(..));
     }
 
+    /// Draws CPU-planned `args` through the identity offsets, as the renderer's planned paths do.
     fn draw(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream, args: &[[u32; 5]]) {
-        self.bind(pass, stream);
+        self.bind(pass, stream, &self.identity);
         for &[count, instances, first_index, base_vertex, first_instance] in args {
             pass.draw_indexed(
                 first_index..first_index + count,

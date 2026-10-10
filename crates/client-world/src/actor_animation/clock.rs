@@ -80,7 +80,11 @@ pub(super) fn prepare(
             let old_time = old.map_or(0.0, |c| c.time);
             let clock_evaluator = Evaluator {
                 anim_time: Some(old_time),
-                ..*evaluator
+                ..if weighted.clock == Basis::Controller {
+                    evaluator.for_controller_state(weighted.started_tick)
+                } else {
+                    *evaluator
+                }
             };
             clock_evaluator.number(expression as usize, variables, 0.0, budget)?
         } else if weighted.clock == Basis::Direct {
@@ -195,7 +199,11 @@ pub(super) fn sample_update(
                         }
                     }),
             ),
-            ..*evaluator
+            ..if weighted.clock == Basis::Controller {
+                evaluator.for_controller_state(weighted.started_tick)
+            } else {
+                *evaluator
+            }
         };
         let time = evaluator.number(expression as usize, variables, 0.0, budget)?;
         if !time.is_finite() {

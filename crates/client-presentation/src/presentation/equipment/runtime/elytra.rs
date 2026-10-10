@@ -48,7 +48,9 @@ impl EquipmentRuntime {
         let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
         let input = equipment.attachable_input(AttachableAnimationInput {
             worn: true,
+            worn_slot: ArmorSlot::Chestplate as u8,
             frame_alpha: animation.frame_alpha,
+            delta_seconds: Some(animation.delta_seconds),
             owner_variables: &variables,
             ..Default::default()
         });

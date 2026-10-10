@@ -93,6 +93,15 @@ impl Gpu {
 
     /// As [`Self::for_fixture`], enabling whichever of `features` the adapter offers.
     pub fn for_fixture_with(name: &str, features: wgpu::Features) -> Option<Self> {
+        Self::for_fixture_with_limits(name, features, wgpu::Limits::default())
+    }
+
+    /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
+    pub fn for_fixture_with_limits(
+        name: &str,
+        features: wgpu::Features,
+        limits: wgpu::Limits,
+    ) -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
         let adapter = fixture_adapter(
             name,
@@ -104,6 +113,7 @@ impl Gpu {
         }
         let descriptor = wgpu::DeviceDescriptor {
             required_features: adapter.features() & features,
+            required_limits: limits,
             ..Default::default()
         };
         let (device, queue) = finish(adapter.request_device(&descriptor))

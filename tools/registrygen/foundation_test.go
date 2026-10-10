@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
 const validBlockedFoundation = `{
@@ -25,11 +27,10 @@ const validBlockedFoundation = `{
     "biome": "crates/assets/data/biome-registry-v2193.bin"
   },
   "sources": {
-    "dragonfly": {
-      "commit": "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
-      "blob": "ee29e5e039086c10bdfb964621a8e146b4f7af19",
-      "sha256": "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6",
-      "size": 3102889
+    "protocolgen": {
+      "module": "github.com/bedrock-mc/protocolgen/generated/data",
+      "source_lock_sha256": "` + shared.SourceLockSHA256 + `",
+      "cloudburst_ref": "` + shared.CloudburstRef + `"
     },
     "bds": {
       "archive_sha256": "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825",
@@ -81,8 +82,8 @@ func TestRegistryFoundationRejectsVersionHashMagicAndLegacyOutputs(t *testing.T)
 	tests := map[string]string{
 		"game version":   strings.Replace(validBlockedFoundation, `"1.26.50"`, `"1.26.51"`, 1),
 		"protocol":       strings.Replace(validBlockedFoundation, `2193`, `2192`, 1),
-		"uppercase hash": strings.Replace(validBlockedFoundation, `f0784a62`, `F0784A62`, 1),
-		"short hash":     strings.Replace(validBlockedFoundation, `f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6`, `abcd`, 1),
+		"uppercase hash": strings.Replace(validBlockedFoundation, shared.SourceLockSHA256, strings.ToUpper(shared.SourceLockSHA256), 1),
+		"short hash":     strings.Replace(validBlockedFoundation, shared.SourceLockSHA256, `abcd`, 1),
 		"block magic":    strings.Replace(validBlockedFoundation, `BREG1003`, `BREG1002`, 1),
 		"light magic":    strings.Replace(validBlockedFoundation, `LREG1001`, `LREG1002`, 1),
 		"biome magic":    strings.Replace(validBlockedFoundation, `BIOREG01`, `BIOREG02`, 1),

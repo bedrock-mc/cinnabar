@@ -1,9 +1,11 @@
 //! GPU-driven opaque terrain culling: persistent per-slot records, a compute cull with
 //! two-phase Hi-Z occlusion, and compacted multi-draw-indirect submission.
 //!
-//! Count-capable backends consume the compacted count directly. Other indirect backends
-//! submit cleared fixed-size regions whose unused commands draw zero instances. Direct-draw
-//! devices (Metal) instead read occlusion bits back for later frames to skip; see [`direct`].
+//! Count-capable backends consume the compacted count directly; culled pipelines fetch each
+//! command's base vertex and first instance from a vertex buffer, so DX12 count draws, which
+//! drop both builtin offsets, need no per-draw constants. Other indirect backends submit
+//! cleared fixed-size regions whose unused commands draw zero instances. Direct-draw devices
+//! (Metal) instead read occlusion bits back for later frames to skip; see [`direct`].
 
 #[cfg(test)]
 pub(super) mod app_tests;
@@ -55,7 +57,6 @@ pub(in crate::chunk) fn gpu_cull_submission(
     draw_mode: ChunkDrawMode,
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
-    backend: wgpu::Backend,
     forced_cpu: bool,
 ) -> Option<GpuCullSubmission> {
     if forced_cpu
@@ -65,9 +66,7 @@ pub(in crate::chunk) fn gpu_cull_submission(
     {
         return None;
     }
-    if model::count_draw_offsets_supported(backend)
-        && features.contains(WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT)
-    {
+    if features.contains(WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT) {
         Some(GpuCullSubmission::Count)
     } else {
         Some(GpuCullSubmission::Fixed)
@@ -79,10 +78,9 @@ pub(in crate::chunk) fn gpu_cull_supported(
     draw_mode: ChunkDrawMode,
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
-    backend: wgpu::Backend,
     forced_cpu: bool,
 ) -> bool {
-    gpu_cull_submission(draw_mode, features, downlevel, backend, forced_cpu).is_some()
+    gpu_cull_submission(draw_mode, features, downlevel, forced_cpu).is_some()
 }
 
 /// The view queued for GPU culling this frame, with the pipelines its late pass reuses.
@@ -207,7 +205,6 @@ pub(in crate::chunk) fn install(app: &mut App) {
         draw_mode,
         device.features(),
         adapter.get_downlevel_capabilities().flags,
-        adapter.get_info().backend,
         forced_cpu,
     );
     let support = GpuCullSupport(submission.is_some());
