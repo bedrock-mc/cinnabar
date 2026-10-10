@@ -112,7 +112,7 @@ impl Harness {
             )
             .unwrap();
         let root = client_ui::test_support::pack_harness::scratch_dir("server-input");
-        let mut layout = crate::install_layout::checkout();
+        let mut layout = launcher::test_support::checkout();
         layout.user_config_root = root.clone();
         let menu = MenuRuntime::new_with_layout(
             true,

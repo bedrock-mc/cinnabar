@@ -23,8 +23,8 @@ use prepare::prepare;
 use status::{Phase, Status};
 pub(crate) use window::{SETUP_FLAG, run_setup_process};
 use {
-    crate::native_dialog::{Consent, NativePrompter, Prompter},
     launcher::install_layout::InstallLayout,
+    launcher_host::native_dialog::{Consent, NativePrompter, Prompter},
 };
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";

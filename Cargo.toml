@@ -36,6 +36,7 @@ members = [
     "crates/render-model",
     "crates/inventory",
     "crates/launcher",
+    "crates/launcher-host",
     "crates/rich-presence",
     "crates/client-ui",
     "crates/client-presentation",

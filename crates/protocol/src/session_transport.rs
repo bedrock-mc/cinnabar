@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
@@ -10,22 +10,6 @@ use bridge::{BridgeError, CoreMessage, FrameQueue, FramedReader};
 use bytes::Bytes;
 use futures::Stream;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
-
-/// Returns the endpoint the client joins through, whose publication marks the core ready.
-#[must_use]
-pub fn bridge_endpoint_path(socket_dir: &Path) -> PathBuf {
-    bridge::session_endpoint_path(socket_dir)
-}
-
-/// Returns every endpoint the core publishes in `socket_dir`, for cleanup after a lost core.
-#[must_use]
-pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 3] {
-    [
-        bridge::session_endpoint_path(socket_dir),
-        bridge::endpoint_path(socket_dir),
-        bridge::control_endpoint_path(socket_dir),
-    ]
-}
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.

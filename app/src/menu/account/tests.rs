@@ -8,8 +8,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::menu::core_process::core_command_for_address;
 use launcher::install_layout::{InstallEnvironment, Platform};
+use launcher_host::core_process::core_command_for_address;
 use {
     super::*,
     launcher::install_layout::InstallLayout,
@@ -286,7 +286,7 @@ fn active_cancel_is_sticky_and_does_not_block_the_menu_frame() {
 
 #[test]
 fn only_validated_authentication_selects_the_cache_for_a_connection() {
-    let layout = crate::install_layout::checkout();
+    let layout = launcher::test_support::checkout();
     assert_eq!(validated_auth_cache(&layout, None), None);
     assert_eq!(
         validated_auth_cache(&layout, Some(&AuthState::SignedOut)),
@@ -601,4 +601,21 @@ fn event_child_waiting(lines: &[&str], completion: &[&str]) -> (std::process::Ch
         .spawn()
         .unwrap();
     (child, directory)
+}
+
+#[test]
+fn xbox_signup_owns_focus_and_can_be_cancelled() {
+    use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
+    let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
+    menu.apply_control_auth(AuthState::AwaitingXboxSignup {
+        uri: "https://sisu.xboxlive.com/signup?signature=fixture".into(),
+    });
+    assert!(menu.view().sign_in_prompt_open());
+    assert_eq!(
+        menu.sign_in_focus(),
+        Some(vec![MenuAction::OpenSignInLink, MenuAction::CancelSignIn])
+    );
+    menu.activate(MenuAction::CancelSignIn);
+    assert_eq!(menu.current_auth().as_ref(), &AuthState::SignedOut);
+    assert!(!menu.view().sign_in_prompt_open());
 }

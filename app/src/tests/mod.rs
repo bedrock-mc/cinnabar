@@ -60,16 +60,12 @@ fn actor_snapshot(spawn: protocol::ActorSpawnEvent) -> client_world::ActorSnapsh
         .clone()
 }
 
-use crate::menu::core_process::{CoreProcessGuard, CoreStopOutcome};
 use crate::runtime::network::{
     NetworkControlEvent,
     session::{SequencedWorldEvent, WorldIngress},
 };
 use crate::runtime::{
-    endpoint::{
-        bridge_endpoint_exists, bridge_endpoint_path, preflight_bridge_endpoint,
-        resolve_socket_dir_from,
-    },
+    endpoint::{preflight_bridge_endpoint, resolve_socket_dir_from},
     network::{
         NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
         WorldIngressDrain, actor_render_source, drain_network_controls, drain_network_ingress,
@@ -308,7 +304,7 @@ mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
-mod core_process;
+
 mod crafting_authority_schedule;
 mod finish;
 #[cfg(feature = "reports")]
@@ -328,7 +324,7 @@ mod player_animation;
 mod publication;
 mod publication_pressure;
 mod runtime_metrics;
-mod servers;
+
 mod teleport;
 mod viewmodel_presentation;
 
@@ -347,3 +343,7 @@ pub(crate) fn with_ui_player<T>(
             )
         })
 }
+
+use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
+
+use launcher_host::core_process::CoreProcessGuard;

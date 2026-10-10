@@ -27,7 +27,7 @@ impl ConfigRoot {
     }
 
     fn menu(&self) -> MenuRuntime {
-        let mut layout = crate::install_layout::checkout();
+        let mut layout = launcher::test_support::checkout();
         layout.user_config_root = self.0.clone();
         let skin = crate::player_skin::LocalPlayerSkin::generated_default("Steve");
         MenuRuntime::new_with_layout(true, Some(2), "Steve".to_owned(), layout, skin)

@@ -50,10 +50,7 @@ use crate::{
     },
     local_player::{publish_local_player_frame, resolve_camera_pose},
     melee::{MeleeRuntime, SwingTracker, produce_melee},
-    menu::{
-        CoreProcessGuard, MenuRuntime, drive_menu_input, drive_menu_services,
-        spawn_core_for_address, wait_for_core,
-    },
+    menu::{MenuRuntime, drive_menu_input, drive_menu_services},
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
@@ -87,7 +84,6 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    session_cleanup::reclaim_stale_session_directories,
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
@@ -426,8 +422,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
-    let _children = crate::lifecycle::children::StopOnDrop;
-    crate::lifecycle::children::install_exit_hooks();
+    let _children = launcher_host::lifecycle::children::StopOnDrop;
+    launcher_host::lifecycle::children::install_exit_hooks();
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
@@ -632,7 +628,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
         if let Err(error) = wait_for_core(&socket_dir) {
-            crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
+            launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
             return Err(error).with_context(|| format!("wait for Go core endpoint for {address}"));
         }
     } else if connection_requested {
@@ -669,7 +665,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         {
             Ok(network) => network,
             Err(error) => {
-                crate::menu::core_process::stop_core_then(&mut core_process, |_| ());
+                launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
                 return Err(error);
             }
         }
@@ -974,3 +970,7 @@ mod direct_session_directory_tests;
 mod preg_startup_tests;
 #[cfg(test)]
 mod schedule_tests;
+
+use launcher_host::session_cleanup::reclaim_stale_session_directories;
+
+use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};

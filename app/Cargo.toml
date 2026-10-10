@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"], optional = true }
 mod-api = { path = "../crates/mod-api", optional = true }
@@ -58,7 +59,6 @@ pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
 bevy.workspace = true
 crossbeam-channel = "0.5"
-ctrlc = { version = "3.4", features = ["termination"] }
 gilrs = "0.11.2"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
@@ -85,7 +85,6 @@ thiserror.workspace = true
 url = "2"
 tokio.workspace = true
 ui = { path = "../crates/ui" }
-update-manifest = { path = "../crates/update-manifest" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
@@ -101,24 +100,17 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ash = "0.38"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-async-io = "2"
-futures-lite = "2"
-zbus = "5"
-
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_System_SystemInformation",
-    "Win32_UI_Controls_Dialogs",
     "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
+launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }
+launcher = { path = "../crates/launcher", features = ["test-support"] }
 wit-component.workspace = true
 tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }

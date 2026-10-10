@@ -22,6 +22,8 @@ pub mod local_worlds;
 pub mod menu;
 pub mod skin_import;
 pub mod store;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 /// Embedders may supply a title without changing the client's installation identity.
 pub fn window_title(override_title: Option<&str>) -> String {

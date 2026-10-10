@@ -188,7 +188,7 @@ fn cape_section_selection_and_editor_target_preserve_active_skin() {
 
 #[test]
 fn cached_roster_and_skin_commands_publish_while_cape_refresh_is_blocked() {
-    let layout = crate::install_layout::scratch("dressing-room-refresh");
+    let layout = launcher::test_support::scratch("dressing-room-refresh");
     let local = crate::player_skin::LocalPlayerSkin::generated_default("refresh fixture");
     let (entered, started) = crossbeam_channel::bounded(1);
     let (release, continue_refresh) = crossbeam_channel::bounded(1);

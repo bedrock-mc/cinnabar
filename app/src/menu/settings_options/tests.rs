@@ -359,7 +359,7 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
 
 #[test]
 fn session_overrides_apply_in_memory_but_are_never_saved() {
-    let layout = crate::install_layout::scratch("session-overrides");
+    let layout = launcher::test_support::scratch("session-overrides");
     let settings_path = layout.server_file().with_file_name(SETTINGS_FILE);
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Overrides");
     let mut menu =

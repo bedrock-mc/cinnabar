@@ -24,13 +24,7 @@ pub(super) struct Manager {
     remember_retry: Option<std::time::Instant>,
 }
 
-#[derive(Debug)]
-pub(super) enum Operation {
-    Switch(String),
-    Commit(AccountProfile),
-    Restore,
-    SignOut,
-}
+use launcher_host::accounts::{Operation, operation_job, remember};
 
 impl MenuRuntime {
     pub(super) fn account_change_pending(&self) -> bool {
@@ -315,24 +309,7 @@ impl MenuRuntime {
             && self.accounts.remember.is_none()
             && self.accounts.remembered.as_ref() != Some(&identity)
         {
-            let store = self.account_store();
-            let profile = profile.clone();
-            let (sender, receiver) = crossbeam_channel::bounded(1);
-            if std::thread::Builder::new()
-                .name("account-save".into())
-                .spawn(move || {
-                    let success = store
-                        .remember_current(
-                            &profile.xuid,
-                            &profile.gamertag,
-                            (!profile.picture_path.is_empty())
-                                .then_some(profile.picture_path.as_str()),
-                        )
-                        .is_ok();
-                    let _ = sender.send(success);
-                })
-                .is_ok()
-            {
+            if let Some(receiver) = remember(self.account_store(), profile.clone()) {
                 self.accounts.remembered = Some(identity);
                 self.accounts.remember = Some(receiver);
             }
@@ -347,25 +324,9 @@ impl MenuRuntime {
             .take()
             .expect("queued account operation");
         let store = self.account_store();
-        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (job, receiver) = operation_job(store, operation);
         self.accounts.work = Some(receiver);
-        move || {
-            let signed_out = matches!(&operation, Operation::SignOut);
-            let result = match operation {
-                Operation::Switch(id) => store.activate(&id),
-                Operation::Commit(profile) => store
-                    .commit_pending(
-                        &profile.id,
-                        &profile.gamertag,
-                        profile.picture_path.as_deref(),
-                    )
-                    .map(|_| ()),
-                Operation::Restore => Ok(()),
-                Operation::SignOut => store.sign_out(),
-            };
-            let _ = store.discard_pending();
-            let _ = sender.send((result.is_ok(), signed_out));
-        }
+        job
     }
 
     fn finish_account_operation(&mut self, success: bool, signed_out: bool) {

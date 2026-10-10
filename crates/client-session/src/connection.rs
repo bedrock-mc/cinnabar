@@ -5,8 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// How long a freshly spawned core has to publish its bridge endpoint.
-pub const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
+use bridge::{CORE_START_TIMEOUT, bridge_endpoint_exists};
 
 /// A join still provisioning while the connecting screen shows; polled each frame.
 #[derive(Debug)]
@@ -112,16 +111,6 @@ impl<D> JoinAttempt<D> {
                 }
             }
         }
-    }
-}
-
-/// Applies the bridge transport's platform-specific endpoint readiness rule.
-pub fn bridge_endpoint_exists(directory: &Path) -> bool {
-    let endpoint = protocol::bridge_endpoint_path(directory);
-    if cfg!(windows) {
-        endpoint.is_file()
-    } else {
-        endpoint.exists()
     }
 }
 

@@ -236,3 +236,8 @@ pub fn split_address(address: &str) -> (String, String) {
 
 #[cfg(test)]
 mod address_tests;
+
+/// Maximum saved server name size in UTF-8 bytes.
+pub const MAX_SERVER_NAME_BYTES: usize = 64;
+/// Maximum saved server address size in UTF-8 bytes.
+pub const MAX_SERVER_ADDRESS_BYTES: usize = 128;

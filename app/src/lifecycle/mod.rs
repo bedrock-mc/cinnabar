@@ -1,11 +1,7 @@
 //! Process lifecycle around the client: crash capture, first-run asset preparation, update checks.
 
-pub(crate) mod children;
-pub(crate) mod core_health;
-mod crash;
-mod update;
-
 use anyhow::{Context, Result};
+use launcher_host::lifecycle::{core_health, crash, update};
 
 use {crate::first_run, launcher::install_layout::InstallLayout};
 

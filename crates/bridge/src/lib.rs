@@ -69,6 +69,29 @@ pub fn control_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
     endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Control)
 }
 
+/// How long a freshly spawned core has to publish its bridge endpoint.
+pub const CORE_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Returns every endpoint the core publishes in `socket_dir`, for cleanup after a lost core.
+#[must_use]
+pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 3] {
+    [
+        session_endpoint_path(socket_dir),
+        endpoint_path(socket_dir),
+        control_endpoint_path(socket_dir),
+    ]
+}
+
+/// Applies the bridge transport's platform-specific endpoint readiness rule.
+pub fn bridge_endpoint_exists(directory: &Path) -> bool {
+    let endpoint = session_endpoint_path(directory);
+    if cfg!(windows) {
+        endpoint.is_file()
+    } else {
+        endpoint.exists()
+    }
+}
+
 /// Largest payload accepted by the local bridge framing protocol.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 

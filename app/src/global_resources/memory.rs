@@ -62,7 +62,7 @@ fn meminfo_total_bytes(meminfo: &str) -> Option<u64> {
 
 #[cfg(target_os = "windows")]
 fn read_physical_bytes() -> Option<u64> {
-    crate::desktop::windows::physical_memory()
+    launcher_host::desktop::windows::physical_memory()
 }
 
 /// Unsupported platforms retain the lowest automatic tier until a native reader exists.

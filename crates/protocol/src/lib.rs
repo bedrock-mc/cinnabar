@@ -207,9 +207,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-pub use session_transport::{
-    SessionTransport, bridge_endpoint_path, core_endpoint_paths, report_pack_application,
-};
+pub use session_transport::{SessionTransport, report_pack_application};
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;

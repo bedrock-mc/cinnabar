@@ -9,10 +9,12 @@
 mod account;
 mod account_control;
 mod accounts;
-pub(crate) mod auth;
+#[cfg(test)]
+mod home_promo_tests;
+use launcher_host::auth;
 mod catalog_art;
 mod construction;
-pub(crate) mod core_process;
+use launcher_host::core_process;
 mod death;
 pub(crate) mod disconnect;
 mod dressing_room;
@@ -29,7 +31,7 @@ pub(crate) mod launcher_account;
 mod launcher_core;
 mod services;
 mod xbox_presence;
-pub(crate) use launcher_core::target_for;
+use launcher_host::launcher_core::target_for;
 #[cfg(test)]
 mod kept_packs_tests;
 mod navigation;
@@ -39,8 +41,8 @@ mod reconnect;
 mod reconnect_tests;
 #[cfg(test)]
 mod server_input_tests;
-pub(crate) mod server_trust;
-pub(crate) mod servers;
+use launcher_host::server_trust;
+use launcher_host::servers;
 #[cfg(test)]
 mod session_teardown_tests;
 pub(crate) mod settings_options;
@@ -48,7 +50,7 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
-mod sign_in_browser;
+use launcher_host::sign_in_browser;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 #[cfg(test)]
@@ -60,10 +62,10 @@ mod worlds_tab;
 use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
-pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
+use launcher_host::core_process::CoreProcessGuard;
 
 use launcher::menu::view::{
     JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
@@ -90,8 +92,7 @@ use {
     launcher::install_layout::InstallLayout,
 };
 
-const MAX_SERVER_NAME_BYTES: usize = 64;
-const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+use launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES};
 /// Vanilla's port box: six number characters, prefilled with the Bedrock default.
 const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
@@ -132,11 +133,11 @@ pub(crate) struct MenuRuntime {
     gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
-    video_settings_writer: Option<video_settings::writer::Writer>,
+    video_settings_writer: Option<launcher_host::video_settings::writer::Writer>,
     settings_focus: Vec<MenuAction>,
     settings_focus_geometry: focus::SettingsFocusGeometry,
-    last_saved_video_settings: video_settings::SavedVideoSettings,
-    failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    last_saved_video_settings: launcher_host::video_settings::SavedVideoSettings,
+    failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
     vsync_override: Option<bool>,
@@ -153,9 +154,8 @@ pub(crate) struct MenuRuntime {
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
     catalog_started: bool,
-    catalog_path: PathBuf,
-    catalog_process: Option<crate::lifecycle::children::Spawned>,
-    catalog_art: Option<catalog_art::CatalogArt>,
+    catalog: launcher_host::catalog::Catalog,
+    catalog_art: Option<launcher_host::catalog_art::CatalogArt>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
@@ -443,8 +443,9 @@ impl MenuRuntime {
 
     /// Resets the join progress screen for a join to `address`.
     pub(crate) fn begin_join_progress(&mut self, address: &str, local_world: bool) {
-        self.feeds.join =
-            launcher::menu::view::JoinProgress::new(launcher_core::join_kind(address, local_world));
+        self.feeds.join = launcher::menu::view::JoinProgress::new(
+            launcher_host::launcher_core::join_kind(address, local_world),
+        );
     }
 
     /// Returns the session back to the launcher after a fatal session error.
@@ -920,7 +921,6 @@ impl Drop for MenuRuntime {
     fn drop(&mut self) {
         self.stop_sign_in();
         self.stop_catalog();
-        let _ = fs::remove_file(&self.catalog_path);
     }
 }
 

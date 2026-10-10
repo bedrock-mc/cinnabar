@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+test-support = []
+
 [dependencies]
 bridge = { path = "../bridge" }
 assets = { path = "../assets" }

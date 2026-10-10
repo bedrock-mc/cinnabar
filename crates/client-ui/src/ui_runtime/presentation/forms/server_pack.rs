@@ -20,7 +20,7 @@ use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
-use crate::remote_images::{RemoteImages, RemoteState, is_remote};
+use launcher_host::remote_images::{RemoteImages, RemoteState, is_remote};
 
 mod frame_sidecars;
 mod prepared_settings;

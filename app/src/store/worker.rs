@@ -9,8 +9,8 @@ use std::{
 
 use bevy::prelude::Resource;
 use bridge::{self, BridgeError};
-use client_ui::remote_images::{ImageDirectory, STORE_ART, Surface};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
+use launcher_host::remote_images::{ImageDirectory, STORE_ART, Surface};
 
 const API_QUEUE: usize = 32;
 const IMAGE_QUEUE: usize = 64;

@@ -67,7 +67,7 @@ pub(crate) fn drive_menu_services(
                 menu.presence_address(),
                 menu.presence_is_featured(),
             ));
-            menu.sync_account_control(&mut *account);
+            menu.sync_account_control(&mut account.0);
         }
         None => {
             menu.forget_launcher_trust();

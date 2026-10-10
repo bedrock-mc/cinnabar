@@ -11,7 +11,7 @@ pub(super) fn pick(cape: bool) -> Result<Option<PathBuf>, String> {
         "Import skin PNG, geometry JSON, or skin pack"
     };
     #[cfg(windows)]
-    return crate::desktop::windows::pick_file(
+    return launcher_host::desktop::windows::pick_file(
         title,
         if cape {
             "PNG images\0*.png\0\0"
@@ -21,7 +21,7 @@ pub(super) fn pick(cape: bool) -> Result<Option<PathBuf>, String> {
     )
     .map_err(|error| format!("The PNG chooser could not open ({error:#x})."));
     #[cfg(target_os = "linux")]
-    if let Ok(path) = crate::desktop::dbus::pick_file(
+    if let Ok(path) = launcher_host::desktop::dbus::pick_file(
         title,
         "Skins",
         &if cape {

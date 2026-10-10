@@ -100,7 +100,7 @@ impl SetupApp {
                 .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
         );
         let appearance = client_ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
-        let gui_scale_offset = crate::menu::video_settings::load(&layout.user_config_root)
+        let gui_scale_offset = launcher_host::video_settings::load(&layout.user_config_root)
             .unwrap_or_default()
             .gui_scale_offset;
         let controllers = gilrs::Gilrs::new()
@@ -184,7 +184,7 @@ impl SetupApp {
         match effect {
             Effect::None => {}
             Effect::StartWorker => self.start_worker(),
-            Effect::OpenEula => crate::desktop::open_url(EULA_URL),
+            Effect::OpenEula => launcher_host::desktop::open_url(EULA_URL),
             Effect::Quit => self.finish(EXIT_QUIT, event_loop),
         }
     }
