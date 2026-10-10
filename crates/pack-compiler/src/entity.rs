@@ -19,6 +19,8 @@ mod animation;
 mod attachable;
 mod collect;
 mod geometry;
+mod geometry_layers;
+pub use geometry_layers::select_entity_geometry;
 mod item;
 mod item_bindings;
 mod json;
