@@ -1,3 +1,4 @@
+use pack_compiler::{read_pack, resolve_texture_key};
 use {
     super::support::*,
     assets::{AssetError, BlockFace},

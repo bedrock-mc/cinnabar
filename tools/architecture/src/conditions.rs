@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use syn::{Attribute, Item, Meta, Token, punctuated::Punctuated};
+use syn::{Attribute, Item, Meta, Token, ext::IdentExt, punctuated::Punctuated};
 
 pub(super) type Configuration = BTreeMap<String, bool>;
 
@@ -123,7 +123,7 @@ fn predicate(meta: &Meta) -> Condition {
         .path()
         .segments
         .iter()
-        .map(|part| part.ident.to_string())
+        .map(|part| part.ident.unraw().to_string())
         .collect::<Vec<_>>()
         .join("::");
     match meta {

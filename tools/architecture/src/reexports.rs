@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use syn::{Item, UseTree, Visibility};
+use syn::{Item, UseTree, Visibility, ext::IdentExt};
 
 use crate::{
     ArchitectureError,
@@ -35,6 +35,7 @@ struct Symbols {
     dependencies: BTreeSet<String>,
     modules: BTreeMap<Name, Vec<Condition>>,
     definitions: BTreeMap<Name, Vec<Condition>>,
+    type_definitions: BTreeMap<Name, Vec<Condition>>,
     globs: BTreeMap<Name, Vec<Import>>,
     imports: BTreeMap<Name, Vec<Import>>,
     exports: Vec<Export>,
@@ -75,11 +76,17 @@ pub(super) fn check_reexports(
             };
             parsed_files.insert(path.clone(), parsed);
         }
+        let library = library_target(&directory, &manifest, &parsed_files);
         for tree in module_trees(&directory, &manifest, &parsed_files) {
             let mut symbols = Symbols {
                 dependencies: dependencies.clone(),
                 ..Symbols::default()
             };
+            if let Some((path, name)) = &library
+                && tree.first().is_some_and(|(root, _, _)| root != path)
+            {
+                symbols.dependencies.insert(name.clone());
+            }
             for (path, module, condition) in tree {
                 let condition = condition.with_attrs(&parsed_files[&path].attrs);
                 if module.len() > 1 {
@@ -114,6 +121,33 @@ pub(super) fn check_reexports(
         }
     }
     Ok(())
+}
+
+/// Finds the library Cargo exposes implicitly to other targets in the same package.
+fn library_target(
+    directory: &Path,
+    manifest: &toml::Value,
+    files: &BTreeMap<PathBuf, syn::File>,
+) -> Option<(PathBuf, String)> {
+    let library = manifest.get("lib");
+    let package = manifest.get("package")?;
+    if library.is_none() && package.get("autolib").and_then(toml::Value::as_bool) == Some(false) {
+        return None;
+    }
+    let path = library
+        .and_then(|lib| lib.get("path"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("src/lib.rs");
+    let path = normalized_path(&directory.join(path));
+    if !files.contains_key(&path) {
+        return None;
+    }
+    let name = library
+        .and_then(|lib| lib.get("name"))
+        .or_else(|| package.get("name"))?
+        .as_str()?
+        .replace('-', "_");
+    Some((path, name))
 }
 
 /// Keeps separate target roots isolated while following ordinary and explicit module paths.
@@ -235,8 +269,8 @@ fn module_edges(
         let Item::Mod(item) = item else { continue };
         let condition = condition.with_attrs(&item.attrs);
         let mut name = prefix.to_vec();
-        name.push(item.ident.to_string());
-        let nested = directory.join(item.ident.to_string());
+        name.push(item.ident.unraw().to_string());
+        let nested = directory.join(item.ident.unraw().to_string());
         if let Some((_, items)) = &item.content {
             module_edges(items, &nested, &nested, &name, &condition, output);
             continue;
@@ -326,7 +360,7 @@ fn collect(
         match item {
             Item::Mod(item) => {
                 let mut child = module.to_vec();
-                child.push(item.ident.to_string());
+                child.push(item.ident.unraw().to_string());
                 if let Some((_, items)) = &item.content {
                     symbols
                         .modules
@@ -384,11 +418,11 @@ fn collect(
                 }
             }
             Item::ExternCrate(item) => {
-                let name = item.ident.to_string();
+                let name = item.ident.unraw().to_string();
                 let binding = item
                     .rename
                     .as_ref()
-                    .map_or_else(|| name.clone(), |(_, name)| name.to_string());
+                    .map_or_else(|| name.clone(), |(_, name)| name.unraw().to_string());
                 symbols.dependencies.insert(name.clone());
                 let mut key = module.to_vec();
                 key.push(binding.clone());
@@ -416,7 +450,14 @@ fn collect(
                 };
                 if let Some(name) = name {
                     let mut key = module.to_vec();
-                    key.push(name.to_string());
+                    key.push(name.unraw().to_string());
+                    if !matches!(item, Item::Fn(_) | Item::Const(_) | Item::Static(_)) {
+                        symbols
+                            .type_definitions
+                            .entry(key.clone())
+                            .or_default()
+                            .push(condition.clone());
+                    }
                     symbols
                         .definitions
                         .entry(key)
@@ -432,7 +473,7 @@ fn collect(
 fn use_paths(tree: &UseTree, prefix: &mut Name, output: &mut Vec<(Name, String)>) {
     match tree {
         UseTree::Path(path) => {
-            prefix.push(path.ident.to_string());
+            prefix.push(path.ident.unraw().to_string());
             use_paths(&path.tree, prefix, output);
             prefix.pop();
         }
@@ -444,7 +485,7 @@ fn use_paths(tree: &UseTree, prefix: &mut Name, output: &mut Vec<(Name, String)>
         UseTree::Name(name) => {
             let mut path = prefix.clone();
             if name.ident != "self" {
-                path.push(name.ident.to_string());
+                path.push(name.ident.unraw().to_string());
             }
             if let Some(binding) = path.last().cloned() {
                 output.push((path, binding));
@@ -453,9 +494,9 @@ fn use_paths(tree: &UseTree, prefix: &mut Name, output: &mut Vec<(Name, String)>
         UseTree::Rename(rename) => {
             let mut path = prefix.clone();
             if rename.ident != "self" {
-                path.push(rename.ident.to_string());
+                path.push(rename.ident.unraw().to_string());
             }
-            output.push((path, rename.rename.to_string()));
+            output.push((path, rename.rename.unraw().to_string()));
         }
         UseTree::Glob(_) => output.push((prefix.clone(), "*".into())),
     }
@@ -493,24 +534,40 @@ fn resolve(
     } else if let Some(first) = path.first() {
         let mut local = module.to_vec();
         local.push(first.clone());
-        let mut has_import = false;
-        let mut imports_self = false;
-        if let Some(imports) = symbols.imports.get(&local) {
-            for import in imports {
-                if import.condition.enabled(configuration)? {
-                    has_import = true;
-                    imports_self |= import.module == module
+        if symbols.dependencies.contains(first) {
+            let mut has_type_import = false;
+            let mut imports_self = false;
+            if let Some(imports) = symbols.imports.get(&local) {
+                for import in imports {
+                    if !import.condition.enabled(configuration)? {
+                        continue;
+                    }
+                    let same_name = import.module == module
                         && import.target.len() == 1
                         && import.target[0] == *first;
+                    imports_self |= same_name;
+                    if same_name {
+                        has_type_import = true;
+                        continue;
+                    }
+                    let mut branch_seen = seen.clone();
+                    branch_seen.insert(local.clone());
+                    let target = resolve(
+                        &import.module,
+                        &import.target,
+                        symbols,
+                        &mut branch_seen,
+                        configuration,
+                    )?;
+                    has_type_import |= !value_only(&target, symbols, configuration)?;
                 }
             }
-        }
-        if symbols.dependencies.contains(first)
-            && !active_name(&symbols.modules, &local, configuration)?
-            && !active_name(&symbols.definitions, &local, configuration)?
-            && (!has_import || imports_self)
-        {
-            absolute.clear();
+            if !active_name(&symbols.modules, &local, configuration)?
+                && !active_name(&symbols.type_definitions, &local, configuration)?
+                && (!has_type_import || imports_self)
+            {
+                absolute.clear();
+            }
         }
     }
     absolute.extend_from_slice(&path[index..]);
@@ -666,4 +723,15 @@ fn known_local(
         }
     }
     Ok(false)
+}
+
+/// Distinguishes locally known value imports from bindings that can qualify a type path.
+fn value_only(
+    name: &[String],
+    symbols: &Symbols,
+    configuration: &Configuration,
+) -> Result<bool, String> {
+    Ok(active_name(&symbols.definitions, name, configuration)?
+        && !active_name(&symbols.type_definitions, name, configuration)?
+        && !active_name(&symbols.modules, name, configuration)?)
 }

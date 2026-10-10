@@ -1,3 +1,4 @@
+use pack_compiler::{MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, read_pack};
 use {super::support::*, assets::AssetError};
 
 #[test]

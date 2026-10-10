@@ -4,9 +4,7 @@ use assets::{
     BlockFlags, ContributorRole, ModelFamily, ModelState, RegistryProvenance, RegistryRecord,
 };
 
-pub use pack_compiler::{
-    MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, TextureKey, read_pack, resolve_texture_key,
-};
+use pack_compiler::TextureKey;
 use tempfile::TempDir;
 
 pub const MINIMAL_BLOCKS: &str = r#"{

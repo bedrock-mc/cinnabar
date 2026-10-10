@@ -27,6 +27,8 @@ fn findings(root: &Path) -> Vec<String> {
 fn rejects_named_renamed_grouped_and_restricted_forwarders() {
     for source in [
         "pub use other::Thing;",
+        "pub use r#other::Thing;",
+        "use r#other as alias; pub use alias::Thing;",
         "pub(crate) use other::{Thing as Renamed};",
         "pub(super) use other::Thing;",
         "pub use other;",
@@ -74,7 +76,7 @@ fn permits_local_exports_and_private_dependency_imports() {
 #[test]
 fn follows_a_private_import_in_another_module() {
     let temp = tempfile::tempdir().unwrap();
-    fixture(temp.path(), "mod facade; pub use facade::Thing;", "");
+    fixture(temp.path(), "mod r#facade; pub use facade::Thing;", "");
     fs::write(temp.path().join("src/facade.rs"), "use other::Thing;").unwrap();
     assert!(
         findings(temp.path())
@@ -391,4 +393,57 @@ fn external_module_conditions_are_inherited_by_local_definitions() {
     );
     fs::write(root.join("src/local.rs"), "pub struct Thing;").unwrap();
     assert_eq!(findings(root).len(), 1);
+}
+
+#[test]
+fn recognizes_implicit_default_and_renamed_library_dependencies() {
+    for (library, extra, file) in [
+        ("sample", "", "src/lib.rs"),
+        (
+            "renamed_api",
+            "\n[lib]\nname='renamed_api'\npath='src/library.rs'\n",
+            "src/library.rs",
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fixture(root, "pub struct Thing;", "");
+        let manifest = root.join("Cargo.toml");
+        let contents = fs::read_to_string(&manifest).unwrap() + extra;
+        fs::write(manifest, contents).unwrap();
+        fs::write(root.join(file), "pub struct Thing;").unwrap();
+        for target in [
+            "src/main.rs",
+            "tests/forward.rs",
+            "benches/forward.rs",
+            "examples/forward.rs",
+        ] {
+            let target = root.join(target);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, format!("pub use {library}::Thing;")).unwrap();
+        }
+        assert_eq!(findings(root).len(), 4);
+    }
+}
+
+#[test]
+fn value_definitions_do_not_shadow_dependency_type_paths() {
+    for definition in [
+        "fn other() {}",
+        "fn helper() {} use helper as other;",
+        "mod local { pub fn helper() {} } use local::helper as other;",
+        "const other: u8 = 0;",
+        "static other: u8 = 0;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(
+            temp.path(),
+            &format!("{definition} pub use other::Thing;"),
+            "",
+        );
+        assert_eq!(findings(temp.path()).len(), 1, "missed {definition}");
+    }
+    let temp = tempfile::tempdir().unwrap();
+    fixture(temp.path(), "pub struct other; pub use other as Local;", "");
+    assert!(findings(temp.path()).is_empty());
 }
