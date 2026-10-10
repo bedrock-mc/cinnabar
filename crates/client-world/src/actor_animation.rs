@@ -253,6 +253,8 @@ struct ActorRigState {
     completed_tick: u64,
     fallback: EntityRigFallback,
     history: VecDeque<ActorTickInput>,
+    /// Latest owner query inputs, retained even when its pose does not need frame sampling.
+    query_context: ActorTickContext,
     /// Main-hand item the arm has finished equipping.
     equipped_main: Option<Arc<str>>,
     /// Offhand item accepted by the independent native equip clock.
@@ -707,13 +709,7 @@ impl ActorAnimationStore {
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
             )
             .with_input(state.history.back().copied())
-            .with_item_context(
-                state
-                    .render_frame
-                    .as_ref()
-                    .map(|frame| &frame.motion.context),
-                state.complete_spear_variables,
-            ),
+            .with_item_context(Some(&state.query_context), state.complete_spear_variables),
             java: state.java.motion,
             java_equipped: state.java.equipped(),
         })
