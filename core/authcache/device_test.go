@@ -3,6 +3,7 @@ package authcache
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -38,5 +39,34 @@ func TestLoadDeviceKeepsOneProfilePerInstall(t *testing.T) {
 	}
 	if memory, err := LoadDevice(""); err != nil || !memory.Valid() {
 		t.Fatalf("in-memory profile = %+v, %v", memory, err)
+	}
+}
+
+// Cores starting together on a fresh install all claim the one device that is saved.
+func TestLoadDeviceAgreesAcrossConcurrentFirstLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "device.json")
+	profiles := make(chan device.Profile, 16)
+	var started sync.WaitGroup
+	for range cap(profiles) {
+		started.Add(1)
+		go func() {
+			defer started.Done()
+			profile, err := LoadDevice(path)
+			if err != nil {
+				t.Error(err)
+			}
+			profiles <- profile
+		}()
+	}
+	started.Wait()
+	close(profiles)
+	saved, err := LoadDevice(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for profile := range profiles {
+		if profile != saved {
+			t.Fatalf("a core claimed %+v while %+v was saved", profile, saved)
+		}
 	}
 }
