@@ -15,3 +15,6 @@
 # Per-worktree Cargo target dirs (never commit build artifacts)
 target-*/
 __pycache__/
+
+# Agent worktrees nested in the checkout
+/.claude/worktrees/

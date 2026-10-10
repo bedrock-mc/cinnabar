@@ -39,8 +39,20 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
             path: policy_path.to_path_buf(),
             source,
         })?;
-    let mut files = Vec::new();
-    collect_files(root, root, &policy, &mut files)?;
+    let mut files = match git_visible_files(root) {
+        Some(files) => files
+            .into_iter()
+            .filter(|path| {
+                let relative = relative_slash(root, path);
+                !ignored_directory(&relative) && !is_vendored(&relative, &policy)
+            })
+            .collect(),
+        None => {
+            let mut files = Vec::new();
+            collect_files(root, root, &policy, &mut files)?;
+            files
+        }
+    };
     files.sort();
 
     let mut diagnostics = Vec::new();
@@ -82,6 +94,36 @@ pub(crate) fn read(path: &Path) -> Result<String, ArchitectureError> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Files git tracks or would add, so ignored trees such as nested worktrees are never scanned.
+/// `None` outside a git checkout, where the directory walk applies.
+fn git_visible_files(root: &Path) -> Option<Vec<PathBuf>> {
+    if !root.join(".git").exists() {
+        return None;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(
+        output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|name| !name.is_empty())
+            .map(|name| root.join(String::from_utf8_lossy(name).as_ref()))
+            .filter(|path| path.is_file())
+            .collect(),
+    )
 }
 
 fn collect_files(

@@ -1,4 +1,5 @@
 mod gameplay_session_boundary;
+mod git_ignored_trees;
 mod launcher_boundary;
 mod marker_owners;
 mod pipeline_boundary;
