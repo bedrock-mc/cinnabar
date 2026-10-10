@@ -89,9 +89,12 @@ GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
 Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
 exhausting the collector’s source-location table.
 
-Install the capture tools with `brew install tracy` if missing. Match their Tracy
-protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
-[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+Install the capture tools from the Tracy release whose protocol matches
+`tracy-client-sys` in `Cargo.lock`: `brew install tracy` on macOS when Homebrew has
+that release, or the release's `windows-*.zip` on Windows. The
+[rust_tracy_client table](https://github.com/nagisa/rust_tracy_client#readme) maps each
+`tracy-client-sys` version to its Tracy release; mismatched tools refuse the connection.
+With the hidden local scene settled:
 
 ```sh
 TRACE_DIR="$(mktemp -d)"
