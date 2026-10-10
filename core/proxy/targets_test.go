@@ -351,7 +351,8 @@ func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
 		}()
 
 		const budget = 200 * time.Millisecond
-		wantDeadline := time.Now().Add(budget)
+		start := time.Now()
+		wantDeadline := start.Add(budget)
 		dialed := false
 		network := minecraft.RakNet{
 			Logger: slog.New(slog.DiscardHandler),
@@ -369,9 +370,11 @@ func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
 			_ = conn.Close()
 			t.Fatal("silent server accepted the connection")
 		}
-		var timeout net.Error
-		if !errors.Is(err, context.DeadlineExceeded) && !(errors.As(err, &timeout) && timeout.Timeout()) {
-			t.Fatalf("dial error = %v, want a context or socket deadline", err)
+		if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "did not accept") {
+			t.Fatalf("dial error = %v, want the connect budget to expire", err)
+		}
+		if elapsed := time.Since(start); elapsed != budget {
+			t.Fatalf("dial took %s in virtual time, want %s", elapsed, budget)
 		}
 		if !dialed || <-probed == 0 {
 			t.Fatal("RakNet never probed the silent transport")
