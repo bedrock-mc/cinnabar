@@ -15,11 +15,11 @@ fn local(path: &str) -> std::path::PathBuf {
 pub fn startup_presentation() -> Option<UiPresentationRuntime> {
     let world = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join(assets::startup::DEFAULT_ASSET_PATH);
+        .join(assets::carriers::startup::DEFAULT_ASSET_PATH);
     for path in [
-        assets::startup::hud_asset_path(&world),
-        assets::startup::icon_asset_path(&world),
-        assets::startup::entity_asset_path(&world),
+        assets::carriers::startup::hud_asset_path(&world),
+        assets::carriers::startup::icon_asset_path(&world),
+        assets::carriers::startup::entity_asset_path(&world),
     ] {
         if !path.exists() {
             eprintln!(
@@ -29,17 +29,17 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
             return None;
         }
     }
-    let hud = assets::startup::require_hud_assets(&world)
+    let hud = assets::carriers::startup::require_hud_assets(&world)
         .expect("load installed HUD fixture")
         .into_runtime();
-    let icons = assets::startup::require_icon_assets(
+    let icons = assets::carriers::startup::require_icon_assets(
         &world,
         include_str!("../../../../../assets/vanilla-source.json"),
     )
     .expect("load installed icon fixture")
     .into_runtime();
     let entities = assets::RuntimeEntityAssets::decode(
-        &std::fs::read(assets::startup::entity_asset_path(&world))
+        &std::fs::read(assets::carriers::startup::entity_asset_path(&world))
             .expect("read installed entity fixture"),
     )
     .expect("decode installed entity fixture");

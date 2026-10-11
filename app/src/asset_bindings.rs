@@ -1,7 +1,7 @@
 //! Installs decoded carrier data into renderer and pack-runtime state.
 use assets::{
     RuntimeActorCatalog,
-    startup::{LoadedAssets, LoadedAtmosphereAssets},
+    carriers::startup::{LoadedAssets, LoadedAtmosphereAssets},
 };
 use sha2::{Digest, Sha256};
 

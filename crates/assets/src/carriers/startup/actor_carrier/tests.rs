@@ -1,5 +1,5 @@
 use super::*;
-use crate::startup::test_carriers::synthetic_entity_blob;
+use crate::carriers::startup::test_carriers::synthetic_entity_blob;
 
 struct Directory(PathBuf);
 impl Directory {

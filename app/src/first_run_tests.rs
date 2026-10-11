@@ -3,7 +3,7 @@ use std::path::Path;
 /// Startup fails closed without these, so setup must refuse to finish without them too.
 #[test]
 fn every_carrier_startup_requires_is_required_by_the_carrier_table() {
-    use assets::startup::{
+    use assets::carriers::startup::{
         atmosphere_asset_path, entity_asset_path, hud_asset_path, icon_asset_path, lang_asset_path,
     };
     let world = Path::new("compiled").join(assets::carriers::WORLD.output);

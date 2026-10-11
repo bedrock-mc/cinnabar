@@ -58,7 +58,6 @@ mod sound_bank;
 mod sound_events;
 mod stair;
 pub mod starter_skins;
-pub mod startup;
 mod texture;
 mod ui;
 pub mod vanilla_pack;

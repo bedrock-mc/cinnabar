@@ -104,9 +104,9 @@ pub struct AssetMetrics {
     pub diagnostic_attribution: DiagnosticAttributionSnapshot,
 }
 
-impl From<assets::startup::CarrierMetrics> for AssetMetrics {
+impl From<assets::carriers::startup::CarrierMetrics> for AssetMetrics {
     /// Starts runtime diagnostics with the measurements from decoded startup carriers.
-    fn from(metrics: assets::startup::CarrierMetrics) -> Self {
+    fn from(metrics: assets::carriers::startup::CarrierMetrics) -> Self {
         Self {
             source_tag: metrics.source_tag,
             source_sha256: metrics.source_sha256,

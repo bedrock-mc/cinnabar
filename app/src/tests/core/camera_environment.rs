@@ -51,7 +51,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
     complete_world_stream_decodes(&mut stream);
 
     let base = assets::RuntimeAtmosphereAssets::decode(
-        &assets::startup::test_carriers::synthetic_atmosphere_blob(),
+        &assets::carriers::startup::test_carriers::synthetic_atmosphere_blob(),
     )
     .unwrap();
     let atmosphere = Arc::new(

@@ -24,8 +24,7 @@ use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
 use {
-    assets::pinned_world_provenance,
-    assets::startup::{
+    assets::carriers::startup::{
         ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
         DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
         FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
@@ -33,6 +32,7 @@ use {
         font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
         select_asset_path_in_context,
     },
+    assets::pinned_world_provenance,
 };
 
 fn temporary_directory(label: &str) -> PathBuf {

@@ -86,8 +86,8 @@ fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRunti
     use client_ui::ui_runtime::presentation::UiPresentationRuntime;
     let world_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join(assets::startup::DEFAULT_ASSET_PATH);
-    let hud = assets::startup::require_hud_assets(&world_path)
+        .join(assets::carriers::startup::DEFAULT_ASSET_PATH);
+    let hud = assets::carriers::startup::require_hud_assets(&world_path)
         .unwrap()
         .into_runtime();
     let mut presentation = UiPresentationRuntime::with_hud(pack_harness::font(), hud).unwrap();

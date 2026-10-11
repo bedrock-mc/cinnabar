@@ -68,7 +68,7 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
     (ANCHOR_PROBE, MarkerContract::EnvironmentVariable),
     (
-        assets::startup::markers::ASSETS,
+        assets::carriers::startup::markers::ASSETS,
         MarkerContract::EnvironmentVariable,
     ),
     (AUDIO_WIRE_EVIDENCE, MarkerContract::EnvironmentVariable),

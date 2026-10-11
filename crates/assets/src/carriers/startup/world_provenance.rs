@@ -135,7 +135,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                crate::startup::AssetStartupError::PinnedRegistryProtocolMismatch {
+                crate::carriers::startup::AssetStartupError::PinnedRegistryProtocolMismatch {
                     expected: 1001,
                     actual: 2193
                 }

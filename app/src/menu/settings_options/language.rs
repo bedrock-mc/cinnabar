@@ -7,7 +7,9 @@ impl MenuRuntime {
     /// Uses the selected carrier path and gives a CLI locale priority over the saved choice.
     pub(crate) fn with_language_assets(mut self, path: PathBuf, requested: Option<&str>) -> Self {
         self.language_asset_path = path;
-        let code = assets::startup::active_language(requested.or(self.settings_options.language()));
+        let code = assets::carriers::startup::active_language(
+            requested.or(self.settings_options.language()),
+        );
         Arc::make_mut(&mut self.settings_options).set_language(&code);
         self.language_pending = true;
         self
@@ -30,12 +32,12 @@ impl MenuRuntime {
             return;
         }
         self.language_pending = false;
-        let language = assets::startup::active_language(self.settings_options.language());
+        let language = assets::carriers::startup::active_language(self.settings_options.language());
         pack_runtime::pack_language::set_active_language(&language);
-        let catalog = assets::startup::load_optional_language(
+        let catalog = assets::carriers::startup::load_optional_language(
             &self.language_asset_path,
             &language,
-            assets::startup::vanilla_source_manifest_json(),
+            assets::carriers::startup::vanilla_source_manifest_json(),
         );
         runtime.set_active_language(catalog);
     }
@@ -49,8 +51,8 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("cinnabar-language-{}", std::process::id()));
         std::fs::create_dir_all(directory.join("lang")).unwrap();
-        let provenance = assets::startup::canonical_source_manifest_sha256(
-            assets::startup::vanilla_source_manifest_json(),
+        let provenance = assets::carriers::startup::canonical_source_manifest_sha256(
+            assets::carriers::startup::vanilla_source_manifest_json(),
         );
         let entries = [assets::LangEntry {
             key: "tile.stone.name".into(),

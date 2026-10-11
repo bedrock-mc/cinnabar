@@ -6,7 +6,7 @@ use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
 use crate::args;
 use crate::movement::PhysicsCollisionRegistries;
 use anyhow::{Context, Result, bail};
-use assets::startup::{
+use assets::carriers::startup::{
     self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
     LoadedIconAssets, LoadedLangAssets,
 };
@@ -256,7 +256,7 @@ pub(super) fn read_verified_physics_registry(
 #[cfg(test)]
 mod carrier_tests {
     use super::*;
-    use assets::startup::{
+    use assets::carriers::startup::{
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
         test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob},
     };

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use assets::startup::{AssetPathSource, select_asset_path_with_default};
+    use assets::carriers::startup::{AssetPathSource, select_asset_path_with_default};
     use launcher::{install_layout::Platform, test_support::scratch_at};
     use std::{ffi::OsString, path::PathBuf};
 

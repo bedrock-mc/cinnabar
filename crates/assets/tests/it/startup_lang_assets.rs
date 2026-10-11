@@ -3,7 +3,7 @@
 
 use std::{fs, path::PathBuf, sync::Arc};
 
-use assets::startup::{
+use assets::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, LANG_ASSETS_COMPILE_COMMAND,
     canonical_source_manifest_sha256, lang_asset_path, lang_assets_rebuild_command,
     require_lang_assets, vanilla_source_manifest_json,

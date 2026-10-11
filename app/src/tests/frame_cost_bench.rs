@@ -134,7 +134,7 @@ fn frame_cost_bench_sound_decode() {
     let path = client_audio::audio::sound_bank_path(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join(assets::startup::DEFAULT_ASSET_PATH),
+            .join(assets::carriers::startup::DEFAULT_ASSET_PATH),
     );
     let mut bank = client_audio::audio::SoundBank::open(&path, None)
         .expect("offline sound timing requires a valid installed sound bank (make assets)")

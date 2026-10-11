@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use assets::startup::{
+use assets::carriers::startup::{
     DEFAULT_ASSET_PATH, icon_asset_path, icon_assets_rebuild_command, require_icon_assets,
 };
 

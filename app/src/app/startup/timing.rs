@@ -1,5 +1,5 @@
 //! Wall-clock instrumentation for startup carrier I/O.
-use assets::startup::CarrierLoadObserver;
+use assets::carriers::startup::CarrierLoadObserver;
 
 /// Wall time of each startup carrier load, logged as one line.
 #[derive(Default)]

@@ -555,8 +555,8 @@ consumer = "scripts/acceptance/Resources.ps1"
 [[markers]]
 literal = "RUST_MCBE_ASSETS"
 kind = "environment_variable"
-producer = "crates/assets/src/startup/markers.rs"
-consumer = "crates/assets/src/startup.rs"
+producer = "crates/assets/src/carriers/startup/markers.rs"
+consumer = "crates/assets/src/carriers/startup.rs"
 
 [[markers]]
 literal = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE"

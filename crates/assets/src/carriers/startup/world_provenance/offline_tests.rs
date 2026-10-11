@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 
-use crate::startup::{
+use crate::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, load_runtime_assets, select_asset_path,
 };
 use {

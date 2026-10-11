@@ -10,7 +10,7 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
-use assets::startup::{LoadedAssetKind, select_asset_path_from_environment};
+use assets::carriers::startup::{LoadedAssetKind, select_asset_path_from_environment};
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
@@ -486,13 +486,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .server_file()
             .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
-    let language =
-        assets::startup::active_language(args.language.as_deref().or(saved_settings.language()));
+    let language = assets::carriers::startup::active_language(
+        args.language.as_deref().or(saved_settings.language()),
+    );
     pack_runtime::pack_language::set_active_language(&language);
-    let active_lang = assets::startup::load_optional_language(
+    let active_lang = assets::carriers::startup::load_optional_language(
         &loaded_assets.selected_path,
         &language,
-        assets::startup::vanilla_source_manifest_json(),
+        assets::carriers::startup::vanilla_source_manifest_json(),
     );
     let startup::AudioCarriers {
         catalog: audio_catalog,
