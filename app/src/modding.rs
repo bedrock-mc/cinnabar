@@ -1,15 +1,17 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
-use crate::runtime::network::resource_packs::PackApplication;
-use client_runtime::network::NetworkHandle;
 #[cfg(feature = "local-mods")]
 pub(crate) mod font;
 
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::{environment::VisualTimeOverride, menu::MenuRuntime},
+    crate::{
+        environment::VisualTimeOverride, menu::MenuRuntime,
+        runtime::network::resource_packs::PackApplication,
+    },
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_runtime::network::NetworkHandle,
     client_state::ClientFrameSet,
     client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     mod_host::{ModGrants, ModHost},

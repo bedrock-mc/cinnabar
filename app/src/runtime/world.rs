@@ -423,12 +423,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     movement.set_control_fence_pending(network.has_pending_latency_reply());
                     gameplay::movement::trace_server_control(&movement, &local_physics, &control)
                 }
-                Err(super::network::BatchSendError::Full) => {
+                Err(client_session::BatchSendError::Full) => {
                     movement.set_control_fence_pending(true);
                     stream.restore_committed_controls(std::iter::once(control).chain(controls));
                     return;
                 }
-                Err(super::network::BatchSendError::Closed) => return,
+                Err(client_session::BatchSendError::Closed) => return,
             }
             continue;
         }
