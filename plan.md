@@ -1,3 +1,17 @@
+## Player interaction ownership
+
+`client-interaction` owns the movement and interaction resource wrappers, item-use
+presentation and selection queries, placement observations, camera input adapters,
+and hotbar input. Its plugins register camera input, hotbar sampling and retained
+block picks against the shared `client-state` frame contract. Callers import the
+owning crate directly.
+
+The extraction remains incomplete: world and transport systems for movement,
+use/place/mine/melee/pick, block selection, world-dependent camera publication and
+cursor focus remain in `app`. They still consume app-owned world, network, menu
+or extension state. Existing tests remain with their owning code; compilation,
+test execution and the behavior/performance acceptance gates remain unverified.
+
 ## Client frame contract
 
 - `client-state` owns the shared frame sets, player authority wrapper, settings revision

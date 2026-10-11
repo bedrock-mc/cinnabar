@@ -50,6 +50,12 @@ platform, and performance gates remain open.
 
 ## P3.4-INPUT-CAMERA
 
+`client-interaction` owns camera input adapters, movement resource wrappers and
+hotbar sampling, plus item-use and placement observations. App-owned world,
+transport and screen adapters still drive the remaining interactions and block
+selection. This extraction is incomplete and has not been compiled or tested;
+no movement, input or interaction acceptance gate is closed by the move.
+
 Frame sets and shared player, settings and finalized-input resources now live in
 `client-state`. The shell publishes focus for gameplay and camera input; the input
 and cursor regressions retain their domain owners. This ownership change has not
