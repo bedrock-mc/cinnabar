@@ -5,8 +5,8 @@ use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
 
 const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
 const OWNER_METADATA_KEY: u32 = 5;
-const LEASH_HOLDER_METADATA_KEY: u32 = 37;
-const INVALID_LEASH_HOLDER_ID: i64 = -1;
+pub(super) const LEASH_HOLDER_METADATA_KEY: u32 = 37;
+pub(super) const INVALID_LEASH_HOLDER_ID: i64 = -1;
 
 // Provisional presentation constants; each needs independent measurement.
 const BLOCK_ENTITY_CENTER_HEIGHT: f32 = 0.49;
@@ -68,7 +68,7 @@ fn interpolated(actor: &ActorSnapshot, alpha: f32) -> [f32; 3] {
     })
 }
 
-fn metadata_i64(actor: &ActorSnapshot, key: u32) -> Option<i64> {
+pub(super) fn metadata_i64(actor: &ActorSnapshot, key: u32) -> Option<i64> {
     match actor.metadata.get(&key)? {
         ActorMetadataValue::Long(value) => Some(*value),
         ActorMetadataValue::Int(value) => Some(i64::from(*value)),
@@ -97,9 +97,10 @@ impl ActorStore {
         now: std::time::Instant,
     ) -> Vec<BlockEntityCandidate> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut candidates = self
-            .actors
-            .values()
+        self.effect_members
+            .blocks
+            .iter()
+            .filter_map(|runtime| self.actors.get(runtime))
             .filter_map(|actor| {
                 Some(BlockEntityCandidate {
                     unique_id: actor.unique_id,
@@ -107,9 +108,7 @@ impl ActorStore {
                     visible: actor.status.terrain_interlock.visible_at(now),
                 })
             })
-            .collect::<Vec<_>>();
-        candidates.sort_unstable_by_key(|candidate| candidate.view.runtime_id);
-        candidates
+            .collect::<Vec<_>>()
     }
 
     /// Falling blocks and primed TNT with interpolated centres.
@@ -123,14 +122,13 @@ impl ActorStore {
         now: std::time::Instant,
     ) -> Vec<BlockEntityView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut views = self
-            .actors
-            .values()
+        self.effect_members
+            .blocks
+            .iter()
+            .filter_map(|runtime| self.actors.get(runtime))
             .filter(|actor| actor.status.terrain_interlock.visible_at(now))
             .filter_map(|actor| self.block_entity_view(actor, alpha))
-            .collect::<Vec<_>>();
-        views.sort_unstable_by_key(|view| view.runtime_id);
-        views
+            .collect::<Vec<_>>()
     }
 
     fn block_entity_view(&self, actor: &ActorSnapshot, alpha: f32) -> Option<BlockEntityView> {
@@ -190,9 +188,8 @@ impl ActorStore {
     pub(crate) fn ropes(&self, partial_tick: f32) -> Vec<RopeView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         let mut ropes = Vec::new();
-        let mut actors = self.actors.values().collect::<Vec<_>>();
-        actors.sort_unstable_by_key(|actor| actor.runtime_id);
-        for actor in actors {
+        for runtime in &self.effect_members.ropes {
+            let actor = &self.actors[runtime];
             if let Some(holder) = metadata_i64(actor, LEASH_HOLDER_METADATA_KEY)
                 .filter(|holder| *holder != INVALID_LEASH_HOLDER_ID)
                 .and_then(|holder| self.actor_by_unique(holder))
@@ -248,5 +245,29 @@ mod tests {
         assert!(tnt_presentation(2.0).0 > 1.0);
         assert!(tnt_presentation(2.0).0 <= 1.0 + TNT_SWELL_SCALE);
         assert_eq!(tnt_presentation(-3.0), tnt_presentation(0.0));
+    }
+}
+
+#[cfg(test)]
+mod allocation_count;
+
+#[cfg(test)]
+mod allocation_tests {
+    use super::*;
+
+    #[test]
+    fn rope_views_allocate_nothing_without_matching_actors() {
+        let mut store = ActorStore::new(1, 0);
+        for runtime in 1..=512 {
+            store.apply(
+                1,
+                runtime,
+                super::super::tests::spawn(runtime, runtime as i64),
+            );
+        }
+        let (ropes, allocations) = super::allocation_count::measure(|| store.ropes(0.5));
+        assert!(ropes.is_empty());
+        assert_eq!(allocations, 0);
+        println!("512 unrelated actors: rope-view allocations={allocations}");
     }
 }
