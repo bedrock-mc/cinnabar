@@ -15,27 +15,53 @@ use protocol::{ItemComponents, NetworkItemStack, item_stack_damage};
 
 /// The session's server item components by identifier.
 #[derive(Debug, Default)]
-pub struct SessionItemComponents(HashMap<Arc<str>, ItemComponents>);
+pub struct SessionItemComponents(HashMap<Arc<str>, SessionItem>);
+
+/// Components and the UI facts resolved once when the session admits an item.
+#[derive(Debug)]
+struct SessionItem {
+    components: ItemComponents,
+    name_color: Option<ui::BedrockColor>,
+}
 
 impl SessionItemComponents {
     /// `None` when no StartGame item declares components.
     pub fn from_game_data(game_data: &protocol::GameData) -> Option<Arc<Self>> {
-        let map = HashMap::from_iter(protocol::item_components(game_data));
-        (!map.is_empty()).then(|| Arc::new(Self(map)))
+        let items = Self::from_iter(protocol::item_components(game_data));
+        (!items.0.is_empty()).then(|| Arc::new(items))
     }
 
     pub fn get(&self, identifier: &str) -> Option<&ItemComponents> {
-        self.0.get(identifier)
+        self.0.get(identifier).map(|item| &item.components)
+    }
+
+    /// The semantic name colour already resolved for this session item.
+    pub fn name_color(&self, identifier: &str) -> Option<ui::BedrockColor> {
+        self.0.get(identifier)?.name_color
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&Arc<str>, &ItemComponents)> {
-        self.0.iter()
+        self.0.iter().map(|(id, item)| (id, &item.components))
     }
 }
 
 impl FromIterator<(Arc<str>, ItemComponents)> for SessionItemComponents {
     fn from_iter<I: IntoIterator<Item = (Arc<str>, ItemComponents)>>(items: I) -> Self {
-        Self(items.into_iter().collect())
+        Self(
+            items
+                .into_iter()
+                .map(|(id, components)| {
+                    let name_color = name_format(&components);
+                    (
+                        id,
+                        SessionItem {
+                            components,
+                            name_color,
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 }
 
@@ -147,40 +173,10 @@ pub fn is_glint(
         )
 }
 
-/// The format code and colour vanilla gives a component item's name: its
-/// `hover_text_color`, else its rarity's (uncommon yellow, rare aqua, epic light purple).
+/// Resolve a component item's semantic colour at admission: explicit hover colour
+/// first, then the supported rarity colour. Unknown names stay unresolved.
 #[must_use]
-pub fn name_format(components: &ItemComponents) -> Option<(char, [u8; 3])> {
-    const FORMATS: [(&str, char, [u8; 3]); 28] = [
-        ("black", '0', [0, 0, 0]),
-        ("dark_blue", '1', [0, 0, 170]),
-        ("dark_green", '2', [0, 170, 0]),
-        ("dark_aqua", '3', [0, 170, 170]),
-        ("dark_red", '4', [170, 0, 0]),
-        ("dark_purple", '5', [170, 0, 170]),
-        ("gold", '6', [255, 170, 0]),
-        ("gray", '7', [170, 170, 170]),
-        ("dark_gray", '8', [85, 85, 85]),
-        ("blue", '9', [85, 85, 255]),
-        ("green", 'a', [85, 255, 85]),
-        ("aqua", 'b', [85, 255, 255]),
-        ("red", 'c', [255, 85, 85]),
-        ("light_purple", 'd', [255, 85, 255]),
-        ("yellow", 'e', [255, 255, 85]),
-        ("white", 'f', [255, 255, 255]),
-        ("minecoin_gold", 'g', [221, 214, 5]),
-        ("material_quartz", 'h', [227, 212, 209]),
-        ("material_iron", 'i', [206, 202, 202]),
-        ("material_netherite", 'j', [68, 58, 59]),
-        ("material_redstone", 'm', [151, 22, 7]),
-        ("material_copper", 'n', [180, 104, 77]),
-        ("material_gold", 'p', [222, 177, 45]),
-        ("material_emerald", 'q', [71, 160, 54]),
-        ("material_diamond", 's', [44, 186, 168]),
-        ("material_lapis", 't', [33, 73, 123]),
-        ("material_amethyst", 'u', [154, 92, 198]),
-        ("material_resin", 'v', [235, 113, 20]),
-    ];
+pub fn name_format(components: &ItemComponents) -> Option<ui::BedrockColor> {
     let named = components
         .hover_text_color
         .as_deref()
@@ -190,10 +186,7 @@ pub fn name_format(components: &ItemComponents) -> Option<(char, [u8; 3])> {
             Some("epic") => Some("light_purple"),
             _ => None,
         })?;
-    FORMATS
-        .iter()
-        .find(|(name, ..)| name.eq_ignore_ascii_case(named))
-        .map(|&(_, code, rgb)| (code, rgb))
+    ui::BedrockColor::from_name(named)
 }
 
 /// Mechanical display name from a vanilla identifier: the path segment in
@@ -440,12 +433,46 @@ mod tests {
             rarity: Some("epic".into()),
             ..ItemComponents::default()
         };
-        assert_eq!(name_format(&components), Some(('d', [255, 85, 255])));
+        assert_eq!(
+            name_format(&components),
+            Some(ui::BedrockColor::LightPurple)
+        );
         components.hover_text_color = Some("gold".into());
-        assert_eq!(name_format(&components).map(|(code, _)| code), Some('6'));
+        assert_eq!(name_format(&components), Some(ui::BedrockColor::Gold));
         components.hover_text_color = Some("chartreuse".into());
         assert_eq!(name_format(&components), None);
         assert_eq!(name_format(&ItemComponents::default()), None);
+    }
+
+    #[test]
+    fn session_name_colours_share_text_semantics_and_refresh_on_replacement() {
+        let id: Arc<str> = "example:custom_item".into();
+        let components = |name: &str| ItemComponents {
+            hover_text_color: Some(Arc::from(name)),
+            ..Default::default()
+        };
+        for (name, expected) in [
+            ("material_emerald", ui::BedrockColor::MaterialEmerald),
+            ("material_lapis", ui::BedrockColor::MaterialLapis),
+            ("material_resin", ui::BedrockColor::MaterialResin),
+        ] {
+            let items = SessionItemComponents::from_iter([(Arc::clone(&id), components(name))]);
+            let color = items.name_color(&id).unwrap();
+            assert_eq!(color, expected);
+            let descriptor = color.descriptor().unwrap();
+            let text = format!("§{}Name", descriptor.code);
+            let spans = ui::parse_bedrock_text(&text, text.len()).unwrap();
+            assert_eq!(color.rgb(), spans[0].style.color.rgb());
+        }
+        let previous = SessionItemComponents::from_iter([(Arc::clone(&id), components("aqua"))]);
+        let replacement = SessionItemComponents::from_iter([(Arc::clone(&id), components("gold"))]);
+        assert_eq!(previous.name_color(&id), Some(ui::BedrockColor::Aqua));
+        assert_eq!(replacement.name_color(&id), Some(ui::BedrockColor::Gold));
+        assert_eq!(previous.iter().count(), 1);
+        assert_eq!(
+            previous.get(&id).unwrap().hover_text_color.as_deref(),
+            Some("aqua")
+        );
     }
 
     #[test]
