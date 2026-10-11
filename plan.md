@@ -1679,6 +1679,15 @@ appends the sheared base head's cubes. Vanilla geometry parsing appends cubes un
 merge fix and adult face/snout live acceptance remain in progress. Native sheep
 dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
 handling remain incomplete.
+The stock wolf state textures now use the bounded dye-mask artwork route. Tamed
+rasters retain their fractional mask alpha, and adult/baby variant selection keeps
+the controller's chosen texture instead of falling back to another variant.
+Stock raster admission is content-pinned; custom art retains its existing material
+limits. Tamed wolves inherit their byte color index through the shared dye palette;
+wild wolves stay neutral, and live dye updates reach tick and frame layers.
+Wet shading, arbitrary custom wolf materials, and exact target-version stock
+material/shader linkage remain incomplete. These repairs do not close the full
+wolf parity gate.
 The creeper drew blue: one alpha-8 texel outside every face of `creeper.png` failed
 the binary-alpha actor-art filter, and the body route then fell through to the
 `query.is_powered` armor overlay's `creeper_armor.png`. Fractional alpha is now

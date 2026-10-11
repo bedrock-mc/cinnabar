@@ -89,7 +89,7 @@ pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
 pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
-const FLAG_TAMED: u32 = 28;
+use crate::actor_store::ACTOR_FLAG_TAMED as FLAG_TAMED;
 
 const INTEGER_QUERIES: [(&str, u32); 9] = [
     ("fuse_time", 55),
