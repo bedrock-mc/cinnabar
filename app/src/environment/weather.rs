@@ -40,11 +40,11 @@ pub(crate) fn load_optional_weather_textures(
         });
     match decoded {
         Ok((textures, identity)) => {
-            eprintln!("loaded weather textures from {}", path.display());
+            diagnostics::log_stderr!("loaded weather textures from {}", path.display());
             render::WeatherTextureAssets::new(std::sync::Arc::new(textures), identity)
         }
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "weather textures unavailable at {} ({error}); using procedural precipitation and End sky; build with {WEATHER_TEXTURES_COMPILE_COMMAND}",
                 path.display()
             );

@@ -672,13 +672,23 @@ fn resolve(
                         continue;
                     }
                     let mut branch_seen = seen.clone();
-                    let mut target = resolve(
-                        &import.module,
-                        &import.target,
-                        symbols,
-                        &mut branch_seen,
-                        configuration,
-                    )?;
+                    let mut target = if length < absolute.len() {
+                        resolve_glob_namespace(
+                            &import.module,
+                            &import.target,
+                            symbols,
+                            &mut branch_seen,
+                            configuration,
+                        )?
+                    } else {
+                        resolve(
+                            &import.module,
+                            &import.target,
+                            symbols,
+                            &mut branch_seen,
+                            configuration,
+                        )?
+                    };
                     target.extend_from_slice(&absolute[length..]);
                     if length < absolute.len() && target.first().is_some_and(|name| name == "crate")
                     {
@@ -734,7 +744,7 @@ fn resolve_globs(
                     continue;
                 }
                 let mut namespace_seen = branch_seen.clone();
-                let namespace = resolve(
+                let namespace = resolve_glob_namespace(
                     module,
                     &glob.target,
                     symbols,
@@ -840,7 +850,7 @@ fn visible_glob_binding(
                 continue;
             }
             let mut branch_seen = seen.clone();
-            let target = resolve(
+            let target = resolve_glob_namespace(
                 namespace,
                 &glob.target,
                 symbols,
@@ -862,6 +872,40 @@ fn visible_glob_binding(
         }
     }
     Ok(false)
+}
+
+/// Resolves a source namespace or type qualifier without searching unrelated value imports.
+fn resolve_glob_namespace(
+    module: &[String],
+    path: &[String],
+    symbols: &Symbols,
+    seen: &mut BTreeSet<Name>,
+    configuration: &Configuration,
+) -> Result<Name, String> {
+    let mut candidate = module.to_vec();
+    let mut index = 0;
+    if path.first().is_some_and(|part| part == "crate") {
+        candidate.clear();
+    } else {
+        while let Some(part) = path.get(index) {
+            match part.as_str() {
+                "self" => {}
+                "super" => {
+                    candidate.pop();
+                }
+                _ => break,
+            }
+            index += 1;
+        }
+    }
+    candidate.extend_from_slice(&path[index..]);
+    if active_name(&symbols.modules, &candidate, configuration)?
+        || active_name(&symbols.type_definitions, &candidate, configuration)?
+    {
+        Ok(candidate)
+    } else {
+        resolve(module, path, symbols, seen, configuration)
+    }
 }
 
 /// Finds a forwarding configuration while expanding only predicates used by this export.

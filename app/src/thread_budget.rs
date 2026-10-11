@@ -81,7 +81,7 @@ impl ThreadBudget {
             .thread_name(|index| format!("rayon-{index}"))
             .build_global()
         {
-            eprintln!("global rayon pool was already configured: {error}");
+            diagnostics::log_stderr!("global rayon pool was already configured: {error}");
         }
     }
 }

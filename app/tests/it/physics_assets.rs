@@ -12,43 +12,53 @@ use sha2::{Digest, Sha256};
 
 #[test]
 fn make_play_acquires_and_builds_the_required_physics_registry() {
-    let makefile = read_makefile();
-    for contract in [
-        "PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin",
-        "PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2193.bin",
-        "PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2193.sha256",
-        "physics-assets: $(PHYSICS_REGISTRY)",
-        "$(PHYSICS_REGISTRY): $(PHYSICS_REGISTRY_SOURCE) $(PHYSICS_REGISTRY_SHA256) $(BEDROCK_TARGET_MANIFEST)",
-        "$(PHYSICS_REGISTRY_INSTALL)",
-        "PHYSICS_REGISTRY_INSTALL = $(POWERSHELL)",
-        "$(GO) -C tools/registrygen run ./cmd/hashcheck",
-        "\t$(PHYSICS_REGISTRY_CHECK)",
-        ".DELETE_ON_ERROR:",
-    ] {
+    if !make_available() {
+        eprintln!("missing fixture: make; skipping play dependency test");
+        return;
+    }
+    let temporary = temporary_directory("make-play-physics-plan");
+    let source = temporary.join("source.bin");
+    let digest = temporary.join("source.sha256");
+    let manifest = temporary.join("target.json");
+    fs::write(&source, b"synthetic registry").unwrap();
+    fs::write(&digest, b"synthetic hash").unwrap();
+    fs::write(&manifest, b"{}").unwrap();
+    let assignments = vec![
+        format!(
+            "PHYSICS_REGISTRY={}",
+            make_path(&temporary.join("installed.bin"))
+        ),
+        format!("PHYSICS_REGISTRY_SOURCE={}", make_path(&source)),
+        format!("PHYSICS_REGISTRY_SHA256={}", make_path(&digest)),
+        format!("BEDROCK_TARGET_MANIFEST={}", make_path(&manifest)),
+    ];
+    let client_package = format!("-p {}", env!("CARGO_PKG_NAME"));
+    for goal in ["play", "play-build"] {
+        let output = run_make(
+            workspace_root(),
+            &["--dry-run", "--always-make", goal],
+            &assignments,
+        );
         assert!(
-            makefile.contains(contract),
-            "missing physics Makefile contract: {contract}"
+            output.status.success() && !output.timed_out && !output.drain_timed_out,
+            "make {goal} dry run failed: {}",
+            output.stderr
+        );
+        let lines: Vec<_> = output.stdout.lines().collect();
+        let physics = lines
+            .iter()
+            .position(|line| line.contains("cmd/hashcheck"))
+            .expect("play must verify the physics registry");
+        let client = lines
+            .iter()
+            .position(|line| line.contains("build") && line.contains(&client_package))
+            .expect("play must build the client");
+        assert!(
+            physics < client,
+            "physics must be ready before the client build"
         );
     }
-    let phony = makefile
-        .lines()
-        .find(|line| line.starts_with(".PHONY:"))
-        .unwrap();
-    assert!(
-        phony
-            .split_whitespace()
-            .any(|word| word == "physics-assets")
-    );
-    assert!(
-        !phony
-            .split_whitespace()
-            .any(|word| word == "$(PHYSICS_REGISTRY)")
-    );
-    let play = makefile
-        .lines()
-        .find(|line| line.starts_with("play:"))
-        .unwrap();
-    assert!(play.split_whitespace().any(|word| word == "physics-assets"));
+    fs::remove_dir_all(temporary).unwrap();
 }
 
 /// Upper bound for one witness or install invocation of Make.
@@ -643,12 +653,6 @@ fn drain_until(rx: &mpsc::Receiver<Vec<u8>>, deadline: Instant) -> (String, bool
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
-}
-
-fn read_makefile() -> String {
-    fs::read_to_string(workspace_root().join("Makefile"))
-        .unwrap()
-        .replace("\r\n", "\n")
 }
 
 fn make_available() -> bool {

@@ -158,7 +158,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "meshing", "protocol", "render-model", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "libc", "meshing", "protocol", "render-model", "rustix", "windows-sys", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "render"]
 
 [[crates]]

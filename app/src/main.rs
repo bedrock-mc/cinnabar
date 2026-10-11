@@ -18,7 +18,11 @@ fn main() {
                 Ok(true) => {}
                 Ok(false) => return,
                 Err(error) => {
-                    eprintln!("bedrock-client failed: {error:#}");
+                    let _ = writeln!(
+                        diagnostics::console::stderr(),
+                        "bedrock-client failed: {error:#}"
+                    );
+                    diagnostics::console::flush_before_exit();
                     std::process::exit(1);
                 }
             }

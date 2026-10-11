@@ -455,6 +455,18 @@ fn local_type_qualifiers_take_precedence_over_external_globs() {
 }
 
 #[test]
+fn cyclic_local_globs_keep_the_declared_namespace_owner() {
+    for source in [
+        "mod owned { use super::*; use child::*; mod child { use super::*; } pub struct Thing; } pub use owned::Thing;",
+        "mod owned { use super::*; use child::*; mod child { use super::*; } pub struct Thing; } use owned::*; pub use Thing;",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), source, "");
+        assert!(findings(temp.path()).is_empty(), "rejected {source}");
+    }
+}
+
+#[test]
 fn mutually_exclusive_external_imports_do_not_taint_local_exports() {
     for source in [
         r#"mod local { pub struct Thing; }

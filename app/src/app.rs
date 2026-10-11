@@ -463,25 +463,25 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         equipment: equipment_catalog,
     } = carriers.core.context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
-        eprintln!("{notice}");
+        diagnostics::log_stderr!("{notice}");
     } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
-        eprintln!(
+        diagnostics::log_stderr!(
             "loaded compiled block assets from {} (sha256 {})",
             loaded_assets.selected_path.display(),
             loaded_assets.metrics.blob_sha256
         );
     }
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded required atmosphere assets from {}",
         loaded_assets.atmosphere.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.atmosphere.startup_summary());
-    eprintln!(
+    diagnostics::log_stderr!("{}", loaded_assets.atmosphere.startup_summary());
+    diagnostics::log_stderr!(
         "loaded required entity assets from {}",
         loaded_assets.entities.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.entities.startup_summary());
-    eprintln!("{}", loaded_assets.fonts.startup_summary());
+    diagnostics::log_stderr!("{}", loaded_assets.entities.startup_summary());
+    diagnostics::log_stderr!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
@@ -490,11 +490,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    eprintln!("{}", hud_assets.startup_summary());
+    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    eprintln!("{}", icon_assets.startup_summary());
+    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -508,7 +508,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    eprintln!("{}", lang_assets.startup_summary());
+    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
@@ -566,7 +566,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        eprintln!("OreUI originals disabled ({reason})");
+        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);
     ui_presentation
@@ -601,7 +601,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );

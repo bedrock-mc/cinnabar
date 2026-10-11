@@ -28,7 +28,7 @@ pub(crate) fn actor_artwork(
         render_model::install_default_player_skin(skin);
     }
     let artwork = render::ActorArtworkPages::new(catalog);
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded neutral unlit actor artwork: bindings={}, textures={}, page budget rejections={}, rest pose fallbacks={} (pose_expression_unverified); lighting/tint/overlay parity incomplete",
         catalog.bindings().len(),
         catalog.textures().len(),

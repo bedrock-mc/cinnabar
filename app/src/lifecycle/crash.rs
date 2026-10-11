@@ -3,7 +3,7 @@
 use std::{
     backtrace::Backtrace,
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{IsTerminal, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -33,9 +33,16 @@ pub(crate) fn install_panic_hook(layout: &InstallLayout) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         write_report(&crash_dir, &core_log, &info.to_string());
-        // Queued log lines precede the panic message.
+        if std::io::stderr().is_terminal() {
+            diagnostics::console::console().write(
+                diagnostics::console::Stream::FileOnly,
+                format!("{info}\n{}\n", Backtrace::force_capture()).into_bytes(),
+            );
+        }
+        // Flush earlier diagnostics before the hook, then drain its raw output.
         diagnostics::console::flush_before_exit();
         previous(info);
+        diagnostics::console::flush_before_exit();
     }));
 }
 

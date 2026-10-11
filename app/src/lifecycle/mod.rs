@@ -23,20 +23,21 @@ pub fn run_first_run_setup() -> i32 {
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
     let layout = InstallLayout::discover().context("resolve install layout")?;
+    core_health::capture_client_logs(&layout);
+    crash::install_panic_hook(&layout);
+    crash::prune_reports(&layout);
     if !layout.is_installed() {
         return Ok(true);
     }
-    core_health::capture_client_stderr(&layout);
-    crash::install_panic_hook(&layout);
-    crash::prune_reports(&layout);
     if !assets_overridden && first_run::ensure_prepared(&layout)? == first_run::Outcome::Quit {
         return Ok(false);
     }
     update::check_in_background(&layout);
     if let Some(notice) = update::available(&layout) {
-        eprintln!(
+        diagnostics::log_stderr!(
             "Cinnabar {} is available (running {}).",
-            notice.latest, notice.current
+            notice.latest,
+            notice.current
         );
     }
     Ok(true)
