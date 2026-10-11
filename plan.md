@@ -9,6 +9,15 @@
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## Lightning rod terrain geometry
+
+Lightning rods compile their complete shaft and tip for all six facings, eight
+oxidation/wax variants and both powered states. Surfaces retain the authored sprite
+regions and powered texture selector. Original-art regressions cover geometry,
+material selection, carrier roundtrips and malformed states. Offline Metal frames
+cover every state beside supporting terrain; broader world-join and performance
+gates remain open.
+
 ## End rod terrain geometry
 
 End rods compile a separate shaft and mounting plate for all six integer-facing states.

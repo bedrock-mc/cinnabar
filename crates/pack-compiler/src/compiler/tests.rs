@@ -12,6 +12,8 @@ mod anvil;
 mod dragon_egg;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
+#[path = "tests/lightning_rod.rs"]
+mod lightning_rod;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/isotropic.rs"]

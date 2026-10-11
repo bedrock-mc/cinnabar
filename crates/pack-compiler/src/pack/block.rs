@@ -342,6 +342,10 @@ pub(super) fn model_variant_index(
     if count == 0 {
         return None;
     }
+    if crate::lightning_rod::is_record(record) {
+        let (_, powered) = crate::lightning_rod::state(record)?;
+        return (powered < count).then_some(powered);
+    }
     let name = record
         .name
         .strip_prefix("minecraft:")
