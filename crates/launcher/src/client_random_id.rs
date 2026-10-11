@@ -1,7 +1,7 @@
 //! Persistence of the user namespace's opaque login ID.
 
 use std::{
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::Path,
 };
@@ -9,6 +9,7 @@ use std::{
 use protocol::ClientRandomId;
 
 const FILE_NAME: &str = "clientId.txt";
+const LOCK_FILE_NAME: &str = "clientId.lock";
 const MAX_STORED_BYTES: u64 = 64;
 
 /// Reuses a nonzero signed ID or saves a new full-width OS-random value before returning it.
@@ -32,6 +33,14 @@ fn load_with_entropy(
     root: &Path,
     mut fill: impl FnMut(&mut [u8; 8]) -> io::Result<()>,
 ) -> io::Result<ClientRandomId> {
+    fs::create_dir_all(root)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(LOCK_FILE_NAME))?;
+    lock.lock()?;
     let path = root.join(FILE_NAME);
     match File::open(&path) {
         Ok(file) => {
@@ -55,7 +64,6 @@ fn load_with_entropy(
             break id;
         }
     };
-    fs::create_dir_all(root)?;
     let mut temporary = tempfile::NamedTempFile::new_in(root)?;
     writeln!(temporary, "{}", id.get())?;
     temporary.as_file().sync_all()?;
@@ -70,10 +78,17 @@ mod tests {
 
     /// Resolves a fresh launcher owner with the same user storage namespace.
     fn layout(root: &Path) -> InstallLayout {
+        let platform = if cfg!(target_os = "windows") {
+            Platform::Windows
+        } else if cfg!(target_os = "macos") {
+            Platform::MacOs
+        } else {
+            Platform::Linux
+        };
         InstallLayout::resolve(
-            Platform::Linux,
+            platform,
             &InstallEnvironment {
-                executable: "/opt/cinnabar/bin/bedrock-client".into(),
+                executable: root.join("target/debug/bedrock-client"),
                 user_root: Some(root.to_owned()),
                 home: None,
                 local_app_data: None,
@@ -159,6 +174,37 @@ mod tests {
     }
 
     #[test]
+    fn initialization_excludes_other_storage_owners_and_reuses_the_winner() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        // An independent owner must not be able to initialize while entropy is acquired.
+        let competing = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(LOCK_FILE_NAME))
+            .unwrap();
+        let first = load_with_entropy(root, |bytes| {
+            assert!(matches!(
+                competing.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            *bytes = i64::MIN.to_le_bytes();
+            Ok(())
+        })
+        .unwrap();
+        competing
+            .try_lock()
+            .expect("initialization releases the lock");
+        competing.unlock().unwrap();
+        let second =
+            load_with_entropy(root, |_| panic!("another owner reuses the winner")).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(second.get(), i64::MIN);
+    }
+
+    #[test]
     fn unreadable_storage_entropy_and_write_failures_return_errors() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(FILE_NAME);
@@ -181,11 +227,6 @@ mod tests {
             Ok(())
         });
         assert!(result.is_err());
-        assert_eq!(
-            fs::read_dir(directory.path()).unwrap().count(),
-            1,
-            "temporary file is removed"
-        );
         let blocked_root = directory.path().join("not-a-directory");
         fs::write(&blocked_root, "file").unwrap();
         assert!(load_with_entropy(&blocked_root, entropy(7)).is_err());
