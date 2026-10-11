@@ -289,6 +289,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         };
         dynamic.push(page);
     }
+    let sheets = runtime.server_ui_sheet_pages();
+    dynamic.extend((0..render_model::MAX_UI_NATIVE_SHEET_PAGES).map(|offset| {
+        sheets
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
         let old = &previous[first_dynamic + offset];

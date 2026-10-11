@@ -23,6 +23,7 @@ use render_model::UiTexturePage;
 use crate::remote_images::{RemoteImages, RemoteState, is_remote};
 
 mod frame_sidecars;
+pub(super) mod native_sheets;
 mod prepared_settings;
 mod preread;
 pub use prepared_settings::PreparedScreenSettings;
@@ -133,7 +134,7 @@ impl PackTextures {
         #[cfg(test)]
         PACK_READS.with(|reads| reads.borrow_mut().push(key.to_owned()));
         let found = self.images.get(key).and_then(|path| {
-            let bytes = self.view.read_capped(path, MAX_PACK_TEXTURE_BYTES)?;
+            let bytes = self.view.read_capped(path, resource_pack::MAX_FILE_BYTES)?;
             source(std::sync::Arc::from(bytes))
         });
         self.loaded
@@ -240,6 +241,8 @@ pub(super) struct ServerAtlas {
     /// Drawn textures too big for a page, for the full-resolution art pages.
     oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
     decodes: Decodes,
+    native_enabled: bool,
+    native: native_sheets::NativeSheets,
 }
 
 /// Decode time a frame spends inline before spilling misses to workers.
@@ -388,6 +391,46 @@ impl ServerAtlas {
         self
     }
 
+    /// Enables the original-image slots owned by the main presentation catalog.
+    pub(super) fn with_native_sheets(mut self, enabled: bool) -> Self {
+        self.native_enabled = enabled;
+        self
+    }
+
+    /// Whether this source requires original tiles instead of a fitted artwork image.
+    pub(super) fn is_native_sheet(&self, key: &str) -> bool {
+        self.native_enabled
+            && self
+                .image(key)
+                .or_else(|| self.fallback(key))
+                .is_some_and(|source| {
+                    source.size.into_iter().any(|side| {
+                        side > crate::ui_runtime::presentation::menu_artwork::WHOLE_PAGE
+                    })
+                })
+    }
+
+    /// Whether an original virtual image has finished its one-time decode.
+    pub(super) fn native_sheet_ready(&self, key: &str) -> bool {
+        self.native.get(key).is_some()
+    }
+
+    /// Original-image fragments sampled by the authored UV rectangle.
+    pub(super) fn native_quads(
+        &self,
+        key: &str,
+        uv: json_ui::UvRect,
+        dest: [f32; 4],
+    ) -> Option<Vec<native_sheets::Quad>> {
+        let (sheet, first) = self.native.get(key)?;
+        Some(sheet.quads(uv, dest, first))
+    }
+
+    /// Original virtual-image pages, separate from the ordinary small atlas.
+    pub(super) fn native_pages(&self) -> &[UiTexturePage] {
+        self.native.pages()
+    }
+
     /// Whether the pack has an image at `key`, without reading it.
     pub(super) fn has_image(&self, key: &str) -> bool {
         self.sources.contains_key(key)
@@ -487,7 +530,7 @@ impl ServerAtlas {
                         let root = self.vanilla.as_ref()?;
                         IMAGE_EXTENSIONS.iter().find_map(|extension| {
                             let path = vanilla_path(root, &format!("{relative}{extension}"))?;
-                            (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES)
+                            (std::fs::metadata(&path).ok()?.len() <= resource_pack::MAX_FILE_BYTES)
                                 .then_some(())?;
                             exact_case(&path).then_some(())?;
                             source(std::fs::read(path).ok()?.into())
@@ -525,7 +568,7 @@ impl ServerAtlas {
 
     /// `true` once since the page images last changed.
     pub(super) fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.dirty)
+        std::mem::take(&mut self.dirty) | self.native.take_dirty()
     }
 
     /// Make every texture in `keys` resident for this frame: pack textures, then
@@ -534,10 +577,17 @@ impl ServerAtlas {
     pub(super) fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
         self.decodes.collect();
+        self.native.collect();
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.
         let mut missing = Vec::new();
         for key in keys {
+            if self.is_native_sheet(key) {
+                if let Some(source) = self.image(key).or_else(|| self.fallback(key)) {
+                    self.native.request(key, &source);
+                }
+                continue;
+            }
             match self.resident.get(key) {
                 Some(texture) => self.pages[usize::from(texture.page)].used = self.clock,
                 None => missing.push(key),
@@ -677,6 +727,7 @@ fn exact_case(path: &std::path::Path) -> bool {
 
 /// A decodable image as a source.
 fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
+    (bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES).then_some(())?;
     let size = dimensions(&bytes)?;
     Some(Source {
         bytes,
@@ -689,9 +740,9 @@ fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
 const MAX_OVERSIZED: usize = 16;
 
 /// Largest source side decoded, as a desktop texture allows; bigger images are skipped.
-const MAX_SOURCE_SIDE: u32 = 16_384;
-/// Largest source area decoded (a 4096 square), bounding decode memory.
-const MAX_SOURCE_PIXELS: u64 = 4096 * 4096;
+const MAX_SOURCE_SIDE: u32 = render_model::MAX_UI_NATIVE_SHEET_SIDE;
+/// Original-image bytes remain within the independent virtual-sheet budget.
+const MAX_SOURCE_PIXELS: u64 = render_model::MAX_UI_NATIVE_SHEET_BYTES as u64 / 4;
 
 /// A png's size from its header, when within the decode bound.
 fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
@@ -727,6 +778,12 @@ fn fitted(size: [u32; 2]) -> [u32; 2] {
 
 /// RGBA8 pixels of a bounded image at `size`, or `None` when undecodable.
 fn decode(bytes: &[u8], size: [u32; 2]) -> Option<Vec<u8>> {
+    let original = dimensions(bytes)?;
+    if u64::from(original[0]) * u64::from(original[1])
+        > u64::from(render_model::MAX_UI_TEXTURE_SIDE).pow(2)
+    {
+        return None;
+    }
     let mut reader = reader(bytes)?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SOURCE_SIDE);

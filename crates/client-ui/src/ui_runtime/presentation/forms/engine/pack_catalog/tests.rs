@@ -8,6 +8,7 @@ use super::layer_pack_catalog;
 
 mod admitted_titles;
 mod effects;
+mod large_animation;
 mod nested_titles;
 mod retained_titles;
 mod sliced_frames;

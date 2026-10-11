@@ -44,7 +44,7 @@ impl TextureSet {
     pub(super) fn new(first_page: u16) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
         Self {
-            atlas: Mutex::new(ServerAtlas::new(&[], None, pages)),
+            atlas: Mutex::new(ServerAtlas::new(&[], None, pages).with_native_sheets(true)),
             first_page,
             ..Self::default()
         }
@@ -101,6 +101,7 @@ impl TextureSet {
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
         let atlas = atlas
+            .with_native_sheets(!self.confined)
             .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
             .with_carrier(self.carrier.clone());
         self.atlas = Mutex::new(atlas);
@@ -240,6 +241,40 @@ impl Textures<'_> {
         }
         let pixels = self.texture(path)?.pixels;
         ([f64::from(sprite.1[2]), f64::from(sprite.1[3])] == pixels).then_some(sprite)
+    }
+
+    /// Whether animation resource readiness comes from the native sheet or ordinary artwork.
+    pub(super) fn animation_ready(&self, path: &str) -> bool {
+        if self.native_sheet(path) {
+            self.atlas.native_sheet_ready(&self.canonical(path))
+        } else {
+            self.animation_sprite(path).is_some()
+        }
+    }
+
+    /// Original images bypass fitted previews while their worker prepares exact texels.
+    pub(super) fn native_sheet(&self, path: &str) -> bool {
+        !self.set.confined
+            && self.image(path).is_none()
+            && self.admits(path)
+            && self.atlas.is_native_sheet(&self.canonical(path))
+    }
+
+    /// Maps a virtual image to its reserved logical pages without changing source UV units.
+    pub(super) fn native_quads(
+        &self,
+        path: &str,
+        uv: json_ui::UvRect,
+        dest: [f32; 4],
+    ) -> Option<Vec<super::server_pack::native_sheets::Quad>> {
+        let mut quads = self.atlas.native_quads(&self.canonical(path), uv, dest)?;
+        let first = usize::from(self.set.server_page)
+            .checked_sub(super::super::dynamic_textures::SERVER_UI_PAGE)?
+            + render_model::UI_NATIVE_SHEET_PAGE_OFFSET;
+        for quad in &mut quads {
+            quad.page += first;
+        }
+        Some(quads)
     }
 }
 

@@ -286,3 +286,29 @@ fn vanilla_fallback_rejects_parent_paths_and_symlink_escapes() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
+    let mut pixels = image::RgbaImage::new(1536, 1024);
+    let mut noise = 0x8a35_7d21u32;
+    for pixel in pixels.pixels_mut() {
+        let mut bytes = [0; 4];
+        for byte in &mut bytes {
+            noise ^= noise << 13;
+            noise ^= noise >> 17;
+            noise ^= noise << 5;
+            *byte = noise as u8;
+        }
+        *pixel = image::Rgba(bytes);
+    }
+    let mut encoded = Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let encoded = encoded.into_inner();
+    assert!(encoded.len() as u64 > resource_pack::MAX_PACK_TEXTURE_BYTES);
+    let key = "textures/ui/original_noise";
+    let view = super::external_paths_tests::view(&[(format!("{key}.png"), encoded)]);
+    let atlas = ServerAtlas::new(&[], Some(view), 1);
+    assert_eq!(atlas.image_size(key), Some([1536.0, 1024.0]));
+}

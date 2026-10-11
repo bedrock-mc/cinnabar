@@ -402,6 +402,14 @@ impl UiPresentationRuntime {
             .map_or(&[], |engine| &engine.server_pages)
     }
 
+    /// Immutable original-image tiles owned by the active resource-pack namespace.
+    pub(super) fn server_ui_sheet_pages(&self) -> &[render_model::UiTexturePage] {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or(&[], |engine| &engine.server_sheet_pages)
+    }
+
     /// Applies the runtime's server UI pack when it changes identity.
     pub(super) fn observe_server_ui(&mut self, pack: Option<&Arc<ServerUiPack>>) {
         let Some(engine) = self.form_presentation.engine.as_mut() else {
