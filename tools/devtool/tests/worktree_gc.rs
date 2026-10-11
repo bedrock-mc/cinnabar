@@ -400,6 +400,44 @@ mod unix {
     }
 
     #[test]
+    fn fork_push_url_matches_the_forks_open_pr() {
+        let repo = Repo::new();
+        let path = repo.worktree("forked");
+        repo.git(&[
+            "config",
+            "remote.origin.pushurl",
+            "https://github.com/fork-owner/cinnabar.git",
+        ]);
+        repo.script(
+            "gh",
+            &format!(
+                "#!/bin/sh\nprintf '[%s]' '{}'\n",
+                pr_json("OPEN", &repo.head(&path), "fork-owner")
+            ),
+        );
+        assert_eq!(repo.verdict("forked"), "verdict=keep reason=\"open PR\"");
+    }
+
+    #[test]
+    fn unborn_worktree_is_kept_without_aborting_the_report() {
+        let repo = Repo::new();
+        let orphan = repo.worktree("orphan-base");
+        git_at(
+            &orphan,
+            &["checkout", "--quiet", "--orphan", "unborn"],
+            None,
+        );
+        repo.worktree("later");
+        assert!(repo.verdict("later").starts_with("verdict="));
+        let report = String::from_utf8(repo.gc(&[]).stdout).unwrap();
+        let line = report
+            .lines()
+            .find(|line| line.contains("orphan-base "))
+            .unwrap_or_else(|| panic!("unborn worktree missing: {report}"));
+        assert!(line.contains("verdict=keep"), "{line}");
+    }
+
+    #[test]
     fn unavailable_process_checks_keep_worktrees() {
         let repo = Repo::new();
         repo.worktree("unknown-process");

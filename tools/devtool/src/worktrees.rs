@@ -62,9 +62,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         )));
     }
     // Only Git's line ending is stripped; a path may itself end in whitespace.
-    let root = PathBuf::from(
-        git(Path::new("."), &["rev-parse", "--show-toplevel"])?.trim_end_matches(['\n', '\r']),
-    );
+    let toplevel = git(Path::new("."), &["rev-parse", "--show-toplevel"])?;
+    let root = PathBuf::from(toplevel.strip_suffix('\n').unwrap_or(&toplevel));
     let worktrees = parse_worktrees(&git(&root, &["worktree", "list", "--porcelain", "-z"])?);
     for (index, wt) in worktrees.iter().enumerate() {
         let state = inspect(wt)?;
@@ -182,25 +181,29 @@ fn parse_worktrees(text: &str) -> Vec<Worktree> {
 
 /// Reads fresh Git and GitHub state; failures prevent automatic deletion.
 fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
+    let unknown = || State {
+        branch: None,
+        dirty: true,
+        unpushed: true,
+        pr: None,
+        pr_unknown: true,
+        retired: false,
+        pushed_age: None,
+        age: None,
+        processes: Processes::Unknown,
+    };
     if wt.unavailable || !wt.path.is_dir() {
-        return Ok(State {
-            branch: None,
-            dirty: true,
-            unpushed: true,
-            pr: None,
-            pr_unknown: true,
-            retired: false,
-            pushed_age: None,
-            age: None,
-            processes: Processes::Unknown,
-        });
+        return Ok(unknown());
     }
     let dirty = !git(
         &wt.path,
         &["status", "--porcelain", "--untracked-files=all"],
     )?
     .is_empty();
-    let (branch, head) = checkout(&wt.path)?;
+    // An unborn branch has no HEAD to classify; keep it without aborting the report.
+    let Ok((branch, head)) = checkout(&wt.path) else {
+        return Ok(State { dirty, ..unknown() });
+    };
     let lookup = pull_request(&wt.path, branch.as_deref());
     let pr_unknown = lookup.is_none();
     let request = lookup.flatten();
@@ -304,7 +307,7 @@ fn pull_request(path: &Path, branch: Option<&str>) -> Option<Option<PullRequest>
 }
 
 /// Returns the GitHub `(owner, name)` that `branch` is pushed to, read from its push or upstream
-/// remote's configured URL.
+/// remote's configured push URL, falling back to its URL.
 fn publishing_repository(path: &Path, branch: &str) -> Option<(String, String)> {
     let config = |key: String| {
         git(path, &["config", "--get", &key])
@@ -315,7 +318,10 @@ fn publishing_repository(path: &Path, branch: &str) -> Option<(String, String)> 
         .or_else(|| config("remote.pushDefault".into()))
         .or_else(|| config(format!("branch.{branch}.remote")))
         .unwrap_or_else(|| "origin".into());
-    github_repository(&config(format!("remote.{remote}.url"))?)
+    github_repository(
+        &config(format!("remote.{remote}.pushurl"))
+            .or_else(|| config(format!("remote.{remote}.url")))?,
+    )
 }
 
 /// Parses `owner/name` from HTTPS, SSH, or scp-style GitHub URLs.
