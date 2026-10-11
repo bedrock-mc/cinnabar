@@ -26,14 +26,18 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
-| Final status | Open |
+| Owning plan/task | Numbered raster pack skyboxes and optional native vertical placement in `plan.md`; broader atmosphere work remains open. |
+| Deterministic tests | Pack admission/reload regressions cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
+| Review commit | Skybox tranche tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Live/native witness | Retained-pack offline GPU views and both Video setting states were inspected. Current-server full-client acceptance remains open. |
+| Performance/resource witness | Existing raster byte, dimension and allocation bounds remain; texture-cache regressions cover stable frames. Live frame and join budgets remain open. |
+| Final status | Open — numbered PNG/TGA/JPEG skyboxes are implemented; HDR/KTX, enhanced rendering and broader atmosphere acceptance remain open. |
 
 ## P3-MOVEMENT
+
+Spectator regressions cover forced flight without MayFly, solid and unloaded
+terrain traversal, and embedded server anchors. The full native trajectory,
+platform, and performance gates remain open.
 
 | Field | Evidence |
 |---|---|
@@ -45,6 +49,12 @@
 | Final status | Open -- deterministic integration advanced; normal Physics enable and binding live evidence remain gated. |
 
 ## P3.4-INPUT-CAMERA
+
+Spectator hand suppression and no-clip inside-block overlays have owning
+behavioral regressions. Runtime skin controller visibility precedes equipment, and
+authored opacity has a GPU regression. The spectator material fallback remains
+provisional; version-matched stock materials, custom controller geometry, persona,
+and exact native and platform comparison remain open.
 
 | Field | Evidence |
 |---|---|
@@ -68,6 +78,11 @@
 
 ## P4.4-LIVE-ACTOR
 
+Stock wolf texture admission preserves controller-selected adult/baby variants
+and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
+updates. Wet shading, custom-material composition, and exact target-version stock
+material/shader linkage remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Not started |
@@ -81,10 +96,10 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
+| Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
+| Deterministic tests | Local/remote event admission, equipped-item snapshot across delayed publication, equipment-only hands, consumption ordering, retrigger, expiry, session retirement, partial ticks, bounded stall time, activation before the frame clock update, full-viewport scissor and retained clipping, viewport/layer placement, admitted texture replacement/removal and authored particle routing/attachment. |
+| Review commit | Totem implementation: `590c2039e`; broader item actions remain open. |
+| Live/native witness | Totem camera event/icon behavior and local authored-emitter routing verified; full-client default/custom activation, main-hand fallback, retrigger and remote/empty exclusion pass. Broader item actions remain open. |
 | Performance/resource witness | Not started |
 | Final status | Open |
 
@@ -93,7 +108,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Compact font carriers and glyph residency; broader UI parity remains open. |
-| Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. |
+| Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. Original large-sheet UV, loop, reload and independent residency-budget regressions cover tiled UI images. |
 | Review commit | Not started |
 | Live/native witness | Exact coverage/SDF GPU pixels and mixed-script offline frames; native Bedrock UI parity remains open. |
 | Performance/resource witness | Font storage is bounded and development-profile first-menu startup is measured; release hitch and hardware-tier qualification remain open. |
@@ -169,12 +184,12 @@
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters |
-| Deterministic tests | Not started |
-| Review commit | Not started |
-| Live/native witness | Not started |
-| Performance/resource witness | Not started |
-| Final status | Open |
+| Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
+| Deterministic tests | Launcher regression covers default-on, old saves, both saved values, subsystem projection and Video reset. Offline JSON-UI regression reaches and renders both toggle states. |
+| Review commit | Skybox option tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
+| Live/native witness | Both offline Video control states were inspected; full settings and current-server acceptance remain open. |
+| Performance/resource witness | Full settings performance witness remains open. |
+| Final status | Open — the skybox option is implemented; the complete settings gate is not closed. |
 
 The standalone setup window belongs to `first-run`. Its preparation tests move with it;
 menu integration tests stay in `app`. Account, process and persistence tests belong to

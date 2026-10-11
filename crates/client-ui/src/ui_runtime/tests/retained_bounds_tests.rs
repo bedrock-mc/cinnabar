@@ -23,7 +23,6 @@ use ui::{
     MAX_SCOREBOARD_RETAINED_TEXT_BYTES,
 };
 
-use super::gameplay_hud_tests::RENDERABLE_EFFECT_IDS;
 use super::*;
 
 fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
@@ -116,7 +115,12 @@ fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntim
 
     // Every renderable effect at once, full stats, a mirrored hotbar, and
     // titles.
-    for (index, effect_id) in RENDERABLE_EFFECT_IDS.into_iter().enumerate() {
+    let effect_ids: Vec<_> = assets::EFFECT_DESCRIPTORS
+        .iter()
+        .filter(|descriptor| descriptor.icon.is_some())
+        .map(|descriptor| descriptor.id)
+        .collect();
+    for (index, effect_id) in effect_ids.iter().copied().enumerate() {
         runtime
             .apply_local_effect(
                 1,
@@ -190,7 +194,10 @@ fn retained_memory_stays_inside_documented_budgets_with_every_surface_active() {
     assert!(runtime.boss_bars().retained_text_bytes() <= ui::MAX_BOSS_RETAINED_TEXT_BYTES);
     assert_eq!(
         runtime.gameplay_hud().effects().len(),
-        RENDERABLE_EFFECT_IDS.len()
+        assets::EFFECT_DESCRIPTORS
+            .iter()
+            .filter(|effect| effect.icon.is_some())
+            .count()
     );
     assert_eq!(runtime.boss_bars().stacked().len(), 8);
 }

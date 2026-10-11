@@ -43,6 +43,7 @@ resource-pack = { path = "../resource-pack" }
 
 [dev-dependencies]
 launcher-host = { path = "../launcher-host", features = ["test-support"] }
+test-time = { path = "../test-time" }
 tempfile = "3"
 protocol = { path = "../protocol", features = ["wire-test-support"] }
 mod-host = { path = "../mod-host" }

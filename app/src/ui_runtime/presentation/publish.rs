@@ -105,6 +105,8 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
     prepared.0 = None;
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    runtime.advance_item_activation(now_millis);
     runtime.set_toast_lifetime(menu_runtime.settings_snapshot().0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
         *glint_settings = menu_runtime.ui_glint_settings();
@@ -128,7 +130,6 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(
@@ -234,6 +235,7 @@ pub(crate) fn prepare_ui_runtime(
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
         settings.value("hide_hud") != 0,
         settings.value("hide_hand") != 0,
+        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
     );
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
@@ -307,7 +309,7 @@ pub(crate) fn prepare_ui_runtime(
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.
     presentation.hud_frame_mut().player_block = local_frame.snapshot().map(|frame| {
-        let feet = frame.pose().translation;
+        let feet = frame.feet();
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
@@ -446,10 +448,9 @@ fn station_triggered(
         stream.current_dimension(),
     );
     let runtime_id = world.primary_runtime_id(position).ok()?;
-    client_ui::ui_runtime::presentation::forms::container_data::state_bit(
-        collisions.block_canonical_state(mode, runtime_id)?,
-        "triggered_bit",
-    )
+    assets::pinned_block_presentation_states()
+        .get(mode, runtime_id)
+        .crafter_triggered
 }
 
 /// Captures nametag picking with gameplay's reach and collision policy before UI projection.

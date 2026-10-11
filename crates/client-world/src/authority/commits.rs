@@ -202,6 +202,12 @@ impl WorldAuthority {
                 } else {
                     None
                 };
+                if matches!(&event, ActorEvent::Status(status)
+                    if status.runtime_id == self.local_player_runtime_id
+                        && status.kind == protocol::ActorStatusKind::TotemActivate)
+                {
+                    self.push_committed_ui(CommittedUiEvent::LocalTotemActivation { sequence });
+                }
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some(position) = pickup_position

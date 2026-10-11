@@ -4,6 +4,7 @@ use super::super::*;
 pub(in crate::actor_animation) struct GeometryCheckpoint {
     rig: EntityRigId,
     sampling: [bool; 3],
+    presentation_expressions: evaluation::PresentationReads,
     swell_sampling: Option<Arc<render_frame::swell::SwellSampling>>,
     binding: usize,
     bones: Vec<RuntimeBone>,
@@ -27,6 +28,7 @@ impl GeometryCheckpoint {
                 state.samples_swing_poses,
                 state.samples_render_frames,
             ],
+            presentation_expressions: state.presentation_expressions,
             swell_sampling: state.swell_sampling.take(),
             binding: state.geometry_binding,
             bones: std::mem::take(&mut state.bones),
@@ -49,6 +51,7 @@ impl GeometryCheckpoint {
             state.samples_swing_poses,
             state.samples_render_frames,
         ] = self.sampling;
+        state.presentation_expressions = self.presentation_expressions;
         state.swell_sampling = self.swell_sampling;
         state.geometry_binding = self.binding;
         state.bones = self.bones;

@@ -62,6 +62,54 @@ fn owner_store(
     store
 }
 
+#[test]
+fn cached_attachable_visibility_tracks_changed_offhand_use_duration() {
+    let mut compiled = owner_reference_tests::compiled_fixture(true);
+    compiled.rig_geometries[0].animation_count = 0;
+    compiled.rig_animations = Box::new([]);
+    compiled.render.layers[0].condition = Some(0);
+    compiled.molang_symbols[1].identifier = "query.item_remaining_use_duration".into();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::String,
+        identifier: "off_hand".into(),
+    });
+    compiled.molang_symbols = symbols.into();
+    compiled.molang_ops = [
+        MolangOp::PushString(4),
+        MolangOp::Push(assets::EntityGeometryScalar::new(1.0).unwrap()),
+        MolangOp::CallQuery(MolangCall {
+            symbol: 1,
+            arguments: 2,
+        }),
+        MolangOp::Push(assets::EntityGeometryScalar::new(0.75).unwrap()),
+        MolangOp::Greater,
+    ]
+    .into();
+    compiled.molang_expressions[0].op_count = 5;
+    compiled.molang_expressions[0].max_stack = 2;
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    let mut runtime = AttachablesRuntime::new(Arc::clone(&assets));
+    let input = AttachableAnimationInput {
+        use_elapsed_ticks: Some(5),
+        max_use_ticks: 25,
+        ..Default::default()
+    };
+    for (duration, expected) in [(20, true), (20, true), (40, false)] {
+        let context = ActorTickContext {
+            off_hand_max_use_ticks: duration,
+            ..Default::default()
+        };
+        let store = owner_store(&assets, &owner, &context);
+        let rig = store.snapshots().next().unwrap();
+        let visible = runtime
+            .evaluate("minecraft:test_item", &owner, &rig, input)
+            .is_some_and(|pose| !pose.render.is_empty());
+        assert_eq!(visible, expected);
+    }
+}
+
 /// Reads the owning-entity predicate through an actual worn animation weight.
 fn translation(property: bool, context: &ActorTickContext, owner: &ActorSnapshot) -> f32 {
     let assets = query_fixture(property);

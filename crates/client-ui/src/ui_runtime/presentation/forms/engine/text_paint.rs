@@ -7,15 +7,45 @@ use std::{borrow::Cow, cell::RefCell, sync::Arc};
 use assets::RuntimeFontCatalog;
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
-    TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow, TextWrap, UiNode, UiScale,
-    UiVisual, WordChop,
+    FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
+    TextWrap, UiNode, UiScale, UiVisual, WordChop,
 };
 
 use super::super::super::{TextMetrics, UiPresentationError, rect};
-use super::Painter;
+use super::{Painter, tooltip::TEXT_PITCH};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 pub(in super::super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
+
+/// Default bitmap labels use the font's native wrap height, independently of chat's pitch.
+/// Attached named fonts keep their existing metrics instead of inheriting bitmap geometry.
+fn label_metrics(
+    mut metrics: TextMetrics,
+    default: &RuntimeFontCatalog,
+    selected: &RuntimeFontCatalog,
+) -> TextMetrics {
+    if std::ptr::eq(default, selected) {
+        metrics.line_height_64 = TEXT_PITCH * FONT_DESIGN_PIXEL_TEXELS * 64;
+    }
+    metrics
+}
+
+/// Native bitmap UI text starts one GUI pixel below the authored label top. The inset is
+/// independent of font size; painting and glyph interaction use this same origin.
+pub(in super::super) fn label_origin(
+    dest: [f32; 4],
+    font: &RuntimeFontCatalog,
+    options: &TextOptions,
+    px: f32,
+) -> [f32; 2] {
+    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    let inset = if std::ptr::eq(font, selected) {
+        px
+    } else {
+        0.0
+    };
+    [dest[0], dest[1] + inset]
+}
 
 #[derive(Clone)]
 pub(super) struct TextPaint {
@@ -94,6 +124,32 @@ pub(super) struct Measure<'a, 'b> {
     pub(super) translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
 }
 
+impl Measure<'_, '_> {
+    /// Measures with the selected face while keeping the default bitmap's label metrics
+    /// separate from an attached named font and the shared chat metrics.
+    fn font_label(
+        &self,
+        text: &str,
+        max_width: Option<f64>,
+        shape: LabelShape,
+        font: &RuntimeFontCatalog,
+    ) -> [f64; 2] {
+        if text.is_empty() {
+            return [0.0, 0.0];
+        }
+        let px = f64::from(self.px);
+        let width = max_width
+            .filter(|width| *width > 0.0)
+            .map_or(UNWRAPPED_LOGICAL, |width| width * px);
+        let metrics = label_metrics(self.metrics, self.font, font);
+        let request = label_request(&metrics, text, width, font, shape, self.px);
+        match self.layouts.borrow_mut().layout(request) {
+            Ok(layout) => layout.size_64().map(|size| f64::from(size) / 64.0 / px),
+            Err(_) => [0.0, 0.0],
+        }
+    }
+}
+
 impl TextMeasure for Measure<'_, '_> {
     fn extent(&self, text: &str) -> [f64; 2] {
         self.wrapped(text, UNWRAPPED_LOGICAL / f64::from(self.px))
@@ -112,18 +168,7 @@ impl TextMeasure for Measure<'_, '_> {
     }
 
     fn label(&self, text: &str, max_width: Option<f64>, shape: LabelShape) -> [f64; 2] {
-        if text.is_empty() {
-            return [0.0, 0.0];
-        }
-        let px = f64::from(self.px);
-        let width = max_width
-            .filter(|width| *width > 0.0)
-            .map_or(UNWRAPPED_LOGICAL, |width| width * px);
-        let request = label_request(&self.metrics, text, width, self.font, shape, self.px);
-        match self.layouts.borrow_mut().layout(request) {
-            Ok(layout) => layout.size_64().map(|size| f64::from(size) / 64.0 / px),
-            Err(_) => [0.0, 0.0],
-        }
+        self.font_label(text, max_width, shape, self.font)
     }
 
     /// Keeps label shaping while selecting the pack's named font.
@@ -134,11 +179,7 @@ impl TextMeasure for Measure<'_, '_> {
         width: Option<f64>,
         shape: LabelShape,
     ) -> [f64; 2] {
-        let measure = Measure {
-            font: self.font.font_named(font),
-            ..*self
-        };
-        measure.label(text, width, shape)
+        self.font_label(text, width, shape, self.font.font_named(font))
     }
 
     fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
@@ -163,11 +204,13 @@ pub(in super::super) fn painted_label_request<'a>(
         line_padding: f64::from(options.line_padding),
         hide_hyphen: options.hide_hyphen,
     };
+    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    let label_metrics = label_metrics(metrics, font, selected);
     let mut request = label_request(
-        &metrics,
+        &label_metrics,
         text,
         f64::from(dest[2] - dest[0]),
-        font.font_named(options.font_type.as_deref().unwrap_or("default")),
+        selected,
         shape,
         px,
     );
@@ -220,6 +263,7 @@ impl Painter<'_> {
             return Ok(());
         };
         let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
+        let [left, top] = label_origin(dest, self.font, &style.options, self.px);
         let parent = self.group(clip)?;
         let id = self.id();
         self.nodes.push(
@@ -227,10 +271,10 @@ impl Painter<'_> {
                 id,
                 Some(parent),
                 rect(
-                    dest[0] - clip[0],
-                    dest[1] - clip[1],
-                    dest[0] + width.max(1.0) - clip[0],
-                    dest[1] + height - clip[1],
+                    left - clip[0],
+                    top - clip[1],
+                    left + width.max(1.0) - clip[0],
+                    top + height - clip[1],
                 )?,
             )
             .with_visual(UiVisual::Text {

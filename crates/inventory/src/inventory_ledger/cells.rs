@@ -1,6 +1,7 @@
 //! Retained cell values shared by confirmed server truth and the folded view.
 
 use protocol::NetworkItemStack;
+use std::sync::Arc;
 
 use super::{PLAYER_INVENTORY_SLOT_COUNT, StackResponseOverlay};
 
@@ -64,25 +65,25 @@ impl Held {
 
 #[derive(Debug, Clone)]
 pub(super) struct Cells {
-    player: [Option<Held>; PLAYER_INVENTORY_SLOT_COUNT],
+    player: Arc<[Option<Held>; PLAYER_INVENTORY_SLOT_COUNT]>,
     cursor: Option<Held>,
-    storage: Vec<Option<Held>>,
-    armor: [Option<Held>; ARMOR_CELLS],
+    storage: Arc<Vec<Option<Held>>>,
+    armor: Arc<[Option<Held>; ARMOR_CELLS]>,
     offhand: Option<Held>,
     /// Screen inputs and grids, indexed by UI inventory slot.
-    craft: [Option<Held>; protocol::UI_SLOT_COUNT],
+    craft: Arc<[Option<Held>; protocol::UI_SLOT_COUNT]>,
     created_output: Option<Held>,
 }
 
 impl Default for Cells {
     fn default() -> Self {
         Self {
-            player: std::array::from_fn(|_| None),
+            player: Arc::new(std::array::from_fn(|_| None)),
             cursor: None,
-            storage: Vec::new(),
-            armor: std::array::from_fn(|_| None),
+            storage: Arc::default(),
+            armor: Arc::new(std::array::from_fn(|_| None)),
             offhand: None,
-            craft: std::array::from_fn(|_| None),
+            craft: Arc::new(std::array::from_fn(|_| None)),
             created_output: None,
         }
     }
@@ -133,18 +134,18 @@ impl Cells {
 
     fn entry(&mut self, cell: Cell) -> Option<&mut Option<Held>> {
         match cell {
-            Cell::Inventory(slot) => self.player.get_mut(usize::from(slot)),
-            Cell::Storage(slot) => self.storage.get_mut(usize::from(slot)),
+            Cell::Inventory(slot) => Arc::make_mut(&mut self.player).get_mut(usize::from(slot)),
+            Cell::Storage(slot) => Arc::make_mut(&mut self.storage).get_mut(usize::from(slot)),
             Cell::Cursor => Some(&mut self.cursor),
-            Cell::Armor(slot) => self.armor.get_mut(usize::from(slot)),
+            Cell::Armor(slot) => Arc::make_mut(&mut self.armor).get_mut(usize::from(slot)),
             Cell::Offhand => Some(&mut self.offhand),
-            Cell::Craft(slot) => self.craft.get_mut(craft_index(slot)?),
+            Cell::Craft(slot) => Arc::make_mut(&mut self.craft).get_mut(craft_index(slot)?),
             Cell::CreatedOutput => Some(&mut self.created_output),
         }
     }
 
     pub(super) fn replace_storage(&mut self, slots: &[NetworkItemStack]) {
-        self.storage = slots.iter().map(Held::new).collect();
+        self.storage = Arc::new(slots.iter().map(Held::new).collect());
     }
 
     /// Overwrites the run starting at `first`, growing the window up to `max_len`.
@@ -161,14 +162,14 @@ impl Cells {
             if index >= end {
                 break;
             }
-            self.storage[index] = Held::new(stack);
+            Arc::make_mut(&mut self.storage)[index] = Held::new(stack);
         }
     }
 
     /// Grows the window to at least `len` empty cells.
     pub(super) fn ensure_storage(&mut self, len: usize) {
         if self.storage.len() < len {
-            self.storage.resize_with(len, || None);
+            Arc::make_mut(&mut self.storage).resize_with(len, || None);
         }
     }
 
@@ -177,12 +178,12 @@ impl Cells {
     }
 
     pub(super) fn clear_storage(&mut self) {
-        self.storage = Vec::new();
+        self.storage = Arc::default();
     }
 
     /// Empties every screen input, grid cell and the created output.
     pub(super) fn clear_ui(&mut self) {
-        self.craft = std::array::from_fn(|_| None);
+        self.craft = Arc::new(std::array::from_fn(|_| None));
         self.created_output = None;
     }
 
@@ -228,4 +229,27 @@ impl Cells {
 fn craft_index(slot: u8) -> Option<usize> {
     (slot != protocol::CREATED_OUTPUT_SLOT && protocol::ui_slot_container_name(slot).is_some())
         .then_some(usize::from(slot))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cloned_cells_share_storage_and_only_written_surfaces_detach() {
+        let mut cells = Cells::default();
+        cells.ensure_storage(512);
+        let captured = cells.clone();
+        assert!(Arc::ptr_eq(&cells.player, &captured.player));
+        assert!(Arc::ptr_eq(&cells.storage, &captured.storage));
+        let mut stack = NetworkItemStack::empty();
+        stack.network_id = 1;
+        stack.count = 1;
+        cells.set(Cell::Storage(4), Held::new(&stack));
+        assert!(captured.get(Cell::Storage(4)).is_none());
+        assert_eq!(cells.get(Cell::Storage(4)).unwrap().stack.count, 1);
+        assert!(!Arc::ptr_eq(&cells.storage, &captured.storage));
+        assert!(Arc::ptr_eq(&cells.player, &captured.player));
+        assert!(Arc::ptr_eq(&cells.craft, &captured.craft));
+    }
 }

@@ -481,7 +481,9 @@ fn vanilla_form_button_images_resolve() {
     let engine = presentation.form_presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    launcher_host::remote_images::tests::settle(&remote, &url);
+    test_time::wait_until(std::time::Duration::from_secs(5), || {
+        remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
+    });
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     let (drawn, missing) = presentation
         .form_presentation
@@ -500,8 +502,7 @@ fn vanilla_form_button_images_resolve() {
     assert!(missing.is_empty());
 }
 
-// A server-pack image bigger than a server page (Zeqa's 1992x669 title) draws
-// from its full-resolution art copy, point-sampled, not the 256px downscale.
+// An image larger than an art page samples its original source extent.
 #[test]
 fn large_server_pack_images_draw_at_full_resolution() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -513,8 +514,9 @@ fn large_server_pack_images_draw_at_full_resolution() {
         );
         return;
     };
+    const SIZE: [u32; 2] = [1992, 669];
     let mut png = Vec::new();
-    image::RgbaImage::from_pixel(1992, 669, image::Rgba([200, 30, 40, 255]))
+    image::RgbaImage::from_pixel(SIZE[0], SIZE[1], image::Rgba([200, 30, 40, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     presentation.set_server_ui_pack(&ServerUiPack {
@@ -532,18 +534,17 @@ fn large_server_pack_images_draw_at_full_resolution() {
             "textures/ui/big_logo".into(),
         ))],
     );
-    render(&mut presentation, &runtime, [1280, 720], 1.0);
-    presentation.finish_menu_artwork();
-    let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
-    let widths: Vec<u16> = nodes
-        .iter()
-        .filter_map(|node| match node.visual() {
-            UiVisual::Sprite { uv, .. } => Some(uv[2] - uv[0]),
-            _ => None,
-        })
-        .collect();
-    assert!(widths.contains(&1022), "{widths:?}");
-    assert!(!widths.contains(&256), "{widths:?}");
+    test_time::eventually("original extent of oversized server artwork", || {
+        let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
+        let widths: Vec<u16> = nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                UiVisual::Sprite { uv, .. } => Some(uv[2] - uv[0]),
+                _ => None,
+            })
+            .collect();
+        widths.contains(&(SIZE[0] as u16)) && !widths.contains(&256)
+    });
 }
 
 /// Button text shaped like a server's two-line entries plus a description.

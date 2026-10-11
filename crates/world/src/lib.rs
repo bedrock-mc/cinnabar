@@ -61,6 +61,9 @@ pub const TICKS_PER_SECOND: u32 = 20;
 /// Vanilla's per-frame tick cap; a frame further behind discards the excess whole ticks.
 pub const MAX_TICKS_PER_FRAME: u32 = 10;
 
+/// Maximum elapsed time admitted by the client timer in one rendered frame.
+pub const MAX_FRAME_ELAPSED: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Duration of one simulation tick.
 pub const TICK_DURATION: std::time::Duration = std::time::Duration::from_nanos(
     std::time::Duration::from_secs(1).as_nanos() as u64 / TICKS_PER_SECOND as u64,

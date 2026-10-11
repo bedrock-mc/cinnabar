@@ -90,6 +90,7 @@ fn decode_with_credits(
             },
             |item| {
                 match item {
+                    grammar::ScreenItem::Skipped => screens.skipped += 1,
                     grammar::ScreenItem::Multi { uuid, id } => {
                         screens.multi.push(MultiRecipe { uuid, id })
                     }
@@ -120,13 +121,9 @@ fn decode_with_credits(
                 Ok(())
             },
         )?;
-        // Ambiguous duplicate ids are dropped like ambiguous crafting records.
-        let ids: Vec<u32> = screens.recipes.iter().map(|recipe| recipe.id).collect();
-        screens
-            .recipes
-            .retain(|recipe| ids.iter().filter(|id| **id == recipe.id).count() == 1);
         records.sort_unstable_by_key(|record| record.id);
         // Ambiguous duplicates are tombstones, independent of arrival order.
+        let mut duplicates = Vec::new();
         let mut output = 0;
         let mut input = 0;
         while input < records.len() {
@@ -137,19 +134,39 @@ fn decode_with_credits(
             }
             if end != input + 1 {
                 records[input].recipe = None;
+                duplicates.push(id);
             }
             records.swap(output, input);
             output += 1;
             input = end;
         }
         records.truncate(output);
+        screens.recipes.sort_unstable_by_key(|recipe| recipe.id);
+        screens.multi.sort_unstable_by_key(|recipe| recipe.id);
+        // Duplicates across all families invalidate every view of that ID.
+        let mut duplicate = 0;
+        screens.recipes.retain(|recipe| {
+            while duplicate < duplicates.len() && duplicates[duplicate] < recipe.id {
+                duplicate += 1;
+            }
+            duplicate == duplicates.len() || duplicates[duplicate] != recipe.id
+        });
+        duplicate = 0;
+        screens.multi.retain(|recipe| {
+            while duplicate < duplicates.len() && duplicates[duplicate] < recipe.id {
+                duplicate += 1;
+            }
+            duplicate == duplicates.len() || duplicates[duplicate] != recipe.id
+        });
         Ok(RecipeUpdate {
             batch: Some(Arc::new(Batch {
                 records,
                 clear,
                 _permit: permit,
             })),
-            screen: (!screens.recipes.is_empty() || !screens.multi.is_empty())
+            screen: (!screens.recipes.is_empty()
+                || !screens.multi.is_empty()
+                || screens.skipped > 0)
                 .then(|| Arc::new(screens)),
         })
     };

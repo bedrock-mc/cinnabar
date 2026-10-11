@@ -91,6 +91,7 @@ impl ActorStore {
             world_default_game_mode: None,
             aim_actor_classes: HashMap::new(),
             actors: HashMap::new(),
+            effect_members: Default::default(),
             unique_to_runtime: HashMap::new(),
             rider_to_ridden: HashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
@@ -119,6 +120,7 @@ impl ActorStore {
             local_main_metadata: 0,
             local_main_stack_id: None,
             local_main_slot: 0,
+            local_item_use: LocalItemUse::Unpredicted,
             local_bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
             local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
             camera_rotation: [0.0; 2],
@@ -172,6 +174,8 @@ impl ActorStore {
         self.local_main_metadata = feed.main_hand_metadata;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
+        self.local_view_dirty |= self.local_item_use != feed.item_use;
+        self.local_item_use = feed.item_use;
         self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
@@ -184,6 +188,11 @@ impl ActorStore {
         let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            if let Some(mode) = feed.game_mode {
+                let mode = Some(protocol::GameModeUpdate::Explicit(mode));
+                self.local_view_dirty |= actor.player_game_mode != mode;
+                actor.player_game_mode = mode;
+            }
             // Adopt the player-list identity once it arrives so the skin resolves by uuid.
             if let ActorKind::Player {
                 uuid: current_uuid,
@@ -213,9 +222,11 @@ impl ActorStore {
             }
             return;
         }
-        let actor =
+        let mut actor =
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.effect_members.update(&actor);
         self.actors.insert(runtime_id, actor);
         self.apply_pending_local_health(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
@@ -304,6 +315,7 @@ impl ActorStore {
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
         self.actors.clear();
+        self.effect_members = Default::default();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
         self.players.clear();
@@ -348,6 +360,7 @@ impl ActorStore {
             })
             .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
+        self.effect_members = Default::default();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
         // The real player list survives a dimension change, but the synthetic local profile is
@@ -521,6 +534,7 @@ impl ActorStore {
                 });
                 let rejected = actor.apply_metadata(&update.metadata)
                     | actor.apply_properties(&update.properties);
+                self.effect_members.update(actor);
                 if incompatible {
                     self.animation.mark_reset(update.runtime_id);
                 }
@@ -660,6 +674,7 @@ impl ActorStore {
         let links = std::sync::Arc::clone(&spawn.links);
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
+            self.effect_members.remove(previous.runtime_id);
             self.synchronized_audio.remove_runtime(previous.runtime_id);
             let lifetime = self.lifetime_for(&previous);
             self.unique_to_runtime.remove(&previous.unique_id);
@@ -671,6 +686,7 @@ impl ActorStore {
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
             if let Some(previous) = self.actors.remove(&previous_runtime) {
+                self.effect_members.remove(previous.runtime_id);
                 self.synchronized_audio.remove_runtime(previous.runtime_id);
                 let lifetime = self.lifetime_for(&previous);
                 self.items.remove(lifetime);
@@ -685,6 +701,7 @@ impl ActorStore {
         let held_item = spawn.held_item.clone();
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
+        self.effect_members.update(&self.actors[&runtime_id]);
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
             if self.actors[&runtime_id]
                 .attributes
@@ -724,6 +741,7 @@ impl ActorStore {
             return ActorApplyResult::MissingActor;
         };
         if let Some(actor) = self.actors.remove(&runtime_id) {
+            self.effect_members.remove(runtime_id);
             self.synchronized_audio.remove_runtime(runtime_id);
             let lifetime = self.lifetime_for(&actor);
             self.items.remove(lifetime);

@@ -1,6 +1,8 @@
 //! Local stream bridge between the Rust client and Go core.
 
 mod account;
+mod contract;
+pub use contract::MAX_FRAME_LEN;
 mod endpoint;
 mod error;
 mod framed;
@@ -91,9 +93,6 @@ pub fn bridge_endpoint_exists(directory: &Path) -> bool {
         endpoint.exists()
     }
 }
-
-/// Largest payload accepted by the local bridge framing protocol.
-pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 /// Connects to the local Go core game endpoint published in `socket_dir`.
 ///

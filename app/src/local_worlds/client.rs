@@ -163,16 +163,15 @@ mod tests {
         let dir = tempfile_dir();
         let client = WorldsClient::spawn(dir).expect("spawn worker");
         client.send(Effect::List);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
+        test_time::eventually_within(Duration::from_secs(5), "an event from the worker", || {
             let events = client.drain();
             if let Some(event) = events.first() {
                 assert!(matches!(event, Event::Failed(message) if message == UNAVAILABLE));
-                return;
+                true
+            } else {
+                false
             }
-            assert!(std::time::Instant::now() < deadline, "no event from worker");
-            thread::sleep(Duration::from_millis(10));
-        }
+        });
     }
 
     fn tempfile_dir() -> PathBuf {

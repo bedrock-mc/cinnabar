@@ -30,6 +30,8 @@ mod multitexture;
 mod server_pack_budgets;
 #[path = "actor/wind_charge.rs"]
 mod wind_charge;
+#[path = "actor/wolf.rs"]
+mod wolf;
 
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);

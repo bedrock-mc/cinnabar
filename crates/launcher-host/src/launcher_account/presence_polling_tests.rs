@@ -20,7 +20,7 @@ fn presence_reporting_keeps_account_events_running() {
             let mut stream = match listener.accept() {
                 Ok((stream, _)) => stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
+                    test_time::idle();
                     continue;
                 }
                 Err(error) => panic!("presence fixture: {error}"),

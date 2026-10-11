@@ -17,13 +17,18 @@ fn near_fixed_limit() -> UiTextureCatalog {
         vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
     )
     .unwrap();
-    let dynamic = (0..MAX_UI_DYNAMIC_PAGES)
+    let mut dynamic = (0..MAX_UI_DYNAMIC_PAGES)
         .map(|offset| match offset {
             UI_LOCAL_FONT_PAGE_OFFSET => local.clone(),
             UI_FALLBACK_FONT_PAGE_OFFSET.. => fallback.clone(),
             _ => small.clone(),
         })
         .collect::<Vec<_>>();
+    dynamic.extend(std::iter::repeat_n(
+        rgba([UI_ART_PAGE_SIDE; 2]),
+        MAX_UI_ART_PAGES,
+    ));
+    dynamic.extend(std::iter::repeat_n(small, MAX_UI_NATIVE_SHEET_PAGES));
     let dynamic_bytes = dynamic
         .iter()
         .map(|page| page.pixels().len())
@@ -87,5 +92,31 @@ fn optional_static_artwork_cannot_consume_native_slot_capacity() {
         UiTextureCatalog::new(pages, base.dynamic_start() + 1),
         Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
             if actual == MAX_UI_FIXED_TEXTURE_BYTES + 4 && limit == MAX_UI_FIXED_TEXTURE_BYTES
+    ));
+}
+
+#[test]
+fn original_ui_sheets_preserve_static_artwork_and_bound_aggregate_growth() {
+    let base = near_fixed_limit();
+    let mut pages = base.pages()[base.dynamic_start()..].to_vec();
+    pages[UI_NATIVE_SHEET_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
+    pages[UI_NATIVE_SHEET_PAGE_OFFSET + 1] = rgba([MAX_UI_TEXTURE_SIDE, MAX_UI_TEXTURE_SIDE / 2]);
+    let grown = base
+        .replace_dynamic(pages.clone())
+        .expect("original sheets have reserved capacity");
+    assert_eq!(grown.fixed_budget_bytes(), base.fixed_budget_bytes());
+    assert_eq!(grown.static_identity(), base.static_identity());
+    assert!(std::ptr::eq(
+        grown.pages()[0].pixels(),
+        base.pages()[0].pixels()
+    ));
+    assert!(grown.plan().bytes() <= MAX_UI_TEXTURE_BYTES);
+    pages[UI_NATIVE_SHEET_PAGE_OFFSET + 2] = pages[UI_NATIVE_SHEET_PAGE_OFFSET].clone();
+    assert!(matches!(
+        base.replace_dynamic(pages),
+        Err(UiRenderRejectReason::TextureByteLimitExceeded {
+            limit: MAX_UI_NATIVE_SHEET_BYTES,
+            ..
+        })
     ));
 }

@@ -498,7 +498,9 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         1,
         "the block decodes from the vanilla pack"
     );
-    launcher_host::remote_images::tests::settle(&remote, &url);
+    test_time::wait_until(std::time::Duration::from_secs(5), || {
+        remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
+    });
     let loaded = frame(&mut presentation);
     assert_eq!(on_server(&loaded), 2, "the downloaded image joins it");
     assert_eq!(presentation.server_ui_pages().len(), 1);

@@ -197,3 +197,34 @@ fn selected_item_name_shared_resolution_preserves_corrections_and_component_colo
     assert_eq!(parsed[0].style.color, ui::BedrockColor::Red);
     assert!(!parsed[0].style.italic);
 }
+
+#[test]
+fn component_tooltip_base_colours_agree_with_formatted_text() {
+    let stack = sword(None);
+    for (name, code) in [
+        ("material_emerald", 'q'),
+        ("material_lapis", 't'),
+        ("material_resin", 'v'),
+    ] {
+        let mut runtime = UiRuntime::new(1);
+        runtime.set_session_items(Some(Arc::new(
+            crate::ui_runtime::item_facts::SessionItemComponents::from_iter([(
+                Arc::from("minecraft:diamond_sword"),
+                protocol::ItemComponents {
+                    hover_text_color: Some(Arc::from(name)),
+                    ..Default::default()
+                },
+            )]),
+        )));
+        let lines = inventory_tooltip::tooltip_lines(
+            &runtime,
+            &stack,
+            Some("minecraft:diamond_sword"),
+            None,
+        );
+        let formatted = format!("§{code}Name");
+        let spans = ui::parse_bedrock_text(&formatted, formatted.len()).unwrap();
+        let [r, g, b] = spans[0].style.color.rgb().unwrap();
+        assert_eq!(lines[0].color, [r, g, b, 255], "{name}");
+    }
+}

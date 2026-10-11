@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{SurfaceResponse, Vec3, WorldCollisionIdentity, WorldQueryError};
+use crate::{Aabb, SurfaceResponse, Vec3, WorldCollisionIdentity, WorldQueryError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +34,17 @@ pub struct PlayerState {
     /// rotation interpolated from it; absence reads as the current rotation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_rotation: Option<[f32; 2]>,
+    /// Resolved faces survive center rounding and deterministic replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) collision_shape: Option<CollisionShape>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CollisionShape {
+    bounds: Aabb,
+    position: Vec3,
+    height: f64,
 }
 
 impl PlayerState {
@@ -55,7 +66,32 @@ impl PlayerState {
                 z: false,
             },
             previous_rotation: None,
+            collision_shape: None,
         }
+    }
+
+    /// Returns retained contact faces, rebuilding after a position correction.
+    pub(super) fn collision_box(&self, height: f64) -> Aabb {
+        let Some(shape) = self
+            .collision_shape
+            .filter(|shape| shape.position == self.position.rounded())
+        else {
+            return Aabb::player_with_height_at(self.position, height);
+        };
+        let mut bounds = shape.bounds;
+        if shape.height != height {
+            bounds.max.y = f64::from(bounds.min.y as f32 + height as f32);
+        }
+        bounds
+    }
+
+    /// Records the resolved box independently of its rounded feet center.
+    pub(super) fn retain_collision_box(&mut self, bounds: Aabb, height: f64) {
+        self.collision_shape = Some(CollisionShape {
+            bounds: Aabb::new(bounds.min.rounded(), bounds.max.rounded()),
+            position: self.position.rounded(),
+            height,
+        });
     }
 }
 
@@ -131,6 +167,18 @@ pub enum SimulationError {
 }
 
 pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
+    if let Some(shape) = state.collision_shape {
+        if !shape.bounds.min.is_finite()
+            || !shape.bounds.max.is_finite()
+            || !shape.position.is_finite()
+            || !shape.height.is_finite()
+        {
+            return Err(SimulationError::NonFiniteState {
+                field: "collision_shape",
+            });
+        }
+        crate::world::validate_collision_query(shape.bounds)?;
+    }
     if !state.swim_amount.is_finite() || !(0.0..=1.0).contains(&state.swim_amount) {
         return Err(SimulationError::InvalidSwimAmount);
     }

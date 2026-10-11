@@ -719,6 +719,7 @@ fn native_hand_readiness_reused_source_commits_the_authored_clock_once() {
 /// Supplies original local-player observations for authored body and hand fixtures.
 pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
         username: Arc::from("Player"),

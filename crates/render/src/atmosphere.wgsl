@@ -20,6 +20,55 @@ struct AtmosphereUniform {
 @group(0) @binding(5) var end_sky_texture: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> stars: array<vec4<f32>>;
 
+struct SkyboxUniform { parameters: vec4<f32> }
+@group(0) @binding(7) var<uniform> skybox: SkyboxUniform;
+@group(0) @binding(8) var skybox_face0: texture_2d<f32>;
+@group(0) @binding(9) var skybox_face1: texture_2d<f32>;
+@group(0) @binding(10) var skybox_face2: texture_2d<f32>;
+@group(0) @binding(11) var skybox_face3: texture_2d<f32>;
+@group(0) @binding(12) var skybox_face4: texture_2d<f32>;
+@group(0) @binding(13) var skybox_face5: texture_2d<f32>;
+@group(0) @binding(14) var skybox_sampler: sampler;
+
+// Intersect a camera-relative ray with the translated cube. Removing the
+// translation changes its projection, including the top/bottom face boundaries.
+fn pack_skybox_exit(ray: vec3<f32>, offset: f32) -> vec3<f32> {
+    return (vec3(1.0) + vec3(0.0, offset, 0.0) * sign(ray)) / max(abs(ray), vec3(0.000001));
+}
+
+fn pack_skybox_mapping(ray: vec3<f32>, offset: f32) -> vec3<f32> {
+    let centre = vec3(0.0, offset, 0.0);
+    let exit = pack_skybox_exit(ray, offset);
+    let distance = min(exit.x, min(exit.y, exit.z));
+    let point = ray * distance - centre;
+    var face: u32;
+    var plane: vec2<f32>;
+    if (exit.z <= exit.x && exit.z <= exit.y) {
+        if (ray.z < 0.0) { face = 0u; plane = vec2(point.x, -point.y); }
+        else { face = 2u; plane = vec2(-point.x, -point.y); }
+    } else if (exit.x <= exit.y) {
+        if (ray.x > 0.0) { face = 1u; plane = vec2(point.z, -point.y); }
+        else { face = 3u; plane = vec2(-point.z, -point.y); }
+    } else {
+        if (ray.y > 0.0) { face = 4u; plane = vec2(point.x, -point.z); }
+        else { face = 5u; plane = vec2(point.x, point.z); }
+    }
+    return vec3(plane * 0.5 + vec2(0.5), f32(face));
+}
+
+fn sample_pack_skybox(mapping: vec3<f32>) -> vec4<f32> {
+    let face = u32(mapping.z);
+    if ((u32(skybox.parameters.y) & (1u << face)) == 0u) { return vec4(0.0); }
+    switch face {
+        case 0u: { return textureSampleLevel(skybox_face0, skybox_sampler, mapping.xy, 0.0); }
+        case 1u: { return textureSampleLevel(skybox_face1, skybox_sampler, mapping.xy, 0.0); }
+        case 2u: { return textureSampleLevel(skybox_face2, skybox_sampler, mapping.xy, 0.0); }
+        case 3u: { return textureSampleLevel(skybox_face3, skybox_sampler, mapping.xy, 0.0); }
+        case 4u: { return textureSampleLevel(skybox_face4, skybox_sampler, mapping.xy, 0.0); }
+        default: { return textureSampleLevel(skybox_face5, skybox_sampler, mapping.xy, 0.0); }
+    }
+}
+
 // Target 1.26.50.26 directional-light builder passes these angular
 // diameters to the orbital transform, which scales the ±.5 quad by
 // 2*distance*tan(diameter/2).
@@ -224,4 +273,23 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     colour = composite_celestial(colour, moon.rgb, moon.a);
 
     return sky_output(colour);
+}
+
+// The pack cube follows the stock sky, celestial sprites and stars.
+struct PackSkyboxOutput {
+    @location(0) colour: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn pack_skybox_fragment(in: VertexOutput) -> PackSkyboxOutput {
+    let code = u32(atmosphere.sky_extra.w + 0.5);
+    if (skybox.parameters.y == 0.0 || skybox.parameters.z == 0.0 || code % 4u == 1u) { discard; }
+    let ray = view_ray(in.position.xy);
+    let mapping = pack_skybox_mapping(ray, skybox.parameters.x);
+    let sampled = sample_pack_skybox(mapping);
+    let exit = pack_skybox_exit(ray, skybox.parameters.x);
+    let distance = min(exit.x, min(exit.y, exit.z)) * skybox.parameters.w;
+    let clip = view.clip_from_world * vec4(ray * distance + view.world_position, 1.0);
+    return PackSkyboxOutput(tint_to_linear(sampled), clamp(clip.z / clip.w, 0.0, 1.0));
 }

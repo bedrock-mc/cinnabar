@@ -166,7 +166,9 @@ impl ActorStore {
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
             let local_flying = self.local_flying;
+            let world_game_mode = self.world_default_game_mode;
             let local_hands = self.local_hands.clone();
+            let local_item_use = self.local_item_use;
             let local_main_metadata = self.local_main_metadata;
             let local_main_slot = self.local_main_slot;
             let local_main_stack_id = self.local_main_stack_id;
@@ -191,7 +193,7 @@ impl ActorStore {
                         .filter(|equipment| equipment.item.identity.network_id != 0)
                         .and_then(|equipment| equipment.item.identifier.clone())
                 };
-                let hand_charged = [
+                let mut hand_charged = [
                     protocol::ActorHandedness::Right,
                     protocol::ActorHandedness::Left,
                 ]
@@ -214,7 +216,25 @@ impl ActorStore {
                                 .unwrap_or(equipment.item.identity.metadata)
                         })
                 };
-                let main_hand_max_use_ticks = main_hand
+                let mut main_hand_max_use_ticks = main_hand
+                    .as_deref()
+                    .and_then(|identifier| items.max_use_ticks(identifier))
+                    .unwrap_or(0);
+                let local_item_use_ticks = if is_local
+                    && let LocalItemUse::Predicted {
+                        elapsed_ticks,
+                        max_ticks,
+                        charged,
+                    } = local_item_use
+                {
+                    main_hand_max_use_ticks = max_ticks;
+                    hand_charged = charged;
+                    Some(elapsed_ticks.unwrap_or(0).min(max_ticks))
+                } else {
+                    None
+                };
+                let off_hand = held(protocol::ActorHandedness::Left);
+                let off_hand_max_use_ticks = off_hand
                     .as_deref()
                     .and_then(|identifier| items.max_use_ticks(identifier))
                     .unwrap_or(0);
@@ -267,10 +287,12 @@ impl ActorStore {
                             .map_or(0, |equipment| equipment.selected_slot)
                     },
                     main_hand_max_use_ticks,
+                    local_item_use_ticks,
+                    off_hand_max_use_ticks,
                     main_hand_kinetic,
                     main_hand_is_spear,
                     main_hand_swing_seconds,
-                    off_hand: held(protocol::ActorHandedness::Left),
+                    off_hand,
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)
                         .and_then(kind_of)
@@ -286,6 +308,7 @@ impl ActorStore {
                     view_bobbing: is_local.then_some(local_view_bobbing),
                     is_local,
                     is_flying: is_local && local_flying,
+                    world_game_mode,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

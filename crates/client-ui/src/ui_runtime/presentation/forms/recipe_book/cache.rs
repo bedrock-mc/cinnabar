@@ -1,4 +1,4 @@
-//! Creative rows remain immutable until the catalog, selected groups or icons change.
+//! Creative rows remain immutable until the catalog, names, selected groups or icons change.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,6 +18,7 @@ pub(in super::super) struct BookCache {
     tab: u8,
     search: String,
     registry: Option<Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
+    name_generation: u64,
     expanded: BTreeSet<u32>,
     source_icons: Vec<Option<IconRef>>,
     first_icon: usize,
@@ -58,6 +59,7 @@ impl BookCache {
                     .inventory_ledger(player_runtime)
                     .item_registry_snapshot(),
             )
+            || cache.name_generation != runtime.item_name_generation()
             || cache.expanded != state.creative_expanded
             || cache.source_icons != frame.window_icons.book_entries
             || cache.first_icon != icons.len()
@@ -88,6 +90,7 @@ impl BookCache {
                 .inventory_ledger(player_runtime)
                 .item_registry_snapshot()
                 .cloned(),
+            name_generation: runtime.item_name_generation(),
             expanded: state.creative_expanded.clone(),
             source_icons: frame.window_icons.book_entries.clone(),
             first_icon,
@@ -182,5 +185,56 @@ mod tests {
             }),
         );
         assert!(!reuse(&player_runtime, &runtime, &frame));
+    }
+
+    /// A name replacement refreshes published rows even when the query and icons stay unchanged.
+    #[test]
+    fn display_name_replacement_refreshes_retained_creative_rows() {
+        use crate::ui_runtime::item_facts::SessionItemComponents;
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = crate::test_support::creative_with(&mut player, 1);
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply_registry(&protocol::ItemRegistryEvent {
+                entries: Arc::from([protocol::ItemRegistryEntry {
+                    network_id: 1,
+                    identifier: "custom:blade".into(),
+                    component_based: true,
+                    version: protocol::ItemRegistryVersion::None,
+                    component_digest: [0; 32],
+                    negotiated_max_stack_size: None,
+                    canonical_empty_component_data: true,
+                    item_tags: Arc::from([]),
+                }]),
+            });
+        runtime.set_session_items(Some(Arc::new(SessionItemComponents::from_iter([(
+            Arc::from("custom:blade"),
+            protocol::ItemComponents {
+                display_name: Some(Arc::from("Crystal Blade")),
+                ..Default::default()
+            },
+        )]))));
+        runtime.screen_state_mut().creative_tab = SEARCH_TAB;
+        runtime.screen_state_mut().search = "Crystal".into();
+        let mut cache = None;
+        let frame = HudFrame::default();
+        for expected in [1, 0] {
+            let mut data = DataSource::new();
+            super::super::book_data(
+                &player,
+                &mut data,
+                &runtime,
+                &frame,
+                &mut Vec::new(),
+                true,
+                &mut cache,
+            );
+            assert_eq!(
+                cache.as_ref().unwrap().items.len(),
+                expected,
+                "published rows must follow the current displayed name"
+            );
+            runtime.set_session_items(None);
+        }
     }
 }

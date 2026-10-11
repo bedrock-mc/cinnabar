@@ -228,6 +228,12 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 ridden_unique_id,
             ),
+            CommittedUiEvent::LocalTotemActivation { sequence } => ui_runtime.activate_totem(
+                &mut player_runtime,
+                clock.session_generation(),
+                sequence,
+                local_millis,
+            ),
         };
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();

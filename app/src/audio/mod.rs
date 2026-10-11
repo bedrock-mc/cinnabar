@@ -2,6 +2,7 @@
 mod predicted;
 mod synchronized;
 mod systems;
+mod weather;
 
 pub(crate) use systems::configure;
 

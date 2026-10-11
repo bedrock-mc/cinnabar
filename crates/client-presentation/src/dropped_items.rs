@@ -13,8 +13,8 @@ use chunk_pipeline::WorldStream;
 use client_world::{BlockEntityKind, RopeKind};
 use render::{
     ChunkTextureAssets, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
-    DroppedItemSpawnPose, ItemMeshVertex, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    StaticItemPlacements, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
+    DroppedItemSpawnPose, ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, StaticItemPlacements,
+    TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
     native_dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
 };
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
@@ -37,68 +37,8 @@ const WATER_TINT_RGB: [u8; 3] = [0x3f, 0x76, 0xe4];
 /// Daylight scale until the celestial curve feeds world-space actors.
 pub(super) const DAYLIGHT: f32 = 1.0;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum ModelKey {
-    Icon(Arc<str>, u32, bool),
-    Block { hashed: bool, id: u32 },
-    CarriedBlock { hashed: bool, id: u32 },
-}
-
-/// Models resolved so far; failed block lookups are remembered so they are not rebuilt per frame.
-#[derive(Default)]
-pub(super) struct ModelCache {
-    session: u64,
-    assets: Option<render::ChunkTextureAssetIdentity>,
-    /// Sprite models copy icon pixels, so a pack reload's new icons invalidate them.
-    icons: u64,
-    revision: u64,
-    models: Vec<DroppedItemModel>,
-    layers: usize,
-    shared: Arc<[DroppedItemModel]>,
-    index: HashMap<ModelKey, Option<u32>>,
-    /// Native first-render capture, keyed by exact actor lifetime, not mutable item identity.
-    spawn_poses: HashMap<(u64, u64), DroppedItemSpawnPose>,
-}
-
-impl ModelCache {
-    /// Drops every model built from another session, block texture set or icon generation.
-    fn sync(
-        &mut self,
-        session: u64,
-        assets: Option<render::ChunkTextureAssetIdentity>,
-        icons: u64,
-    ) {
-        if self.session != session || self.assets != assets || self.icons != icons {
-            *self = Self {
-                session,
-                assets,
-                icons,
-                revision: self.revision.wrapping_add(1),
-                ..Self::default()
-            };
-        }
-    }
-
-    fn insert(&mut self, key: ModelKey, model: Option<DroppedItemModel>) -> Option<u32> {
-        let cost = match &model {
-            Some(DroppedItemModel::Cube(_)) => 6,
-            Some(DroppedItemModel::Block(block)) => block.materials.len(),
-            Some(DroppedItemModel::Sprite(_) | DroppedItemModel::NativeSprite(_)) => 1,
-            None => 0,
-        };
-        let index = model.and_then(|model| {
-            (self.layers + cost < MAX_ITEM_LAYERS).then(|| {
-                self.layers += cost;
-                self.models.push(model);
-                self.shared = Arc::from(self.models.as_slice());
-                self.revision = self.revision.wrapping_add(1);
-                (self.models.len() - 1) as u32
-            })
-        });
-        self.index.insert(key, index);
-        index
-    }
-}
+mod cache;
+use cache::{ModelCache, ModelKey};
 
 #[derive(SystemParam)]
 pub(super) struct DroppedItemPublisher<'w, 's> {
@@ -178,6 +118,36 @@ fn block_cube(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<Dr
     })
 }
 
+/// Counts the distinct texture materials needed by a block model without copying its data.
+fn block_model_layers(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<usize> {
+    let block = assets.resolve(mode, id);
+    if !block.is_known() {
+        return None;
+    }
+    if block.kind() == VisualKind::Cube {
+        return Some(BlockFace::ALL.len());
+    }
+    if !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
+        return None;
+    }
+    let mut template_id = block.model_template()?;
+    let mut materials = std::collections::HashSet::new();
+    loop {
+        let template = assets.model_templates().get(template_id as usize)?;
+        let first = template.quad_start as usize;
+        for quad in assets
+            .model_quads()
+            .get(first..first + template.quad_count as usize)?
+        {
+            materials.insert(quad.material);
+        }
+        if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            return Some(materials.len());
+        }
+        template_id = template_id.checked_add(1)?;
+    }
+}
+
 fn block_template(
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
@@ -251,13 +221,15 @@ impl DroppedItemPublisher<'_, '_> {
             hashed: mode == NetworkIdMode::Hashed,
             id,
         };
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
-        }
-        let model = block_cube(assets, mode, id)
-            .map(DroppedItemModel::Cube)
-            .or_else(|| block_template(assets, mode, id).map(DroppedItemModel::Block));
-        cache.insert(key, model)
+        cache.model(
+            key,
+            || block_model_layers(assets, mode, id),
+            || {
+                block_cube(assets, mode, id)
+                    .map(DroppedItemModel::Cube)
+                    .or_else(|| block_template(assets, mode, id).map(DroppedItemModel::Block))
+            },
+        )
     }
 
     fn icon_model(
@@ -267,23 +239,25 @@ impl DroppedItemPublisher<'_, '_> {
         metadata: u32,
         native_drop: bool,
     ) -> Option<u32> {
-        let key = ModelKey::Icon(Arc::from(identifier), metadata, native_drop);
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
-        }
-        // An icon that is not ready yet is retried next frame rather than cached as missing.
-        let pixels = icons.item_sprite(identifier, metadata, MAX_ITEM_SPRITE_SIDE)?;
-        let sprite = DroppedItemSprite {
-            width: pixels.width,
-            height: pixels.height,
-            rgba8: Arc::from(pixels.rgba8),
-        };
-        let model = if native_drop {
-            DroppedItemModel::NativeSprite(sprite)
-        } else {
-            DroppedItemModel::Sprite(sprite)
-        };
-        cache.insert(key, Some(model))
+        let key = ModelKey::icon(icons.item_icon(identifier, metadata)?, native_drop);
+        cache.model(
+            key,
+            || Some(1),
+            || {
+                // Icons that are not ready yet are retried on the next frame.
+                let pixels = icons.item_sprite(identifier, metadata, MAX_ITEM_SPRITE_SIDE)?;
+                let sprite = DroppedItemSprite {
+                    width: pixels.width,
+                    height: pixels.height,
+                    rgba8: Arc::from(pixels.rgba8),
+                };
+                Some(if native_drop {
+                    DroppedItemModel::NativeSprite(sprite)
+                } else {
+                    DroppedItemModel::Sprite(sprite)
+                })
+            },
+        )
     }
 
     fn carried_block_model(
@@ -297,19 +271,23 @@ impl DroppedItemPublisher<'_, '_> {
             hashed: mode == NetworkIdMode::Hashed,
             id,
         };
-        if let Some(cached) = cache.index.get(&key) {
-            return *cached;
-        }
-        let block = assets.resolve(mode, id);
-        if !block.is_known() || block.kind() != VisualKind::Cube {
-            return None;
-        }
-        let visual = match mode {
-            NetworkIdMode::Sequential => id,
-            NetworkIdMode::Hashed => assets.sequential_id_for_hash(id)?,
-        };
-        let cube = icons.carried_block_cube(visual, assets.provenance().source_manifest_sha256)?;
-        cache.insert(key, Some(DroppedItemModel::Cube(cube)))
+        cache.model(
+            key,
+            || Some(BlockFace::ALL.len()),
+            || {
+                let block = assets.resolve(mode, id);
+                if !block.is_known() || block.kind() != VisualKind::Cube {
+                    return None;
+                }
+                let visual = match mode {
+                    NetworkIdMode::Sequential => id,
+                    NetworkIdMode::Hashed => assets.sequential_id_for_hash(id)?,
+                };
+                let cube =
+                    icons.carried_block_cube(visual, assets.provenance().source_manifest_sha256)?;
+                Some(DroppedItemModel::Cube(cube))
+            },
+        )
     }
 
     pub(super) fn publish(
@@ -337,6 +315,43 @@ impl DroppedItemPublisher<'_, '_> {
         let mut terrain_instances = Vec::new();
 
         let dropped = stream.authority().dropped_items(partial_tick);
+        cache.begin_frame();
+        // Protect all current consumers before admitting new models, regardless of iteration order.
+        for view in &dropped {
+            if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
+                let hashed = mode == NetworkIdMode::Hashed;
+                cache.request(&ModelKey::CarriedBlock { hashed, id });
+                cache.request(&ModelKey::Block { hashed, id });
+            }
+            if let Some(identifier) = view.item.identifier.as_ref() {
+                let (identifier, metadata) = UiPresentationRuntime::item_icon_key(
+                    identifier,
+                    view.item.identity.metadata,
+                    view.item.charged_projectile.as_deref(),
+                    None,
+                );
+                if let Some(icon) = icons.item_icon(identifier, metadata) {
+                    cache.request(&ModelKey::icon(icon, true));
+                }
+            }
+        }
+        if let Some(placements) = self.placements.as_ref() {
+            for placement in &placements.0 {
+                if let Some(icon) = icons.item_icon(&placement.identifier, placement.metadata) {
+                    cache.request(&ModelKey::icon(icon, false));
+                }
+            }
+        }
+        let candidates = stream.authority().block_entity_candidates(partial_tick);
+        for candidate in &candidates {
+            if let Some((mode, id, _)) = entity_block_id(stream, &candidate.view.kind) {
+                cache.request(&ModelKey::Block {
+                    hashed: mode == NetworkIdMode::Hashed,
+                    id,
+                });
+            }
+        }
+        cache.finish_demand();
         let live = dropped
             .iter()
             .map(|view| (view.runtime_id, view.spawn_revision))
@@ -445,7 +460,7 @@ impl DroppedItemPublisher<'_, '_> {
                         visible: fence.sync.message == 1,
                     });
             }
-            for candidate in stream.authority().block_entity_candidates(partial_tick) {
+            for candidate in candidates {
                 let view = candidate.view;
                 let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
                     continue;
@@ -518,6 +533,7 @@ impl DroppedItemPublisher<'_, '_> {
                 );
             }
         }
+        cache.finish_frame();
         scene.publish(
             cache.revision,
             Arc::clone(&cache.shared),
@@ -532,26 +548,3 @@ impl DroppedItemPublisher<'_, '_> {
 #[cfg(test)]
 #[path = "dropped_items/tests.rs"]
 mod palette_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // An item-only pack reload keeps session and block textures but replaces icon pixels.
-    #[test]
-    fn new_session_icons_drop_cached_sprite_models() {
-        let mut cache = ModelCache::default();
-        cache.sync(1, None, 0);
-        let sprite = DroppedItemSprite {
-            width: 1,
-            height: 1,
-            rgba8: Arc::from([0; 4]),
-        };
-        let key = ModelKey::Icon(Arc::from("minecraft:apple"), 0, true);
-        cache.insert(key.clone(), Some(DroppedItemModel::NativeSprite(sprite)));
-        cache.sync(1, None, 0);
-        assert!(cache.index.contains_key(&key));
-        cache.sync(1, None, 1);
-        assert!(!cache.index.contains_key(&key) && cache.models.is_empty());
-    }
-}

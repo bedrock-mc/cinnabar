@@ -28,6 +28,7 @@ opus = { version = "=0.4.0", optional = true }
 libc = "0.2.186"
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 tempfile = "=3.27.0"
 
 [lints]

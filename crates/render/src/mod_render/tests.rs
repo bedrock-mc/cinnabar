@@ -136,7 +136,7 @@ fn pass_pipelines_compile_for_each_view_format_without_blending() {
                     ) {
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    test_time::idle();
                 }
                 assert!(gpu.pipeline(1, format).is_some(), "{format:?}");
                 assert!(passes::color_target(format).blend.is_none());

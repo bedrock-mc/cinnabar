@@ -35,7 +35,7 @@ impl PrereadTextures {
         Self {
             images: keys
                 .iter()
-                .map(|key| (key.clone(), pack.image(key)))
+                .map(|key| (key.clone(), pack.read_image(key)))
                 .collect(),
             sidecars: keys
                 .iter()

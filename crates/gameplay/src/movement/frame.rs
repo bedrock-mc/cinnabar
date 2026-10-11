@@ -26,7 +26,7 @@ pub fn wire_head_yaw(yaw: f32) -> f32 {
 
 /// Vanilla clamps each render frame's elapsed time to this and loses the rest,
 /// so a stall runs at most two ticks instead of catching up.
-const MAX_FRAME_ELAPSED: Duration = Duration::from_millis(100);
+const MAX_FRAME_ELAPSED: Duration = world::MAX_FRAME_ELAPSED;
 
 /// Whether a render frame of `delta` will simulate at least one fixed tick.
 pub fn frame_simulates_tick(
@@ -199,6 +199,7 @@ impl LocomotionState {
                     raw_move_vector: raw_movement,
                     analogue_move_vector: analogue_movement,
                     mode_intent: ModeIntent {
+                        spectator: facts.spectator,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,

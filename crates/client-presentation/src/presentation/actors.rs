@@ -599,16 +599,19 @@ pub fn attach_layers<Context>(
     }
 }
 
-/// Lights each body at the reference body-height point; a body without solved light yet
+/// Lights each body at its collision-box endpoints; a body without solved light yet
 /// keeps drawing unlit rather than black.
 pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
     for submission in &mut batch.submissions {
         let feet = submission.world_from_actor.map(|row| row[3]);
-        let position = stream
+        let light = stream
             .authority()
             .actor(submission.input.identity.runtime_id)
-            .map_or(feet, |actor| actor.brightness_sample_position(feet));
-        if let Some((block, sky)) = stream.solved_light_at(position) {
+            .map_or_else(
+                || stream.solved_light_at(feet),
+                |actor| stream.actor_light_at(actor, feet),
+            );
+        if let Some((block, sky)) = light {
             submission.light = render::pack_actor_light(block, sky);
         }
     }

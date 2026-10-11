@@ -72,6 +72,7 @@ impl SwellMotion {
                     server_effects: &self.server_effects,
                 },
                 self.sampling.as_deref(),
+                false,
                 budget,
             )?
         } else {

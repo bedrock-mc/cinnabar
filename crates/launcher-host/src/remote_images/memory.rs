@@ -225,6 +225,7 @@ async fn serve(remote: Weak<Remote>, mut receiver: Receiver<String>, client: req
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod tests {
+    #[cfg(test)]
     use super::*;
     use std::io::{Read, Write};
 
@@ -248,14 +249,12 @@ pub mod tests {
         format!("http://{address}")
     }
 
-    pub fn settle(images: &RemoteImages, url: &str) -> RemoteState {
-        for _ in 0..250 {
-            let state = images.state(url);
-            if state != RemoteState::Loading {
-                return state;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+    /// Waits for the image fixture to finish its request.
+    #[cfg(test)]
+    fn settle(images: &RemoteImages, url: &str) -> RemoteState {
+        test_time::wait_until(Duration::from_secs(5), || {
+            images.state(url) != RemoteState::Loading
+        });
         images.state(url)
     }
 

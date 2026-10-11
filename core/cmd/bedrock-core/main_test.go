@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -539,7 +541,7 @@ func TestRunSignedInKeepsTheAccountFresh(t *testing.T) {
 	keepAccountFresh = func(account *authcache.Account, ctx context.Context) {
 		refreshing <- account
 		for !account.Closed() && ctx.Err() == nil {
-			time.Sleep(time.Millisecond)
+			testwait.Idle()
 		}
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})

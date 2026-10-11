@@ -25,27 +25,15 @@ import (
 )
 
 const (
-	registryHeader      = "BREG1003"
 	lightRegistryHeader = "LREG1001"
 	biomeRegistryHeader = "BIOREG01"
-	registryProtocol    = 1001
 	dragonflyModule     = "github.com/df-mc/dragonfly"
 	dragonflyVersion    = "v0.11.5"
 	dragonflyModuleSum  = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0="
 
-	flagAir              uint8 = 1 << 0
-	flagCubeGeometry     uint8 = 1 << 1
-	flagOccludesFullFace uint8 = 1 << 2
-	flagLeafModel        uint8 = 1 << 3
-	allBlockFlags              = flagAir | flagCubeGeometry | flagOccludesFullFace | flagLeafModel
-
-	maxNameBytes               = 1<<16 - 1
-	maxStateBytes              = 1 << 20
-	maxRecordCount             = 1 << 16
-	maxCollisionBoxesPerRecord = 7
-	collisionFixedScale        = 100_000_000.0
-	collisionLocalHaloMin      = -100_000_000
-	collisionLocalHaloMax      = 200_000_000
+	collisionFixedScale   = 100_000_000.0
+	collisionLocalHaloMin = -100_000_000
+	collisionLocalHaloMax = 200_000_000
 
 	maxBiomeRecordCount = 1_024
 	maxBiomeNameBytes   = 256
@@ -131,75 +119,6 @@ type SourceState struct {
 	CollisionSeed CollisionSeed
 }
 
-type ModelFamily uint8
-
-const (
-	ModelFamilyUnknown ModelFamily = iota
-	ModelFamilyAir
-	ModelFamilyCube
-	ModelFamilyLeaves
-	ModelFamilyCross
-	ModelFamilyCrop
-	ModelFamilyLiquid
-	ModelFamilySlab
-	ModelFamilyStair
-	ModelFamilyDoor
-	ModelFamilyTrapdoor
-	ModelFamilyPane
-	ModelFamilyFence
-	ModelFamilyGate
-	ModelFamilyChest
-	ModelFamilySign
-	ModelFamilyWall
-	ModelFamilyBed
-	ModelFamilyRail
-	ModelFamilyTorch
-	ModelFamilyButton
-	ModelFamilyPressurePlate
-	ModelFamilyCarpet
-	ModelFamilyLayer
-	ModelFamilyDecorative
-	ModelFamilyStatue
-	ModelFamilyCuboid
-	ModelFamilyAquatic
-	ModelFamilyCocoa
-	ModelFamilyLever
-	ModelFamilyInvisible
-	ModelFamilyFlowerBed
-	ModelFamilyVine
-	ModelFamilyGlowLichen
-	ModelFamilySculkVein
-	ModelFamilyChiseledBookshelf
-	ModelFamilyResinClump
-)
-
-const maxModelFamily = ModelFamilyResinClump
-
-type ContributorRole uint8
-
-const (
-	ContributorPrimary ContributorRole = iota
-	ContributorLiquidAdditional
-	ContributorAir
-)
-
-const maxContributorRole = ContributorAir
-
-type ModelStateField uint8
-
-const (
-	ModelStateOrientation ModelStateField = iota + 1
-	ModelStateHalf
-	ModelStateOpen
-	ModelStateHinge
-	ModelStateConnections
-	ModelStateGrowth
-	ModelStateLiquidDepth
-	ModelStateFlags
-)
-
-const maxModelStateField = ModelStateFlags
-
 const (
 	modelFlagPowered uint32 = 1 << iota
 	modelFlagPressed
@@ -210,11 +129,6 @@ const (
 	modelFlagInWall
 	modelFlagUpper
 )
-
-type ModelState struct {
-	Mask   uint8
-	Values [8]uint32
-}
 
 func (s *ModelState) Set(field ModelStateField, value uint32) {
 	if field == 0 || field > maxModelStateField {
@@ -231,49 +145,6 @@ func (s ModelState) Get(field ModelStateField) (uint32, bool) {
 	}
 	bit := uint8(1 << (field - 1))
 	return s.Values[field-1], s.Mask&bit != 0
-}
-
-type CollisionConfidence uint8
-
-const (
-	CollisionConfidenceNone CollisionConfidence = iota
-	CollisionConfidenceCollisionOnly
-	CollisionConfidenceReviewedVisibleBounds
-)
-
-const maxCollisionConfidence = CollisionConfidenceReviewedVisibleBounds
-
-type CollisionBox struct {
-	MinX int32
-	MinY int32
-	MinZ int32
-	MaxX int32
-	MaxY int32
-	MaxZ int32
-}
-
-type CollisionSeed struct {
-	ShapeID    uint16
-	Confidence CollisionConfidence
-	Boxes      []CollisionBox
-}
-
-const (
-	ProvenancePMMP uint8 = 1 << iota
-	ProvenanceDragonfly
-	ProvenancePrismarine
-	ProvenanceValentine
-	allProvenance = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine | ProvenanceValentine
-)
-
-type RegistryMetadata struct {
-	Protocol           uint32
-	CanonicalNames     uint32
-	CanonicalStates    uint32
-	ValentineNames     uint32
-	ValentineStates    uint32
-	ValentineGapNames  uint32
-	ValentineGapStates uint32
 }
 
 type ValentineAudit struct {
@@ -301,21 +172,6 @@ type GenerationReport struct {
 	PrismarineShapeSHA256  string                `json:"prismarine_shapes_sha256"`
 	CoverageManifestSHA256 string                `json:"coverage_manifest_sha256"`
 	LightMetadata          LightGenerationReport `json:"light_metadata"`
-}
-
-// Record is one serialized block-registry entry.
-type Record struct {
-	SequentialID    uint32
-	NetworkHash     uint32
-	Flags           uint8
-	Name            string
-	StateJSON       []byte
-	ModelFamily     ModelFamily
-	ContributorRole ContributorRole
-	ModelState      ModelState
-	FaceCoverage    uint8
-	CollisionSeed   CollisionSeed
-	Provenance      uint8
 }
 
 // BiomeRecord is one numeric biome ID and name in the client registry.
@@ -3173,48 +3029,16 @@ func readBREG1003LightIdentities(data []byte) ([]bregLightIdentity, error) {
 }
 
 func readBREG1003IdentitiesForProtocol(data []byte, expectedProtocol uint32) ([]bregLightIdentity, error) {
-	const headerBytes = 8 + 7*4
-	const recordPrefixBytes = 24 + 8*4
-	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != expectedProtocol {
-		return nil, fmt.Errorf("binding input is not protocol-%d BREG1003", expectedProtocol)
+	_, records, err := decodeBREGRecords(data, expectedProtocol)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[16:20]))
-	if count > maxRecordCount {
-		return nil, fmt.Errorf("light binding BREG count %d exceeds %d", count, maxRecordCount)
-	}
-	identities := make([]bregLightIdentity, 0, count)
-	cursor := headerBytes
-	for index := 0; index < count; index++ {
-		if len(data)-cursor < recordPrefixBytes {
-			return nil, fmt.Errorf("light binding BREG record %d is truncated", index)
+	identities := make([]bregLightIdentity, len(records))
+	for index, record := range records {
+		identities[index] = bregLightIdentity{
+			SequentialID: record.SequentialID, NetworkHash: record.NetworkHash,
+			Name: record.Name, StateJSON: record.StateJSON,
 		}
-		prefix := data[cursor : cursor+recordPrefixBytes]
-		sequentialID := binary.LittleEndian.Uint32(prefix[0:4])
-		networkHash := binary.LittleEndian.Uint32(prefix[4:8])
-		boxCount := int(prefix[15])
-		if boxCount > maxCollisionBoxesPerRecord {
-			return nil, fmt.Errorf("light binding BREG record %d has too many collision boxes", index)
-		}
-		nameLength := int(binary.LittleEndian.Uint16(prefix[18:20]))
-		stateLength := int(binary.LittleEndian.Uint32(prefix[20:24]))
-		if stateLength > maxStateBytes {
-			return nil, fmt.Errorf("light binding BREG record %d state exceeds limit", index)
-		}
-		payloadStart := cursor + recordPrefixBytes + boxCount*24
-		payloadEnd := payloadStart + nameLength + stateLength
-		if payloadStart < cursor || payloadEnd < payloadStart || payloadEnd > len(data) {
-			return nil, fmt.Errorf("light binding BREG record %d payload is truncated", index)
-		}
-		identities = append(identities, bregLightIdentity{
-			SequentialID: sequentialID,
-			NetworkHash:  networkHash,
-			Name:         string(data[payloadStart : payloadStart+nameLength]),
-			StateJSON:    append([]byte(nil), data[payloadStart+nameLength:payloadEnd]...),
-		})
-		cursor = payloadEnd
-	}
-	if cursor != len(data) {
-		return nil, fmt.Errorf("light binding BREG has %d trailing bytes", len(data)-cursor)
 	}
 	return identities, nil
 }
@@ -3435,39 +3259,11 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 		return nil, fmt.Errorf("Valentine provenance name count %d does not match metadata %d", len(valentineNames), metadata.ValentineNames)
 	}
 
-	encoded := make([]byte, 0, len(registryHeader)+7*4)
-	encoded = append(encoded, registryHeader...)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.Protocol)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.CanonicalNames)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.CanonicalStates)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.ValentineNames)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.ValentineStates)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.ValentineGapNames)
-	encoded = binary.LittleEndian.AppendUint32(encoded, metadata.ValentineGapStates)
+	encoded := appendRegistryMetadata(nil, metadata)
 	for _, record := range sorted {
-		encoded = binary.LittleEndian.AppendUint32(encoded, record.SequentialID)
-		encoded = binary.LittleEndian.AppendUint32(encoded, record.NetworkHash)
-		encoded = append(encoded, record.Flags)
-		encoded = append(encoded, byte(record.ModelFamily))
-		encoded = append(encoded, byte(record.ContributorRole))
-		encoded = append(encoded, record.ModelState.Mask)
-		encoded = append(encoded, record.FaceCoverage)
-		encoded = append(encoded, byte(record.CollisionSeed.Confidence))
-		encoded = append(encoded, record.Provenance)
-		encoded = append(encoded, byte(len(record.CollisionSeed.Boxes)))
-		encoded = binary.LittleEndian.AppendUint16(encoded, record.CollisionSeed.ShapeID)
-		encoded = binary.LittleEndian.AppendUint16(encoded, uint16(len(record.Name)))
-		encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(record.StateJSON)))
-		for _, value := range record.ModelState.Values {
-			encoded = binary.LittleEndian.AppendUint32(encoded, value)
-		}
+		encoded = appendRecordHeader(encoded, record)
 		for _, box := range record.CollisionSeed.Boxes {
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MinX))
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MinY))
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MinZ))
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MaxX))
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MaxY))
-			encoded = binary.LittleEndian.AppendUint32(encoded, uint32(box.MaxZ))
+			encoded = appendCollisionBox(encoded, box)
 		}
 		encoded = append(encoded, record.Name...)
 		encoded = append(encoded, record.StateJSON...)

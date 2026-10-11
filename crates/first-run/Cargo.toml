@@ -28,6 +28,7 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06", "way
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

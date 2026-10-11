@@ -720,3 +720,36 @@ fn vrr_preference_persists_and_old_settings_remain_automatic() {
         assert_eq!(loaded.user_settings().video.vrr, VrrPreference::Automatic);
     }
 }
+/// Fresh installs preserve native sky placement, and opting out survives reloads.
+#[test]
+fn native_skybox_offset_defaults_on_and_persists_both_states() {
+    let mut settings = super::SettingsOptions::default();
+    assert_eq!(settings.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name), 1);
+    assert!(settings.user_settings().video.native_skybox_offset);
+    assert!(
+        super::SettingsOptions::decode(b"{}")
+            .unwrap()
+            .user_settings()
+            .video
+            .native_skybox_offset
+    );
+    for enabled in [0, 1] {
+        let index = super::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == super::NATIVE_SKYBOX_OFFSET_OPTION.name)
+            .unwrap();
+        settings.set(index, enabled);
+        let encoded = serde_json::to_vec(&settings).unwrap();
+        let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
+        assert_eq!(
+            loaded.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name),
+            enabled
+        );
+        assert_eq!(
+            loaded.user_settings().video.native_skybox_offset,
+            enabled != 0
+        );
+        loaded.reset_group(super::SettingsGroup::Video);
+        assert!(loaded.user_settings().video.native_skybox_offset);
+    }
+}

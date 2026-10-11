@@ -44,6 +44,8 @@ impl RideKind {
 /// Render-frame facts the tick-level selector cannot derive from simulation.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ModeIntent {
+    /// Spectator flight stays active independently of the ordinary flight toggle.
+    pub spectator: bool,
     /// The mount the player currently rides, if any.
     pub ride: Option<RideKind>,
     /// Feet position of the rider's seat on that mount, when the mount's placement is known.
@@ -193,6 +195,22 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        if intent.spectator {
+            self.sprinting =
+                self.sprint_trigger
+                    .select(self.sprinting, self.previous_feet, intent, observed);
+            self.mode = MovementMode::Flying;
+            self.last_server_flying = intent.server_flying;
+            self.fly_countdown = 0;
+            self.fall_fly_ticks = 0;
+            self.previous_feet = Some(observed.feet);
+            self.sneaking = observed.sneaking;
+            return Ok(ModeChoice {
+                mode: self.mode,
+                forced_sneak: false,
+                sprinting: self.sprinting,
+            });
+        }
         let fly_toggle = self.fly_trigger(intent, observed.jump_edge);
         if intent.ride.is_some() {
             self.last_server_flying = intent.server_flying;
@@ -271,11 +289,14 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
-        } else if matches!(self.mode, MovementMode::Swimming | MovementMode::Crawling)
-            && pose_fits(world, observed.feet, MovementMode::Crawling, false)?
-        {
-            // Only a swimmer or an existing crawler is squeezed into a gap; walking never enters one.
-            (MovementMode::Crawling, false)
+        } else if pose_fits(world, observed.feet, MovementMode::Crawling, false)? {
+            // Low-space entry does not require an existing horizontal pose or sprint input.
+            let low_mode = if observed.in_water {
+                MovementMode::Swimming
+            } else {
+                MovementMode::Crawling
+            };
+            (low_mode, false)
         } else {
             (MovementMode::Walking, false)
         };
@@ -452,6 +473,58 @@ mod tests {
             liquid_attach_height: protocol::STANDING_PLAYER_EYE_HEIGHT,
             jumping: false,
             jump_edge: false,
+        }
+    }
+
+    #[test]
+    fn spectator_stays_flying_without_mayfly_or_a_flying_ability_edge() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            spectator: true,
+            ..Default::default()
+        };
+        let grounded = ModeObservation {
+            on_ground: true,
+            ..airborne()
+        };
+        for observed in [grounded, pressed(grounded), pressed(grounded), airborne()] {
+            assert_eq!(pick(&mut tracker, intent, observed), MovementMode::Flying);
+        }
+        assert_eq!(
+            pick(&mut tracker, ModeIntent::default(), grounded),
+            MovementMode::Walking
+        );
+    }
+
+    #[test]
+    fn spectator_forward_double_tap_starts_and_retains_sprint_without_terrain() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            spectator: true,
+            ..Default::default()
+        };
+        for (forward, sprinting) in [
+            (1.0, false),
+            (0.0, false),
+            (1.0, true),
+            (1.0, true),
+            (0.0, false),
+        ] {
+            let observed = ModeObservation {
+                move_forward: forward,
+                ..airborne()
+            };
+            let choice = tracker.select(intent, observed, &Unavailable).unwrap();
+            assert_eq!(choice.mode, MovementMode::Flying);
+            assert_eq!(choice.sprinting, sprinting);
+            tracker.record_controls(
+                sim::MovementInput {
+                    forward: f64::from(forward),
+                    mode: choice.mode,
+                    ..Default::default()
+                },
+                false,
+            );
         }
     }
 
@@ -851,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn a_walker_is_never_squeezed_into_a_gap_it_does_not_fit() {
+    fn closing_a_low_ceiling_starts_crawling_from_standing() {
         let mut tracker = ModeTracker::default();
         let observed = ModeObservation {
             on_ground: true,
@@ -861,7 +934,8 @@ mod tests {
         let choice = tracker
             .select(ModeIntent::default(), observed, &Ceiling(Some(1.0)))
             .unwrap();
-        assert_eq!(choice.mode, MovementMode::Walking);
+        assert_eq!(choice.mode, MovementMode::Crawling);
+        assert!(!choice.forced_sneak);
     }
 
     #[test]

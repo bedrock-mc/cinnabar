@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -765,7 +767,7 @@ func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout ti
 		if !time.Now().Before(deadline) {
 			t.Fatalf("goroutine stack %q presence = %v, want %v\n%s", substring, present, want, stacks.String())
 		}
-		time.Sleep(5 * time.Millisecond)
+		testwait.Idle()
 	}
 }
 
@@ -944,14 +946,9 @@ func assertProxyTextInOrder(t *testing.T, text string, parts ...string) {
 
 func waitForWrites(t *testing.T, session *fakeUpstream, count int) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if len(session.written()) >= count {
-			return
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.WaitUntil(time.Second, func() bool { return len(session.written()) >= count }) {
+		t.Fatalf("forwarded %d packets, want at least %d", len(session.written()), count)
 	}
-	t.Fatalf("forwarded %d packets, want at least %d", len(session.written()), count)
 }
 
 type packetResult struct {
@@ -1445,16 +1442,11 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	_ = client.WritePacket(&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42})
 	_ = client.Flush()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	testwait.WaitUntil(5*time.Second, func() bool {
 		mu.Lock()
-		n := len(upstreamReceived)
-		mu.Unlock()
-		if n >= 4 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(upstreamReceived) >= 4
+	})
 	time.Sleep(200 * time.Millisecond) // let any stray duplicate arrive
 	mu.Lock()
 	defer mu.Unlock()
@@ -1565,6 +1557,40 @@ func TestLocalListenerSkipsEncryptionAndServesLargePackChunks(t *testing.T) {
 	}
 	if got := <-chunkSizes; got != localResourcePackChunkSize {
 		t.Fatalf("local pack chunk size = %d, want %d", got, localResourcePackChunkSize)
+	}
+}
+
+// A pack with more chunks than the upstream window must still request every chunk at
+// once: the window is only large enough to hold a pack's whole chunk count, so the
+// last chunks of a big pack are never serialized behind the data already received.
+func TestResourcePackWindowHoldsEveryChunkOfAPack(t *testing.T) {
+	window := boundedResourcePackDownload().MaxInFlightChunks
+	if window <= 0 {
+		t.Fatalf("resource pack request window = %d, want positive", window)
+	}
+	if window < minecraft.DefaultResourcePackMaxInFlightChunks {
+		t.Fatalf("resource pack request window = %d, want at least the vanilla default %d", window, minecraft.DefaultResourcePackMaxInFlightChunks)
+	}
+	// The largest pack observed in the wild needs more chunks than the vanilla
+	// default window covers; its tail must not be drip-fed one request per response.
+	const observedPackChunks = 123
+	if window < observedPackChunks {
+		t.Fatalf("resource pack request window = %d, want at least %d for a %d-chunk pack", window, observedPackChunks, observedPackChunks)
+	}
+}
+
+// A server may batch a whole pack transfer into one batch, so the upstream dialer must
+// accept batches far larger than the 16 MiB default that vanilla itself joins through.
+func TestUpstreamDialerAcceptsLargePackTransferBatches(t *testing.T) {
+	dialer := newUpstreamDialerForAdmission(dialerTestDownstream{}, nil, nil, nil, false)
+	if dialer.MaxDecompressedLen <= 0 {
+		t.Fatalf("upstream decompressed batch limit = %d, want positive", dialer.MaxDecompressedLen)
+	}
+	if got := packet.DefaultMaxDecompressedLen; dialer.MaxDecompressedLen <= got {
+		t.Fatalf("upstream decompressed batch limit = %d, want above the default %d", dialer.MaxDecompressedLen, got)
+	}
+	if dialer.MaxDecompressedLen < maxResourcePackTransferBytes {
+		t.Fatalf("upstream decompressed batch limit = %d, want at least the transfer bound %d", dialer.MaxDecompressedLen, maxResourcePackTransferBytes)
 	}
 }
 

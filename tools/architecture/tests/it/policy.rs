@@ -257,7 +257,7 @@ fn grandfathered_line_baseline_allows_only_the_recorded_size() {
     );
     write(
         &root.join("crates/alpha/tests/large.rs"),
-        &"line\n".repeat(8),
+        &"// line\n".repeat(8),
     );
     write(
         &root.join("app/src/acceptance/markers.rs"),
@@ -279,7 +279,7 @@ fn grandfathered_line_baseline_allows_only_the_recorded_size() {
     );
     write(
         &root.join("crates/alpha/tests/large.rs"),
-        &"line\n".repeat(9),
+        &"// line\n".repeat(9),
     );
     let diagnostics = check_repository(root, &policy).expect("run checker above baseline");
     assert!(diagnostics.iter().any(|line| {

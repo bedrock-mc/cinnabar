@@ -13,6 +13,13 @@ pub(crate) struct WeatherTickFrame {
     pub(super) weather_cycle_enabled: bool,
 }
 
+impl WeatherTickFrame {
+    /// Visits current rain levels once per completed weather tick, in simulation order.
+    pub(crate) fn current_rain_levels(&self) -> impl Iterator<Item = f32> + '_ {
+        self.rain.iter().map(|rain| rain[1])
+    }
+}
+
 pub(crate) fn update_seasonal_foliage(
     ticks: Res<WeatherTickFrame>,
     mut client_world: ResMut<ClientWorld>,

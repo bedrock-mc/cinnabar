@@ -84,7 +84,7 @@ pub fn observe_station_block(
         }
         WindowKind::Crafter => {
             let disabled = integer("disabled_slots").map_or(0, |mask| mask as u16);
-            let powered = station_triggered(position).unwrap_or(false);
+            let powered = station_triggered(position);
             runtime
                 .screen_state_mut()
                 .crafter
@@ -92,17 +92,6 @@ pub fn observe_station_block(
         }
         _ => {}
     }
-}
-
-/// A boolean block state from canonical state JSON, plain or typed.
-/// Reads a named boolean state from the canonical block state supplied by the app.
-pub fn state_bit(canonical: &str, name: &str) -> Option<bool> {
-    let states = serde_json::from_str::<serde_json::Value>(canonical).ok()?;
-    let value = states.get(name)?;
-    let value = value.get("value").unwrap_or(value);
-    value
-        .as_bool()
-        .or_else(|| value.as_u64().map(|bit| bit != 0))
 }
 
 /// Globals for the open station's progress and layout.
@@ -262,7 +251,7 @@ fn crafter_controls(data: &mut DataSource, runtime: &UiRuntime, frame: &HudFrame
             Scalar::Bool(crafter.is_disabled(slot)),
         );
     }
-    let arrow = if crafter.powered {
+    let arrow = if crafter.powered == Some(true) {
         CRAFTER_ARROW_POWERED
     } else {
         CRAFTER_ARROW_UNPOWERED

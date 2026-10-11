@@ -132,3 +132,43 @@ fn presentation_estimate_does_not_replace_incoming_tick_ordering_or_survive_sess
     assert_eq!(remaining(&runtime, 1, 20_000), Some(Some(20)));
     assert_eq!(remaining(&runtime, 1, 21_000), None);
 }
+
+#[test]
+fn recent_effects_retain_updates_and_removals() {
+    let mut runtime = UiRuntime::new(1);
+    for (index, id) in (31..=37).enumerate() {
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 1,
+                effect(ActorEffectAction::Add, id, -1, 0),
+                0,
+            )
+            .unwrap();
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 2,
+                effect(ActorEffectAction::Update, id, 600, 0),
+                0,
+            )
+            .unwrap();
+        let retained = runtime
+            .gameplay_hud()
+            .effects()
+            .iter()
+            .find(|effect| effect.effect_id == id)
+            .expect("registered effect retained");
+        assert_eq!(retained.expires_at_tick, Some(600));
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 3,
+                effect(ActorEffectAction::Remove, id, 0, 0),
+                0,
+            )
+            .unwrap();
+        assert!(runtime.gameplay_hud().effects().is_empty());
+    }
+    assert_eq!(runtime.gameplay_hud().diagnostics().unknown_effect_ids, 0);
+}

@@ -269,6 +269,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
             // Native entity_change_color: alpha weights dye, never coverage/opacity. The
             // material has no alpha test and the pipeline has no blending, with depth writes.
             color = vec4(mix(color.rgb, color.rgb * dye, color.a), color.a * change_color.a);
+        } else if (!multitexture_material && authored && (input.material & ACTOR_MATERIAL_BLEND_FLAG) != 0u) {
+            color *= change_color;
         } else if (!multitexture_material && color.a > 0.99) {
             color = vec4(color.rgb * dye, color.a);
         }

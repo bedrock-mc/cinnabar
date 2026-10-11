@@ -3,12 +3,33 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::BytesMut;
+use jolyne::auth::client::{NON_EDITOR_CONNECTION_INTENT, SUPER_HIGH_MEMORY_TIER};
 use serde_json::{Value, json};
+use std::num::NonZeroI64;
 use uuid::Uuid;
 use valentine::bedrock::codec::{BedrockCodec, VarUInt};
 use valentine::bedrock::version::v1_26_51::EnumsInputMode;
 
 use crate::{ClientSkin, GAME_VERSION, PlayerInputMode};
+
+/// An opaque persisted login identifier, independent of account, device and transport identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClientRandomId(NonZeroI64);
+
+impl ClientRandomId {
+    /// Accepts every signed 64-bit value except the uninitialized storage sentinel zero.
+    pub const fn new(value: i64) -> Option<Self> {
+        match NonZeroI64::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// Returns the signed value serialized in the login claims without masking any bits.
+    pub const fn get(self) -> i64 {
+        self.0.get()
+    }
+}
 
 /// The player's own settings a login reports, as vanilla's client takes them at join.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,10 +52,11 @@ impl Default for LoginSettings {
     }
 }
 
-/// Returns the client-data claims for `display_name`, `skin` and `settings`; `None` uploads the
+/// Builds claims with the caller's stored ID and player settings; `None` uploads the
 /// solid-white 64x64 placeholder skin.
 pub(crate) fn login_client_data(
     display_name: &str,
+    client_random_id: ClientRandomId,
     skin: Option<&ClientSkin>,
     settings: &LoginSettings,
 ) -> Value {
@@ -68,16 +90,17 @@ pub(crate) fn login_client_data(
     );
     // Two halves keep each `json!` expansion within the default recursion limit.
     let mut claims = json!({
-        "ClientRandomId": (Uuid::new_v4().as_u64_pair().0 & 0x7fff_ffff_ffff_ffff) as i64,
+        "ClientRandomId": client_random_id.get(),
+        "ClientEditorConnectionIntent": NON_EDITOR_CONNECTION_INTENT,
+        "ClientIsEditorCapable": false,
         "CompatibleWithClientSideChunkGen": true,
         "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
         "GraphicsMode": 0,
         "GuiScale": settings.gui_scale_offset,
-        "IsEditorMode": false,
         "LanguageCode": settings.language_code,
         "MaxViewDistance": 32,
-        "MemoryTier": 5,
+        "MemoryTier": SUPER_HIGH_MEMORY_TIER,
         "PlatformOfflineId": "",
         "PlatformOnlineId": "",
         "PlatformType": 0,
@@ -138,6 +161,31 @@ mod tests {
     use super::*;
     use crate::{ClientCape, ClientSkinGeometry};
 
+    /// Repeated claims and bridge JSON retain all signed bits of the caller's ID.
+    #[test]
+    fn claims_reuse_the_supplied_signed_client_id() {
+        assert!(ClientRandomId::new(0).is_none());
+        for value in [i64::MIN, i64::MAX, -1, 1] {
+            let id = ClientRandomId::new(value).unwrap();
+            for name in ["First", "Second"] {
+                let claims = login_client_data(name, id, None, &LoginSettings::default());
+                let request = bridge::ConnectRequest {
+                    protocol: crate::PROTOCOL_VERSION,
+                    target: None,
+                    client_cache: false,
+                    client_data: claims,
+                };
+                let encoded = bridge::encode_connect(&request).unwrap();
+                let decoded: serde_json::Value = serde_json::from_slice(&encoded[1..]).unwrap();
+                assert_eq!(
+                    decoded["client_data"]["ClientRandomId"].as_i64(),
+                    Some(value)
+                );
+                assert_eq!(decoded["client_data"]["ThirdPartyName"], name);
+            }
+        }
+    }
+
     fn decoded(claims: &Value, field: &str) -> Vec<u8> {
         STANDARD
             .decode(claims[field].as_str().expect("base64 string field"))
@@ -164,7 +212,12 @@ mod tests {
                 engine_version: "1.26.50".into(),
             }),
         };
-        let claims = login_client_data("Steve", Some(&skin), &LoginSettings::default());
+        let claims = login_client_data(
+            "Steve",
+            ClientRandomId::new(-7).unwrap(),
+            Some(&skin),
+            &LoginSettings::default(),
+        );
         assert_eq!(decoded(&claims, "SkinData"), skin.rgba8);
         assert_eq!(
             (
@@ -192,12 +245,61 @@ mod tests {
     /// Without a skin the placeholder satisfies the core's size check and names the wide model.
     #[test]
     fn claims_without_a_skin_upload_the_placeholder() {
-        let claims = login_client_data("Alex", None, &LoginSettings::default());
+        let claims = login_client_data(
+            "Alex",
+            ClientRandomId::new(-7).unwrap(),
+            None,
+            &LoginSettings::default(),
+        );
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
+    }
+
+    /// Login validation requires a supported memory tier and explicit gameplay editor claims.
+    #[test]
+    fn session_and_self_signed_logins_report_supported_client_capabilities() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use jolyne::auth::client::generate_self_signed_chain;
+
+        let settings = LoginSettings::default();
+        let skin = ClientSkin {
+            rgba8: vec![255; 64 * 64 * 4],
+            width: 64,
+            height: 64,
+            arm_size: "wide".into(),
+            cape: None,
+            geometry: None,
+        };
+        let key = p384::SecretKey::random(&mut p384::elliptic_curve::rand_core::OsRng);
+        for skin in [None, Some(&skin)] {
+            let session_claims =
+                login_client_data("Fixture", ClientRandomId::new(-7).unwrap(), skin, &settings);
+            let (_, client_jwt) =
+                generate_self_signed_chain(&key, "Fixture", Uuid::new_v4(), skin).unwrap();
+            let jwt_claims: Value = serde_json::from_slice(
+                &URL_SAFE_NO_PAD
+                    .decode(client_jwt.split('.').nth(1).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            for claims in [session_claims, jwt_claims] {
+                let tier = claims["MemoryTier"]
+                    .as_u64()
+                    .expect("an unsigned enum value");
+                assert!(
+                    tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
+                    "unsupported memory tier {tier} rejects otherwise valid login claims"
+                );
+                assert_eq!(claims["ClientIsEditorCapable"], false);
+                assert_eq!(
+                    claims["ClientEditorConnectionIntent"],
+                    NON_EDITOR_CONNECTION_INTENT
+                );
+            }
+        }
     }
 
     /// The claims carry the version, offline name and the player's own settings, and leave the
@@ -209,7 +311,7 @@ mod tests {
             input_mode: PlayerInputMode::GamePad,
             gui_scale_offset: -1,
         };
-        let claims = login_client_data("Steve", None, &settings);
+        let claims = login_client_data("Steve", ClientRandomId::new(-7).unwrap(), None, &settings);
         assert_eq!(claims["GameVersion"], GAME_VERSION);
         assert_eq!(claims["ThirdPartyName"], "Steve");
         assert_eq!(claims["LanguageCode"], "de_DE");
@@ -226,7 +328,12 @@ mod tests {
         }
         assert!(claims["SkinId"].as_str().unwrap().ends_with(".Custom"));
         assert!(Uuid::parse_str(claims["SelfSignedId"].as_str().unwrap()).is_ok());
-        let mouse = login_client_data("Steve", None, &LoginSettings::default());
+        let mouse = login_client_data(
+            "Steve",
+            ClientRandomId::new(-7).unwrap(),
+            None,
+            &LoginSettings::default(),
+        );
         assert_eq!(
             (
                 mouse["CurrentInputMode"].as_u64(),

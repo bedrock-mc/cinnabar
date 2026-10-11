@@ -5,8 +5,9 @@ use futures::{SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::contract::{CONTROL_MAX_FRAME_LEN, MAX_PING_TARGETS};
 use crate::endpoint::EndpointKind;
-use crate::status::{CONTROL_MAX_FRAME_LEN, RpcError, TransferPending, invalid};
+use crate::status::{RpcError, TransferPending, invalid};
 use crate::{BridgeError, FramedStream};
 
 const REQUEST_ID: u64 = 1;
@@ -646,10 +647,6 @@ async fn featured_servers(
     let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
     Ok(body.servers)
 }
-
-/// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
-/// a longer list was refused whole, so no row ever left "Loading ping".
-const MAX_PING_TARGETS: usize = 64;
 
 /// Pings servers for their player counts and round trip, in batches the core accepts.
 pub async fn ping_servers(

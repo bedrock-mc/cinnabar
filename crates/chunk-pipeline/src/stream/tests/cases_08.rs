@@ -167,18 +167,16 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     stream.set_publication_allowance(allowance.clone());
 
     let mut dispatched = 0;
-    let deadline = Instant::now() + std::time::Duration::from_secs(10);
-    for _ in 0..64 {
-        dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
-        if dispatched > 0
-            && stream.mesh_jobs.in_flight.is_empty()
-            && stream.mesh_jobs.pending.is_empty()
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    test_time::eventually_within(
+        std::time::Duration::from_secs(10),
+        "mesh jobs to dispatch and drain",
+        || {
+            dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
+            dispatched > 0
+                && stream.mesh_jobs.in_flight.is_empty()
+                && stream.mesh_jobs.pending.is_empty()
+        },
+    );
     for _ in 0..4 {
         dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
     }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
@@ -279,13 +280,13 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 	return session.Flush()
 }
 
-// writeSessionPacks streams each archive in PackData frames of at most sessionPackChunkBytes.
+// writeSessionPacks streams each archive in PackData frames of at most bridgecontract.SessionPackChunkBytes.
 func writeSessionPacks(session *sessionConn, packs []*resource.Pack) error {
 	var frame []byte
 	for index, pack := range packs {
 		size := pack.Size()
 		for offset := 0; offset < size; {
-			n := min(sessionPackChunkBytes, size-offset)
+			n := min(bridgecontract.SessionPackChunkBytes, size-offset)
 			if cap(frame) < 5+n {
 				frame = make([]byte, 5+n)
 			}
@@ -442,7 +443,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	if errors.As(cause, &refused) {
 		key = refused.key
 	}
-	frame, err := encodeSessionJSON(sessionKindDisconnect, sessionDisconnectMessage{Message: key})
+	frame, err := encodeSessionJSON(bridgecontract.SessionKindDisconnect, sessionDisconnectMessage{Message: key})
 	if err != nil {
 		return err
 	}
@@ -454,7 +455,8 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 }
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data; a device
-// replaces the client's claimed device, so the claim matches the core's sign-in.
+// replaces the client's claimed device and initializes SelfSignedId for this new login.
+// Without a core device, the caller's device and identity claims remain intact.
 func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
@@ -475,6 +477,13 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 	}
 	if err := clientData.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	if claimed != nil {
+		if clientData.DeviceID == "" {
+			return nil, fmt.Errorf("%w: core device ID is empty", errMalformedSessionMessage)
+		}
+		clientData.SelfSignedID = initialSelfSignedID(clientData.ClientRandomID, string(clientData.DeviceID))
+		clientData.MarkClaims("SelfSignedId")
 	}
 	return &sessionDownstream{
 		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},

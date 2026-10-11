@@ -33,6 +33,7 @@ members = [
     "crates/server-experience",
     "crates/render",
     "crates/render-api",
+    "crates/test-time",
     "crates/render-model",
     "crates/inventory",
     "crates/launcher",

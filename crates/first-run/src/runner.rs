@@ -373,21 +373,15 @@ mod tests {
         let pid = std::thread::scope(|scope| {
             let running = scope.spawn(|| compiler.run(&args, |_| {}));
             let path = dir.path().join("descendant");
-            let deadline = std::time::Instant::now() + Duration::from_secs(5);
-            while !path.exists() && std::time::Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(10));
-            }
+            test_time::wait_until(Duration::from_secs(5), || path.exists());
             let raw: i32 = fs::read_to_string(path).unwrap().trim().parse().unwrap();
             cancel.store(true, Ordering::Relaxed);
             assert!(running.join().unwrap().unwrap_err().is::<Cancelled>());
             rustix::process::Pid::from_raw(raw).unwrap()
         });
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
-        while rustix::process::test_kill_process(pid).is_ok()
-            && std::time::Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        test_time::wait_until(Duration::from_secs(1), || {
+            rustix::process::test_kill_process(pid).is_err()
+        });
         let alive = rustix::process::test_kill_process(pid).is_ok();
         if alive {
             let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);

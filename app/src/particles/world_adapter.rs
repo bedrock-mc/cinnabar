@@ -1,6 +1,6 @@
 use assets::{BlockFlags, SeasonalFoliageBlock, seasonal_foliage_cell_shelters};
 use chunk_pipeline::WorldStream;
-use particles::{Fluid, ParticleWorld};
+use particles::{BlockIdentity, Fluid, ParticleWorld};
 use sim::{Aabb, BlockPhysicsFlags, CollisionRegistry, CollisionWorld, PaletteWorld, Vec3};
 use world::SubChunkKey;
 
@@ -8,11 +8,21 @@ use world::SubChunkKey;
 pub(super) struct StreamParticleWorld<'a> {
     stream: &'a WorldStream,
     registry: &'a CollisionRegistry,
+    identities: Option<&'a crate::movement::PhysicsCollisionRegistries>,
 }
 
 impl<'a> StreamParticleWorld<'a> {
-    pub(super) fn new(stream: &'a WorldStream, registry: &'a CollisionRegistry) -> Self {
-        Self { stream, registry }
+    /// Binds collision queries and the optional session block-identity registry.
+    pub(super) fn new(
+        stream: &'a WorldStream,
+        registry: &'a CollisionRegistry,
+        identities: Option<&'a crate::movement::PhysicsCollisionRegistries>,
+    ) -> Self {
+        Self {
+            stream,
+            registry,
+            identities,
+        }
     }
 
     fn palette(&self) -> PaletteWorld<'a> {
@@ -65,6 +75,13 @@ impl<'a> StreamParticleWorld<'a> {
 }
 
 impl ParticleWorld for StreamParticleWorld<'_> {
+    fn block_identity(&self, block: [i32; 3]) -> Option<BlockIdentity<'_>> {
+        let runtime = self.block_runtime_id(block)?;
+        self.identities?
+            .block_identifier(self.stream.network_id_mode(), runtime)
+            .map(BlockIdentity)
+    }
+
     fn solid_boxes(&self, min: [f32; 3], max: [f32; 3], out: &mut Vec<[f32; 6]>) {
         let query = Aabb::new(
             Vec3::new(f64::from(min[0]), f64::from(min[1]), f64::from(min[2])),

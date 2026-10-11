@@ -17,6 +17,63 @@ fn center(frame: &[u8]) -> &[u8] {
 }
 
 #[test]
+fn authored_actor_opacity_multiplier_preserves_background() {
+    let Some(gpu) =
+        gpu_snapshot::Gpu::for_fixture("authored_actor_opacity_multiplier_preserves_background")
+    else {
+        return;
+    };
+    let material = crate::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            blend: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let draw = |alpha: u8| {
+        actor_raster::raster_material_with_overlay(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [[120, 160, 200, 255]; 2],
+            false,
+            true,
+            0,
+            0,
+            crate::pack_overlay_rgba8([1.0, 1.0, 1.0, f32::from(alpha) / 255.0]),
+        )
+    };
+    let full = draw(255);
+    let background = actor_raster::raster_material_with_overlay(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[0; 4]; 2],
+        false,
+        true,
+        0,
+        0,
+        0,
+    );
+    for alpha in [0, 77] {
+        let frame = draw(alpha);
+        let opacity = f32::from(alpha) / 255.0;
+        for channel in 0..3 {
+            let expected = f32::from(center(&full)[channel]) * opacity
+                + f32::from(center(&background)[channel]) * (1.0 - opacity);
+            assert!(
+                (f32::from(center(&frame)[channel]) - expected).abs() <= 2.0,
+                "controller alpha {alpha} must weight the source: got {}, expected {expected}",
+                center(&frame)[channel]
+            );
+        }
+    }
+}
+
+#[test]
 fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
         "actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier",
@@ -46,6 +103,7 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
             true,
             crate::pack_actor_light_without_lightmap(),
             crate::pack_overlay_rgba8([1.0; 4]),
+            0,
         );
         let shade = ::render_api::fancy_actor_shade(normal, 0.0);
         for (actual, source) in center(&frame)[..3].iter().zip([200, 120, 40]) {
@@ -94,6 +152,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                 true,
                 light,
                 0,
+                0,
             );
             for overlay in [0, crate::pack_overlay_rgba8([1.0; 4])] {
                 let frame = actor_raster::raster_material_with_overlay(
@@ -106,6 +165,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                     true,
                     light,
                     overlay,
+                    0,
                 );
                 let admitted = !disable_overlay && overlay != 0;
                 let shade = if light == 0 {

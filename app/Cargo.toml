@@ -108,6 +108,7 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }
 launcher = { path = "../crates/launcher", features = ["test-support"] }
+test-time = { path = "../crates/test-time" }
 wit-component.workspace = true
 tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }

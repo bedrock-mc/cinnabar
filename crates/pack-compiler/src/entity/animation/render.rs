@@ -20,7 +20,7 @@ use super::{
 const MAX_SLOTS_PER_LAYER: usize = 16;
 
 mod material_groups;
-mod materials;
+use super::super::materials;
 
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,

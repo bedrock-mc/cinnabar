@@ -29,7 +29,7 @@ struct LayerModel {
 #[derive(Debug)]
 struct ResolvedLayer {
     material: render::ActorMaterial,
-    location: ActorArtworkLocation,
+    location: Option<ActorArtworkLocation>,
     tint: u32,
     overlay: Option<u32>,
     hidden_bones: Arc<[u32]>,
@@ -159,13 +159,18 @@ fn resolve(
     artwork: &ActorArtworkPages,
     cache: &mut LayerPoseCache,
     resolved: &mut Vec<ResolvedLayer>,
+    player_skin: bool,
 ) {
     resolved.clear();
     resolved.extend(
         layers
             .iter()
             .filter_map(|layer| {
+                if player_skin && (layer.geometry.is_some() || layer.texture_slot != 0) {
+                    return None;
+                }
                 let model = match layer.geometry {
+                    None if player_skin => None,
                     None if layer.pose.is_empty() => None,
                     None => Some(LayerModel {
                         rig: submission.input.rig,
@@ -188,12 +193,16 @@ fn resolve(
                     },
                     model,
                     ignore_lighting: layer.ignore_lighting,
-                    location: match layer.multitexture {
-                        Some([second, third]) => artwork.multitexture_location(
-                            submission.input.rig,
-                            [layer.source, second, third],
-                        )?,
-                        None => artwork.variant_location(submission.input.rig, layer.source)?,
+                    location: if player_skin {
+                        None
+                    } else {
+                        Some(match layer.multitexture {
+                            Some([second, third]) => artwork.multitexture_location(
+                                submission.input.rig,
+                                [layer.source, second, third],
+                            )?,
+                            None => artwork.variant_location(submission.input.rig, layer.source)?,
+                        })
                     },
                     tint: pack_layer_tint(layer.color),
                     overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
@@ -231,7 +240,9 @@ fn layered(
         submission.input.previous_bones = Arc::clone(&model.previous);
         submission.input.current_bones = Arc::clone(&model.current);
     }
-    submission.texture_layer = layer.location.layer();
+    if let Some(location) = layer.location {
+        submission.texture_layer = location.layer();
+    }
     submission.material = layer.material;
     if matches!(
         layer.material.kind,
@@ -278,7 +289,7 @@ pub fn apply_render_layers<'a>(
     );
 }
 
-/// Applies sampled layer poses to bodies already placed and admitted at their frame scale.
+/// Applies sampled controllers to placed bodies, retaining runtime player skins and their poses.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
     mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
@@ -290,22 +301,33 @@ pub fn apply_render_layers_cached<'a>(
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
-        if identity.layer != ACTOR_LAYER_BODY || !batch.artwork.contains_key(&identity) {
+        let player_skin = !batch.artwork.contains_key(&identity)
+            && (body.texture_layer as usize) < batch.skin_layers.len();
+        if identity.layer != ACTOR_LAYER_BODY
+            || (!player_skin && !batch.artwork.contains_key(&identity))
+        {
             continue;
         }
         let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
         let pristine = body.clone();
-        resolve(&pristine, &layers, artwork, cache, &mut resolved);
+        resolve(
+            &pristine,
+            &layers,
+            artwork,
+            cache,
+            &mut resolved,
+            player_skin,
+        );
         if resolved.is_empty() {
             continue;
         }
         for (layer_index, layer) in resolved.iter().enumerate() {
             let submission = layered(&pristine, layer, layer_index, cache);
-            batch
-                .artwork
-                .insert(submission.input.identity, layer.location);
+            if let Some(location) = layer.location {
+                batch.artwork.insert(submission.input.identity, location);
+            }
             if layer_index == 0 {
                 batch.submissions[index] = submission;
             } else {
@@ -321,7 +343,58 @@ pub fn apply_render_layers_cached<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::pack_layer_tint;
+    use super::*;
+
+    #[test]
+    fn spectator_controller_styles_runtime_skin_and_hides_body_bones() {
+        let presentation =
+            super::super::actors::local_diagnostic_presentation(1, 0, 1, 1, [0.0; 3], 0.0, 0.0)
+                .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let original_rig = batch.submissions[0].input.rig;
+        let original_skin = batch.skin_layers[0].clone();
+        let layer = RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: Some(assets::EntityRenderMaterialState {
+                blend: true,
+                ..Default::default()
+            }),
+            source: 0,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0, 1.0, 1.0, 0.3],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([1, 2, 3, 4, 5]),
+            uv_anim: render::IDENTITY_UV_ANIM,
+            geometry: None,
+            previous_pose: Arc::from([]),
+            pose: Arc::from([]),
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+        };
+        let layers = [layer];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| Some(Cow::Borrowed(&layers)),
+            &ActorArtworkPages::default(),
+            &mut LayerPoseCache::default(),
+        );
+        let body = &batch.submissions[0];
+        assert_eq!(body.input.rig, original_rig);
+        assert_eq!(batch.skin_layers[0], original_skin);
+        assert_eq!(body.texture_layer, 0);
+        assert!(batch.artwork.is_empty());
+        assert_eq!(body.tint, pack_layer_tint(layers[0].color));
+        assert!(body.material.state.unwrap().blend);
+        assert_eq!(body.input.current_bones[0].translation_scale[3], 1.0);
+        assert!(
+            body.input.current_bones[1..]
+                .iter()
+                .all(|bone| bone.translation_scale[3] == 0.0)
+        );
+    }
 
     #[test]
     fn white_is_untinted_and_other_colours_enable_the_tint_word() {

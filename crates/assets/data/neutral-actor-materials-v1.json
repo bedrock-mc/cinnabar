@@ -7,7 +7,7 @@
   ],
   "public_material_version": "1.26.33.01",
   "public_material_sha256": "6b481fb5ba8ffff97c6222c37e379e34a03e04ebad42566c5d85e207af010272",
-  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and arbitrary fractional-alpha material parity remain unverified. Content-pinned sheep and llama sources use separately witnessed native color-mask and three-sampler materials. The native sheep dye palette callback, arbitrary custom-material composition and independent server-pack sampler overrides remain incomplete. Installed material/shader evidence is near-version, not an exact target-binary witness.",
+  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and arbitrary fractional-alpha material parity remain unverified. Content-pinned sheep and wolf sources use color-mask materials; llama sources use three-sampler materials. Sheep dye callbacks, arbitrary custom-material composition and independent server-pack sampler overrides remain incomplete. Installed material/shader evidence is near-version, not an exact target-binary witness.",
   "native_reference": {
     "runtime_version": "1.26.51",
     "material_sha256": "f5c38e892b88d991212b637d686d1a37eb4ffdde0d0494b02f6918e14928e966",
@@ -25,6 +25,222 @@
     {
       "path": "textures/entity/sheep/sheep_baby.tga",
       "source_sha256": "f0c8abac2d79f9145d3f94cbaf256564bc5447b766ef76e6db81078f202c1bcf"
+    },
+    {
+      "path": "textures/entity/wolf/wolf.png",
+      "source_sha256": "3b09ef516c429a9d2fd64c59017b5b327c13158b11f067ce92feecdc7ee3ecfb"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_angry.png",
+      "source_sha256": "719a7679f035a2dfe3f21c736c67583dd4fcd0ed0cc8e0d86a83e9eaa13f24a2"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_angry_baby.png",
+      "source_sha256": "4217656f2d886daddd590b5c7badda25fb6baba3ce35a169869588b1cebce57f"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen.png",
+      "source_sha256": "ef3ba9b8d709d2ae08ca99eec236bcf519edb50ef8c320933d3bd56178ea453b"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen_angry.png",
+      "source_sha256": "b2174f967f5ba9abeb7c858df78531b72f28d80745d0bd611b541b25d075c67a"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen_angry_baby.png",
+      "source_sha256": "19cd4d7232619b426007cb45504fbdb551ec6172d24638e6f0f94de1b8d60b83"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen_baby.png",
+      "source_sha256": "50ccc5ad0b9d0e567daf4e7e525a1da682a324c36b9b06166d509a6ca99ea7ae"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen_tame.tga",
+      "source_sha256": "8f704c534d6b420697ae2b35a11ed8a6fe5c57df746e5e9ee8733d82fbf84bb8"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_ashen_tame_baby.tga",
+      "source_sha256": "ad887ea07c6379739f6497c721c728c08013276e924245ca865df137463c0e56"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_baby.png",
+      "source_sha256": "f1e1f3d945e3662cfd0af63282d7eb408d2463947023c30c6968fc69af4618ad"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black.png",
+      "source_sha256": "43d9f2620f28d9ef2a887886d245a8b2f51a1cfd19520f33079158a24a6bb57c"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black_angry.png",
+      "source_sha256": "bca4c3f5d8c08134319782e244983e073804614dec97324fee0178190b261905"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black_angry_baby.png",
+      "source_sha256": "5eec109a4e094e8fa43d6b04b5d77f5ba71e4630f7a52a08546a443617f9b237"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black_baby.png",
+      "source_sha256": "3ef03a30b5b070491f2d73daa23e6ff0637dcb29e807b62fe9860fcfecfffc8c"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black_tame.tga",
+      "source_sha256": "1e8b8aafc09f944cfa9ae15f6bff8e24ee56f61d23ff9a486745076629fb5c90"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_black_tame_baby.tga",
+      "source_sha256": "6998c7070c03a40ed29241d6741b104342d9aa3b4bd882848d8bd7d2c6095722"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut.png",
+      "source_sha256": "e7534b4b55deae19802bc4ca604de0ae32f5055d941f78e7f927d32bf1b80aae"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut_angry.png",
+      "source_sha256": "c64c6e2a87cd1ec9f4e3d4115e68523aaede16c3b48a542e4bc638e3d4574d55"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut_angry_baby.png",
+      "source_sha256": "959c29c9810da2f855778f033acfb89378dfa554f04c5cf25b8d99fb66576727"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut_baby.png",
+      "source_sha256": "1b6b914f1c05e6561221dd7da36b6e8d6d4d1fcfdecba4aed3e309acc610dcf4"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut_tame.tga",
+      "source_sha256": "5bb1cba722211fb7ea2a737fcdcad16d9943954735d64d88b31c358f22fd7641"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_chestnut_tame_baby.tga",
+      "source_sha256": "139e3c2f6b70b2da7a1536db77e0f559e6e96ba44929d21a09143c77183c2ef9"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty.png",
+      "source_sha256": "eeb78859752fdcab80af896fd42f5d3cabe401094bce3e0633c2c12dd8699541"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty_angry.png",
+      "source_sha256": "5ab6e8c97d9d774a55a3edc4a53ad9b8685ece31071b26cf63d4ac24fecbc18b"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty_angry_baby.png",
+      "source_sha256": "ea519d1d584aa8cbd0038019b766ee17bdce561c4e47107ed9cae9e400cc4b00"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty_baby.png",
+      "source_sha256": "20dd2ba452a7f00c318da40739e879c755e52574f17e22f33a95ddbdb72f2299"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty_tame.tga",
+      "source_sha256": "c36f452de0a4730f31aae642088e25a67e8156b215094b9b9caaec96bee9d0d9"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_rusty_tame_baby.tga",
+      "source_sha256": "8d4bca54aef4518b70cff4b0c226a9b9c2fd96b6a7f0b935c9054c6a648590e0"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy.png",
+      "source_sha256": "fb6f56d56253ccf9cf7886d8eb3e2f64bc274c14743155a33f1833e78bb38716"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy_angry.png",
+      "source_sha256": "7f9083c4281549d1c1d294d9b69b94eb814d3ae9bcbff50649c51d68c8ef1d1d"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy_angry_baby.png",
+      "source_sha256": "03a74d2b16b84f31e191766b635fdc93df0bba6cac81a2b788b6db82c178b0c8"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy_baby.png",
+      "source_sha256": "187026583f51f215628720aa4ac93380e69dd6e23ca7856553d938664ea42d8c"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy_tame.tga",
+      "source_sha256": "ba78d63ca71d8d40c66b8f904ffdf9bcd523da2476ad21885e6b4e7b22d7942a"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_snowy_tame_baby.tga",
+      "source_sha256": "ee8396a2c8ab8271018dfa951c6ad211adf23234439acc7106ac11fb2d63908f"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted.png",
+      "source_sha256": "1734f29b78533eea29c49258d8e6627caa986d720599d5843eacfbcd4085a741"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted_angry.png",
+      "source_sha256": "6e75aa13d5600938d7f1501d964e526b08309c4dc991d6bb2f90fb2d8b8de2c8"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted_angry_baby.png",
+      "source_sha256": "1e6d578cc44dc5ab969057ad8d7f59cad37eb803f79d975a904f6c26a22d62bc"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted_baby.png",
+      "source_sha256": "08d05881ecd6a6e25febab1d2fa3701ee06f71849c78e55b7e70b519651475af"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted_tame.tga",
+      "source_sha256": "82263ab4a5203a0c960886a062feb386ee49d07cc1d759e60fbb9777d1866cfc"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_spotted_tame_baby.tga",
+      "source_sha256": "8aef140676ee35357ddd90b5c101ef44714d302fb43b7506d50e0af94c4c0bc2"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped.png",
+      "source_sha256": "1c11ffec19acbdc178f59d69c5ea0c415c711ce4398852be678f1ababc45bbb2"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped_angry.png",
+      "source_sha256": "0420f0f5c4f0fa5595b4b0b657cf6036daa4b53e7578504d06549e03bb4dae2a"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped_angry_baby.png",
+      "source_sha256": "e157f151f268c39d6a3953876185923e82fa39b757b9d6e9813af0864a7bdb10"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped_baby.png",
+      "source_sha256": "50e2d6d2e940ceb4fc5d3645666c3af5c30b8cdd1bd9b5a3c9eaa7090b35ffde"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped_tame.tga",
+      "source_sha256": "9509277f775a5fc01736f4878c24a233dd00112ab85dde731c236203ae0474c8"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_striped_tame_baby.tga",
+      "source_sha256": "237dc625bd6f23387223e0519f4a331f79d9766b196d103b0828cda2e2f564ac"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_tame.tga",
+      "source_sha256": "716b8e5a2cb6bdacbab593fdb7e19d23e7edc1a968051cc139c4624ef6c35b4b"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_tame_baby.tga",
+      "source_sha256": "e6015cb9931a5ef68c2576d60a4579c94a7c45d64f08a9346d99612561b838eb"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods.png",
+      "source_sha256": "e130d2f95c0f15aea35c1cba69188e07819d962a6b676a646b8843c5a26c0d24"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods_angry.png",
+      "source_sha256": "631f48130e517d1cd60bb53f74acf5e73b35f55a35339af5a5b7f1df87c5809b"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods_angry_baby.png",
+      "source_sha256": "f2d45193125b05c06ba1b9c22dc0c51780b3d55d84a2e46ffa9af0ea935fbf12"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods_baby.png",
+      "source_sha256": "6cd5b0ae47602c5771e7255c1736cb8a1d8afc6d11031a9dac50dbfbfdf925a9"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods_tame.tga",
+      "source_sha256": "627d9ac1b81a8a996cd87a10230dd2fb80e2bec23be10a0786e50c6cabfd6f3a"
+    },
+    {
+      "path": "textures/entity/wolf/wolf_woods_tame_baby.tga",
+      "source_sha256": "29e624e9123a3e605190aee3160681ec611b2d6daa1f0792efaeecd0f4b3a930"
     }
   ],
   "blended_reference": {

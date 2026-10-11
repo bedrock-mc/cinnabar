@@ -5,6 +5,9 @@ use sha2::{Digest, Sha256};
 
 use crate::UiScale;
 
+mod colors;
+#[cfg(test)]
+mod colors_tests;
 mod invisible;
 mod layout;
 mod palette;
@@ -12,6 +15,7 @@ mod parse;
 mod single_line;
 mod units;
 
+pub use colors::{ColorDescriptor, FORMATTING_COLORS};
 pub use palette::FormattingPalette;
 
 use layout::build_layout;
@@ -84,46 +88,6 @@ pub enum BedrockColor {
     MaterialAmethyst,
     MaterialResin,
     PartyBlue,
-}
-
-impl BedrockColor {
-    /// The `§` colour's RGB; `None` when no colour is in force, which keeps the
-    /// text's own colour.
-    #[must_use]
-    pub const fn rgb(self) -> Option<[u8; 3]> {
-        Some(match self {
-            Self::Base => return None,
-            Self::White => [255, 255, 255],
-            Self::Black => [0, 0, 0],
-            Self::DarkBlue => [0, 0, 170],
-            Self::DarkGreen => [0, 170, 0],
-            Self::DarkAqua => [0, 170, 170],
-            Self::DarkRed => [170, 0, 0],
-            Self::DarkPurple => [170, 0, 170],
-            Self::Gold => [255, 170, 0],
-            Self::Gray => [170, 170, 170],
-            Self::DarkGray => [85, 85, 85],
-            Self::Blue => [85, 85, 255],
-            Self::Green => [85, 255, 85],
-            Self::Aqua => [85, 255, 255],
-            Self::Red => [255, 85, 85],
-            Self::LightPurple => [255, 85, 255],
-            Self::Yellow => [255, 255, 85],
-            Self::MinecoinGold => [221, 214, 5],
-            Self::MaterialQuartz => [227, 212, 209],
-            Self::MaterialIron => [206, 202, 202],
-            Self::MaterialNetherite => [68, 58, 59],
-            Self::MaterialRedstone => [151, 22, 7],
-            Self::MaterialCopper => [180, 104, 77],
-            Self::MaterialGold => [222, 177, 45],
-            Self::MaterialEmerald => [17, 160, 54],
-            Self::MaterialDiamond => [44, 186, 168],
-            Self::MaterialLapis => [35, 98, 180],
-            Self::MaterialAmethyst => [154, 92, 198],
-            Self::MaterialResin => [237, 105, 52],
-            Self::PartyBlue => [140, 179, 255],
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]

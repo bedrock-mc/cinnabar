@@ -541,27 +541,11 @@ impl LocalPhysicsController {
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
         input.creative_flight = context.mode_intent.creative_flight;
+        input.spectator = context.mode_intent.spectator;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
-            // Before the first simulated tick of a freshly anchored epoch,
-            // probe the anchor out of any solid overlap (provisional
-            // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !input.immobile && self.modes.mode() == sim::MovementMode::Riding
-            {
-                // A rider's position is its seat, not a body to depenetrate.
-                self.anchor_state.reset();
-            } else if tick_index == 0 && !input.immobile {
-                match self.anchor_state.before_tick(
-                    world,
-                    state.position,
-                    self.modes.contact_height(),
-                ) {
-                    BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
-                    BeforeTick::Proceed => {}
-                }
-            }
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -583,28 +567,52 @@ impl LocalPhysicsController {
             let mut mode_error = None;
             let previous_modes = self.modes;
             let [move_sideways, move_forward] = ModeObservation::input_vector(input);
-            match self.modes.select(
-                context.mode_intent,
-                ModeObservation {
-                    feet: state.position,
-                    on_ground: state.on_ground,
-                    in_water: self.last_environment.in_water,
-                    sprinting: sprint_request,
-                    sprint_blinded: input.effects.blindness,
-                    sprint_down: context.input.sprint_down,
-                    input_mode: context.input_mode,
-                    requested_movement: state.requested_movement,
-                    move_sideways,
-                    move_forward,
-                    sneaking: sneak_request,
-                    pitch: context.pitch,
-                    yaw: input.yaw_degrees as f32,
-                    liquid_attach_height: self.eye_offset.height(1.0),
-                    jumping: input.jumping,
-                    jump_edge: self.jump_edge_pending,
-                },
-                world,
-            ) {
+            let mut observed = ModeObservation {
+                feet: state.position,
+                on_ground: state.on_ground,
+                in_water: self.last_environment.in_water,
+                sprinting: sprint_request,
+                sprint_blinded: input.effects.blindness,
+                sprint_down: context.input.sprint_down,
+                input_mode: context.input_mode,
+                requested_movement: state.requested_movement,
+                move_sideways,
+                move_forward,
+                sneaking: sneak_request,
+                pitch: context.pitch,
+                yaw: input.yaw_degrees as f32,
+                liquid_attach_height: self.eye_offset.height(1.0),
+                jumping: input.jumping,
+                jump_edge: self.jump_edge_pending,
+            };
+            if tick_index == 0 && !input.immobile && self.anchor_state.pending() {
+                if input.spectator || context.mode_intent.ride.is_some() {
+                    self.anchor_state.reset();
+                } else {
+                    let mut preview = self.modes;
+                    // Preview a new pose only when the retained pose no longer fits.
+                    // The live trigger state still advances once, after recovery.
+                    if !sim::pose_fits(
+                        world,
+                        state.position,
+                        self.modes.mode(),
+                        self.modes.sneaking(),
+                    )
+                    .unwrap_or(true)
+                    {
+                        let _ = preview.select(context.mode_intent, observed, world);
+                    }
+                    if let BeforeTick::Adjust(clear_feet) = self.anchor_state.before_tick(
+                        world,
+                        state.position,
+                        preview.contact_height(),
+                    ) {
+                        state.position = clear_feet;
+                        observed.feet = clear_feet;
+                    }
+                }
+            }
+            match self.modes.select(context.mode_intent, observed, world) {
                 Ok(choice) => {
                     input.mode = choice.mode;
                     input.sprinting = choice.sprinting;

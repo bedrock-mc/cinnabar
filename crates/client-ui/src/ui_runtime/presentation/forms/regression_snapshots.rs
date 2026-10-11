@@ -67,23 +67,23 @@ fn spirit_bundle_snapshot() {
         return;
     };
     presentation.set_server_ui_pack(&pack);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        presentation
-            .build(
-                &player_runtime,
-                &runtime,
-                0,
-                [1280, 720],
-                DpiScale::new(1.0).unwrap(),
-            )
-            .unwrap();
-        let engine = presentation.form_presentation.engine.as_ref().unwrap();
-        if engine.drawn_sprites().1.is_empty() || std::time::Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    test_time::eventually_within(
+        std::time::Duration::from_secs(5),
+        "form images resolve",
+        || {
+            presentation
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    [1280, 720],
+                    DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            let engine = presentation.form_presentation.engine.as_ref().unwrap();
+            engine.drawn_sprites().1.is_empty()
+        },
+    );
     presentation.finish_menu_artwork();
     let input = presentation
         .build(
@@ -170,29 +170,19 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         return;
     };
     presentation.set_server_ui_pack(&pack);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
+    test_time::eventually("button textures become resident", || {
         presentation
             .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
             .unwrap();
         let engine = presentation.form_presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
-        let resident = [
+        [
             "textures/ui/common/dark_field",
             "textures/ui/common/buttons/green/default",
         ]
         .iter()
-        .all(|key| atlas.placement(key).is_some());
-        drop(atlas);
-        if resident {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "button textures never became resident"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        .all(|key| atlas.placement(key).is_some())
+    });
     presentation.finish_menu_artwork();
     let settled = presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
@@ -312,4 +302,94 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
             break;
         }
     }
+}
+
+#[test]
+fn snapshot_custom_display_name_search() {
+    use crate::ui_runtime::{
+        inventory_actions::visible_creative_entries, item_facts::SessionItemComponents,
+    };
+    use std::sync::Arc;
+    let Some(mut presentation) =
+        crate::test_support::engine_presentation_with(pack_harness::font())
+    else {
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::creative_with(&mut player, 1);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&protocol::ItemRegistryEvent {
+            entries: Arc::from([protocol::ItemRegistryEntry {
+                network_id: 1,
+                identifier: "custom:blade".into(),
+                component_based: true,
+                version: protocol::ItemRegistryVersion::None,
+                component_digest: [0; 32],
+                negotiated_max_stack_size: None,
+                canonical_empty_component_data: true,
+                item_tags: Arc::from([]),
+            }]),
+        });
+    runtime.set_session_items(Some(Arc::new(SessionItemComponents::from_iter([(
+        Arc::from("custom:blade"),
+        protocol::ItemComponents {
+            display_name: Some(Arc::from("Crystal Blade")),
+            ..Default::default()
+        },
+    )]))));
+    runtime.screen_state_mut().creative_tab = crate::ui_runtime::presentation::screens::SEARCH_TAB;
+    runtime.screen_state_mut().search = "Crystal".into();
+    runtime.screen_state_mut().search_focused = true;
+    runtime.set_session_icons(Some(Arc::new(super::super::SessionIcons {
+        icons: vec![super::super::SessionIcon {
+            identifier: Arc::from("custom:blade"),
+            metadata: 0,
+            width: 16,
+            height: 16,
+            rgba8: [70, 225, 220, 255].repeat(16 * 16).into(),
+        }],
+        ..Default::default()
+    })));
+    // Wait for the original fixture icon's asynchronous atlas admission.
+    test_time::eventually_within(
+        std::time::Duration::from_secs(5),
+        "fixture icon is admitted",
+        || {
+            presentation
+                .build(
+                    &player,
+                    &runtime,
+                    0,
+                    [1280, 720],
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            presentation.item_icon("custom:blade", 0).is_some()
+        },
+    );
+    let icon = presentation.item_icon("custom:blade", 0).unwrap();
+    presentation.hud_frame_mut().window_icons.book_entries = vec![Some(icon)];
+    let first = runtime.screen_state().creative_row;
+    let matched = visible_creative_entries(runtime.inventory_ledger(&player), &runtime).len();
+    for frame in 0..24 {
+        let input = presentation
+            .build(
+                &player,
+                &runtime,
+                frame * 100,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        if frame == 23 {
+            assert!(
+                !input.vertices.is_empty(),
+                "creative inventory must be visible"
+            );
+            super::snapshot::write(&input, "custom-display-name-search");
+        }
+    }
+    assert_eq!(first, 0);
+    assert_eq!(matched, 1);
 }

@@ -69,8 +69,10 @@ authored carried appearance. See [carried-block-textures.md](carried-block-textu
 
 The legacy tessellation route queries the item's animation frame before
 its icon. Loaded crossbow sprites share the same animation-frame icon selector as HUD and inventory icons, using canonical charged
-projectile NBT rather than damage metadata. Resolved identifier and variant
-are part of the dropped model cache key. See [crossbow-use.md](crossbow-use.md).
+projectile NBT rather than damage metadata. The dropped model cache uses the
+selected icon's atlas page and pixel region, together with its placement route.
+Metadata fallback and identifier aliases share a resident model. See
+[crossbow-use.md](crossbow-use.md).
 
 ## Verification and remaining boundaries
 

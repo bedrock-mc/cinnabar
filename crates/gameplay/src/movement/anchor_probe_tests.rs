@@ -85,6 +85,32 @@ fn feet_of(sample_position: [f32; 3]) -> Vec3 {
 }
 
 #[test]
+fn spectator_reanchor_inside_solids_preserves_its_position_without_contact() {
+    let mut physics = LocalPhysicsController::default();
+    let anchor = [0.5, 65.0 + PLAYER_NETWORK_OFFSET, 0.5];
+    physics.reanchor_network_position(anchor, 0, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(100),
+        MovementInput::default(),
+        super::PhysicsSampleContext {
+            mode_intent: super::ModeIntent {
+                spectator: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &SealedRoom,
+    );
+    assert!(frame.blocked.is_none());
+    assert_eq!(frame.samples.len(), 2);
+    for sample in frame.samples {
+        assert_eq!(sample.position, anchor);
+        assert!(!sample.grounded_after_tick);
+        assert!(!sample.horizontal_collision && !sample.vertical_collision);
+    }
+}
+
+#[test]
 fn reanchor_into_solid_probes_before_first_sample() {
     let mut physics = LocalPhysicsController::default();
     let mut ticker = MovementTicker::default();

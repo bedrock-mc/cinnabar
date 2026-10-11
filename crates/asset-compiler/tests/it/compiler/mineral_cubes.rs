@@ -291,10 +291,10 @@ fn mineral_cube_admission_is_atomic_and_pack_routes_are_exact() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at ignored Bedrock 1.26.30.32 resource pack"]
 fn compiler_real_pinned_pack_admits_exact_mineral_cubes() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let records = mineral_cube_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned mineral cubes");
     for record in records {
@@ -302,7 +302,9 @@ fn compiler_real_pinned_pack_admits_exact_mineral_cubes() {
         assert_eq!(visual.kind, VisualKind::Cube);
         assert_eq!(
             visual.flags,
-            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::FIRE_TOP_SUPPORT
         );
         assert!(visual.faces.iter().all(|&face| face != DIAGNOSTIC_MATERIAL));
     }
