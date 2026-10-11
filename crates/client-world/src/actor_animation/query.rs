@@ -297,13 +297,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return time;
     }
     if let Some(attachable) = context.attachable {
-        let remaining = attachable.use_elapsed_ticks.map_or(0, |elapsed| {
-            attachable.max_use_ticks.saturating_sub(elapsed)
-        }) as f32;
         match name {
             "frame_alpha" => return attachable.frame_alpha,
             "get_animation_frame" => return attachable.animation_frame as f32,
-            "main_hand_item_use_duration" => return remaining,
+            "main_hand_item_use_duration" => return item_use::remaining_ticks(evaluator),
             "item_remaining_use_duration" => {
                 return item_use::remaining(evaluator, arguments);
             }
@@ -426,12 +423,8 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "shake_time" => actor.status.shake_time as f32,
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
-        "main_hand_item_use_duration" => {
-            input.item_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
-        }
-        "main_hand_item_max_duration" => {
-            context.main_hand_max_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
-        }
+        "main_hand_item_use_duration" => item_use::remaining_ticks(evaluator),
+        "main_hand_item_max_duration" => context.main_hand_max_use_ticks as f32,
         "item_remaining_use_duration" => {
             item_use::remaining(evaluator, arguments)
         }

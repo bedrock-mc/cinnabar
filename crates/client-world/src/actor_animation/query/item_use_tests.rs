@@ -2,6 +2,16 @@ use super::*;
 
 /// Evaluates item timing with an original player fixture and explicit use state.
 fn remaining(elapsed: u32, duration: u32, arguments: &[MolangValue]) -> f32 {
+    remaining_with_off_hand(elapsed, duration, 0, arguments)
+}
+
+/// Evaluates slot normalization against one shared player use counter.
+fn remaining_with_off_hand(
+    elapsed: u32,
+    duration: u32,
+    off_hand_duration: u32,
+    arguments: &[MolangValue],
+) -> f32 {
     let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
     actor.kind = protocol::ActorKind::Player {
         uuid: [0; 16],
@@ -14,6 +24,7 @@ fn remaining(elapsed: u32, duration: u32, arguments: &[MolangValue]) -> f32 {
     let context = ActorTickContext {
         main_hand: Some("minecraft:crossbow".into()),
         main_hand_max_use_ticks: duration,
+        off_hand_max_use_ticks: off_hand_duration,
         ..Default::default()
     };
     query(
@@ -37,12 +48,23 @@ fn remaining(elapsed: u32, duration: u32, arguments: &[MolangValue]) -> f32 {
 }
 
 #[test]
+fn off_hand_normalization_uses_the_player_counter_and_clamps_the_selected_range() {
+    let arguments = [
+        MolangValue::String("off_hand".into()),
+        MolangValue::Number(2.0),
+    ];
+    assert_eq!(remaining_with_off_hand(5, 25, 10, &arguments), 2.0);
+    assert_eq!(remaining_with_off_hand(5, 25, 40, &arguments), 1.0);
+}
+
+#[test]
 fn crossbow_remaining_duration_honors_normalization_and_slot_arguments() {
     let slot = MolangValue::String("main_hand".into());
     let range = MolangValue::Number(1.0);
     assert!((remaining(5, 25, &[slot.clone(), range.clone()]) - 0.8).abs() < 1e-6);
     assert!((remaining(5, 25, &[range]) - 0.8).abs() < 1e-6);
-    assert!((remaining(5, 25, &[slot]) - 1.0).abs() < 1e-6);
+    assert!((remaining(5, 25, &[]) - 1.0).abs() < 1e-6);
+    assert_eq!(remaining(5, 25, &[slot]), 400.0);
     assert!((remaining(5, 25, &[MolangValue::Number(2.0)]) - 1.6).abs() < 1e-6);
     assert_eq!(
         remaining(5, 25, &[MolangValue::String("invalid".into())]),

@@ -1,5 +1,27 @@
 use super::*;
 
+/// Returns the active main-hand counter in ticks, including attachable use state.
+pub(super) fn remaining_ticks(evaluator: &QueryInputs<'_>) -> f32 {
+    let duration = evaluator
+        .context
+        .attachable
+        .map_or(evaluator.context.main_hand_max_use_ticks, |attachable| {
+            attachable.max_use_ticks
+        });
+    elapsed_ticks(evaluator).map_or(0, |elapsed| duration.saturating_sub(elapsed)) as f32
+}
+
+/// Reads the caller-owned use clock and distinguishes inactive use from its first tick.
+fn elapsed_ticks(evaluator: &QueryInputs<'_>) -> Option<u32> {
+    if let Some(attachable) = evaluator.context.attachable {
+        attachable.use_elapsed_ticks
+    } else if evaluator.input.item_use_ticks > 0 || evaluator.actor.is_using_item() {
+        Some(evaluator.input.item_use_ticks)
+    } else {
+        None
+    }
+}
+
 /// Returns selected-slot remaining use in context units, or in an explicit normalized range.
 /// Invalid arguments, absent equipment, and inactive use read zero.
 pub(super) fn remaining(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) -> f32 {
@@ -27,26 +49,22 @@ pub(super) fn remaining(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) 
     } else {
         context.main_hand_max_use_ticks
     };
-    let (elapsed, units) = if let Some(attachable) = context.attachable {
-        let Some(elapsed) = attachable.use_elapsed_ticks else {
-            return 0.0;
-        };
-        (elapsed, 1.0)
+    if elapsed_ticks(evaluator).is_none() {
+        return 0.0;
+    }
+    let units = if context.attachable.is_some() {
+        1.0
+    } else if arguments.is_empty() {
+        ACTOR_TICK_DURATION.as_secs_f32()
     } else {
-        if evaluator.input.item_use_ticks == 0 && !evaluator.actor.is_using_item() {
-            return 0.0;
-        }
-        (
-            evaluator.input.item_use_ticks,
-            ACTOR_TICK_DURATION.as_secs_f32(),
-        )
+        ACTOR_TICK_DURATION.as_secs_f32().recip()
     };
     if duration == 0 {
         return 0.0;
     }
-    let remaining = duration.saturating_sub(elapsed) as f32;
+    let remaining = remaining_ticks(evaluator);
     match range {
-        Some(range) => remaining / duration as f32 * range,
+        Some(range) => (remaining / duration as f32).clamp(0.0, 1.0) * range,
         None => remaining * units,
     }
 }
