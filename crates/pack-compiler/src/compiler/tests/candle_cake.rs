@@ -291,3 +291,43 @@ fn candle_cakes_respect_static_aliases_and_missing_color_routes() {
         );
     }
 }
+
+#[test]
+fn lighting_candle_cakes_preserves_weighted_static_texture_aliases() {
+    for singleton_array in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (records, lights, protocol) = fixture(directory.path());
+        let path = directory.path().join("textures/terrain_texture.json");
+        let mut terrain: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let group = serde_json::json!({"variations":[
+            {"path":"textures/fixture/white_candle","weight":1},
+            {"path":"textures/fixture/yellow_candle","weight":3}
+        ]});
+        terrain["texture_data"]["white_candle"]["textures"] = if singleton_array {
+            serde_json::json!([group])
+        } else {
+            group
+        };
+        write(path, serde_json::to_vec(&terrain).unwrap());
+        let runtime = compile(directory.path(), &records, &lights, protocol);
+        for record in records
+            .iter()
+            .filter(|record| record.name.as_ref() == "minecraft:white_candle_cake")
+        {
+            let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+            let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
+            let material =
+                runtime.material(runtime.model_quads()[template.quad_start as usize + 6].material);
+            assert_eq!(
+                material.variation_count, 2,
+                "{} singleton_array={singleton_array}",
+                record.canonical_state
+            );
+            let alternatives = &runtime.materials()[material.variation_start as usize..][..2];
+            assert_ne!(alternatives[0].texture, alternatives[1].texture);
+            assert_eq!(f32::from_bits(alternatives[0].variation_weight), 0.25);
+            assert_eq!(f32::from_bits(alternatives[1].variation_weight), 0.75);
+        }
+    }
+}

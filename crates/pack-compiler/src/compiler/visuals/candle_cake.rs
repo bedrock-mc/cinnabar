@@ -78,12 +78,14 @@ pub(in crate::compiler) fn descriptors(
     let TextureKey { key, rotate_uv } =
         resolve_texture_key(&pack.blocks, &candle, assets::BlockFace::Down);
     let key = key?;
-    let path = pack.terrain.get_clamped_untinted(&key, usize::from(lit))?;
+    let (path, state_variant) = pack
+        .terrain
+        .get_clamped_untinted_variant(&key, usize::from(lit))?;
     descriptors.push((
         Descriptor {
             path: path.into(),
             texture_key: key.clone(),
-            state_variant: u32::from(lit),
+            state_variant,
             flags: MATERIAL_FLAG_ALPHA_CUTOUT
                 | if rotate_uv {
                     MATERIAL_FLAG_ROTATE_UV
