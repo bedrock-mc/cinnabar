@@ -1,9 +1,10 @@
-//! Bounded first-use archive reads for images too large for presentation-thread work.
+//! Bounded first-use image reads too large for presentation-thread work.
 
 use super::Source;
 use crossbeam_channel::{Receiver, Sender, TrySendError};
 use std::{
     cell::RefCell,
+    path::PathBuf,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -14,14 +15,18 @@ type Completed = (String, Option<Source>);
 
 struct Job {
     key: String,
-    path: String,
-    view: resource_pack::LayeredPackView,
+    input: Input,
     limit: u64,
     cancelled: Arc<AtomicBool>,
     done: Sender<Completed>,
 }
 
-/// One archive read and one queued input bound inflation and decryption work process-wide.
+enum Input {
+    Archive(resource_pack::LayeredPackView, String),
+    Local(PathBuf, String),
+}
+
+/// One image read and one queued input bound file IO, inflation and decryption process-wide.
 fn worker() -> Option<&'static Sender<Job>> {
     static WORKER: OnceLock<Option<Sender<Job>>> = OnceLock::new();
     WORKER
@@ -34,7 +39,14 @@ fn worker() -> Option<&'static Sender<Job>> {
                         if job.cancelled.load(Ordering::Acquire) {
                             continue;
                         }
-                        let source = super::read_source(&job.view, &job.key, &job.path, job.limit);
+                        let source = match &job.input {
+                            Input::Archive(view, path) => {
+                                super::read_source(view, &job.key, path, job.limit)
+                            }
+                            Input::Local(root, relative) => {
+                                super::local_sources::read(root, relative, job.limit, false).0
+                            }
+                        };
                         if !job.cancelled.load(Ordering::Acquire) {
                             let _ = job.done.try_send((job.key, source));
                         }
@@ -89,14 +101,33 @@ impl SourceReads {
         view: &resource_pack::LayeredPackView,
         limit: u64,
     ) {
+        self.request_input(key, Input::Archive(view.clone(), path.to_owned()), limit);
+    }
+
+    /// Queues the installed image's extension search, retaining fallback order on the worker.
+    pub(super) fn request_local(
+        &self,
+        key: &str,
+        root: &std::path::Path,
+        relative: &str,
+        limit: u64,
+    ) {
+        self.request_input(
+            key,
+            Input::Local(root.to_owned(), relative.to_owned()),
+            limit,
+        );
+    }
+
+    /// Holds one outstanding input, including requests awaiting queue capacity.
+    fn request_input(&self, key: &str, input: Input, limit: u64) {
         let mut state = self.state.borrow_mut();
         if state.pending.is_some() || state.retry.is_some() {
             return;
         }
         let job = Job {
             key: key.to_owned(),
-            path: path.to_owned(),
-            view: view.clone(),
+            input,
             limit,
             cancelled: Arc::clone(&self.cancelled),
             done: state.sender.clone(),
@@ -117,7 +148,12 @@ impl SourceReads {
 
     /// Retains the request on backpressure and publishes a terminal failure if the worker stops.
     fn submit(state: &mut State, job: Job) {
-        let Some(worker) = worker() else {
+        Self::submit_to(state, job, worker());
+    }
+
+    /// Applies queue backpressure without losing the pack's requested key.
+    fn submit_to(state: &mut State, job: Job, worker: Option<&Sender<Job>>) {
+        let Some(worker) = worker else {
             let _ = job.done.try_send((job.key, None));
             return;
         };
@@ -129,5 +165,54 @@ impl SourceReads {
                 let _ = job.done.try_send((job.key, None));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Creates an unread local input for deterministic queue-lifecycle checks.
+    fn job(reads: &SourceReads, key: &str) -> Job {
+        Job {
+            key: key.into(),
+            input: Input::Local(PathBuf::new(), "textures/fixture".into()),
+            limit: 1,
+            cancelled: Arc::clone(&reads.cancelled),
+            done: reads.state.borrow().sender.clone(),
+        }
+    }
+
+    #[test]
+    fn full_source_queue_retains_retry_and_drop_cancels_the_owned_namespace() {
+        let reads = SourceReads::default();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        sender.try_send(job(&reads, "occupied")).ok().unwrap();
+        let pending = job(&reads, "wanted");
+        SourceReads::submit_to(&mut reads.state.borrow_mut(), pending, Some(&sender));
+        assert!(reads.state.borrow().receiver.try_recv().is_err());
+        receiver.try_recv().unwrap();
+        let pending = reads.state.borrow_mut().retry.take().unwrap();
+        SourceReads::submit_to(&mut reads.state.borrow_mut(), pending, Some(&sender));
+        let accepted = receiver.try_recv().unwrap();
+        assert_eq!(accepted.key, "wanted");
+        drop(reads);
+        assert!(accepted.cancelled.load(Ordering::Acquire));
+        let replacement = SourceReads::default();
+        assert!(replacement.collect().is_none());
+        assert!(!replacement.cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stopped_source_worker_publishes_terminal_failure() {
+        let reads = SourceReads::default();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        drop(receiver);
+        let pending = job(&reads, "failed");
+        SourceReads::submit_to(&mut reads.state.borrow_mut(), pending, Some(&sender));
+        let (key, source) = reads.collect().unwrap();
+        assert_eq!(key, "failed");
+        assert!(source.is_none());
+        assert!(reads.collect().is_none());
     }
 }

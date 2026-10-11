@@ -273,6 +273,9 @@ impl UiPresentationRuntime {
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
         self.form_presentation.hud.invalidate_textures();
+        if let Some(cache) = &mut self.form_presentation.container_cache {
+            cache.invalidate_textures();
+        }
         if let Some(settings) = pack
             .screen_settings
             .as_ref()
@@ -319,6 +322,9 @@ impl UiPresentationRuntime {
         {
             self.retained_menu = None;
             self.form_presentation.hud.invalidate_textures();
+            if let Some(cache) = &mut self.form_presentation.container_cache {
+                cache.invalidate_textures();
+            }
             self.sync_server_ui_pages();
         }
     }

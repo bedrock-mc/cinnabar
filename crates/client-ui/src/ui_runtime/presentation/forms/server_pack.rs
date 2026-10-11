@@ -23,6 +23,7 @@ use render_model::UiTexturePage;
 use crate::remote_images::{RemoteImages, RemoteState, is_remote};
 
 mod frame_sidecars;
+mod local_sources;
 pub(super) mod native_sheets;
 mod prepared_settings;
 mod preread;
@@ -131,7 +132,13 @@ impl PackTextures {
     }
 
     /// Resolves small sources inline and queues large archive entries using only indexed sizes.
+    #[cfg(test)]
     fn image(&self, key: &str) -> Option<Source> {
+        self.image_capped(key, || self.read_limit())
+    }
+
+    /// Shares the large-source allowance with installed image fallbacks.
+    fn image_capped(&self, key: &str, limit: impl FnOnce() -> u64) -> Option<Source> {
         if let Some(found) = self.loaded.borrow().get(key) {
             return found.clone();
         }
@@ -142,7 +149,7 @@ impl PackTextures {
             .filter_map(|layer| layer.file_size(path))
             .max()?;
         if size > MAX_PACK_TEXTURE_BYTES {
-            self.reads.request(key, path, &self.view, self.read_limit());
+            self.reads.request(key, path, &self.view, limit());
             return None;
         }
         self.read_image(key)
@@ -192,11 +199,21 @@ impl PackTextures {
     }
 
     /// Admits worker-read metadata once so retained frames can be invalidated before painting.
+    #[cfg(test)]
     fn collect(&self) -> bool {
+        self.collect_capped(|| self.read_limit())
+    }
+
+    /// Rechecks admission after other source owners may have consumed the allowance.
+    fn collect_capped(&self, limit: impl FnOnce() -> u64) -> bool {
         let Some((key, source)) = self.reads.collect() else {
             return false;
         };
-        self.loaded.borrow_mut().insert(key, source);
+        let limit = limit();
+        self.loaded.borrow_mut().insert(
+            key,
+            source.filter(|source| source.bytes.len() as u64 <= limit),
+        );
         true
     }
 
@@ -296,6 +313,7 @@ pub(super) struct ServerAtlas {
     pack: Option<PackTextures>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
+    local_reads: source_reads::SourceReads,
     /// Local vanilla sidecars inherit independently from the texture image.
     extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
     /// The local vanilla resource pack vanilla image paths read from.
@@ -509,7 +527,11 @@ impl ServerAtlas {
 
     /// Collects image completions before a retained menu can reuse its saved frame.
     pub(super) fn poll_native_images(&mut self) -> bool {
-        let ready = self.pack.as_ref().is_some_and(|pack| pack.collect());
+        let ready = self
+            .pack
+            .as_ref()
+            .is_some_and(|pack| pack.collect_capped(|| self.source_read_limit()))
+            | self.collect_local_source();
         if ready {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
@@ -545,7 +567,10 @@ impl ServerAtlas {
     fn image(&self, key: &str) -> Option<Source> {
         match self.sources.get(key) {
             Some(source) => Some(source.clone()),
-            None => self.pack.as_ref()?.image(key),
+            None => self
+                .pack
+                .as_ref()?
+                .image_capped(key, || self.source_read_limit()),
         }
     }
 
@@ -627,27 +652,7 @@ impl ServerAtlas {
                 RemoteState::Loading => (None, false),
             }
         } else {
-            let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
-            let found = (key.starts_with("textures/") || relative != key).then(|| {
-                self.carrier
-                    .as_ref()
-                    .and_then(|carrier| {
-                        IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                            source(carrier.ui_file(&format!("{relative}{extension}"))?.into())
-                        })
-                    })
-                    .or_else(|| {
-                        let root = self.vanilla.as_ref()?;
-                        IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                            let path = vanilla_path(root, &format!("{relative}{extension}"))?;
-                            (std::fs::metadata(&path).ok()?.len() <= resource_pack::MAX_FILE_BYTES)
-                                .then_some(())?;
-                            exact_case(&path).then_some(())?;
-                            source(std::fs::read(path).ok()?.into())
-                        })
-                    })
-            });
-            (found.flatten(), true)
+            self.local_source(key)
         };
         if settled {
             let mut extra = self.extra.borrow_mut();
@@ -931,6 +936,8 @@ thread_local! {
     /// Image keys this thread looked up in the pack archives, so tests can tell a frame's reads
     /// from a worker's.
     static PACK_READS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Installed image files read by this thread.
+    static LOCAL_READS: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]

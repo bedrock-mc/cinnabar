@@ -288,6 +288,43 @@ fn vanilla_fallback_rejects_parent_paths_and_symlink_escapes() {
 }
 
 #[test]
+fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread() {
+    let root = std::env::temp_dir().join(format!("cinnabar-local-source-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("textures/ui")).unwrap();
+    let key = "textures/ui/large_local";
+    let mut encoded = png(2, 3);
+    encoded.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    std::fs::write(root.join(format!("{key}.png")), &encoded).unwrap();
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
+    LOCAL_READS.with(|reads| reads.borrow_mut().clear());
+    assert_eq!(
+        atlas.fallback_size(key),
+        None,
+        "a cold large source waits for worker metadata"
+    );
+    assert!(LOCAL_READS.with(|reads| reads.borrow().is_empty()));
+    test_time::eventually("local metadata and pixels are published", || {
+        atlas.require([key]);
+        atlas.fallback_size(key) == Some([2.0, 3.0]) && atlas.placement(key).is_some()
+    });
+    assert!(atlas.metadata_revision() > 0);
+    assert!(atlas.take_metadata_changed());
+    let (_, allocations) = crate::allocation_count::count(|| {
+        for _ in 0..3 {
+            atlas.require([key]);
+            assert_eq!(atlas.fallback_size(key), Some([2.0, 3.0]));
+        }
+    });
+    assert_eq!(
+        allocations, 0,
+        "resident local sources reuse metadata and pixels"
+    );
+    assert!(LOCAL_READS.with(|reads| reads.borrow().is_empty()));
+    assert!(!atlas.take_metadata_changed());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
     let mut pixels = image::RgbaImage::new(1536, 1024);
     let mut noise = 0x8a35_7d21u32;

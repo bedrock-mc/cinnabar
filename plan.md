@@ -610,7 +610,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - UI images use the existing 64 MiB admitted-file envelope. Original tiles are
   bounded to 96 MiB across eight pages, decoded once on a shared worker and
   released on pack replacement. Large archive entries inflate and decrypt on a
-  bounded worker, with a separate 96 MiB encoded-source residency cap. Failed
+  bounded worker, as do newly admitted large installed-pack images, with a
+  shared 96 MiB encoded-source residency cap. Source metadata refreshes retained
+  HUD, form and inventory layouts and measurements without restarting bindings
+  or animation clocks. Failed
   original-image decodes reveal valid carrier or icon artwork. Images beyond
   the resource limits remain unsupported.
   Consumers limited to one sprite retain fitted artwork for images spanning
