@@ -22,7 +22,8 @@ use ui::RenderMode;
 use {render::EnhancedRenderPlugin, render_scene::EnhancedRendering};
 
 use {
-    crate::menu::MenuRuntime, client_presentation::camera::FlyCamera, client_state::RuntimeSettings,
+    client_presentation::camera::FlyCamera, client_shell::menu::MenuRuntime,
+    client_state::RuntimeSettings,
 };
 
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";

@@ -162,7 +162,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.insert_resource(LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(input);
     world.insert_resource(ui);
-    world.insert_resource(crate::menu::MenuRuntime::new(
+    world.insert_resource(client_shell::menu::MenuRuntime::new(
         false,
         2,
         "block fixture".into(),

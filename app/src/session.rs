@@ -10,8 +10,7 @@ use bevy::{
 use bridge::CORE_START_TIMEOUT;
 use client_runtime::network::NetworkHandle;
 use client_runtime::session::{
-    begin_session, format_transfer_address, presence_target, release_off_frame,
-    transfer_handoff_address,
+    begin_session, format_transfer_address, release_off_frame, transfer_handoff_address,
 };
 use launcher_host::{
     core_process::{CoreProcessGuard, spawn_core_for_address},
@@ -19,21 +18,20 @@ use launcher_host::{
     session_cleanup::SessionDirectoryGuard,
 };
 
+use client_shell::presence_target::presence_target;
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        menu::{LauncherCoreSlot, MenuRuntime},
-        runtime::{
-            network::{CompiledStacks, session::NetworkConfig},
-            shutdown::record_fatal_error,
-            world::{ClientWorld, TransferNotice},
-        },
+    crate::runtime::{
+        network::{CompiledStacks, session::NetworkConfig},
+        shutdown::record_fatal_error,
+        world::{ClientWorld, TransferNotice},
     },
     client_interaction::movement::{LocalPhysicsController, MovementTicker},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
     },
     client_runtime::pack_admission::ResourcePackAdmissionState,
+    client_shell::menu::{LauncherCoreSlot, MenuRuntime},
     client_state::PlayerRuntime,
 };
 
@@ -51,22 +49,7 @@ type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
 type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
 pub(crate) type JoinStage = client_session::connection::JoinStage<SessionDirectoryGuard>;
 
-/// A join the menu asks the controller to make.
-#[derive(Debug)]
-pub(crate) struct JoinIntent {
-    pub(crate) address: String,
-    pub(crate) auth_cache: Option<PathBuf>,
-    /// Joins the launcher core's opened local world instead of `address`.
-    pub(crate) local_world: bool,
-}
-
-/// What the menu gates and renders of the session; only the controller writes it.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct SessionStatus {
-    pub(crate) connecting: bool,
-    /// A session runtime directory is bound.
-    pub(crate) owns_directory: bool,
-}
+use client_state::{JoinIntent, SessionStatus};
 
 #[derive(Debug, Resource)]
 pub(crate) struct SessionController {
@@ -517,7 +500,7 @@ pub(crate) fn login_settings(
                 gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
         gui_scale_offset: menu.gui_scale_offset(),
-        memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
+        memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
         filter_profanity: menu.settings_snapshot().0.value("filter_profanity") != 0,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
@@ -774,7 +757,7 @@ mod tests {
                 None,
                 "Direct".to_owned(),
                 layout,
-                crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+                client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
             );
             let settings = login_settings(&menu, None);
             assert_eq!(settings.filter_profanity, filter_profanity);
@@ -796,7 +779,7 @@ mod tests {
             None,
             "Direct".to_owned(),
             layout,
-            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
         );
         let settings = login_settings(&menu, None);
         assert_eq!(settings.gui_scale_offset, -1);

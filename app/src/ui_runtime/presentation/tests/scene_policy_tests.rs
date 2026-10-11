@@ -2,7 +2,7 @@
 use super::*;
 
 use client_ui::ui_runtime::presentation::forms::ServerUiPack;
-use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
+use {client_shell::menu::MenuRuntime, launcher::menu::MenuAction};
 
 #[test]
 fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {

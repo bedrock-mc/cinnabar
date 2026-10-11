@@ -9,10 +9,8 @@ use super::super::UiPresentationRuntime;
 use client_ui::test_support::pack_harness::{drawn_texts, engine_presentation};
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        menu::{MenuClipboard, MenuRuntime},
-        ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
-    },
+    crate::ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
+    client_shell::menu::{MenuClipboard, MenuRuntime},
     launcher::menu::{MenuAction, MenuField, MenuScreen, worlds_tab::LocalWorldAction},
 };
 
@@ -230,7 +228,7 @@ fn a_press_in_the_oreui_world_name_field_places_its_caret() {
         return;
     };
     let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
-    let mut worlds = crate::local_worlds::LocalWorlds::default();
+    let mut worlds = client_shell::local_worlds::LocalWorlds::default();
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.activate(MenuAction::Navigate(MenuScreen::Play));

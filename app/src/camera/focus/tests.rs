@@ -17,7 +17,7 @@ fn focus_app() -> (App, Entity) {
         .add_systems(
             Update,
             (
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 update_cursor_capture,
             )
                 .chain(),
@@ -203,7 +203,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
             Update,
             (
                 drive_server_form_input,
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 update_cursor_capture,
             )
                 .chain(),
@@ -313,7 +313,8 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
         .add_message::<KeyboardInput>()
         .add_systems(
             Update,
-            drive_chat_keyboard_input.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_chat_keyboard_input
+                .before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     {
         let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
@@ -395,7 +396,7 @@ fn leave_bed_retains_return_until_server_wakes_player() {
         .init_resource::<crate::runtime::world::ClientWorld>()
         .add_systems(
             Update,
-            drive_chat_ui_actions.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_chat_ui_actions.before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     {
         let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
@@ -437,7 +438,7 @@ fn touch_resume_returns_capture_after_focus_loss() {
     };
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
     use {
-        crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::MenuAction,
     };
     let (mut app, window) = focus_app();
@@ -473,7 +474,7 @@ fn touch_resume_returns_capture_after_focus_loss() {
         .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
         .add_systems(
             Update,
-            drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_menu_input.before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     {
         let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
@@ -527,7 +528,8 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
         .add_message::<KeyboardInput>()
         .add_systems(
             Update,
-            drive_chat_keyboard_input.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_chat_keyboard_input
+                .before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     app.world_mut()
         .resource_mut::<UiRuntime>()
@@ -567,7 +569,7 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .add_systems(
             Update,
-            drive_sign_editor.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_sign_editor.before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     let mut edit = SignEdit::new([0, 0, 0], true, Default::default());
     assert!(edit.insert('a', |_| true));
@@ -600,10 +602,8 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
     use bevy::{input::keyboard::KeyboardInput, time::Real};
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
     use {
-        crate::{
-            menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-            ui_runtime::interaction::drive_chat_keyboard_input,
-        },
+        crate::ui_runtime::interaction::drive_chat_keyboard_input,
+        client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::{
             MenuAction,
             settings_options::{EXTRA_KEYS, KEY_BINDINGS},
@@ -627,7 +627,7 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         .add_systems(Update, drive_chat_keyboard_input.before(drive_menu_input))
         .add_systems(
             Update,
-            drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+            drive_menu_input.before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
@@ -640,7 +640,7 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
                 .0
                 .named_key_control("key.inventory"),
             Some(semantic_input::PhysicalControl::MouseButton(
-                crate::semantic_controls::physical::mouse_button_code(MouseButton::Back).unwrap()
+                client_ui::physical_input::mouse_button_code(MouseButton::Back).unwrap()
             ))
         );
         menu.set_visible(false);
@@ -675,7 +675,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
     use bevy::input::keyboard::KeyboardInput;
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
     use {
-        crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::{MenuAction, MenuScreen},
     };
     for local in [false, true] {
@@ -742,7 +742,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
             .add_systems(
                 Update,
-                drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+                drive_menu_input.before(client_shell::menu::screen_focus::publish_screen_focus),
             );
         {
             let mut win = app.world_mut().get_mut::<Window>(window).unwrap();

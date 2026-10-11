@@ -50,6 +50,23 @@ execution of this move remain unverified, and no parity gate is closed by it.
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## Menu shell ownership
+
+`client-shell` owns the menu runtime, launcher account and local-world drivers,
+player appearance selection, GUI scale, fullscreen, settings persistence and the
+Discord driver. `ClientShellPlugin` registers input and settings systems and
+publishes screen focus through `client-state`. It has no dependencies on sibling
+app plugin crates. Desktop focus transitions live in `semantic-input`; the
+resource wrapper, consent state, session observations and ordering sets live in
+`client-state`.
+
+The app still adapts session/network state, audio settings and renderer capabilities
+into the shell. Render-distance packet sending stays with the app's network
+adapter. Optional language carrier loading belongs to `assets::carriers::startup`, and physical
+memory discovery belongs to `launcher-host`. Existing menu and integration tests
+remain enabled in their owning crates. Compilation, execution and live behavior
+remain unverified for these moves; they do not close a parity gate.
+
 ## Extension crate ownership
 
 `client-extensions` owns local component loading and load-order merging, environment
@@ -98,7 +115,7 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   `bridge`; shared skin data lives in `render-api`.
 - `launcher-host` owns authentication and core processes, account and artwork workers,
   server-list storage, storage scans, persistent login IDs, video persistence and process lifecycle services.
-  `app` supplies the Bevy resources and systems that drive those services.
+  `client-shell` supplies the menu resources and drivers; `app` adapts session and network state.
 - `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
 - `assets::carriers::startup` owns carrier path selection, bounded loading, validation, fallbacks,

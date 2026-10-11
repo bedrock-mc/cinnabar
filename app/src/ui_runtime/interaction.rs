@@ -28,7 +28,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
-use crate::menu::settings_options::control_bindings::{
+use client_shell::menu::settings_options::control_bindings::{
     binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
     hotbar_control_slots,
 };
@@ -48,7 +48,7 @@ use client_ui::ui_runtime::interaction::{
 
 /// Dispatches inventory hotbar shortcuts bound to one physical press.
 pub(crate) fn dispatch_bound_inventory_hotbar(
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     control: semantic_input::PhysicalControl,
     player: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
@@ -144,7 +144,7 @@ pub(crate) fn drive_inventory_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut release_cursor: Local<MessageCursor<MouseButtonInput>>,
@@ -152,8 +152,8 @@ pub(crate) fn drive_inventory_ui_actions(
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -220,7 +220,7 @@ pub(crate) fn drive_inventory_ui_actions(
 fn route_press(
     button: MouseButton,
     router: &mut PointerRouter,
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     mut presentation: Option<&mut UiPresentationRuntime>,
@@ -265,7 +265,7 @@ fn route_press(
     allow(dead_code, reason = "only player mods declare keys")
 )]
 pub(crate) fn inventory_consumes_key(
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     key: KeyCode,
     view: bool,
 ) -> bool {
@@ -274,7 +274,7 @@ pub(crate) fn inventory_consumes_key(
     }
     !view
         && (binding_key(menu, "key.drop", key)
-            || crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+            || client_ui::physical_input::keyboard_usage(key).is_some_and(|code| {
                 hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
                     .next()
                     .is_some()
@@ -297,7 +297,7 @@ pub(crate) fn drive_world_inventory_keys(
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
@@ -309,7 +309,7 @@ pub(crate) fn drive_world_inventory_keys(
         || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
     let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
     if !window.focused
-        || crate::screen_policy::absorbs_input(
+        || client_shell::screen_policy::absorbs_input(
             &player_runtime,
             Some(&runtime),
             menu.as_deref(),
@@ -342,19 +342,19 @@ pub(crate) fn drive_chat_keyboard_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: Option<ResMut<UiPresentationRuntime>>,
-    mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
+    mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     (emote_input, driven): (
         Option<Res<super::emotes::EmoteInputConsumed>>,
-        Option<Res<crate::camera::DrivenInput>>,
+        Option<Res<client_state::DrivenInput>>,
     ),
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
     (window_events, mut window_cursor, mut semantic): (
         Option<Res<Messages<WindowEvent>>>,
         Local<MessageCursor<WindowEvent>>,
@@ -684,7 +684,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 menu.as_deref(),
                 &mut runtime,
                 chat_modifiers::alt_held(&modifiers),
-                crate::semantic_controls::keyboard_usage(input.key_code)
+                client_ui::physical_input::keyboard_usage(input.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
                 now_millis,
                 semantic.as_deref_mut(),

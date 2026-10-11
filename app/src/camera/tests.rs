@@ -431,7 +431,7 @@ fn capture_test_app(
     app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
         1,
     )));
-    app.init_resource::<client_presentation::camera::CursorFocus>()
+    app.init_resource::<client_state::CursorFocus>()
         .add_systems(PreUpdate, track_test_focus)
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
@@ -441,7 +441,7 @@ fn capture_test_app(
         .add_systems(
             Update,
             (
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 camera::update_cursor_capture,
             )
                 .chain(),

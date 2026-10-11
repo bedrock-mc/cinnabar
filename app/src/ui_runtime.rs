@@ -15,31 +15,6 @@ pub(crate) use interaction::{
 };
 pub(crate) use sign_editor::drive_sign_editor;
 
-impl client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene
-    for crate::menu::MenuRuntime
-{
-    /// Preserves the current menu visibility without a deferred projection.
-    fn is_visible(&self) -> bool {
-        self.is_visible()
-    }
-    /// Supplies the same view formerly read directly by UI.
-    fn view(&self) -> launcher::menu::MenuView {
-        self.view()
-    }
-    /// Supplies the current visible screen without changing its transition.
-    fn scene(&self) -> Option<launcher::menu::MenuScreen> {
-        self.scene()
-    }
-    /// Preserves the menu's relationship to the connected world.
-    fn over_world(&self) -> bool {
-        self.over_world()
-    }
-    /// Preserves the launcher's panorama policy.
-    fn uses_panorama(&self) -> bool {
-        self.uses_panorama()
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests;
 

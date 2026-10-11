@@ -30,7 +30,6 @@ use {
     crate::{
         app::{configure_client_authority_systems, configure_client_frame_schedule},
         environment::{WeatherState, bind_session_generation},
-        menu::{MenuClipboard, MenuRuntime},
         runtime::phase3_evidence::Phase3EvidenceEmitter,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
@@ -48,6 +47,7 @@ use {
     client_runtime::{
         blob_cache::ClientBlobCacheOwner, pack_admission::ResourcePackAdmissionState,
     },
+    client_shell::menu::{MenuClipboard, MenuRuntime},
     client_state::{RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };

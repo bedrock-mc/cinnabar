@@ -464,18 +464,18 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         app.world().resource::<HandAdapter>().stats.skin_validations,
         1
     );
-    let mut menu = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
     menu.open_pause();
     app.insert_resource(menu);
     app.world_mut().run_system_once(observe).unwrap();
     assert!(app.world().resource::<HandAdapter>().stats.mode.is_some());
     app.world_mut()
-        .resource_mut::<crate::menu::MenuRuntime>()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
         .activate(launcher::menu::MenuAction::PauseSettings);
     app.world_mut().run_system_once(observe).unwrap();
     assert!(app.world().resource::<HandAdapter>().stats.mode.is_some());
     app.world_mut()
-        .resource_mut::<crate::menu::MenuRuntime>()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
         .activate(launcher::menu::MenuAction::Navigate(
             launcher::menu::MenuScreen::Home,
         ));
@@ -486,7 +486,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         Some(HandFallback::Hidden)
     );
     app.world_mut()
-        .resource_mut::<crate::menu::MenuRuntime>()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
         .set_visible(false);
     app.world_mut()
         .run_system_once(

@@ -73,9 +73,14 @@ selection. This extraction is incomplete and has not been compiled or tested;
 no movement, input or interaction acceptance gate is closed by the move.
 
 Frame sets and shared player, settings and finalized-input resources now live in
-`client-state`. The shell publishes focus for gameplay and camera input; the input
-and cursor regressions retain their domain owners. This ownership change has not
-been compiled or executed, and does not close this gate.
+`client-state`. `ClientShellPlugin` owns menu input, fullscreen and settings drivers
+and publishes focus for gameplay and camera input. Desktop focus transitions live
+in `semantic-input`; its Bevy wrapper stays in `client-state`. The shell also owns
+launcher/local-world resources, appearance selection and Discord presence, using
+shared session observations instead of sibling plugin dependencies. Session,
+network and audio adapters remain in `app`. Menu tests moved with their owner;
+combined session, inventory and present-mode checks remain in `app`. These moves
+have not been compiled or executed and do not close this gate.
 
 `client-extensions` now owns personal component collection and callback merging,
 permission grants, player snapshots, panel fonts, and server consent input and text.

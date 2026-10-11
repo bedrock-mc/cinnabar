@@ -173,7 +173,7 @@ mod tests {
         menu: Option<launcher::menu::MenuScreen>,
     ) -> u8 {
         let runtime = UiRuntime::new(1);
-        let mut menu_runtime = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        let mut menu_runtime = client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
         if let Some(screen) = menu {
             menu_runtime.activate(launcher::menu::MenuAction::Navigate(screen));
         }
@@ -184,7 +184,7 @@ mod tests {
     fn wheel_with_ui(
         player_runtime: &mut client_state::PlayerRuntime,
         runtime: UiRuntime,
-        menu_runtime: crate::menu::MenuRuntime,
+        menu_runtime: client_shell::menu::MenuRuntime,
     ) -> u8 {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
@@ -201,7 +201,7 @@ mod tests {
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
-            .run_system_once(crate::menu::screen_focus::publish_screen_focus)
+            .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
         app.world_mut()
             .run_system_once(queue_hotbar_selection)
@@ -244,7 +244,7 @@ mod tests {
             wheel_selection(&mut player_runtime, Some(launcher::menu::MenuScreen::Pause)),
             0
         );
-        let hidden = || crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        let hidden = || client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
         let mut chat = UiRuntime::new(1);
         chat.open_chat(&mut player_runtime);
         assert_eq!(wheel_with_ui(&mut player_runtime, chat, hidden()), 0);
@@ -276,7 +276,11 @@ mod tests {
         player_runtime.inventory.set_local_selected_slot(0);
         app.insert_resource(UiRuntime::new(1))
             .insert_resource(player_runtime.clone())
-            .insert_resource(crate::menu::MenuRuntime::new(false, 2, "Tester".into()))
+            .insert_resource(client_shell::menu::MenuRuntime::new(
+                false,
+                2,
+                "Tester".into(),
+            ))
             .insert_resource(presentation)
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
@@ -287,7 +291,7 @@ mod tests {
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
-            .run_system_once(crate::menu::screen_focus::publish_screen_focus)
+            .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
         app.world_mut()
             .run_system_once(queue_hotbar_selection)
@@ -325,10 +329,14 @@ mod tests {
         };
         let absorbs = |player_runtime: &client_state::PlayerRuntime,
                        presentation: &UiPresentationRuntime| {
-            crate::screen_policy::absorbs_input(
+            client_shell::screen_policy::absorbs_input(
                 player_runtime,
                 Some(&UiRuntime::new(1)),
-                Some(&crate::menu::MenuRuntime::new(false, 2, "Tester".into())),
+                Some(&client_shell::menu::MenuRuntime::new(
+                    false,
+                    2,
+                    "Tester".into(),
+                )),
                 Some(presentation),
             )
         };

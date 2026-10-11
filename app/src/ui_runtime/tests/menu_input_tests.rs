@@ -15,7 +15,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use {
-    crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_ui::test_support::fixture_font,
     launcher::menu::{MenuAction, MenuField, MenuScreen},
 };
@@ -660,7 +660,7 @@ fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 1));
     app.insert_resource(menu);
-    let mut focus = client_presentation::camera::CursorFocus::default();
+    let mut focus = client_state::CursorFocus::default();
     focus.focus_changed(false);
     focus.focus_changed(true);
     app.insert_resource(focus);
@@ -671,7 +671,7 @@ fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
     );
     assert!(app.world().resource::<MenuRuntime>().is_visible());
     app.world_mut()
-        .resource_mut::<client_presentation::camera::CursorFocus>()
+        .resource_mut::<client_state::CursorFocus>()
         .begin_frame(true);
     app.update();
     assert!(app.world().resource::<MenuRuntime>().is_visible());
@@ -689,7 +689,7 @@ fn disabled_focus_pause_still_leaves_overlay_input_released() {
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 0));
     app.insert_resource(menu);
-    let mut focus = client_presentation::camera::CursorFocus::default();
+    let mut focus = client_state::CursorFocus::default();
     focus.focus_changed(false);
     app.insert_resource(focus);
     app.update();

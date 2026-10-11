@@ -9,7 +9,7 @@ pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,
     player: Res<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
 ) {
     let session = runtime.session_id();
     // Terminal controls retire the session before another enqueue attempt.

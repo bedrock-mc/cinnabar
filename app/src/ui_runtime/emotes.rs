@@ -23,13 +23,12 @@ use ui::{UiAction, UiPoint};
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::menu::MenuRuntime,
-    crate::menu::settings_options::control_bindings::{
-        binding_gamepad, binding_key, gamepad_button,
-    },
     crate::runtime::world::ClientWorld,
-    client_state::PlayerRuntime,
-    client_state::SemanticInputSnapshot,
+    client_shell::menu::{
+        MenuRuntime,
+        settings_options::control_bindings::{binding_gamepad, binding_key, gamepad_button},
+    },
+    client_state::{PlayerRuntime, SemanticInputSnapshot},
 };
 
 use controls::{should_stop_emote, slot_key, wheel_key};
@@ -66,8 +65,8 @@ pub(crate) struct EmoteInput<'w, 's> {
     presentation: Option<ResMut<'w, UiPresentationRuntime>>,
     observed: Local<'s, ObservedEmotes>,
     consumed: ResMut<'w, EmoteInputConsumed>,
-    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    focus: Option<ResMut<'w, client_state::CursorFocus>>,
+    driven: Option<Res<'w, client_state::DrivenInput>>,
     network: Option<Res<'w, NetworkHandle<PackApplication>>>,
 }
 
@@ -161,7 +160,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     let keyboard: Vec<_> = input.keyboard.read().cloned().collect();
     chat_modifiers::capture_before_events(&mut input.observed.modifiers, &input.keys, &keyboard);
     let mouse_toggled = input.mouse.get_just_pressed().any(|button| {
-        if !crate::menu::settings_options::control_bindings::binding_mouse_button(
+        if !client_shell::menu::settings_options::control_bindings::binding_mouse_button(
             input.menu.as_deref(),
             "key.emote",
             *button,
@@ -186,7 +185,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             input.menu.as_deref(),
             &input.runtime,
             alt,
-            crate::semantic_controls::physical::mouse_button_code(*button)
+            client_ui::physical_input::mouse_button_code(*button)
                 .map(semantic_input::PhysicalControl::MouseButton),
         )
         .is_none()
@@ -221,7 +220,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 input.menu.as_deref(),
                 &input.runtime,
                 chat_modifiers::alt_held(&input.observed.modifiers),
-                crate::semantic_controls::keyboard_usage(event.key_code)
+                client_ui::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
             )
             .is_some()

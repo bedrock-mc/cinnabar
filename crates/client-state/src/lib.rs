@@ -75,9 +75,55 @@ pub enum RuntimeFrameSet {
     PublicationBudget,
 }
 
-/// Whether trusted experience consent owns physical input for the current frame.
-#[derive(Resource, Default)]
+/// Retained desktop input ownership shared by the shell and camera.
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+pub struct CursorFocus(pub semantic_input::cursor_focus::CursorFocus);
+
+/// Present while a developer controller drives input without OS cursor capture.
+#[derive(Debug, Default, Resource)]
+pub struct DrivenInput;
+
+/// Consent owns the whole input frame, including its dismissal frame.
+#[derive(Default, Resource)]
 pub struct ConsentInput(pub bool);
+
+/// A join requested by the menu and consumed by the session controller.
+#[derive(Debug)]
+pub struct JoinIntent {
+    pub address: String,
+    pub auth_cache: Option<std::path::PathBuf>,
+    /// Joins the launcher core's opened local world instead of the address.
+    pub local_world: bool,
+}
+
+/// Session ownership presented by the menu.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SessionStatus {
+    pub connecting: bool,
+    pub owns_directory: bool,
+}
+
+/// Session facts consumed by the desktop presence driver.
+#[derive(Default, Resource)]
+pub struct PresenceObservation {
+    pub has_world: bool,
+    pub failed: bool,
+    pub players: Option<u32>,
+    pub target: Option<rich_presence::Target>,
+}
+
+/// Shell boundaries used to order session and gameplay adapters without plugin edges.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShellFrameSet {
+    MenuInput,
+    Session,
+    WindowSettings,
+    Store,
+    Focus,
+    FinalFocus,
+    GameplayControls,
+    Presence,
+}
 
 /// Consumes consent input after the experience controller and before ordinary input.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]

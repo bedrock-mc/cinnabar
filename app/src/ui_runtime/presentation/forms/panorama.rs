@@ -1,8 +1,8 @@
-use crate::menu::MenuRuntime;
 use bevy::{
     prelude::{Local, Query, Res, ResMut, With},
     window::{PrimaryWindow, Window},
 };
+use client_shell::menu::MenuRuntime;
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use render_model::panorama::{launcher_faces, launcher_view, overlay_tint};
 use render_scene::PanoramaScene;
@@ -21,7 +21,7 @@ pub(crate) fn drive_menu_panorama(
     let Some(mut scene) = scene else {
         return;
     };
-    scene.set_game_visible(crate::screen_policy::renders_game(
+    scene.set_game_visible(client_shell::screen_policy::renders_game(
         &player_runtime,
         runtime.as_deref(),
         menu.as_deref(),

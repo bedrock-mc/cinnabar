@@ -20,7 +20,6 @@ use {
             configure_acceptance_finish_system, configure_client_frame_schedule,
             configure_client_production_frame_systems,
         },
-        menu::MenuRuntime,
         runtime::world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
         session::{drive_session, follow_server_transfer, recover_session_failure},
         session_audio::drain_sequenced_audio_into_session,
@@ -29,6 +28,7 @@ use {
     client_runtime::{
         blob_cache::ClientBlobCacheOwner, pack_admission::ResourcePackAdmissionState,
     },
+    client_shell::menu::MenuRuntime,
     launcher::menu::MenuAction,
 };
 

@@ -69,7 +69,6 @@ use {
         },
         local_player::{publish_local_player_frame, resolve_camera_pose},
         melee::produce_melee,
-        menu::{MenuRuntime, drive_menu_input, drive_menu_services},
         movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
@@ -99,6 +98,7 @@ use {
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
+        shell_adapters::drive_menu_services,
         survival_mining::produce_survival_mining,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
@@ -125,6 +125,7 @@ use {
             arm_shutdown_watchdog,
         },
     },
+    client_shell::menu::MenuRuntime,
 };
 
 mod render_setup;
@@ -623,7 +624,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
-    let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let local_player_skin =
+        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
     let menu = MenuRuntime::new_with_layout(
         !connection_requested,
@@ -723,13 +725,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
-    app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
-    app.init_resource::<crate::menu::LauncherCoreSlot>();
+    app.init_resource::<client_shell::menu::LauncherCoreSlot>();
     app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -793,7 +794,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     })
     .insert_resource(local_player_skin)
     .insert_resource(menu.with_vsync_override(vsync_override))
-    .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(client_audio::session_audio::SessionAudioCatalog(
         audio_catalog,
     ))
@@ -936,14 +936,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::developer_control::configure(&mut app);
     app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
-    crate::discord_presence::configure(&mut app);
+    app.init_resource::<client_state::PresenceObservation>()
+        .add_systems(
+            Last,
+            crate::shell_adapters::publish_presence_observation
+                .before(client_state::ShellFrameSet::Presence),
+        );
     configure_acceptance_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     executor::configure_frame_schedule_executors(&mut app);
     let exit = app.run();
-    crate::discord_presence::shutdown(&mut app);
+    client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()

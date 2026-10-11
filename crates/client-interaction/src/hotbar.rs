@@ -5,19 +5,7 @@ use bevy::{
 };
 use client_state::{PlayerRuntime, ScreenFocus, SemanticInputSnapshot};
 use protocol::HOTBAR_SLOT_COUNT;
-use semantic_input::Action;
-
-pub const HOTBAR_DIGIT_ACTIONS: [Action; HOTBAR_SLOT_COUNT as usize] = [
-    Action::Hotbar1,
-    Action::Hotbar2,
-    Action::Hotbar3,
-    Action::Hotbar4,
-    Action::Hotbar5,
-    Action::Hotbar6,
-    Action::Hotbar7,
-    Action::Hotbar8,
-    Action::Hotbar9,
-];
+use semantic_input::{Action, HOTBAR_DIGIT_ACTIONS};
 
 /// Queues number-key, controller and mouse-wheel selection using the current screen authority.
 pub fn queue_hotbar_selection(

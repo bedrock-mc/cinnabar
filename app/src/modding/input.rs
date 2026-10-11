@@ -358,8 +358,8 @@ pub(super) fn prepare_mod_input(
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
     time: Option<Res<Time>>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let PanelPointerInput {
         mouse_events,
@@ -608,7 +608,7 @@ pub(super) fn prepare_mod_input(
         keys.reset(KeyCode::Escape);
     }
     if open {
-        client_presentation::camera::release_cursor(&mut cursor);
+        client_ui::physical_input::release_cursor(&mut cursor);
         keys.clear();
         if let Some(motion) = motion.as_mut() {
             motion.delta = Vec2::ZERO;

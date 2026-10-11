@@ -24,7 +24,6 @@ mod bob;
 mod controls;
 mod easing;
 pub mod facts;
-mod focus;
 pub mod fov;
 #[cfg(test)]
 mod freelook_tests;
@@ -46,10 +45,9 @@ mod spawn_tests;
 
 pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
-    AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, release_cursor,
-    update_cursor_capture, update_look, update_movement, update_perspective,
+    AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, update_cursor_capture,
+    update_look, update_movement, update_perspective,
 };
-pub use focus::CursorFocus;
 pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
 pub use hurt::{CameraHurtState, LocalHurtEvent};
 pub use overlay::{

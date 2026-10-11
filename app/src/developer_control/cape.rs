@@ -3,7 +3,7 @@
 use bevy::prelude::World;
 use serde_json::{Value, json};
 
-use crate::player_skin::LocalPlayerSkin;
+use client_shell::player_skin::LocalPlayerSkin;
 
 /// Changes the synthetic local skin feed without sending cosmetic data to a server.
 pub(super) fn apply(world: &mut World, enabled: bool) -> Result<Value, String> {

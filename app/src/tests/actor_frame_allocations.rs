@@ -51,9 +51,7 @@ pub(crate) fn actor_frame_world(
     world.insert_resource(render_scene::ActorArtworkResource(artwork));
     world.insert_resource(hand);
     world.insert_resource(render_scene::HandRigScene::default());
-    world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
-        "bench",
-    ));
+    world.insert_resource(client_shell::player_skin::LocalPlayerSkin::generated_default("bench"));
     world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.insert_resource(ActorFramePartialTick::default());
     world.init_resource::<client_presentation::actor_publication::PreparedActorPublication>();

@@ -22,7 +22,7 @@ use super::{
 pub const LANG_ASSETS_FILENAME: &str = crate::carriers::LANG.output;
 pub const LANG_ASSETS_COMPILE_COMMAND: &str = "make lang-assets";
 const LANG_ASSETS_REPORT_FILENAME: &str = "lang-assets.json";
-const MAX_LANG_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_LANG_ASSET_BLOB_BYTES: u64 = crate::MAX_LANG_CARRIER_BYTES as u64;
 
 /// Returns a copy-paste recovery command that writes the localization
 /// carrier where startup looked for it: the bare make target at the default

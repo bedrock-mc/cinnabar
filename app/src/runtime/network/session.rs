@@ -15,7 +15,7 @@ pub struct NetworkConfig {
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
     pub client_blob_cache: protocol::ClientBlobCache,
-    pub player_skin: crate::player_skin::LocalPlayerSkin,
+    pub player_skin: client_shell::player_skin::LocalPlayerSkin,
     /// The player's language, input mode and GUI scale, reported at login.
     pub login_settings: protocol::LoginSettings,
     /// Rechecked against live artwork before presentation publication.
@@ -32,7 +32,7 @@ pub fn spawn_network(
     let socket_dir = config.socket_dir.clone();
     let actor_artwork = config.actor_artwork;
     let ui_catalog = config.ui_catalog;
-    let physical_memory_bytes = crate::global_resources::memory::physical_bytes();
+    let physical_memory_bytes = launcher_host::memory::physical_bytes();
     client_session::spawn_network(
         client_session::NetworkConfig {
             session_generation: config.session_generation,

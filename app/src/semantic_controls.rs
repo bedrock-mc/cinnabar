@@ -9,7 +9,7 @@ use semantic_input::{
 pub(crate) mod physical;
 pub(crate) use physical::{
     PendingDeviceFrame, SemanticRouteState, collect_raw_input,
-    finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
+    finalize_semantic_input_after_ui_authority, route_semantic_input,
 };
 
 use client_ui::ui_runtime::UiRuntime;

@@ -42,8 +42,8 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     gamepads: Query<'w, 's, (Entity, &'static Gamepad)>,
     touches: Res<'w, Touches>,
     touch_targets: ResMut<'w, SemanticTouchTargets>,
-    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    focus: Option<Res<'w, client_state::CursorFocus>>,
+    driven: Option<Res<'w, client_state::DrivenInput>>,
 }
 
 pub(crate) fn collect_raw_input(
@@ -292,171 +292,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
     }
 }
 
-/// Desktop keys and their USB HID Keyboard/Keypad page (0x07) usages.
-/// Reference: https://www.usb.org/sites/default/files/hut1_3_0.pdf, section 10.
-pub(crate) const KEYBOARD_USAGES: &[(KeyCode, u16)] = &[
-    (KeyCode::KeyA, 0x04),
-    (KeyCode::KeyD, 0x07),
-    (KeyCode::KeyB, 0x05),
-    (KeyCode::KeyC, 0x06),
-    (KeyCode::KeyE, 0x08),
-    (KeyCode::KeyF, 0x09),
-    (KeyCode::KeyG, 0x0a),
-    (KeyCode::KeyH, 0x0b),
-    (KeyCode::KeyI, 0x0c),
-    (KeyCode::KeyJ, 0x0d),
-    (KeyCode::KeyK, 0x0e),
-    (KeyCode::KeyL, 0x0f),
-    (KeyCode::KeyM, 0x10),
-    (KeyCode::KeyN, 0x11),
-    (KeyCode::KeyO, 0x12),
-    (KeyCode::KeyP, 0x13),
-    (KeyCode::KeyQ, 0x14),
-    (KeyCode::KeyR, 0x15),
-    (KeyCode::KeyT, 0x17),
-    (KeyCode::KeyU, 0x18),
-    (KeyCode::KeyV, 0x19),
-    (KeyCode::KeyX, 0x1b),
-    (KeyCode::KeyY, 0x1c),
-    (KeyCode::KeyZ, 0x1d),
-    (KeyCode::KeyS, 0x16),
-    (KeyCode::KeyW, 0x1a),
-    (KeyCode::Digit1, 0x1e),
-    (KeyCode::Digit2, 0x1f),
-    (KeyCode::Digit3, 0x20),
-    (KeyCode::Digit4, 0x21),
-    (KeyCode::Digit5, 0x22),
-    (KeyCode::Digit6, 0x23),
-    (KeyCode::Digit7, 0x24),
-    (KeyCode::Digit8, 0x25),
-    (KeyCode::Digit9, 0x26),
-    (KeyCode::Digit0, 0x27),
-    (KeyCode::Backspace, 0x2a),
-    (KeyCode::Enter, 0x28),
-    (KeyCode::Escape, 0x29),
-    (KeyCode::Tab, 0x2b),
-    (KeyCode::Space, 0x2c),
-    (KeyCode::Minus, 0x2d),
-    (KeyCode::Equal, 0x2e),
-    (KeyCode::BracketLeft, 0x2f),
-    (KeyCode::BracketRight, 0x30),
-    (KeyCode::Backslash, 0x31),
-    (KeyCode::Semicolon, 0x33),
-    (KeyCode::Quote, 0x34),
-    (KeyCode::Backquote, 0x35),
-    (KeyCode::Comma, 0x36),
-    (KeyCode::Period, 0x37),
-    (KeyCode::Slash, 0x38),
-    (KeyCode::Insert, 0x49),
-    (KeyCode::Home, 0x4a),
-    (KeyCode::PageUp, 0x4b),
-    (KeyCode::Delete, 0x4c),
-    (KeyCode::End, 0x4d),
-    (KeyCode::PageDown, 0x4e),
-    (KeyCode::F1, 0x3a),
-    (KeyCode::F2, 0x3b),
-    (KeyCode::F3, 0x3c),
-    (KeyCode::F4, 0x3d),
-    (KeyCode::F5, 0x3e),
-    (KeyCode::F6, 0x3f),
-    (KeyCode::F7, 0x40),
-    (KeyCode::F8, 0x41),
-    (KeyCode::F9, 0x42),
-    (KeyCode::F10, 0x43),
-    (KeyCode::F11, 0x44),
-    (KeyCode::F12, 0x45),
-    // The UiFocused defaults bind these four HID usages; without them the
-    // arrow keys are dead in every menu.
-    (KeyCode::ArrowRight, 0x4f),
-    (KeyCode::ArrowLeft, 0x50),
-    (KeyCode::ArrowDown, 0x51),
-    (KeyCode::ArrowUp, 0x52),
-    (KeyCode::CapsLock, 0x39),
-    (KeyCode::PrintScreen, 0x46),
-    (KeyCode::ScrollLock, 0x47),
-    (KeyCode::Pause, 0x48),
-    (KeyCode::NumLock, 0x53),
-    (KeyCode::NumpadDivide, 0x54),
-    (KeyCode::NumpadMultiply, 0x55),
-    (KeyCode::NumpadSubtract, 0x56),
-    (KeyCode::NumpadAdd, 0x57),
-    (KeyCode::NumpadEnter, 0x58),
-    (KeyCode::Numpad1, 0x59),
-    (KeyCode::Numpad2, 0x5a),
-    (KeyCode::Numpad3, 0x5b),
-    (KeyCode::Numpad4, 0x5c),
-    (KeyCode::Numpad5, 0x5d),
-    (KeyCode::Numpad6, 0x5e),
-    (KeyCode::Numpad7, 0x5f),
-    (KeyCode::Numpad8, 0x60),
-    (KeyCode::Numpad9, 0x61),
-    (KeyCode::Numpad0, 0x62),
-    (KeyCode::NumpadDecimal, 0x63),
-    (KeyCode::IntlBackslash, 0x64),
-    (KeyCode::ContextMenu, 0x65),
-    (KeyCode::NumpadEqual, 0x67),
-    (KeyCode::F13, 0x68),
-    (KeyCode::F14, 0x69),
-    (KeyCode::F15, 0x6a),
-    (KeyCode::F16, 0x6b),
-    (KeyCode::F17, 0x6c),
-    (KeyCode::F18, 0x6d),
-    (KeyCode::F19, 0x6e),
-    (KeyCode::F20, 0x6f),
-    (KeyCode::F21, 0x70),
-    (KeyCode::F22, 0x71),
-    (KeyCode::F23, 0x72),
-    (KeyCode::F24, 0x73),
-    (KeyCode::NumpadComma, 0x85),
-    (KeyCode::ControlLeft, 0xe0),
-    (KeyCode::ShiftLeft, 0xe1),
-    (KeyCode::AltLeft, 0xe2),
-    (KeyCode::SuperLeft, 0xe3),
-    (KeyCode::ControlRight, 0xe4),
-    (KeyCode::ShiftRight, 0xe5),
-    (KeyCode::AltRight, 0xe6),
-    (KeyCode::SuperRight, 0xe7),
-];
-
-/// Converts a desktop key to the USB usage used by settings and gameplay.
-pub(crate) fn keyboard_usage(key: KeyCode) -> Option<u16> {
-    KEYBOARD_USAGES
-        .iter()
-        .find_map(|(candidate, usage)| (*candidate == key).then_some(*usage))
-}
-
-/// Converts desktop mouse buttons to the persisted gameplay binding codes.
-pub(crate) fn mouse_button_code(button: MouseButton) -> Option<u8> {
-    Some(match button {
-        MouseButton::Left => 1,
-        MouseButton::Right => 2,
-        MouseButton::Middle => 3,
-        MouseButton::Back => 4,
-        MouseButton::Forward => 5,
-        MouseButton::Other(code) => u8::try_from(code).ok()?.checked_add(1)?,
-    })
-}
-
-/// The exact gamepad buttons this layer translates, and the binding codes they
-/// produce. This is the single source of truth: `gamepad_button_codes` reads it
-/// to build a frame, and the binding-reachability test reads it to prove no
-/// default binding names a code the app cannot emit.
-pub(crate) const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
-    (0, GamepadButton::South),
-    (1, GamepadButton::East),
-    (2, GamepadButton::North),
-    (3, GamepadButton::West),
-    (4, GamepadButton::LeftTrigger),
-    (5, GamepadButton::RightTrigger),
-    (6, GamepadButton::Select),
-    (7, GamepadButton::Start),
-    (8, GamepadButton::LeftThumb),
-    (9, GamepadButton::RightThumb),
-    (11, GamepadButton::DPadUp),
-    (12, GamepadButton::DPadDown),
-    (13, GamepadButton::DPadLeft),
-    (14, GamepadButton::DPadRight),
-];
+use client_ui::physical_input::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
 
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
     let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
@@ -470,8 +306,8 @@ fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        KEYBOARD_USAGES, PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input,
-        input_source_gates, keyboard_usage, mouse_button_code, select_lowest_by_key,
+        PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input, input_source_gates,
+        keyboard_usage, mouse_button_code, select_lowest_by_key,
     };
     use bevy::prelude::{KeyCode, MouseButton};
     use bevy::{
@@ -479,6 +315,7 @@ mod tests {
         prelude::{App, Update, Window},
         window::{CursorGrabMode, CursorOptions, PrimaryWindow},
     };
+    use client_ui::physical_input::KEYBOARD_USAGES;
     use semantic_input::{
         ControlSettings, ControllerFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS, PhysicalControl,
         TouchContact,
@@ -745,7 +582,7 @@ mod tests {
             .init_resource::<Touches>()
             .init_resource::<SemanticTouchTargets>()
             .init_resource::<PendingDeviceFrame>()
-            .init_resource::<client_presentation::camera::CursorFocus>()
+            .init_resource::<client_state::CursorFocus>()
             .add_systems(Update, collect_raw_input);
         let window = app
             .world_mut()
@@ -776,7 +613,7 @@ mod tests {
             [12.0, -4.0]
         );
         app.world_mut()
-            .resource_mut::<client_presentation::camera::CursorFocus>()
+            .resource_mut::<client_state::CursorFocus>()
             .occlusion_changed(true);
         app.update();
         let pending = app.world().resource::<PendingDeviceFrame>();
@@ -791,7 +628,7 @@ mod tests {
             .unwrap()
             .visible = true;
         app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
-        app.init_resource::<crate::camera::DrivenInput>();
+        app.init_resource::<client_state::DrivenInput>();
         app.update();
         assert_eq!(
             app.world()

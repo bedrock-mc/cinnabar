@@ -24,7 +24,7 @@ enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/e
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["client-runtime/local-mods", "client-extensions/local-mods", "mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control"]
+developer-control = ["dep:developer-control", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
 # Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
@@ -35,6 +35,7 @@ reports = []
 
 [dependencies]
 render-scene = { path = "../crates/render-scene" }
+client-shell = { path = "../crates/client-shell" }
 client-interaction = { path = "../crates/client-interaction" }
 client-runtime = { path = "../crates/client-runtime" }
 client-extensions = { path = "../crates/client-extensions" }
@@ -101,10 +102,6 @@ world = { path = "../crates/world" }
 libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
-objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-ash = "0.38"
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6.2"
@@ -115,6 +112,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+client-shell = { path = "../crates/client-shell", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }
 assets = { path = "../crates/assets", features = ["test-support"] }
 client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }

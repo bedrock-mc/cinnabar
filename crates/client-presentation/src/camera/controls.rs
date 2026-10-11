@@ -3,8 +3,8 @@
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::{
-        ButtonInput, EulerRot, KeyCode, MouseButton, Mut, Quat, Res, ResMut, Resource, Single,
-        Time, Transform, Vec2, Vec3, With,
+        ButtonInput, EulerRot, KeyCode, MouseButton, Quat, Res, ResMut, Resource, Single, Time,
+        Transform, Vec2, Vec3, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -143,13 +143,7 @@ fn capture_cursor(cursor: &mut CursorOptions) {
     cursor.visible = false;
 }
 
-/// Releases capture only when needed, avoiding Bevy's repeated OS grab notifications.
-pub fn release_cursor(cursor: &mut Mut<CursorOptions>) {
-    if cursor.grab_mode != CursorGrabMode::None || !cursor.visible {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-    }
-}
+use client_ui::physical_input::release_cursor;
 
 /// Drops held pointer and key input when gameplay capture is released.
 fn clear_controller_input(

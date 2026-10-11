@@ -3,7 +3,8 @@ use bevy::prelude::MouseButton;
 use client_ui::ui_runtime::UiRuntime;
 use semantic_input::PhysicalControl;
 
-use crate::{menu::MenuRuntime, semantic_controls::SemanticInputRuntime};
+use crate::semantic_controls::SemanticInputRuntime;
+use client_shell::menu::MenuRuntime;
 
 /// Sends the matching gameplay macro and retires only its sampled control.
 pub(super) fn dispatch(
@@ -46,7 +47,7 @@ pub(in crate::ui_runtime) fn command(
     {
         return None;
     }
-    crate::menu::settings_options::control_bindings::binding_macro_command(menu, control?)
+    client_shell::menu::settings_options::control_bindings::binding_macro_command(menu, control?)
 }
 
 /// Matches pointer presses using the same binding codes as capture and gameplay.
@@ -62,8 +63,7 @@ pub(super) fn dispatch_mouse(
         menu,
         runtime,
         alt,
-        crate::semantic_controls::physical::mouse_button_code(button)
-            .map(PhysicalControl::MouseButton),
+        client_ui::physical_input::mouse_button_code(button).map(PhysicalControl::MouseButton),
         now_millis,
         semantic,
     )

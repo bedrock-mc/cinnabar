@@ -112,7 +112,8 @@ fn dispatch(world: &mut World) {
             Command::Disconnect => disconnect(world),
             Command::Input(command) => input::apply(world, &command),
             Command::ImportSkin { path } => {
-                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>()
+                {
                     menu.import_skin_path(path);
                     Ok(json!({ "importing": true }))
                 } else {
@@ -120,7 +121,8 @@ fn dispatch(world: &mut World) {
                 }
             }
             Command::ImportCape { path } => {
-                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>()
+                {
                     menu.import_cape_path(path);
                     Ok(json!({ "importing": true }))
                 } else {
@@ -130,12 +132,13 @@ fn dispatch(world: &mut World) {
             Command::Chat { text } => chat(world, &text),
             Command::TestCape { enabled } => cape::apply(world, enabled),
             Command::SignInFixture { state } => world
-                .get_resource_mut::<crate::menu::MenuRuntime>()
+                .get_resource_mut::<client_shell::menu::MenuRuntime>()
                 .ok_or_else(|| "the launcher menu is unavailable".to_owned())
                 .and_then(|mut menu| menu.apply_sign_in_fixture(state))
                 .map(|()| json!({ "fixture": state })),
             Command::TestAccounts { enabled } => {
-                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>()
+                {
                     if menu.set_presentation_accounts(enabled) {
                         Ok(json!({ "test_accounts": enabled }))
                     } else {
@@ -178,7 +181,7 @@ fn dispatch(world: &mut World) {
 
 fn connect(world: &mut World, address: String) -> Result<Value, String> {
     let mut menu = world
-        .get_resource_mut::<crate::menu::MenuRuntime>()
+        .get_resource_mut::<client_shell::menu::MenuRuntime>()
         .ok_or("the launcher menu is unavailable")?;
     menu.request_connect(address.clone());
     if !menu.is_connecting() {
@@ -189,7 +192,7 @@ fn connect(world: &mut World, address: String) -> Result<Value, String> {
 
 fn disconnect(world: &mut World) -> Result<Value, String> {
     let mut menu = world
-        .get_resource_mut::<crate::menu::MenuRuntime>()
+        .get_resource_mut::<client_shell::menu::MenuRuntime>()
         .ok_or("the launcher menu is unavailable")?;
     menu.activate(launcher::menu::MenuAction::PauseDisconnect);
     Ok(json!({ "disconnecting": true }))
