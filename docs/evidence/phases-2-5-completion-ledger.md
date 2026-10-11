@@ -97,9 +97,9 @@ material/shader linkage remain open.
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
-| Deterministic tests | Local/remote event admission, equipped-item snapshot, consumption ordering, retrigger, expiry, session retirement, partial ticks, bounded stall time, viewport/layer placement and admitted texture replacement/removal. |
-| Review commit | Totem implementation: `a72eb0ef1`; broader item actions remain open. |
-| Live/native witness | Totem camera event/icon behavior verified; full-client default/custom activation, main-hand fallback, retrigger and remote/empty exclusion pass. Broader item actions remain open. |
+| Deterministic tests | Local/remote event admission, equipped-item snapshot across delayed publication, equipment-only hands, consumption ordering, retrigger, expiry, session retirement, partial ticks, bounded stall time, viewport/layer placement, admitted texture replacement/removal and authored particle routing/attachment. |
+| Review commit | Totem implementation: `c4e35bea4`; broader item actions remain open. |
+| Live/native witness | Totem camera event/icon behavior and local authored-emitter routing verified; full-client default/custom activation, main-hand fallback, retrigger and remote/empty exclusion pass. Broader item actions remain open. |
 | Performance/resource witness | Not started |
 | Final status | Open |
 
