@@ -10,11 +10,8 @@ use std::sync::{
 
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{Core3d, Core3dSystems},
     render::{
-        render_graph::{
-            NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-        },
         render_phase::DrawFunctionId,
         render_resource::{CachedRenderPipelineId, RenderPassDescriptor, StoreOp, TextureViewId},
         renderer::RenderContext,
@@ -553,134 +550,133 @@ pub(super) fn reset_direct_occlusion_frame(mut frame: ResMut<DirectOcclusionFram
     frame.clear();
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct TerrainPassLabel;
 
-pub(super) fn install_graph(world: &mut World) {
-    let node = ViewNodeRunner::new(TerrainPassNode, world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
+pub(crate) fn install_graph(world: &mut World) {
+    if world.contains_resource::<TerrainPassInstalled>() {
         return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    graph.add_node(TerrainPassLabel, node);
-    graph.add_node_edges((
-        Node3d::StartMainPass,
-        TerrainPassLabel,
-        Node3d::MainOpaquePass,
-    ));
+    }
+    let installed = world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(
+                    terrain_pass,
+                    Some(crate::RuntimeStage::GpuOpaque),
+                    "TerrainPassLabel",
+                )
+                .in_set(TerrainPassLabel)
+                .before(crate::scene_target::ScenePass::Opaque)
+                .in_set(Core3dSystems::MainPass),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(TerrainPassInstalled);
+    }
 }
 
-/// Draws solid terrain front to back, then tests every slot against the depth it left.
-#[derive(Default)]
-struct TerrainPassNode;
+#[derive(Resource)]
+struct TerrainPassInstalled;
 
-impl ViewNode for TerrainPassNode {
-    type ViewQuery = (
-        &'static ExtractedCamera,
-        &'static ViewTarget,
-        &'static crate::scene_target::SceneTarget,
-        &'static ViewDepthTexture,
-        Option<&'static MainPassResolutionOverride>,
-    );
+type TerrainQuery = (
+    &'static ExtractedCamera,
+    &'static ViewTarget,
+    &'static crate::scene_target::SceneTarget,
+    &'static ViewDepthTexture,
+    Option<&'static MainPassResolutionOverride>,
+);
 
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        (camera, target, scene_target, depth, resolution_override): (
-            &'w ExtractedCamera,
-            &'w ViewTarget,
-            &'w crate::scene_target::SceneTarget,
-            &'w ViewDepthTexture,
-            Option<&'w MainPassResolutionOverride>,
-        ),
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let view_entity = graph.view_entity();
-        let occlusion = world.resource::<DirectOcclusion>();
-        let Some(plan) = occlusion
-            .plan
-            .as_ref()
-            .filter(|plan| plan.view == view_entity)
-        else {
-            return Ok(());
-        };
+/// Draws solid terrain and tests the remaining slots against its depth.
+pub(crate) fn terrain_pass(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<TerrainQuery>,
+    mut render_context: RenderContext,
+) -> bevy::ecs::error::Result {
+    let view_entity = query.entity();
+    let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
+    let render_context = &mut render_context;
+    let occlusion = world.resource::<DirectOcclusion>();
+    let Some(plan) = occlusion
+        .plan
+        .as_ref()
+        .filter(|plan| plan.view == view_entity)
+    else {
+        return Ok(());
+    };
+    {
+        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("terrain solid pass"),
+            color_attachments: &[Some(scene_target.color_attachment(target, false))],
+            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuTerrainOpaque,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if let Some(viewport) =
+            Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution_override)
         {
-            let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("terrain solid pass"),
-                color_attachments: &[Some(scene_target.color_attachment(target, false))],
-                depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                    world,
-                    crate::RuntimeStage::GpuTerrainOpaque,
-                ),
-                occlusion_query_set: None,
-            });
-            if let Some(viewport) =
-                Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution_override)
-            {
-                let Some(viewport) = crate::render_bounds::viewport(
-                    &viewport,
-                    crate::render_bounds::extent(scene_target.color_view(false)),
-                ) else {
-                    return Ok(());
-                };
-                pass.set_camera_viewport(&viewport);
-            }
-            let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
-            let mut draw_functions = draw_functions.write();
-            draw_functions.prepare(world);
-            if let Some(draw) = draw_functions.get_mut(plan.solid_draw) {
-                for &(entity, main) in &plan.solid {
-                    let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
-                        Opaque3dBatchSetKey {
-                            draw_function: plan.solid_draw,
-                            pipeline: plan.solid_pipeline,
-                            material_bind_group_index: None,
-                            lightmap_slab: None,
-                            vertex_slab: default(),
-                            index_slab: None,
-                        },
-                        Opaque3dBinKey {
-                            asset_id: AssetId::<Mesh>::invalid().untyped(),
-                        },
-                        (entity, main),
-                        0..1,
-                        PhaseItemExtraIndex::None,
-                    );
-                    if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
-                        bevy::log::error!("terrain solid pass draw failed: {error:?}");
-                    }
+            let Some(viewport) = crate::render_bounds::viewport(
+                &viewport,
+                crate::render_bounds::extent(scene_target.color_view(false)),
+            ) else {
+                return Ok(());
+            };
+            pass.set_camera_viewport(&viewport);
+        }
+        let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
+        let mut draw_functions = draw_functions.write();
+        draw_functions.prepare(world);
+        if let Some(draw) = draw_functions.get_mut(plan.solid_draw) {
+            for &(entity, main) in &plan.solid {
+                let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
+                    Opaque3dBatchSetKey {
+                        draw_function: plan.solid_draw,
+                        pipeline: plan.solid_pipeline,
+                        material_bind_group_index: None,
+                        lightmap_slab: None,
+                        slabs: default(),
+                    },
+                    Opaque3dBinKey {
+                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    },
+                    (entity, main),
+                    0..1,
+                    PhaseItemExtraIndex::None,
+                );
+                if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
+                    bevy::log::error!("terrain solid pass draw failed: {error:?}");
                 }
             }
         }
-        let (Some(slot), Some(prepared), Some((group, _)), Some(storage)) = (
-            plan.verdict,
-            occlusion.pyramid.as_ref(),
-            occlusion.bind_group.as_ref(),
-            occlusion.storage.as_ref(),
-        ) else {
-            return Ok(());
-        };
-        let encoder = render_context.command_encoder();
-        occlusion
-            .kernels
-            .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
-        occlusion
-            .kernels
-            .encode_occlusion(encoder, group, plan.slots);
-        encoder.copy_buffer_to_buffer(
-            &storage.occluded,
-            0,
-            &occlusion.readbacks[slot],
-            0,
-            occlusion_bytes(storage.capacity),
-        );
-        plan.encoded.store(true, Ordering::Release);
-        Ok(())
     }
+    let (Some(slot), Some(prepared), Some((group, _)), Some(storage)) = (
+        plan.verdict,
+        occlusion.pyramid.as_ref(),
+        occlusion.bind_group.as_ref(),
+        occlusion.storage.as_ref(),
+    ) else {
+        return Ok(());
+    };
+    let encoder = render_context.command_encoder();
+    occlusion
+        .kernels
+        .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+    occlusion
+        .kernels
+        .encode_occlusion(encoder, group, plan.slots);
+    encoder.copy_buffer_to_buffer(
+        &storage.occluded,
+        0,
+        &occlusion.readbacks[slot],
+        0,
+        occlusion_bytes(storage.capacity),
+    );
+    plan.encoded.store(true, Ordering::Release);
+    Ok(())
 }
 
 /// Skips a direct terrain draw the occlusion verdicts hid from this view.

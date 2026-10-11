@@ -1,12 +1,12 @@
 //! Native GPU replay of captured lobby actors; no socket or live server is used.
 use bevy::{
     asset::AssetPlugin,
-    camera::{Camera3dDepthTextureUsage, CameraPlugin, RenderTarget},
+    camera::{Camera3dDepthTextureUsage, CameraPlugin, Hdr, RenderTarget},
     core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
     mesh::MeshPlugin,
     post_process::{PostProcessPlugin, bloom::Bloom},
     prelude::*,
-    render::{RenderApp, RenderPlugin, render_resource::*, renderer::RenderDevice, view::Hdr},
+    render::{RenderApp, RenderPlugin, render_resource::*, renderer::RenderDevice},
     window::WindowPlugin,
 };
 use {super::*, client_presentation::actor_publication::publish_actor_render_frame};

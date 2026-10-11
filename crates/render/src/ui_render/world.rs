@@ -1,8 +1,6 @@
 //! Direct world-projected UI pass with the native text depth modes.
 use super::*;
 
-pub(super) struct UiWorldNode;
-
 type UiViewQuery = (
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
@@ -12,26 +10,22 @@ type UiViewQuery = (
     Option<&'static MainPassResolutionOverride>,
 );
 
-impl ViewNode for UiWorldNode {
-    type ViewQuery = UiViewQuery;
-    fn run(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext,
-        view: QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        draw_ui_view(graph, context, view, world)
-    }
+/// Draws projected UI in authored order after world filtering.
+pub(super) fn ui_world(
+    world: &World,
+    view: bevy::render::renderer::ViewQuery<UiViewQuery>,
+    mut context: RenderContext,
+) -> bevy::ecs::error::Result {
+    draw_ui_view(view.entity(), &mut context, view.into_inner(), world)
 }
 
 /// Draw projected batches in authored order under their native depth modes.
 fn draw_ui_view(
-    graph: &mut RenderGraphContext,
+    view_entity: Entity,
     context: &mut RenderContext,
     (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
     world: &World,
-) -> Result<(), NodeRunError> {
+) -> Result<(), BevyError> {
     let (Some(gpu), Some(pipeline_cache)) = (
         world.get_resource::<UiGpu>(),
         world.get_resource::<PipelineCache>(),
@@ -41,7 +35,7 @@ fn draw_ui_view(
     let (Some(vertices), Some(indices), Some(_)) = (
         &gpu.vertex_buffer,
         &gpu.index_buffer,
-        overlay_pipeline_pair(&gpu.batches, &gpu.view_pipelines, graph.view_entity()),
+        overlay_pipeline_pair(&gpu.batches, &gpu.view_pipelines, view_entity),
     ) else {
         return Ok(());
     };
@@ -77,11 +71,10 @@ fn draw_ui_view(
         let pair = if depth_test || depth_write {
             depth.and_then(|_| {
                 gpu.world_view_pipelines
-                    .get(&(graph.view_entity(), depth_test, depth_write))
+                    .get(&(view_entity, depth_test, depth_write))
             })
         } else {
-            gpu.world_view_pipelines
-                .get(&(graph.view_entity(), false, false))
+            gpu.world_view_pipelines.get(&(view_entity, false, false))
         };
         let Some((alpha, invert)) = pair else {
             while batches
@@ -118,6 +111,7 @@ fn draw_ui_view(
                 crate::RuntimeStage::GpuUi,
             ),
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_render_pipeline(pipeline);
         if let Some(viewport) = overlay_viewport(camera.viewport.as_ref(), resolution_override) {

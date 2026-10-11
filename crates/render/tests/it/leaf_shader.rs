@@ -47,7 +47,7 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     let pipeline = include_str!("../../src/chunk/pipeline/layouts.rs");
     let cube = pipeline.split("let mut model_descriptor").next().unwrap();
     assert!(cube.contains("cull_mode: None"));
-    assert!(cube.contains("depth_write_enabled: true"));
+    assert!(cube.contains("depth_write_enabled: Some(true)"));
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     let sampler = material_shader::native_leaf_sampler_descriptor();
     assert_eq!(sampler.min_filter, wgpu::FilterMode::Nearest);
     assert_eq!(sampler.mag_filter, wgpu::FilterMode::Nearest);
-    assert_eq!(sampler.mipmap_filter, wgpu::FilterMode::Linear);
+    assert_eq!(sampler.mipmap_filter, wgpu::MipmapFilterMode::Linear);
     assert_eq!(sampler.address_mode_u, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_v, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_w, wgpu::AddressMode::ClampToEdge);

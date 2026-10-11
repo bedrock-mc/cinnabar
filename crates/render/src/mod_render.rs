@@ -12,8 +12,6 @@ mod primitives;
 mod tests;
 
 #[cfg(test)]
-use bevy::image::BevyDefault;
-#[cfg(test)]
 use bevy::prelude::{Entity, GlobalTransform, Mat4, Msaa, Mut, UVec4, Vec3, World, default};
 use bevy::{
     prelude::{App, Plugin, Resource},

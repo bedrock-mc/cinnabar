@@ -57,7 +57,7 @@ impl FromWorld for ChunkPipeline {
                 shader: CHUNK_SHADER_HANDLE,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -71,8 +71,8 @@ impl FromWorld for ChunkPipeline {
             },
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -182,11 +182,11 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else if native_gamma {
-            TextureFormat::bevy_default().remove_srgb_suffix()
+            crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         #[cfg(feature = "enhanced")]
         if render_model::enhanced_rendering_enabled() && key.enhanced {
@@ -445,7 +445,7 @@ mod enhanced_tests {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -458,9 +458,9 @@ mod enhanced_tests {
             .as_mut()
             .unwrap()
             .format = if hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         descriptor
     }

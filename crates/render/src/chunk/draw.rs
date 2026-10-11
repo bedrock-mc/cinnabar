@@ -9,6 +9,7 @@ type ChunkViewQuery = (
     Read<RenderVisibleEntities>,
     Read<Msaa>,
     Option<Read<crate::EnhancedRendering>>,
+    Read<bevy::render::camera::ExtractedCamera>,
 );
 
 /// Each indirect draw path's batches, cleared and refilled every queue.
@@ -39,7 +40,7 @@ pub(in crate::chunk) fn queue_chunks(
     mut probes: QueueFrameProbeParams,
     mut indirect_batch_sets: ParamSet<IndirectBatches>,
     mut gpu_culling: gpu_cull::GpuCullQueue,
-    mut next_tick: Local<Tick>,
+
     mut unsupported_reported: Local<bool>,
 ) {
     let _timer = probes
@@ -68,13 +69,14 @@ pub(in crate::chunk) fn queue_chunks(
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
-            .min_by_key(|(_, main_entity, _, _, _, _)| main_entity.id().to_bits());
-        if let Some((view_entity, main_entity, view, visible_entities, _, _)) = diagnostic_view {
+            .min_by_key(|(_, main_entity, _, _, _, _, _)| main_entity.id().to_bits());
+        if let Some((view_entity, main_entity, view, visible_entities, _, _, _)) = diagnostic_view {
             let camera = extracted_camera_identity(main_entity, view);
             let generations = probes.camera_identity_tracker.observe(camera);
             let frustum_visible_opaque = visible_entities
                 .get::<ChunkRenderInstance>()
-                .iter()
+                .into_iter()
+                .flat_map(|class| class.iter_visible())
                 .filter_map(|(render_entity, _)| {
                     allocations
                         .get(*render_entity)
@@ -157,25 +159,27 @@ pub(in crate::chunk) fn queue_chunks(
     let gpu_cull_view = gpu_culling.select(
         draw_mode,
         probing,
-        views
-            .iter()
-            .map(|(entity, main, view, _, _, enhanced)| (entity, main, view, enhanced.is_some())),
+        views.iter().map(|(entity, main, view, _, _, enhanced, _)| {
+            (entity, main, view, enhanced.is_some())
+        }),
     );
     let direct_view = gpu_culling.select_direct(
         draw_mode,
         probing,
-        views
-            .iter()
-            .map(|(entity, main, view, _, _, enhanced)| (entity, main, view, enhanced.is_some())),
+        views.iter().map(|(entity, main, view, _, _, enhanced, _)| {
+            (entity, main, view, enhanced.is_some())
+        }),
     );
     let frame_probe = &frame_probe.scope();
-    for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced) in &views {
+    for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
+        &views
+    {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
         let key = ChunkPipelineKey {
             msaa: *msaa,
-            hdr: view.hdr,
+            hdr: extracted_camera.hdr,
             enhanced: enhanced.is_some(),
         };
         let Ok(pipeline_id) = pipeline.variants.specialize(&pipeline_cache, key) else {
@@ -203,7 +207,8 @@ pub(in crate::chunk) fn queue_chunks(
             .record_visible(summarize_model_workload(
                 visible_entities
                     .get::<ChunkRenderInstance>()
-                    .iter()
+                    .into_iter()
+                    .flat_map(|class| class.iter_visible())
                     .filter_map(|(render_entity, _)| {
                         let allocation = allocations.get(*render_entity).ok()?;
                         drawable_allocation_identity(
@@ -226,16 +231,13 @@ pub(in crate::chunk) fn queue_chunks(
             ];
             let early = gpu_cull::draw_function_ids(&draw_functions, false);
             for (draw_function, pipeline) in early.into_iter().zip(pipelines) {
-                let this_tick = next_tick.get() + 1;
-                next_tick.set(this_tick);
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function,
                         pipeline,
                         material_bind_group_index: None,
                         lightmap_slab: None,
-                        vertex_slab: default(),
-                        index_slab: None,
+                        slabs: default(),
                     },
                     Opaque3dBinKey {
                         asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -243,7 +245,6 @@ pub(in crate::chunk) fn queue_chunks(
                     (view_entity, *view_main_entity),
                     InputUniformIndex::default(),
                     BinnedRenderPhaseType::NonMesh,
-                    *next_tick,
                 );
             }
             gpu_culling.set_view(gpu_cull::GpuCullView {
@@ -263,8 +264,9 @@ pub(in crate::chunk) fn queue_chunks(
             let visible = sorted_visible_entities(
                 visible_entities
                     .get::<ChunkRenderInstance>()
-                    .iter()
-                    .copied(),
+                    .into_iter()
+                    .flat_map(|class| class.iter_visible())
+                    .map(|(entity, main)| (*entity, *main)),
             )
             .into_iter()
             .filter(|(entity, _)| {
@@ -341,16 +343,13 @@ pub(in crate::chunk) fn queue_chunks(
                 },
             );
 
-            let this_tick = next_tick.get() + 1;
-            next_tick.set(this_tick);
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function: solid_indirect_draw,
                     pipeline: solid_pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
+                    slabs: default(),
                 },
                 Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -358,18 +357,15 @@ pub(in crate::chunk) fn queue_chunks(
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
-                *next_tick,
             );
-            let this_tick = next_tick.get() + 1;
-            next_tick.set(this_tick);
+
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function: indirect_draw,
                     pipeline: pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
+                    slabs: default(),
                 },
                 Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -377,18 +373,15 @@ pub(in crate::chunk) fn queue_chunks(
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
-                *next_tick,
             );
-            let this_tick = next_tick.get() + 1;
-            next_tick.set(this_tick);
+
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function: model_indirect_draw,
                     pipeline: model_pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
+                    slabs: default(),
                 },
                 Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -396,18 +389,15 @@ pub(in crate::chunk) fn queue_chunks(
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
-                *next_tick,
             );
-            let this_tick = next_tick.get() + 1;
-            next_tick.set(this_tick);
+
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function: depth_liquid_indirect_draw,
                     pipeline: depth_liquid_pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
+                    slabs: default(),
                 },
                 Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -415,7 +405,6 @@ pub(in crate::chunk) fn queue_chunks(
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
-                *next_tick,
             );
             continue;
         }
@@ -431,7 +420,12 @@ pub(in crate::chunk) fn queue_chunks(
         } else {
             None
         };
-        for &(render_entity, main_entity) in visible_entities.get::<ChunkRenderInstance>() {
+        for (render_entity, main_entity) in visible_entities
+            .get::<ChunkRenderInstance>()
+            .into_iter()
+            .flat_map(|class| class.iter_visible())
+            .map(|(entity, main)| (*entity, *main))
+        {
             let Ok(allocation) = allocations.get(render_entity) else {
                 continue;
             };
@@ -466,16 +460,13 @@ pub(in crate::chunk) fn queue_chunks(
                 ),
             ];
             for (_, draw_function, pipeline) in cube_draws.into_iter().filter(|draw| draw.0) {
-                let this_tick = next_tick.get() + 1;
-                next_tick.set(this_tick);
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function,
                         pipeline,
                         material_bind_group_index: None,
                         lightmap_slab: None,
-                        vertex_slab: default(),
-                        index_slab: None,
+                        slabs: default(),
                     },
                     Opaque3dBinKey {
                         asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -483,20 +474,16 @@ pub(in crate::chunk) fn queue_chunks(
                     (render_entity, main_entity),
                     InputUniformIndex::default(),
                     BinnedRenderPhaseType::NonMesh,
-                    *next_tick,
                 );
             }
             if model_direct_draw_command(allocation).is_some() {
-                let this_tick = next_tick.get() + 1;
-                next_tick.set(this_tick);
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: model_direct_draw,
                         pipeline: model_pipeline_id,
                         material_bind_group_index: None,
                         lightmap_slab: None,
-                        vertex_slab: default(),
-                        index_slab: None,
+                        slabs: default(),
                     },
                     Opaque3dBinKey {
                         asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -504,20 +491,16 @@ pub(in crate::chunk) fn queue_chunks(
                     (render_entity, main_entity),
                     InputUniformIndex::default(),
                     BinnedRenderPhaseType::NonMesh,
-                    *next_tick,
                 );
             }
             if depth_liquid_direct_draw_command(allocation).is_some() {
-                let this_tick = next_tick.get() + 1;
-                next_tick.set(this_tick);
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: depth_liquid_direct_draw,
                         pipeline: depth_liquid_pipeline_id,
                         material_bind_group_index: None,
                         lightmap_slab: None,
-                        vertex_slab: default(),
-                        index_slab: None,
+                        slabs: default(),
                     },
                     Opaque3dBinKey {
                         asset_id: AssetId::<Mesh>::invalid().untyped(),
@@ -525,7 +508,6 @@ pub(in crate::chunk) fn queue_chunks(
                     (render_entity, main_entity),
                     InputUniformIndex::default(),
                     BinnedRenderPhaseType::NonMesh,
-                    *next_tick,
                 );
             }
         }
@@ -574,7 +556,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
     let record_draw = draw_functions.id::<DrawTransparentLiquidDirectCommands>();
     let mixed_draw = draw_functions.id::<DrawMixedTerrainCommands>();
-    for (view_entity, main_entity, view, visible_entities, msaa, enhanced) in &views {
+    for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
+        &views
+    {
         if runtime.view_entity != Some(view_entity) {
             continue;
         }
@@ -583,7 +567,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         };
         let key = ChunkPipelineKey {
             msaa: *msaa,
-            hdr: view.hdr,
+            hdr: extracted_camera.hdr,
             enhanced: enhanced.is_some(),
         };
         let rangefinder = view.rangefinder3d();
@@ -595,7 +579,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         };
         let mut models = BTreeMap::new();
         let mut water = Vec::new();
-        for &(entity, main) in visible_entities.get::<ChunkRenderInstance>() {
+        for (entity, main) in visible_entities
+            .get::<ChunkRenderInstance>()
+            .into_iter()
+            .flat_map(|class| class.iter_visible())
+            .map(|(entity, main)| (*entity, *main))
+        {
             let Ok(allocation) = allocations.get(entity) else {
                 continue;
             };
@@ -652,15 +641,20 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 });
             let Some((committed, group)) = sorted else {
                 unsorted.count += usize::from(!direct);
-                phase.add(Transparent3d {
-                    entity: (entity, main),
-                    pipeline: pipeline_id,
-                    draw_function: record_draw,
-                    distance: transparent_liquid_phase_distance(&rangefinder, water_key),
-                    batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::None,
-                    indexed: true,
-                });
+                crate::transparent_phase::add(
+                    phase,
+                    Transparent3d {
+                        sorting_info:
+                            bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                        entity: (entity, main),
+                        pipeline: pipeline_id,
+                        draw_function: record_draw,
+                        distance: transparent_liquid_phase_distance(&rangefinder, water_key),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::None,
+                        indexed: true,
+                    },
+                );
                 continue;
             };
             // Native deferred water uses layer 2, not ordinary blend layer 3.
@@ -682,46 +676,61 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 )
             {
                 merged.insert(entity);
-                phase.add(Transparent3d {
-                    entity: (entity, main),
+                crate::transparent_phase::add(
+                    phase,
+                    Transparent3d {
+                        sorting_info:
+                            bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                        entity: (entity, main),
+                        pipeline: pipeline_id,
+                        draw_function: mixed_draw,
+                        distance: transparent_model_phase_distance(&rangefinder, group.key),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                            range: index..index + 1,
+                            batch_set_index: None,
+                        },
+                        indexed: true,
+                    },
+                );
+                continue;
+            }
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
                     pipeline: pipeline_id,
-                    draw_function: mixed_draw,
-                    distance: transparent_model_phase_distance(&rangefinder, group.key),
+                    draw_function: direct_draw,
+                    distance: transparent_liquid_phase_distance(&rangefinder, group.key),
                     batch_range: 0..1,
                     extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                        range: index..index + 1,
+                        range: group.ref_range.clone(),
                         batch_set_index: None,
                     },
                     indexed: true,
-                });
-                continue;
-            }
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function: direct_draw,
-                distance: transparent_liquid_phase_distance(&rangefinder, group.key),
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                    range: group.ref_range.clone(),
-                    batch_set_index: None,
                 },
-                indexed: true,
-            });
+            );
         }
         for (&model_key, &(entity, main)) in &models {
             if merged.contains(&entity) {
                 continue;
             }
-            phase.add(Transparent3d {
-                entity: (entity, main),
-                pipeline: pipeline_id,
-                draw_function: transparent_model_draw,
-                distance: transparent_model_phase_distance(&rangefinder, model_key),
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: true,
-            });
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (entity, main),
+                    pipeline: pipeline_id,
+                    draw_function: transparent_model_draw,
+                    distance: transparent_model_phase_distance(&rangefinder, model_key),
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true,
+                },
+            );
         }
     }
     mixed.finish_frame();

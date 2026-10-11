@@ -4,7 +4,7 @@ use bevy::render::texture::CachedTexture;
 /// Requests the format capabilities used by the live renderer without opening a window.
 pub(crate) fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -49,7 +49,7 @@ pub(crate) fn texture(
 pub(crate) fn pixel(
     device: &RenderDevice,
     queue: &wgpu::Queue,
-    mut context: RenderContext,
+    mut commands: Vec<wgpu::CommandBuffer>,
     texture: &Texture,
 ) -> [u8; 4] {
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -58,7 +58,8 @@ pub(crate) fn pixel(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    context.command_encoder().copy_texture_to_buffer(
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             aspect: if texture.format().is_depth_stencil_format() {
                 wgpu::TextureAspect::DepthOnly
@@ -81,7 +82,8 @@ pub(crate) fn pixel(
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(context.finish().0);
+    commands.push(encoder.finish());
+    queue.submit(commands);
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
@@ -126,8 +128,8 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
         primitive: Default::default(),
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: Default::default(),
             bias: Default::default(),
         }),
@@ -135,7 +137,7 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
             count: depth.texture.sample_count(),
             ..Default::default()
         },
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let mut pass = context
@@ -146,6 +148,7 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
             depth_stencil_attachment: Some(depth.get_attachment(wgpu::StoreOp::Store)),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     pass.set_pipeline(&pipeline);
     pass.draw(0..3, 0..1);
@@ -253,23 +256,27 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
         let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost);
         assert!(resolved.matches(&depth));
         for uncovered in [false, true] {
-            let mut context = RenderContext::new(device.clone(), None);
-            fill_depth(&mut context, &depth, uncovered);
-            resolved.draw(&mut context, &World::new(), None);
+            let (_, commands) =
+                crate::render_test_support::record(&mut World::new(), &device, |world, context| {
+                    fill_depth(context, &depth, uncovered);
+                    resolved.draw(context, world, None);
+                });
             let expected = if samples == 1 && uncovered {
                 0.0
             } else {
                 samples as f32 * 0.1
             };
             assert!(
-                (f32::from_le_bytes(pixel(&device, &queue, context, &resolved._texture))
+                (f32::from_le_bytes(pixel(&device, &queue, commands, &resolved._texture))
                     - expected)
                     .abs()
                     < 1e-6
             );
-            let mut context = RenderContext::new(device.clone(), None);
-            let pyramid = hiz_seed(&mut context, &depth);
-            let farthest = f32::from_le_bytes(pixel(&device, &queue, context, &pyramid));
+            let (pyramid, commands) =
+                crate::render_test_support::record(&mut World::new(), &device, |_, context| {
+                    hiz_seed(context, &depth)
+                });
+            let farthest = f32::from_le_bytes(pixel(&device, &queue, commands, &pyramid));
             assert!((farthest - if uncovered { 0.0 } else { 0.1 }).abs() < 1e-6);
         }
     }

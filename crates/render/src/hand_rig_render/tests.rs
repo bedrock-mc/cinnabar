@@ -46,12 +46,13 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.spawn((
         Msaa::Off,
+        crate::render_test_support::camera(false),
         ExtractedView {
             retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 64, 64),
             color_grading: default(),
             invert_culling: false,
@@ -240,13 +241,13 @@ fn pose_updates_reuse_their_buffers() {
         pin::pin,
         task::{Context, Poll, Waker},
     };
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(adapter)) =
@@ -413,9 +414,9 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
                     .unwrap()
                     .format,
                 if hdr {
-                    ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 } else {
-                    TextureFormat::bevy_default()
+                    crate::SCENE_COLOR_FORMAT
                 }
             );
         }

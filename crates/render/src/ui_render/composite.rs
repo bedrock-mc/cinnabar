@@ -8,12 +8,10 @@
 use super::*;
 use bevy::{
     camera::{CameraOutputMode, ClearColor, ClearColorConfig},
-    core_pipeline::{core_3d::graph::Node3d, upscaling::UpscalingNode},
-    ecs::query::QueryItem,
+    core_pipeline::{Core3d, Core3dSystems, upscaling::upscaling},
     math::UVec2,
     render::{
         camera::ExtractedCamera,
-        render_graph::{NodeRunError, RenderGraph, RenderGraphContext, ViewNode, ViewNodeRunner},
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayout, Extent3d, LoadOp, Operations,
             RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Texture, TextureDescriptor,
@@ -52,8 +50,10 @@ pub(crate) struct UiLayerTexture {
     pub(crate) view: TextureView,
     /// The drawn content and whether it encoded any batch.
     held: Arc<Mutex<Option<HeldLayer>>>,
-    /// Set when the frame's final layer is left for [`UiPresentNode`] to composite.
+    /// Set when the frame's final layer is left for [`ui_present`] to composite.
     present: AtomicBool,
+    /// Whether this frame already wrote the final camera output.
+    presented: AtomicBool,
     /// The sole writer of its output with no blend, so the composite can replace the blit.
     direct_output: bool,
 }
@@ -115,6 +115,7 @@ impl UiLayerTexture {
             view,
             held: Arc::default(),
             present: AtomicBool::new(false),
+            presented: AtomicBool::new(false),
             direct_output: false,
         }
     }
@@ -167,7 +168,7 @@ pub(crate) struct UiLayerStore {
     views: HashMap<Entity, RetainedLayer>,
 }
 
-/// Present when [`UiPresentNode`] replaced the output blit, so the final composite may wait for it.
+/// Present when [`ui_present`] replaced the output blit, so the final composite may wait for it.
 #[derive(Resource)]
 pub(crate) struct UiPresentInstalled;
 
@@ -184,7 +185,9 @@ pub(crate) fn prepare_ui_layers(
     store.views.retain(|view, _| views.contains(*view));
     let mut writers = HashMap::<_, usize>::new();
     for (_, target, _) in &views {
-        *writers.entry(target.out_texture().id()).or_default() += 1;
+        if let Some(output) = target.out_texture() {
+            *writers.entry(output.id()).or_default() += 1;
+        }
     }
     for (entity, target, camera) in &views {
         let size = target.main_texture().size();
@@ -216,7 +219,11 @@ pub(crate) fn prepare_ui_layers(
             view: layer.view.clone(),
             held: Arc::clone(&layer.held),
             present: AtomicBool::new(false),
-            direct_output: unblended && writers[&target.out_texture().id()] == 1,
+            presented: AtomicBool::new(false),
+            direct_output: unblended
+                && target
+                    .out_texture()
+                    .is_some_and(|output| writers[&output.id()] == 1),
         });
     }
 }
@@ -297,7 +304,7 @@ impl FromWorld for UiCompositePipeline {
                 shader: UI_COMPOSITE_SHADER_HANDLE,
                 entry_point: Some("composite_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -331,9 +338,9 @@ impl UiCompositePipeline {
         output: Option<TextureFormat>,
     ) -> Option<CompositePipelines> {
         let format = if hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         let main = self.specialize(cache, UiCompositeKey { format })?;
         let output = output.and_then(|format| self.specialize(cache, UiCompositeKey { format }));
@@ -471,6 +478,7 @@ fn encode_composite(
             crate::RuntimeStage::GpuUiComposite,
         ),
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     if let Some(rect) = scissor {
         pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
@@ -480,91 +488,118 @@ fn encode_composite(
     pass.draw(0..3, 0..1);
 }
 
-/// Replaces the output blit: composites a deferred final layer straight into the
-/// camera output, or falls back to compositing into the main texture and blitting.
-#[derive(Default)]
-pub(crate) struct UiPresentNode(UpscalingNode);
-
-impl ViewNode for UiPresentNode {
-    type ViewQuery = (
-        <UpscalingNode as ViewNode>::ViewQuery,
-        Option<&'static UiLayerTexture>,
-    );
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        (blit, layer): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let (target, _, camera) = blit;
-        let pending = layer.filter(|layer| layer.present.load(Ordering::Relaxed));
-        let pipelines = world
-            .get_resource::<UiGpu>()
-            .and_then(|gpu| gpu.composite_pipelines.get(&graph.view_entity()).copied());
-        let (Some(layer), Some(pipelines), Some(cache), Some(composite_pipeline)) = (
-            pending,
-            pipelines,
-            world.get_resource::<PipelineCache>(),
-            world.get_resource::<UiCompositePipeline>(),
-        ) else {
-            return self.0.run(graph, context, blit, world);
+/// Composites the deferred HUD directly into the camera output when its pipeline is ready.
+pub(crate) fn ui_present(
+    world: &World,
+    view: bevy::render::renderer::ViewQuery<(
+        &ViewTarget,
+        &bevy::core_pipeline::upscaling::ViewUpscalingPipeline,
+        Option<&ExtractedCamera>,
+        Option<&UiLayerTexture>,
+    )>,
+    mut context: RenderContext,
+) {
+    let entity = view.entity();
+    let (target, _, camera, layer) = view.into_inner();
+    let Some(layer) = layer else {
+        return;
+    };
+    layer.presented.store(false, Ordering::Relaxed);
+    if !layer.present.load(Ordering::Relaxed) {
+        return;
+    }
+    let pipelines = world
+        .get_resource::<UiGpu>()
+        .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied());
+    let (Some(pipelines), Some(cache), Some(composite_pipeline)) = (
+        pipelines,
+        world.get_resource::<PipelineCache>(),
+        world.get_resource::<UiCompositePipeline>(),
+    ) else {
+        return;
+    };
+    let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
+    if layer.direct_output
+        && let Some(pipeline) = pipelines
+            .output
+            .and_then(|id| cache.get_render_pipeline(id))
+    {
+        let clear = match camera.map(|camera| &camera.output_mode) {
+            Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
+            _ => ClearColorConfig::Default,
         };
-        let layout = cache.get_bind_group_layout(&composite_pipeline.layout);
-        if layer.direct_output
-            && let Some(pipeline) = pipelines
-                .output
-                .and_then(|id| cache.get_render_pipeline(id))
-        {
-            let clear = match camera.map(|camera| &camera.output_mode) {
-                Some(CameraOutputMode::Write { clear_color, .. }) => *clear_color,
-                _ => ClearColorConfig::Default,
-            };
-            let clear = match clear {
-                ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
-                ClearColorConfig::Custom(color) => Some(color.into()),
-                ClearColorConfig::None => None,
-            };
-            let scissor = camera
-                .and_then(|camera| camera.viewport.as_ref())
-                .map(|viewport| (viewport.physical_position, viewport.physical_size));
-            encode_composite(
-                context,
-                world,
-                [&layer.view, target.main_texture_view()],
-                target.out_texture_color_attachment(clear),
-                scissor,
-                pipeline,
-                &layout,
-            );
-            return Ok(());
-        }
-        if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-            composite(context, world, target, &layer.view, pipeline, &layout);
-        }
-        self.0.run(graph, context, blit, world)
+        let clear = match clear {
+            ClearColorConfig::Default => Some(world.resource::<ClearColor>().0.into()),
+            ClearColorConfig::Custom(color) => Some(color.into()),
+            ClearColorConfig::None => None,
+        };
+        let Some(attachment) = target.out_texture_color_attachment(clear) else {
+            return;
+        };
+        let scissor = camera
+            .and_then(|camera| camera.viewport.as_ref())
+            .map(|viewport| (viewport.physical_position, viewport.physical_size));
+        encode_composite(
+            &mut context,
+            world,
+            [&layer.view, target.main_texture_view()],
+            attachment,
+            scissor,
+            pipeline,
+            &layout,
+        );
+        layer.presented.store(true, Ordering::Relaxed);
+        return;
+    }
+    if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
+        composite(&mut context, world, target, &layer.view, pipeline, &layout);
     }
 }
 
-/// Swaps the output blit for [`UiPresentNode`], keeping every installed edge.
+/// Runs Bevy's output blit unless the HUD composite already wrote the final image.
+fn needs_output_blit(view: bevy::render::renderer::ViewQuery<Option<&UiLayerTexture>>) -> bool {
+    !view
+        .into_inner()
+        .is_some_and(|layer| layer.presented.load(Ordering::Relaxed))
+}
+
+/// Presents the HUD after post-processing, then blits only if direct output was unavailable.
 pub(crate) fn install_present_node(world: &mut World) {
     if world.contains_resource::<UiPresentInstalled>() {
         return;
     }
-    let runner = ViewNodeRunner::new(UiPresentNode::default(), world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(bevy::core_pipeline::core_3d::graph::Core3d) else {
-        return;
-    };
-    let Ok(node) = graph.get_node_state_mut(Node3d::Upscaling) else {
-        return;
-    };
-    node.node = Box::new(runner);
-    node.type_name = std::any::type_name::<ViewNodeRunner<UiPresentNode>>();
-    world.insert_resource(UiPresentInstalled);
+    let installed = world
+        .try_schedule_scope(Core3d, |world, schedule| {
+            schedule
+                .remove_systems_in_set(
+                    upscaling,
+                    world,
+                    bevy::ecs::schedule::ScheduleCleanupPolicy::RemoveSystemsOnly,
+                )
+                .expect("replace the output blit");
+            schedule.add_systems((
+                crate::gpu_timing::profiled(
+                    ui_present,
+                    (!cfg!(target_os = "macos")).then_some(crate::RuntimeStage::GpuBlit),
+                    "UiPresent",
+                )
+                .after(Core3dSystems::PostProcess)
+                .after(super::overlay::UiOverlayLabel)
+                .after(super::overlay::UiOverlayPostLabel),
+                crate::gpu_timing::profiled(
+                    upscaling,
+                    (!cfg!(target_os = "macos")).then_some(crate::RuntimeStage::GpuBlit),
+                    "Upscaling",
+                )
+                .after(ui_present)
+                .after(Core3dSystems::PostProcess)
+                .run_if(needs_output_blit),
+            ));
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(UiPresentInstalled);
+    }
 }
 
 #[cfg(test)]

@@ -11,13 +11,13 @@ use std::{
 };
 
 fn noop_world() -> World {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(adapter)) =
@@ -92,7 +92,7 @@ fn the_instance_buffer_grows_to_fit_and_an_empty_frame_draws_nothing() {
 #[test]
 fn pipeline_multiplies_colour_once_per_sample_and_keeps_alpha() {
     let gpu = EntityShadowGpu::new(&noop_world().resource::<RenderDevice>().clone());
-    for format in [TextureFormat::Rgba8Unorm, ViewTarget::TEXTURE_FORMAT_HDR] {
+    for format in [TextureFormat::Rgba8Unorm, crate::SCENE_HDR_FORMAT] {
         for samples in [1, 2, 4, 8] {
             let descriptor = pipeline_descriptor(
                 gpu.layouts[usize::from(samples > 1)].clone(),

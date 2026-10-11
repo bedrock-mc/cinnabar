@@ -21,7 +21,7 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .expect("this fixture requires a native GPU adapter");
     assert_ne!(
@@ -78,7 +78,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let words: [u32; 18] = [
@@ -158,6 +158,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);

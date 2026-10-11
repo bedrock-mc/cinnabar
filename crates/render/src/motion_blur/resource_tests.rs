@@ -1,17 +1,17 @@
 //! Deterministic resource and allocation contracts for the optional exposure pass.
 
 use super::{CameraMotionBlur, pipeline::BlurPipeline, prepare::BlurView};
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::{
     camera::{
         CameraMainTextureUsages, CameraOutputMode, ClearColorConfig, MsaaWriteback,
         NormalizedRenderTarget, RenderTarget,
     },
-    core_pipeline::core_3d::graph::Core3d,
+    core_pipeline::Core3d,
     ecs::system::RunSystemOnce,
     prelude::*,
     render::{
         camera::ExtractedCamera,
-        render_graph::RenderSubGraph,
         render_resource::*,
         renderer::RenderDevice,
         texture::{CachedTexture, OutputColorAttachment, TextureCache},
@@ -70,7 +70,7 @@ pub(super) fn fixture() -> (App, Entity) {
             physical_viewport_size: Some(UVec2::ONE),
             physical_target_size: Some(UVec2::ONE),
             viewport: None,
-            render_graph: Core3d.intern(),
+            schedule: Core3d.intern(),
             order: 0,
             output_mode: CameraOutputMode::default(),
             msaa_writeback: MsaaWriteback::default(),
@@ -78,6 +78,7 @@ pub(super) fn fixture() -> (App, Entity) {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
+            compositing_space: None,
         },
         ViewDepthTexture::new(
             CachedTexture {
@@ -184,10 +185,7 @@ fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
     world.run_system_once(super::pipeline::init).unwrap();
     world.resource_scope(|world, cache: Mut<PipelineCache>| {
         let mut pipeline = world.resource_mut::<BlurPipeline>();
-        for format in [
-            TextureFormat::bevy_default(),
-            ViewTarget::TEXTURE_FORMAT_HDR,
-        ] {
+        for format in [crate::SCENE_COLOR_FORMAT, crate::SCENE_HDR_FORMAT] {
             for samples in [1, 2, 4, 8] {
                 let original = pipeline.specialize(&cache, format, samples);
                 let allocated = crate::alloc_count::thread_allocations();
@@ -225,9 +223,9 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                     .unwrap();
                 assert_eq!(warmed.len(), 1);
                 let format = if hdr {
-                    ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 } else {
-                    TextureFormat::bevy_default()
+                    crate::SCENE_COLOR_FORMAT
                 };
                 assert_eq!(
                     warmed[0],

@@ -92,7 +92,7 @@ fn probe_surface_present_modes(
             return;
         }
         let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
-            raw_display_handle: window.handle.get_display_handle(),
+            raw_display_handle: Some(window.handle.get_display_handle()),
             raw_window_handle: window.handle.get_window_handle(),
         };
         #[cfg(feature = "tracy")]

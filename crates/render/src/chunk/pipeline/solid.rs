@@ -209,7 +209,7 @@ mod tests {
             clip_from_view,
             world_from_view: GlobalTransform::from(world_from_view),
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,

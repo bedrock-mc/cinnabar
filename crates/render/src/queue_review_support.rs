@@ -25,13 +25,13 @@ pub(crate) fn queued_descriptor(
 
 /// Creates a render view with an empty transparent phase and a real pipeline cache.
 pub(crate) fn app() -> (App, RetainedViewEntity) {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -57,12 +57,13 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
     app.world_mut().entity_mut(view).insert((
         MainEntity::from(view),
         Msaa::Sample4,
+        crate::render_test_support::camera(false),
         ExtractedView {
             retained_view_entity: retained,
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,
@@ -70,22 +71,24 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
     ));
     app.world_mut()
         .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
-        .insert_or_clear(retained);
+        .prepare_for_new_frame(retained);
     (app, retained)
 }
 
 /// Returns the queued items for the fixture's sole view.
-pub(crate) fn items(app: &App, view: RetainedViewEntity) -> &[Transparent3d] {
-    &app.world()
+pub(crate) fn items(app: &App, view: RetainedViewEntity) -> Vec<&Transparent3d> {
+    app.world()
         .resource::<ViewSortedRenderPhases<Transparent3d>>()
         .get(&view)
         .unwrap()
         .items
+        .values()
+        .collect()
 }
 
 /// Clears only phase items, retaining the same view across a frame transition.
 pub(crate) fn clear(app: &mut App, view: RetainedViewEntity) {
     app.world_mut()
         .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
-        .insert_or_clear(view);
+        .prepare_for_new_frame(view);
 }

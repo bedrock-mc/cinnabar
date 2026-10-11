@@ -82,7 +82,7 @@ fn pipeline(
             depth_stencil: descriptor.depth_stencil.clone(),
             primitive: Default::default(),
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
 }
@@ -139,8 +139,8 @@ impl Raster {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bindings],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bindings)],
+                immediate_size: 0,
             });
         let source = super::super::super::shader::source(include_str!("../../ui.wgsl"));
         let clear_shader = gpu

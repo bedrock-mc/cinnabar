@@ -1,9 +1,10 @@
 use super::*;
+use bevy::ecs::schedule::ScheduleLabel;
 
-/// Requests a headless adapter and initializes the task pool used by RenderContext::finish.
+/// Requests a headless adapter and initializes the render task pool.
 fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -123,7 +124,7 @@ fn pipeline(
                 count: samples,
                 ..Default::default()
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
 }
@@ -132,7 +133,7 @@ fn pipeline(
 fn read_pixel(
     device: &RenderDevice,
     queue: &wgpu::Queue,
-    mut context: RenderContext,
+    mut context: wgpu::CommandEncoder,
     texture: &Texture,
 ) -> [u8; 4] {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -141,7 +142,7 @@ fn read_pixel(
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    context.command_encoder().copy_texture_to_buffer(
+    context.copy_texture_to_buffer(
         texture.as_image_copy(),
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
@@ -153,7 +154,7 @@ fn read_pixel(
         },
         size(),
     );
-    queue.submit(context.finish().0);
+    queue.submit([context.finish()]);
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
@@ -162,7 +163,11 @@ fn read_pixel(
 }
 
 /// Deliberately flattens the opaque samples so the differential fixture can detect lost coverage.
-fn reconstruct_coverage(device: &RenderDevice, context: &mut RenderContext, scene: &SceneTarget) {
+fn reconstruct_coverage(
+    device: &RenderDevice,
+    context: &mut wgpu::CommandEncoder,
+    scene: &SceneTarget,
+) {
     let format = TextureFormat::Rgba8UnormSrgb;
     let resolved = device.create_texture(&TextureDescriptor {
         label: Some("coverage reconstruction control"),
@@ -177,15 +182,14 @@ fn reconstruct_coverage(device: &RenderDevice, context: &mut RenderContext, scen
     let view = resolved.create_view(&default());
     {
         let attachments = [Some(scene.resolve_attachment(&view, StoreOp::Store))];
-        context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("coverage reconstruction control resolve"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        context.begin_render_pass(&RenderPassDescriptor {
+            label: Some("coverage reconstruction control resolve"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
     }
     let gpu = device.wgpu_device();
     let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -220,15 +224,14 @@ fn reconstruct_coverage(device: &RenderDevice, context: &mut RenderContext, scen
         }],
     });
     let attachments = [Some(scene.attachment(false, LoadOp::Load, None))];
-    let mut pass = context
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("coverage reconstruction control draw"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+    let mut pass = context.begin_render_pass(&RenderPassDescriptor {
+        label: Some("coverage reconstruction control draw"),
+        color_attachments: &attachments,
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
     pass.set_pipeline(&pipeline);
     pass.set_bind_group(0, &binding, &[]);
     pass.draw(0..3, 0..1);
@@ -273,7 +276,7 @@ struct Hand { @location(0) colour: vec4f, @builtin(sample_mask) coverage: u32 }
         Some(wgpu::BlendState::ALPHA_BLENDING),
     );
     let hand = pipeline(device, &shader, format, samples, "hand", None);
-    let mut context = RenderContext::new(device.clone(), None);
+    let mut context = device.create_command_encoder(&Default::default());
     for (index, (encoded, pipeline)) in [(false, &opaque), (true, &transparent), (false, &hand)]
         .into_iter()
         .enumerate()
@@ -282,15 +285,14 @@ struct Hand { @location(0) colour: vec4f, @builtin(sample_mask) coverage: u32 }
             reconstruct_coverage(device, &mut context, &scene);
         }
         let attachments = [Some(scene.attachment(encoded, LoadOp::Load, None))];
-        let mut pass = context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("shared scene fixture geometry"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        let mut pass = context.begin_render_pass(&RenderPassDescriptor {
+            label: Some("shared scene fixture geometry"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
         pass.set_pipeline(pipeline);
         pass.draw(0..3, 0..1);
     }
@@ -298,15 +300,14 @@ struct Hand { @location(0) colour: vec4f, @builtin(sample_mask) coverage: u32 }
         let attachments = [Some(
             scene.resolve_attachment(resolved.color_view(false), StoreOp::Discard),
         )];
-        context
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("shared scene fixture final resolve"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        context.begin_render_pass(&RenderPassDescriptor {
+            label: Some("shared scene fixture final resolve"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
         &resolved.texture
     } else {
         &scene.texture
@@ -368,42 +369,11 @@ fn coverage_fixture_detects_resolved_colour_reconstruction() {
 }
 
 #[test]
-fn main_attachment_nodes_preserve_graph_dependencies() {
-    use bevy::render::render_graph::EmptyNode;
-    let mut world = World::new();
-    let mut core = RenderGraph::default();
-    for label in [
-        Node3d::MainOpaquePass,
-        Node3d::MainTransmissivePass,
-        Node3d::MainTransparentPass,
-        Node3d::EndMainPass,
-    ] {
-        core.add_node(label, EmptyNode);
-    }
-    core.add_node_edges((
-        Node3d::MainOpaquePass,
-        Node3d::MainTransmissivePass,
-        Node3d::MainTransparentPass,
-        Node3d::EndMainPass,
-    ));
-    let mut graph = RenderGraph::default();
-    graph.add_sub_graph(Core3d, core);
-    world.insert_resource(graph);
+fn an_unprepared_view_submits_no_scene_work_after_repeated_installation() {
+    let mut world = crate::render_test_support::empty_render_world();
     install_graph(&mut world);
-    let graph = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    let opaque = graph.get_node_state(Node3d::MainOpaquePass).unwrap();
-    assert!(
-        opaque
-            .node::<ViewNodeRunner<nodes::SceneOpaquePass>>()
-            .is_ok()
-    );
-    assert_eq!(opaque.edges.output_edges().len(), 1);
-    let finish = graph.get_node_state(Node3d::EndMainPass).unwrap();
-    assert!(finish.node::<ViewNodeRunner<nodes::SceneFinish>>().is_ok());
-    assert_eq!(finish.edges.input_edges().len(), 1);
+    install_graph(&mut world);
+    crate::render_test_support::assert_empty_render(&mut world);
 }
 
 /// An MSAA view keeps exactly one multisampled colour texture: the shared scene attachment.
@@ -415,20 +385,19 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
         },
         render::{
             camera::ExtractedCamera,
-            render_graph::RenderSubGraph,
             texture::{OutputColorAttachment, TextureCache},
             view::{
                 ExtractedView, RetainedViewEntity, ViewTargetAttachments, prepare_view_targets,
             },
         },
     };
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
@@ -459,6 +428,7 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
     world.insert_resource(TextureCache::default());
     world.insert_resource(ClearColor::default());
     world.init_resource::<WithheldSamples>();
+    world.init_resource::<CameraMainPassTextureFormats>();
     let view = world
         .spawn((
             Camera3d::default(),
@@ -467,7 +437,7 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
                 physical_viewport_size: Some(UVec2::new(size().width, size().height)),
                 physical_target_size: Some(UVec2::new(size().width, size().height)),
                 viewport: None,
-                render_graph: Core3d.intern(),
+                schedule: Core3d.intern(),
                 order: 0,
                 output_mode: CameraOutputMode::default(),
                 msaa_writeback: MsaaWriteback::default(),
@@ -475,13 +445,14 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
                 sorted_camera_index_for_target: 0,
                 exposure: 1.0,
                 hdr: false,
+                compositing_space: None,
             },
             ExtractedView {
                 retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 1),
                 clip_from_view: Mat4::IDENTITY,
                 world_from_view: GlobalTransform::default(),
                 clip_from_world: None,
-                hdr: false,
+                target_format: output.format(),
                 viewport: UVec4::new(0, 0, size().width, size().height),
                 color_grading: Default::default(),
                 invert_culling: false,
@@ -492,11 +463,21 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
         .id();
     let mut schedule = Render::base_schedule();
     schedule.add_systems((
-        prepare_view_targets.in_set(RenderSystems::ManageViews),
+        prepare_view_targets.in_set(RenderSystems::PrepareViews),
         render_systems(),
     ));
     schedule.run(world);
     let view = world.entity(view);
+    assert_eq!(
+        view.get::<ViewTarget>().unwrap().main_texture_format(),
+        crate::SCENE_COLOR_FORMAT
+    );
+    assert_eq!(
+        world
+            .resource::<CameraMainPassTextureFormats>()
+            .get(&view.id()),
+        Some(&crate::SCENE_COLOR_FORMAT)
+    );
     assert_eq!(view.get::<Msaa>(), Some(&Msaa::Sample4));
     assert!(
         view.get::<ViewTarget>()
@@ -536,4 +517,13 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
             layer.texture.size()
         );
     }
+    world.get_mut::<ExtractedCamera>(owner).unwrap().hdr = true;
+    schedule.run(world);
+    assert_eq!(
+        world
+            .get::<ViewTarget>(owner)
+            .unwrap()
+            .main_texture_format(),
+        crate::SCENE_HDR_FORMAT
+    );
 }

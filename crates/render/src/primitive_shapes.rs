@@ -56,6 +56,7 @@ impl Plugin for PrimitiveShapesRenderPlugin {
         let Some(render) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        crate::transparent_phase::install(render);
         render.init_resource::<pipeline::ShapePipeline>()
             .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::DrawShapes>()
             .add_systems(RenderStartup, gpu::init)

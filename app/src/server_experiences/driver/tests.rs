@@ -269,7 +269,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
         .unwrap()
         .initialize(app.world_mut());
     app.world_mut().insert_resource(schedules);
-    assert!(result.is_ok(), "experience schedule: {result:?}");
+    assert!(result.is_ok(), "experience schedule: {:?}", result.err());
 }
 
 #[test]

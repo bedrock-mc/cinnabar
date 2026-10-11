@@ -103,7 +103,7 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         assets::BlockFace::ALL.len() * 6,
         expected_vertices
     );
-    gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let validation_scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = gpu
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -120,7 +120,7 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
             compilation_options: Default::default(),
             cache: None,
         });
-    let validation = gpu.device.pop_error_scope();
+    let validation = validation_scope.pop();
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();

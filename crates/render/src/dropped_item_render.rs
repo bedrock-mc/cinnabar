@@ -4,21 +4,19 @@ use crate::dropped_item::{
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
     block_mesh, cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
 };
-use bevy::image::BevyDefault;
 #[cfg(test)]
-use bevy::prelude::{Camera, Camera3d, Image, IntoSystem, MinimalPlugins, System, Transform, Vec3};
+use bevy::prelude::{IntoSystem, System};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::VertexBufferLayout,
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
-        Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -42,7 +40,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 use std::ops::Range;
@@ -152,7 +150,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..default()
         }),
         environment: device.create_buffer(&BufferDescriptor {
@@ -559,7 +557,7 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
             shader: ITEM_SHADER_HANDLE,
             entry_point: Some("item_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: crate::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -567,8 +565,8 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
         }),
         depth_stencil: Some(DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(CompareFunction::GreaterEqual),
             stencil: default(),
             bias: default(),
         }),
@@ -596,9 +594,9 @@ impl Specializer<RenderPipeline> for ItemPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -667,12 +665,13 @@ struct QueueItemParams<'w, 's> {
             Entity,
             &'static MainEntity,
             &'static ExtractedView,
+            &'static bevy::render::camera::ExtractedCamera,
             &'static Msaa,
         ),
     >,
 }
 
-fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) {
+fn queue_items(mut params: QueueItemParams<'_, '_>) {
     if params.scene.instances.is_empty()
         && params.scene.dynamic.is_empty()
         && !params
@@ -684,7 +683,7 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
         return;
     }
     let draw_function = params.draw_functions.read().id::<DrawItemCommands>();
-    for (view_entity, main_entity, view, msaa) in &params.views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &params.views {
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -692,21 +691,19 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
             &params.pipeline_cache,
             ItemPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
             },
         ) else {
             continue;
         };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
+
         phase.add(
             Opaque3dBatchSetKey {
                 draw_function,
                 pipeline: pipeline_id,
                 material_bind_group_index: None,
                 lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
+                slabs: default(),
             },
             Opaque3dBinKey {
                 asset_id: AssetId::<Shader>::invalid().untyped(),
@@ -714,7 +711,6 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
             (view_entity, *main_entity),
             InputUniformIndex::default(),
             BinnedRenderPhaseType::NonMesh,
-            *next_tick,
         );
     }
 }

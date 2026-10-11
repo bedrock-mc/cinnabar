@@ -21,8 +21,8 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
                 assert_eq!(descriptor.multisample.count, msaa.samples());
                 let depth = descriptor.depth_stencil.as_ref().unwrap();
                 assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-                assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
-                assert!(!depth.depth_write_enabled);
+                assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
+                assert_eq!(depth.depth_write_enabled, Some(false));
                 let colour = descriptor.fragment.as_ref().unwrap().targets[0]
                     .as_ref()
                     .unwrap();
@@ -34,9 +34,9 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
                 assert_eq!(
                     colour.format,
                     if hdr {
-                        ViewTarget::TEXTURE_FORMAT_HDR
+                        crate::SCENE_HDR_FORMAT
                     } else {
-                        TextureFormat::bevy_default()
+                        crate::SCENE_COLOR_FORMAT
                     }
                 );
             }

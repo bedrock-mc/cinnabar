@@ -267,7 +267,7 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
                 crate::begin_stage_span::<SURFACE>.before(prepare_windows),
                 crate::end_stage_span::<SURFACE>.after(prepare_windows),
             )
-                .in_set(RenderSystems::ManageViews),
+                .in_set(RenderSystems::PrepareViews),
         )
         // Spans all render-world work; the acquisition wait is subtracted at the end.
         .add_systems(

@@ -69,7 +69,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
             label: Some("first-person rig binary-alpha nearest"),
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
             ..default()
@@ -109,7 +109,11 @@ pub(super) fn prepare(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     mut gpu: ResMut<HandRigGpu>,
-    views: Query<(&ExtractedView, &Msaa)>,
+    views: Query<(
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if background.is_some_and(|background| !background.game_visible()) {
         deactivate(&mut gpu);
@@ -122,7 +126,7 @@ pub(super) fn prepare(
     // The near-camera pass targets the widest 3d view (the main camera).
     let Some((viewport, samples, hdr)) = views
         .iter()
-        .map(|(view, msaa)| (view.viewport, msaa.samples(), view.hdr))
+        .map(|(view, camera, msaa)| (view.viewport, msaa.samples(), camera.hdr))
         .filter(|(viewport, _, _)| viewport.z != 0 && viewport.w != 0)
         .max_by_key(|(viewport, _, _)| u64::from(viewport.z) * u64::from(viewport.w))
     else {
@@ -584,9 +588,9 @@ pub(super) fn specialized_pipeline(
         .as_mut()
         .unwrap()
         .format = if hdr {
-        ViewTarget::TEXTURE_FORMAT_HDR
+        crate::SCENE_HDR_FORMAT
     } else {
-        TextureFormat::bevy_default()
+        crate::SCENE_COLOR_FORMAT
     };
     descriptor
 }
@@ -606,7 +610,7 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
             shader: HAND_RIG_SHADER,
             entry_point: Some("hand_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: crate::SCENE_COLOR_FORMAT,
                 blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],
@@ -614,8 +618,8 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
         }),
         depth_stencil: Some(DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(CompareFunction::GreaterEqual),
             stencil: default(),
             bias: default(),
         }),

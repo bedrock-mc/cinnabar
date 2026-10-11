@@ -105,7 +105,7 @@ fn terrain_unorm_views_filter_both_pages_layers_and_frame_mix() {
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Nearest,
         min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     });
     let native_sampler = gpu
@@ -279,7 +279,7 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Nearest,
         min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..Default::default()
     });
     let native_sampler = gpu

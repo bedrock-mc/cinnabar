@@ -85,6 +85,7 @@ impl Raster {
                 ),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             if initial
                 && let Some(rect) = damage.and_then(|rect| {
@@ -440,7 +441,7 @@ fn oversized_layout_on_small_targets_emits_valid_scissors() {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        raster
+        let validation_scope = raster
             .gpu
             .device
             .push_error_scope(wgpu::ErrorFilter::Validation);
@@ -450,7 +451,7 @@ fn oversized_layout_on_small_targets_emits_valid_scissors() {
             .device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
-        let error = bevy::tasks::block_on(raster.gpu.device.pop_error_scope());
+        let error = bevy::tasks::block_on(validation_scope.pop());
         assert!(error.is_none(), "{width}x{height}: {error:?}");
         if width > 1 {
             assert!(

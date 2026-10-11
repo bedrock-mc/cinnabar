@@ -22,11 +22,11 @@ use bevy::{
             BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, FragmentState, PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
-            TextureFormat, Variants, VertexState,
+            Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 use mod_render::geometry::ModVertex;
@@ -45,6 +45,7 @@ pub(super) fn install(app: &mut App) {
         "primitives.wgsl",
         crate::shader_safety::from_wgsl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<PrimitivePipeline>()
         .add_render_command::<Transparent3d, DrawPrimitiveCommands>()
@@ -296,7 +297,7 @@ impl FromWorld for PrimitivePipeline {
                 shader: PRIMITIVE_SHADER,
                 entry_point: Some("mod_primitive_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -304,8 +305,8 @@ impl FromWorld for PrimitivePipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -339,18 +340,18 @@ impl Specializer<RenderPipeline> for PrimitiveSpecializer {
         } else {
             "mod primitive pipeline".into()
         });
-        descriptor.depth_stencil.as_mut().unwrap().depth_compare = if key.through_world {
+        descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(if key.through_world {
             CompareFunction::Always
         } else {
             CompareFunction::GreaterEqual
-        };
+        });
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -411,14 +412,20 @@ pub(crate) fn queue(
     scene: Option<Res<ModRenderScene>>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     // Queue precedes upload, so this frame's scene decides; the draw reads the upload.
     let Some(scene) = scene else { return };
     let regular = scene.vertices.len() + scene.marker_vertices.len() > 0;
     let highlights = !scene.block_vertices.is_empty();
     let draw_functions = draw_functions.read();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -430,30 +437,35 @@ pub(crate) fn queue(
                 &cache,
                 PrimitiveKey {
                     msaa: *msaa,
-                    hdr: view.hdr,
+                    hdr: extracted_camera.hdr,
                     through_world,
                 },
             ) else {
                 continue;
             };
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function: if through_world {
-                    draw_functions.id::<DrawBlockHighlightCommands>()
-                } else {
-                    draw_functions.id::<DrawPrimitiveCommands>()
-                },
-                distance: PRIMITIVE_DISTANCE
-                    + if through_world {
-                        PRIMITIVE_DISTANCE * 0.1
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
+                    pipeline: pipeline_id,
+                    draw_function: if through_world {
+                        draw_functions.id::<DrawBlockHighlightCommands>()
                     } else {
-                        0.0
+                        draw_functions.id::<DrawPrimitiveCommands>()
                     },
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: false,
-            });
+                    distance: PRIMITIVE_DISTANCE
+                        + if through_world {
+                            PRIMITIVE_DISTANCE * 0.1
+                        } else {
+                            0.0
+                        },
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: false,
+                },
+            );
         }
     }
 }

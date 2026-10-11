@@ -615,10 +615,9 @@ pub(in crate::chunk) fn encode_model_template_words(assets: &RuntimeAssets) -> V
 pub(in crate::chunk) fn storage_table_fits(
     bytes: usize,
     max_buffer_size: u64,
-    max_binding_size: u32,
+    max_binding_size: u64,
 ) -> bool {
-    u64::try_from(bytes)
-        .is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= u64::from(max_binding_size))
+    u64::try_from(bytes).is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= max_binding_size)
 }
 
 /// Uploads validated mip bytes directly, without application-side row padding.

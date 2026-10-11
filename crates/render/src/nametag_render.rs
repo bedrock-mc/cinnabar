@@ -2,7 +2,6 @@
 //! a depth-tested pass, as vanilla's `name_tag` and `name_tag_depth_tested` materials do.
 use std::{ops::Range, sync::Arc};
 
-use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -35,7 +34,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -97,6 +96,7 @@ pub(crate) fn install_nametag_render(app: &mut App) {
         "nametag.wgsl",
         shader::from_wgsl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<NametagPipeline>()
         .add_render_command::<Transparent3d, DrawNametags>()
@@ -278,7 +278,7 @@ impl FromWorld for NametagPipeline {
                 shader: NAMETAG_SHADER_HANDLE,
                 entry_point: Some("nametag_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -286,8 +286,8 @@ impl FromWorld for NametagPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::Always,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Always),
                 stencil: default(),
                 bias: default(),
             }),
@@ -322,9 +322,9 @@ impl Specializer<RenderPipeline> for NametagPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         if key.gamma_blend {
             let fragment = descriptor.fragment.as_mut().unwrap();
@@ -333,13 +333,13 @@ impl Specializer<RenderPipeline> for NametagPipelineSpecializer {
             fragment.shader_defs.push("NAMETAG_GAMMA_BLEND".into());
         }
         // Reverse-Z: nearer fragments carry larger depth.
-        descriptor.depth_stencil.as_mut().unwrap().depth_compare = if key.depth_tested {
+        descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(if key.depth_tested {
             CompareFunction::GreaterEqual
         } else {
             CompareFunction::Always
-        };
+        });
         let depth = descriptor.depth_stencil.as_mut().unwrap();
-        depth.depth_write_enabled = key.text;
+        depth.depth_write_enabled = Some(key.text);
         depth.bias = DepthBiasState {
             constant: if key.text && key.depth_tested {
                 NAMETAG_TEXT_REVERSE_Z_BIAS
@@ -400,19 +400,23 @@ fn prepare_nametag_bind_group(
     gpu.view_buffer_id = Some(view_buffer.id());
 }
 
+/// Camera identity and settings used to queue ordered world text.
+type NametagQueueView = (
+    Entity,
+    &'static MainEntity,
+    &'static ExtractedView,
+    &'static bevy::render::camera::ExtractedCamera,
+    &'static Msaa,
+    Option<&'static crate::EnhancedRendering>,
+);
+
 fn queue_nametags(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<NametagPipeline>,
     gpu: Res<NametagGpu>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &Msaa,
-        Option<&crate::EnhancedRendering>,
-    )>,
+    views: Query<NametagQueueView>,
 ) {
     if gpu.total == 0 {
         return;
@@ -420,7 +424,7 @@ fn queue_nametags(
     let functions = draw_functions.read();
     // Preserve record order (plate then glyphs, ordinary then sneaking) after world alpha.
     // At this magnitude one float ULP is 64; 128 avoids losing the batch ordering.
-    for (view_entity, main_entity, view, msaa, enhanced) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -429,9 +433,9 @@ fn queue_nametags(
                 &pipeline_cache,
                 NametagPipelineKey {
                     msaa: *msaa,
-                    hdr: view.hdr,
+                    hdr: extracted_camera.hdr,
                     gamma_blend: crate::chunk::transparent::gamma_pass::admitted(
-                        view.hdr,
+                        extracted_camera.hdr,
                         *msaa,
                         enhanced.is_some(),
                     ),
@@ -441,16 +445,21 @@ fn queue_nametags(
             ) else {
                 continue;
             };
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function: functions.id::<DrawNametags>(),
-                distance: 1.0e9 + index as f32 * 128.0,
-                // One phase entry per material batch; its records live in NametagGpu.
-                batch_range: phase_batch_range(index),
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: false,
-            });
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
+                    pipeline: pipeline_id,
+                    draw_function: functions.id::<DrawNametags>(),
+                    distance: 1.0e9 + index as f32 * 128.0,
+                    // One phase entry per material batch; its records live in NametagGpu.
+                    batch_range: phase_batch_range(index),
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: false,
+                },
+            );
         }
     }
 }
@@ -630,7 +639,7 @@ mod tests {
                         let mut descriptor = RenderPipelineDescriptor {
                             fragment: Some(FragmentState {
                                 targets: vec![Some(ColorTargetState {
-                                    format: TextureFormat::bevy_default(),
+                                    format: crate::SCENE_COLOR_FORMAT,
                                     blend: Some(BlendState::ALPHA_BLENDING),
                                     write_mask: ColorWrites::ALL,
                                 })],
@@ -638,8 +647,8 @@ mod tests {
                             }),
                             depth_stencil: Some(DepthStencilState {
                                 format: CORE_3D_DEPTH_FORMAT,
-                                depth_write_enabled: false,
-                                depth_compare: CompareFunction::Always,
+                                depth_write_enabled: Some(false),
+                                depth_compare: Some(CompareFunction::Always),
                                 stencil: default(),
                                 bias: default(),
                             }),
@@ -660,9 +669,9 @@ mod tests {
                         let fragment = descriptor.fragment.unwrap();
                         let target = fragment.targets[0].as_ref().unwrap();
                         let base = if hdr {
-                            ViewTarget::TEXTURE_FORMAT_HDR
+                            crate::SCENE_HDR_FORMAT
                         } else {
-                            TextureFormat::bevy_default()
+                            crate::SCENE_COLOR_FORMAT
                         };
                         assert_eq!(
                             target.format,
@@ -691,7 +700,7 @@ mod tests {
                     let mut descriptor = RenderPipelineDescriptor {
                         fragment: Some(FragmentState {
                             targets: vec![Some(ColorTargetState {
-                                format: TextureFormat::bevy_default(),
+                                format: crate::SCENE_COLOR_FORMAT,
                                 blend: Some(BlendState::ALPHA_BLENDING),
                                 write_mask: ColorWrites::ALL,
                             })],
@@ -699,8 +708,8 @@ mod tests {
                         }),
                         depth_stencil: Some(DepthStencilState {
                             format: CORE_3D_DEPTH_FORMAT,
-                            depth_write_enabled: false,
-                            depth_compare: CompareFunction::Always,
+                            depth_write_enabled: Some(false),
+                            depth_compare: Some(CompareFunction::Always),
                             stencil: default(),
                             bias: default(),
                         }),
@@ -719,14 +728,14 @@ mod tests {
                         )
                         .unwrap();
                     let depth = descriptor.depth_stencil.unwrap();
-                    assert_eq!(depth.depth_write_enabled, text);
+                    assert_eq!(depth.depth_write_enabled, Some(text));
                     assert_eq!(
                         depth.depth_compare,
-                        if depth_tested {
+                        Some(if depth_tested {
                             CompareFunction::GreaterEqual
                         } else {
                             CompareFunction::Always
-                        }
+                        })
                     );
                     assert_eq!(
                         depth.bias.constant,

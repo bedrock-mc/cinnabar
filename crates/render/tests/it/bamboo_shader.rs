@@ -249,8 +249,8 @@ const WITNESS: &str = r#"
 @group(0) @binding(31) var<storage, read_write> results: array<vec4<f32>>;
 @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
     let vertex = model_vertex(0u, id.x);
-    results[id.x * 3u] = vec4(vertex.normal, f32(vertex.visible & MODEL_VISIBLE));
-    results[id.x * 3u + 1u] = vec4(vertex.world_position, f32((vertex.visible & MODEL_BOUNDED_TILE) != 0u));
+    results[id.x * 3u] = vec4(vertex.normal, f32(vertex.visibility.x & MODEL_VISIBLE));
+    results[id.x * 3u + 1u] = vec4(vertex.world_position, f32((vertex.visibility.x & MODEL_BOUNDED_TILE) != 0u));
     results[id.x * 3u + 2u] = vec4(vertex.uv,0.0,0.0);
 }
 @vertex fn normal_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {

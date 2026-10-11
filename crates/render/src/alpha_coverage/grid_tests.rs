@@ -141,7 +141,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     let mut source = crate::shader_source::standalone(production, definitions);
     let (sample, footprint, threshold) = if model {
         (
-            "var input: VertexOutput; input.uv = uv; input.visible = select(1u, 1u | MODEL_BOUNDED_TILE, c.w != 0u); let sampled = sample_model_ref(input, c.x, dx, dy);",
+            "var input: VertexOutput; input.uv = uv; input.visibility.x = select(1u, 1u | MODEL_BOUNDED_TILE, c.w != 0u); let sampled = sample_model_ref(input, c.x, dx, dy);",
             "model_alpha_footprint(c.x, uv, dx, dy, sampled)",
             "MODEL_ALPHA_THRESHOLD",
         )

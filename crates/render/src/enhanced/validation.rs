@@ -75,7 +75,7 @@ fn enhanced_shaders_validate() {
 #[test]
 #[ignore = "Enhanced disabled after GPU faults and system freezes"]
 fn enhanced_pipelines_build_on_native_adapter() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("this fixture requires a native GPU adapter");
@@ -99,7 +99,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
                 },
             ]
         };
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let groups: Vec<_> = descriptors
             .iter()
             .map(|descriptor| {
@@ -111,8 +111,8 @@ fn enhanced_pipelines_build_on_native_adapter() {
             .collect();
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("production Enhanced layout"),
-            bind_group_layouts: &groups.iter().collect::<Vec<_>>(),
-            push_constant_ranges: &[],
+            bind_group_layouts: &groups.iter().map(Some).collect::<Vec<_>>(),
+            immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
@@ -141,16 +141,16 @@ fn enhanced_pipelines_build_on_native_adapter() {
             primitive: Default::default(),
             depth_stencil: shadow.then_some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
-        let error = bevy::tasks::block_on(device.pop_error_scope());
+        let error = bevy::tasks::block_on(validation_scope.pop());
         assert!(error.is_none(), "{name}/{fragment}: {error:?}");
     }
 }
@@ -159,7 +159,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("this fixture requires a native GPU adapter");

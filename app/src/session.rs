@@ -544,6 +544,10 @@ pub(crate) fn login_settings(
 }
 
 /// Starts the network session against the core serving `socket_dir`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "joining forwards captured session inputs and optional presentation assets"
+)]
 fn start_network(
     commands: &mut Commands,
     menu: &MenuRuntime,

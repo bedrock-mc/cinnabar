@@ -2,7 +2,6 @@
 
 use std::{ops::Range, sync::Arc};
 
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::Mut;
 use bevy::{
@@ -38,7 +37,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -175,6 +174,7 @@ impl Plugin for ParticleRenderPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        crate::transparent_phase::install(render_app);
         render_app
             .init_resource::<ParticlePipeline>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Opaque as u8 }>>()
@@ -220,7 +220,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         address_mode_w: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..default()
     });
     commands.insert_resource(ParticleGpu {
@@ -450,7 +450,7 @@ impl FromWorld for ParticlePipeline {
                 shader: PARTICLE_SHADER_HANDLE,
                 entry_point: Some("particle_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::COLOR,
                 })],
@@ -458,8 +458,8 @@ impl FromWorld for ParticlePipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -492,14 +492,14 @@ impl Specializer<RenderPipeline> for ParticleSpecializer {
             .depth_stencil
             .as_mut()
             .unwrap()
-            .depth_write_enabled = key.material == ParticleMode::Opaque;
+            .depth_write_enabled = Some(key.material == ParticleMode::Opaque);
         let target = descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap();
         target.format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         target.blend = match key.material {
             ParticleMode::Opaque => None,
@@ -580,7 +580,13 @@ fn queue_particles(
     gpu: Res<ParticleGpu>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if gpu.opaque_range.is_empty() && gpu.blend_range.is_empty() && gpu.add_range.is_empty() {
         return;
@@ -593,7 +599,7 @@ fn queue_particles(
             functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>(),
         )
     };
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -613,7 +619,7 @@ fn queue_particles(
                 &pipeline_cache,
                 ParticlePipelineKey {
                     msaa: *msaa,
-                    hdr: view.hdr,
+                    hdr: extracted_camera.hdr,
                     material,
                 },
             ) else {
@@ -628,16 +634,21 @@ fn queue_particles(
                     .rangefinder3d()
                     .distance(&Vec3::from_array(gpu.add_centroid)),
             };
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function,
-                // Depth-writing sprites must precede translucent terrain and surface overlays.
-                distance,
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: false,
-            });
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
+                    pipeline: pipeline_id,
+                    draw_function,
+                    // Depth-writing sprites must precede translucent terrain and surface overlays.
+                    distance,
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: false,
+                },
+            );
         }
     }
 }

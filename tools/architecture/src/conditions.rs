@@ -170,10 +170,10 @@ fn predicate(meta: &Meta) -> Condition {
     match meta {
         Meta::Path(_) => Condition::Atom(name),
         Meta::NameValue(value) => {
-            if let syn::Expr::Lit(value) = &value.value {
-                if let syn::Lit::Str(value) = &value.lit {
-                    return Condition::Atom(format!("{name}={:?}", value.value()));
-                }
+            if let syn::Expr::Lit(value) = &value.value
+                && let syn::Lit::Str(value) = &value.lit
+            {
+                return Condition::Atom(format!("{name}={:?}", value.value()));
             }
             Condition::Atom(name)
         }

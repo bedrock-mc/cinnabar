@@ -308,13 +308,8 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
         };
         let tint = members
             .iter()
-            .find(|member| {
-                matches!(
-                    member.binding,
-                    Some(naga::Binding::Location { location: 14, .. })
-                )
-            })
-            .expect("ordinary model tint at location 14");
+            .find(|member| member.name.as_deref() == Some("tint_gamma"))
+            .expect("ordinary model tint interpolant");
         assert!(matches!(
             tint.binding,
             Some(naga::Binding::Location {
@@ -543,8 +538,8 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);

@@ -20,9 +20,9 @@ use bevy::{
         render_resource::{
             CachedPipelineState, CachedRenderPipelineId, PipelineCache, TextureFormat,
         },
-        view::{ExtractedView, ViewTarget},
+        view::ViewTarget,
     },
-    shader::PipelineCacheError,
+    shader::ShaderCacheError,
 };
 
 /// True once every registered variant for the current views has compiled.
@@ -49,7 +49,9 @@ pub(crate) struct WarmView {
 pub(crate) type WarmupIds = Vec<CachedRenderPipelineId>;
 
 /// Implemented by each pipeline owner so warmup fills the same memoized variants drawing uses.
-pub(crate) trait PrewarmPipelines: Resource {
+pub(crate) trait PrewarmPipelines:
+    Resource<Mutability = bevy::ecs::component::Mutable>
+{
     /// Pushes the ID of every variant a draw for `view` may later request.
     fn prewarm(
         &mut self,
@@ -124,7 +126,7 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
                 Render,
                 (WarmupSet::Views, WarmupSet::Owners)
                     .chain()
-                    .after(RenderSystems::ManageViews)
+                    .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue),
             )
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
@@ -135,7 +137,7 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
 
 fn collect_views(
     views: Query<(
-        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
         &Msaa,
         Option<&ViewTarget>,
         Option<&crate::EnhancedRendering>,
@@ -144,12 +146,12 @@ fn collect_views(
 ) {
     registry.views.clear();
     registry.pending = false;
-    for (view, msaa, target, enhanced) in &views {
+    for (camera, msaa, target, enhanced) in &views {
         let key = WarmView {
             msaa: *msaa,
-            hdr: view.hdr,
+            hdr: camera.hdr,
             enhanced: enhanced.is_some(),
-            output: target.map(ViewTarget::out_texture_view_format),
+            output: target.and_then(ViewTarget::out_texture_view_format),
         };
         if !registry.views.contains(&key) {
             registry.views.push(key);
@@ -207,8 +209,8 @@ fn registered_pipelines_ready(cache: &PipelineCache, registry: &mut WarmupRegist
         ready &= match cache.get_render_pipeline_state(id) {
             CachedPipelineState::Ok(_) => true,
             CachedPipelineState::Err(
-                PipelineCacheError::ShaderNotLoaded(_)
-                | PipelineCacheError::ShaderImportNotYetAvailable,
+                ShaderCacheError::ShaderNotLoaded(_)
+                | ShaderCacheError::ShaderImportNotYetAvailable,
             ) => false,
             CachedPipelineState::Err(error) => {
                 if failed.insert(id) {

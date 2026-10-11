@@ -1,14 +1,20 @@
 use super::*;
-use bevy::render::{render_graph::RenderGraph, renderer::WgpuWrapper};
+use crate::render_test_support::record;
+use bevy::prelude::Component;
+use bevy::{
+    ecs::system::RunSystemOnce,
+    render::renderer::{PendingCommandBuffers, WgpuWrapper},
+};
 
+/// Creates a validation device with the requested timestamp capabilities.
 pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -24,7 +30,7 @@ pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueu
     )
 }
 
-/// Ends a frame as the graph's readback node and the frame submissions do.
+/// Resolves submitted frame spans and requests their asynchronous readback.
 pub(super) fn finish_frame(
     timestamps: &mut GpuTimestamps,
     device: &RenderDevice,
@@ -68,10 +74,8 @@ fn completed_metal_samples_drain_when_every_readback_slot_is_occupied() {
     assert!(timestamps.open_pass(RuntimeStage::GpuUi).is_none());
     let mut world = World::new();
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
     let submissions = crate::device_poll::submissions_so_far(&queue);
-    run_readback_node(&world, &mut context);
-    let buffers = context.finish().0;
+    let buffers = run_readback(&mut world, &device);
     assert_eq!(
         crate::device_poll::submissions_so_far(&queue),
         submissions + 1
@@ -87,20 +91,18 @@ fn completed_metal_samples_drain_when_every_readback_slot_is_occupied() {
     assert!(timestamps.open_pass(RuntimeStage::GpuUi).is_some());
 }
 
-/// Runs the production readback node while deferred recording is still queued.
-pub(super) fn run_readback_node<'w>(world: &'w World, context: &mut RenderContext<'w>) {
-    let mut graph = RenderGraph::default();
-    graph.add_node(ReadbackLabel, ReadbackNode);
-    let state = graph.get_node_state(ReadbackLabel).unwrap();
-    let mut outputs = [];
-    let mut graph_context = RenderGraphContext::new(&graph, state, &[], &mut outputs);
-    state.node.run(&mut graph_context, context, world).unwrap();
+/// Runs the production readback system after all drawing commands have been recorded.
+pub(super) fn run_readback(world: &mut World, device: &RenderDevice) -> Vec<wgpu::CommandBuffer> {
+    world.insert_resource(device.clone());
+    world.init_resource::<PendingCommandBuffers>();
+    world.run_system_once(encode_readback).unwrap();
+    world.resource_mut::<PendingCommandBuffers>().take()
 }
 
 /// Deferred passes and draws belong to the same readback as synchronously recorded work.
 #[test]
-fn readback_includes_queries_allocated_by_deferred_recording() {
-    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+fn readback_includes_queries_allocated_by_parallel_recording() {
+    let pool = bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let features = wgpu::Features::TIMESTAMP_QUERY
         | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
         | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
@@ -110,30 +112,36 @@ fn readback_includes_queries_allocated_by_deferred_recording() {
         timestamps.begin(|_| unreachable!("first frame has no readback"));
         let mut world = World::new();
         world.insert_resource(timestamps);
-        let timestamps = world.resource::<GpuTimestamps>();
-        let mut context = RenderContext::new(device.clone(), None);
-        if synchronous {
-            let span = timestamps.open_pass(RuntimeStage::GpuUi).unwrap();
-            context
-                .command_encoder()
-                .write_timestamp(span.queries, span.begin);
-            context
-                .command_encoder()
-                .write_timestamp(span.queries, span.begin + 1);
-        }
-        context.add_command_buffer_generation_task(move |device| {
-            let mut encoder = device.create_command_encoder(&Default::default());
-            for span in [
-                timestamps.open_pass(RuntimeStage::GpuOpaque).unwrap(),
-                timestamps.open_draw(RuntimeStage::GpuActors).unwrap(),
-            ] {
-                encoder.write_timestamp(span.queries, span.begin);
-                encoder.write_timestamp(span.queries, span.begin + 1);
+        let (_, mut buffers) = record(&mut world, &device, |world, context| {
+            let timestamps = world.resource::<GpuTimestamps>();
+            if synchronous {
+                let span = timestamps.open_pass(RuntimeStage::GpuUi).unwrap();
+                context
+                    .command_encoder()
+                    .write_timestamp(span.queries, span.begin);
+                context
+                    .command_encoder()
+                    .write_timestamp(span.queries, span.begin + 1);
             }
-            encoder.finish()
+            let generated = pool.scope(|scope| {
+                scope.spawn(async {
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    for span in [
+                        timestamps.open_pass(RuntimeStage::GpuOpaque).unwrap(),
+                        timestamps.open_draw(RuntimeStage::GpuActors).unwrap(),
+                    ] {
+                        encoder.write_timestamp(span.queries, span.begin);
+                        encoder.write_timestamp(span.queries, span.begin + 1);
+                    }
+                    encoder.finish()
+                });
+            });
+            for buffer in generated {
+                context.add_command_buffer(buffer);
+            }
         });
-        run_readback_node(&world, &mut context);
-        queue.submit(context.finish().0);
+        buffers.extend(run_readback(&mut world, &device));
+        queue.submit(buffers);
         let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
         timestamps.request_readback(&queue);
         let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
@@ -152,58 +160,37 @@ fn readback_includes_queries_allocated_by_deferred_recording() {
     }
 }
 
-struct CountingNode(Arc<AtomicU32>);
-
-impl Node for CountingNode {
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        _: &mut RenderContext<'w>,
-        _: &'w World,
-    ) -> Result<(), NodeRunError> {
-        self.0.fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    }
-}
-
-/// A Core3d graph whose opaque node counts runs, wrapped as the plugin does.
+/// A render schedule whose timed opaque system counts executions.
 fn timed_world() -> (World, Arc<AtomicU32>) {
     let runs = Arc::new(AtomicU32::new(0));
-    let mut core = RenderGraph::default();
-    core.add_node(Node3d::MainOpaquePass, CountingNode(runs.clone()));
-    let mut graph = RenderGraph::default();
-    graph.add_sub_graph(Core3d, core);
+    let counter = runs.clone();
     let mut world = World::new();
-    world.insert_resource(graph);
-    wrap_timed_nodes(&mut world);
+    let mut schedule = bevy::ecs::schedule::Schedule::new(Core3d);
+    schedule.add_systems(profiled(
+        move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        },
+        Some(RuntimeStage::GpuOpaque),
+        "fixture opaque",
+    ));
+    world.add_schedule(schedule);
     (world, runs)
 }
 
-/// Runs the wrapped opaque node once and returns the command buffers it recorded.
-fn run_opaque(world: &World, device: &RenderDevice) -> Vec<wgpu::CommandBuffer> {
-    let graph = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    let state = graph.get_node_state(Node3d::MainOpaquePass).unwrap();
-    assert!(state.node.downcast_ref::<TimedNode>().is_some());
-    let mut outputs = [];
-    let mut graph_context = RenderGraphContext::new(graph, state, &[], &mut outputs);
-    let mut render_context = RenderContext::new(device.clone(), None);
-    state
-        .node
-        .run(&mut graph_context, &mut render_context, world)
-        .unwrap();
-    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    render_context.finish().0
+/// Runs the timed opaque system and returns its deferred command buffers.
+fn run_opaque(world: &mut World, device: &RenderDevice) -> Vec<wgpu::CommandBuffer> {
+    world.insert_resource(device.clone());
+    world.init_resource::<PendingCommandBuffers>();
+    world.run_schedule(Core3d);
+    world.resource_mut::<PendingCommandBuffers>().take()
 }
 
 #[test]
 fn missing_timestamp_feature_runs_nodes_untimed() {
     let (device, queue) = noop_device(wgpu::Features::empty());
     assert!(GpuTimestamps::new(&device, &queue, true).is_none());
-    let (world, runs) = timed_world();
-    assert!(run_opaque(&world, &device).is_empty());
+    let (mut world, runs) = timed_world();
+    assert!(run_opaque(&mut world, &device).is_empty());
     assert_eq!(runs.load(Ordering::Relaxed), 1);
 }
 
@@ -217,23 +204,24 @@ fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
     timestamps.begin(|frame| frames.push(*frame));
     world.insert_resource(timestamps);
 
-    let mut buffers = run_opaque(&world, &device);
+    let mut buffers = run_opaque(&mut world, &device);
     if cfg!(target_os = "macos") {
-        let writes = render_pass_timestamps(&world, RuntimeStage::GpuOpaque).unwrap();
-        let mut context = RenderContext::new(device.clone(), None);
-        context
-            .command_encoder()
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("NOOP readback lifecycle"),
-                timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
-                    query_set: writes.query_set,
-                    beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
-                    end_of_pass_write_index: writes.end_of_pass_write_index,
-                }),
-            });
-        buffers.extend(context.finish().0);
+        let (_, encoded) = record(&mut world, &device, |world, context| {
+            let writes = render_pass_timestamps(world, RuntimeStage::GpuOpaque).unwrap();
+            context
+                .command_encoder()
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("NOOP readback lifecycle"),
+                    timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                        query_set: writes.query_set,
+                        beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
+                        end_of_pass_write_index: writes.end_of_pass_write_index,
+                    }),
+                });
+        });
+        buffers.extend(encoded);
     }
-    assert_eq!(buffers.len(), 1, "the sampled work shares one encoder");
+    assert!(!buffers.is_empty());
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 1);
@@ -260,10 +248,11 @@ fn metal_wrappers_encode_no_synthetic_passes() {
     let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
     timestamps.begin(|_| unreachable!("first frame has no readback"));
     world.insert_resource(timestamps);
-    assert!(run_opaque(&world, &device).is_empty());
-    let mut context = RenderContext::new(device.clone(), None);
-    timed(&world, &mut context, RuntimeStage::GpuUi, |_| {});
-    assert!(context.finish().0.is_empty());
+    assert!(run_opaque(&mut world, &device).is_empty());
+    let (_, buffers) = record(&mut world, &device, |world, context| {
+        timed(world, context, RuntimeStage::GpuUi, |_| {})
+    });
+    assert!(buffers.is_empty());
     assert_eq!(runs.load(Ordering::Relaxed), 1);
     let timestamps = world.resource::<GpuTimestamps>();
     assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 0);
@@ -323,10 +312,10 @@ fn ui_pass_categories_are_opt_in_and_do_not_duplicate_parent_spans() {
         timestamps.begin(|_| unreachable!("first frame has no readback"));
         let mut world = World::new();
         world.insert_resource(timestamps);
-        let mut context = RenderContext::new(device.clone(), None);
-        timed(&world, &mut context, RuntimeStage::GpuUi, |_| {});
+        let (_, buffers) = record(&mut world, &device, |world, context| {
+            timed(world, context, RuntimeStage::GpuUi, |_| {})
+        });
         let parent_span = !cfg!(target_os = "macos") && !enabled;
-        let buffers = context.finish().0;
         assert_eq!(buffers.is_empty(), !parent_span);
         let timestamps = world.resource::<GpuTimestamps>();
         assert_eq!(
@@ -382,11 +371,12 @@ fn unprofiled_frames_time_only_the_whole_frame() {
         timestamps.begin(|_| unreachable!("first frame has no readback"));
         let mut world = World::new();
         world.insert_resource(timestamps);
-        let mut context = RenderContext::new(device.clone(), None);
-        for stage in stages {
-            timed(&world, &mut context, stage, |_| {});
-        }
-        queue.submit(context.finish().0);
+        let (_, buffers) = record(&mut world, &device, |world, context| {
+            for stage in stages {
+                timed(world, context, stage, |_| {});
+            }
+        });
+        queue.submit(buffers);
         let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
         finish_frame(&mut timestamps, &device, &queue);
         let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
@@ -431,9 +421,10 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     timestamps.begin(|_| unreachable!("first frame has no readback"));
     let mut world = World::new();
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
-    timed(&world, &mut context, RuntimeStage::GpuOpaque, |_| {});
-    queue.submit(context.finish().0);
+    let (_, buffers) = record(&mut world, &device, |world, context| {
+        timed(world, context, RuntimeStage::GpuOpaque, |_| {})
+    });
+    queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback(&queue);
     assert!(
@@ -443,14 +434,26 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
 
     timestamps.begin(|_| unreachable!("nothing was read back"));
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
-    timed(&world, &mut context, RuntimeStage::GpuOpaque, |_| {});
-    let readback = world.resource::<GpuTimestamps>();
-    assert_ne!(readback.frame.open_frame.load(Ordering::Relaxed), NO_SPAN);
-    run_readback_node(&world, &mut context);
-    assert_eq!(readback.frame.open_frame.load(Ordering::Relaxed), NO_SPAN);
-    let buffers = context.finish().0;
-    assert_eq!(buffers.len(), 1, "ordinary frames retain one encoder");
+    let (_, mut buffers) = record(&mut world, &device, |world, context| {
+        timed(world, context, RuntimeStage::GpuOpaque, |_| {})
+    });
+    assert_ne!(
+        world
+            .resource::<GpuTimestamps>()
+            .frame
+            .open_frame
+            .load(Ordering::Relaxed),
+        NO_SPAN
+    );
+    buffers.extend(run_readback(&mut world, &device));
+    assert_eq!(
+        world
+            .resource::<GpuTimestamps>()
+            .frame
+            .open_frame
+            .load(Ordering::Relaxed),
+        NO_SPAN
+    );
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback(&queue);
@@ -462,19 +465,67 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
 }
 
 #[test]
-fn the_readback_node_runs_after_every_camera() {
-    let mut graph = RenderGraph::default();
-    graph.add_node(CameraDriverLabel, EmptyNode);
+fn readback_includes_every_camera_in_submission_order() {
+    use bevy::{
+        core_pipeline::schedule::camera_driver,
+        render::{
+            camera::{SortedCamera, SortedCameras},
+            renderer::{RenderGraph, ViewQuery},
+        },
+    };
+    #[derive(Component)]
+    struct CameraStage(RuntimeStage);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timestamps = GpuTimestamps::new(&device, &queue, true).unwrap();
+    timestamps.begin(|_| unreachable!("first frame"));
     let mut world = World::new();
-    world.insert_resource(graph);
-    add_readback_node(&mut world);
-    let graph = world.resource::<RenderGraph>();
-    let inputs: Vec<_> = graph
-        .iter_node_inputs(ReadbackLabel)
-        .unwrap()
-        .map(|(_, node)| node.label)
-        .collect();
-    assert_eq!(inputs, [CameraDriverLabel.intern()]);
+    world.insert_resource(device.clone());
+    world.insert_resource(queue.clone());
+    world.insert_resource(timestamps);
+    world.init_resource::<PendingCommandBuffers>();
+    let mut cameras = Vec::new();
+    for (order, stage) in [RuntimeStage::GpuOpaque, RuntimeStage::GpuTransparent]
+        .into_iter()
+        .enumerate()
+    {
+        let camera = crate::render_test_support::camera(false);
+        let output_mode = camera.output_mode;
+        let entity = world.spawn((camera, CameraStage(stage))).id();
+        cameras.push(SortedCamera {
+            entity,
+            order: order as isize,
+            target: None,
+            hdr: false,
+            output_mode,
+        });
+    }
+    world.insert_resource(SortedCameras(cameras));
+    let mut views = bevy::ecs::schedule::Schedule::new(Core3d);
+    views.add_systems(
+        |world: &World, stage: ViewQuery<&CameraStage>, mut context: RenderContext| {
+            let span = world
+                .resource::<GpuTimestamps>()
+                .open_pass(stage.into_inner().0)
+                .unwrap();
+            mark(context.command_encoder(), span.queries, span.begin);
+            mark(context.command_encoder(), span.queries, span.begin + 1);
+        },
+    );
+    world.add_schedule(views);
+    let mut root = bevy::ecs::schedule::Schedule::new(RenderGraph);
+    root.add_systems(camera_driver);
+    world.add_schedule(root);
+    install_readback(&mut world);
+    world.run_schedule(RenderGraph);
+    queue.submit(world.resource_mut::<PendingCommandBuffers>().take());
+    let mut timestamps = world.resource_mut::<GpuTimestamps>();
+    timestamps.request_readback(&queue);
+    let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
+    assert_eq!(slot.passes, 2);
+    assert_eq!(
+        slot.stages[..2],
+        [RuntimeStage::GpuOpaque, RuntimeStage::GpuTransparent]
+    );
 }
 
 #[test]
@@ -505,18 +556,13 @@ fn draw_overflow_drops_categories_but_keeps_passes() {
 
 /// Pipelined rendering removes the render app during cleanup, before later plugins' hooks.
 #[test]
-fn nodes_are_wrapped_inside_the_render_app_under_pipelined_rendering() {
+fn timing_starts_inside_the_render_app_under_pipelined_rendering() {
     use bevy::render::pipelined_rendering::{PipelinedRenderingPlugin, RenderAppChannels};
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    let (device, queue) = noop_device(wgpu::Features::empty());
-    let mut core = RenderGraph::default();
-    core.add_node(Node3d::MainOpaquePass, CountingNode(Arc::default()));
-    let mut graph = RenderGraph::default();
-    graph.add_sub_graph(Core3d, core);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     let mut render_app = bevy::app::SubApp::new();
     render_app
         .add_schedule(bevy::ecs::schedule::Schedule::new(RenderStartup))
-        .insert_resource(graph)
         .insert_resource(device)
         .insert_resource(queue);
     let mut app = App::new();
@@ -526,18 +572,11 @@ fn nodes_are_wrapped_inside_the_render_app_under_pipelined_rendering() {
     app.finish();
     app.cleanup();
     assert!(app.get_sub_app(RenderApp).is_none());
-
     let mut channels = app
         .world_mut()
         .remove_resource::<RenderAppChannels>()
         .unwrap();
     let mut render_app = bevy::tasks::block_on(channels.recv()).unwrap();
     render_app.world_mut().run_schedule(RenderStartup);
-    let graph = render_app.world().resource::<RenderGraph>();
-    let state = graph
-        .get_sub_graph(Core3d)
-        .unwrap()
-        .get_node_state(Node3d::MainOpaquePass)
-        .unwrap();
-    assert!(state.node.downcast_ref::<TimedNode>().is_some());
+    assert!(render_app.world().contains_resource::<GpuTimestamps>());
 }

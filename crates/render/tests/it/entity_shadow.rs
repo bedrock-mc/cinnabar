@@ -65,7 +65,7 @@ fn view_words(scene: &Scene) -> Vec<f32> {
 
 /// Requests the native formats used by the scene, sampled depth and overlap stencil.
 fn fixture() -> Option<(Gpu, Vec<u32>)> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) if adapter.get_info().backend != wgpu::Backend::Noop => adapter,
         Ok(_) | Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -203,8 +203,8 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
         primitive: Default::default(),
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
             stencil: Default::default(),
             bias: Default::default(),
         }),
@@ -218,7 +218,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
             compilation_options: Default::default(),
             targets: &[Some(wgpu::TextureFormat::Rgba8UnormSrgb.into())],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let floor_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -256,8 +256,8 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Stencil8,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: wgpu::StencilState {
                 front: wgpu::StencilFaceState {
                     compare: wgpu::CompareFunction::NotEqual,
@@ -299,7 +299,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
                 write_mask: wgpu::ColorWrites::COLOR,
             })],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let view = init(
@@ -369,6 +369,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&floor);
         pass.set_bind_group(0, &floor_group, &[]);
@@ -396,6 +397,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&shadow);
         pass.set_stencil_reference(1);
@@ -418,6 +420,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     }
     let readback = device.create_buffer(&wgpu::BufferDescriptor {

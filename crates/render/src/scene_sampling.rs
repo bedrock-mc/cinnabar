@@ -67,13 +67,13 @@ impl ResolvedDepth {
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -131,6 +131,7 @@ impl ResolvedDepth {
                 }),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, self.stage),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         if let Some(rect) = rect {
             pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);

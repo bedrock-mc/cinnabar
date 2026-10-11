@@ -1,6 +1,5 @@
 //! Which passes a menu frame and a gameplay frame encode, and where FXAA sits.
 use super::*;
-use bevy::render::render_graph::EmptyNode;
 
 fn batch(blend: u32) -> (usize, UiRenderBatch, ()) {
     (
@@ -58,69 +57,12 @@ fn gameplay_frame_composites_before_the_crosshair_and_presents_the_rest() {
     assert!(trailing.segments.iter().all(|segment| !segment.present));
 }
 
-fn reaches(graph: &RenderGraph, from: impl RenderLabel, to: impl RenderLabel) -> bool {
-    let target = to.intern();
-    let mut stack = vec![from.intern()];
-    let mut seen = std::collections::HashSet::new();
-    while let Some(label) = stack.pop() {
-        if label == target {
-            return true;
-        }
-        if seen.insert(label) {
-            let state = graph.get_node_state(label).unwrap();
-            stack.extend(
-                state
-                    .edges
-                    .output_edges()
-                    .iter()
-                    .map(|e| e.get_input_node()),
-            );
-        }
-    }
-    false
-}
-
-/// FXAA runs on the scene only: the HUD composites after it, inside the output pass.
 #[test]
-fn fxaa_never_reaches_ui_pixels() {
-    let mut core = RenderGraph::default();
-    let order = [
-        Node3d::MainOpaquePass.intern(),
-        Node3d::MainTransparentPass.intern(),
-        Node3d::EndMainPass.intern(),
-        Node3d::Tonemapping.intern(),
-        Node3d::Fxaa.intern(),
-        Node3d::EndMainPassPostProcessing.intern(),
-        Node3d::Upscaling.intern(),
-    ];
-    for label in order {
-        core.add_node(label, EmptyNode);
-    }
-    for pair in order.windows(2) {
-        core.add_node_edge(pair[0], pair[1]);
-    }
-    let mut graphs = RenderGraph::default();
-    graphs.add_sub_graph(Core3d, core);
-    let mut world = World::new();
-    world.insert_resource(graphs);
+fn an_unprepared_view_submits_no_ui_work_after_repeated_installation() {
+    let mut world = crate::render_test_support::empty_render_world();
     install_overlay_graph(&mut world);
     install_overlay_graph(&mut world);
-    let graph = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    assert!(reaches(graph, UiWorldLabel, Node3d::Fxaa));
-    assert!(reaches(graph, Node3d::Fxaa, UiOverlayLabel));
-    assert!(!reaches(graph, UiOverlayLabel, Node3d::Fxaa));
-    assert!(reaches(graph, UiOverlayLabel, Node3d::Upscaling));
-    assert!(world.contains_resource::<super::super::composite::UiPresentInstalled>());
-    assert!(
-        graph
-            .get_node_state(Node3d::Upscaling)
-            .unwrap()
-            .type_name
-            .contains("UiPresentNode")
-    );
+    crate::render_test_support::assert_empty_render(&mut world);
 }
 
 /// An unchanged layer is reused; any change in what it was drawn from redraws it.

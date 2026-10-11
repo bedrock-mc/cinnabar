@@ -2,20 +2,18 @@
 //! over the scene, reusing the actor rig's packed buffers with a hand-local view and lighting.
 //! The rendered content is the player's own skin on the standard samples player geometry.
 use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
-use bevy::image::BevyDefault;
 #[cfg(all(test, target_os = "macos"))]
 use bevy::prelude::{Entity, GlobalTransform, UVec4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, graph::Core3d},
+    core_pipeline::{Core3d, core_3d::CORE_3D_DEPTH_FORMAT},
     prelude::{
         App, BevyError, Commands, Handle, IntoScheduleConfigs, Mat4, Msaa, Plugin, Query, Res,
-        ResMut, Resource, Result, Shader, Vec3, World, default,
+        ResMut, Resource, Result, Shader, SystemSet, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
@@ -28,7 +26,7 @@ use bevy::{
             TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
-        view::{ExtractedView, ViewTarget},
+        view::ExtractedView,
     },
 };
 use render_api::{CAMERA_NEAR_PLANE_BLOCKS, SkinRgba8};
@@ -90,7 +88,7 @@ const HAND_MATERIAL: HandMaterialUniform = HandMaterialUniform {
     layer_mask: [HAND_TEXTURE_LAYER_MASK, 0, 0, 0],
 };
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct HandRigLabel;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -262,49 +260,47 @@ fn install(app: &mut App) {
 
 /// The rig pass Enhanced views run after Bloom and grading.
 #[cfg(feature = "enhanced")]
-pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
-    ViewNodeRunner::new(
-        crate::ui_render::overlay::GradeStage::<_, true>(node::HandRigViewNode),
-        world,
-    )
+pub(crate) fn enhanced_post_pass(
+    world: &World,
+) -> Option<bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>> {
+    world.contains_resource::<Installed>().then(|| {
+        crate::gpu_timing::profiled(
+            node::hand_rig,
+            Some(crate::RuntimeStage::GpuHand),
+            "EnhancedHandRigLabel",
+        )
+        .run_if(crate::ui_render::overlay::grade_stage::<true>)
+    })
 }
 
-fn install_graph(world: &mut World) {
-    if !world.contains_resource::<Installed>() {
+pub(crate) fn install_graph(world: &mut World) {
+    if !world.contains_resource::<Installed>() || world.contains_resource::<RigPassInstalled>() {
         return;
     }
-    let runner = ViewNodeRunner::new(
-        crate::ui_render::overlay::GradeStage::<_, false>(node::HandRigViewNode),
-        world,
-    );
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    if graph
-        .get_node_state(crate::ui_render::UiOverlayLabel)
-        .is_err()
-    {
-        return;
-    }
-    if graph.get_node_state(HandRigLabel).is_err() {
-        graph.add_node(HandRigLabel, runner);
-    }
-    // The last hand draw resolves world samples before post-processing and the HUD.
-    graph.add_node_edges((
-        crate::ui_render::UiWorldLabel,
-        HandRigLabel,
-        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
-    ));
-    if graph
-        .get_node_state(crate::viewmodel_render::HandLabel)
-        .is_ok()
-    {
-        let _ = graph.try_add_node_edge(crate::viewmodel_render::HandLabel, HandRigLabel);
+    let installed = world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(
+                    node::hand_rig,
+                    Some(crate::RuntimeStage::GpuHand),
+                    "HandRigLabel",
+                )
+                .in_set(HandRigLabel)
+                .after(crate::ui_render::UiWorldLabel)
+                .after(crate::viewmodel_render::HandLabel)
+                .before(crate::scene_target::ScenePass::Finish)
+                .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
+                .run_if(crate::ui_render::overlay::grade_stage::<false>),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(RigPassInstalled);
     }
 }
+
+#[derive(Resource)]
+struct RigPassInstalled;
 
 #[derive(Resource)]
 struct Installed;

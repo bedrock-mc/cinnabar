@@ -155,11 +155,11 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
                 vertices: 0..6,
                 bindings: &bindings,
                 blend: fragment.targets[0].as_ref().unwrap().blend,
-                write_depth: depth.depth_write_enabled,
+                write_depth: depth.depth_write_enabled.unwrap(),
             }],
             RasterState {
                 primitive: material.primitive,
-                depth_compare: depth.depth_compare,
+                depth_compare: depth.depth_compare.unwrap(),
                 ..default()
             },
         );

@@ -14,13 +14,13 @@ const UNLOADED_SHADER: Handle<Shader> = uuid_handle!("5b0e7c3d-8a41-4f2e-9d6b-1c
 
 /// Validation-only backend with synchronous compilation, so `process_queue` finishes each pipeline.
 fn cache() -> PipelineCache {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..default()
         },
-        ..default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&default())).unwrap();

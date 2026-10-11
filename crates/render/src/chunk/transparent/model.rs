@@ -455,7 +455,12 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
     }
     let mut identities = Vec::new();
     let mut total_refs = 0_usize;
-    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
+    for (entity, _) in visible_entities
+        .get::<ChunkRenderInstance>()
+        .into_iter()
+        .flat_map(|class| class.iter_visible())
+        .map(|(entity, main)| (*entity, *main))
+    {
         let Ok(allocation) = allocations.get(entity) else {
             continue;
         };

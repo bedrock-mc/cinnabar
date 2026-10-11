@@ -50,11 +50,13 @@ fn camera_with_aspect(eye: Vec3, target: Vec3, aspect: f32) -> Camera {
         GlobalTransform::from(Transform::from_translation(eye).looking_at(target, Vec3::Y));
     let projection = Mat4::perspective_infinite_reverse_rh(1.2, aspect, 0.05);
     let clip_from_world = projection * Mat4::from(global.affine().inverse());
-    let frustum = Frustum::from_clip_from_world_custom_far(
-        &clip_from_world,
-        &global.translation(),
-        &global.back().as_vec3(),
-        1000.0,
+    let frustum = Frustum(
+        bevy::math::primitives::ViewFrustum::from_clip_from_world_custom_far(
+            &clip_from_world,
+            &global.translation(),
+            &global.back().as_vec3(),
+            1000.0,
+        ),
     );
     Camera {
         eye,
@@ -492,6 +494,7 @@ impl Target {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         })
     }
 
@@ -751,8 +754,8 @@ impl Raster {
                     },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: DEPTH_FORMAT,
-                        depth_write_enabled: write_depth,
-                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_write_enabled: Some(write_depth),
+                        depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -771,7 +774,7 @@ impl Raster {
                             },
                         })],
                     }),
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 })
         };

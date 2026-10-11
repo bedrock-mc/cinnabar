@@ -69,12 +69,12 @@ fn tint_table() -> [TintRow; 2] {
 
 #[test]
 fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         // FXC's unoptimized debug shader exceeds its temporary-register limit for the
         // generated biome table. Exercise optimized shaders, as release builds do,
         // while retaining backend validation and every GPU bounds assertion.
         flags: wgpu::InstanceFlags::debugging() & !wgpu::InstanceFlags::DEBUG,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = match finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
         Ok(adapter) => adapter,

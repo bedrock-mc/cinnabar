@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{GlobalTransform, Mat4};
 use bevy::{

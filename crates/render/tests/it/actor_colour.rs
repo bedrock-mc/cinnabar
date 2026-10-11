@@ -438,8 +438,8 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
     var out: VertexOutput;
     out.position = vec4(corners[index], 0.5, 1.0);
     out.uv = vec2(0.5);
-    out.skin_layer = actor_witness.words.x;
-    out.valid = 1u;
+    out.skin_info.x = actor_witness.words.x;
+    out.skin_info.y = 1u;
     let normals = array(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0));
     out.world_normal = select(actor_witness.normal.xyz, normals[index], actor_witness.normal.w != 0.0);
     out.back_uv = vec2(0.5);

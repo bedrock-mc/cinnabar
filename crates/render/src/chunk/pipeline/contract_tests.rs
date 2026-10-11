@@ -91,11 +91,11 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 assert_eq!(
                     colour.format,
                     if hdr {
-                        ViewTarget::TEXTURE_FORMAT_HDR
+                        crate::SCENE_HDR_FORMAT
                     } else if blended {
-                        TextureFormat::bevy_default().remove_srgb_suffix()
+                        crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
                     } else {
-                        TextureFormat::bevy_default()
+                        crate::SCENE_COLOR_FORMAT
                     }
                 );
                 assert_eq!(
@@ -115,8 +115,8 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 );
                 let depth = descriptor.depth_stencil.as_ref().unwrap();
                 assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-                assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
-                assert!(depth.depth_write_enabled);
+                assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
+                assert_eq!(depth.depth_write_enabled, Some(true));
                 for definition in descriptor
                     .vertex
                     .shader_defs

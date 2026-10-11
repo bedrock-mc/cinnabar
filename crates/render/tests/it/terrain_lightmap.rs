@@ -243,8 +243,8 @@ const MODEL_VERTEX: &str = r#"
     out.native_light_levels = terrain_light_levels(witness_sample(corner));
     out.native_ao_face = 1.0;
     out.tint_gamma = vec3(1.0);
-    out.two_sided = 1u;
-    out.visible = 1u;
+    out.visibility.y = 1u;
+    out.visibility.x = 1u;
     return out;
 }
 "#;

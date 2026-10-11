@@ -341,8 +341,8 @@ impl CullKernels {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain cull pipeline layout"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let module = |label, source: String| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {

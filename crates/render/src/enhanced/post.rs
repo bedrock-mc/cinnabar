@@ -3,11 +3,9 @@
 
 use bevy::{
     core_pipeline::FullscreenShader,
-    ecs::query::QueryItem,
     prelude::*,
     render::{
         diagnostic::RecordDiagnostics,
-        render_graph::{NodeRunError, RenderGraphContext, RenderLabel, ViewNode},
         render_resource::{
             BindGroup, BindGroupEntry, BindingResource, BlendState, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, FragmentState, LoadOp, Operations, PipelineCache,
@@ -24,7 +22,7 @@ use super::{
     gpu::{EnhancedGpu, EnhancedViews, POST_FORMAT, enhanced_post_layout},
 };
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct EnhancedPostLabel;
 
 #[derive(Resource)]
@@ -129,6 +127,7 @@ fn fullscreen_pass(
     bind_group: &BindGroup,
 ) {
     let diagnostics = context.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(context.command_encoder(), label);
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some(label),
@@ -147,6 +146,7 @@ fn fullscreen_pass(
             crate::RuntimeStage::GpuPost,
         ),
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(0, bind_group, &[]);
@@ -155,100 +155,98 @@ fn fullscreen_pass(
     span.end(context.command_encoder());
 }
 
-#[derive(Default)]
-pub(crate) struct EnhancedPostNode;
+type EnhancedPostQuery = (
+    &'static ViewTarget,
+    &'static ViewDepthTexture,
+    &'static crate::scene_target::SceneTarget,
+    &'static EnhancedRendering,
+    &'static bevy::render::camera::ExtractedCamera,
+);
 
-impl ViewNode for EnhancedPostNode {
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static ViewDepthTexture,
-        &'static crate::scene_target::SceneTarget,
-        &'static EnhancedRendering,
-    );
-
-    fn run(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext,
-        (target, _depth, scene, _settings): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        if !super::enhanced_rendering_enabled() {
-            return Ok(());
-        }
-        super::hand_layer::clear(context, world, scene);
-        let (Some(pipelines), Some(gpu), Some(views), Some(cache)) = (
-            world.get_resource::<EnhancedPostPipelines>(),
-            world.get_resource::<EnhancedGpu>(),
-            world.get_resource::<EnhancedViews>(),
-            world.get_resource::<PipelineCache>(),
-        ) else {
-            return Ok(());
-        };
-        let Some(state) = views.0.get(&graph.view_entity()) else {
-            return Ok(());
-        };
-        let (Some(shafts), Some(composite)) = (
-            cache.get_render_pipeline(pipelines.shafts),
-            cache.get_render_pipeline(pipelines.composite),
-        ) else {
-            return Ok(());
-        };
-        if !target.is_hdr() {
-            return Ok(());
-        }
-        let Some(depth) = &state.resolved_depth else {
-            return Ok(());
-        };
-        depth.draw(context, world, None);
-        let device = context.render_device().clone();
-        let shadow = state
-            .shadow
-            .as_ref()
-            .map_or(&gpu.fallback_shadow, |shadow| &shadow.array);
-        let black = &gpu.fallback_colour;
-        let bind = |source: &TextureView, bloom: &TextureView, shafts: &TextureView| {
-            post_bind_group(
-                &device,
-                cache,
-                gpu,
-                PostInputs {
-                    frame: state.frame.as_entire_binding(),
-                    source,
-                    bloom,
-                    shafts,
-                    depth: &depth.view,
-                    shadow,
-                },
-            )
-        };
-        let clear = LoadOp::Clear(wgpu::Color::TRANSPARENT);
-
-        let shaft_view = state.shafts.as_ref().map(|texture| &texture.default_view);
-        if let Some(shaft_view) = shaft_view {
-            let group = bind(black, black, black);
-            fullscreen_pass(
-                context,
-                world,
-                "enhanced light shafts",
-                shaft_view,
-                clear,
+/// Applies the enhanced world grade after bloom.
+pub(crate) fn enhanced_post(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<EnhancedPostQuery>,
+    mut context: RenderContext,
+) -> bevy::ecs::error::Result {
+    let view_entity = query.entity();
+    let (target, _depth, scene, _settings, camera) = query.into_inner();
+    let context = &mut context;
+    if !super::enhanced_rendering_enabled() {
+        return Ok(());
+    }
+    super::hand_layer::clear(context, world, scene);
+    let (Some(pipelines), Some(gpu), Some(views), Some(cache)) = (
+        world.get_resource::<EnhancedPostPipelines>(),
+        world.get_resource::<EnhancedGpu>(),
+        world.get_resource::<EnhancedViews>(),
+        world.get_resource::<PipelineCache>(),
+    ) else {
+        return Ok(());
+    };
+    let Some(state) = views.0.get(&view_entity) else {
+        return Ok(());
+    };
+    let (Some(shafts), Some(composite)) = (
+        cache.get_render_pipeline(pipelines.shafts),
+        cache.get_render_pipeline(pipelines.composite),
+    ) else {
+        return Ok(());
+    };
+    if !camera.hdr {
+        return Ok(());
+    }
+    let Some(depth) = &state.resolved_depth else {
+        return Ok(());
+    };
+    depth.draw(context, world, None);
+    let device = context.render_device().clone();
+    let shadow = state
+        .shadow
+        .as_ref()
+        .map_or(&gpu.fallback_shadow, |shadow| &shadow.array);
+    let black = &gpu.fallback_colour;
+    let bind = |source: &TextureView, bloom: &TextureView, shafts: &TextureView| {
+        post_bind_group(
+            &device,
+            cache,
+            gpu,
+            PostInputs {
+                frame: state.frame.as_entire_binding(),
+                source,
+                bloom,
                 shafts,
-                &group,
-            );
-        }
+                depth: &depth.view,
+                shadow,
+            },
+        )
+    };
+    let clear = LoadOp::Clear(wgpu::Color::TRANSPARENT);
 
-        let post = target.post_process_write();
-        let group = bind(post.source, black, shaft_view.unwrap_or(black));
+    let shaft_view = state.shafts.as_ref().map(|texture| &texture.default_view);
+    if let Some(shaft_view) = shaft_view {
+        let group = bind(black, black, black);
         fullscreen_pass(
             context,
             world,
-            "enhanced composite",
-            post.destination,
+            "enhanced light shafts",
+            shaft_view,
             clear,
-            composite,
+            shafts,
             &group,
         );
-        Ok(())
     }
+
+    let post = target.post_process_write();
+    let group = bind(post.source, black, shaft_view.unwrap_or(black));
+    fullscreen_pass(
+        context,
+        world,
+        "enhanced composite",
+        post.destination,
+        clear,
+        composite,
+        &group,
+    );
+    Ok(())
 }

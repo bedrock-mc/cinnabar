@@ -11,7 +11,7 @@ enhanced-diagnostics = []
 [dependencies]
 assets = { path = "../assets" }
 bytemuck = { version = "1", features = ["derive"] }
-glam = { version = "0.30.10", default-features = false, features = ["std"] }
+glam = { version = "0.32.0", default-features = false, features = ["std"] }
 render-api = { path = "../render-api" }
 sha2.workspace = true
 world = { path = "../world" }

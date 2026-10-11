@@ -331,7 +331,7 @@ fn a_resized_viewport_voids_old_verdicts() {
         clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05),
         world_from_view: GlobalTransform::from_translation(Vec3::from_array(EYE)),
         clip_from_world: None,
-        hdr: false,
+        target_format: crate::SCENE_COLOR_FORMAT,
         viewport,
         color_grading: default(),
         invert_culling: false,

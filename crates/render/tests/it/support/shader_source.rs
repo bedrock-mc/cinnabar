@@ -62,6 +62,9 @@ fn alpha_comparison(
     function: &naga::Function,
     condition: naga::Handle<naga::Expression>,
 ) -> Option<f32> {
+    if let naga::Expression::Load { pointer } = function.expressions[condition] {
+        return stored_alpha_comparison(module, function, &function.body, pointer, condition);
+    }
     let naga::Expression::Binary { op, left, right } = function.expressions[condition] else {
         return None;
     };
@@ -84,6 +87,39 @@ fn alpha_comparison(
         };
     }
     alpha_comparison(module, function, left).or_else(|| alpha_comparison(module, function, right))
+}
+
+/// Follows Naga's temporary stores for short-circuit guards before the discard reads them.
+fn stored_alpha_comparison(
+    module: &naga::Module,
+    function: &naga::Function,
+    block: &naga::Block,
+    pointer: naga::Handle<naga::Expression>,
+    before: naga::Handle<naga::Expression>,
+) -> Option<f32> {
+    block.iter().find_map(|statement| match statement {
+        naga::Statement::Store {
+            pointer: target,
+            value,
+        } if value.index() < before.index()
+            && (*target == pointer
+                || matches!(
+                    (&function.expressions[*target], &function.expressions[pointer]),
+                    (naga::Expression::LocalVariable(left), naga::Expression::LocalVariable(right))
+                        if left == right
+                )) =>
+        {
+            alpha_comparison(module, function, *value)
+        }
+        naga::Statement::If { accept, reject, .. } => {
+            stored_alpha_comparison(module, function, accept, pointer, before)
+                .or_else(|| stored_alpha_comparison(module, function, reject, pointer, before))
+        }
+        naga::Statement::Block(inner) => {
+            stored_alpha_comparison(module, function, inner, pointer, before)
+        }
+        _ => None,
+    })
 }
 
 /// Keep precisely the active Enhanced branches, including the depth caster variant.

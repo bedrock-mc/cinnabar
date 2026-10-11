@@ -297,7 +297,7 @@ fn limited_prepare(chunk_bytes: u64) -> Option<(World, impl System<In = (), Out 
     let mut world = World::new();
     let device = RenderDevice::from(native.device);
     let limits = bevy::render::settings::WgpuLimits {
-        max_storage_buffer_binding_size: chunk_bytes as u32,
+        max_storage_buffer_binding_size: chunk_bytes,
         ..device.limits()
     };
     world.insert_resource(gpu::ShapeGpu::new(&device, &limits));

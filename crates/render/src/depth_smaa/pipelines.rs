@@ -1,6 +1,5 @@
 use super::*;
 use crate::pipeline_warmup::{PrewarmPipelines, WarmView, WarmupIds};
-use bevy::image::BevyDefault;
 use bevy::{
     anti_alias::smaa::SmaaInfoUniform,
     asset::uuid_handle,
@@ -192,9 +191,9 @@ impl PrewarmPipelines for DepthSmaaPipelines {
         ids: &mut WarmupIds,
     ) -> Result<(), BevyError> {
         let format = if view.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         let pipelines = self.ids(cache, view.msaa.samples(), format);
         ids.extend([
@@ -257,8 +256,8 @@ fn stencil(write: bool) -> DepthStencilState {
     };
     DepthStencilState {
         format: TextureFormat::Stencil8,
-        depth_write_enabled: false,
-        depth_compare: CompareFunction::Always,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(CompareFunction::Always),
         stencil: StencilState {
             front: face,
             back: face,

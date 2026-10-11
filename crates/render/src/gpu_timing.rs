@@ -4,12 +4,14 @@
 //! marker is its own pass, and two per frame cost far less than two per timed node.
 
 mod categories;
+pub(crate) use categories::draw_categories;
 mod health;
+mod systems;
+pub(crate) use systems::profiled;
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
 #[cfg(feature = "tracy")]
 mod nodes;
-mod opaque;
 mod overdraw;
 mod pass;
 pub(crate) mod readback;
@@ -20,19 +22,15 @@ mod tracy;
 
 use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{Core3d, Core3dSystems},
     ecs::system::{SystemParamItem, lifetimeless::SRes},
     prelude::{
-        App, Commands, IntoScheduleConfigs, Plugin, Res, ResMut, Resource, Result, World, info,
+        App, Commands, IntoScheduleConfigs, IntoSystemSet, Plugin, Res, ResMut, Resource,
+        SystemSet, World, info,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        graph::CameraDriverLabel,
-        render_graph::{
-            EmptyNode, InternedRenderLabel, Node, NodeRunError, RenderGraph, RenderGraphContext,
-            RenderLabel, SlotInfo,
-        },
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
@@ -131,7 +129,12 @@ impl Plugin for GpuTimingPlugin {
             // and still reaches it after pipelined rendering moves the app to its own thread.
             .add_systems(
                 RenderStartup,
-                (init_gpu_timestamps, wrap_timed_nodes, add_readback_node),
+                (
+                    init_gpu_timestamps,
+                    install_builtin_timing,
+                    install_readback,
+                )
+                    .chain(),
             )
             .add_systems(
                 Render,
@@ -155,157 +158,74 @@ impl Plugin for GpuTimingPlugin {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, ExtractResource)]
 pub struct DetailedGpuTiming(pub bool);
 
-/// The timed Core3d nodes; absent labels are skipped.
-fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
-    use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
-    let mut nodes = vec![
-        (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
-        (Node3d::EndMainPass.intern(), RuntimeStage::GpuBlit),
-        (
-            crate::chunk::TerrainPassLabel.intern(),
-            RuntimeStage::GpuOpaque,
-        ),
-        (
-            Node3d::MainTransparentPass.intern(),
-            RuntimeStage::GpuTransparent,
-        ),
-        (UiWorldLabel.intern(), RuntimeStage::GpuUi),
-        (UiOverlayLabel.intern(), RuntimeStage::GpuUi),
-        (UiOverlayPostLabel.intern(), RuntimeStage::GpuUi),
-        (
-            crate::viewmodel_render::HandLabel.intern(),
-            RuntimeStage::GpuHand,
-        ),
-        (
-            crate::hand_rig_render::HandRigLabel.intern(),
-            RuntimeStage::GpuHand,
-        ),
-        (Node3d::Tonemapping.intern(), RuntimeStage::GpuTonemapping),
-        (Node3d::Fxaa.intern(), RuntimeStage::GpuFxaa),
-    ];
-    // Timestamps written just before presentation make macOS 26 flicker.
-    if !cfg!(target_os = "macos") {
-        nodes.push((Node3d::Upscaling.intern(), RuntimeStage::GpuBlit));
+/// Adds markers to stock post-processing systems while keeping their schedule boundaries.
+fn install_builtin_timing(world: &mut World) {
+    if world.contains_resource::<categories::CategoryProfiling>()
+        || cfg!(target_os = "macos")
+            && world
+                .get_resource::<RenderDevice>()
+                .is_some_and(|device| device.features().contains(wgpu::Features::TIMESTAMP_QUERY))
+    {
+        crate::scene_target::install_graph(world);
     }
-    #[cfg(feature = "enhanced")]
-    nodes.extend(crate::enhanced::graph::timed_nodes());
-    nodes
-}
-
-fn wrap_timed_nodes(world: &mut World) {
-    let mut replacement = categories::replacement(world);
-    let categories = replacement.is_some();
-    replacement = replacement.or_else(|| opaque::replacement(world));
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    for (label, stage) in timed_nodes() {
-        let Ok(state) = graph.get_node_state_mut(label) else {
-            continue;
-        };
-        // Replacing the node alone preserves its slots and edges.
-        let mut inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
-        if label == Node3d::MainOpaquePass.intern()
-            && categories::replaceable(&*inner, categories)
-            && let Some(replacement) = replacement.take()
-        {
-            inner = replacement;
-        }
-        state.node = Box::new(TimedNode { inner, stage });
-    }
-}
-
-/// Captures query ranges and copies ready samples after every camera.
-fn add_readback_node(world: &mut World) {
-    let Some(mut graph) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    if graph.get_node_state(CameraDriverLabel).is_err() {
-        return;
-    }
-    graph.add_node(ReadbackLabel, ReadbackNode);
-    graph.add_node_edge(CameraDriverLabel, ReadbackLabel);
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct ReadbackLabel;
-
-struct ReadbackNode;
-
-impl Node for ReadbackNode {
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
-            && (timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
-                || timestamps
-                    .slots
-                    .iter()
-                    .any(|slot| slot.state.load(Ordering::Acquire) == WRITTEN))
-        {
-            if cfg!(target_os = "macos")
-                || timestamps.draw_spans
-                || world.contains_resource::<categories::CategoryProfiling>()
+    let _ = world.try_schedule_scope(Core3d, |world, schedule| {
+        use bevy::anti_alias::fxaa::fxaa;
+        use bevy::core_pipeline::tonemapping::tonemapping;
+        use bevy::ecs::schedule::ScheduleCleanupPolicy;
+        for (set, system) in [
+            (
+                tonemapping.into_system_set().intern(),
+                profiled(
+                    tonemapping,
+                    Some(RuntimeStage::GpuTonemapping),
+                    "Tonemapping",
+                ),
+            ),
+            (
+                fxaa.into_system_set().intern(),
+                profiled(fxaa, Some(RuntimeStage::GpuFxaa), "Fxaa").after(tonemapping),
+            ),
+        ] {
+            if schedule
+                .remove_systems_in_set(set, world, ScheduleCleanupPolicy::RemoveSystemsOnly)
+                .is_ok_and(|count| count != 0)
             {
-                // Owned Metal passes, category passes and profiled draws allocate queries while
-                // recording deferred work. Finish that CPU work before choosing query ranges,
-                // retaining the buffers for one submission. Other frames keep their encoder.
-                let replacement = RenderContext::new(render_context.render_device().clone(), None);
-                let pending = std::mem::replace(render_context, replacement);
-                let (buffers, device, diagnostics) = pending.finish();
-                *render_context = RenderContext::new(device, diagnostics);
-                for buffer in buffers {
-                    render_context.add_command_buffer(buffer);
-                }
+                schedule.add_systems(system.in_set(Core3dSystems::PostProcess));
             }
-            timestamps.encode_readback(render_context.command_encoder());
         }
-        Ok(())
-    }
+    });
 }
 
-struct TimedNode {
-    inner: Box<dyn Node>,
-    stage: RuntimeStage,
+/// Resolves frame queries after all cameras have recorded their commands.
+fn install_readback(world: &mut World) {
+    let _ = world.try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
+        schedule.add_systems(
+            encode_readback
+                .after(bevy::core_pipeline::schedule::camera_driver)
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+        );
+    });
 }
 
-impl Node for TimedNode {
-    fn input(&self) -> Vec<SlotInfo> {
-        self.inner.input()
-    }
-
-    fn output(&self) -> Vec<SlotInfo> {
-        self.inner.output()
-    }
-
-    fn update(&mut self, world: &mut World) {
-        self.inner.update(world);
-    }
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        timed(world, render_context, self.stage, |render_context| {
-            self.inner.run(graph, render_context, world)
-        })
+/// Copies completed pass and draw queries into this frame's nonblocking readback slot.
+fn encode_readback(world: &World, mut context: RenderContext) {
+    if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
+        && (timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+            || timestamps
+                .slots
+                .iter()
+                .any(|slot| slot.state.load(Ordering::Acquire) == WRITTEN))
+    {
+        timestamps.encode_readback(context.command_encoder());
     }
 }
 
 /// Times `record` as one node-level span of `stage`, for nodes that record several passes.
 pub(crate) fn timed<'w, R>(
     world: &World,
-    context: &mut RenderContext<'w>,
+    context: &mut RenderContext<'w, '_>,
     stage: RuntimeStage,
-    record: impl FnOnce(&mut RenderContext<'w>) -> R,
+    record: impl FnOnce(&mut RenderContext<'w, '_>) -> R,
 ) -> R {
     let span = world
         .get_resource::<GpuTimestamps>()

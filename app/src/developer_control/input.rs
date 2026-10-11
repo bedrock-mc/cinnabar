@@ -274,6 +274,7 @@ fn inject(
                     x: wheel.x,
                     y: wheel.y,
                     window: entity,
+                    phase: bevy::input::touch::TouchPhase::Moved,
                 });
             }
             InputEvent::Button(Physical::Key(key_code), state) => {

@@ -82,14 +82,14 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
             .unwrap();
         let depth = descriptor.depth_stencil.unwrap();
         let target = descriptor.fragment.unwrap().targets[0].clone().unwrap();
-        assert!(depth.depth_write_enabled);
+        assert_eq!(depth.depth_write_enabled, Some(true));
         assert_eq!(target.blend, None);
         if material == assets::EntityRenderMaterial::DissolveDepth {
             assert_eq!(target.write_mask, ColorWrites::empty());
-            assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
         } else {
             assert_eq!(target.write_mask, ColorWrites::ALL);
-            assert_eq!(depth.depth_compare, CompareFunction::Equal);
+            assert_eq!(depth.depth_compare, Some(CompareFunction::Equal));
         }
     }
 }
@@ -128,7 +128,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
         assert_eq!(descriptor.primitive.cull_mode, cull.then_some(Face::Back));
         assert_eq!(
             descriptor.depth_stencil.unwrap().depth_write_enabled,
-            depth_write
+            Some(depth_write)
         );
         let actual = descriptor.fragment.unwrap().targets[0]
             .as_ref()
@@ -378,7 +378,7 @@ fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
 #[test]
 fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
     use bevy::prelude::Msaa;
-    use bevy::render::{render_resource::Specializer, view::ViewTarget};
+    use bevy::render::render_resource::Specializer;
 
     let layout = actor_bind_group_layout();
     crate::shader_test_support::assert_binding_visibility(
@@ -406,7 +406,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
                 .as_ref()
                 .unwrap()
                 .format,
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         );
     }
 
@@ -448,7 +448,10 @@ fn native_color_mask_alpha_controls_dye_not_opacity() {
             .blend
             .is_none()
     );
-    assert!(descriptor.depth_stencil.unwrap().depth_write_enabled);
+    assert_eq!(
+        descriptor.depth_stencil.unwrap().depth_write_enabled,
+        Some(true)
+    );
 }
 
 #[test]

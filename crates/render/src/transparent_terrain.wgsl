@@ -11,38 +11,26 @@
 struct VertexOutput {
     // Invariant like both families' outputs, so shared edges keep identical positions.
     @builtin(position) @invariant clip_position: vec4<f32>,
-    @location(0) @interpolate(flat) water: u32,
-    // Carried by both families.
-    @location(1) @interpolate(flat) current_texture: u32,
-    @location(2) @interpolate(flat) next_texture: u32,
-    @location(3) @interpolate(flat) frame_blend: f32,
-    @location(4) @interpolate(flat) two_sided: u32,
-    @location(5) world_position: vec3<f32>,
-    @location(6) lighting: vec3<f32>,
-    @location(7) normal: vec3<f32>,
+    @location(0) @interpolate(flat) routing: vec4<u32>,
+    @location(1) @interpolate(flat) textures: vec2<u32>,
+    @location(2) @interpolate(flat) material_biome: vec2<u32>,
+    @location(3) @interpolate(flat) frame_face: vec2<f32>,
+    @location(4) @interpolate(flat) local_position: vec3<f32>,
+    @location(5) @interpolate(flat) world_origin: vec3<f32>,
+    @location(6) world_position: vec3<f32>,
+    @location(7) lighting: vec3<f32>,
+    @location(8) normal: vec3<f32>,
 #ifdef ENHANCED
-    @location(8) sky_light: f32,
-    @location(9) ambient_occlusion: f32,
+    @location(9) sky_ao: vec2<f32>,
     @location(10) @interpolate(flat) surface_class: u32,
 #else
-    @location(8) native_light_levels: vec2<f32>,
+    @location(9) native_light_ao: vec3<f32>,
+    @location(10) @interpolate(flat) tint_gamma: vec3<f32>,
 #endif
-    // Transparent liquid.
     @location(11) liquid_uv: vec2<f32>,
     @location(12) water_tint: vec4<f32>,
-    @location(13) @interpolate(flat) depth_write_route: u32,
-    @location(14) @interpolate(flat) native_face_shade: f32,
-    // Transparent models; partially covered MSAA pixels must sample inside the authored quad.
-    @location(15) @interpolate(perspective, centroid) model_uv: vec2<f32>,
-    @location(16) @interpolate(flat) material_flags: u32,
-    @location(17) @interpolate(flat) local_position: vec3<f32>,
-    @location(18) @interpolate(flat) biome_record: u32,
-    @location(19) @interpolate(flat) visible: u32,
-    @location(20) @interpolate(flat) world_origin: vec3<f32>,
-#ifndef ENHANCED
-    @location(21) native_ao_face: f32,
-    @location(22) @interpolate(flat) tint_gamma: vec3<f32>,
-#endif
+    // Centroid sampling stays separate from the liquid's ordinary UV interpolation.
+    @location(13) @interpolate(perspective, centroid) model_uv: vec2<f32>,
 }
 
 @vertex
@@ -55,51 +43,50 @@ fn vertex(
         let draw_ref = liquid_draw_ref(vertex_index, instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
         let liquid = vertex_for_ref(draw_ref, vertex_index);
         out.clip_position = liquid.clip_position;
-        out.water = 1u;
-        out.current_texture = liquid.current_texture;
-        out.next_texture = liquid.next_texture;
-        out.frame_blend = liquid.frame_blend;
-        out.two_sided = liquid.two_sided;
+        out.routing.x = 1u;
+        out.textures.x = liquid.current_texture;
+        out.textures.y = liquid.next_texture;
+        out.frame_face.x = liquid.frame_blend;
+        out.routing.y = liquid.two_sided;
         out.world_position = liquid.world_position;
         out.lighting = liquid.lighting;
 #ifdef ENHANCED
         out.normal = liquid.normal;
-        out.sky_light = liquid.sky_light;
-        out.ambient_occlusion = liquid.ambient_occlusion;
+        out.sky_ao.x = liquid.sky_light;
+        out.sky_ao.y = liquid.ambient_occlusion;
         out.surface_class = liquid.surface_class;
 #else
-        out.native_light_levels = liquid.native_light_levels;
+        out.native_light_ao = vec3(liquid.native_light_levels, 0.0);
 #endif
         out.liquid_uv = liquid.uv;
         out.water_tint = liquid.water_tint;
-        out.depth_write_route = liquid.depth_write_route;
-        out.native_face_shade = liquid.native_face_shade;
+        out.routing.z = liquid.depth_write_route;
+        out.frame_face.y = liquid.native_face_shade;
         return out;
     }
     let model = model_vertex(vertex_index, instance_index);
     out.clip_position = model.clip_position;
-    out.water = 0u;
-    out.current_texture = model.current_texture;
-    out.next_texture = model.next_texture;
-    out.frame_blend = model.frame_blend;
-    out.two_sided = model.two_sided;
+    out.routing.x = 0u;
+    out.textures.x = model.current_texture;
+    out.textures.y = model.next_texture;
+    out.frame_face.x = model.frame_blend;
+    out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
     out.lighting = model.lighting;
     out.normal = model.normal;
 #ifdef ENHANCED
-    out.sky_light = model.sky_light;
-    out.ambient_occlusion = model.ambient_occlusion;
+    out.sky_ao.x = model.sky_light;
+    out.sky_ao.y = model.ambient_occlusion;
     out.surface_class = model.surface_class;
 #else
-    out.native_light_levels = model.native_light_levels;
-    out.native_ao_face = model.native_ao_face;
+    out.native_light_ao = vec3(model.native_light_levels, model.native_ao_face);
     out.tint_gamma = model.tint_gamma;
 #endif
     out.model_uv = model.uv;
-    out.material_flags = model.material_flags;
+    out.material_biome.x = model.material_flags;
     out.local_position = model.local_position;
-    out.biome_record = model.biome_record;
-    out.visible = model.visible;
+    out.material_biome.y = model.biome_record;
+    out.routing.w = model.visibility.x;
     out.world_origin = model.world_origin;
     return out;
 }
@@ -108,23 +95,23 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     var liquid: LiquidOutput;
     liquid.clip_position = in.clip_position;
     liquid.uv = in.liquid_uv;
-    liquid.current_texture = in.current_texture;
-    liquid.next_texture = in.next_texture;
-    liquid.frame_blend = in.frame_blend;
+    liquid.current_texture = in.textures.x;
+    liquid.next_texture = in.textures.y;
+    liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
     liquid.lighting = in.lighting;
 #ifdef ENHANCED
-    liquid.sky_light = in.sky_light;
-    liquid.ambient_occlusion = in.ambient_occlusion;
+    liquid.sky_light = in.sky_ao.x;
+    liquid.ambient_occlusion = in.sky_ao.y;
     liquid.normal = in.normal;
     liquid.surface_class = in.surface_class;
 #else
-    liquid.native_light_levels = in.native_light_levels;
+    liquid.native_light_levels = in.native_light_ao.xy;
 #endif
-    liquid.depth_write_route = in.depth_write_route;
+    liquid.depth_write_route = in.routing.z;
     liquid.world_position = in.world_position;
-    liquid.native_face_shade = in.native_face_shade;
-    liquid.two_sided = in.two_sided;
+    liquid.native_face_shade = in.frame_face.y;
+    liquid.two_sided = in.routing.y;
     return liquid;
 }
 
@@ -132,26 +119,26 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     var model: ModelOutput;
     model.clip_position = in.clip_position;
     model.uv = in.model_uv;
-    model.current_texture = in.current_texture;
+    model.current_texture = in.textures.x;
     model.normal = in.normal;
-    model.material_flags = in.material_flags;
+    model.material_flags = in.material_biome.x;
     model.local_position = in.local_position;
-    model.biome_record = in.biome_record;
-    model.next_texture = in.next_texture;
-    model.frame_blend = in.frame_blend;
-    model.visible = in.visible;
+    model.biome_record = in.material_biome.y;
+    model.next_texture = in.textures.y;
+    model.frame_blend = in.frame_face.x;
+    model.visibility.x = in.routing.w;
     model.lighting = in.lighting;
 #ifdef ENHANCED
-    model.sky_light = in.sky_light;
-    model.ambient_occlusion = in.ambient_occlusion;
+    model.sky_light = in.sky_ao.x;
+    model.ambient_occlusion = in.sky_ao.y;
     model.surface_class = in.surface_class;
 #else
-    model.native_light_levels = in.native_light_levels;
-    model.native_ao_face = in.native_ao_face;
+    model.native_light_levels = in.native_light_ao.xy;
+    model.native_ao_face = in.native_light_ao.z;
     model.tint_gamma = in.tint_gamma;
 #endif
     model.world_origin = in.world_origin;
-    model.two_sided = in.two_sided;
+    model.visibility.y = in.routing.y;
     model.world_position = in.world_position;
     return model;
 }
@@ -163,7 +150,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
     let liquid_dy = dpdy(in.liquid_uv);
     let model_dx = dpdx(in.model_uv);
     let model_dy = dpdy(in.model_uv);
-    if (in.water != 0u) {
+    if (in.routing.x != 0u) {
         // Packed liquid corners wind clockwise; this pipeline's front face is counter-clockwise.
         return shade_liquid(liquid_output(in), !front_facing, liquid_dx, liquid_dy);
     }

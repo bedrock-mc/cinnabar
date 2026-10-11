@@ -333,8 +333,9 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     if witness_request.enabled() {
         let visible = visible_entities
             .get::<ChunkRenderInstance>()
-            .iter()
-            .map(|&(entity, _)| entity)
+            .into_iter()
+            .flat_map(|class| class.iter_visible())
+            .map(|(entity, _)| *entity)
             .collect::<BTreeSet<_>>();
         let committed = runtime.state.committed();
         let drawn_directly = |key: SubChunkKey| {

@@ -5,17 +5,13 @@ use super::ModRenderScene;
 use crate::{RuntimeStage, scene_sampling::ResolvedDepth};
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
-    ecs::query::QueryItem,
+    core_pipeline::{Core3d, Core3dSystems},
     prelude::{
-        Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, Result, SubApp, Time,
-        UVec2, Vec4Swizzles, World, default, warn,
+        Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, SubApp, SystemSet,
+        Time, UVec2, Vec4Swizzles, World, default, warn,
     },
     render::{
         Render, RenderStartup, RenderSystems,
-        render_graph::{
-            NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-        },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
@@ -32,7 +28,7 @@ use bevy::{
 use mod_render::shader::{FRAGMENT_ENTRY, FRAME_UNIFORM_BYTES, VERTEX_ENTRY};
 use std::{collections::HashMap, sync::Mutex};
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, SystemSet)]
 pub struct ModPassLabel;
 
 /// Mirrors `ModFrame` in the sandbox prelude.
@@ -144,15 +140,15 @@ pub(crate) fn create_pipeline(
     format: TextureFormat,
 ) -> Option<RenderPipeline> {
     let wgpu_device = device.wgpu_device();
-    wgpu_device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let validation = wgpu_device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_and_validate_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("mod post pass"),
         source: wgpu::ShaderSource::Wgsl(shader.into()),
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("mod post pass"),
-        bind_group_layouts: &[layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(layout)],
+        immediate_size: 0,
     });
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mod post pass"),
@@ -172,10 +168,10 @@ pub(crate) fn create_pipeline(
             compilation_options: default(),
             targets: &[Some(color_target(format))],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
-    match bevy::tasks::block_on(wgpu_device.pop_error_scope()) {
+    match bevy::tasks::block_on(validation.pop()) {
         None => Some(pipeline),
         Some(error) => {
             warn!("mod post pass rejected by the device: {error}");
@@ -430,147 +426,142 @@ fn multisample_depth(depth: &ViewDepthTexture) -> bool {
 }
 
 pub(crate) fn install_graph(world: &mut World) {
-    let runner = ViewNodeRunner::new(ModPassNode, world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    if graph
-        .get_node_state(crate::ui_render::UiOverlayLabel)
-        .is_err()
-    {
+    if world.contains_resource::<ModPassInstalled>() {
         return;
     }
-    if graph.get_node_state(ModPassLabel).is_err() {
-        graph.add_node(ModPassLabel, runner);
-    }
-    let _ = graph.try_add_node_edge(Node3d::EndMainPassPostProcessing, ModPassLabel);
-    for overlay in [
-        crate::ui_render::UiOverlayLabel.intern(),
-        crate::ui_render::overlay::UiOverlayPostLabel.intern(),
-    ] {
-        let _ = graph.try_add_node_edge(ModPassLabel, overlay);
+    let installed = world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(mod_passes, None, "ModPassLabel")
+                    .in_set(ModPassLabel)
+                    .after(Core3dSystems::PostProcess)
+                    .before(crate::ui_render::UiOverlayLabel)
+                    .before(crate::ui_render::overlay::UiOverlayPostLabel),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(ModPassInstalled);
     }
 }
 
-struct ModPassNode;
+#[derive(Resource)]
+struct ModPassInstalled;
 
-impl ViewNode for ModPassNode {
-    type ViewQuery = (&'static ViewTarget, Option<&'static ViewDepthTexture>);
+type ModQuery = (&'static ViewTarget, Option<&'static ViewDepthTexture>);
 
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        (target, depth): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let (Some(scene), Some(gpu), Some(cache)) = (
-            world.get_resource::<ModRenderScene>(),
-            world.get_resource::<PassGpu>(),
-            world.get_resource::<PipelineCache>(),
-        ) else {
-            return Ok(());
-        };
-        if scene.passes.is_empty()
-            || world
-                .get_resource::<crate::PanoramaScene>()
-                .is_some_and(|panorama| !panorama.game_visible())
-        {
-            return Ok(());
-        }
-        let view = graph.view_entity();
-        let format = target.main_texture_format();
-        let resolved = gpu.resolved_depth.get(&view);
-        if let Some(resolved) = resolved {
-            resolved.draw(context, world, None);
-        }
-        let depth_view = resolved
-            .map(|resolved| &resolved.view)
-            .or_else(|| {
-                depth
-                    .filter(|depth| {
-                        depth
-                            .texture
-                            .usage()
-                            .contains(TextureUsages::TEXTURE_BINDING)
-                            && depth.texture.sample_count() == 1
-                    })
-                    .map(ViewDepthTexture::view)
-            })
-            .unwrap_or(&gpu.dummy_depth_view);
-        for (slot, pass) in scene.passes.iter().enumerate() {
-            let (true, Some(pipeline), Some(uniform)) = (
-                pass.enabled,
-                gpu.pipeline(pass.revision, format),
-                gpu.uniforms.get(&(view, pass.revision)),
-            ) else {
-                continue;
-            };
-            let stage =
-                RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)];
-            crate::gpu_timing::timed(world, context, stage, |context| {
-                let post = target.post_process_write();
-                let key = BindGroupKey {
-                    view,
-                    revision: pass.revision,
-                    source: post.source.id(),
-                    depth: pass.depth.then(|| depth_view.id()),
-                };
-                let mut bind_groups = gpu
-                    .bind_groups
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let bind_group = bind_groups.entry(key).or_insert_with(|| {
-                    let colour = [
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: uniform.as_entire_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: BindingResource::TextureView(post.source),
-                        },
-                        BindGroupEntry {
-                            binding: 2,
-                            resource: BindingResource::Sampler(&gpu.sampler),
-                        },
-                        BindGroupEntry {
-                            binding: 3,
-                            resource: BindingResource::TextureView(depth_view),
-                        },
-                    ];
-                    context.render_device().create_bind_group(
-                        "mod pass",
-                        &cache.get_bind_group_layout(&gpu.layouts[usize::from(pass.depth)]),
-                        &colour[..if pass.depth { 4 } else { 3 }],
-                    )
-                });
-                let bind_group = bind_group.clone();
-                drop(bind_groups);
-                let attachments = [Some(RenderPassColorAttachment {
-                    view: post.destination,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(default()),
-                        store: StoreOp::Store,
-                    },
-                })];
-                let mut render_pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-                    label: Some("mod post pass"),
-                    color_attachments: &attachments,
-                    depth_stencil_attachment: None,
-                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, stage),
-                    occlusion_query_set: None,
-                });
-                render_pass.set_render_pipeline(pipeline);
-                render_pass.set_bind_group(0, &bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
-            });
-        }
-        Ok(())
+/// Applies enabled mod passes in their authored order before the HUD.
+pub(crate) fn mod_passes(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<ModQuery>,
+    mut context: RenderContext,
+) -> bevy::ecs::error::Result {
+    let view_entity = query.entity();
+    let (target, depth) = query.into_inner();
+    let context = &mut context;
+    let (Some(scene), Some(gpu), Some(cache)) = (
+        world.get_resource::<ModRenderScene>(),
+        world.get_resource::<PassGpu>(),
+        world.get_resource::<PipelineCache>(),
+    ) else {
+        return Ok(());
+    };
+    if scene.passes.is_empty()
+        || world
+            .get_resource::<crate::PanoramaScene>()
+            .is_some_and(|panorama| !panorama.game_visible())
+    {
+        return Ok(());
     }
+    let view = view_entity;
+    let format = target.main_texture_format();
+    let resolved = gpu.resolved_depth.get(&view);
+    if let Some(resolved) = resolved {
+        resolved.draw(context, world, None);
+    }
+    let depth_view = resolved
+        .map(|resolved| &resolved.view)
+        .or_else(|| {
+            depth
+                .filter(|depth| {
+                    depth
+                        .texture
+                        .usage()
+                        .contains(TextureUsages::TEXTURE_BINDING)
+                        && depth.texture.sample_count() == 1
+                })
+                .map(ViewDepthTexture::view)
+        })
+        .unwrap_or(&gpu.dummy_depth_view);
+    for (slot, pass) in scene.passes.iter().enumerate() {
+        let (true, Some(pipeline), Some(uniform)) = (
+            pass.enabled,
+            gpu.pipeline(pass.revision, format),
+            gpu.uniforms.get(&(view, pass.revision)),
+        ) else {
+            continue;
+        };
+        let stage = RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)];
+        crate::gpu_timing::timed(world, context, stage, |context| {
+            let post = target.post_process_write();
+            let key = BindGroupKey {
+                view,
+                revision: pass.revision,
+                source: post.source.id(),
+                depth: pass.depth.then(|| depth_view.id()),
+            };
+            let mut bind_groups = gpu
+                .bind_groups
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let bind_group = bind_groups.entry(key).or_insert_with(|| {
+                let colour = [
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: uniform.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(post.source),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Sampler(&gpu.sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::TextureView(depth_view),
+                    },
+                ];
+                context.render_device().create_bind_group(
+                    "mod pass",
+                    &cache.get_bind_group_layout(&gpu.layouts[usize::from(pass.depth)]),
+                    &colour[..if pass.depth { 4 } else { 3 }],
+                )
+            });
+            let bind_group = bind_group.clone();
+            drop(bind_groups);
+            let attachments = [Some(RenderPassColorAttachment {
+                view: post.destination,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(default()),
+                    store: StoreOp::Store,
+                },
+            })];
+            let mut render_pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+                label: Some("mod post pass"),
+                color_attachments: &attachments,
+                depth_stencil_attachment: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, stage),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render_pass.set_render_pipeline(pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.draw(0..3, 0..1);
+        });
+    }
+    Ok(())
 }

@@ -159,7 +159,7 @@ const FIXTURE: &str = r#"
 @fragment fn edge_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let index = min(u32(position.x) / 23u, 10u);
     var vertex: VertexOutput;
-    vertex.visible = MODEL_VISIBLE | select(MODEL_BOUNDED_TILE,0u,index == 4u || index == 5u);
+    vertex.visibility.x = MODEL_VISIBLE | select(MODEL_BOUNDED_TILE,0u,index == 4u || index == 5u);
     vertex.uv = vec2(array(-0.001,1.0,0.5,0.5,-0.001,1.0,0.03125,13.0/16.0,0.5,0.0625,0.5)[index],
         select(0.25,0.53125,index == 6u));
     let gradient = array(0.0,0.0,8.0,exp2(2.5)/16.0,0.0,0.0,0.0,0.0,0.5,0.0,0.5)[index];

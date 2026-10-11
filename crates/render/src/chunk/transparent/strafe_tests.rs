@@ -1,11 +1,11 @@
 //! Strafing over an ocean drives the production transparent sort and queue systems.
 use super::*;
 use crate::chunk::draw::queue_transparent_chunks;
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::{
-    core_pipeline::core_3d::{Transparent3d, graph::Core3d},
+    core_pipeline::{Core3d, core_3d::Transparent3d},
     ecs::system::RunSystemOnce,
     render::{
-        render_graph::RenderSubGraph,
         render_phase::{AddRenderCommand, DrawFunctions, ViewSortedRenderPhases},
         render_resource::PipelineCache,
         renderer::{RenderAdapter, WgpuWrapper},
@@ -103,13 +103,13 @@ pub(super) fn fixture_with(shore_period: i32) -> Fixture {
 
 /// A square ocean `radius` sub-chunks around the origin, uploaded and ready to draw.
 pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -174,7 +174,7 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,
@@ -184,7 +184,7 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
             physical_viewport_size: None,
             physical_target_size: None,
             viewport: None,
-            render_graph: Core3d.intern(),
+            schedule: Core3d.intern(),
             order: 0,
             output_mode: default(),
             msaa_writeback: default(),
@@ -192,6 +192,7 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
+            compositing_space: None,
         },
         RenderVisibleEntities::default(),
     ));
@@ -233,7 +234,7 @@ pub(super) fn drawn_water(fixture: &Fixture) -> BTreeMap<SubChunkKey, Drawn> {
         .map(|allocation| (allocation.gpu.metadata_index, allocation.gpu.key))
         .collect::<HashMap<_, _>>();
     let mut drawn = BTreeMap::new();
-    for item in &phase.items {
+    for item in phase.items.values() {
         let (key, water) = if item.draw_function == sorted {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
             else {
@@ -351,11 +352,17 @@ impl Fixture {
         entity
             .get_mut::<RenderVisibleEntities>()
             .unwrap()
-            .entities
-            .insert(std::any::TypeId::of::<ChunkRenderInstance>(), visible);
+            .classes
+            .insert(
+                std::any::TypeId::of::<ChunkRenderInstance>(),
+                bevy::render::view::RenderVisibleEntitiesClass {
+                    entities_cpu_culling: visible,
+                    ..Default::default()
+                },
+            );
         world
             .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
-            .insert_or_clear(self.retained);
+            .prepare_for_new_frame(self.retained);
         world.run_system_once(prepare_transparent_sorts).unwrap();
         world.run_system_once(queue_transparent_chunks).unwrap();
         // A frame is long enough for the worker; keep its result for the next prepare.

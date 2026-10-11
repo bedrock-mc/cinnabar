@@ -341,8 +341,9 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
 /// Builds a resident model sort with a writable stream and one matching view.
 fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     use bevy::{
-        core_pipeline::core_3d::graph::Core3d,
-        render::{render_graph::RenderSubGraph, sync_world::MainEntity, view::RetainedViewEntity},
+        core_pipeline::Core3d,
+        ecs::schedule::ScheduleLabel,
+        render::{sync_world::MainEntity, view::RetainedViewEntity},
     };
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
@@ -382,9 +383,12 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     };
     app.world_mut().entity_mut(entity).insert(allocation);
     let mut visible = RenderVisibleEntities::default();
-    visible.entities.insert(
+    visible.classes.insert(
         std::any::TypeId::of::<ChunkRenderInstance>(),
-        vec![(entity, MainEntity::from(entity))],
+        bevy::render::view::RenderVisibleEntitiesClass {
+            entities_cpu_culling: vec![(entity, MainEntity::from(entity))],
+            ..Default::default()
+        },
     );
     app.world_mut().entity_mut(view).insert((
         ExtractedView {
@@ -392,7 +396,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,
@@ -402,7 +406,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
             physical_viewport_size: None,
             physical_target_size: None,
             viewport: None,
-            render_graph: Core3d.intern(),
+            schedule: Core3d.intern(),
             order: 0,
             output_mode: default(),
             msaa_writeback: default(),
@@ -410,6 +414,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
+            compositing_space: None,
         },
         visible,
     ));
@@ -689,8 +694,14 @@ fn model_groups_app(
     app.world_mut()
         .get_mut::<RenderVisibleEntities>(view)
         .unwrap()
-        .entities
-        .insert(std::any::TypeId::of::<ChunkRenderInstance>(), visible);
+        .classes
+        .insert(
+            std::any::TypeId::of::<ChunkRenderInstance>(),
+            bevy::render::view::RenderVisibleEntitiesClass {
+                entities_cpu_culling: visible,
+                ..Default::default()
+            },
+        );
     identities.sort_by_key(|identity| (identity.key, identity.draw_range.start));
     (app, view, identities)
 }

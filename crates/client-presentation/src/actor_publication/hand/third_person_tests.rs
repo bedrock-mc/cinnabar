@@ -111,7 +111,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 },
                 |_| {},
                 |_, _| (None, None),
-                params.get_mut(&mut world),
+                params.get_mut(&mut world).unwrap(),
             );
             world
                 .resource_mut::<super::super::ActorFrameState>()
@@ -135,7 +135,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 },
                 Some(swing),
                 |_, _, _, _| false,
-                params.get_mut(&mut world),
+                params.get_mut(&mut world).unwrap(),
             );
             let rig = stream.authority().actor_rig(1).unwrap();
             let actor = stream.authority().actor(1).unwrap();

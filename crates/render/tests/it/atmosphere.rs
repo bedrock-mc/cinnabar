@@ -32,6 +32,7 @@ fn test_view_uniform() -> ViewUniform {
         clip_from_view: Mat4::IDENTITY,
         view_from_clip: Mat4::IDENTITY,
         world_position: Vec3::ZERO,
+        lod_view_world_position: Vec3::ZERO,
         exposure: 1.0,
         viewport: Vec4::ZERO,
         main_pass_viewport: Vec4::ZERO,

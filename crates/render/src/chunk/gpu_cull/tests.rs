@@ -44,8 +44,9 @@ fn displaced_model_cull_record_keeps_outer_geometry_visible() {
         center: (low + high) * 0.5,
         half_extents: (high - low) * 0.5,
     };
-    let frustum =
-        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
+    let frustum = Frustum(bevy::math::primitives::ViewFrustum::from_clip_from_world(
+        &Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
+    ));
     assert!(
         frustum.intersects_obb_identity(&aabb),
         "GPU culling retains component displacement beyond a model overhang"
@@ -365,7 +366,9 @@ fn gpu_cull_cpu_stage_bench() {
         Transform::from_translation(eye).looking_to(Vec3::new(1.0, -0.2, 0.4), Vec3::Y);
     let clip_from_world = Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05)
         * world_from_view.to_matrix().inverse();
-    let frustum = bevy::camera::primitives::Frustum::from_clip_from_world(&clip_from_world);
+    let frustum = bevy::camera::primitives::Frustum(
+        bevy::math::primitives::ViewFrustum::from_clip_from_world(&clip_from_world),
+    );
     let mut query = world.query::<&GpuChunkAllocation>();
     query.update_archetypes(&world);
     let visible = entities

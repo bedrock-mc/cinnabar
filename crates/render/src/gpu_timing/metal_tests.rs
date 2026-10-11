@@ -2,9 +2,9 @@ use super::*;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::METAL,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let Ok(adapter) =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -49,6 +49,7 @@ fn draw_timestamp_triangle(
         depth_stencil_attachment: None,
         timestamp_writes: render_pass_timestamps(world, stage),
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     pass.set_pipeline(pipeline);
     pass.draw(0..3, 0..1);
@@ -93,7 +94,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
         primitive: Default::default(),
         depth_stencil: None,
         multisample: Default::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let texture = raw.create_texture(&wgpu::TextureDescriptor {
@@ -115,39 +116,45 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     timestamps.begin(|_| unreachable!("first frame has no readback"));
     let mut world = World::new();
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
-    let render_world = &world;
-    let first_view = view.clone();
-    let first_pipeline = pipeline.clone();
-    context.add_command_buffer_generation_task(move |device| {
-        let mut encoder = device.create_command_encoder(&Default::default());
-        draw_timestamp_triangle(
-            &mut encoder,
-            render_world,
-            &first_view,
-            &first_pipeline,
-            RuntimeStage::GpuOpaque,
-        );
-        encoder.finish()
-    });
-    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    super::tests::run_readback_node(&world, &mut context);
-    queue.submit(context.finish().0);
+    let pool = bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (_, mut buffers) =
+        crate::render_test_support::record(&mut world, &device, |render_world, context| {
+            let generated = pool.scope(|scope| {
+                scope.spawn(async {
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    draw_timestamp_triangle(
+                        &mut encoder,
+                        render_world,
+                        &view,
+                        &pipeline,
+                        RuntimeStage::GpuOpaque,
+                    );
+                    encoder.finish()
+                });
+            });
+            for buffer in generated {
+                context.add_command_buffer(buffer);
+            }
+        });
+    buffers.extend(super::tests::run_readback(&mut world, &device));
+    queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback(&queue);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     timestamps.begin(|_| panic!("completed samples still need a readback copy"));
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
-    draw_timestamp_triangle(
-        context.command_encoder(),
-        &world,
-        &view,
-        &pipeline,
-        RuntimeStage::GpuUi,
-    );
-    super::tests::run_readback_node(&world, &mut context);
-    queue.submit(context.finish().0);
+    let (_, mut buffers) =
+        crate::render_test_support::record(&mut world, &device, |world, context| {
+            draw_timestamp_triangle(
+                context.command_encoder(),
+                world,
+                &view,
+                &pipeline,
+                RuntimeStage::GpuUi,
+            );
+        });
+    buffers.extend(super::tests::run_readback(&mut world, &device));
+    queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback(&queue);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -219,24 +226,25 @@ fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
     timestamps.begin(|_| unreachable!("first frame has no readback"));
     let mut world = World::new();
     world.insert_resource(timestamps);
-    let mut context = RenderContext::new(device.clone(), None);
-    resolved.draw(&mut context, &world, None);
-    let next = RuntimeStage::GPU_MOD_PASSES[0];
-    resolved.set_stage(next);
-    resolved.draw(&mut context, &world, None);
-    let timestamps = world.resource::<GpuTimestamps>();
-    assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 2);
-    assert_eq!(timestamps.frame.draws.load(Ordering::Relaxed), 0);
-    assert_eq!(
-        timestamps.frame.stages[0].load(Ordering::Relaxed),
-        RuntimeStage::GpuShadows as u8
-    );
-    assert_eq!(
-        timestamps.frame.stages[1].load(Ordering::Relaxed),
-        next as u8
-    );
-    assert_eq!(resolved.view.id(), retained);
-    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    queue.submit(context.finish().0);
+    let (_, buffers) = crate::render_test_support::record(&mut world, &device, |world, context| {
+        resolved.draw(context, world, None);
+        let next = RuntimeStage::GPU_MOD_PASSES[0];
+        resolved.set_stage(next);
+        resolved.draw(context, world, None);
+        let timestamps = world.resource::<GpuTimestamps>();
+        assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 2);
+        assert_eq!(timestamps.frame.draws.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            timestamps.frame.stages[0].load(Ordering::Relaxed),
+            RuntimeStage::GpuShadows as u8
+        );
+        assert_eq!(
+            timestamps.frame.stages[1].load(Ordering::Relaxed),
+            next as u8
+        );
+        assert_eq!(resolved.view.id(), retained);
+        bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    });
+    queue.submit(buffers);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 }

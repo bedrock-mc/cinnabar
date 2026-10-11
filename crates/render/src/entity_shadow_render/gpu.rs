@@ -124,9 +124,9 @@ impl crate::pipeline_warmup::PrewarmPipelines for EntityShadowGpu {
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), bevy::prelude::BevyError> {
         let format = if view.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         ids.push(self.pipeline(cache, format.remove_srgb_suffix(), view.msaa.samples()));
         Ok(())
@@ -198,8 +198,8 @@ pub(super) fn pipeline_descriptor(
         },
         depth_stencil: Some(DepthStencilState {
             format: TextureFormat::Stencil8,
-            depth_write_enabled: false,
-            depth_compare: CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(CompareFunction::Always),
             stencil: StencilState {
                 front: shadow_stencil(),
                 back: shadow_stencil(),

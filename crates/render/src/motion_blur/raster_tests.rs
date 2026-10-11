@@ -20,7 +20,8 @@ struct Raster {
 
 impl Raster {
     fn new(name: &str) -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
             Ok(adapter) if adapter.get_info().backend != wgpu::Backend::Noop => adapter,
             Ok(_) | Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -120,7 +121,7 @@ impl Raster {
                     count: samples,
                     ..Default::default()
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
         let scene = self.texture(
@@ -209,6 +210,7 @@ impl Raster {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         }
         {
@@ -226,6 +228,7 @@ impl Raster {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);

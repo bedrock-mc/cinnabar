@@ -29,14 +29,14 @@ fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_
             assert_eq!(descriptor.multisample.count, msaa.samples());
             if depth_test || depth_write {
                 let depth = descriptor.depth_stencil.unwrap();
-                assert_eq!(depth.depth_write_enabled, depth_write);
+                assert_eq!(depth.depth_write_enabled, Some(depth_write));
                 assert_eq!(
                     depth.depth_compare,
-                    if depth_test {
+                    Some(if depth_test {
                         CompareFunction::GreaterEqual
                     } else {
                         CompareFunction::Always
-                    }
+                    })
                 );
                 assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
                 assert_eq!(
@@ -99,13 +99,13 @@ pub(super) fn binding_world() -> World {
         pin::pin,
         task::{Context, Poll, Waker},
     };
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions { enable: true },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(adapter)) =

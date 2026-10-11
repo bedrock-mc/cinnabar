@@ -10,11 +10,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use bevy::{
-    camera::Camera3dDepthTextureUsage,
+    camera::{Camera3dDepthTextureUsage, Hdr},
     ecs::system::lifetimeless::{Read, Write},
     post_process::bloom::Bloom,
     prelude::*,
-    render::{render_resource::TextureUsages, view::Hdr},
+    render::render_resource::TextureUsages,
 };
 use render::{EnhancedRenderPlugin, EnhancedRendering};
 use render_model::enhanced_rendering_enabled;

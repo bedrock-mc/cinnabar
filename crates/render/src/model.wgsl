@@ -33,22 +33,21 @@ struct VertexOutput {
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
-    @location(8) @interpolate(flat) visible: u32,
+    @location(8) @interpolate(flat) visibility: vec2<u32>,
     @location(9) lighting: vec3<f32>,
 #ifdef ENHANCED
     @location(11) sky_light: f32,
-    @location(15) ambient_occlusion: f32,
+    @location(14) ambient_occlusion: f32,
 #else
     @location(11) native_light_levels: vec2<f32>,
-    @location(15) native_ao_face: f32,
+    @location(14) native_ao_face: f32,
 #endif
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
-    @location(12) @interpolate(flat) two_sided: u32,
-    @location(13) world_position: vec3<f32>,
+    @location(12) world_position: vec3<f32>,
 #ifdef ENHANCED
-    @location(14) @interpolate(flat) surface_class: u32,
+    @location(13) @interpolate(flat) surface_class: u32,
 #else
-    @location(14) @interpolate(flat) tint_gamma: vec3<f32>,
+    @location(13) @interpolate(flat) tint_gamma: vec3<f32>,
 #endif
 }
 
@@ -68,7 +67,7 @@ fn invisible_vertex() -> VertexOutput {
     invisible.biome_record = 0u;
     invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
-    invisible.visible = 0u;
+    invisible.visibility.x = 0u;
     invisible.lighting = vec3(0.0);
 #ifdef ENHANCED
     invisible.sky_light = 0.0;
@@ -79,7 +78,7 @@ fn invisible_vertex() -> VertexOutput {
     invisible.native_ao_face = 0.0;
     invisible.tint_gamma = vec3(1.0);
 #endif
-    invisible.two_sided = 0u;
+    invisible.visibility.y = 0u;
     invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
     return invisible;
@@ -273,7 +272,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.visible = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
+    out.visibility.x = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
@@ -288,7 +287,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_ao_face = terrain_shade;
 #endif
-    out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
+    out.visibility.y = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(origin.value.xyz);
 #ifndef ENHANCED
@@ -368,7 +367,7 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
 
 // Bamboo's atlas rectangle includes replicated border texels. Other model UVs retain their addressing.
 fn sample_model_ref(in: VertexOutput, texture_ref: u32, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    if ((in.visible & MODEL_BOUNDED_TILE) != 0u) {
+    if ((in.visibility.x & MODEL_BOUNDED_TILE) != 0u) {
         return sample_ref(texture_ref, in.uv, dx, dy);
     }
     let layer = i32(texture_ref & 0x7ffu);
@@ -447,8 +446,8 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     // Both views already hold the working colour space, so frames blend before the alpha test.
@@ -504,8 +503,8 @@ fn fragment_blend(
 // Blended transparent model colour; `dx`/`dy` are the UV derivatives, taken by the caller in
 // uniform control flow.
 fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
@@ -544,6 +543,6 @@ fn fragment_shadow(in: VertexOutput) {
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
-    if (in.visible == 0u || ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < MODEL_ALPHA_THRESHOLD)) { discard; }
+    if (in.visibility.x == 0u || ((in.material_flags & MATERIAL_ALPHA_CUTOUT_FLAG) != 0u && sampled.a < MODEL_ALPHA_THRESHOLD)) { discard; }
 }
 #endif

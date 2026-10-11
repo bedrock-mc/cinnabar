@@ -453,7 +453,7 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     );
     assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
-    assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
+    assert!(shader.contains("if (!front_facing && in.visibility.y == 0u) { discard; }"));
     assert!(!shader.contains("face_light"));
 }
 
@@ -466,7 +466,7 @@ fn transparent_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     assert!(plugin.contains("packed transparent terrain pipeline"));
     assert!(plugin.contains("terrain_blend::apply(&mut transparent_descriptor)"));
     assert!(blend.contains("target.blend = Some(BlendState::ALPHA_BLENDING)"));
-    assert!(blend.contains("depth.depth_write_enabled = true"));
+    assert!(blend.contains("depth.depth_write_enabled = Some(true)"));
 
     let blend_start = shader
         .find("fn shade_blend(")
@@ -736,11 +736,13 @@ fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
     panic!("unterminated {name} body")
 }
 
+/// Counts ordinary render entities separately from Bevy resource entities.
 fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(ChunkRenderPlugin::new(1));
-    let entity_count_before = app.world().entities().len();
+    let mut ordinary_entities = app.world_mut().query_filtered::<bevy::prelude::Entity, bevy::prelude::Without<bevy::ecs::resource::IsResource>>();
+    let entity_count_before = ordinary_entities.iter(app.world()).count();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert(
@@ -779,7 +781,7 @@ fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Ve
         })
         .collect::<Vec<_>>();
     (
-        app.world().entities().len() - entity_count_before,
+        u32::try_from(ordinary_entities.iter(app.world()).count() - entity_count_before).unwrap(),
         entities.len(),
         component_names,
         has_mesh3d,

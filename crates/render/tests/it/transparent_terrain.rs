@@ -275,8 +275,8 @@ impl Fixture {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&self.layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&self.layout)],
+                immediate_size: 0,
             });
         gpu.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -295,8 +295,8 @@ impl Fixture {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::GreaterEqual,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -313,7 +313,7 @@ impl Fixture {
                             | wgpu::ColorWrites::BLUE,
                     })],
                 }),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
     }
@@ -381,6 +381,7 @@ impl Fixture {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_bind_group(0, &self.group, &[]);
             pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);

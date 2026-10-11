@@ -663,7 +663,7 @@ fn fixture_app() -> (App, Entity) {
     configure_client_frame_schedule(&mut app);
     configure_client_authority_systems(&mut app);
     let (network, command_receiver) = NetworkHandle::with_command_capacity(64);
-    app.insert_non_send_resource(command_receiver);
+    app.insert_non_send(command_receiver);
     app.add_message::<KeyboardInput>()
         .add_message::<AppExit>()
         .insert_resource(ClientWorld {

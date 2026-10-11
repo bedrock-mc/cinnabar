@@ -1,7 +1,7 @@
 //! Bounded native render-graph coverage using the installed bamboo geometry and art.
 use bevy::{
     asset::AssetPlugin,
-    camera::{Camera3dDepthTextureUsage, CameraPlugin, RenderTarget},
+    camera::{Camera3dDepthTextureUsage, CameraPlugin, Hdr, RenderTarget},
     core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
     mesh::MeshPlugin,
     post_process::{PostProcessPlugin, bloom::Bloom},
@@ -11,7 +11,6 @@ use bevy::{
         gpu_readback::{Readback, ReadbackComplete},
         render_resource::*,
         renderer::RenderDevice,
-        view::Hdr,
     },
     window::WindowPlugin,
 };
