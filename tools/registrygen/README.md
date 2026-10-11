@@ -7,7 +7,10 @@ missing states or mismatched names. Registry and property catalogs must come
 from the same source lock.
 
 Rendering families, model selectors, retail admission, carrier encodings and
-movement rules belong to Cinnabar. The reviewed protocol-1001 block carrier is
+movement rules belong to Cinnabar. `crates/assets/data/block-family-routing.json`
+owns crossed-plane routes that older carriers did not record. The generator
+writes those families, and historical carrier admission uses the same catalog.
+The pack compiler consumes the recorded family without repairing it by name. The reviewed protocol-1001 block carrier is
 still the rendering-policy baseline. Its inherited collision and light facts
 are replaced by exact state lookups in the shared catalog. Historical
 protocol-1001 generation remains available for reproducing that baseline.

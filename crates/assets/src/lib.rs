@@ -20,6 +20,7 @@ mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
+mod family_routing;
 mod fire;
 mod fog_layers;
 mod fog_transition;
