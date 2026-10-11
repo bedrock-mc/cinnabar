@@ -19,6 +19,19 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
 - Startup carrier selection remains in `app/src/asset_startup`.
 
+## Runtime pack ownership
+
+`pack-runtime` owns server-pack admission, custom-block physics preparation, entity
+compilation and its cache, language and texture preparation, and reload dependency
+comparison. It has no Bevy dependency. `client-session` owns transport and join
+bootstrap, receiving prepared block facts and an opaque presentation payload from
+its caller; it has no dependency on `pack-compiler` or `pack-runtime`.
+
+The app retains renderer, UI, audio, and world publication adapters and their
+subscriber orchestration. Block visuals still use renderer-owned material flags,
+and item, glyph, audio, and artwork payloads retain their existing owners. These
+moves do not change the open behavior or performance acceptance gates.
+
 ## Login identity
 
 - New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
