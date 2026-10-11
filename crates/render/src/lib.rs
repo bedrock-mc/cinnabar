@@ -60,9 +60,11 @@ pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
 mod native_trig;
 pub use native_sunlight::AtmosphereViewInputs;
+mod pack_skybox;
 mod panorama;
 mod panorama_render;
 mod particle_render;
+pub use pack_skybox::SkyboxSettings;
 mod pipeline_warmup;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]

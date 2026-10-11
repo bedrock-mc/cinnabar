@@ -184,6 +184,7 @@ pub(crate) fn update_atmosphere_frame(
     preferences: (
         Option<Res<crate::menu::MenuRuntime>>,
         Option<ResMut<render::CloudVisibility>>,
+        Option<ResMut<render::SkyboxSettings>>,
     ),
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
@@ -198,12 +199,25 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
-    let (menu, clouds) = preferences;
+    let (menu, clouds, skybox) = preferences;
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
             .is_none_or(|options| options.value("render_clouds") != 0);
+    }
+    if let Some(mut skybox) = skybox {
+        skybox.visible = options
+            .as_ref()
+            .is_none_or(|options| options.value("fancy_skies") != 0)
+            && !vision.sky_hidden;
+        skybox.native_vertical_offset = options.as_ref().map_or_else(
+            || settings.user_settings_update().1.video.native_skybox_offset,
+            |options| {
+                options.value(launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name)
+                    != 0
+            },
+        );
     }
     let darkness_scale = options
         .as_ref()

@@ -132,6 +132,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 MOTION_BLUR_OPTION.name,
                 "smooth_lighting",
                 "fancy_skies",
+                launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name,
                 "render_distance",
             ],
         )?;

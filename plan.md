@@ -4599,6 +4599,19 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     procedural disks establish the integration slice, not vanilla parity;
     asset-backed GPU hookup, precipitation visuals, underwater/lava medium fog,
     and live reference acceptance remain open.
+  - [x] Render numbered PNG/TGA/JPEG pack skyboxes in the Overworld and End.
+    Resolve pack priority before image extensions, retain stock sky beneath
+    absent faces, and cache the active dimension's textures across frames.
+    Preserve authored colours across time/weather, encoded-channel linear
+    filtering, clamped face edges, alpha blending and finite cube depth without
+    depth writes. Fancy Skies and active blindness/darkness govern visibility;
+    camera height and water/lava do not change the cube's projection.
+    **Bedrock Skybox Vertical Offset** is a persisted Video option, on by
+    default; turning it off centers the Overworld cube without guessing pack
+    compensation. GPU regressions cover face orientation, seams, both offset
+    states, transparency, foreground occlusion and reloads. Existing raster
+    size/allocation bounds remain; HDR and compressed KTX faces are unsupported.
+    Broader calibrated atmosphere parity and enhanced rendering remain open.
   - [x] Pin and carry the exact vanilla sun, moon-phase atlas, and cloud texture
     in an independent bounded `MCBEATM1` runtime blob. The compiler requires the
     exact tracked Mojang manifest fields, canonical LF bytes (accepting only a

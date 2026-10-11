@@ -12,21 +12,43 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     );
     for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
         for hdr in [false, true] {
-            for stars in [false, true] {
+            for (stars, skybox) in [(false, false), (true, false), (false, true)] {
                 let id = pipeline
                     .variants
-                    .specialize(&cache, AtmospherePipelineKey { msaa, hdr, stars })
+                    .specialize(
+                        &cache,
+                        AtmospherePipelineKey {
+                            msaa,
+                            hdr,
+                            stars,
+                            skybox,
+                        },
+                    )
                     .unwrap();
                 let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
                 assert_eq!(descriptor.multisample.count, msaa.samples());
                 let depth = descriptor.depth_stencil.as_ref().unwrap();
                 assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-                assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+                assert_eq!(
+                    depth.depth_compare,
+                    if skybox {
+                        CompareFunction::Greater
+                    } else {
+                        CompareFunction::GreaterEqual
+                    }
+                );
                 assert!(!depth.depth_write_enabled);
                 let colour = descriptor.fragment.as_ref().unwrap().targets[0]
                     .as_ref()
                     .unwrap();
-                assert_eq!(colour.blend, stars.then(native_star_blend));
+                assert_eq!(
+                    colour.blend,
+                    if skybox {
+                        Some(BlendState::ALPHA_BLENDING)
+                    } else {
+                        stars.then(native_star_blend)
+                    }
+                );
                 assert_eq!(
                     colour.write_mask,
                     ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE
