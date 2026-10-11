@@ -28,7 +28,7 @@ pub use triggers::{
     face_toward, is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
     terrain_request,
 };
-pub use world::{EmptyWorld, Fluid, ParticleWorld};
+pub use world::{BlockIdentity, BlockList, EmptyWorld, Fluid, ParticleWorld};
 
 #[cfg(test)]
 mod eating_tests;

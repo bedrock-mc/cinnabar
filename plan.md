@@ -7180,3 +7180,11 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+### Authored particle lifecycle fields
+
+The core block-membership, expiration-expression, and optional parametric-field
+contracts have been checked for exact namespaced identifiers. Matched headless
+GPU fixtures cover expiry, direction, and an unchanged control. Alias and unresolved
+authored-name handling, end-to-end world-query binding, and emitter-frame integration
+remain incomplete. These fixtures do not close the full parity gate.
