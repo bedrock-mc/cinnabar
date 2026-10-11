@@ -21,6 +21,11 @@ use super::Source;
 /// Neighbor texels overlap tile borders so bilinear filtering crosses them unchanged.
 const INTERIOR: u32 = MAX_UI_TEXTURE_SIDE - 2;
 
+/// Whether the complete source fits one tile without an internal sampling boundary.
+pub(super) fn fits_single_tile(size: [u32; 2]) -> bool {
+    size.into_iter().all(|side| side <= INTERIOR)
+}
+
 #[derive(Clone, Copy)]
 struct TileSpec {
     origin: [u32; 2],
@@ -365,6 +370,15 @@ impl NativeSheets {
             first += sheet.tiles.len();
         }
         None
+    }
+
+    /// Original coordinates for consumers whose image fits one sprite page.
+    pub(super) fn sprite(&self, key: &str) -> Option<(usize, [f32; 4])> {
+        let (sheet, first) = self.get(key)?;
+        (sheet.tiles.len() == 1).then_some((
+            first,
+            [0.0, 0.0, sheet.size[0] as f32, sheet.size[1] as f32],
+        ))
     }
 
     /// Immutable original pages in the same order their sheet references address.

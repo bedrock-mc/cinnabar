@@ -610,6 +610,8 @@ these changes do not close the movement, camera, or actor parity gates.
 - UI images use the existing 64 MiB admitted-file envelope. Original tiles are
   bounded to 96 MiB across eight pages, decoded once on a shared worker and
   released on pack replacement. Images beyond those limits remain unsupported.
+  Consumers limited to one sprite retain fitted artwork for images spanning
+  multiple tiles; exact multi-page icon rendering remains incomplete.
 - Original pixel, loop, reload and residency-budget regressions pass. The retained
   pack inventory renders moving frames and repeats two loops in offline snapshots.
   Full-client server acceptance and hardware upload/frame budgets remain open;

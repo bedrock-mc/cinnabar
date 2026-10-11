@@ -415,6 +415,11 @@ impl ServerAtlas {
         self.native.get(key).is_some()
     }
 
+    /// The original image when its complete extent is representable by one sprite.
+    pub(super) fn native_sprite(&self, key: &str) -> Option<(usize, [f32; 4])> {
+        self.native.sprite(key)
+    }
+
     /// Original-image fragments sampled by the authored UV rectangle.
     pub(super) fn native_quads(
         &self,
@@ -585,8 +590,13 @@ impl ServerAtlas {
             if self.is_native_sheet(key) {
                 if let Some(source) = self.image(key).or_else(|| self.fallback(key)) {
                     self.native.request(key, &source);
+                    // One-sprite consumers share original pages when possible and retain their
+                    // bounded fitted artwork fallback for images spanning multiple tiles.
+                    if native_sheets::fits_single_tile(source.size) || !preview_allowed(source.size)
+                    {
+                        continue;
+                    }
                 }
-                continue;
             }
             match self.resident.get(key) {
                 Some(texture) => self.pages[usize::from(texture.page)].used = self.clock,
@@ -776,12 +786,15 @@ fn fitted(size: [u32; 2]) -> [u32; 2] {
     size.map(|side| (u64::from(side) * u64::from(PAGE_SIDE) / u64::from(largest)).max(1) as u32)
 }
 
+/// Keeps fitted compatibility images within their existing decoded-area envelope.
+fn preview_allowed(size: [u32; 2]) -> bool {
+    u64::from(size[0]) * u64::from(size[1]) <= u64::from(render_model::MAX_UI_TEXTURE_SIDE).pow(2)
+}
+
 /// RGBA8 pixels of a bounded image at `size`, or `None` when undecodable.
 fn decode(bytes: &[u8], size: [u32; 2]) -> Option<Vec<u8>> {
     let original = dimensions(bytes)?;
-    if u64::from(original[0]) * u64::from(original[1])
-        > u64::from(render_model::MAX_UI_TEXTURE_SIDE).pow(2)
-    {
+    if !preview_allowed(original) {
         return None;
     }
     let mut reader = reader(bytes)?;

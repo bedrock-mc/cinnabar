@@ -210,6 +210,12 @@ impl Textures<'_> {
             return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         let key = self.canonical(path);
+        if self.native_sheet(path)
+            && let Some((offset, rect)) = self.atlas.native_sprite(&key)
+        {
+            let page = self.native_first_page()?.checked_add(offset)?;
+            return Some((u16::try_from(page).ok()?, rect));
+        }
         if let Some(art) = self.set.full_res.get(key.as_ref()) {
             let [u0, v0, u1, v1] = art.uv.map(f32::from);
             return Some((art.page, [u0, v0, u1 - u0, v1 - v0]));
@@ -260,6 +266,15 @@ impl Textures<'_> {
             && self.atlas.is_native_sheet(&self.canonical(path))
     }
 
+    /// The original-image slots rebased into this presentation's logical catalog.
+    fn native_first_page(&self) -> Option<usize> {
+        Some(
+            usize::from(self.set.server_page)
+                .checked_sub(super::super::dynamic_textures::SERVER_UI_PAGE)?
+                + render_model::UI_NATIVE_SHEET_PAGE_OFFSET,
+        )
+    }
+
     /// Maps a virtual image to its reserved logical pages without changing source UV units.
     pub(super) fn native_quads(
         &self,
@@ -268,9 +283,7 @@ impl Textures<'_> {
         dest: [f32; 4],
     ) -> Option<Vec<super::server_pack::native_sheets::Quad>> {
         let mut quads = self.atlas.native_quads(&self.canonical(path), uv, dest)?;
-        let first = usize::from(self.set.server_page)
-            .checked_sub(super::super::dynamic_textures::SERVER_UI_PAGE)?
-            + render_model::UI_NATIVE_SHEET_PAGE_OFFSET;
+        let first = self.native_first_page()?;
         for quad in &mut quads {
             quad.page += first;
         }
