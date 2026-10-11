@@ -1,4 +1,5 @@
 use launcher::dressing_room::SkinModel;
+use std::fs;
 use {
     super::*,
     launcher::menu::{MenuAction, MenuField, MenuScreen},

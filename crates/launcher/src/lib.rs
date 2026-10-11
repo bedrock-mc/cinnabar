@@ -15,6 +15,7 @@ pub const PRODUCT_NAME: &str = product_name!();
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod accounts;
+pub mod branding;
 pub mod dressing_room;
 pub mod global_resources;
 pub mod install_layout;
@@ -34,7 +35,6 @@ pub fn window_title(override_title: Option<&str>) -> String {
 }
 
 #[cfg(test)]
-pub mod branding;
 mod embedding_tests {
     #[test]
     fn window_title_accepts_nonempty_override_and_keeps_default() {

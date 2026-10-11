@@ -1,11 +1,8 @@
 //! Generation-fenced join progress independent of the menu and process owner.
 
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, time::Instant};
 
-use bridge::{CORE_START_TIMEOUT, bridge_endpoint_exists};
+use bridge::bridge_endpoint_exists;
 
 /// A join still provisioning while the connecting screen shows; polled each frame.
 #[derive(Debug)]
@@ -117,6 +114,7 @@ impl<D> JoinAttempt<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bridge::CORE_START_TIMEOUT;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},

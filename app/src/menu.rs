@@ -62,7 +62,6 @@ use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
-use launcher_host::core_process::CoreProcessGuard;
 
 use launcher::menu::view::{
     JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
@@ -73,7 +72,6 @@ use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
 
 use std::{
-    fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };

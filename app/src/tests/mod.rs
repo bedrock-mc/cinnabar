@@ -9,7 +9,6 @@ use bevy::prelude::{
 };
 use bevy::window::WindowCloseRequested;
 use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
-use launcher_host::core_process::CoreProcessGuard;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
