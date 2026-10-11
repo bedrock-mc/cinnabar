@@ -50,7 +50,7 @@ fn captured_entity_stack_retains_animation_payloads() {
     };
     let vanilla = assets::RuntimeEntityAssets::decode(&vanilla_bytes).unwrap();
     let view = resource_pack::LayeredPackView::new(stack);
-    let files = super::collect::collect_files(&view, Some(&refs), None);
+    let files = pack_runtime::entity_pack::collect::collect_files(&view, Some(&refs), None);
     let compiled = pack_compiler::compile_entity_pack(files.clone())
         .unwrap()
         .expect("captured stack contains entity assets")
@@ -147,7 +147,7 @@ fn report_title_rigs(
     let description = files
         .iter()
         .filter(|(path, _)| path.starts_with("entity/"))
-        .filter_map(|(_, bytes)| super::super::resource_packs::parse_pack_json(bytes))
+        .filter_map(|(_, bytes)| pack_runtime::pack_textures::parse_pack_json(bytes))
         .map(|value| value["minecraft:client_entity"]["description"].clone())
         .find(|description| description["identifier"] == "hivehub:game_hologram")
         .expect("captured stack contains the game hologram definition");
@@ -155,7 +155,7 @@ fn report_title_rigs(
     let plate = files
         .iter()
         .filter(|(path, _)| path.starts_with("render_controllers/"))
-        .filter_map(|(_, bytes)| super::super::resource_packs::parse_pack_json(bytes))
+        .filter_map(|(_, bytes)| pack_runtime::pack_textures::parse_pack_json(bytes))
         .find_map(|value| value["render_controllers"].get(plate_controller).cloned())
         .expect("captured stack contains the hologram plate controller");
     let expected = plate["arrays"]["geometries"]["array.geometries"]
@@ -367,7 +367,7 @@ fn report_local_pack_entities() {
         let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let files = super::collect::collect_files(&view, refs.as_ref(), None);
+        let files = pack_runtime::entity_pack::collect::collect_files(&view, refs.as_ref(), None);
         let entity_files = files
             .iter()
             .filter(|(p, _)| p.starts_with("entity/"))
@@ -411,7 +411,7 @@ fn report_local_pack_entities() {
 /// Counts entity references the pack's own files cannot satisfy (vanilla-defined or missing).
 fn diagnose_references(name: &str, files: &[(Box<str>, Vec<u8>)]) {
     use std::collections::{BTreeMap, BTreeSet};
-    let json = |bytes: &[u8]| super::super::resource_packs::parse_pack_json(bytes);
+    let json = |bytes: &[u8]| pack_runtime::pack_textures::parse_pack_json(bytes);
     let mut defined = BTreeSet::new();
     let paths = files
         .iter()

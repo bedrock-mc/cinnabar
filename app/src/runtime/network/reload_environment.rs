@@ -1,8 +1,8 @@
 //! Cinnabar extension: prepare optional environment layers for a live pack swap.
 
-use super::resource_packs::{decode_pack_texture, parse_pack_json};
 use assets::{AtmosphereTexture, BiomeVisualProfile};
 use bevy::prelude::Resource;
+use pack_runtime::pack_textures::{decode_pack_texture, parse_pack_json};
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -37,7 +37,7 @@ impl EnvironmentBase {
 pub(super) struct PreparedEnvironment {
     pub(super) atmosphere: Option<render::AtmosphereTextureAssets>,
     pub(super) particles: Option<::particles::ParticleSystem>,
-    pub(super) dependencies: super::pack_reload_diff::Dependencies,
+    pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
 }
 
 /// Decodes and builds environment resources entirely on the pack reload worker.
@@ -47,7 +47,7 @@ pub(super) fn prepare_environment(
     atmosphere_changed: bool,
     particles_changed: bool,
 ) -> PreparedEnvironment {
-    use super::pack_reload_diff::{Subscriber, compile};
+    use pack_runtime::reload_diff::{Subscriber, compile};
     let stack = view.shared_stack();
     let mut dependencies = Default::default();
     let atmosphere = atmosphere_changed.then(|| {
@@ -78,7 +78,7 @@ fn prepare_atmosphere(
     let mut textures = Vec::new();
     let mut digest = Sha256::new();
     digest.update(base.identity());
-    let skyboxes = client_session::pack_skybox::prepare_pack_skyboxes(view);
+    let skyboxes = pack_runtime::pack_skybox::prepare_pack_skyboxes(view);
     let has_skyboxes = skyboxes.iter().any(|cube| cube.face_mask() != 0);
     if has_skyboxes {
         digest.update(b"numbered pack skybox\0");

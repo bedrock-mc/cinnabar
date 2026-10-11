@@ -560,7 +560,7 @@ pub(crate) fn login_settings(
     input: Option<&crate::semantic_controls::SemanticInputSnapshot>,
 ) -> protocol::LoginSettings {
     protocol::LoginSettings {
-        language_code: client_session::pack_language::active_language_code(),
+        language_code: pack_runtime::pack_language::active_language_code(),
         input_mode: input
             .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
             .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {

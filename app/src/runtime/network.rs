@@ -60,14 +60,13 @@ pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
+use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::reuse::CompiledStacks;
 pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
-    BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
-    classify_bootstrap_generation, compiled_stacks, set_active_language, set_base_material_keys,
-    set_base_terrain_catalog, set_compile_cache_dir,
+    ResourcePackAdmissionState, compiled_stacks, set_base_material_keys,
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
@@ -953,7 +952,8 @@ pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;
 mod pack_reload;
-mod pack_reload_diff;
+#[cfg(test)]
+mod pack_reload_diff_tests;
 mod pack_reload_geometry;
 #[cfg(test)]
 mod pack_reload_tests;

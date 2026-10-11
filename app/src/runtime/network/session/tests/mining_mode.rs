@@ -1,9 +1,7 @@
 use super::*;
-use crate::runtime::network::{
-    drain_network_controls, publish_bootstrap_inventory,
-    resource_packs::{BootstrapGenerationDisposition, classify_bootstrap_generation},
-};
+use crate::runtime::network::{drain_network_controls, publish_bootstrap_inventory};
 use client_ui::ui_runtime::UiRuntime;
+use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 
 #[test]
 fn mining_mode_requires_current_complete_bootstrap_and_failed_repeat_stays_unknown() {

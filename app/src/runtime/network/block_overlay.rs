@@ -28,10 +28,10 @@ use self::{
     condition::StateVisual,
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
     textures::{
-        DecodedTexture, TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max,
-        source_mip_chain,
+        TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max, source_mip_chain,
     },
 };
+use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";

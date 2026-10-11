@@ -92,7 +92,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
         let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let files = super::collect::collect_files(&view, refs.as_ref(), None);
+        let files = pack_runtime::entity_pack::collect::collect_files(&view, refs.as_ref(), None);
         let Ok(Some(compiled)) = pack_compiler::compile_actor_pack(files) else {
             continue;
         };

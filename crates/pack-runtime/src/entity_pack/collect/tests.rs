@@ -19,10 +19,10 @@ fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
     )
     .unwrap();
     let texture = "textures/models/armor/fixture.png";
-    let view =
-        resource_pack::LayeredPackView::tracked(super::super::super::pack_reload_tests::stack(&[
-            (texture, b"pack pixels"),
-        ]));
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        texture,
+        b"pack pixels",
+    )]));
     let files = super::collect_files(&view, None, Some(root.path()));
     assert!(
         files.iter().any(|(name, bytes)| name.as_ref() == path
@@ -41,11 +41,10 @@ fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
     assert!(reads.iter().any(|dependency| matches!(dependency,
         resource_pack::PackDependency::File { path, .. } if path == texture
     )));
-    let tga_view =
-        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[(
-            "textures/models/armor/fixture.tga",
-            b"TGA pack pixels",
-        )]));
+    let tga_view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "textures/models/armor/fixture.tga",
+        b"TGA pack pixels",
+    )]));
     let tga_files = super::collect_files(&tga_view, None, Some(root.path()));
     assert!(tga_files.iter().any(|(name, _)| name.as_ref() == path));
     assert!(
@@ -53,8 +52,7 @@ fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
             .iter()
             .any(|(name, bytes)| name.ends_with(".tga") && bytes == b"TGA pack pixels")
     );
-    let empty =
-        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[]));
+    let empty = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
     assert!(
         !super::collect_files(&empty, None, Some(root.path()))
             .iter()
@@ -82,11 +80,10 @@ fn authored_attachable_keeps_precedence_over_texture_only_inheritance() {
         "textures":{"default":"textures/models/armor/custom"}
     }}})
     .to_string();
-    let view =
-        resource_pack::LayeredPackView::tracked(super::super::super::pack_reload_tests::stack(&[
-            ("attachables/custom.json", authored.as_bytes()),
-            ("textures/models/armor/fixture.tga", b"pack pixels"),
-        ]));
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[
+        ("attachables/custom.json", authored.as_bytes()),
+        ("textures/models/armor/fixture.tga", b"pack pixels"),
+    ]));
     let files = super::collect_files(&view, None, Some(root.path()));
     let attachables = files
         .iter()
@@ -164,7 +161,7 @@ fn server_entity_textures_inherit_vanilla_without_overriding_server_formats() {
     std::fs::write(base.path().join("textures/entity/fixture.png"), b"vanilla").unwrap();
     let entity = br#"{"minecraft:client_entity":{"description":{"identifier":"fixture:actor","textures":{"default":"textures/entity/fixture"}}}}"#;
     let view = |files: &[(&str, &[u8])]| {
-        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(files))
+        resource_pack::LayeredPackView::new(crate::test_support::stack(files))
     };
     let inherited = super::collect_files(
         &view(&[("entity/fixture.json", entity)]),
@@ -215,11 +212,10 @@ fn server_attachables_inherit_vanilla_render_dependencies() {
         "controller.render.fixture": authored_controller
     }}))
     .unwrap();
-    let view =
-        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[
-            ("attachables/held_item.json", &attachable),
-            ("render_controllers/fixture.json", &render_controllers),
-        ]));
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[
+        ("attachables/held_item.json", &attachable),
+        ("render_controllers/fixture.json", &render_controllers),
+    ]));
     let mut vanilla = assets::VanillaEntityRefs::new();
     let default_controller = json!({
         "geometry": "Geometry.default",
@@ -305,7 +301,6 @@ fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
     let base = parent.path().join("base");
     std::fs::create_dir_all(base.join("textures")).unwrap();
     std::fs::write(parent.path().join("outside.png"), b"outside").unwrap();
-    let view =
-        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[]));
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
     assert!(super::texture_file(&view, Some(&base), "textures/../../outside").is_none());
 }

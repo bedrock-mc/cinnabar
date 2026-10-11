@@ -1,11 +1,9 @@
 use super::*;
 use crate::runtime::network::{
-    drain_network_controls, publish_bootstrap_inventory,
-    resource_packs::{
-        BootstrapGenerationDisposition, classify_bootstrap_generation, install_server_language,
-    },
+    drain_network_controls, publish_bootstrap_inventory, resource_packs::install_server_language,
 };
 use client_ui::ui_runtime::UiRuntime;
+use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 
 fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
     assets::ServerLangOverlay::read(value.len(), |target| {

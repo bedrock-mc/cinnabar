@@ -18,7 +18,7 @@ use protocol::{
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
-use crate::{PackPreparation, SessionTrace};
+use crate::SessionTrace;
 use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
 
 /// Holds a frame's light burst; terrain admission, not this bound, paces chunk ingress.
@@ -41,8 +41,14 @@ pub struct NetworkConfig {
     pub player_skin: protocol::ClientSkin,
     /// The player's language, input mode and GUI scale, reported at login.
     pub login_settings: protocol::LoginSettings,
-    /// Physical RAM, used only when choosing device-compatible server subpacks.
-    pub physical_memory_bytes: u64,
+}
+
+/// Prepared facts returned by the pack owner at the join bootstrap boundary.
+#[derive(Debug)]
+pub struct PreparedSession<P> {
+    pub custom_blocks: CustomBlocks,
+    pub packs_applied: bool,
+    pub packs: P,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.

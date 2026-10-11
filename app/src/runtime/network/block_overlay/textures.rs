@@ -5,14 +5,14 @@ use std::collections::{HashMap, HashSet};
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 
-pub(super) use super::super::resource_packs::DecodedTexture;
+use pack_runtime::pack_textures::DecodedTexture;
 mod diagnostics;
 mod terrain;
 mod tint;
-use super::super::resource_packs::{
+use diagnostics::{FailureReason, TextureDiagnostics};
+use pack_runtime::pack_textures::{
     MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
 };
-use diagnostics::{FailureReason, TextureDiagnostics};
 pub(super) use terrain::{admit_static_rectangle, source_mip_chain};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -35,7 +35,7 @@ pub(super) struct TextureCatalog<'a> {
 
 impl<'a> TextureCatalog<'a> {
     pub(super) fn new(view: &'a LayeredPackView, base: Option<&assets::MaterialKeys>) -> Self {
-        let mut terrain = super::super::resource_packs::base_terrain_catalog();
+        let mut terrain = pack_runtime::pack_textures::base_terrain_catalog();
         if let Some(base) = base {
             terrain.extend(
                 base.aliases()
@@ -83,7 +83,7 @@ impl<'a> TextureCatalog<'a> {
         Self {
             view,
             terrain,
-            grids: client_session::pack_textures::terrain_texture_grids(view),
+            grids: pack_runtime::pack_textures::terrain_texture_grids(view),
             tints: tint::catalog_tints(view, base),
             server_keys,
             flipbooks,

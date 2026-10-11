@@ -615,7 +615,8 @@ fn bone_visibility_hides_bones_per_state() {
 // Flipbook framing is bounded before copies are cut and each frame is shrunk.
 #[test]
 fn flipbook_frames_are_capped_and_shrunk() {
-    use super::textures::{DecodedTexture, Flipbook, flipbook_frames, shrink_to_max};
+    use super::textures::{Flipbook, flipbook_frames, shrink_to_max};
+    use pack_runtime::pack_textures::DecodedTexture;
     let strip = DecodedTexture {
         width: 64,
         height: 64 * 8,
@@ -1080,7 +1081,7 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
             ..CustomBlockVisuals::default()
         },
     );
-    let inputs = Arc::new(super::super::pack_reload::PackInputs {
+    let inputs = Arc::new(pack_runtime::PackInputs {
         blocks: CustomBlocks {
             blocks: vec![lucky].into(),
             vanilla_blocks: Default::default(),
