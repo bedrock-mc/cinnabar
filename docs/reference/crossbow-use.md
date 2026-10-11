@@ -74,6 +74,8 @@ The Bedrock first-person charge uses the player's authored item-parent pose
 alongside the crossbow attachable's own animation. Both consume the selected
 stack's gameplay use clock, including Quick Charge's maximum duration and the
 predicted loaded state. Actor catch-up ticks do not advance that clock again.
+Existing Java hand and spear consumers retain their one-based active-use counter;
+the authored timing queries read the elapsed gameplay clock directly.
 The main-hand queries report maximum and remaining ticks, while the actor's
 remaining-duration query without arguments reports seconds.
 Interrupting use clears the pulling pose, including between actor ticks.

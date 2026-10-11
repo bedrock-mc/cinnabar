@@ -17,13 +17,19 @@ fn remaining_with_off_hand(
         uuid: [0; 16],
         username: "BugTest".into(),
     };
+    if elapsed > 0 {
+        actor
+            .metadata
+            .insert(0, ActorMetadataValue::Flags(1 << FLAG_USING_ITEM));
+    }
     let input = ActorTickInput {
-        item_use_ticks: elapsed,
+        item_use_ticks: elapsed.saturating_add(1),
         ..Default::default()
     };
     let context = ActorTickContext {
         main_hand: Some("minecraft:crossbow".into()),
         main_hand_max_use_ticks: duration,
+        local_item_use_ticks: Some(elapsed),
         off_hand_max_use_ticks: off_hand_duration,
         ..Default::default()
     };

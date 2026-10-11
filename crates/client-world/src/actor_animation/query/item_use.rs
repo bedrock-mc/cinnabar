@@ -15,6 +15,8 @@ pub(super) fn remaining_ticks(evaluator: &QueryInputs<'_>) -> f32 {
 fn elapsed_ticks(evaluator: &QueryInputs<'_>) -> Option<u32> {
     if let Some(attachable) = evaluator.context.attachable {
         attachable.use_elapsed_ticks
+    } else if let Some(elapsed) = evaluator.context.local_item_use_ticks {
+        evaluator.actor.is_using_item().then_some(elapsed)
     } else if evaluator.input.item_use_ticks > 0 || evaluator.actor.is_using_item() {
         Some(evaluator.input.item_use_ticks)
     } else {

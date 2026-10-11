@@ -147,7 +147,7 @@ pub(super) fn advance_motion(
     } else {
         1.0
     };
-    let item_use_ticks = if let Some(ticks) = context.local_item_use_ticks {
+    let item_use_ticks = if let Some(ticks) = local_use_counter(actor, context) {
         ticks
     } else if query::actor_flag(actor, query::FLAG_USING_ITEM) {
         state
@@ -247,6 +247,17 @@ pub(super) fn advance_motion(
         attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+/// Converts the local elapsed clock to the existing one-based hand and spear counter.
+pub(super) fn local_use_counter(actor: &ActorSnapshot, context: &ActorTickContext) -> Option<u32> {
+    context.local_item_use_ticks.map(|elapsed| {
+        if actor.is_using_item() {
+            elapsed.saturating_add(1)
+        } else {
+            0
+        }
+    })
 }
 
 /// Identifier changes request the native lowering transition. Item-specific stack

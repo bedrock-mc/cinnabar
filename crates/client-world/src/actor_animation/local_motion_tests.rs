@@ -24,6 +24,36 @@ fn fixture() -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
 }
 
 #[test]
+fn predicted_use_starts_the_existing_hand_animation_on_the_first_tick() {
+    let (mut actors, mut store) = fixture();
+    actors
+        .get_mut(&1)
+        .unwrap()
+        .metadata
+        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM));
+    let context = ActorTickContext {
+        is_local: true,
+        main_hand: Some("minecraft:bow".into()),
+        local_item_use_ticks: Some(0),
+        main_hand_max_use_ticks: 20,
+        ..Default::default()
+    };
+    store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    assert_eq!(
+        store.get(1).unwrap().hand[1].use_ticks,
+        1,
+        "the hand phase must distinguish active first-tick use from idle"
+    );
+    let completed_tick = store.completed_tick;
+    store.refresh_local_view(&actors, 1, |_| ActorTickContext {
+        local_item_use_ticks: Some(7),
+        ..context.clone()
+    });
+    assert_eq!(store.get(1).unwrap().hand[1].use_ticks, 8);
+    assert_eq!(store.completed_tick, completed_tick);
+}
+
+#[test]
 fn predicted_item_use_keeps_gameplay_ticks_across_actor_catchup_and_interruptions() {
     let (mut actors, mut store) = fixture();
     actors
@@ -40,8 +70,9 @@ fn predicted_item_use_keeps_gameplay_ticks_across_actor_catchup_and_interruption
     for _ in 0..3 {
         store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
     }
-    assert_eq!(store.get(1).unwrap().hand[1].use_ticks, 7);
+    assert_eq!(store.get(1).unwrap().hand[1].use_ticks, 8);
     let completed_tick = store.completed_tick;
+    actors.get_mut(&1).unwrap().metadata.remove(&0);
     store.refresh_local_view(&actors, 1, |_| ActorTickContext {
         local_item_use_ticks: Some(0),
         ..context.clone()
