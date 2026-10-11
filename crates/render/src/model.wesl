@@ -528,6 +528,12 @@ fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
     }
+    if ((in.material_flags & MATERIAL_CAULDRON_WATER_FLAG) != 0u) {
+        @if(ENHANCED)
+        sampled *= tint_to_linear(CAULDRON_WATER_COLOUR);
+        @if(!ENHANCED)
+        sampled *= CAULDRON_WATER_COLOUR;
+    }
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     @if(ENHANCED)

@@ -75,6 +75,7 @@ pub(crate) struct SessionController {
     >,
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
+    destination_identity: Option<String>,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
@@ -101,6 +102,7 @@ impl SessionController {
             client_random_id: None,
             client_id_load: None,
             presence: None,
+            destination_identity: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
@@ -118,7 +120,14 @@ impl SessionController {
     /// Names a direct `--address` session's destination.
     pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
         self.presence = address.map(|address| presence_target(address, false));
+        self.destination_identity =
+            address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
         self
+    }
+
+    /// Stable selected destination, kept independent from invites and transient session ids.
+    pub(crate) fn destination_identity(&self) -> Option<&str> {
+        self.destination_identity.as_deref()
     }
 
     pub(crate) fn presence_target(&self) -> Option<&rich_presence::Target> {
@@ -364,6 +373,7 @@ impl SessionResources<'_> {
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
         controller.presence = None;
+        controller.destination_identity = None;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -433,6 +443,15 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
+    session.controller.destination_identity = Some(format!(
+        "{}:{}",
+        if local_world { "local" } else { "remote" },
+        if local_world {
+            menu.local_world_identity().unwrap_or(&address).to_owned()
+        } else {
+            address.trim().to_lowercase()
+        }
+    ));
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,

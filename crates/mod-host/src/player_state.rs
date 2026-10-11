@@ -16,6 +16,10 @@ pub(super) struct PlayerState {
     current_revision: Option<u64>,
     revision: u64,
     reads: u32,
+    pub world: Option<crate::WorldObservation>,
+    pub fps: Option<f32>,
+    pub sidebar: Option<crate::SidebarSnapshot>,
+    pub chat: Vec<crate::ObservedChatMessage>,
 }
 
 impl PlayerState {
@@ -48,6 +52,15 @@ impl PlayerState {
     pub fn revoke(&mut self) {
         self.begin_frame();
         self.comparison_snapshot = None;
+        self.clear_presentation();
+    }
+
+    /// Removes callback-only presentation data after successful dispatch or revocation.
+    pub fn clear_presentation(&mut self) {
+        self.world = None;
+        self.fps = None;
+        self.sidebar = None;
+        self.chat.clear();
     }
 
     /// Advances an instance-scoped content revision without wrapping the counter.
@@ -117,6 +130,48 @@ pub(super) fn validate(snapshot: Option<&PlayerStateSnapshot>) -> Result<()> {
 }
 
 impl cinnabar::extension::player_state::Host for State {
+    fn read_chat(
+        &mut self,
+        after: u64,
+        limit: u32,
+    ) -> Result<Result<Vec<crate::ObservedChatMessage>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        if limit == 0 || limit as usize > ui::mod_hud::MAX_CHAT_READ_MESSAGES {
+            return Ok(Err("chat import limit exceeds bounds".into()));
+        }
+        Ok(Ok(self
+            .player_state
+            .chat
+            .iter()
+            .filter(|m| m.sequence > after)
+            .take(limit as usize)
+            .cloned()
+            .collect()))
+    }
+    fn read_world(&mut self) -> Result<Result<Option<crate::WorldObservation>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.world.clone()))
+    }
+    fn read_fps(&mut self) -> Result<Result<Option<f32>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.fps))
+    }
+    fn read_sidebar(&mut self) -> Result<Result<Option<crate::SidebarSnapshot>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.sidebar.clone()))
+    }
     fn read_snapshot(&mut self) -> Result<Result<Option<PlayerStateSnapshot>, String>> {
         self.player_state.read_budget()?;
         if !self.grants.player_state {

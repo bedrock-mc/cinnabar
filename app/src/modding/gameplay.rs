@@ -26,9 +26,40 @@ pub(super) struct GameplayContext<'w> {
     movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
     player: Option<Res<'w, client_state::PlayerRuntime>>,
     ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
+    session: Option<Res<'w, crate::session::SessionController>>,
 }
 
 impl GameplayContext<'_> {
+    /// Read-only current world identity and feet pose, independent of input capture.
+    pub(super) fn world_observation(
+        &self,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<mod_host::WorldObservation> {
+        let world = self.world.as_ref()?;
+        let authority = world.stream.as_ref()?.authority();
+        let session = self.clock.as_ref()?.session_generation();
+        if session == 0 || session != ui.session_id() || world.dimension_transfer.active() {
+            return None;
+        }
+        let position = self.view.as_ref()?.feet_translation();
+        if !position.is_finite() {
+            return None;
+        }
+        let identity = self.session.as_ref()?.destination_identity()?;
+        if identity.len() > mod_api::MAX_WORLD_IDENTITY_BYTES
+            || identity.chars().any(char::is_control)
+        {
+            return None;
+        }
+        Some(mod_host::WorldObservation {
+            session,
+            world: identity.to_owned(),
+            dimension: authority.current_dimension(),
+            position: (position.x, position.y, position.z),
+            alive: ui.hud().health().is_none_or(|health| health.current() > 0),
+        })
+    }
+
     /// Layout editing requires the same current connected world as player presentation.
     pub(super) fn hud_editor_session(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<u64> {
         self.world.as_ref()?.stream.as_ref()?;
