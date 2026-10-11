@@ -7221,3 +7221,9 @@ contracts have been checked for exact namespaced identifiers. Matched headless
 GPU fixtures cover expiry, direction, and an unchanged control. Alias and unresolved
 authored-name handling, end-to-end world-query binding, and emitter-frame integration
 remain incomplete. These fixtures do not close the full parity gate.
+
+### Crack surfaces after resource reloads
+
+Crack surfaces now follow the admitted runtime asset identity as well as block
+identity, transform, and column displacement. Resource reload replaces cached
+surfaces in the current session; unchanged assets keep shared geometry.

@@ -17,7 +17,7 @@ use world::{ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CachedCrackShape, crack_instances, crack_shape},
+    cracks::{CrackShapeCache, crack_instances, crack_shape},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -108,7 +108,7 @@ pub(crate) struct BlockEntityRuntime {
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
-    shapes: HashMap<(u32, u32), CachedCrackShape>,
+    shapes: CrackShapeCache,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
@@ -127,7 +127,7 @@ impl BlockEntityRuntime {
             frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
-            shapes: HashMap::new(),
+            shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
             map_requests: HashMap::new(),
@@ -952,12 +952,12 @@ mod tests {
         let mut runtime = BlockEntityRuntime::new();
         runtime.bind_session(Some((1, 0)));
         runtime.blocks.insert(7, None);
-        runtime.shapes.insert(
-            (7, 0),
-            CachedCrackShape {
-                column: None,
-                shape: render::CrackShape::Cube,
-            },
+        crack_shape(
+            &mut runtime.shapes,
+            &Arc::new(assets::RuntimeAssets::diagnostic()),
+            assets::NetworkIdMode::Sequential,
+            Some(7),
+            [0; 3],
         );
         runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
         runtime.bind_session(Some((1, 0)));
