@@ -1656,6 +1656,9 @@ func classifyRecord(state SourceState) (Record, error) {
 	if record.ModelFamily == ModelFamilySlab && strings.Contains(name, "double") {
 		record.ModelState.Set(ModelStateHalf, 2)
 	}
+	if err := applyFamilyRouting(&record); err != nil {
+		return Record{}, err
+	}
 	return record, nil
 }
 
