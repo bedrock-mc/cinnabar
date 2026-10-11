@@ -15,6 +15,7 @@ pub(in crate::compiler) mod dispatcher;
 pub(in crate::compiler) mod doors;
 pub(in crate::compiler) mod dragon_egg;
 pub(in crate::compiler) mod end_portal_frame;
+pub(in crate::compiler) mod end_rod;
 pub(in crate::compiler) mod entity_drawn;
 pub(in crate::compiler) mod exact;
 pub(in crate::compiler) mod fallback;
