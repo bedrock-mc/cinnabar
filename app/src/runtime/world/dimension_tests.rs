@@ -1,4 +1,6 @@
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use protocol::Packet;
 
 fn transfer(id: Option<u32>) -> DimensionTransfer {
@@ -316,7 +318,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
             .unwrap()
             .dimension_transfer_presentable(position)
     );
-    let (network, _queue_guard) = NetworkHandle::with_command_capacity(2);
+    let (network, _queue_guard) = NetworkHandle::<PackApplication>::with_command_capacity(2);
     let mut app = App::new();
     app.insert_resource(world)
         .insert_resource(network)
@@ -332,7 +334,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
     assert!(transfer.active.as_ref().unwrap().presentation_pending);
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
         1
     );
@@ -343,7 +345,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
     app.update();
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
         1
     );

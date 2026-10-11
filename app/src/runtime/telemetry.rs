@@ -1,3 +1,4 @@
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
@@ -6,6 +7,7 @@ use acceptance::phase2_evidence::{
     generation_manifest_identity, graphics_identity_sha256, key_manifest_identity,
     phase2_publication_line_if_changed, present_mode_identity, sha256_identity_from_hex_or_text,
 };
+use client_runtime::network::NetworkHandle;
 mod attribution;
 use attribution::DiagnosticAttributionLogState;
 pub(crate) use attribution::refresh_diagnostic_attribution;
@@ -49,10 +51,6 @@ use diagnostics::metrics::{
 };
 use {
     crate::runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        publication::{
-            PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
-        },
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
         world::{ClientWorld, WorldStreamFramePoll},
@@ -60,6 +58,12 @@ use {
     client_interaction::movement::MovementTicker,
     client_presentation::{
         camera::THIRD_PERSON_RADIUS_BLOCKS, local_player::LocalPlayerFrameCarrier,
+    },
+    client_runtime::{
+        ingress::OUTBOUND_SEND_BUDGET_PER_FRAME,
+        publication::{
+            PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
+        },
     },
     client_state::SemanticInputSnapshot,
     diagnostics::{
@@ -236,7 +240,7 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
 }
 
 pub(crate) fn send_player_auth_inputs(
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,
     input: Res<SemanticInputSnapshot>,
     local_frame: Res<LocalPlayerFrameCarrier>,
@@ -294,9 +298,7 @@ pub(crate) fn send_player_auth_inputs(
     );
     match result {
         Ok(_) => {}
-        Err(MovementSendError::Transport(
-            crate::runtime::network::session::PacketSendError::Full(_),
-        )) => {
+        Err(MovementSendError::Transport(client_session::PacketSendError::Full(_))) => {
             metrics.0.add_outbound_budget_drops(1);
             movement.note_full_restore();
         }
@@ -307,12 +309,9 @@ pub(crate) fn send_player_auth_inputs(
                 format!("failed to encode PlayerAuthInput: {error}"),
             );
         }
-        Err(MovementSendError::Transport(
-            crate::runtime::network::session::PacketSendError::Closed(_),
-        )) if network.closed_command_has_pending_control() => {}
-        Err(MovementSendError::Transport(
-            crate::runtime::network::session::PacketSendError::Closed(_),
-        )) => {
+        Err(MovementSendError::Transport(client_session::PacketSendError::Closed(_)))
+            if network.closed_command_has_pending_control() => {}
+        Err(MovementSendError::Transport(client_session::PacketSendError::Closed(_))) => {
             movement.deactivate();
             record_fatal_error(
                 &mut client_world.fatal_error,

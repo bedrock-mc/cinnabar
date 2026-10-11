@@ -2,17 +2,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 
-pub(crate) fn resolve_socket_dir(path: &Path) -> PathBuf {
+/// Resolves a relative endpoint against the working directory and development executable.
+pub fn resolve_socket_dir(path: &Path) -> PathBuf {
     let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let executable = std::env::current_exe().unwrap_or_default();
     resolve_socket_dir_from(path, &current_dir, &executable)
 }
 
-pub(crate) fn resolve_socket_dir_from(
-    path: &Path,
-    current_dir: &Path,
-    executable: &Path,
-) -> PathBuf {
+/// Prefers an existing working-directory endpoint, then the development checkout endpoint.
+pub fn resolve_socket_dir_from(path: &Path, current_dir: &Path, executable: &Path) -> PathBuf {
     if path.is_absolute() {
         return path.to_owned();
     }
@@ -35,7 +33,8 @@ pub(crate) fn resolve_socket_dir_from(
 
 use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
 
-pub(crate) fn preflight_bridge_endpoint(socket_dir: &Path) -> Result<()> {
+/// Rejects startup when the selected core endpoint does not exist.
+pub fn preflight_bridge_endpoint(socket_dir: &Path) -> Result<()> {
     if bridge_endpoint_exists(socket_dir) {
         return Ok(());
     }

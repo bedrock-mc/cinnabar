@@ -639,7 +639,7 @@ fn world_ready_markers_are_withheld_for_every_pending_stage_and_an_unclean_targe
     }
 
     let mut transport_backlog = settled_world_snapshot();
-    transport_backlog.work.network_events = crate::runtime::network::WORLD_EVENT_CAPACITY;
+    transport_backlog.work.network_events = client_session::WORLD_EVENT_CAPACITY;
     assert!(
         world_ready_markers(transport_backlog).is_some(),
         "a concurrently refilled socket FIFO is not admitted client-world work"
@@ -856,9 +856,7 @@ fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
         attempts.push(chunk.x);
         calls += 1;
         if calls == 2 {
-            Err(crate::runtime::network::session::PacketSendError::Full(
-                packet,
-            ))
+            Err(client_session::PacketSendError::Full(packet))
         } else {
             Ok(())
         }
@@ -936,9 +934,7 @@ fn command_admission_leaves_deadline_unarmed_until_transport_success_acknowledge
     let mut failed = request_stream();
     assert_eq!(
         flush_sub_chunk_requests(&mut failed, 1, |_, _, _, packet| {
-            Err(crate::runtime::network::session::PacketSendError::Full(
-                packet,
-            ))
+            Err(client_session::PacketSendError::Full(packet))
         })
         .unwrap(),
         0
@@ -976,9 +972,7 @@ fn network_session_fatal_is_retained_when_command_sender_closes_in_same_frame() 
     record_fatal_error(&mut fatal_error, original.to_owned());
 
     let closed = flush_sub_chunk_requests(&mut stream, 1, |_, _, _, packet| {
-        Err(crate::runtime::network::session::PacketSendError::Closed(
-            packet,
-        ))
+        Err(client_session::PacketSendError::Closed(packet))
     })
     .unwrap_err();
     record_fatal_error(&mut fatal_error, closed);

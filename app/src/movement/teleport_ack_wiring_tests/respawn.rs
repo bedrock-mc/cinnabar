@@ -1,6 +1,7 @@
-use crate::runtime::network::NetworkHandle;
+use crate::runtime::network::resource_packs::PackApplication;
 use crate::runtime::world::advance_dimension_transfer;
 use bevy::prelude::IntoScheduleConfigs;
+use client_runtime::network::NetworkHandle;
 use {super::*, gameplay::movement::flush_player_auth_inputs};
 
 #[test]
@@ -10,7 +11,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position(initial, 100, false);
     let mut app = wiring_app(authorized_ticker(false), physics);
-    let (network, mut captured) = NetworkHandle::stub_capturing_packets();
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network)
         .insert_resource(client_presentation::camera::AutoFly::new(false))
         .init_resource::<client_state::SemanticInputSnapshot>()
@@ -62,7 +63,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     );
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
         0
     );
@@ -91,7 +92,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     assert!(!app.world().resource::<MovementTicker>().has_unsent_inputs());
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
         1
     );
@@ -114,7 +115,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
         2
     );
@@ -125,7 +126,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     app.update();
     assert!(app.world().resource::<MovementTicker>().completed_tick() > 102);
     let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
-    let network = app.world().resource::<NetworkHandle>();
+    let network = app.world().resource::<NetworkHandle<PackApplication>>();
     flush_player_auth_inputs(
         &mut ticker,
         8,

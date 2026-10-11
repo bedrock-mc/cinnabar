@@ -9,7 +9,7 @@ pub(crate) fn flush_sub_chunk_requests(
         i32,
         usize,
         protocol::Packet,
-    ) -> Result<(), crate::runtime::network::session::PacketSendError>,
+    ) -> Result<(), client_session::PacketSendError>,
 ) -> Result<usize, String> {
     let mut sent = 0;
     for _ in 0..budget {

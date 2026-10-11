@@ -1,5 +1,4 @@
 use super::*;
-use crate::runtime::network::{WORLD_INGRESS_DRAIN_BUDGET, session::SequencedWorldEvent};
 use client_session::{WORLD_EVENT_CAPACITY, WorldIngress};
 use protocol::{
     ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent,
@@ -10,6 +9,7 @@ use {
     chunk_pipeline::WorldStream,
     client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS},
 };
+use {client_runtime::ingress::WORLD_INGRESS_DRAIN_BUDGET, client_session::SequencedWorldEvent};
 
 /// A drain whose clock the test holds still, so only admission and the channel stop it.
 fn frame_drain(now: Instant) -> WorldIngressDrain {

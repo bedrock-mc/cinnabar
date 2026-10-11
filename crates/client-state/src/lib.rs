@@ -68,6 +68,13 @@ pub enum ClientInteractionSet {
     RetainPick,
 }
 
+/// Runtime boundaries that app-owned ingress and world adapters order against.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RuntimeFrameSet {
+    /// Refills the shared publication allowance before ingress or world publication.
+    PublicationBudget,
+}
+
 /// Whether trusted experience consent owns physical input for the current frame.
 #[derive(Resource, Default)]
 pub struct ConsentInput(pub bool);

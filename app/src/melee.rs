@@ -3,12 +3,14 @@
 //! One attack per press; a held button never re-attacks. Swings obey the
 //! half-swing guard shared with survival mining.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_interaction::melee::{MeleeRuntime, SwingTracker};
+use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 
 mod crosshair;
@@ -19,7 +21,7 @@ use crate::modding::interaction::{ModInteraction, effective_reach};
 use client_ui::ui_runtime::UiRuntime;
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 use {
-    crate::runtime::{network::NetworkHandle, world::ClientWorld},
+    crate::runtime::world::ClientWorld,
     client_interaction::{
         mining::hand_interaction_selection,
         movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
@@ -41,7 +43,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,

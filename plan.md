@@ -8,9 +8,24 @@ owning crate directly.
 
 The extraction remains incomplete: world and transport systems for movement,
 use/place/mine/melee/pick, block selection, world-dependent camera publication and
-cursor focus remain in `app`. They still consume app-owned world, network, menu
-or extension state. Existing tests remain with their owning code; compilation,
-test execution and the behavior/performance acceptance gates remain unverified.
+cursor focus remain in `app`. They still combine world, transport, menu and
+extension state at the app boundary. Existing tests remain with their owning code;
+compilation, test execution and the behavior/performance acceptance gates remain unverified.
+
+## Client runtime ownership
+
+`client-runtime` owns the Bevy transport handle and frame flush, bounded ingress,
+inventory ingress, publication budgeting, world-service schedules and resource,
+process shutdown, shared session helpers, admitted-pack resource and pack geometry
+preparation. `app` installs `ClientRuntimePlugin`; its frame adapters keep their
+existing order through `client-state`.
+
+The extraction remains incomplete: network bootstrap and world publication still
+borrow interaction and presentation resources; join, transfer and teardown
+still borrow the menu; pack reload publication still applies presentation and audio
+state. These adapters remain in `app` until their shared contracts exist. The runtime
+crate has no presentation, audio or other sibling-plugin dependency. Compilation and
+execution of this move remain unverified, and no parity gate is closed by it.
 
 ## Client frame contract
 

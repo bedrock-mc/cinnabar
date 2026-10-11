@@ -1,5 +1,7 @@
 //! HUD visibility through both first-person hand publishers and retained name tags.
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::window::{PrimaryWindow, Window};
+use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::presentation::{PreparedUiPublication, UiPresentationRuntime};
 use {
     super::*, client_presentation::actor_publication::HandRigBuilder,
@@ -8,9 +10,7 @@ use {
 use {
     crate::{
         environment::{WeatherState, WorldClock},
-        runtime::{
-            network::NetworkHandle, visibility::CaveVisibilityCache, world::WorldStreamFramePoll,
-        },
+        runtime::{visibility::CaveVisibilityCache, world::WorldStreamFramePoll},
         ui_runtime::presentation::prepare_ui_runtime,
     },
     client_interaction::{item_use::ItemUseRuntime, movement::MovementTicker},
@@ -79,7 +79,7 @@ fn fixture_world() -> World {
     world.insert_resource(UiRuntime::new(1));
     world.insert_resource(mini_engine_presentation());
     world.insert_resource(MenuRuntime::new(false, 2, "Tester".into()));
-    world.insert_resource(NetworkHandle::stub().0);
+    world.insert_resource(NetworkHandle::<PackApplication>::stub().0);
     world.init_resource::<PreparedUiPublication>();
     world.init_resource::<CaveVisibilityCache>();
     world.init_resource::<render::VisibilityDiagnosticsInput>();

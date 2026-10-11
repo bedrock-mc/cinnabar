@@ -1,5 +1,7 @@
 //! Per-frame HUD observation and publication.
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::Transform;
+use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
 
@@ -52,7 +54,7 @@ type PublishExtras<'w> = (
         Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
-        Res<'w, crate::runtime::network::NetworkHandle>,
+        Res<'w, NetworkHandle<PackApplication>>,
         Option<ResMut<'w, render::UiGlintSettings>>,
         Res<'w, client_interaction::item_use::ItemUseRuntime>,
         Res<'w, client_interaction::movement::MovementTicker>,

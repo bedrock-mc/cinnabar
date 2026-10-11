@@ -6,22 +6,21 @@
 //! as vanilla's local destroy does; inbound block updates stay authoritative and
 //! replace the prediction. Unknown blocks keep cracking until the server breaks them.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_interaction::survival_mining::SurvivalMiningRuntime;
+use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 
 use client_ui::ui_runtime::UiRuntime;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use {
-    crate::{
-        interaction_authority::observe_block,
-        runtime::{network::NetworkHandle, world::ClientWorld},
-    },
+    crate::{interaction_authority::observe_block, runtime::world::ClientWorld},
     client_interaction::{
         melee::{MeleeRuntime, SwingTracker},
         mining::hand_interaction_selection,
@@ -57,7 +56,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     physics: Option<Res<'w, LocalPhysicsController>>,
     melee: Res<'w, MeleeRuntime>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     block_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }

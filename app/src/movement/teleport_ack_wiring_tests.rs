@@ -5,9 +5,11 @@
 
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::prelude::{App, IntoScheduleConfigs, Update};
+use client_runtime::network::NetworkHandle;
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
     PlayerMovementCorrectionEvent, RespawnEvent, WorldBootstrap, WorldEvent,
@@ -482,7 +484,7 @@ fn dimension_destination_controls_preserve_the_client_input_tick() {
 #[test]
 fn dimension_transfer_starts_loading_and_tracks_later_server_teleports() {
     let mut app = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
-    let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
     app.add_systems(
         Update,

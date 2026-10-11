@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -13,12 +15,11 @@ use {
 };
 use {
     crate::{
-        app::ClientBlobCacheOwner,
-        runtime::{
-            network::{NetworkHandle, ResourcePackAdmissionState},
-            world::{ClientWorld, TransferNotice},
-        },
+        runtime::world::{ClientWorld, TransferNotice},
         session::{SessionController, drive_session, follow_server_transfer},
+    },
+    client_runtime::{
+        blob_cache::ClientBlobCacheOwner, pack_admission::ResourcePackAdmissionState,
     },
     launcher::install_layout::{InstallEnvironment, InstallLayout, Platform},
 };
@@ -129,7 +130,7 @@ fn failed_remote_transfer_from_a_local_world_offers_retry_after_teardown() {
 
 #[test]
 fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiver() {
-    use crate::runtime::network::NetworkControlEvent;
+    use crate::runtime::network::session::NetworkControlEvent;
     use bevy::app::AppExit;
     use tokio::sync::mpsc;
 
@@ -145,12 +146,12 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
     menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
-    let mut network = NetworkHandle::disconnected();
+    let mut network = NetworkHandle::<PackApplication>::disconnected();
     let (old_controls, receiver) = mpsc::channel(2);
     *network.control_events_mut() = receiver;
     old_controls
         .try_send(NetworkControlEvent::Transferred {
-            target: crate::runtime::network::SessionTransferTarget {
+            target: client_session::SessionTransferTarget {
                 host: "old.example.net".to_owned(),
                 port: 19132,
             },
@@ -188,7 +189,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
     assert!(!menu.is_connecting());
     assert_eq!(
         app.world()
-            .resource::<NetworkHandle>()
+            .resource::<NetworkHandle<PackApplication>>()
             .pending_event_count(),
         0
     );
@@ -221,7 +222,7 @@ fn app_with_core(root: &Path, script: &str) -> App {
     app.add_message::<bevy::app::AppExit>()
         .insert_resource(menu)
         .insert_resource(SessionController::default())
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
@@ -404,7 +405,7 @@ fn failed_automatic_replacement(
     let mut app = App::new();
     app.insert_resource(menu)
         .insert_resource(controller)
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(runtime)

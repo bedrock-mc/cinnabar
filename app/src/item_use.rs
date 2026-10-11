@@ -9,18 +9,19 @@ use client_interaction::item_use::{
     selection::{loading_projectile, needs_met, selected_air_use_with_projectile},
 };
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
-
+use client_runtime::network::NetworkHandle;
 use protocol::PlayerGameMode;
 use semantic_input::Action;
 
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::runtime::{network::NetworkHandle, world::ClientWorld},
+    crate::runtime::world::ClientWorld,
     client_interaction::{
         block_use::{BlockUseRuntime, verified_use_selection},
         melee::{MeleeRuntime, SwingTracker},
@@ -52,7 +53,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
     effects: Res<'w, LocalMovementEffectTimeline>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
@@ -214,7 +215,7 @@ fn admit_with_action_aim(
     local_runtime_id: u64,
     swing_duration: i32,
     aim_rotation: Option<bevy::prelude::Quat>,
-    network: &NetworkHandle,
+    network: &NetworkHandle<PackApplication>,
 ) {
     let mut assisted = None;
     admit_on_tick(

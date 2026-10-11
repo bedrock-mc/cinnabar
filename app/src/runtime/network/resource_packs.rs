@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use bevy::prelude::Resource;
 use resource_pack::{LayeredPackView, PackAdmission};
 
 use super::{
@@ -414,7 +413,7 @@ fn compile_application(
             .or_default()
             .extend(inputs);
     }
-    super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
+    client_runtime::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     if entities_stopped || cancelled() {
         return None;
     }
@@ -647,10 +646,6 @@ pub(super) fn install_server_language(
         runtime.set_server_lang(if setup_succeeded { overlay } else { None });
     }
 }
-
-/// Bevy adapter for the generation-bound admitted server stack.
-#[derive(Debug, Default, Resource, bevy::prelude::Deref, bevy::prelude::DerefMut)]
-pub(crate) struct ResourcePackAdmissionState(pack_runtime::ResourcePackAdmissionState);
 
 #[cfg(test)]
 mod tests;

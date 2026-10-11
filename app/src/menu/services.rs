@@ -1,11 +1,13 @@
 //! Drives account, world and settings services from the menu.
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 /// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_services(
     mut commands: Commands,
     mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    client_blob_cache: Res<client_runtime::blob_cache::ClientBlobCacheOwner>,
     player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
@@ -16,7 +18,7 @@ pub(crate) fn drive_menu_services(
     settings: Option<ResMut<client_state::RuntimeSettings>>,
     antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
-    network: Option<Res<crate::runtime::network::NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
     #[cfg(feature = "developer-control")]
     if menu.fixture_active() {

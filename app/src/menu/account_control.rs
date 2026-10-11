@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(step(&mut menu, Some(downloading(60))), downloading(60));
         assert_eq!(step(&mut menu, None), JoinStage::Generating);
 
-        let error = crate::runtime::network::session_failure_display(
+        let error = client_session::session_failure_display(
             "Bedrock session failed: Server disconnected during login: Unknown",
             Some(&protocol::ServerDisconnectEvent {
                 reason: "Unknown".to_owned(),

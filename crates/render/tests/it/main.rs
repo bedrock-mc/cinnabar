@@ -3,13 +3,13 @@
 mod chunk_constants;
 #[path = "support/gpu_snapshot.rs"]
 mod gpu_snapshot;
-#[path = "support/rod_snapshot.rs"]
-mod rod_snapshot;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
+#[path = "support/rod_snapshot.rs"]
+mod rod_snapshot;
 #[path = "../../src/shader_safety.rs"]
 #[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;
@@ -39,7 +39,6 @@ mod cloud_render;
 mod cube_tint_raster;
 mod dragon_death_rays;
 mod end_rod_snapshot;
-mod lightning_rod_snapshot;
 mod end_sky;
 mod entity_shadow;
 mod gpu_culling;
@@ -53,6 +52,7 @@ mod leaf_shader;
 mod leaf_texture_filtering;
 mod leaf_uv;
 mod lightmap;
+mod lightning_rod_snapshot;
 mod lily_pad;
 mod liquid_geometry;
 mod liquid_order_raster;

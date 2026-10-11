@@ -1,7 +1,9 @@
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentitySource};
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use client_runtime::network::NetworkHandle;
 
 #[cfg(feature = "acceptance")]
 use bevy::ecs::system::SystemParam;
@@ -12,14 +14,14 @@ use bevy::{
 #[cfg(feature = "acceptance")]
 use render::TransparentSortMetrics;
 
-use crate::runtime::{
-    network::NetworkHandle,
-    world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
-};
 #[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;
 #[cfg(feature = "acceptance")]
 use {crate::runtime::visibility::AppMetrics, client_interaction::movement::MovementTicker};
+use {
+    crate::runtime::world::ClientWorld,
+    client_runtime::shutdown::{ShutdownWatchdog, begin_bounded_shutdown},
+};
 
 pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {
@@ -52,7 +54,7 @@ pub(crate) fn exit_on_window_close_requested(
 
 pub(crate) fn exit_on_fatal_runtime_error(
     client_world: Res<ClientWorld>,
-    mut network: ResMut<NetworkHandle>,
+    mut network: ResMut<NetworkHandle<PackApplication>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(exit_status) = client_world
@@ -82,7 +84,7 @@ pub(crate) fn finish_acceptance_run(
     mut metrics: ResMut<AppMetrics>,
     transparent_sort: Res<TransparentSortMetrics>,
     phase3: Phase3TerminalEvidence,
-    mut network: ResMut<NetworkHandle>,
+    mut network: ResMut<NetworkHandle<PackApplication>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Phase3TerminalEvidence {

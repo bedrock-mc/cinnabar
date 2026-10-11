@@ -5,14 +5,13 @@
 //! highlight follows input without waiting for the server), and the choice is announced upstream
 //! with a `PlayerHotbar` packet.
 
-use bevy::prelude::{Res, ResMut};
-use protocol::Packet;
-
 use crate::runtime::{
-    network::{NetworkHandle, PacketSendError},
-    shutdown::record_fatal_error,
-    world::ClientWorld,
+    network::resource_packs::PackApplication, shutdown::record_fatal_error, world::ClientWorld,
 };
+use bevy::prelude::{Res, ResMut};
+use client_runtime::network::NetworkHandle;
+use client_session::PacketSendError;
+use protocol::Packet;
 
 /// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
@@ -21,7 +20,7 @@ use crate::runtime::{
 )]
 pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<ClientWorld>,
 ) {
     if network.closed_command_has_pending_control() {
@@ -198,7 +197,7 @@ mod tests {
                 delta: Vec2::new(0.0, -1.0),
                 ..Default::default()
             })
-            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
@@ -284,7 +283,7 @@ mod tests {
                 delta: Vec2::new(0.0, -1.0),
                 ..Default::default()
             })
-            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
@@ -554,7 +553,7 @@ mod tests {
             .inventory
             .queue_local_hotbar_selection(5, game_mode);
 
-        crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
+        client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
     }

@@ -18,10 +18,6 @@ use {
     crate::{
         environment::{WeatherState, WorldClock, bind_session_generation},
         runtime::{
-            network::{
-                publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
-                session::SequencedWorldEvent,
-            },
             phase3_evidence::Phase3EvidenceEmitter,
             world::{
                 ClientWorld, WorldStreamFramePoll, drain_committed_ui_before_authority,
@@ -39,6 +35,10 @@ use {
         camera::CameraSettingsAuthority,
         local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
     },
+    client_runtime::inventory::{
+        publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
+    },
+    client_session::SequencedWorldEvent,
 };
 use {
     client_ui::ui_runtime::UiRuntime,

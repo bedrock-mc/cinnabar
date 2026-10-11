@@ -10,18 +10,20 @@ use client_interaction::block_use::{
     verified_use_selection,
 };
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Time, Window, With},
     window::PrimaryWindow,
 };
+use client_runtime::network::NetworkHandle;
 use protocol::{ItemUseTrigger, PlayerGameMode, PlayerInputMode};
 use semantic_input::Action;
 use sim::PaletteWorld;
 
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::runtime::{network::NetworkHandle, world::ClientWorld},
+    crate::runtime::world::ClientWorld,
     client_interaction::{
         melee::{MeleeRuntime, SwingTracker},
         movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
@@ -51,7 +53,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }

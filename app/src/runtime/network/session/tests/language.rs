@@ -1,9 +1,12 @@
 use super::*;
-use crate::runtime::network::{
-    drain_network_controls, publish_bootstrap_inventory, resource_packs::install_server_language,
-};
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::UiRuntime;
 use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
+use {
+    crate::runtime::network::resource_packs::install_server_language,
+    client_runtime::{ingress::drain_network_controls, inventory::publish_bootstrap_inventory},
+};
 
 fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
     assets::ServerLangOverlay::read(value.len(), |target| {
@@ -33,7 +36,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     assert!(accepted);
     install_server_language(&mut runtime, 2, Some(old), accepted);
     assert_eq!(runtime.localized_item_name("minecraft:stone"), "Old");
-    crate::session::begin_session(&mut runtime, &mut player_runtime, 3);
+    client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 3);
     assert!(old_weak.upgrade().is_none());
     let current = overlay(b"item.stone.name=Current\n");
     install_server_language(&mut runtime, 3, Some(current), true);
@@ -84,11 +87,14 @@ fn replacing_handle_drops_old_terminal_receiver_before_new_session_publication()
             origin: NetworkFailureOrigin::Receive,
         },
     ] {
-        let (mut handle, _) = NetworkHandle::stub();
+        let (mut handle, _) = NetworkHandle::<PackApplication>::stub();
         let (sender, receiver) = mpsc::channel(1);
         *handle.control_events_mut() = receiver;
         sender.try_send(terminal).unwrap();
-        let old = std::mem::replace(&mut handle, NetworkHandle::disconnected());
+        let old = std::mem::replace(
+            &mut handle,
+            NetworkHandle::<PackApplication>::disconnected(),
+        );
         drop(old);
         assert!(sender.is_closed());
         assert!(drain_network_controls(handle.control_events_mut(), 64).is_empty());
