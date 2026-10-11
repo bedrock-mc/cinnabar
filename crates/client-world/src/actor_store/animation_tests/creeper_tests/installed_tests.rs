@@ -1,4 +1,10 @@
+use std::collections::HashMap;
+
 use super::*;
+use crate::actor_animation::{
+    ActorAnimationStore, ActorTickContext, MAX_MOLANG_OPS_PER_RENDER_FRAME,
+    test_support::total_scale,
+};
 
 #[test]
 fn installed_creeper_samples_pack_swelling_and_flash_between_ticks() {
@@ -168,7 +174,7 @@ fn assert_installed_creeper_samples(powered: bool) {
         animation.get(1).unwrap().previous[head].rotation,
         animation.get(1).unwrap().current[head].rotation
     );
-    animation.schedule.world_budget = 0;
+    animation.set_world_budget(0);
     animation.advance_tick(
         &HashMap::from([(1, actor.clone())]),
         None,
@@ -206,7 +212,7 @@ fn assert_installed_creeper_samples(powered: bool) {
         (growth * 0.1 + 1.0) / wobble,
         (growth * 0.4 + 1.0) * wobble,
     ];
-    for (actual, expected) in pose::total_scale(&capped.current[body])
+    for (actual, expected) in total_scale(&capped.current[body])
         .into_iter()
         .zip(expected_body_scale)
     {
@@ -223,14 +229,14 @@ fn assert_installed_creeper_samples(powered: bool) {
             &layers[0].previous_pose[body]
         };
         assert_eq!(
-            pose::total_scale(previous),
-            pose::total_scale(&capped.current[body]),
+            total_scale(previous),
+            total_scale(&capped.current[body]),
             "the first steady fuse tick must hold its capped scale"
         );
         if powered {
             assert_eq!(
-                pose::total_scale(&layers[1].previous_pose[body]),
-                pose::total_scale(&capped.current[body])
+                total_scale(&layers[1].previous_pose[body]),
+                total_scale(&capped.current[body])
             );
         }
     }
@@ -264,14 +270,14 @@ fn assert_installed_creeper_samples(powered: bool) {
             &layers[0].previous_pose[body]
         };
         assert_eq!(
-            pose::total_scale(previous),
-            pose::total_scale(&defused.rest[body]),
+            total_scale(previous),
+            total_scale(&defused.rest[body]),
             "the first steady defused tick must hold its rest scale"
         );
         if powered {
             assert_eq!(
-                pose::total_scale(&layers[1].previous_pose[body]),
-                pose::total_scale(&defused.rest[body])
+                total_scale(&layers[1].previous_pose[body]),
+                total_scale(&defused.rest[body])
             );
         }
     }
@@ -324,14 +330,14 @@ fn assert_installed_creeper_samples(powered: bool) {
             &layers[0].previous_pose[body]
         };
         assert_eq!(
-            pose::total_scale(previous),
-            pose::total_scale(&dying.rest[body]),
+            total_scale(previous),
+            total_scale(&dying.rest[body]),
             "death clears swelling before another animation tick"
         );
         if powered {
             assert_eq!(
-                pose::total_scale(&layers[1].previous_pose[body]),
-                pose::total_scale(&dying.rest[body])
+                total_scale(&layers[1].previous_pose[body]),
+                total_scale(&dying.rest[body])
             );
         }
     }

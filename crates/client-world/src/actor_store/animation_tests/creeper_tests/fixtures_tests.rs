@@ -58,7 +58,7 @@ pub(super) fn pack_swell_fixture_with(
         property,
         variable,
     } = channel;
-    let mut compiled = super::attachable::tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/creeper.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:creeper".into();

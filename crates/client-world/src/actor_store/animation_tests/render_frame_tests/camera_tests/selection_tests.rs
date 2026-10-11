@@ -109,7 +109,7 @@ fn unused_swing_geometry_preserves_body_walking_endpoints() {
         assert_ne!(previous, current);
         store.sync_local_swing(
             1,
-            crate::LocalSwingProgress {
+            LocalSwingProgress {
                 bedrock: [0.25, 0.5],
                 java: [0.25, 0.5],
                 frame_alpha: Some(0.75),
@@ -139,7 +139,7 @@ fn selected_swing_geometry_samples_without_replacing_body_walking_endpoints() {
     assert_ne!(previous, current);
     store.sync_local_swing(
         1,
-        crate::LocalSwingProgress {
+        LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(0.75),
@@ -153,7 +153,7 @@ fn selected_swing_geometry_samples_without_replacing_body_walking_endpoints() {
             assert_eq!(layer.geometry, Some(1));
             assert_rotation(
                 layer.pose[1].rotation,
-                pose::quat_from_euler([-0.4375, 0.0, 0.0]),
+                test_support::quat_from_euler([-0.4375, 0.0, 0.0]),
             );
             assert_eq!(layer.previous_pose, layer.pose);
         }

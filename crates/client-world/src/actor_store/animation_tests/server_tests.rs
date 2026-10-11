@@ -1,9 +1,13 @@
-use super::*;
-use crate::actor_store::{ActorApplyResult, ActorStore};
+use std::{collections::HashMap, sync::Arc};
+
+use assets::{EntityAssetKind, RuntimeEntityAssets};
 use protocol::{ActorActionEvent, ActorActionKind, ActorEvent, ActorSpawnEvent, ItemActorEvent};
 
+use crate::actor_animation::{ActorAnimationStore, ActorTickContext};
+use crate::actor_store::{ActorApplyResult, ActorStore};
+
 fn compiled() -> assets::CompiledEntityAssets {
-    let mut compiled = super::attachable::tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/display.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:test".into();
@@ -27,7 +31,7 @@ fn assets() -> Arc<RuntimeEntityAssets> {
 
 fn unposed_store() -> ActorStore {
     let mut store = ActorStore::new_with_entity_assets(1, 0, assets());
-    let actor = super::tests::actor_with_metadata(HashMap::new());
+    let actor = super::actor_with_metadata(HashMap::new());
     let spawn = ActorEvent::Spawn(ActorSpawnEvent {
         dimension: 0,
         unique_id: actor.unique_id,
@@ -218,7 +222,7 @@ fn generic_packet_channels_bind_by_bone_name_and_skip_names_absent_from_the_mode
         vec![compiled.animation_channels[0].clone(), missing].into_boxed_slice();
     compiled.animation_clips[0].channel_count = 2;
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    let actor = super::tests::actor_with_metadata(HashMap::new());
+    let actor = super::actor_with_metadata(HashMap::new());
     let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.insert(1, 0, &actor);
     let request = store

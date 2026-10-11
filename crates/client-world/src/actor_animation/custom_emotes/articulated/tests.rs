@@ -94,7 +94,7 @@ fn owned_custom_emote_knee_mesh_skips_rotated_or_nonclassic_legs() {
 fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
     use crate::CustomEmote;
     use crate::actor_animation::custom_emotes::{
-        sample,
+        sample_custom_emote,
         tests::{Fixture, near, point},
     };
     let source = fixture();
@@ -107,7 +107,7 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
     let mut highest_hip = f32::NEG_INFINITY;
     for step in 0..=32 {
         let phase = f64::from(step) * period / 32.0;
-        let pose = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
+        let pose = sample_custom_emote(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
         let snapshot = pose.snapshot(f.rig());
         let index = |name: &str| {
             snapshot

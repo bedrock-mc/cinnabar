@@ -11,7 +11,7 @@ pub(super) struct StopCode {
 }
 
 #[derive(Debug)]
-pub(crate) struct Request {
+pub struct Request {
     animation: Arc<str>,
     controller: Arc<str>,
     next_state: Arc<str>,
@@ -48,7 +48,7 @@ pub(super) struct Controller {
 }
 
 impl ActorAnimationStore {
-    pub(crate) fn prepare_server_animation(
+    pub fn prepare_server_animation(
         &mut self,
         action: &protocol::ActorActionEvent,
     ) -> Option<Arc<Request>> {
@@ -89,7 +89,7 @@ impl ActorAnimationStore {
         }))
     }
 
-    pub(crate) fn start_server_animation(&mut self, runtime_id: u64, request: Arc<Request>) {
+    pub fn start_server_animation(&mut self, runtime_id: u64, request: Arc<Request>) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
@@ -261,7 +261,7 @@ pub(super) fn select(
                     .definitions
                     .iter()
                     .position(|definition| definition.request.animation == next);
-                controller.change(target, evaluator.life_tick, evaluator.actor.runtime_id);
+                controller.change(target, evaluator.life_tick, evaluator.actor.runtime_id());
             }
         }
         let amount = controller.outgoing.as_ref().map_or(1.0, |outgoing| {

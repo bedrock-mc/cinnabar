@@ -6,7 +6,7 @@ pub(in crate::actor_animation) struct SwellMotion {
     pub variables: MolangVariables,
     pub sampling: Option<Arc<super::swell::SwellSampling>>,
     pub queries: Vec<(u32, MolangValue)>,
-    pub actor: Option<Arc<ActorSnapshot>>,
+    pub actor: Option<Arc<dyn AnimatedActor>>,
     pub context: ActorTickContext,
     pub input: ActorTickInput,
     pub anim_tick: u64,
@@ -42,7 +42,10 @@ impl SwellMotion {
             swell_amount: Some(amount),
             presentation_alpha: Some(base.context.frame_alpha),
             query_history: Some(&self.queries),
-            actor: self.actor.as_deref().unwrap_or(base.actor),
+            actor: match self.actor.as_deref() {
+                Some(actor) => actor,
+                None => base.actor,
+            },
             ..base
         };
         let mut variables = self.variables.clone();

@@ -1,7 +1,7 @@
 use super::*;
 
 fn compiled_display(bone_count: usize) -> assets::CompiledEntityAssets {
-    let mut compiled = super::super::attachable::tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/display.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:test".into();
@@ -86,19 +86,10 @@ fn authored_entity_bounds_keep_edge_display_visible_and_animated() {
     };
     compiled.geometries[0].visible_bounds = Some(bounds);
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    let mut actor = super::super::tests::actor_with_metadata(HashMap::from([
-        (
-            crate::actor_store::BOUNDING_BOX_WIDTH_METADATA_KEY,
-            ActorMetadataValue::Float(0.005),
-        ),
-        (
-            crate::actor_store::BOUNDING_BOX_HEIGHT_METADATA_KEY,
-            ActorMetadataValue::Float(0.005),
-        ),
-    ]));
+    // Animation culls by authored visible bounds; actor collision boxes never reach it.
+    let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
     actor.position = [11.0, 0.0, 0.0];
-    actor.previous_pose.position = actor.position;
-    actor.received_pose.position = actor.position;
+    actor.previous_position = actor.position;
     let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.set_pack(Some((assets, vec![0])));
     store.insert(1, 0, &actor);
@@ -127,8 +118,7 @@ fn authored_entity_bounds_keep_edge_display_visible_and_animated() {
     assert!(!store.rigs[&lifetime].culled);
 
     actor.position[0] = 19.0;
-    actor.previous_pose.position = actor.position;
-    actor.received_pose.position = actor.position;
+    actor.previous_position = actor.position;
     store.advance_tick(
         &HashMap::from([(actor.runtime_id, actor.clone())]),
         Some(&view),

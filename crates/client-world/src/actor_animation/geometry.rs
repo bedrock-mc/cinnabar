@@ -40,7 +40,7 @@ mod pinned_baby_tests;
 pub(super) fn resolve_binding(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     completed_tick: u64,
     rig_binding: usize,
 ) -> Option<ActorRigState> {
@@ -60,13 +60,13 @@ pub(super) fn resolve_binding(
     };
     let mut candidate_offset = 0;
     let input = ActorTickInput {
-        position: actor.position,
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
-        body_yaw: actor.body_yaw,
-        yaw: actor.yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
+        position: actor.position(),
+        velocity: actor.velocity(),
+        on_ground: actor.on_ground(),
+        body_yaw: actor.body_yaw(),
+        yaw: actor.yaw(),
+        head_yaw: actor.head_yaw(),
+        pitch: actor.pitch(),
         ..ActorTickInput::default()
     };
     let context = ActorTickContext::default();
@@ -88,7 +88,7 @@ pub(super) fn resolve_binding(
         bones: &[],
         bone_names: &[],
     };
-    let random_seed = actor.runtime_id ^ actor.spawn_revision.rotate_left(32);
+    let random_seed = actor.runtime_id() ^ actor.spawn_revision().rotate_left(32);
     let mut variables = layout.fresh(random_seed);
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
         let selected = evaluator
@@ -122,7 +122,7 @@ pub(super) fn resolve_binding(
     {
         collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
     }
-    let mut motion = MotionState::spawn(actor.body_yaw, actor.head_yaw);
+    let mut motion = MotionState::spawn(actor.body_yaw(), actor.head_yaw());
     motion.horse = super::horse::AnimationState::new(random_seed);
     let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,
@@ -208,7 +208,7 @@ pub(super) fn resolve_binding(
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
-        java: super::java::JavaMotionState::spawn(actor.body_yaw),
+        java: super::java::JavaMotionState::spawn(actor.body_yaw()),
         local_swing: None,
         motion,
     })
@@ -396,7 +396,7 @@ pub(super) fn reselect_geometry(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) {
@@ -416,7 +416,7 @@ pub(super) fn reselect_geometry_preview(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) -> Option<GeometryCheckpoint> {
@@ -436,7 +436,7 @@ pub(super) fn reselect_geometry_replay(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
     tick: u64,
@@ -464,7 +464,7 @@ fn reselect_geometry_with_checkpoint(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
     mode: GeometrySelectionMode,

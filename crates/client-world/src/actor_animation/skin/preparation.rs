@@ -120,13 +120,13 @@ impl SkinPreparationCache {
             .0
             .as_ref()
             .map_or(0, |prepared| prepared.mesh_bytes());
-        if bytes > crate::actor_store::MAX_TRACKED_PLAYER_SKIN_BYTES
+        if bytes > protocol::MAX_PLAYER_LIST_SKIN_BYTES
             || mesh_bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
         {
             return prepared;
         }
-        while self.entries.len() >= crate::actor_store::MAX_TRACKED_ACTORS
-            || self.source_bytes + bytes > crate::actor_store::MAX_TRACKED_PLAYER_SKIN_BYTES
+        while self.entries.len() >= super::super::MAX_ANIMATED_ACTORS
+            || self.source_bytes + bytes > protocol::MAX_PLAYER_LIST_SKIN_BYTES
             || self.mesh_bytes + mesh_bytes > render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
         {
             let Some(oldest) = self.order.pop_front() else {

@@ -1,19 +1,30 @@
-use super::*;
-use protocol::{ActorMetadata, ActorMetadataUpdateEvent, ActorSpawnEvent};
+//! Wolf collar dye reaches the rig through tamed and colour metadata.
+use std::sync::Arc;
 
-use crate::actor_store::{
-    ACTOR_FLAG_TAMED,
-    color::{COLOR_METADATA_KEY as COLOR_KEY, WOLF_IDENTIFIER},
+use assets::{MolangQuery, MolangQueryHandler, RuntimeEntityAssets};
+use protocol::{
+    ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent,
 };
+
+use crate::{
+    actor_animation::{AttachableAnimationInput, AttachablesRuntime, test_support},
+    actor_store::ActorStore,
+};
+
+const WOLF_IDENTIFIER: &str = test_support::WOLF_IDENTIFIER;
+const COLOR_KEY: u32 = test_support::WOLF_COLOR_METADATA_KEY;
 const FLAGS_KEY: u32 = 0;
-const TAMED: u64 = 1 << ACTOR_FLAG_TAMED;
+const TAMED: u64 = match MolangQuery::IsTamed.descriptor().handler {
+    MolangQueryHandler::Flag(bit) => 1 << bit,
+    _ => panic!("query.is_tamed reads an actor flag"),
+};
 
 /// Spawns a wolf with a controller that inherits the actor's color.
-fn wolf(flags: u64, color: ActorMetadataValue) -> crate::actor_store::ActorStore {
-    let mut compiled = counting_random_compiled(WOLF_IDENTIFIER);
+fn wolf(flags: u64, color: ActorMetadataValue) -> ActorStore {
+    let mut compiled = test_support::counting_random_compiled(WOLF_IDENTIFIER);
     compiled.render.layers[0].color = None;
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
+    let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     store.apply(
         1,
         1,
@@ -52,7 +63,7 @@ fn wolf(flags: u64, color: ActorMetadataValue) -> crate::actor_store::ActorStore
 }
 
 /// Applies a metadata transition and completes the next actor tick.
-fn update(store: &mut crate::actor_store::ActorStore, flags: u64, color: ActorMetadataValue) {
+fn update(store: &mut ActorStore, flags: u64, color: ActorMetadataValue) {
     let tick = store.actor_rig(1).unwrap().completed_tick + 1;
     store.apply(
         1,
@@ -116,10 +127,8 @@ fn wolf_collar_masks_byte_index_and_rejects_other_metadata_types() {
 
 #[test]
 fn wolf_collar_dye_does_not_color_its_equipment() {
-    use crate::actor_animation::attachable::{AttachableAnimationInput, AttachablesRuntime};
-
     let store = wolf(TAMED, ActorMetadataValue::Byte(14));
-    let compiled = super::super::super::attachable::tests::compiled_fixture();
+    let compiled = test_support::compiled_fixture();
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut runtime = AttachablesRuntime::new(assets);
     let snapshot = runtime

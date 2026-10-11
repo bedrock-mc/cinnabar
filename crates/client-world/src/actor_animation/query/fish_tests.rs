@@ -10,7 +10,7 @@ const FISH: [&str; 4] = [
     "minecraft:tropicalfish",
 ];
 
-fn actor(identifier: &str) -> ActorSnapshot {
+fn actor(identifier: &str) -> TestActor {
     let mut actor = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Entity {
         identifier: identifier.into(),
@@ -18,7 +18,7 @@ fn actor(identifier: &str) -> ActorSnapshot {
     actor
 }
 
-fn store(actor: &ActorSnapshot) -> ActorAnimationStore {
+fn store(actor: &TestActor) -> ActorAnimationStore {
     let ActorKind::Entity { identifier } = &actor.kind else {
         unreachable!()
     };
@@ -27,7 +27,7 @@ fn store(actor: &ActorSnapshot) -> ActorAnimationStore {
     store
 }
 
-fn tick(store: &mut ActorAnimationStore, actor: &ActorSnapshot, evaluate: bool) {
+fn tick(store: &mut ActorAnimationStore, actor: &TestActor, evaluate: bool) {
     store.advance_tick(
         &HashMap::from([(actor.runtime_id, actor.clone())]),
         None,
@@ -38,13 +38,13 @@ fn tick(store: &mut ActorAnimationStore, actor: &ActorSnapshot, evaluate: bool) 
     );
 }
 
-fn phase(store: &ActorAnimationStore, actor: &ActorSnapshot) -> [f32; 2] {
+fn phase(store: &ActorAnimationStore, actor: &TestActor) -> [f32; 2] {
     store.rigs[&store.runtime_to_lifetime[&actor.runtime_id]]
         .motion
         .fish_phase()
 }
 
-fn variables(store: &ActorAnimationStore, actor: &ActorSnapshot) -> [Option<f32>; 2] {
+fn variables(store: &ActorAnimationStore, actor: &TestActor) -> [Option<f32>; 2] {
     let state = &store.rigs[&store.runtime_to_lifetime[&actor.runtime_id]];
     [
         store.layout.engine.fish_animation_amount,

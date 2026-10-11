@@ -1,7 +1,7 @@
 use super::super::*;
 use super::fixtures::entity_assets as fixture;
 
-fn horse(flags: u64) -> ActorSnapshot {
+fn horse(flags: u64) -> TestActor {
     let mut actor =
         tests::actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(flags))]));
     actor.kind = ActorKind::Entity {
@@ -11,7 +11,7 @@ fn horse(flags: u64) -> ActorSnapshot {
     actor
 }
 
-fn tick(store: &mut ActorAnimationStore, actor: &ActorSnapshot, has_rider: bool) {
+fn tick(store: &mut ActorAnimationStore, actor: &TestActor, has_rider: bool) {
     store.advance_tick(
         &HashMap::from([(actor.runtime_id, actor.clone())]),
         None,

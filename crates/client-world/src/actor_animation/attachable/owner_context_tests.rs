@@ -1,5 +1,5 @@
 //! Static owners retain equipment and property inputs for their attachables.
-use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
+use crate::actor_animation::{PropertyDefinition, PropertyKind};
 use assets::{MolangCall, MolangOp, MolangSymbol, MolangSymbolKind};
 use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
@@ -40,7 +40,7 @@ fn query_fixture(property: bool) -> Arc<RuntimeEntityAssets> {
 /// Completes a non-animated owner tick so equipment queries cannot rely on a pose frame.
 fn owner_store(
     assets: &Arc<RuntimeEntityAssets>,
-    owner: &ActorSnapshot,
+    owner: &TestActor,
     context: &ActorTickContext,
 ) -> ActorAnimationStore {
     let mut store = ActorAnimationStore::new(Some(Arc::clone(assets)));
@@ -110,7 +110,7 @@ fn cached_attachable_visibility_tracks_changed_offhand_use_duration() {
 }
 
 /// Reads the owning-entity predicate through an actual worn animation weight.
-fn translation(property: bool, context: &ActorTickContext, owner: &ActorSnapshot) -> f32 {
+fn translation(property: bool, context: &ActorTickContext, owner: &TestActor) -> f32 {
     let assets = query_fixture(property);
     let store = owner_store(&assets, owner, context);
     let owner_rig = store.snapshots().next().unwrap();

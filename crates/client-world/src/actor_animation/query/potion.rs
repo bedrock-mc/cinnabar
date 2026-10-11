@@ -1,15 +1,15 @@
 use super::*;
 
-pub(super) const AUX_VALUE_METADATA_KEY: u32 = 36;
+pub(crate) const AUX_VALUE_METADATA_KEY: u32 = 36;
 
 /// Potion projectiles expose the effect appearance of their own short auxiliary value.
-pub(super) fn variant(actor: &ActorSnapshot) -> Option<f32> {
-    if !matches!(&actor.kind, ActorKind::Entity { identifier }
+pub(super) fn variant(actor: &dyn AnimatedActor) -> Option<f32> {
+    if !matches!(actor.kind(), ActorKind::Entity { identifier }
         if matches!(identifier.as_ref(), "minecraft:splash_potion" | "minecraft:lingering_potion"))
     {
         return None;
     }
-    let auxiliary = match actor.metadata.get(&AUX_VALUE_METADATA_KEY) {
+    let auxiliary = match actor.metadata().get(&AUX_VALUE_METADATA_KEY) {
         Some(ActorMetadataValue::Short(auxiliary)) => *auxiliary,
         _ => 0,
     };

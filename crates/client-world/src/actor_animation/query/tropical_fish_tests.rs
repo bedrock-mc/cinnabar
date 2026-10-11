@@ -8,7 +8,7 @@ fn key(query: Q) -> u32 {
         .expect("registered integer metadata query")
 }
 
-fn fish(variant: ActorMetadataValue, mark_variant: ActorMetadataValue) -> ActorSnapshot {
+fn fish(variant: ActorMetadataValue, mark_variant: ActorMetadataValue) -> TestActor {
     let mut actor = actor_with_metadata(HashMap::from([
         (key(Q::Variant), variant),
         (key(Q::MarkVariant), mark_variant),
@@ -27,7 +27,7 @@ fn engine() -> EngineSlots {
     }
 }
 
-fn update(actor: &ActorSnapshot, variables: &mut MolangVariables) {
+fn update(actor: &TestActor, variables: &mut MolangVariables) {
     tick::apply_engine_variables(
         &engine(),
         variables,

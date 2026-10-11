@@ -8,7 +8,7 @@ type AttachableKey = (ActorLifetimeId, bool, bool, bool, u8);
 
 // Every hand, perspective, worn-state and worn-slot key fits for all admitted owners.
 const STATES_PER_OWNER: usize = 1 << 5;
-const MAX_ATTACHABLE_STATES: usize = crate::actor_store::MAX_TRACKED_ACTORS * STATES_PER_OWNER;
+const MAX_ATTACHABLE_STATES: usize = MAX_ANIMATED_ACTORS * STATES_PER_OWNER;
 
 /// Native item-render inputs; duration values are ticks, not the actor VM's seconds.
 #[derive(Clone, Copy, Debug, Default)]
@@ -54,7 +54,7 @@ impl AttachableAnimationInput<'_> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct AttachableQueryContext {
+pub struct AttachableQueryContext {
     pub first_person: bool,
     pub off_hand: bool,
     pub worn: bool,
@@ -214,7 +214,7 @@ impl AttachablesRuntime {
     pub fn evaluate(
         &mut self,
         identifier: &str,
-        owner: &ActorSnapshot,
+        owner: &dyn AnimatedActor,
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
     ) -> Option<AttachableRigSnapshot<'_>> {
@@ -366,12 +366,12 @@ impl AttachablesRuntime {
             .interpolate(owner_rig.off_hand_animation[1], frame_alpha);
         state.history.clear();
         state.history.push_back(ActorTickInput {
-            position: owner.position,
-            velocity: owner.velocity,
-            on_ground: owner.on_ground.unwrap_or(false),
+            position: owner.position(),
+            velocity: owner.velocity(),
+            on_ground: owner.on_ground(),
             body_yaw: owner_rig.body_yaw,
-            head_yaw: owner.head_yaw,
-            pitch: owner.pitch,
+            head_yaw: owner.head_yaw(),
+            pitch: owner.pitch(),
             item_use_ticks: input.use_elapsed_ticks.unwrap_or(0),
             attack_time: item.attack_time,
             arm_height: item.arm_height,

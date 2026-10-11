@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn worn_attachables_read_owner_movement_delta_for_glide_wings() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.molang_symbols[1..5].rotate_left(1);
     compiled.molang_symbols[4].identifier = "query.position_delta".into();
     for op in &mut compiled.molang_ops {
@@ -75,7 +75,7 @@ fn worn_attachables_read_owner_movement_delta_for_glide_wings() {
 
 #[test]
 fn elytra_equipment_hides_and_restores_the_outer_chest_layer() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.molang_symbols[7].identifier = "variable.chest_layer_visible".into();
     let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
     let layout = VariableLayout::new(&assets);

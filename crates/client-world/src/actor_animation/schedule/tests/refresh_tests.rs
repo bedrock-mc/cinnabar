@@ -2,7 +2,7 @@ use super::*;
 use assets::{CompiledMolangExpression, EntityGeometryScalar, MolangSymbol, MolangSymbolKind};
 
 /// A valid local player has separate clock-driven and swing-driven translation channels.
-fn local_fixture(authored_clock: bool) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
+fn local_fixture(authored_clock: bool) -> (HashMap<u64, TestActor>, ActorAnimationStore) {
     local_fixture_scripts(authored_clock, false)
 }
 
@@ -10,7 +10,7 @@ fn local_fixture(authored_clock: bool) -> (HashMap<u64, ActorSnapshot>, ActorAni
 fn local_fixture_scripts(
     authored_clock: bool,
     stateful: bool,
-) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
+) -> (HashMap<u64, TestActor>, ActorAnimationStore) {
     local_fixture_with(authored_clock, stateful, |_| {})
 }
 
@@ -19,8 +19,8 @@ fn local_fixture_with(
     authored_clock: bool,
     stateful: bool,
     configure: impl FnOnce(&mut assets::CompiledEntityAssets),
-) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
-    let mut compiled = crate::actor_animation::attachable::tests::compiled_fixture();
+) -> (HashMap<u64, TestActor>, ActorAnimationStore) {
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/player.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:player".into();
@@ -175,7 +175,7 @@ fn local_fixture_with(
 }
 
 /// Changes only committed swing inputs before reevaluating this completed tick's local view.
-fn refresh_swing(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore) {
+fn refresh_swing(actors: &HashMap<u64, TestActor>, store: &mut ActorAnimationStore) {
     assert!(store.sync_local_swing(
         LOCAL,
         crate::LocalSwingProgress {
@@ -308,7 +308,7 @@ fn local_swing_refresh_replaces_retained_script_and_clock_assignments_once() {
 }
 
 /// Replaces an already refreshed tick without changing its swing observation again.
-fn refresh_again(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore) {
+fn refresh_again(actors: &HashMap<u64, TestActor>, store: &mut ActorAnimationStore) {
     store.refresh_local_view(actors, LOCAL, |_| ActorTickContext {
         is_local: true,
         animation_elapsed_ticks: Some(0),

@@ -119,7 +119,7 @@ impl Slots {
     pub(super) fn apply(
         &self,
         variables: &mut MolangVariables,
-        actor: &ActorSnapshot,
+        actor: &dyn AnimatedActor,
         context: &ActorTickContext,
         input: &ActorTickInput,
         attack_time: f32,
@@ -128,7 +128,7 @@ impl Slots {
             || query::actor_flag(actor, query::FLAG_GLIDING)
         {
             -115.0 - input.pitch
-        } else if query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING) {
+        } else if query::actor_flag(actor, query::FLAG_CRAWLING) {
             -115.0
         } else {
             -30.0

@@ -1,14 +1,25 @@
-use super::*;
+//! Camera, frame-fraction and local swing inputs sampled between completed ticks.
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
+
 use assets::{
     CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip, EntityAnimationProperty,
-    EntityAssetSymbol, EntityGeometryScalar, EntityRenderGeometry, MolangCall, MolangSymbol,
-    MolangSymbolKind,
+    EntityAssetKind, EntityAssetSymbol, EntityGeometryScalar, EntityRenderGeometry, MolangCall,
+    MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
+};
+use protocol::ActorKind;
+
+use crate::{
+    actor_animation::{
+        ActorAnimationStore, ActorTickContext, LocalSwingProgress, MAX_MOLANG_OPS_PER_RENDER_FRAME,
+        test_support,
+    },
+    actor_store::ActorStore,
 };
 
 mod selection_tests;
 
 fn camera_compiled() -> assets::CompiledEntityAssets {
-    let mut compiled = super::super::attachable::tests::compiled_fixture();
+    let mut compiled = test_support::compiled_fixture();
     compiled.sources[1].path = "entity/item.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:test".into();
@@ -130,12 +141,12 @@ fn camera_assets() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(camera_compiled()).unwrap())
 }
 
-fn fixture() -> crate::actor_store::ActorStore {
+fn fixture() -> ActorStore {
     fixture_with_assets(camera_assets())
 }
 
-fn fixture_with_assets(assets: Arc<RuntimeEntityAssets>) -> crate::actor_store::ActorStore {
-    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
+fn fixture_with_assets(assets: Arc<RuntimeEntityAssets>) -> ActorStore {
+    let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     store.set_camera_position([0.0, 0.0, 4.0]);
     store.apply(
         1,
@@ -207,7 +218,6 @@ fn light_multiplier_defaults_to_one_and_evaluates_unclamped_values_between_ticks
     compiled.render.layers[1].ignore_lighting = true;
     compiled.render.layers[2].light_color_multiplier = Some(3);
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    assert!(sampling::needs_frame_sampling(&assets, 0));
     let store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     for alpha in [0.0, 0.75] {
@@ -315,7 +325,7 @@ fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
 }
 
 /// Advances a moving actor one tick so ordinary pose endpoints differ.
-fn walking_fixture(compiled: assets::CompiledEntityAssets) -> crate::actor_store::ActorStore {
+fn walking_fixture(compiled: assets::CompiledEntityAssets) -> ActorStore {
     let mut store = fixture_with_assets(Arc::new(
         RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
@@ -412,7 +422,7 @@ fn camera_animation_mapped_only_to_selected_geometry_samples_between_ticks() {
     store.set_camera_position([4.0, 3.0, 0.0]);
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-        let expected = pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]);
+        let expected = test_support::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]);
         for layer in &layers[1..] {
             assert_rotation(layer.pose[1].rotation, expected);
             assert_rotation(layer.pose[0].rotation, expected);
@@ -576,7 +586,7 @@ fn server_camera_animation_outside_rig_bindings_samples_between_ticks() {
         let actual = layers[0].pose.first().unwrap_or(&completed_pose);
         assert_rotation(
             actual.rotation,
-            pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]),
+            test_support::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]),
         );
     }
     assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
@@ -629,7 +639,7 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
         // Positive authored X rotation turns toward negative X in the mirrored rig frame.
-        let expected = pose::quat_from_euler([-0.75, 0.0, 0.0]);
+        let expected = test_support::quat_from_euler([-0.75, 0.0, 0.0]);
         assert_rotation(layers[0].pose[0].rotation, expected);
         assert_rotation(layers[1].pose[1].rotation, expected);
     }
@@ -666,7 +676,7 @@ fn camera_position_samples_body_and_selected_geometry_without_advancing_a_tick()
         for alpha in [0.0, 0.25, 0.75] {
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
             assert_eq!(layers.len(), 3);
-            let expected = pose::quat_from_euler(rotation);
+            let expected = test_support::quat_from_euler(rotation);
             assert_rotation(layers[0].pose[0].rotation, expected);
             for layer in &layers[1..] {
                 assert_eq!(layer.geometry, Some(1));
@@ -697,7 +707,7 @@ fn camera_frame_budget_exhaustion_keeps_all_completed_geometry_poses() {
     let mut saw_sampled_frame = false;
     for remaining_ops in 1..32 {
         let mut frame = store.render_frame(0.5);
-        frame.remaining_ops = remaining_ops;
+        frame.set_remaining_ops(remaining_ops);
         let sampled = frame.layers(1).unwrap();
         if matches!(sampled, Cow::Borrowed(_)) {
             assert_eq!(sampled.as_ref(), completed);
@@ -734,7 +744,7 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
     let mut store = fixture_with_assets(assets);
     store.exclude_remote_state_for(1);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
-    let progress = crate::LocalSwingProgress {
+    let progress = LocalSwingProgress {
         bedrock: [0.25, 0.5],
         java: [0.25, 0.5],
         frame_alpha: Some(0.75),
@@ -749,7 +759,7 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
             .unwrap()
             .into_owned();
         assert_eq!(layers[0].color, [0.4375; 4]);
-        let expected = pose::quat_from_euler([-0.4375, 0.0, 0.0]);
+        let expected = test_support::quat_from_euler([-0.4375, 0.0, 0.0]);
         assert_rotation(layers[0].pose[0].rotation, expected);
         assert_rotation(layers[1].pose[1].rotation, expected);
         assert_eq!(layers[0].pose, layers[0].previous_pose);
@@ -758,7 +768,7 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
     let stats = store.animation_stats();
     store.sync_local_swing(
         1,
-        crate::LocalSwingProgress {
+        LocalSwingProgress {
             frame_alpha: Some(0.25),
             ..progress
         },
@@ -770,7 +780,7 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
     );
     assert_eq!(store.actor_rig(1).unwrap().java.swing_progress(0.9), 0.3125);
     assert_eq!(store.animation_stats(), stats);
-    let idle = crate::LocalSwingProgress {
+    let idle = LocalSwingProgress {
         frame_alpha: Some(0.1),
         ..Default::default()
     };
@@ -780,7 +790,7 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
     let pose = Arc::clone(&store.actor_rig(1).unwrap().render[0].pose);
     store.sync_local_swing(
         1,
-        crate::LocalSwingProgress {
+        LocalSwingProgress {
             frame_alpha: Some(0.9),
             ..idle
         },
@@ -916,7 +926,7 @@ fn local_swing_wrap_resamples_controller_weight_without_advancing_tick_state() {
             let completed_tick = store.actor_rig(1).unwrap().completed_tick;
             store.sync_local_swing(
                 1,
-                crate::LocalSwingProgress {
+                LocalSwingProgress {
                     bedrock: [5.0 / 6.0, 0.0],
                     java: [5.0 / 6.0, 0.0],
                     frame_alpha: Some(0.5),
@@ -928,7 +938,7 @@ fn local_swing_wrap_resamples_controller_weight_without_advancing_tick_state() {
             for _ in 0..2 {
                 let layers = store.render_frame(0.0).layers(1).unwrap().into_owned();
                 let angle = if static_channel { -10.0 } else { -11.0 / 12.0 };
-                let expected = pose::quat_from_euler([angle, 0.0, 0.0]);
+                let expected = test_support::quat_from_euler([angle, 0.0, 0.0]);
                 assert_rotation(layers[0].pose[0].rotation, expected);
             }
             assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
@@ -984,7 +994,7 @@ fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
     store.exclude_remote_state_for(1);
     store.sync_local_swing(
         1,
-        crate::LocalSwingProgress {
+        LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(0.75),
@@ -994,7 +1004,7 @@ fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
     let layers = store.render_frame(0.0).layers(1).unwrap().into_owned();
     assert_rotation(
         layers[0].pose[0].rotation,
-        pose::quat_from_euler([-0.4375, 0.0, 0.0]),
+        test_support::quat_from_euler([-0.4375, 0.0, 0.0]),
     );
 }
 

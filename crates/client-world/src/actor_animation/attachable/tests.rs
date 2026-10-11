@@ -2,223 +2,8 @@ use super::*;
 use crate::actor_animation::pose::quat_from_euler;
 use assets::*;
 
-fn scalar(value: f32) -> EntityGeometryScalar {
-    EntityGeometryScalar::new(value).unwrap()
-}
-
-pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
-    let sources = [
-        "animations/item.json",
-        "attachables/item.json",
-        "models/entity/item.json",
-        "render_controllers/item.json",
-        "textures/items/item.png",
-    ]
-    .into_iter()
-    .map(|path| EntityAssetSource {
-        path: path.into(),
-        source_bytes: 1,
-        source_sha256: [1; 32],
-    })
-    .collect::<Vec<_>>()
-    .into_boxed_slice();
-    let symbols = [
-        (EntityAssetKind::Geometry, "geometry.item", 2),
-        (EntityAssetKind::Animation, "animation.item", 0),
-        (
-            EntityAssetKind::RenderController,
-            "controller.render.item",
-            3,
-        ),
-        (EntityAssetKind::Texture, "textures/items/item", 4),
-        (EntityAssetKind::Attachable, "minecraft:test_item", 1),
-    ]
-    .into_iter()
-    .map(|(kind, identifier, source_index)| EntityAssetSymbol {
-        kind,
-        identifier: identifier.into(),
-        source_index,
-        dependencies: Box::new([]),
-    })
-    .collect::<Vec<_>>()
-    .into_boxed_slice();
-    let molang_symbols = [
-        (MolangSymbolKind::Name, "wield"),
-        (MolangSymbolKind::Query, "query.frame_alpha"),
-        (MolangSymbolKind::Query, "query.get_animation_frame"),
-        (MolangSymbolKind::Query, "query.main_hand_item_max_duration"),
-        (MolangSymbolKind::Query, "query.main_hand_item_use_duration"),
-        (MolangSymbolKind::Variable, "context.is_first_person"),
-        (MolangSymbolKind::Variable, "context.is_paperdoll"),
-        (MolangSymbolKind::Variable, "variable.charge_amount"),
-    ]
-    .into_iter()
-    .map(|(kind, identifier)| MolangSymbol {
-        kind,
-        identifier: identifier.into(),
-    })
-    .collect::<Vec<_>>()
-    .into_boxed_slice();
-    CompiledEntityAssets {
-        source_manifest_sha256: [1; 32],
-        block_visual_count: 1,
-        sources,
-        symbols,
-        geometries: vec![EntityGeometry {
-            visible_bounds: None,
-            identifier: "geometry.item".into(),
-            inherits: None,
-            source_index: 2,
-            texture_width: 16,
-            texture_height: 16,
-            bones: vec![EntityGeometryBone {
-                name: "rightitem".into(),
-                binding: None,
-                parent: None,
-                pivot: Some([scalar(0.0); 3]),
-                rotation: None,
-                bind_pose_rotation: None,
-                mirror: None,
-                inflate: None,
-                never_render: None,
-                reset: None,
-                cubes: Box::new([]),
-                texture_meshes: Box::new([]),
-            }]
-            .into_boxed_slice(),
-        }]
-        .into_boxed_slice(),
-        animation_clips: vec![EntityAnimationClip {
-            symbol: 1,
-            length_seconds: scalar(0.0),
-            loop_mode: EntityAnimationLoop::Loop,
-            first_channel: 0,
-            channel_count: 1,
-            source: 0,
-            override_previous: false,
-            anim_time_update: None,
-            geometry: Some(0),
-        }]
-        .into_boxed_slice(),
-        animation_channels: vec![EntityAnimationChannel {
-            bone_name: None,
-            bone: 0,
-            property: EntityAnimationProperty::Translation,
-            first_keyframe: 0,
-            keyframe_count: 1,
-            rotation_relative_to_entity: false,
-        }]
-        .into_boxed_slice(),
-        animation_keyframes: vec![EntityAnimationKeyframe {
-            time_seconds: scalar(0.0),
-            value: [scalar(0.0); 3],
-            interpolation: EntityAnimationInterpolation::Linear,
-            expressions: [Some(1), Some(2), None],
-        }]
-        .into_boxed_slice(),
-        molang_symbols,
-        molang_expressions: [(0, 11, 3), (11, 1, 1), (12, 1, 1), (13, 1, 1)]
-            .into_iter()
-            .map(|(first_op, op_count, max_stack)| CompiledMolangExpression {
-                first_op,
-                op_count,
-                max_stack,
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        // Native attachable charge formula, expressed through the shared compiled VM.
-        molang_ops: vec![
-            MolangOp::LoadQuery(3),
-            MolangOp::LoadQuery(4),
-            MolangOp::LoadQuery(1),
-            MolangOp::Subtract,
-            MolangOp::Push(scalar(1.0)),
-            MolangOp::Add,
-            MolangOp::Subtract,
-            MolangOp::Push(scalar(10.0)),
-            MolangOp::Divide,
-            MolangOp::StoreVariable(7),
-            MolangOp::Push(scalar(0.0)),
-            MolangOp::LoadVariable(5),
-            MolangOp::LoadVariable(7),
-            MolangOp::LoadQuery(2),
-        ]
-        .into_boxed_slice(),
-        molang_collections: Box::new([]),
-        molang_collection_items: Box::new([]),
-        controllers: Box::new([]),
-        controller_states: Box::new([]),
-        controller_animations: Box::new([]),
-        controller_transitions: Box::new([]),
-        rig_bindings: vec![EntityRigBinding {
-            entity_symbol: 4,
-            render_controller: 2,
-            first_geometry: 0,
-            geometry_count: 1,
-            fallback: EntityRigFallback::Skip,
-            initialize: None,
-            pre_animation: Some(0),
-            scale: scalar(1.0),
-            scale_expressions: None,
-        }]
-        .into_boxed_slice(),
-        rig_geometries: vec![EntityRigGeometryBinding {
-            geometry: 0,
-            condition: None,
-            first_animation: 0,
-            animation_count: 1,
-            first_controller: 0,
-            controller_count: 0,
-        }]
-        .into_boxed_slice(),
-        rig_animations: vec![EntityRigAnimationBinding {
-            name: 0,
-            clip: 0,
-            weight: None,
-            order: 0,
-        }]
-        .into_boxed_slice(),
-        rig_controllers: Box::new([]),
-        item_visuals: Box::new([]),
-        item_visual_aliases: Box::new([]),
-        render: EntityRenderData {
-            layers: vec![EntityRenderLayer {
-                material: Default::default(),
-                material_state: None,
-                hurt_color: None,
-                rig: 0,
-                condition: None,
-                first_slot: 0,
-                slot_count: 1,
-                first_visibility: 0,
-                visibility_count: 0,
-                color: None,
-                overlay_color: None,
-                on_fire_color: None,
-                uv_anim: None,
-                first_geometry: 0,
-                geometry_count: 0,
-                ignore_lighting: false,
-                light_color_multiplier: None,
-            }]
-            .into_boxed_slice(),
-            slots: vec![EntityRenderSlot {
-                first_candidate: 0,
-                candidate_count: 1,
-            }]
-            .into_boxed_slice(),
-            candidates: vec![EntityRenderCandidate {
-                condition: None,
-                source: 4,
-            }]
-            .into_boxed_slice(),
-            ..EntityRenderData::default()
-        },
-    }
-}
-
 fn fixture() -> Arc<RuntimeEntityAssets> {
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled_fixture()).unwrap())
+    Arc::new(RuntimeEntityAssets::from_compiled(crate::actor_animation::test_support::compiled_fixture()).unwrap())
 }
 
 pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
@@ -305,7 +90,7 @@ fn attachable_states_retain_admitted_owners_and_clear_ended_sessions() {
         first_person: true,
         ..AttachableAnimationInput::default()
     };
-    let owners = crate::actor_store::MAX_TRACKED_ACTORS as u64;
+    let owners = MAX_ANIMATED_ACTORS as u64;
     // Distinct actors of one session, then one owner per reconnected session.
     for (session_id, runtime_id) in (0..owners)
         .map(|index| (1, 2 + index))
@@ -390,7 +175,7 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
 
 #[test]
 fn offhand_arm_context_interpolates_its_own_clock_through_the_shared_vm() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.molang_symbols[7].identifier = "context.player_offhand_arm_height".into();
     let mut symbols = compiled.molang_symbols.to_vec();
     symbols.push(MolangSymbol {
@@ -452,7 +237,7 @@ fn owner_name_binding_clears_defaults_but_explicit_binding_keeps_native_origin()
         ..owner_rig()
     };
     for explicit in [false, true] {
-        let mut compiled = compiled_fixture();
+        let mut compiled = crate::actor_animation::test_support::compiled_fixture();
         let bone = &mut compiled.geometries[0].bones[0];
         bone.pivot = Some([scalar(2.0), scalar(12.0), scalar(4.0)]);
         bone.rotation = Some([scalar(0.0), scalar(0.0), scalar(45.0)]);
@@ -597,7 +382,7 @@ fn main_hand_queries_are_remaining_ticks_in_actor_and_attachable_contexts() {
 #[test]
 fn owner_variables_copy_by_name_between_catalogs_with_different_slots() {
     let target = fixture();
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     let mut symbols = compiled.molang_symbols.into_vec();
     symbols.insert(
         5,
@@ -632,7 +417,7 @@ fn owner_variables_copy_by_name_between_catalogs_with_different_slots() {
 
 #[test]
 fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     let mut symbols = compiled.molang_symbols.into_vec();
     let blocking = symbols.len() as u32;
     symbols.extend(
@@ -704,7 +489,7 @@ fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
     let mut runtime = AttachablesRuntime::new(Arc::new(
         RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
-    let key = crate::actor_store::EXTENDED_FLAGS_METADATA_KEY;
+    let key = crate::actor_animation::test_actor::EXTENDED_FLAGS_METADATA_KEY;
     let shield = Some("minecraft:shield");
     for (is_blocking, off_hand, expected) in [
         (false, None, 0.0),
@@ -741,7 +526,7 @@ fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
 
 /// Makes one bone's channel true when the rendered slot matches the supplied name.
 fn slot_condition_fixture(name: &str) -> CompiledEntityAssets {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     let mut symbols = compiled.molang_symbols.into_vec();
     symbols.insert(
         7,
@@ -843,7 +628,7 @@ fn worn_slot_context_selects_the_native_model_binding() {
 
 #[test]
 fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.geometries[0].bones[0].binding = Some("q.item_slot_to_bone_name(c.item_slot)".into());
     let mut symbols = compiled.symbols.into_vec();
     let mut geometries = compiled.geometries.into_vec();
@@ -1037,7 +822,7 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
     let mut sample = |blocking: bool, off_hand: bool, other_shield: bool| {
         runtime.clear();
         owner.metadata.insert(
-            crate::actor_store::EXTENDED_FLAGS_METADATA_KEY,
+            crate::actor_animation::test_actor::EXTENDED_FLAGS_METADATA_KEY,
             ActorMetadataValue::FlagsExtended(u64::from(blocking) << (query::FLAG_BLOCKING - 64)),
         );
         let mut pose = Vec::new();
@@ -1148,7 +933,7 @@ mod worn_tests;
 
 #[test]
 fn local_attachable_swing_samples_the_physics_fraction() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.rig_bindings[0].pre_animation = None;
     compiled.molang_symbols[7].identifier = "variable.attack_time".into();
     compiled.molang_ops[11] = MolangOp::LoadVariable(7);

@@ -58,11 +58,11 @@ fn render_only_swing_updates_persona_visibility_without_reposing_it() {
     store.request_skin_preparation(&source);
     store.submit_skin_preparation();
     store.finish_skin_fixture_batch();
-    let actor = super::super::super::tests::actor_with_metadata(HashMap::new());
+    let actor = super::super::super::actor_with_metadata(HashMap::new());
     store.insert(1, 0, &actor);
     store.sync_local_swing(
         actor.runtime_id,
-        crate::LocalSwingProgress {
+        LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(0.75),
@@ -131,7 +131,7 @@ fn coalesced_swing_weight_updates_the_body_between_ticks() {
         RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
     store.exclude_remote_state_for(1);
-    let progress = crate::LocalSwingProgress {
+    let progress = LocalSwingProgress {
         bedrock: [0.25, 0.5],
         java: [0.25, 0.5],
         frame_alpha: Some(0.75),
@@ -198,7 +198,7 @@ fn camera_derived_selection_writes_follow_live_presentation_inputs() {
         store.set_camera_rotation([30.0, 0.0]);
         for alpha in [0.25, 0.75] {
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-            let expected = pose::quat_from_euler([-40.0, 0.0, 0.0]);
+            let expected = test_support::quat_from_euler([-40.0, 0.0, 0.0]);
             assert_rotation(layers[0].pose[0].rotation, expected);
             assert_rotation(layers[1].pose[1].rotation, expected);
         }
@@ -236,7 +236,7 @@ fn layer_only_swing_sampling_preserves_body_walking_interpolation() {
         }
         let mut store = walking_fixture(compiled);
         store.exclude_remote_state_for(1);
-        let progress = crate::LocalSwingProgress {
+        let progress = LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(0.75),
@@ -256,7 +256,7 @@ fn layer_only_swing_sampling_preserves_body_walking_interpolation() {
         if selected {
             assert_rotation(
                 layers[1].pose[1].rotation,
-                pose::quat_from_euler([-progress.bedrock_progress(0.25), 0.0, 0.0]),
+                test_support::quat_from_euler([-progress.bedrock_progress(0.25), 0.0, 0.0]),
             );
         } else {
             assert_eq!(layers.len(), 1);
@@ -379,7 +379,7 @@ fn render_controller_camera_write_updates_only_a_layer_that_reads_it() {
             for (layer, completed) in layers.iter().zip(&completed).skip(1) {
                 if reads_camera_write {
                     let expected =
-                        pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 0.0, 0.0]);
+                        test_support::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 0.0, 0.0]);
                     assert_rotation(layer.pose[1].rotation, expected);
                     assert_rotation(layer.pose[0].rotation, expected);
                 } else {

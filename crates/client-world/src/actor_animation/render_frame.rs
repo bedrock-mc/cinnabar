@@ -18,16 +18,29 @@ pub struct ActorRenderLayers<'a> {
 
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
 pub struct ActorRenderFrame<'a> {
-    store: &'a crate::actor_store::ActorStore,
+    store: &'a ActorAnimationStore,
+    actors: &'a dyn AnimatedActors,
+    camera_rotation: [f32; 2],
+    camera_position: [f32; 3],
     alpha: f32,
     remaining_ops: usize,
     sampled_layers: HashMap<u64, Option<Cow<'a, [RenderTextureLayer]>>>,
 }
 
 impl<'a> ActorRenderFrame<'a> {
-    pub(crate) fn new(store: &'a crate::actor_store::ActorStore, alpha: f32) -> Self {
+    /// Samples `store`'s rigs for `actors` from the view `[pitch, yaw]` and position.
+    pub fn new(
+        store: &'a ActorAnimationStore,
+        actors: &'a dyn AnimatedActors,
+        camera_rotation: [f32; 2],
+        camera_position: [f32; 3],
+        alpha: f32,
+    ) -> Self {
         Self {
             store,
+            actors,
+            camera_rotation,
+            camera_position,
             alpha: if alpha.is_finite() {
                 alpha.clamp(0.0, 1.0)
             } else {
@@ -38,15 +51,52 @@ impl<'a> ActorRenderFrame<'a> {
         }
     }
 
+    fn samples_rig_scale(&self, runtime_id: u64) -> bool {
+        self.actors
+            .animated_actor(runtime_id)
+            .is_some_and(|actor| self.store.samples_rig_scale(actor))
+    }
+
+    fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
+        self.actors
+            .animated_actor(runtime_id)
+            .is_some_and(|actor| self.store.may_use_always_depth_material(actor))
+    }
+
+    /// Samples one actor's layers against the frame's shared expression budget.
+    fn sample(
+        store: &'a ActorAnimationStore,
+        actors: &'a dyn AnimatedActors,
+        (camera_rotation, camera_position, alpha): ([f32; 2], [f32; 3], f32),
+        runtime_id: u64,
+        remaining_ops: &mut usize,
+        sample_skin: bool,
+    ) -> Option<ActorRenderLayers<'a>> {
+        store.render_layers(
+            actors.animated_actor(runtime_id)?,
+            alpha,
+            camera_rotation,
+            camera_position,
+            remaining_ops,
+            sample_skin,
+        )
+    }
+
     /// Samples authored scale before admission and caches its layers for the same draw.
     /// Ordinary rigs retain their tick scale without evaluating layer expressions.
     pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {
         let id = rig.actor.runtime_id;
-        if self.store.samples_rig_scale(id) {
+        if self.samples_rig_scale(id) {
             let layers = self.sampled_layers.entry(id).or_insert_with(|| {
-                self.store
-                    .render_layers(id, self.alpha, &mut self.remaining_ops, false)
-                    .map(|layers| layers.render)
+                Self::sample(
+                    self.store,
+                    self.actors,
+                    (self.camera_rotation, self.camera_position, self.alpha),
+                    id,
+                    &mut self.remaining_ops,
+                    false,
+                )
+                .map(|layers| layers.render)
             });
             if let Some(scale) = layers
                 .as_ref()
@@ -65,23 +115,35 @@ impl<'a> ActorRenderFrame<'a> {
         if let Some(layers) = self.sampled_layers.remove(&runtime_id) {
             return layers;
         }
-        self.store
-            .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
-            .map(|layers| layers.render)
+        Self::sample(
+            self.store,
+            self.actors,
+            (self.camera_rotation, self.camera_position, self.alpha),
+            runtime_id,
+            &mut self.remaining_ops,
+            false,
+        )
+        .map(|layers| layers.render)
     }
 
     /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
     /// Ordinary materials do not spend the shared frame budget during occlusion checks.
     pub fn has_always_depth_material(&mut self, runtime_id: u64) -> bool {
-        if !self.store.may_use_always_depth_material(runtime_id) {
+        if !self.may_use_always_depth_material(runtime_id) {
             return false;
         }
         self.sampled_layers
             .entry(runtime_id)
             .or_insert_with(|| {
-                self.store
-                    .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
-                    .map(|layers| layers.render)
+                Self::sample(
+                    self.store,
+                    self.actors,
+                    (self.camera_rotation, self.camera_position, self.alpha),
+                    runtime_id,
+                    &mut self.remaining_ops,
+                    false,
+                )
+                .map(|layers| layers.render)
             })
             .as_ref()
             .is_some_and(|layers| {
@@ -91,10 +153,28 @@ impl<'a> ActorRenderFrame<'a> {
             })
     }
 
+    /// Expression budget left for this frame's remaining samples.
+    #[cfg(test)]
+    pub fn remaining_ops(&self) -> usize {
+        self.remaining_ops
+    }
+
+    /// Caps the budget left for this frame's remaining samples.
+    #[cfg(test)]
+    pub fn set_remaining_ops(&mut self, ops: usize) {
+        self.remaining_ops = ops;
+    }
+
     /// Samples the native body and its persona skeletons once under the same frame budget.
     pub fn layers_with_skin(&mut self, runtime_id: u64) -> Option<ActorRenderLayers<'a>> {
-        self.store
-            .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, true)
+        Self::sample(
+            self.store,
+            self.actors,
+            (self.camera_rotation, self.camera_position, self.alpha),
+            runtime_id,
+            &mut self.remaining_ops,
+            true,
+        )
     }
 }
 
@@ -115,7 +195,7 @@ pub(super) struct FrameState {
 }
 
 impl FrameState {
-    fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
+    fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
         self.needs_swell_sampling(actor)
             && self
                 .motion
@@ -124,7 +204,7 @@ impl FrameState {
                 .is_some_and(|sampling| sampling.samples_rig_scale())
     }
 
-    fn needs_swell_sampling(&self, actor: &ActorSnapshot) -> bool {
+    fn needs_swell_sampling(&self, actor: &dyn AnimatedActor) -> bool {
         self.swell_poses.is_some()
             && std::iter::once(&self.motion)
                 .chain(self.previous_motion.iter())
@@ -278,36 +358,36 @@ impl SwellPoses {
 
 impl ActorAnimationStore {
     /// Checks the resolved rig's compiled layers, including inactive controller branches.
-    pub(crate) fn may_use_always_depth_material(&self, actor: &ActorSnapshot) -> bool {
+    pub fn may_use_always_depth_material(&self, actor: &dyn AnimatedActor) -> bool {
         self.runtime_to_lifetime
-            .get(&actor.runtime_id)
-            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision)
+            .get(&actor.runtime_id())
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
             .and_then(|lifetime| self.rigs.get(lifetime))
             .is_some_and(|state| state.may_use_always_depth_material)
     }
 
     /// Whether admission needs a frame scale rather than the completed tick's scale.
-    pub(crate) fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
+    pub fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
         self.runtime_to_lifetime
-            .get(&actor.runtime_id)
-            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision)
+            .get(&actor.runtime_id())
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
             .and_then(|lifetime| self.rigs.get(lifetime))
             .and_then(|state| state.render_frame.as_ref())
             .is_some_and(|frame| frame.samples_rig_scale(actor))
     }
 
-    pub(crate) fn render_layers(
+    pub fn render_layers(
         &self,
-        actor: &ActorSnapshot,
+        actor: &dyn AnimatedActor,
         partial_tick: f32,
         camera_rotation: [f32; 2],
         camera_position: [f32; 3],
         remaining_ops: &mut usize,
         sample_skin: bool,
     ) -> Option<ActorRenderLayers<'_>> {
-        let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id)?;
+        let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id())?;
         let state = self.rigs.get(lifetime)?;
-        if lifetime.spawn_revision != actor.spawn_revision {
+        if lifetime.spawn_revision != actor.spawn_revision() {
             return None;
         }
         let completed = || ActorRenderLayers {
@@ -781,10 +861,7 @@ impl ActorAnimationStore {
 }
 
 #[cfg(test)]
-pub(in crate::actor_animation) mod tests;
+mod tests;
 
 #[cfg(test)]
 mod orb_tests;
-
-#[cfg(test)]
-mod camera_tests;

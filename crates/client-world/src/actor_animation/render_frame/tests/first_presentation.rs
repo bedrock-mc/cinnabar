@@ -1,55 +1,9 @@
 use super::*;
-use crate::actor_store::ActorStore;
-use assets::{EntityRenderVisibility, MolangSymbol, MolangSymbolKind};
+use assets::{EntityAssetKind, MolangSymbol, MolangSymbolKind};
 
-/// A custom entity with initialized pose inputs and metadata-controlled part visibility.
+/// The initialized pose and part-visibility fixture.
 fn compiled_assets() -> assets::CompiledEntityAssets {
-    let mut compiled = counting_random_compiled("minecraft:test");
-    let mut symbols = compiled.molang_symbols.into_vec();
-    let query = 5;
-    symbols.insert(
-        query as usize,
-        MolangSymbol {
-            kind: MolangSymbolKind::Query,
-            identifier: "query.show_bottom".into(),
-        },
-    );
-    compiled.molang_symbols = symbols.into_boxed_slice();
-    let mut ops = compiled.molang_ops.into_vec();
-    for op in &mut ops {
-        if let MolangOp::LoadVariable(index) | MolangOp::StoreVariable(index) = op {
-            *index += 1;
-        }
-    }
-    let mut expressions = compiled.molang_expressions.into_vec();
-    let visibility = expressions.len() as u32;
-    expressions.push(CompiledMolangExpression {
-        first_op: ops.len() as u32,
-        op_count: 1,
-        max_stack: 1,
-    });
-    ops.push(MolangOp::LoadQuery(query));
-    compiled.render.visibility = vec![EntityRenderVisibility {
-        pattern: "rightitem".into(),
-        condition: visibility,
-    }]
-    .into_boxed_slice();
-    compiled.render.layers[0].visibility_count = 1;
-    compiled.animation_keyframes[0].expressions = [None, Some(1), None];
-    compiled.rig_bindings[0].initialize = Some(expressions.len() as u32);
-    expressions.push(CompiledMolangExpression {
-        first_op: ops.len() as u32,
-        op_count: 3,
-        max_stack: 1,
-    });
-    ops.extend([
-        MolangOp::Push(EntityGeometryScalar::new(5.0).unwrap()),
-        MolangOp::StoreVariable(8),
-        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
-    ]);
-    compiled.molang_ops = ops.into_boxed_slice();
-    compiled.molang_expressions = expressions.into_boxed_slice();
-    compiled
+    crate::actor_animation::test_support::initialized_pose_compiled()
 }
 
 /// Loads the original initialized pose and visibility fixture.
@@ -93,119 +47,15 @@ fn alternate_geometry_assets() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
 }
 
-/// Admits a fresh lifetime with its authoritative visibility flag already installed.
-fn spawn(store: &mut ActorStore, sequence: u64, flags: u64) {
-    store.apply(
-        1,
-        sequence,
-        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
-            dimension: 0,
-            unique_id: 17,
-            runtime_id: 1,
-            kind: protocol::ActorKind::Entity {
-                identifier: "minecraft:test".into(),
-            },
-            position: [0.0; 3],
-            velocity: [0.0; 3],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            body_yaw: 0.0,
-            held_item: Default::default(),
-            metadata: Arc::from([protocol::ActorMetadata {
-                key: 0,
-                value: ActorMetadataValue::Flags(flags),
-            }]),
-            attributes: Arc::from([]),
-            properties: Arc::from([]),
-            links: Arc::from([]),
-        }),
-    );
-}
-
-#[test]
-fn first_presentation_uses_initialized_pose_and_spawn_metadata_without_a_tick() {
-    for pack in [false, true] {
-        for show_bottom in [false, true] {
-            let assets = assets();
-            let mut store = ActorStore::new_with_entity_assets(1, 0, Arc::clone(&assets));
-            if pack {
-                store.set_pack_entities(Some((assets, vec![0])));
-            }
-            spawn(&mut store, 1, if show_bottom { 1 << 38 } else { 0 });
-            let actor = store.get(1).unwrap().clone();
-            store.advance_interpolation_frame(0);
-            let rig = store.actor_rig(1).unwrap();
-            assert_eq!(
-                rig.completed_tick, 0,
-                "presentation must not simulate a tick"
-            );
-            assert_eq!(
-                rig.previous, rig.current,
-                "never interpolate from bind pose"
-            );
-            assert_ne!(rig.current, rig.rest, "draw the authored initial pose");
-            assert!((rig.current[0].translation_scale[1] - 6.0).abs() < 1e-6);
-            assert_eq!(rig.render.len(), 1);
-            assert_eq!(rig.render[0].color[0], 6.0);
-            assert_eq!(rig.render[0].hidden_bones.is_empty(), show_bottom);
-            let pose = rig.current.to_vec();
-            let layers = rig.render.to_vec();
-            let stats = store.animation_stats();
-            store.advance_interpolation_frame(0);
-            assert_eq!(store.actor_rig(1).unwrap().current, pose);
-            assert_eq!(store.actor_rig(1).unwrap().render, layers);
-            assert_eq!(store.animation_stats(), stats, "initialize only once");
-            assert_eq!(
-                store.get(1).unwrap(),
-                &actor,
-                "leave actor simulation unchanged"
-            );
-            store.advance_interpolation_ticks(1);
-            assert_eq!(store.actor_rig(1).unwrap().render[0].color[0], 7.0);
-        }
-    }
-}
-
-#[test]
-fn a_replaced_lifetime_initializes_its_own_pose_once() {
-    let mut store = ActorStore::new_with_entity_assets(1, 0, assets());
-    spawn(&mut store, 1, 0);
-    store.advance_interpolation_frame(0);
-    let first_lifetime = store.actor_rig(1).unwrap().actor;
-    store.advance_interpolation_ticks(1);
-    spawn(&mut store, 2, 1 << 38);
-    store.advance_interpolation_frame(0);
-    let rig = store.actor_rig(1).unwrap();
-    assert_ne!(rig.actor, first_lifetime);
-    assert_eq!(rig.completed_tick, 1);
-    assert_eq!(rig.previous, rig.current);
-    assert_eq!(rig.render[0].color[0], 6.0);
-    assert!(rig.render[0].hidden_bones.is_empty());
-    store.apply(
-        1,
-        3,
-        protocol::ActorEvent::Remove(protocol::ActorRemoveEvent {
-            dimension: 0,
-            unique_id: 17,
-        }),
-    );
-    store.advance_interpolation_frame(0);
-    assert!(store.actor_rig(1).is_none());
-    spawn(&mut store, 4, 0);
-    store.advance_interpolation_frame(0);
-    assert_eq!(store.actor_rig(1).unwrap().render[0].color[0], 6.0);
-}
-
 /// A fresh rig with the complete zero-time presentation context.
-fn animation_fixture() -> (ActorAnimationStore, HashMap<u64, ActorSnapshot>) {
+fn animation_fixture() -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     animation_fixture_with(assets())
 }
 
 /// Admits the original counting actor with the supplied geometry policy.
 fn animation_fixture_with(
     assets: Arc<RuntimeEntityAssets>,
-) -> (ActorAnimationStore, HashMap<u64, ActorSnapshot>) {
+) -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let mut store = ActorAnimationStore::with_assets(assets);
     let actor = super::super::super::tests::actor_with_metadata(HashMap::new());
     store.insert(1, 0, &actor);
@@ -213,7 +63,7 @@ fn animation_fixture_with(
 }
 
 /// Supplies a real frame context with no elapsed simulation interval.
-fn zero_time_context(_: &ActorSnapshot) -> ActorTickContext {
+fn zero_time_context(_: &TestActor) -> ActorTickContext {
     ActorTickContext {
         animation_elapsed_ticks: Some(0),
         is_local: true,
@@ -264,14 +114,14 @@ fn first_presentation_preserves_motion_and_clip_time_and_replays_local_view() {
 fn initial_presentation_respects_the_world_budget_and_retries_without_partial_effects() {
     let (mut store, actors) = animation_fixture();
     let authored = authored_state(&store);
-    store.schedule.world_budget = 1;
+    store.set_world_budget(1);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     assert_eq!(store.completed_tick, 0);
     assert_eq!(store.stats.evaluated_molang_ops, 1);
     assert_eq!(authored_state(&store), authored);
     assert!(!store.get(1).unwrap().pose_evaluated);
     assert!(store.needs_initial_presentation(&actors, None, None, |_| true));
-    store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+    store.set_world_budget(MAX_MOLANG_OPS_PER_WORLD_TICK);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     assert_eq!(store.get(1).unwrap().render[0].color[0], 6.0);
     assert!(store.get(1).unwrap().pose_evaluated);
@@ -288,7 +138,7 @@ fn initial_render_selection_retries_without_publishing_partial_effects() {
     for budget in 1..complete_cost {
         let (mut store, actors) = animation_fixture();
         let pending = authored_state(&store);
-        store.schedule.world_budget = budget;
+        store.set_world_budget(budget);
         store.prepare_frame(&actors, None, None, false, zero_time_context);
         assert!(
             !store.get(1).unwrap().pose_evaluated,
@@ -296,7 +146,7 @@ fn initial_render_selection_retries_without_publishing_partial_effects() {
         );
         assert!(store.needs_initial_presentation(&actors, None, None, |_| true));
         assert_eq!(authored_state(&store), pending, "budget {budget}");
-        store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+        store.set_world_budget(MAX_MOLANG_OPS_PER_WORLD_TICK);
         store.prepare_frame(&actors, None, None, false, zero_time_context);
         assert_eq!(authored_state(&store), complete, "retry budget {budget}");
         assert_eq!(store.get(1).unwrap().completed_tick, 0);
@@ -314,11 +164,11 @@ fn initial_render_alternate_pose_retries_after_layer_budget_exhaustion() {
     let cost = reference.stats.evaluated_molang_ops as usize;
     let (mut store, actors) = animation_fixture_with(alternate_geometry_assets());
     let pending = authored_state(&store);
-    store.schedule.world_budget = cost - 1;
+    store.set_world_budget(cost - 1);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     assert!(!store.get(1).unwrap().pose_evaluated);
     assert_eq!(authored_state(&store), pending);
-    store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+    store.set_world_budget(MAX_MOLANG_OPS_PER_WORLD_TICK);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     assert_eq!(authored_state(&store), complete);
     assert_eq!(
@@ -329,15 +179,15 @@ fn initial_render_alternate_pose_retries_after_layer_budget_exhaustion() {
 
 #[test]
 fn first_presentation_seeds_java_posture_without_advancing_motion() {
-    for (flag, riding, spear) in [
-        (None, false, false),
-        (Some(query::FLAG_SWIMMING), false, false),
-        (Some(query::FLAG_GLIDING), false, false),
-        (Some(query::FLAG_EMOTING), false, false),
-        (Some(crate::actor_store::ACTOR_FLAG_CRAWLING), false, false),
-        (Some(crate::actor_store::ACTOR_FLAG_SLEEPING), false, false),
-        (None, true, false),
-        (None, false, true),
+    for (flag, sleeping, riding, spear) in [
+        (None, false, false, false),
+        (Some(query::FLAG_SWIMMING), false, false, false),
+        (Some(query::FLAG_GLIDING), false, false, false),
+        (Some(query::FLAG_EMOTING), false, false, false),
+        (Some(query::FLAG_CRAWLING), false, false, false),
+        (None, true, false, false),
+        (None, false, true, false),
+        (None, false, false, true),
     ] {
         let mut compiled = compiled_assets();
         compiled.symbols[0].identifier = "minecraft:player".into();
@@ -351,12 +201,16 @@ fn first_presentation_seeds_java_posture_without_advancing_motion() {
             let (key, bit) = if flag < 64 {
                 (0, flag)
             } else {
-                (crate::actor_store::EXTENDED_FLAGS_METADATA_KEY, flag - 64)
+                (
+                    crate::actor_animation::test_actor::EXTENDED_FLAGS_METADATA_KEY,
+                    flag - 64,
+                )
             };
             actor
                 .metadata
                 .insert(key, ActorMetadataValue::Flags(1 << bit));
         }
+        actor.status.sleeping = sleeping;
         let context = ActorTickContext {
             is_riding: riding,
             main_hand_is_spear: spear,
@@ -366,7 +220,7 @@ fn first_presentation_seeds_java_posture_without_advancing_motion() {
         store.insert(1, 0, &actor);
         let mut expected = store.get(1).unwrap().java;
         expected.riding = riding;
-        expected.vanilla_posture = flag.is_some() || spear;
+        expected.vanilla_posture = flag.is_some() || sleeping || spear;
         let actors = HashMap::from([(1, actor)]);
         store.prepare_frame(&actors, None, None, false, |_| context.clone());
         let rig = store.get(1).unwrap();
@@ -374,7 +228,7 @@ fn first_presentation_seeds_java_posture_without_advancing_motion() {
         assert_eq!(rig.completed_tick, 0);
         assert_eq!(
             rig.java, expected,
-            "posture {flag:?}, riding {riding}, spear {spear}"
+            "posture {flag:?}, sleeping {sleeping}, riding {riding}, spear {spear}"
         );
         store.prepare_frame(&actors, None, None, false, |_| context.clone());
         assert_eq!(store.get(1).unwrap().java, expected);
@@ -499,7 +353,7 @@ fn first_presentation_does_not_observe_rest_after_spawn_or_reset() {
 }
 
 /// Gives the local rig a visible pose change when its view mode changes.
-fn local_view_fixture() -> (ActorAnimationStore, HashMap<u64, ActorSnapshot>) {
+fn local_view_fixture() -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let mut compiled = compiled_assets();
     let mut symbols = compiled.molang_symbols.into_vec();
     let slot = symbols.len() as u32;
@@ -529,7 +383,7 @@ fn local_view_fixture() -> (ActorAnimationStore, HashMap<u64, ActorSnapshot>) {
 
 #[test]
 fn local_view_refresh_keeps_its_budget_when_new_rigs_are_pending() {
-    let first_person = |actor: &ActorSnapshot| ActorTickContext {
+    let first_person = |actor: &TestActor| ActorTickContext {
         is_local_first_person: actor.runtime_id == LOCAL_VIEW_RUNTIME_ID,
         ..zero_time_context(actor)
     };
@@ -556,7 +410,7 @@ fn local_view_refresh_keeps_its_budget_when_new_rigs_are_pending() {
         store.insert(1, 0, &remote);
         actors.insert(runtime_id, remote);
     }
-    store.schedule.world_budget = refresh_cost;
+    store.set_world_budget(refresh_cost);
     store.prepare_frame(
         &actors,
         None,
@@ -572,7 +426,7 @@ fn local_view_refresh_keeps_its_budget_when_new_rigs_are_pending() {
     for runtime_id in 1..LOCAL_VIEW_RUNTIME_ID {
         assert!(!store.get(runtime_id).unwrap().pose_evaluated);
     }
-    store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+    store.set_world_budget(MAX_MOLANG_OPS_PER_WORLD_TICK);
     store.prepare_frame(
         &actors,
         None,
@@ -589,13 +443,13 @@ fn local_view_refresh_keeps_its_budget_when_new_rigs_are_pending() {
 #[test]
 fn first_presentation_retry_refreshes_snapshot_inputs_without_a_motion_tick() {
     let (mut store, mut actors) = animation_fixture();
-    store.schedule.world_budget = 1;
+    store.set_world_budget(1);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     let actor = actors.get_mut(&1).unwrap();
     actor.position = [4.0, 5.0, 6.0];
     actor.yaw = 75.0;
     actor.pitch = 30.0;
-    store.schedule.world_budget = MAX_MOLANG_OPS_PER_WORLD_TICK;
+    store.set_world_budget(MAX_MOLANG_OPS_PER_WORLD_TICK);
     store.prepare_frame(&actors, None, None, false, zero_time_context);
     let state = store.rigs.values().next().unwrap();
     let input = state.history.back().unwrap();
@@ -611,7 +465,7 @@ fn off_screen_initial_rigs_do_not_build_frame_contexts() {
     let (mut store, mut actors) = animation_fixture();
     let actor = actors.get_mut(&1).unwrap();
     actor.position[0] = 20.0;
-    actor.previous_pose.position = actor.position;
+    actor.previous_position = actor.position;
     let view = ActorAnimationView {
         planes: [[-1.0, 0.0, 0.0, 10.0]; 6],
         camera: [0.0; 3],
@@ -629,7 +483,7 @@ fn off_screen_initial_rigs_do_not_build_frame_contexts() {
     assert_eq!(contexts.get(), 0);
     let actor = actors.get_mut(&1).unwrap();
     actor.position = [0.0; 3];
-    actor.previous_pose.position = actor.position;
+    actor.previous_position = actor.position;
     assert!(store.needs_initial_presentation(&actors, Some(&view), None, |_| true));
     store.prepare_frame(&actors, Some(&view), None, false, zero_time_context);
     assert_eq!(store.get(1).unwrap().render[0].color[0], 6.0);

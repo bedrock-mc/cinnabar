@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
+mod animated;
 mod appearance_preparation;
-pub(crate) mod color;
 mod effect_members;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
@@ -17,11 +17,12 @@ use protocol::{
 
 use crate::{
     action::{ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, RemoteActionStore},
-    actor_animation::{ActorAnimationStore, ActorLifetimeId},
+    actor_animation::{ActorAnimationStore, ActorLifetimeId, MAX_ANIMATED_ACTORS},
     item::ItemStateStore,
 };
 
-pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
+/// Every tracked actor keeps an animation rig.
+pub(crate) const MAX_TRACKED_ACTORS: usize = MAX_ANIMATED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
@@ -53,7 +54,6 @@ pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
-pub(crate) const ACTOR_FLAG_TAMED: u32 = 28;
 const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
 const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
@@ -867,6 +867,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
     }
 }
 
+#[cfg(test)]
+mod animation_tests;
 #[cfg(test)]
 mod local_tests;
 mod player_appearance;

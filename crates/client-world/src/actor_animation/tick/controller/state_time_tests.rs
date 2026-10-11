@@ -8,7 +8,7 @@ use assets::{
 
 /// Evaluates a timed animation weight, optionally while blending two different state epochs.
 fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
-    let mut compiled = crate::actor_animation::attachable::tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     let mut sources = compiled.sources.into_vec();
     sources.insert(
         0,

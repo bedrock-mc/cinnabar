@@ -256,7 +256,7 @@ pub(super) fn evaluate_render(
         .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize))
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
         .map_or([1.0; 4], |_| {
-            crate::actor_store::color::default_render_color(evaluator.actor)
+            super::query::wolf::default_render_color(evaluator.actor)
         });
     for layer in assets.render_layers(rig.binding) {
         budget.charge_work()?;

@@ -6,7 +6,7 @@ fn scalar(value: f32) -> assets::EntityGeometryScalar {
 }
 
 pub(super) fn compiled_fixture(owner_reference: bool) -> assets::CompiledEntityAssets {
-    let mut compiled = tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.rig_bindings[0].pre_animation = None;
     compiled.rig_animations[0].weight = Some(0);
     compiled.animation_keyframes[0].expressions = [None; 3];

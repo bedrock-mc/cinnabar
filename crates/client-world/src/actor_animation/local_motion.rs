@@ -74,11 +74,7 @@ impl State {
 
 impl super::ActorAnimationStore {
     /// Binds Java torso ticks to the local simulation, including a rig created after binding.
-    pub(crate) fn set_local_motion_authority(
-        &mut self,
-        runtime_id: u64,
-        authority: Option<(u64, u64)>,
-    ) {
+    pub fn set_local_motion_authority(&mut self, runtime_id: u64, authority: Option<(u64, u64)>) {
         if let Some((previous, _)) = self.local_motion_authority
             && previous != runtime_id
             && let Some(state) = self
@@ -105,7 +101,7 @@ impl super::ActorAnimationStore {
     }
 
     /// Applies only local torso motion; tick clocks, equip, limbs and cape remain untouched.
-    pub(crate) fn sync_local_swing_motion(
+    pub fn sync_local_swing_motion(
         &mut self,
         runtime_id: u64,
         authority: (u64, u64),

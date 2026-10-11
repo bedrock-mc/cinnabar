@@ -6,16 +6,16 @@ const FLAG_MOUTH_OPEN: u32 = 7;
 const TAIL_CHANCE: u64 = 200;
 const TAIL_END: u8 = 8;
 
-fn flag(actor: &ActorSnapshot, bit: u32) -> bool {
-    matches!(actor.metadata.get(&KEY_FLAGS), Some(ActorMetadataValue::Long(flags))
+fn flag(actor: &dyn AnimatedActor, bit: u32) -> bool {
+    matches!(actor.metadata().get(&KEY_FLAGS), Some(ActorMetadataValue::Long(flags))
         if (*flags as u64) & (1_u64 << bit) != 0)
 }
 
-pub(super) fn is_grazing(actor: &ActorSnapshot) -> bool {
+pub(super) fn is_grazing(actor: &dyn AnimatedActor) -> bool {
     flag(actor, FLAG_GRAZING)
 }
 
-pub(super) fn mouth_open(actor: &ActorSnapshot) -> bool {
+pub(super) fn mouth_open(actor: &dyn AnimatedActor) -> bool {
     flag(actor, FLAG_MOUTH_OPEN)
 }
 

@@ -25,7 +25,7 @@ enum Step {
 struct TickJob<'a> {
     lifetime: ActorLifetimeId,
     state: &'a mut ActorRigState,
-    actor: &'a ActorSnapshot,
+    actor: &'a dyn AnimatedActor,
     context: ActorTickContext,
     view_changed: bool,
     refresh_view: bool,
@@ -55,12 +55,12 @@ thread_local! {
 
 impl ActorAnimationStore {
     /// Checks admission before allocating jobs or constructing actor contexts for a frame.
-    pub(crate) fn needs_initial_presentation(
+    pub fn needs_initial_presentation<A: AnimatedActor>(
         &self,
-        actors: &HashMap<u64, ActorSnapshot>,
+        actors: &HashMap<u64, A>,
         view: Option<&ActorAnimationView>,
         exempt: Option<u64>,
-        admit: impl Fn(&ActorSnapshot) -> bool,
+        admit: impl Fn(&A) -> bool,
     ) -> bool {
         self.rigs.iter().any(|(lifetime, state)| {
             actors.get(&lifetime.runtime_id).is_some_and(|actor| {
@@ -77,13 +77,13 @@ impl ActorAnimationStore {
         })
     }
 
-    pub(super) fn evaluate_tick(
+    pub(super) fn evaluate_tick<A: AnimatedActor>(
         &mut self,
-        actors: &HashMap<u64, ActorSnapshot>,
+        actors: &HashMap<u64, A>,
         view: Option<&ActorAnimationView>,
         exempt: Option<u64>,
         step: PoseStep,
-        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
+        context: impl Fn(&A) -> ActorTickContext,
     ) {
         let (evaluate, reset_motion_history, refresh_view, initialize_new, refresh_local) =
             match step {
@@ -157,14 +157,15 @@ impl ActorAnimationStore {
         }
         let mut jobs = Vec::with_capacity(ordered.len());
         for (lifetime, state) in ordered {
-            let Some(actor) = actors.get(&lifetime.runtime_id) else {
+            let Some(owned) = actors.get(&lifetime.runtime_id) else {
                 continue;
             };
+            let actor: &dyn AnimatedActor = owned;
             // Fixed ticks observe ownership before any evaluation budget branch.
             // Failed animation cannot starve static publication for later actors.
             if !refresh_view {
-                if actor.runtime_id == lifetime.runtime_id
-                    && actor.spawn_revision == lifetime.spawn_revision
+                if actor.runtime_id() == lifetime.runtime_id
+                    && actor.spawn_revision() == lifetime.spawn_revision
                     && runtime_to_lifetime.get(&lifetime.runtime_id) == Some(&lifetime)
                 {
                     if state.rest_reset_pending {
@@ -186,7 +187,7 @@ impl ActorAnimationStore {
                     state.rest_completed_tick = 0;
                 }
             }
-            let context = context(actor);
+            let context = context(owned);
             let initial = !state.initialized;
             if (reset_motion_history || initial)
                 && skin::sync_skin(state, context.skin_geometry.as_ref(), skin_preparation)
@@ -332,7 +333,7 @@ impl TickJob<'_> {
 /// Selects only unresolved poses that the current animation view can admit.
 fn initially_admitted(
     state: &ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     view: Option<&ActorAnimationView>,
     exempt: Option<u64>,
     vanilla: Option<&RuntimeEntityAssets>,
@@ -354,14 +355,14 @@ fn culled(
     view: Option<&ActorAnimationView>,
     exempt: Option<u64>,
     state: &ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     assets: &RuntimeEntityAssets,
 ) -> bool {
-    let Some(view) = view.filter(|_| exempt != Some(actor.runtime_id)) else {
+    let Some(view) = view.filter(|_| exempt != Some(actor.runtime_id())) else {
         return false;
     };
     let scale = model_scale(state, assets) * actor.render_scale();
-    let player = matches!(actor.kind, ActorKind::Player { .. });
+    let player = matches!(actor.kind(), ActorKind::Player { .. });
     let bounds = if let Some(skin) = state.skin_skeleton() {
         skin.prepared.geometry.visible_bounds.unwrap_or_default()
     } else {
@@ -371,8 +372,8 @@ fn culled(
             .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
             .unwrap_or_default()
     };
-    !view.admits(actor.position, scale, player, bounds)
-        && !view.admits(actor.previous_pose.position, scale, player, bounds)
+    !view.admits(actor.position(), scale, player, bounds)
+        && !view.admits(actor.previous_position(), scale, player, bounds)
 }
 
 /// Rigs each pool helper must have to itself to repay waking it.
@@ -557,7 +558,7 @@ fn evaluate_job(
         !job.refresh_view,
         None,
     );
-    if catalogs.exempt == Some(actor.runtime_id) {
+    if catalogs.exempt == Some(actor.runtime_id()) {
         let ui_context = ActorTickContext {
             is_local_first_person: false,
             is_in_ui: true,

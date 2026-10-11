@@ -2,7 +2,7 @@ use super::potion::AUX_VALUE_METADATA_KEY as AUX;
 use super::*;
 
 /// Evaluates the appearance query with an unrelated held potion in the player context.
-fn variant(actor: &ActorSnapshot, held_metadata: u32) -> f32 {
+fn variant(actor: &TestActor, held_metadata: u32) -> f32 {
     let input = ActorTickInput::default();
     let context = ActorTickContext {
         main_hand: Some("minecraft:splash_potion".into()),
@@ -29,6 +29,11 @@ fn variant(actor: &ActorSnapshot, held_metadata: u32) -> f32 {
     .number()
 }
 
+/// The generic variant key the thrown potion's own auxiliary value overrides.
+fn variant_key() -> u32 {
+    Q::Variant.integer_metadata_key().unwrap()
+}
+
 #[test]
 fn thrown_potion_variant_uses_its_aux_value_instead_of_generic_variant_or_held_item() {
     for identifier in ["minecraft:splash_potion", "minecraft:lingering_potion"] {
@@ -45,10 +50,7 @@ fn thrown_potion_variant_uses_its_aux_value_instead_of_generic_variant_or_held_i
         ] {
             let mut actor = crate::actor_animation::tests::actor_with_metadata(HashMap::from([
                 (AUX, ActorMetadataValue::Short(aux)),
-                (
-                    crate::actor_store::VARIANT_METADATA_KEY,
-                    ActorMetadataValue::Int(12),
-                ),
+                (variant_key(), ActorMetadataValue::Int(12)),
             ]));
             actor.kind = ActorKind::Entity {
                 identifier: identifier.into(),
@@ -62,56 +64,6 @@ fn thrown_potion_variant_uses_its_aux_value_instead_of_generic_variant_or_held_i
             }
         }
     }
-}
-
-#[test]
-fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        ActorRuntimeId, ActorUniqueId, AddActorPacket, DataItemEntry, DataItemEntryPayload,
-        DataItemShortPayload, EnumsDataItemType, SynchedActorDataCopyableDataList,
-    };
-    let packet = AddActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -7,
-        },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 7,
-        },
-        actor_type: "minecraft:splash_potion".into(),
-        actor_data: SynchedActorDataCopyableDataList {
-            data: vec![DataItemEntry {
-                id: AUX,
-                payload: DataItemEntryPayload::DataItemShortPayload(DataItemShortPayload {
-                    type_: EnumsDataItemType::Short,
-                    value: 21,
-                }),
-            }],
-        },
-        ..Default::default()
-    };
-    let Some(protocol::WorldEvent::Actor(event)) =
-        protocol::into_world_event(packet.into(), 0).unwrap()
-    else {
-        panic!("expected normalized potion spawn");
-    };
-    let mut actors = crate::actor_store::ActorStore::new(1, 0);
-    actors.apply(1, 1, event);
-    assert_eq!(variant(actors.get(7).unwrap(), 25), 5.0);
-    actors.apply(
-        1,
-        2,
-        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
-            dimension: 0,
-            runtime_id: 7,
-            metadata: Arc::from([protocol::ActorMetadata {
-                key: AUX,
-                value: ActorMetadataValue::Short(25),
-            }]),
-            properties: Arc::from([]),
-            tick: 0,
-        }),
-    );
-    assert_eq!(variant(actors.get(7).unwrap(), 21), 18.0);
 }
 
 #[test]
@@ -134,10 +86,9 @@ fn potion_variant_defaults_wrong_types_and_bounds_unknown_auxiliary_values() {
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:bee".into(),
     };
-    actor.metadata.insert(
-        crate::actor_store::VARIANT_METADATA_KEY,
-        ActorMetadataValue::Int(12),
-    );
+    actor
+        .metadata
+        .insert(variant_key(), ActorMetadataValue::Int(12));
     assert_eq!(variant(&actor, 21), 12.0);
 }
 

@@ -60,7 +60,7 @@ impl<'a> ActorAnimationVariables<'a> {
         self,
         slots: &super::spear::Slots,
         output: &mut MolangVariables,
-        actor: &ActorSnapshot,
+        actor: &dyn AnimatedActor,
         input: &ActorTickInput,
         alpha: f32,
     ) {

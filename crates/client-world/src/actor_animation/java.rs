@@ -549,66 +549,21 @@ mod tests {
         assert!((state.motion.equip[1] - 0.6).abs() < 1e-6);
     }
 
-    /// Count-only updates retain the same equip identity after wire-stack normalization.
+    /// Count-only updates keep the canonical identifier and data, so the equip never dips.
     #[test]
     fn equip_ignores_count_only_stack_updates() {
-        let store = crate::item::ItemStateStore::diagnostic();
-        let mut stack = protocol::NetworkItemStack {
-            network_id: protocol::vanilla_item_registry()
-                .iter()
-                .find(|item| item.identifier.as_ref() == "minecraft:potion")
-                .unwrap()
-                .network_id,
-            count: 2,
-            metadata: 21,
-            ..Default::default()
-        };
-        let before = store.canonicalize(&stack).unwrap();
-        stack.count = 1;
-        let after = store.canonicalize(&stack).unwrap();
-        let before = held(
-            before.identifier.as_deref().unwrap(),
-            before.identity.metadata,
-        );
-        let after = held(
-            after.identifier.as_deref().unwrap(),
-            after.identity.metadata,
-        );
+        let before = held("minecraft:potion", 21);
+        let after = held("minecraft:potion", 21);
         assert_eq!(equip_heights(&before, &after), vec![1.0; 3]);
     }
 
     /// Durability damage is Java's data value even when Bedrock stores it in stack tags.
     #[test]
     fn equip_dips_between_durability_values() {
-        use sha2::{Digest, Sha256};
-
-        let store = crate::item::ItemStateStore::diagnostic();
-        let network_id = protocol::vanilla_item_registry()
-            .iter()
-            .find(|item| item.identifier.as_ref() == "minecraft:iron_sword")
-            .unwrap()
-            .network_id;
-        let stacks = [0_u32, 10].map(|damage| {
-            let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 3, 6, 0];
-            extra.extend_from_slice(b"Damage");
-            extra.extend_from_slice(&damage.to_le_bytes());
-            extra.push(0);
-            let item = store
-                .canonicalize(&protocol::NetworkItemStack {
-                    network_id,
-                    count: 1,
-                    nbt_digest: Sha256::digest(&extra).into(),
-                    extra_data: extra.into(),
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(item.damage, Some(damage));
-            held(
-                item.identifier.as_deref().unwrap(),
-                item.damage.unwrap_or(item.identity.metadata),
-            )
-        });
-        let heights = equip_heights(&stacks[0], &stacks[1]);
+        let heights = equip_heights(
+            &held("minecraft:iron_sword", 0),
+            &held("minecraft:iron_sword", 10),
+        );
         for (height, expected) in heights.into_iter().zip([0.6, 0.2, 0.0]) {
             assert!((height - expected).abs() < 1e-6);
         }

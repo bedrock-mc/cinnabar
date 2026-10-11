@@ -1,4 +1,4 @@
-use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
+use crate::actor_animation::{PropertyDefinition, PropertyKind};
 use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f32 {
@@ -8,7 +8,7 @@ fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f3
 
 /// Reads a query at the fixture position with explicit actor identity and metadata.
 fn read_actor(
-    actor: &ActorSnapshot,
+    actor: &TestActor,
     context: &ActorTickContext,
     name: &str,
     arguments: &[MolangValue],
@@ -236,6 +236,7 @@ fn position_reads_the_native_player_origin() {
         uuid: [0; 16],
         username: "fixture".into(),
     };
+    actor.status.network_position_offset = protocol::PLAYER_NETWORK_OFFSET;
     let actual = read_actor(
         &actor,
         &ActorTickContext::default(),

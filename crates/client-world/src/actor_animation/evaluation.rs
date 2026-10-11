@@ -209,8 +209,7 @@ impl VariableLayout {
                             "pos_y" => 1,
                             _ => return None,
                         };
-                        (offset < crate::actor_store::dragon_animation::HISTORICAL_VARIABLES)
-                            .then_some((slot, offset, axis))
+                        Some((slot, offset, axis))
                     })
                     .collect(),
             },
@@ -550,7 +549,7 @@ pub(super) struct Evaluator<'a> {
     pub(super) assets: &'a RuntimeEntityAssets,
     pub(super) layout: &'a VariableLayout,
     pub(super) program: Option<&'a assets::MolangProgram>,
-    pub(super) actor: &'a ActorSnapshot,
+    pub(super) actor: &'a dyn AnimatedActor,
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
@@ -812,7 +811,7 @@ impl Evaluator<'_> {
                 MolangOp::Arrow(target) => {
                     // Attachable queries already read the supplied owning actor snapshot.
                     let reference = pop(stack)?;
-                    if !matches!(reference, MolangValue::ActorReference(id) if id == self.actor.runtime_id)
+                    if !matches!(reference, MolangValue::ActorReference(id) if id == self.actor.runtime_id())
                     {
                         stack.push(MolangValue::Number(0.0));
                         pc = jump(target)?;

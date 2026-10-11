@@ -1,16 +1,16 @@
 use super::*;
 
-fn fixture() -> (ActorSnapshot, ActorAnimationStore) {
+fn fixture() -> (TestActor, ActorAnimationStore) {
     let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
     actor.on_ground = Some(true);
-    let assets = super::super::render_frame::tests::counting_random_assets();
+    let assets = crate::actor_animation::test_support::counting_random_assets();
     let mut store = ActorAnimationStore::with_assets(assets);
     store.insert(1, 0, &actor);
     (actor, store)
 }
 
 fn advance(
-    actor: &ActorSnapshot,
+    actor: &TestActor,
     store: &mut ActorAnimationStore,
     context: ActorTickContext,
 ) -> super::super::java::JavaMotion {
@@ -106,78 +106,6 @@ fn cape_bob_clears_immediately_while_riding() {
         },
     );
     assert_eq!(motion.bob, [previous_bob, 0.0]);
-}
-
-#[test]
-fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
-    let mut compiled = super::super::attachable::tests::compiled_fixture();
-    compiled.sources[1].path = "entity/player.json".into();
-    compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
-    compiled.symbols[4].identifier = "minecraft:player".into();
-    compiled.symbols.rotate_right(1);
-    compiled.rig_bindings[0].entity_symbol = 0;
-    compiled.rig_bindings[0].render_controller = 3;
-    compiled.animation_clips[0].symbol = 2;
-    let assets = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
-    store.exclude_remote_state_for(1);
-    let mut feed = crate::LocalPlayerFeed {
-        game_mode: None,
-        prefer_client_skin: false,
-        uuid: [1; 16],
-        username: "Player".into(),
-        skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
-        position: [0.0, 64.0, 0.0],
-        velocity: [0.2, 0.0, 0.0],
-        on_ground: true,
-        flying: false,
-        gliding: false,
-        fall_fly_ticks: 0,
-        yaw: 90.0,
-        head_yaw: 90.0,
-        pitch: 0.0,
-        main_hand: None,
-        off_hand: None,
-        main_hand_metadata: 0,
-        main_hand_stack_id: None,
-        main_hand_slot: 0,
-        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
-        java_swing_ticks: crate::ACTOR_SWING_TICKS,
-        teleported: false,
-        first_person: false,
-        view_bobbing: true,
-        sneaking: false,
-        sprinting: false,
-        item_use: Default::default(),
-    };
-    let step = |store: &mut crate::actor_store::ActorStore, feed: &crate::LocalPlayerFeed| {
-        store.sync_local_player(1, -1, feed);
-        store.advance_interpolation_ticks(1);
-        store.actor_rig(1).unwrap().java
-    };
-    step(&mut store, &feed);
-    feed.position[0] = 0.2;
-    let walking = step(&mut store, &feed);
-    assert!(walking.walked[1] > 0.0);
-    feed.flying = true;
-    feed.on_ground = false;
-    feed.position[0] = 0.4;
-    let flying = step(&mut store, &feed);
-    assert_eq!(flying.walked, [walking.walked[1]; 2]);
-    assert_ne!(
-        flying.cape[1], walking.cape[1],
-        "flight still advances inertia"
-    );
-    assert!(flying.limb_swing[1] > walking.limb_swing[1]);
-    feed.position[0] = 0.6;
-    let flying = step(&mut store, &feed);
-    assert_eq!(flying.walked, [walking.walked[1]; 2]);
-    feed.flying = false;
-    feed.on_ground = true;
-    feed.position[0] = 0.8;
-    let resumed = step(&mut store, &feed);
-    assert_eq!(resumed.walked[0], walking.walked[1]);
-    assert!((resumed.walked[1] - walking.walked[1] - 0.12).abs() < 1e-6);
 }
 
 #[test]

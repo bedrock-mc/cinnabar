@@ -1,13 +1,17 @@
 use super::*;
 
 fn assets() -> Arc<RuntimeEntityAssets> {
-    super::super::super::render_frame::tests::counting_random_assets()
+    crate::actor_animation::test_support::counting_random_assets()
 }
 
 /// Independent wire allocations share contents but never source-pointer identities.
 fn sources(count: usize) -> Vec<Arc<SkinGeometrySource>> {
     (0..count)
-        .map(|_| super::super::tests::source(super::super::tests::MODEL))
+        .map(|_| {
+            crate::actor_animation::test_support::skin_source(
+                crate::actor_animation::test_support::SKIN_MODEL,
+            )
+        })
         .collect()
 }
 
@@ -133,9 +137,9 @@ fn equal_replacement_reuses_the_ready_result_after_worker_memo_eviction() {
 
 #[test]
 fn a_full_ready_population_can_admit_a_replacement_without_retiring_its_old_appearance() {
-    let sources = sources(crate::actor_store::MAX_TRACKED_ACTORS + 1);
+    let sources = sources(crate::actor_animation::MAX_ANIMATED_ACTORS + 1);
     let mut queue = SkinPreparationQueue::default();
-    for source in &sources[..crate::actor_store::MAX_TRACKED_ACTORS] {
+    for source in &sources[..crate::actor_animation::MAX_ANIMATED_ACTORS] {
         queue.source_bytes += source.byte_len();
         queue.entries.insert(
             Arc::as_ptr(source) as usize,
@@ -154,7 +158,7 @@ fn a_full_ready_population_can_admit_a_replacement_without_retiring_its_old_appe
     assert_eq!(queue.queued.len(), 1);
     assert_eq!(
         queue.entries.len(),
-        crate::actor_store::MAX_TRACKED_ACTORS + 1
+        crate::actor_animation::MAX_ANIMATED_ACTORS + 1
     );
     assert_eq!(
         queue.entries[&(Arc::as_ptr(&sources[0]) as usize)].in_flight_references,

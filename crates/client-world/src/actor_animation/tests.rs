@@ -1,5 +1,4 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
-use crate::ActorPose;
 
 #[test]
 fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
@@ -30,46 +29,14 @@ fn static_generation_exhaustion_fails_closed_without_consuming_animated_generati
     assert_eq!(store.take_rest_generation(), None);
 }
 
-pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
-    let pose = ActorPose {
-        position: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-    };
-    ActorSnapshot {
-        unique_id: -1,
-        runtime_id: 1,
-        spawn_revision: 1,
-        movement_revision: 0,
-        kind: ActorKind::Entity {
-            identifier: "minecraft:test".into(),
-        },
-        position: [0.0; 3],
-        velocity: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-        previous_pose: pose,
-        received_pose: pose,
-        interpolation_ticks_remaining: 0,
-        body_yaw: 0.0,
-        on_ground: Some(false),
-        teleported: false,
-        player_mode: None,
-        player_game_mode: None,
-        source_tick: None,
+pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> TestActor {
+    TestActor {
         metadata,
-        attributes: HashMap::new(),
-        int_properties: HashMap::new(),
-        float_properties: HashMap::new(),
-        status: Default::default(),
-        dragon_animation: None,
-        hitboxes: None,
+        ..TestActor::default()
     }
 }
 
-fn read(actor: &ActorSnapshot, input: &ActorTickInput, life_tick: u64, name: &str) -> f32 {
+fn read(actor: &dyn AnimatedActor, input: &ActorTickInput, life_tick: u64, name: &str) -> f32 {
     read_with(
         actor,
         input,
@@ -82,7 +49,7 @@ fn read(actor: &ActorSnapshot, input: &ActorTickInput, life_tick: u64, name: &st
 }
 
 fn read_with(
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     input: &ActorTickInput,
     context: &ActorTickContext,
     life_tick: u64,
@@ -242,32 +209,11 @@ fn nonuniform_scale_is_carried_per_axis_and_inherited_by_children() {
 
 #[test]
 fn sleeping_player_metadata_does_not_spoof_sneaking() {
-    let actor = actor_with_metadata(HashMap::from([(26, ActorMetadataValue::Byte(2))]));
+    let mut actor = actor_with_metadata(HashMap::from([(26, ActorMetadataValue::Byte(2))]));
+    actor.status.sleeping = true;
     let input = ActorTickInput::default();
     assert_eq!(read(&actor, &input, 0, "query.is_sleeping"), 1.0);
     assert_eq!(read(&actor, &input, 0, "query.is_sneaking"), 0.0);
-}
-
-#[test]
-fn riding_flag_is_not_read_as_sleeping() {
-    let actor = actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(1 << 2))]));
-    assert_eq!(
-        read(&actor, &ActorTickInput::default(), 0, "query.is_sleeping"),
-        0.0
-    );
-    let sleeping = actor_with_metadata(HashMap::from([(
-        92,
-        ActorMetadataValue::FlagsExtended(1 << (76 - 64)),
-    )]));
-    assert_eq!(
-        read(
-            &sleeping,
-            &ActorTickInput::default(),
-            0,
-            "query.is_sleeping"
-        ),
-        1.0
-    );
 }
 
 #[test]
@@ -586,7 +532,7 @@ fn camera_rotation_reads_the_fed_view_and_xp_orb_frames_follow_value() {
         ..ActorTickContext::default()
     };
     let mut orb = actor_with_metadata(HashMap::from([(15, ActorMetadataValue::Int(20))]));
-    let number = |actor: &ActorSnapshot, name: &str, arguments: &[MolangValue]| {
+    let number = |actor: &TestActor, name: &str, arguments: &[MolangValue]| {
         read_with(actor, &input, &context, 0, name, arguments)
     };
     assert_eq!(
@@ -663,7 +609,7 @@ fn state_queries_read_target_swell_shield_and_death() {
     assert_eq!(read(&actor, &input, 0, "query.swell_amount"), 0.5);
     actor.metadata.insert(6, ActorMetadataValue::Long(-1));
     assert_eq!(read(&actor, &input, 0, "query.has_target"), 0.0);
-    actor.status.death_time = 9;
+    actor.status.death_ticks = 9;
     assert_eq!(read(&actor, &input, 0, "query.death_ticks"), 9.0);
     assert_eq!(read(&actor, &input, 0, "query.is_shield_powered"), 0.0);
     actor.attributes.insert(
@@ -681,113 +627,30 @@ fn state_queries_read_target_swell_shield_and_death() {
 }
 
 #[test]
-fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
-    let mut store = crate::actor_store::ActorStore::new(1, 0);
-    store.apply(
-        1,
-        1,
-        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
-            dimension: 0,
-            unique_id: 1,
-            runtime_id: 1,
-            kind: ActorKind::Entity {
-                identifier: "minecraft:creeper".into(),
-            },
-            position: [0.0; 3],
-            velocity: [0.0; 3],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            body_yaw: 0.0,
-            held_item: Default::default(),
-            metadata: Arc::from([protocol::ActorMetadata {
-                key: 0,
-                value: ActorMetadataValue::Flags(1 << 10),
-            }]),
-            attributes: Arc::from([]),
-            properties: Arc::from([]),
-            links: Arc::from([]),
-        }),
-    );
+fn creeper_swell_queries_read_the_swell_clock_without_swell_metadata() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:creeper".into(),
+    };
+    actor.status.creeper_swell = [13.0 / 28.0, 14.0 / 28.0];
+    actor.status.creeper_swelling_direction = 1.0;
     let input = ActorTickInput::default();
-    store.advance_interpolation_ticks(14);
-    let actor = store.get(1).unwrap();
-    assert_eq!(read(actor, &input, 0, "query.swell_amount"), 13.0 / 28.0);
-    assert_eq!(read(actor, &input, 0, "query.swelling_dir"), 1.0);
+    assert_eq!(read(&actor, &input, 0, "query.swell_amount"), 13.0 / 28.0);
+    assert_eq!(read(&actor, &input, 0, "query.swelling_dir"), 1.0);
     let context = ActorTickContext {
         frame_alpha: 0.5,
         ..Default::default()
     };
     assert_eq!(
-        read_with(actor, &input, &context, 0, "query.swell_amount", &[]).number(),
+        read_with(&actor, &input, &context, 0, "query.swell_amount", &[]).number(),
         13.5 / 28.0
     );
-    store.apply(
-        1,
-        2,
-        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
-            dimension: 0,
-            runtime_id: 1,
-            metadata: Arc::from([protocol::ActorMetadata {
-                key: 0,
-                value: ActorMetadataValue::Flags(0),
-            }]),
-            properties: Arc::from([]),
-            tick: 14,
-        }),
-    );
-    store.advance_interpolation_ticks(3);
-    let actor = store.get(1).unwrap();
-    assert_eq!(read(actor, &input, 0, "query.swell_amount"), 12.0 / 28.0);
-    assert_eq!(read(actor, &input, 0, "query.swelling_dir"), -1.0);
-    store.advance_interpolation_ticks(100);
-    assert_eq!(
-        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
-        0.0
-    );
-    store.apply(
-        1,
-        3,
-        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
-            dimension: 0,
-            runtime_id: 1,
-            metadata: Arc::from([
-                protocol::ActorMetadata {
-                    key: 0,
-                    value: ActorMetadataValue::Flags(1 << 10),
-                },
-                protocol::ActorMetadata {
-                    key: 19,
-                    value: ActorMetadataValue::Int(5_000),
-                },
-                protocol::ActorMetadata {
-                    key: 21,
-                    value: ActorMetadataValue::Int(-5_000),
-                },
-            ]),
-            properties: Arc::from([]),
-            tick: 117,
-        }),
-    );
-    store.advance_interpolation_ticks(100);
-    assert_eq!(
-        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
-        30.0 / 28.0
-    );
-    store.apply(
-        1,
-        4,
-        protocol::ActorEvent::Status(protocol::ActorStatusEvent {
-            runtime_id: 1,
-            kind: protocol::ActorStatusKind::Death,
-            data: 0,
-        }),
-    );
-    store.advance_interpolation_ticks(2);
-    assert_eq!(
-        read(store.get(1).unwrap(), &input, 0, "query.swell_amount"),
-        0.0
-    );
+    // A creeper's clock owns the query even when swell metadata is streamed.
+    actor.metadata.insert(19, ActorMetadataValue::Int(5_000));
+    actor.status.creeper_swell = [12.0 / 28.0; 2];
+    actor.status.creeper_swelling_direction = -1.0;
+    assert_eq!(read(&actor, &input, 0, "query.swell_amount"), 12.0 / 28.0);
+    assert_eq!(read(&actor, &input, 0, "query.swelling_dir"), -1.0);
 }
 
 #[test]
@@ -893,7 +756,6 @@ fn charged_hand_and_bed_rotation_queries_read_their_feeds() {
 
 #[test]
 fn property_query_resolves_names_against_synced_definitions() {
-    use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
     let mut actor = actor_with_metadata(HashMap::new());
     actor.int_properties.insert(0, 1);
     actor.int_properties.insert(1, 1);
@@ -1080,10 +942,8 @@ fn hud_pose_advances_crawling_animation_independently_of_first_person() {
     };
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let mut actor = actor_with_metadata(HashMap::from([(
-        crate::actor_store::EXTENDED_FLAGS_METADATA_KEY,
-        ActorMetadataValue::FlagsExtended(
-            1 << (crate::actor_store::ACTOR_FLAG_CRAWLING - u64::BITS),
-        ),
+        super::test_actor::EXTENDED_FLAGS_METADATA_KEY,
+        ActorMetadataValue::FlagsExtended(1 << (query::FLAG_CRAWLING - u64::BITS)),
     )]));
     actor.kind = ActorKind::Player {
         uuid: [0; 16],

@@ -268,7 +268,7 @@ impl Frame<'_> {
 
 impl ActorAnimationStore {
     /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
-    pub(crate) fn retargeted_pose(
+    pub fn retargeted_pose(
         &self,
         runtime_id: u64,
         alpha: f32,
@@ -285,7 +285,7 @@ impl ActorAnimationStore {
     }
 
     /// [`Self::retargeted_pose`] reusing the rig's tick transforms retained in `cache`.
-    pub(crate) fn retargeted_pose_cached<'c>(
+    pub fn retargeted_pose_cached<'c>(
         &self,
         runtime_id: u64,
         alpha: f32,
@@ -304,7 +304,7 @@ impl ActorAnimationStore {
 
     /// The animated skin layers at `alpha`, each retargeted by the targets `targets` writes
     /// from its skeleton's bone names and rest pose, reusing the tick transforms in `cache`.
-    pub(crate) fn retargeted_layers(
+    pub fn retargeted_layers(
         &self,
         runtime_id: u64,
         alpha: f32,

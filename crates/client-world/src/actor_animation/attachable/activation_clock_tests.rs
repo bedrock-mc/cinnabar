@@ -26,7 +26,7 @@ fn late_direct_attachable_activation_starts_at_its_first_delta_and_pauses_when_h
         first_person: true,
         ..AttachableAnimationInput::default()
     };
-    let sample = |runtime: &mut AttachablesRuntime, owner: &ActorSnapshot, tick| {
+    let sample = |runtime: &mut AttachablesRuntime, owner: &TestActor, tick| {
         runtime
             .evaluate(
                 "minecraft:test_item",

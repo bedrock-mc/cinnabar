@@ -1,4 +1,8 @@
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {
+    super::*,
+    crate::actor_animation::test_support::{quat_from_euler, total_scale},
+    world::TICK_DURATION as ACTOR_TICK_DURATION,
+};
 
 #[test]
 fn swelling_uses_the_current_camera_for_both_pose_endpoints_after_a_tick() {
@@ -147,9 +151,9 @@ fn authored_swell_trs_channels_follow_query_and_pre_animation_variables() {
                     match property {
                         Translation => assert_eq!(pose.translation_scale[0], -value),
                         Rotation => {
-                            assert_eq!(pose.rotation, pose::quat_from_euler([-value, 0.0, 0.0]))
+                            assert_eq!(pose.rotation, quat_from_euler([-value, 0.0, 0.0]))
                         }
-                        Scale => assert!((pose::total_scale(pose)[0] - value).abs() < 1e-6),
+                        Scale => assert!((total_scale(pose)[0] - value).abs() < 1e-6),
                     }
                 }
             }
@@ -347,7 +351,7 @@ fn swell_override_deactivation_restores_previous_animation_channels() {
     );
     store.advance_interpolation_ticks(1);
     let layers = store.render_frame(1.0).layers(1).unwrap();
-    let expected = pose::quat_from_euler([-45.0, -45.0, 45.0]);
+    let expected = quat_from_euler([-45.0, -45.0, 45.0]);
     for endpoint in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
         assert_eq!(
             endpoint.rotation, expected,

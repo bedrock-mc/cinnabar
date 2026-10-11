@@ -179,34 +179,12 @@ impl ActorStore {
             .flatten()
     }
     pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
-        crate::ActorRenderFrame::new(self, partial_tick)
-    }
-    /// Whether this actor's retained scale depends on the current swelling frame.
-    pub(crate) fn samples_rig_scale(&self, runtime_id: u64) -> bool {
-        self.actors
-            .get(&runtime_id)
-            .is_some_and(|actor| self.animation.samples_rig_scale(actor))
-    }
-    /// Whether the actor's own compiled rig can draw an always-passing depth layer.
-    pub(crate) fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
-        self.actors
-            .get(&runtime_id)
-            .is_some_and(|actor| self.animation.may_use_always_depth_material(actor))
-    }
-    pub(crate) fn render_layers(
-        &self,
-        runtime_id: u64,
-        partial_tick: f32,
-        remaining_ops: &mut usize,
-        sample_skin: bool,
-    ) -> Option<crate::ActorRenderLayers<'_>> {
-        self.animation.render_layers(
-            self.actors.get(&runtime_id)?,
-            partial_tick,
+        crate::ActorRenderFrame::new(
+            &self.animation,
+            &self.actors,
             self.camera_rotation,
             self.camera_position,
-            remaining_ops,
-            sample_skin,
+            partial_tick,
         )
     }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.

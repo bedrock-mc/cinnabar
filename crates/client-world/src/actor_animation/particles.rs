@@ -14,7 +14,7 @@ pub struct ActorParticleController<'a> {
 }
 
 impl ActorAnimationStore {
-    pub(crate) fn particle_controllers(&self) -> impl Iterator<Item = ActorParticleController<'_>> {
+    pub fn particle_controllers(&self) -> impl Iterator<Item = ActorParticleController<'_>> {
         self.rigs.iter().flat_map(move |(&actor, rig)| {
             let assets = if rig.pack {
                 self.pack.as_ref().map(|pack| pack.assets.as_ref())

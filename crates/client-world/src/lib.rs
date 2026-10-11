@@ -2,14 +2,13 @@ mod action;
 mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
-pub mod custom_emotes;
 pub mod game_mode_capabilities;
 pub mod ingestion;
 mod item;
 mod local_player_facts;
 pub mod server_position;
 
-pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
+pub use actor_animation::custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 
 pub use action::{

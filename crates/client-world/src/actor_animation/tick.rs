@@ -11,80 +11,80 @@ mod cape_tests;
 
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ActorTickContext {
+pub struct ActorTickContext {
     /// Frame fraction supplied only to scratch render-layer evaluation.
-    pub(crate) frame_alpha: f32,
+    pub frame_alpha: f32,
     /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
-    pub(crate) animation_elapsed_ticks: Option<u32>,
+    pub animation_elapsed_ticks: Option<u32>,
     /// A known first appearance is still awaiting its immutable model preparation.
-    pub(crate) appearance_pending: bool,
-    pub(crate) is_riding: bool,
+    pub appearance_pending: bool,
+    pub is_riding: bool,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
-    pub(crate) main_hand: Option<Arc<str>>,
-    pub(crate) off_hand: Option<Arc<str>>,
+    pub main_hand: Option<Arc<str>>,
+    pub off_hand: Option<Arc<str>>,
     /// The main-hand stack's data value.
-    pub(crate) main_hand_metadata: u32,
+    pub main_hand_metadata: u32,
     /// A positive network identity distinguishes mutation from replacement of the held stack.
-    pub(crate) main_hand_stack_id: Option<i32>,
+    pub main_hand_stack_id: Option<i32>,
     /// The selected hotbar slot, retained independently from the stack identity.
-    pub(crate) main_hand_slot: u8,
+    pub main_hand_slot: u8,
     /// Current local Bedrock duration; zero retains the duration of a remote swing.
-    pub(crate) bedrock_swing_ticks: i32,
+    pub bedrock_swing_ticks: i32,
     /// Current local Java swing length after haste and fatigue; remote swings use the default.
-    pub(crate) java_swing_ticks: i32,
+    pub java_swing_ticks: i32,
     /// A held crossbow is loaded.
-    pub(crate) hand_charged: bool,
+    pub hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
-    pub(crate) main_hand_max_use_ticks: u32,
+    pub main_hand_max_use_ticks: u32,
     /// Selected-stack gameplay clock for the local rig; remote actors retain their own ticks.
-    pub(crate) local_item_use_ticks: Option<u32>,
+    pub local_item_use_ticks: Option<u32>,
     /// Maximum duration of the owner's offhand stack for explicitly selected-slot queries.
-    pub(crate) off_hand_max_use_ticks: u32,
+    pub off_hand_max_use_ticks: u32,
     /// Selected kinetic weapon component timings used by its authored pose.
-    pub(crate) main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
+    pub main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
-    pub(crate) main_hand_is_spear: bool,
+    pub main_hand_is_spear: bool,
     /// Selected melee component swing duration, in seconds.
-    pub(crate) main_hand_swing_seconds: Option<f32>,
+    pub main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
-    pub(crate) ridden: Option<Arc<str>>,
-    pub(crate) has_rider: bool,
-    pub(crate) has_player_rider: bool,
+    pub ridden: Option<Arc<str>>,
+    pub has_rider: bool,
+    pub has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
-    pub(crate) is_local_first_person: bool,
+    pub is_local_first_person: bool,
     /// The actor belongs to this game window, including third-person and HUD views.
-    pub(crate) is_local_player: bool,
+    pub is_local_player: bool,
     /// Local view-bobbing preference; other actor contexts keep the native default.
-    pub(crate) view_bobbing: Option<bool>,
+    pub view_bobbing: Option<bool>,
     /// The client's own player.
-    pub(crate) is_local: bool,
+    pub is_local: bool,
     /// The client's own player is flying.
-    pub(crate) is_flying: bool,
+    pub is_flying: bool,
     /// The committed level default resolves players that use the default mode.
-    pub(crate) world_game_mode: Option<protocol::PlayerGameMode>,
+    pub world_game_mode: Option<protocol::PlayerGameMode>,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
-    pub(crate) is_in_ui: bool,
+    pub is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
-    pub(crate) camera_rotation: [f32; 2],
+    pub camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
-    pub(crate) camera_position: [f32; 3],
+    pub camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
-    pub(crate) armor: [Option<WornArmor>; 5],
+    pub armor: [Option<WornArmor>; 5],
     /// The player's skin carries a cape image.
-    pub(crate) has_cape: bool,
+    pub has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.
-    pub(crate) skin_geometry: Option<Arc<render_api::SkinGeometrySource>>,
+    pub skin_geometry: Option<Arc<render_api::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
-    pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
+    pub properties: Option<Arc<[PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
-    pub(crate) attachable: Option<super::attachable::AttachableQueryContext>,
+    pub attachable: Option<super::attachable::AttachableQueryContext>,
 }
 
 /// One worn armor stack as the armor queries read it.
 #[derive(Clone, Debug)]
-pub(crate) struct WornArmor {
-    pub(crate) item: Arc<str>,
-    pub(crate) dye_rgb: Option<u32>,
+pub struct WornArmor {
+    pub item: Arc<str>,
+    pub dye_rgb: Option<u32>,
 }
 
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
@@ -106,7 +106,7 @@ const GLIDING_SPEED_SQUARED_UNIT: f32 = 0.2;
 /// runs, so static and failing rigs still turn and move.
 pub(super) fn advance_motion(
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     reset_history: bool,
 ) {
@@ -117,8 +117,9 @@ pub(super) fn advance_motion(
     let previous_position = state
         .history
         .back()
-        .map_or(actor.position, |input| input.position);
-    let position_delta = std::array::from_fn(|axis| actor.position[axis] - previous_position[axis]);
+        .map_or(actor.position(), |input| input.position);
+    let position_delta =
+        std::array::from_fn(|axis| actor.position()[axis] - previous_position[axis]);
     let motion = &mut state.motion;
     if context.bedrock_swing_ticks > 0 {
         motion.set_swing_duration(context.bedrock_swing_ticks);
@@ -126,9 +127,9 @@ pub(super) fn advance_motion(
     motion.advance(&MotionInput {
         delta: position_delta,
         riding: context.is_riding,
-        player: matches!(actor.kind, ActorKind::Player { .. }),
-        yaw: actor.yaw,
-        head_yaw: actor.head_yaw,
+        player: matches!(actor.kind(), ActorKind::Player { .. }),
+        yaw: actor.yaw(),
+        head_yaw: actor.head_yaw(),
     });
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
@@ -199,7 +200,7 @@ pub(super) fn advance_motion(
         });
     state.java.advance(&super::java::JavaTick {
         delta: position_delta,
-        yaw: actor.yaw,
+        yaw: actor.yaw(),
         local_swing: state.local_swing.map(|progress| progress.java),
         swing_ticks: if context.java_swing_ticks > 0 {
             context.java_swing_ticks
@@ -210,14 +211,10 @@ pub(super) fn advance_motion(
         held_slot: context.main_hand_slot,
         riding: context.is_riding,
         vanilla_posture: java_retains_native_posture(actor, context, swim_amount),
-        position: actor.position,
+        position: actor.position(),
         velocity: actor.native_velocity(),
-        on_ground: actor.on_ground.unwrap_or(false),
-        alive: !actor.status.dead
-            && actor
-                .attributes
-                .get("minecraft:health")
-                .is_none_or(|health| health.current > 0.0),
+        on_ground: actor.on_ground(),
+        alive: !actor.is_dead() && actor.health().is_none_or(|health| health.current > 0.0),
         sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
         flying: context.is_flying,
         local: context.is_local,
@@ -226,14 +223,14 @@ pub(super) fn advance_motion(
         state.history.pop_front();
     }
     let input = ActorTickInput {
-        position: actor.position,
+        position: actor.position(),
         position_delta,
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
+        velocity: actor.velocity(),
+        on_ground: actor.on_ground(),
         body_yaw: motion.body_yaw,
-        yaw: actor.yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
+        yaw: actor.yaw(),
+        head_yaw: actor.head_yaw(),
+        pitch: actor.pitch(),
         is_riding: context.is_riding,
         distance_moved: motion.distance,
         move_speed: motion.speed.min(1.0) * baby_scale,
@@ -250,7 +247,7 @@ pub(super) fn advance_motion(
 /// Seeds current snapshot inputs for a first draw without advancing any motion clock.
 pub(super) fn seed_presentation_input(
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
 ) {
     let retained = state
@@ -269,17 +266,17 @@ pub(super) fn seed_presentation_input(
         ..Default::default()
     });
     let input = ActorTickInput {
-        position: actor.position,
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
+        position: actor.position(),
+        velocity: actor.velocity(),
+        on_ground: actor.on_ground(),
         body_yaw: if query::is_arrow(actor) {
             0.0
         } else {
             state.motion.body_yaw
         },
-        yaw: actor.yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
+        yaw: actor.yaw(),
+        head_yaw: actor.head_yaw(),
+        pitch: actor.pitch(),
         is_riding: context.is_riding,
         item_use_ticks: local_use_counter(actor, context).unwrap_or(counters.item_use_ticks),
         ..counters
@@ -297,7 +294,7 @@ pub(super) fn seed_presentation_input(
 
 /// Keeps authored postures that the Java option does not replace.
 fn java_retains_native_posture(
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     swim_amount: f32,
 ) -> bool {
@@ -305,13 +302,16 @@ fn java_retains_native_posture(
         || query::actor_flag(actor, query::FLAG_SWIMMING)
         || context.main_hand_is_spear
         || query::actor_flag(actor, query::FLAG_GLIDING)
-        || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
+        || query::actor_flag(actor, query::FLAG_CRAWLING)
         || query::actor_flag(actor, query::FLAG_EMOTING)
         || actor.is_sleeping()
 }
 
 /// Converts the local elapsed clock to the existing one-based hand and spear counter.
-pub(super) fn local_use_counter(actor: &ActorSnapshot, context: &ActorTickContext) -> Option<u32> {
+pub(super) fn local_use_counter(
+    actor: &dyn AnimatedActor,
+    context: &ActorTickContext,
+) -> Option<u32> {
     context.local_item_use_ticks.map(|elapsed| {
         if actor.is_using_item() {
             elapsed.saturating_add(1)
@@ -368,7 +368,7 @@ pub(super) fn evaluate_state(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,
@@ -458,7 +458,7 @@ pub(super) fn evaluate_state(
         }
     }
     if let Some(attachable) = context.attachable {
-        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id);
+        variables.set_actor_reference(engine.context_owning_entity, actor.runtime_id());
         variables.set(
             engine.context_first_person,
             f32::from(attachable.first_person),
@@ -491,7 +491,7 @@ pub(super) fn evaluate_state(
                 Vec::new()
             },
             actor: (samples_swell && state.swell_sampling.as_ref().unwrap().samples_properties())
-                .then(|| Arc::new(actor.clone())),
+                .then(|| actor.to_shared()),
             context: context.clone(),
             input,
             anim_tick,
@@ -740,7 +740,7 @@ pub(super) fn evaluate_state(
 pub(super) fn apply_engine_variables(
     engine: &EngineSlots,
     variables: &mut MolangVariables,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     input: &ActorTickInput,
     motion: &MotionState,
@@ -809,14 +809,9 @@ pub(super) fn apply_engine_variables(
             truth(super::horse::mouth_open(actor)),
         );
     }
-    if let Some(state) = &actor.dragon_animation {
-        let dead = actor.status.dead
-            || actor
-                .attributes
-                .get("minecraft:health")
-                .is_some_and(|health| health.current <= 0.0);
-        for &(slot, offset, axis) in &engine.dragon_history {
-            variables.set(Some(slot), state.historical_frame(offset, dead)[axis]);
+    for &(slot, offset, axis) in &engine.dragon_history {
+        if let Some(frame) = actor.dragon_historical_frame(offset) {
+            variables.set(Some(slot), frame[axis]);
         }
     }
 }
@@ -835,8 +830,8 @@ pub(super) fn set_item_rotation_factor(
     }
 }
 
-fn is_native_fish(actor: &ActorSnapshot) -> bool {
-    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+fn is_native_fish(actor: &dyn AnimatedActor) -> bool {
+    matches!(actor.kind(), ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
         "minecraft:cod" | "minecraft:salmon" | "minecraft:pufferfish" | "minecraft:tropicalfish"))
 }
 

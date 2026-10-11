@@ -38,7 +38,7 @@ pub(super) struct Inputs {
 impl Inputs {
     /// Captures every external value admitted by the static-expression proof.
     pub(super) fn new(
-        owner: &ActorSnapshot,
+        owner: &dyn AnimatedActor,
         rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
     ) -> Self {

@@ -1,5 +1,4 @@
 use super::*;
-use crate::ActorPose;
 
 /// Deterministic xorshift so both stores see the same crowd.
 struct Rng(u64);
@@ -25,7 +24,7 @@ const LOCAL: u64 = 1;
 /// Metadata flags a crowd toggles: on fire, sneaking, sprinting, using item, baby, swimming.
 const FLAGS: [u32; 6] = [0, 1, 3, 4, 11, 37];
 
-fn spawn(rng: &mut Rng, runtime_id: u64, identifiers: &[Box<str>]) -> ActorSnapshot {
+fn spawn(rng: &mut Rng, runtime_id: u64, identifiers: &[Box<str>]) -> TestActor {
     let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
     actor.runtime_id = runtime_id;
     actor.unique_id = runtime_id as i64;
@@ -42,22 +41,17 @@ fn spawn(rng: &mut Rng, runtime_id: u64, identifiers: &[Box<str>]) -> ActorSnaps
         }
     };
     actor.position = [rng.unit() * 40.0 - 20.0, 64.0, rng.unit() * 40.0 - 20.0];
-    actor.previous_pose.position = actor.position;
+    actor.previous_position = actor.position;
     actor
 }
 
 /// Walks, turns and re-flags every actor, as a tick of movement packets would.
-fn wander(rng: &mut Rng, actors: &mut HashMap<u64, ActorSnapshot>) {
+fn wander(rng: &mut Rng, actors: &mut HashMap<u64, TestActor>) {
     let mut ids: Vec<u64> = actors.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
         let actor = actors.get_mut(&id).unwrap();
-        actor.previous_pose = ActorPose {
-            position: actor.position,
-            pitch: actor.pitch,
-            yaw: actor.yaw,
-            head_yaw: actor.head_yaw,
-        };
+        actor.previous_position = actor.position;
         for axis in [0, 2] {
             actor.position[axis] += rng.unit() * 0.6 - 0.3;
         }
@@ -72,6 +66,7 @@ fn wander(rng: &mut Rng, actors: &mut HashMap<u64, ActorSnapshot>) {
                 .filter(|_| rng.below(4) == 0)
                 .fold(0u64, |flags, bit| flags | 1 << bit);
             actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
+            actor.status.on_fire = flags & 1 != 0;
         }
     }
 }
@@ -137,7 +132,7 @@ fn assert_parallel_matches_serial(
         let evaluate = tick % 5 != 4;
         let reset_history = tick % 7 == 0;
         let first_person = tick % 4 < 2;
-        let context = |actor: &ActorSnapshot| ActorTickContext {
+        let context = |actor: &TestActor| ActorTickContext {
             is_local_first_person: first_person && actor.runtime_id == LOCAL,
             main_hand: (actor.runtime_id % 3 == tick % 3).then(|| Arc::clone(&sword)),
             camera_position: [0.0, 64.0, 0.0],
@@ -224,7 +219,7 @@ fn parallel_vanilla_crowd_matches_serial_evaluation() {
 /// The synthetic counting rig needs no installed carrier, so this runs everywhere.
 #[test]
 fn parallel_synthetic_crowd_matches_serial_through_world_budget_exhaustion() {
-    let assets = super::super::render_frame::tests::counting_random_assets();
+    let assets = crate::actor_animation::test_support::counting_random_assets();
     let identifiers = [Box::from("minecraft:test")];
     let open = assert_parallel_matches_serial(
         Arc::clone(&assets),

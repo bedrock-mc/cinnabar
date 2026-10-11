@@ -173,7 +173,7 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
 
 #[test]
 fn authored_player_spear_inputs_keep_their_own_pre_animation() {
-    let mut compiled = super::super::attachable::tests::compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/player.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:player".into();

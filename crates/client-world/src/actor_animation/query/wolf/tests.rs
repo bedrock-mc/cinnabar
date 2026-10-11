@@ -1,12 +1,12 @@
 use super::*;
 use crate::actor_animation::{
     ActorTickContext, ActorTickInput, evaluation::MolangValue, query::QueryInputs,
-    tests::actor_with_metadata,
+    test_actor::TestActor, tests::actor_with_metadata,
 };
 use protocol::{ActorAttribute, ActorMetadataValue};
 use std::{collections::HashMap, sync::Arc};
 
-fn wolf(flags: u64, health: Option<(f32, f32)>) -> ActorSnapshot {
+fn wolf(flags: u64, health: Option<(f32, f32)>) -> TestActor {
     let mut actor = actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(flags))]));
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:wolf".into(),
@@ -27,7 +27,7 @@ fn wolf(flags: u64, health: Option<(f32, f32)>) -> ActorSnapshot {
     actor
 }
 
-fn read_tail(actor: &ActorSnapshot, ticks: u64) -> f32 {
+fn read_tail(actor: &TestActor, ticks: u64) -> f32 {
     let input = ActorTickInput::default();
     let context = ActorTickContext::default();
     let query = QueryInputs {

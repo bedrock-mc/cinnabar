@@ -1,10 +1,10 @@
-use super::tests::{compiled_fixture, owner_rig};
+use super::tests::owner_rig;
 use super::*;
 use assets::*;
 
 /// Compiles incremental scripts and clocks, optionally selecting another geometry or failing its clock.
 fn fixture(multiple_geometry: bool, fail_selected: bool) -> Arc<RuntimeEntityAssets> {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.molang_symbols[1].identifier = "query.anim_time".into();
     let mut ops = compiled.molang_ops.into_vec();
     let mut expressions = compiled.molang_expressions.into_vec();
@@ -209,7 +209,7 @@ fn geometry_state(
 }
 
 /// Seeds independent UI state so geometry rollback also proves that component is preserved.
-fn seed_ui(runtime: &mut AttachablesRuntime, owner: &ActorSnapshot) {
+fn seed_ui(runtime: &mut AttachablesRuntime, owner: &TestActor) {
     let state = &mut runtime.states.values_mut().next().unwrap().rig;
     let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
     let mut budget = EvalBudget {
@@ -331,7 +331,7 @@ fn attachable_preview_rejected_evaluation_restores_geometry_and_committed_dynami
 
 #[test]
 fn attachable_preview_missing_render_returns_no_draw_and_commits_authored_state_once() {
-    let mut compiled = compiled_fixture();
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     let mut expressions = compiled.molang_expressions.into_vec();
     let mut ops = compiled.molang_ops.into_vec();
     let condition = expressions.len() as u32;

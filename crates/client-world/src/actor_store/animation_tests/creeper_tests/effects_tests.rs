@@ -1,4 +1,5 @@
 use super::*;
+use crate::actor_animation::test_support::total_scale;
 
 #[test]
 fn swell_conditional_return_controls_later_assignments_at_the_frame_fraction() {
@@ -825,7 +826,7 @@ fn swell_sampled_rig_and_bone_scales_preserve_authored_cancellation() {
             for layer in layers.iter() {
                 let scale = layer.sampled_scale.unwrap_or(tick_scale);
                 for pose in [&layer.previous_pose[0], &layer.pose[0]] {
-                    for (axis, bone) in pose::total_scale(pose).into_iter().enumerate() {
+                    for (axis, bone) in total_scale(pose).into_iter().enumerate() {
                         assert!(
                             (scale[0] * scale[axis + 1] * bone - 1.0).abs() < 1e-5,
                             "rig and bone scales cancel at the same frame: slot={slot},alpha={alpha},scale={scale:?},bone={bone}"

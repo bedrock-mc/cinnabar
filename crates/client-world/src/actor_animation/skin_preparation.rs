@@ -3,17 +3,17 @@ use super::*;
 
 impl ActorAnimationStore {
     /// Diagnostic stores have no catalog against which a custom model can be resolved.
-    pub(crate) fn has_skin_preparation(&self) -> bool {
+    pub fn has_skin_preparation(&self) -> bool {
         self.assets.is_some()
     }
 
     /// Receives bounded worker results without waiting for an unfinished job.
-    pub(crate) fn begin_skin_preparation(&mut self) {
+    pub fn begin_skin_preparation(&mut self) {
         self.skin_preparation.begin_frame();
     }
 
     /// Admits only a retained source pointer; all content work belongs to the worker.
-    pub(crate) fn request_skin_preparation(
+    pub fn request_skin_preparation(
         &mut self,
         source: &Arc<render_api::SkinGeometrySource>,
     ) -> bool {
@@ -21,7 +21,7 @@ impl ActorAnimationStore {
     }
 
     /// The worker compares replacement bytes against the still-ready result, never against a main-thread hash.
-    pub(crate) fn request_replacing_skin_preparation(
+    pub fn request_replacing_skin_preparation(
         &mut self,
         source: &Arc<render_api::SkinGeometrySource>,
         previous: Option<&Arc<render_api::SkinGeometrySource>>,
@@ -30,7 +30,7 @@ impl ActorAnimationStore {
     }
 
     /// Installs a published appearance's model now rather than at the rig's next tick.
-    pub(crate) fn sync_skin_model(
+    pub fn sync_skin_model(
         &mut self,
         runtime_id: u64,
         source: Option<&Arc<render_api::SkinGeometrySource>>,
@@ -70,7 +70,7 @@ impl ActorAnimationStore {
     }
 
     /// Dispatches one bounded batch through the existing Rayon pool, beside any still running.
-    pub(crate) fn submit_skin_preparation(&mut self) {
+    pub fn submit_skin_preparation(&mut self) {
         if let Some(assets) = &self.assets {
             self.skin_preparation.submit(assets);
         }
@@ -78,11 +78,11 @@ impl ActorAnimationStore {
 
     /// Tests can await their own submitted batch without making a timing assertion.
     #[cfg(test)]
-    pub(crate) fn finish_skin_fixture_batch(&mut self) {
+    pub fn finish_skin_fixture_batch(&mut self) {
         self.skin_preparation.finish_fixture_batch();
     }
 
-    pub(crate) fn skin_preparation_pending(&self) -> bool {
+    pub fn skin_preparation_pending(&self) -> bool {
         self.skin_preparation.is_pending()
     }
 }

@@ -16,7 +16,7 @@ use super::preparation::{PreparedSkin, SkinPreparationCache as WorkerCache};
 /// A publication pass admits this many cold sources to the worker.
 pub(crate) const MAX_SKIN_PREPARATIONS_PER_PASS: usize = 8;
 /// Batches running at once; later passes keep their requests queued until one completes.
-pub(super) const MAX_SKIN_BATCHES_IN_FLIGHT: usize = 4;
+pub(crate) const MAX_SKIN_BATCHES_IN_FLIGHT: usize = 4;
 /// Model-free sources at or below this size share one worker-prepared result per catalog model.
 const MAX_CATALOG_SOURCE_BYTES: usize = 1024;
 const MAX_CATALOG_MODELS: usize = 32;
@@ -26,8 +26,8 @@ const STANDARD_CATALOG_MODELS: [&str; 2] =
 /// The catalog model a model-free source names; `None` inside means the default model applies.
 type CatalogKey = Option<Box<str>>;
 // A pending replacement may coexist with one fully ready appearance per admitted player.
-const MAX_SOURCES: usize = crate::actor_store::MAX_TRACKED_ACTORS * 2;
-const SOURCE_BYTES: usize = crate::actor_store::MAX_TRACKED_PLAYER_SKIN_BYTES * 2;
+const MAX_SOURCES: usize = super::super::MAX_ANIMATED_ACTORS * 2;
+const SOURCE_BYTES: usize = protocol::MAX_PLAYER_LIST_SKIN_BYTES * 2;
 const MESH_BYTES: usize = render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES * 2;
 type Outcome = (Option<Arc<PreparedSkin>>, bool);
 

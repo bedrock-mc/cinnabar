@@ -1,8 +1,8 @@
 use super::*;
 
 /// A synthetic player carrier exercises publication without installed assets.
-fn fixture() -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
-    let mut compiled = super::attachable::tests::compiled_fixture();
+fn fixture() -> (HashMap<u64, TestActor>, ActorAnimationStore) {
+    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/player.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:player".into();
@@ -82,7 +82,7 @@ fn predicted_item_use_keeps_gameplay_ticks_across_actor_catchup_and_interruption
 }
 
 /// Early actor ticks precede this frame's interaction admission.
-fn early(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore, count: usize) {
+fn early(actors: &HashMap<u64, TestActor>, store: &mut ActorAnimationStore, count: usize) {
     for _ in 0..count {
         store.advance_tick(actors, None, Some(1), true, true, |_| ActorTickContext {
             is_local: true,
@@ -93,7 +93,7 @@ fn early(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore, 
 
 /// Publication refreshes the existing tick without advancing other actor state.
 fn publish(
-    actors: &HashMap<u64, ActorSnapshot>,
+    actors: &HashMap<u64, TestActor>,
     store: &mut ActorAnimationStore,
     progress: LocalSwingProgress,
 ) {

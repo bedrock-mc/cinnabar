@@ -32,7 +32,7 @@ pub(super) fn evaluate(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     state: &mut ActorRigState,
-    actor: &ActorSnapshot,
+    actor: &dyn AnimatedActor,
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,

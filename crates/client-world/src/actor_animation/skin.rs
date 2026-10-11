@@ -6,7 +6,7 @@ use super::{pose::LocalDelta, *};
 
 mod preparation;
 use preparation::PreparedSkin;
-mod queue;
+pub(super) mod queue;
 pub(super) use queue::SkinPreparationQueue;
 
 #[derive(Debug)]
@@ -179,6 +179,12 @@ pub(super) fn sync_skin(
         state.rest_on_posed_skeleton();
     }
     rejected
+}
+
+/// Skin preparations the calling thread has run.
+#[cfg(test)]
+pub(super) fn prepared_on_this_thread() -> usize {
+    preparation::PREPARED_ON_THREAD.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
