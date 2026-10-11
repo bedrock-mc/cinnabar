@@ -5,6 +5,8 @@ use assets::{
     MolangSymbolKind,
 };
 
+mod selection_tests;
+
 fn camera_compiled() -> assets::CompiledEntityAssets {
     let mut compiled = super::super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/item.json".into();
