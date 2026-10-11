@@ -537,7 +537,10 @@ fn compiler_real_pinned_pack_admits_all_exact_bee_housing_records() {
     assert!(records.iter().all(|record| {
         let visual = compiled.visuals[record.sequential_id as usize];
         visual.kind == VisualKind::Cube
-            && visual.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            && visual.flags
+                == BlockFlags::CUBE_GEOMETRY
+                    | BlockFlags::OCCLUDES_FULL_FACE
+                    | BlockFlags::FIRE_TOP_SUPPORT
             && visual.model_template == assets::NO_MODEL_TEMPLATE
     }));
     assert!(compiled.model_templates.is_empty());
