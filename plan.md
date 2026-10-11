@@ -6822,6 +6822,11 @@ does not close the broader native body-motion or live visual parity gate. See
 
 ## Server pack compatibility
 
+Resource-pack admission accepts corrected chunk-transfer sizes within its archive
+and selected-stack byte limits. Required packs retain their acquired archive and
+actual size through the session handoff. Incomplete: unrestricted pack-size parity
+and exact native admission comparisons remain open.
+
 Galaxite's full-block geometry, composite Battle Pass models, translucent podium
 glows, state-filtered path borders, correctly lit benches, custom hotbar/held items
 and source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client
