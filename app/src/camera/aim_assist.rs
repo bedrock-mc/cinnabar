@@ -83,11 +83,7 @@ pub(crate) fn publish_assisted_interaction(
     };
     let tick = ray.physics_tick();
     let mode = stream.network_id_mode();
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        context.collisions.registry(mode),
-        stream.current_dimension(),
-    );
+    let world = aim_world(stream, &context.collisions, &context.player);
     let item = context
         .player
         .selected_stack()
@@ -210,3 +206,25 @@ pub(crate) fn apply_action_rotation(
         view.set_rotation(rotation);
     }
 }
+
+/// Supplies current player eligibility to native aim candidate and obstruction sampling.
+fn aim_world<'a>(
+    stream: &'a chunk_pipeline::WorldStream,
+    collisions: &'a PhysicsCollisionRegistries,
+    player: &PlayerRuntime,
+) -> sim::PaletteWorld<'a> {
+    sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(stream.network_id_mode()),
+        stream.current_dimension(),
+        crate::interaction_authority::pick_context(
+            stream,
+            collisions,
+            player.facts.player_game_mode(),
+            player.selected_stack().map(|item| item.block_runtime_id),
+        ),
+    )
+}
+
+#[cfg(test)]
+mod pick_tests;

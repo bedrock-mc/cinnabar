@@ -12,7 +12,7 @@ fn primary_runtime_lookup_preserves_sparse_air_negative_cells_and_storage_order(
     let key = SubChunkKey::new(3, -1, -1, -1);
     store.mark_sub_chunk_loaded(key).unwrap();
     assert_eq!(
-        PaletteWorld::new(&store, &registry, 3).primary_runtime_id([-1; 3]),
+        PaletteWorld::new(&store, &registry, 3, Default::default()).primary_runtime_id([-1; 3]),
         Ok(air)
     );
     for (layer, id) in [(0, primary), (1, extra)] {
@@ -20,7 +20,7 @@ fn primary_runtime_lookup_preserves_sparse_air_negative_cells_and_storage_order(
             .update_block(key, BlockUpdate::new(15, 15, 15, layer, id), air)
             .unwrap();
     }
-    let world = PaletteWorld::new(&store, &registry, 3);
+    let world = PaletteWorld::new(&store, &registry, 3, Default::default());
     assert_eq!(world.primary_runtime_id([-1; 3]), Ok(primary));
     assert_eq!(world.primary_runtime_id([-2, -1, -1]), Ok(air));
     assert!(matches!(
@@ -31,7 +31,8 @@ fn primary_runtime_lookup_preserves_sparse_air_negative_cells_and_storage_order(
     // A complete sparse air column covers all Y without a stored sub-chunk.
     store.mark_chunk_loaded(ChunkKey::new(3, 0, 0)).unwrap();
     assert_eq!(
-        PaletteWorld::new(&store, &registry, 3).primary_runtime_id([0, 1000, 0]),
+        PaletteWorld::new(&store, &registry, 3, Default::default())
+            .primary_runtime_id([0, 1000, 0]),
         Ok(air)
     );
 }
@@ -48,7 +49,7 @@ fn primary_air_is_not_replaced_by_a_non_air_extra_layer() {
         .update_block(key, BlockUpdate::new(0, 0, 0, 1, 99), air)
         .unwrap();
     assert_eq!(
-        PaletteWorld::new(&store, &registry, 0).primary_runtime_id([0; 3]),
+        PaletteWorld::new(&store, &registry, 0, Default::default()).primary_runtime_id([0; 3]),
         Ok(air)
     );
 }

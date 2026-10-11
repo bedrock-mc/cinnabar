@@ -131,7 +131,7 @@ use render_setup::render_plugin;
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
-    "run `make physics-assets` (normal `make client` does this automatically)";
+    "run `make assets` (normal `make client` does this automatically)";
 
 mod authority;
 mod executor;

@@ -102,7 +102,7 @@ fn fixture(runtime_id: u32) -> (ChunkStore, CollisionRegistry, WorldCollisionIde
 #[test]
 fn full_cube_hit_reports_authoritative_contract() {
     let (store, registry, expected) = fixture(7);
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.5, 0.5, -1.0),
             Vec3::new(0.0, 0.0, 2.0),
@@ -136,7 +136,7 @@ fn ray_identity_covers_a_reachable_target_across_a_chunk_boundary() {
     registry
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(14.5, 0.5, 0.5);
     let direction = Vec3::new(1.0, 0.0, 0.0);
 
@@ -172,7 +172,7 @@ fn unloaded_columns_strictly_beyond_a_near_hit_do_not_veto_it() {
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
 
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray_current(Vec3::new(13.5, 0.5, 0.5), Vec3::new(1.0, 0.0, 0.0), 5.0)
         .unwrap()
         .unwrap();
@@ -207,7 +207,7 @@ fn unloaded_column_before_a_farther_target_still_fails_closed() {
         .unwrap();
 
     assert!(matches!(
-        PaletteWorld::new(&store, &registry, 0).block_interaction_ray_current(
+        PaletteWorld::new(&store, &registry, 0, Default::default()).block_interaction_ray_current(
             Vec3::new(14.5, 0.5, 0.5),
             Vec3::new(1.0, 0.0, 0.0),
             20.0,
@@ -219,7 +219,7 @@ fn unloaded_column_before_a_farther_target_still_fails_closed() {
 #[test]
 fn all_six_faces_use_the_bedrock_numeric_mapping() {
     let (store, registry, expected) = fixture(7);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     for (origin, direction, face) in [
         (Vec3::new(0.5, -1.0, 0.5), Vec3::new(0.0, 1.0, 0.0), 0),
         (Vec3::new(0.5, 2.0, 0.5), Vec3::new(0.0, -1.0, 0.0), 1),
@@ -256,7 +256,7 @@ fn exact_boundary_and_corner_ties_are_deterministic() {
     registry
         .register(8, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let boundary = world
         .block_interaction_ray(
@@ -299,7 +299,7 @@ fn fractional_two_axis_crossing_visits_every_tied_cell() {
             .register(runtime_id, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
             .unwrap();
     }
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.9, 0.7, 0.5),
             Vec3::new(0.1, 0.3, 0.0),
@@ -334,7 +334,7 @@ fn fractional_three_axis_crossing_visits_every_proper_subset_cell() {
             .register(runtime_id, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
             .unwrap();
     }
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.9, 0.7, 0.4),
             Vec3::new(0.1, 0.3, 0.6),
@@ -359,7 +359,7 @@ fn close_but_distinct_crossings_are_not_merged() {
             .register(runtime_id, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
             .unwrap();
     }
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.9, 0.7, 0.5),
             Vec3::new(f64::from_bits(0.1_f64.to_bits() + 64), 0.3, 0.0),
@@ -387,7 +387,7 @@ fn compound_partial_shapes_choose_the_nearest_intercept() {
             ],
         )
         .unwrap();
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.5, 0.5, -1.0),
             Vec3::new(0.0, 0.0, 1.0),
@@ -418,7 +418,7 @@ fn overhanging_shapes_are_found_from_the_adjacent_voxel() {
             )],
         )
         .unwrap();
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(-1.0, 0.5, 0.5),
             Vec3::new(1.0, 0.0, 0.0),
@@ -452,7 +452,7 @@ fn surface_contacts_hit_only_when_the_ray_enters_shape_interior() {
             )],
         )
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     for (origin, direction, expected_block, face) in [
         (
@@ -497,7 +497,7 @@ fn surface_contacts_hit_only_when_the_ray_enters_shape_interior() {
         .register(8, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
     assert!(
-        PaletteWorld::new(&behind_store, &registry, 0)
+        PaletteWorld::new(&behind_store, &registry, 0, Default::default())
             .block_interaction_ray(
                 Vec3::new(0.0, 0.5, 0.5),
                 Vec3::new(1.0, 0.0, 0.0),
@@ -526,7 +526,7 @@ fn degenerate_registered_boxes_do_not_become_interaction_occluders() {
         )
         .unwrap();
     assert!(
-        PaletteWorld::new(&store, &registry, 0)
+        PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray(
                 Vec3::new(0.5, 0.5, -1.0),
                 Vec3::new(0.0, 0.0, 1.0),
@@ -556,7 +556,7 @@ fn nearest_block_occludes_farther_shapes_and_layers_report_the_shape_owner() {
     registry
         .register(12, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.5, 0.5, -1.0),
             Vec3::new(0.0, 0.0, 1.0),
@@ -574,7 +574,7 @@ fn nearest_block_occludes_farther_shapes_and_layers_report_the_shape_owner() {
 #[test]
 fn origin_inside_shape_hits_at_zero_with_a_stable_entry_face() {
     let (store, registry, expected) = fixture(7);
-    let hit = PaletteWorld::new(&store, &registry, 0)
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.25, 0.5, 0.75),
             Vec3::new(2.0, 1.0, 0.0),
@@ -599,7 +599,7 @@ fn negative_coordinates_and_direction_scale_preserve_the_hit() {
     registry
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     for scale in [f64::MIN_POSITIVE, 0.25, 1.0, 1.0e200] {
         let hit = world
             .block_interaction_ray(
@@ -619,7 +619,7 @@ fn negative_coordinates_and_direction_scale_preserve_the_hit() {
 #[test]
 fn max_distance_is_inclusive_and_respects_adjacent_f64_values() {
     let (store, registry, expected) = fixture(7);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(0.5, 0.5, -1.0);
     let direction = Vec3::new(0.0, 0.0, 1.0);
     assert!(
@@ -652,7 +652,7 @@ fn registry_chunk_and_runtime_ambiguity_fail_closed() {
     let expected = expected(&store, &chunks);
     let mut registry = CollisionRegistry::with_identity(identity());
     registry.register(0, []).unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let query = || {
         world.block_interaction_ray(
             Vec3::new(0.5, 0.5, -1.0),
@@ -688,7 +688,7 @@ fn stale_identity_and_unloaded_data_before_a_candidate_are_rejected() {
     let (mut store, registry, expected) = fixture(7);
     set_block(&mut store, [0, 0, 0], 0, 0);
     assert!(matches!(
-        PaletteWorld::new(&store, &registry, 0).block_interaction_ray(
+        PaletteWorld::new(&store, &registry, 0, Default::default()).block_interaction_ray(
             Vec3::new(0.5, 0.5, -1.0),
             Vec3::new(0.0, 0.0, 1.0),
             2.0,
@@ -708,7 +708,7 @@ fn stale_identity_and_unloaded_data_before_a_candidate_are_rejected() {
     let mut air = CollisionRegistry::with_identity(identity());
     air.register(0, []).unwrap();
     assert_eq!(
-        PaletteWorld::new(&partial, &air, 0).block_interaction_ray(
+        PaletteWorld::new(&partial, &air, 0, Default::default()).block_interaction_ray(
             Vec3::new(15.5, 0.5, 0.5),
             Vec3::new(1.0, 0.0, 0.0),
             2.0,
@@ -723,7 +723,7 @@ fn nonfinite_zero_oversized_and_extreme_inputs_are_rejected_without_scanning() {
     let store = ChunkStore::new();
     let registry = CollisionRegistry::with_identity(identity());
     let expected = WorldCollisionIdentity::new(identity(), []).unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     for origin in [
         Vec3::new(f64::NAN, 0.0, 0.0),
         Vec3::new(f64::INFINITY, 0.0, 0.0),
@@ -790,7 +790,7 @@ fn maximum_distance_full_halo_query_stays_within_the_inspected_block_budget() {
         )
         .unwrap();
     assert!(
-        PaletteWorld::new(&store, &registry, 0)
+        PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray(
                 Vec3::new(0.5, 0.5, 0.5),
                 Vec3::new(1.0, 0.0, 0.0),
@@ -806,7 +806,7 @@ fn maximum_distance_full_halo_query_stays_within_the_inspected_block_budget() {
 fn air_query_requires_every_layer_empty_and_a_loaded_block() {
     let (mut store, registry, _) = fixture(7);
     set_block(&mut store, [1, 0, 0], 1, 7);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     assert_eq!(world.is_air([0, 1, 0]), Ok(true));
     assert_eq!(world.is_air([0, 0, 0]), Ok(false));
     assert_eq!(
@@ -844,7 +844,7 @@ fn random_offset_query_halo_covers_translated_extending_shapes() {
     registry
         .register(8, [Aabb::new(Vec3::ZERO, Vec3::new(1.5, 1.0, 1.0))])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(2.25, 0.5, 2.0);
     let ray = world
         .block_interaction_ray_current(origin, Vec3::new(0.0, 0.0, -1.0), 4.0)

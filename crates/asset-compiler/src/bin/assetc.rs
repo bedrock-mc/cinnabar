@@ -182,6 +182,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::BlockPhysics {
+            registry,
+            seed,
+            out,
+        } => {
+            let breg = read_bounded(&registry)?;
+            let (records, protocol) =
+                registry_version::read_block_registry_input(&registry, &breg)?;
+            let input = assets::read_physics_registry_for_protocol(
+                &read_bounded(&seed)?,
+                &breg,
+                &records,
+                protocol,
+            )?;
+            let compiled: Vec<_> = records
+                .iter()
+                .map(|record| {
+                    asset_compiler::block_shapes::compile(
+                        record,
+                        input
+                            .by_sequential_id(record.sequential_id)
+                            .expect("complete seed registry"),
+                    )
+                })
+                .collect();
+            let bytes = assets::encode_physics_registry(protocol, &breg, &records, &compiled)?;
+            write_blob_atomic(&out, &bytes)?;
+        }
         Command::Atmosphere {
             pack,
             source_manifest,

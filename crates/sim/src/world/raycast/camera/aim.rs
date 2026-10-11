@@ -1,4 +1,5 @@
-use super::{CameraBlockHit, TraversalState, ray_box, validate_ray};
+use super::super::crossing_order;
+use super::{CameraBlockHit, TraversalState, checked_offset, ray_box, validate_ray};
 use crate::{Aabb, BlockPhysicsFlags, PaletteWorld, Vec3, WorldQueryError};
 use world::SubChunkKey;
 
@@ -16,9 +17,9 @@ impl PaletteWorld<'_> {
         let distance = delta.length_squared().sqrt();
         let direction = validate_ray(origin, delta, distance)?;
         let mut state = TraversalState::new(origin, direction)?;
-        if let Some(hit) = self.camera_aim_cell(
-            state.cell, origin, direction, distance, true, false, liquids,
-        )? {
+        if let Some(hit) =
+            self.camera_aim_halo(&state, origin, direction, distance, outlines, liquids)?
+        {
             return Ok(Some(hit));
         }
         let end_cell = [
@@ -44,13 +45,54 @@ impl PaletteWorld<'_> {
                 .checked_add(state.step[axis])
                 .ok_or(WorldQueryError::CoordinateOutOfRange)?;
             state.next[axis] += state.delta[axis];
-            if let Some(hit) = self.camera_aim_cell(
-                state.cell, origin, direction, distance, false, outlines, liquids,
-            )? {
+            if let Some(hit) =
+                self.camera_aim_halo(&state, origin, direction, distance, outlines, liquids)?
+            {
                 return Ok(Some(hit));
             }
         }
         Ok(None)
+    }
+
+    /// Outline visibility includes displaced owners; cube sampling keeps its cell budget.
+    fn camera_aim_halo(
+        &self,
+        state: &TraversalState,
+        origin: Vec3,
+        direction: Vec3,
+        distance: f64,
+        outlines: bool,
+        liquids: bool,
+    ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
+        if !outlines {
+            return self.camera_aim_cell(state.cell, origin, direction, distance, false, liquids);
+        }
+        let halo = self.registry.selection_ray_halo();
+        // Only intercepts in this traversed cell can finish the step-bounded scan.
+        let distance = distance.min(state.next_crossing());
+        let mut best: Option<CameraBlockHit> = None;
+        for x in halo[0].0..=halo[0].1 {
+            for y in halo[1].0..=halo[1].1 {
+                for z in halo[2].0..=halo[2].1 {
+                    let block = checked_offset(state.cell, [x, y, z])?;
+                    let Some(hit) =
+                        self.camera_aim_cell(block, origin, direction, distance, true, liquids)?
+                    else {
+                        continue;
+                    };
+                    if best.as_ref().is_none_or(|old| {
+                        crossing_order(hit.distance, old.distance)
+                            .then_with(|| hit.block_pos.cmp(&old.block_pos))
+                            .then_with(|| hit.runtime_id.cmp(&old.runtime_id))
+                            .then_with(|| hit.face.cmp(&old.face))
+                            .is_lt()
+                    }) {
+                        best = Some(hit);
+                    }
+                }
+            }
+        }
+        Ok(best)
     }
 
     /// Liquid targeting is disabled when the cached eye occupies a primary liquid block.
@@ -93,17 +135,21 @@ impl PaletteWorld<'_> {
     }
 
     /// Extra liquid layers win after the origin cell; the initial cell only tests primary outline.
-    #[allow(clippy::too_many_arguments)]
     fn camera_aim_cell(
         &self,
         block: [i32; 3],
         origin: Vec3,
         direction: Vec3,
         distance: f64,
-        initial: bool,
         outlines: bool,
         liquids: bool,
     ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
+        let origin_cell = [
+            origin.x.floor() as i32,
+            origin.y.floor() as i32,
+            origin.z.floor() as i32,
+        ];
+        let initial = block == origin_cell;
         let extra = if liquids && !initial {
             self.camera_aim_id(block, 1)?
         } else {
@@ -125,6 +171,18 @@ impl PaletteWorld<'_> {
                 runtime_id: id,
                 block,
             })?;
+        let context = assets::block_shapes::PickContext {
+            liquids,
+            ..self.pick_context
+        };
+        let admitted = match physics.pick_rule {
+            assets::block_shapes::PickRule::Liquid
+            | assets::block_shapes::PickRule::LiquidSource => liquids,
+            rule => rule.allows(context, physics.flow.and_then(|flow| flow.liquid_depth)),
+        };
+        if !admitted {
+            return Ok(None);
+        }
         let liquid = is_liquid(physics.flags);
         if liquid && !liquids {
             return Ok(None);
@@ -135,35 +193,15 @@ impl PaletteWorld<'_> {
             f64::from(block[2]),
         );
         let cube = Aabb::new(offset, offset + Vec3::ONE);
-        let door = if physics.pick_shapes.is_none() {
-            self.resolved_door_shape(block, physics)?
-        } else {
-            None
-        };
-        let shapes = physics.pick_shapes.as_deref().unwrap_or_else(|| {
-            if door.is_some() {
-                door.as_slice()
-            } else {
-                &physics.shapes
-            }
-        });
         let outline = if liquid {
             cube
         } else {
-            let Some((&first, rest)) = shapes.split_first() else {
+            let Some(outline) = self.block_outline_from_physics(block, physics)? else {
                 return Ok(None);
             };
-            let mut outline = first.translated(physics.shape_offset(block));
-            for shape in rest {
-                let shape = shape.translated(physics.shape_offset(block));
-                for axis in 0..3 {
-                    outline.min[axis] = outline.min[axis].min(shape.min[axis]);
-                    outline.max[axis] = outline.max[axis].max(shape.max[axis]);
-                }
-            }
             outline
         };
-        if initial
+        if (initial || outlines)
             && (0..3)
                 .all(|axis| origin[axis] >= outline.min[axis] && origin[axis] <= outline.max[axis])
         {

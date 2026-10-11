@@ -76,7 +76,7 @@ impl InstallLayout {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
                 physics_registry: local
-                    .join("assets")
+                    .join("assets/compiled")
                     .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: config,
@@ -593,7 +593,11 @@ mod tests {
             );
             assert_eq!(
                 layout.physics_registry.parent().unwrap(),
-                layout.resource_root.join("assets")
+                if layout.is_installed() {
+                    layout.resource_root.join("assets")
+                } else {
+                    layout.compiled_assets.clone()
+                }
             );
         }
     }
@@ -721,7 +725,7 @@ mod tests {
         );
         assert_eq!(
             layout.physics_registry,
-            PathBuf::from("/work/cinnabar/.local/assets")
+            PathBuf::from("/work/cinnabar/.local/assets/compiled")
                 .join(assets::carriers::physics_registry_basename())
         );
         assert_eq!(

@@ -4,13 +4,27 @@ use std::sync::Arc;
 impl CollisionRegistry {
     /// Resolves origin-sampled carrier bounds against each bamboo column.
     pub fn set_bamboo_column_offset(&mut self, runtime_id: u32) -> bool {
+        self.set_origin_sampled_offset(runtime_id, block_transform::random_offset::BAMBOO)
+    }
+
+    /// Resolves origin-sampled pointed dripstone bounds against their owner column.
+    pub fn set_dripstone_column_offset(&mut self, runtime_id: u32) -> bool {
+        self.set_origin_sampled_offset(
+            runtime_id,
+            block_transform::random_offset::POINTED_DRIPSTONE,
+        )
+    }
+
+    /// Retains movement seed coordinates while replacing their sampled column offset.
+    fn set_origin_sampled_offset(
+        &mut self,
+        runtime_id: u32,
+        component: block_transform::random_offset::RandomOffsetComponent,
+    ) -> bool {
         let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
             return false;
         };
-        block.random_offset = Some((
-            block_transform::random_offset::BAMBOO,
-            block_transform::bamboo::ORIGIN_OFFSET,
-        ));
+        block.random_offset = Some((component, component.offset([0; 3])));
         true
     }
 

@@ -47,7 +47,7 @@ fn search(
     registry: &sim::CollisionRegistry,
     first_tick: u64,
 ) {
-    let blocks = sim::PaletteWorld::new(store, registry, 0);
+    let blocks = sim::PaletteWorld::new(store, registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,
@@ -105,7 +105,7 @@ fn admitted_actor_keeps_all_its_boxes_past_the_candidate_threshold() {
     let mut frame = AimAssistFrame::default();
     search(&mut frame, &world, &store, &registry, 1);
     assert_eq!(frame.target.unwrap().point, Vec3::new(0.0, 0.5, 3.0));
-    let blocks = sim::PaletteWorld::new(&store, &registry, 0);
+    let blocks = sim::PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,

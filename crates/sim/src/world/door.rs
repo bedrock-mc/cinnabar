@@ -14,7 +14,8 @@ pub enum DoorFacing {
 /// Door properties retained from the block registry for paired-half collision queries.
 #[derive(Debug, Clone)]
 pub struct DoorState {
-    pub family: Arc<str>,
+    /// Compiled class identity, shared by every state of the same door.
+    pub family: [u8; 32],
     pub facing: DoorFacing,
     pub upper: bool,
     pub open: bool,

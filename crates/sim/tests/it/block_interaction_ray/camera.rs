@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn camera_visibility_matches_interaction_geometry_without_allocations() {
     let (store, registry, _) = fixture(7);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     for (origin, direction) in [
         (Vec3::new(0.5, 0.5, -1.0), Vec3::new(0.0, 0.0, 1.0)),
         (Vec3::new(-1.0, -1.0, -1.0), Vec3::ONE),
@@ -44,7 +44,7 @@ fn camera_visibility_uses_paired_door_shape_without_allocations() {
         registry.set_door_state(
             id,
             sim::DoorState {
-                family: "test:door".into(),
+                family: world::block_state_identity::state_identity("test:door", []),
                 facing: sim::DoorFacing::South,
                 upper,
                 open: false,
@@ -52,7 +52,7 @@ fn camera_visibility_uses_paired_door_shape_without_allocations() {
             },
         );
     }
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(-1.0, 0.5, 0.5);
     let direction = Vec3::new(1.0, 0.0, 0.0);
     let authority = world
@@ -75,7 +75,7 @@ fn camera_visibility_rejects_unloaded_or_unknown_geometry() {
     let (store, mut registry, _) = fixture(7);
     registry.remove_runtime_id(7);
     assert!(matches!(
-        PaletteWorld::new(&store, &registry, 0).camera_visibility_ray(
+        PaletteWorld::new(&store, &registry, 0, Default::default()).camera_visibility_ray(
             Vec3::new(0.5, 0.5, -1.0),
             Vec3::new(0.0, 0.0, 1.0),
             2.0
@@ -83,11 +83,8 @@ fn camera_visibility_rejects_unloaded_or_unknown_geometry() {
         Err(WorldQueryError::UnknownRuntimeId { runtime_id: 7, .. })
     ));
     assert!(matches!(
-        PaletteWorld::new(&ChunkStore::new(), &registry, 0).camera_visibility_ray(
-            Vec3::ZERO,
-            Vec3::ONE,
-            2.0
-        ),
+        PaletteWorld::new(&ChunkStore::new(), &registry, 0, Default::default())
+            .camera_visibility_ray(Vec3::ZERO, Vec3::ONE, 2.0),
         Err(WorldQueryError::UnloadedChunk(_))
     ));
 }
@@ -98,7 +95,7 @@ fn aim_sampling_uses_cell_cubes_and_visibility_uses_outlines() {
     registry
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0))])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(0.5, 0.75, -1.0);
     let end = Vec3::new(0.5, 0.75, 2.0);
     let (sample, allocations) = crate::allocation_count::measure(|| {
@@ -160,7 +157,7 @@ fn aim_liquids_use_full_outline_source_gating_and_extra_layer_priority() {
     let origin = Vec3::new(0.5, 0.9, -1.0);
     let end = Vec3::new(0.5, 0.9, 2.0);
     set_block(&mut store, [0, 0, 0], 0, 8);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     assert!(
         world
             .camera_aim_ray(origin, end, 3, false, false)
@@ -183,7 +180,7 @@ fn aim_liquids_use_full_outline_source_gating_and_extra_layer_priority() {
     );
     set_block(&mut store, [0, 0, 0], 0, 9);
     assert!(
-        !PaletteWorld::new(&store, &registry, 0)
+        !PaletteWorld::new(&store, &registry, 0, Default::default())
             .camera_aim_ray(origin, end, 3, true, true)
             .unwrap()
             .unwrap()
@@ -191,7 +188,7 @@ fn aim_liquids_use_full_outline_source_gating_and_extra_layer_priority() {
     );
     set_block(&mut store, [0, 0, 0], 0, 7);
     set_block(&mut store, [0, 0, 0], 1, 9);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let extra = world
         .camera_aim_ray(origin, end, 3, true, true)
         .unwrap()
@@ -219,7 +216,7 @@ fn aim_step_budget_counts_cells_and_corner_ties_choose_z_first() {
     set_block(&mut store, [0, 0, 0], 0, 0);
     set_block(&mut store, [0, 0, 1], 0, 7);
     set_block(&mut store, [1, 0, 0], 0, 7);
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(0.5, 0.5, 0.5);
     let end = Vec3::new(2.5, 0.5, 2.5);
     assert_eq!(

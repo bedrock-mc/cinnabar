@@ -16,7 +16,7 @@ use protocol::{
     player_auth_input_trace_sample,
 };
 
-use super::integration_tests::{evidence_context, synthetic_preg};
+use super::integration_tests::evidence_context;
 use crate::environment::{WeatherState, WorldClock};
 use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 use crate::runtime::world::{
@@ -99,14 +99,15 @@ fn authorized_ticker(enabled: bool) -> MovementTicker {
     ticker
 }
 
+/// Loads the compiled collision facts used by production reconciliation.
 fn fixture_registries() -> PhysicsCollisionRegistries {
     let breg = include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
     let records = read_registry_for_protocol(breg, 2193).expect("checked-in protocol-2193 BREG");
-    let preg = synthetic_preg(breg, &records);
+    let preg = include_bytes!("../../../crates/assets/data/block-physics-v2193.bin");
     PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        &preg,
+        preg,
         assets::active_content_registry_protocol(),
     )
     .expect("BREG-bound PREG facts are valid")

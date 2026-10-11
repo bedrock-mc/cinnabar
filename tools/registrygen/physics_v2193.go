@@ -13,10 +13,10 @@ import (
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
-// The active physics carrier combines shared state facts with client movement rules.
+// The physics seed combines shared state facts with client movement rules.
 
 const (
-	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-v2193.bin"
+	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-seed-v2193.bin"
 	v2193PhysicsBREGInputPath = "crates/assets/data/block-registry-v2193.bin"
 	v2193PhysicsReservedCount = 662 - v2193EducationStateCount
 )

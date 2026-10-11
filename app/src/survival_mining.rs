@@ -232,6 +232,7 @@ fn observe_destroy_target(
         &context.client_world,
         &context.collisions,
         selection,
+        player_runtime.facts.player_game_mode(),
         (
             input_mode,
             if caps.creative_reach {
@@ -269,6 +270,7 @@ fn observe_destroy_target(
         stream.collision_store(),
         context.collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let effects = context.effects.mining_effects();
     let helmet = ui.local_armor(player_runtime).helmet;

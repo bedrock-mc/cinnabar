@@ -273,7 +273,7 @@ fn correction_replays_controller_modes_against_historical_palettes() {
             Duration::from_millis(50),
             MovementInput::default(),
             PhysicsSampleContext::default(),
-            &sim::PaletteWorld::new(&store, &registry, 0),
+            &sim::PaletteWorld::new(&store, &registry, 0, Default::default()),
         );
         assert_eq!(frame.samples.len(), 1, "{:?}", frame.blocked);
         original.extend(frame.samples);
@@ -290,7 +290,7 @@ fn correction_replays_controller_modes_against_historical_palettes() {
             },
             PhysicsCorrectionMode::ReplayIfRetained,
             None,
-            &sim::PaletteWorld::new(&store, &registry, 0),
+            &sim::PaletteWorld::new(&store, &registry, 0, Default::default()),
         )
         .unwrap();
     assert_eq!(plan.replayed_samples, original[1..]);

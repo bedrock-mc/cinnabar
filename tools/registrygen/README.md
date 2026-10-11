@@ -27,7 +27,7 @@ go -C tools/registrygen run . \
 python3 tools/registrygen/update_bindings.py --out .
 go -C tools/registrygen run . \
   -physics-v2193-breg ../../crates/assets/data/block-registry-v2193.bin \
-  -physics-v2193-out ../../crates/assets/data/block-physics-v2193.bin \
+  -physics-v2193-out ../../crates/assets/data/block-physics-seed-v2193.bin \
   -physics-v2193-manifest ../../assets/block-projection-v2193.json
 go -C tools/registrygen run . \
   -block-item-breg ../../crates/assets/data/block-registry-v2193.bin \
@@ -36,9 +36,18 @@ go -C tools/registrygen run . \
   -biome-v2193-allowlist ../../crates/protocol/data/retail_biomes_1_26_50.txt \
   -biome-out ../../crates/assets/data/biome-registry-v2193.bin \
   -biome-v2193-manifest ../../assets/biome-projection-v2193.json
+cargo run --locked -p asset-compiler --bin assetc -- block-physics \
+  --registry crates/assets/data/block-registry-v2193.bin \
+  --seed crates/assets/data/block-physics-seed-v2193.bin \
+  --out crates/assets/data/block-physics-v2193.bin
 python3 tools/registrygen/update_bindings.py --out .
 go -C tools/registrygen test ./...
 ```
+
+The Go physics output is the movement seed. The asset compiler adds independent
+selection geometry and final state facts. Update each physics file’s `.sha256`
+sidecar after changing it. `make assets` builds the final carrier into the local
+compiled asset directory.
 
 The destroy-table generator reads hardness and provisional tool classifications
 from the same shared catalog. Missing tool evidence stays unresolved. Regenerate

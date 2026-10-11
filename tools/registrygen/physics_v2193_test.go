@@ -145,11 +145,11 @@ func v2193PhysicsEntryIsNeutralReserved(entry v2193PhysicsEntry) bool {
 func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *testing.T) {
 	breg, records := loadV2193PhysicsInputs(t)
 	dataDir := filepath.Join("..", "..", "crates", "assets", "data")
-	artifact, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2193.bin"))
+	artifact, err := os.ReadFile(filepath.Join(dataDir, "block-physics-seed-v2193.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	shaBytes, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2193.sha256"))
+	shaBytes, err := os.ReadFile(filepath.Join(dataDir, "block-physics-seed-v2193.sha256"))
 	if err != nil {
 		t.Fatal(err)
 	}

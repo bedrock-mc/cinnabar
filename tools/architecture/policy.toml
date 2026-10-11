@@ -54,7 +54,7 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 name = "world"
 path = "crates/world"
 allowed_dependencies = []
-forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
 name = "assets"
@@ -65,7 +65,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "assets"]
+allowed_dependencies = ["pack-compiler", "assets", "block-transform", "world"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -281,7 +281,7 @@ forbidden_transitive_dependencies = ["asset-compiler"]
 [[crates]]
 name = "sim"
 path = "crates/sim"
-allowed_dependencies = ["block-transform", "world"]
+allowed_dependencies = ["assets", "block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]

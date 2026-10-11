@@ -15,7 +15,7 @@ fn gateway_faces_are_interaction_targets_without_movement_collision_or_outline()
             runtime_id(record("minecraft:air"), mode),
             mode,
         );
-        let world = PaletteWorld::new(&store, registry, 0);
+        let world = PaletteWorld::new(&store, registry, 0, Default::default());
         for (origin, direction, face) in [
             ([8.5, 10.0, 8.5], [0.0, -1.0, 0.0], 1),
             ([8.5, 6.0, 8.5], [0.0, 1.0, 0.0], 0),

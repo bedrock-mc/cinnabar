@@ -483,6 +483,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
+            Default::default(),
         );
         let disposition = gameplay::committed_control::CommittedGameplayState {
             movement: &mut movement,
