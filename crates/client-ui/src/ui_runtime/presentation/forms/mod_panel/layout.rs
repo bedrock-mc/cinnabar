@@ -236,14 +236,15 @@ mod capacity_tests {
                 step: 0.1,
             })
             .collect();
-        let sections = (0..8)
-            .map(|section| Section {
+        let sections = controls.chunks(8)
+            .enumerate()
+            .map(|(section, chunk)| Section {
                 id: format!("section_{section}"),
                 label: format!("Section {section}"),
                 category: "Settings".into(),
                 icon: Icon::None,
                 toggle: None,
-                controls: controls[section * 8..section * 8 + 8]
+                controls: chunk
                     .iter()
                     .map(|c| c.id().to_owned())
                     .collect(),
