@@ -160,6 +160,11 @@ impl CraftingAuthority {
         (self.catalog.is_available() && !self.catalog_lost).then_some(&*self.catalog)
     }
 
+    /// Retains the committed recipe allocation for numeric inventory admission.
+    pub(super) fn catalog_snapshot(&self) -> Option<Arc<RecipeCatalog>> {
+        self.catalog().map(|_| Arc::clone(&self.catalog))
+    }
+
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
         self.preview.as_ref().map(|owner| match &owner.value {
             ManualCraftMatch::Unavailable => CraftingPreview::Unavailable,

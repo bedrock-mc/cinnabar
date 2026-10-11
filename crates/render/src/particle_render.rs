@@ -1,5 +1,10 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
+use render_scene::{ParticleGpuFrame, ParticleSimulation};
+
 use std::{ops::Range, sync::Arc};
 
 #[cfg(test)]
@@ -9,19 +14,21 @@ use bevy::{
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::{
-        App, BevyError, Commands, Deref, DerefMut, Entity, FromWorld, GlobalTransform, Handle,
-        IntoScheduleConfigs, Msaa, Plugin, Projection, Query, Res, ResMut, Resource, Result,
-        Shader, Vec3, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -30,10 +37,10 @@ use bevy::{
             BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, Extent3d, FilterMode, FragmentState, Origin3d, PipelineCache,
             RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
-            TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
-            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TexelCopyBufferLayout,
+            TexelCopyTextureInfo, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -41,10 +48,7 @@ use bevy::{
     },
 };
 
-use particles::{
-    ATLAS_SIDE, AtlasPatch, DrawLists, ParticleInstance, ParticleSystem, ParticleView,
-    ParticleWorld,
-};
+use particles::{ATLAS_SIDE, ParticleInstance};
 
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-9a57-3c0f1d7a2b64");
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
@@ -57,103 +61,6 @@ mod upload_tests;
 #[cfg(test)]
 #[path = "particle_render/tests.rs"]
 pub(crate) mod tests;
-
-/// The particle simulation as a Bevy resource.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct ParticleSimulation(pub ParticleSystem);
-
-/// The frame's particle draw data, extracted to the render world each frame.
-#[derive(Resource, ExtractResource, Clone, Default)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct ParticleGpuFrame {
-    base: Option<Arc<[u8]>>,
-    patch_seq: u64,
-    patches: Arc<[AtlasPatch]>,
-    opaque: Arc<[ParticleInstance]>,
-    blend: Arc<[ParticleInstance]>,
-    add: Arc<[ParticleInstance]>,
-    blend_centroid: [f32; 3],
-    add_centroid: [f32; 3],
-}
-
-impl ParticleGpuFrame {
-    #[must_use]
-    pub fn instance_count(&self) -> usize {
-        self.opaque.len() + self.blend.len() + self.add.len()
-    }
-
-    fn set_lists(&mut self, lists: DrawLists, camera: [f32; 3]) {
-        self.blend_centroid = draw_centroid(&lists.blend, camera);
-        self.add_centroid = draw_centroid(&lists.add, camera);
-        self.blend = lists.blend.into();
-        self.add = lists.add.into();
-        self.opaque = lists.opaque.into();
-    }
-}
-
-/// Returns a draw list's centroid, falling back to the camera for an empty list.
-fn draw_centroid(instances: &[ParticleInstance], camera: [f32; 3]) -> [f32; 3] {
-    if instances.is_empty() {
-        return camera;
-    }
-    let mut sum = [0.0; 3];
-    for instance in instances {
-        for (axis, total) in sum.iter_mut().enumerate() {
-            *total += instance.center_light[axis];
-        }
-    }
-    sum.map(|total| total / instances.len() as f32)
-}
-
-/// Camera frustum basis from a Bevy camera transform and projection.
-#[must_use]
-pub fn particle_view(transform: &GlobalTransform, projection: &Projection) -> ParticleView {
-    let (right, up, forward) = (transform.right(), transform.up(), transform.forward());
-    let half_diagonal = match projection {
-        Projection::Perspective(perspective) => {
-            let half_height = (perspective.fov * 0.5).tan();
-            let half_width = half_height * perspective.aspect_ratio;
-            half_width.hypot(half_height).atan()
-        }
-        _ => std::f32::consts::FRAC_PI_2,
-    };
-    ParticleView {
-        position: transform.translation().to_array(),
-        right: right.to_array(),
-        up: up.to_array(),
-        forward: forward.to_array(),
-        half_diagonal,
-    }
-}
-
-/// Ticks the simulation and refreshes the extracted draw data; call once per frame.
-pub fn update_particle_frame(
-    system: &mut ParticleSystem,
-    frame: &mut ParticleGpuFrame,
-    dt: f32,
-    view: &ParticleView,
-    world: &dyn ParticleWorld,
-) {
-    system.set_camera(view.position);
-    system.tick(dt, world);
-    let lists = system.build_draw(view, world);
-    frame.set_lists(lists, view.position);
-    let base = system.atlas_base();
-    if frame
-        .base
-        .as_ref()
-        .is_none_or(|old| !Arc::ptr_eq(old, &base))
-    {
-        frame.base = Some(base);
-        frame.patch_seq = 0;
-        frame.patches = Arc::default();
-    }
-    let seq = system.atlas().patch_seq();
-    if seq != frame.patch_seq {
-        frame.patches = system.atlas().patches().into();
-        frame.patch_seq = seq;
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ParticleRenderPlugin;
@@ -188,7 +95,7 @@ impl Plugin for ParticleRenderPlugin {
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_particles
-                        .run_if(crate::panorama::world_passes_enabled)
+                        .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
                 ),
             );
@@ -451,7 +358,7 @@ impl FromWorld for ParticlePipeline {
                 shader: PARTICLE_SHADER_HANDLE,
                 entry_point: Some("particle_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::COLOR,
                 })],
@@ -498,9 +405,9 @@ impl Specializer<RenderPipeline> for ParticleSpecializer {
             .as_mut()
             .unwrap();
         target.format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         target.blend = match key.material {
             ParticleMode::Opaque => None,
@@ -655,7 +562,7 @@ fn queue_particles(
 }
 
 type DrawParticles<const MATERIAL: u8> = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuParticles as usize },
+    { render_scene::RuntimeStage::GpuParticles as usize },
     (
         SetItemPipeline,
         SetParticleBindGroup<0>,

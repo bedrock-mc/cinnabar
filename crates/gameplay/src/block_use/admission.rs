@@ -148,7 +148,7 @@ mod tests {
     fn foreign_deferred_swing_does_not_grant_a_fresh_block_retry() {
         let (runtime, mut swings) = fixture();
         let mut foreign = swings.clone();
-        foreign.try_swing(102, client_world::ACTOR_SWING_TICKS);
+        foreign.try_swing(102, actor_animation::ACTOR_SWING_TICKS);
         swings.defer_unadmitted_attempt(&foreign);
         swings.published_progress(102);
         assert!(!runtime.may_attempt(102, LocalUse::Place, &swings));

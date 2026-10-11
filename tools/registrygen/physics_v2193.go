@@ -117,6 +117,7 @@ func projectV2193PhysicsRecords(records []Record) ([]PhysicsRecord, error) {
 			entry.Flags |= physicsFlagPassable
 		}
 		if override, ok := reviewedPhysicsOverrideFor(record.Name); ok {
+			entry.MovementSemantics = MovementSemanticsSpecial
 			if err := applyPhysicsOverride(record, override, &entry); err != nil {
 				return nil, err
 			}

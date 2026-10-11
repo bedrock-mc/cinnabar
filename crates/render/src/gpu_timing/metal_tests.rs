@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::RuntimeStage;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {

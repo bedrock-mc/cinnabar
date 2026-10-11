@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{ActorDrawFrame, ActorRuntimeWitness};
 
 /// Camera identity and settings used to select actor render phases.
 type ActorQueueView = (
@@ -7,7 +8,7 @@ type ActorQueueView = (
     &'static ExtractedView,
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
-    Option<&'static crate::EnhancedRendering>,
+    Option<&'static render_scene::EnhancedRendering>,
 );
 
 #[derive(SystemParam)]
@@ -160,7 +161,7 @@ pub(super) fn queue_actors(
 }
 
 pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuActors as usize },
+    { render_scene::RuntimeStage::GpuActors as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
@@ -169,7 +170,7 @@ pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
 >;
 
 pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuActors as usize },
+    { render_scene::RuntimeStage::GpuActors as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
@@ -198,7 +199,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         Read<ViewUniformOffset>,
         Read<Msaa>,
         Read<ExtractedView>,
-        Option<Read<crate::EnhancedRendering>>,
+        Option<Read<render_scene::EnhancedRendering>>,
         Read<bevy::render::camera::ExtractedCamera>,
     );
     type ItemQuery = ();

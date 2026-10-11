@@ -1,16 +1,21 @@
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -18,9 +23,8 @@ use bevy::{
             BufferBindingType, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FilterMode,
             FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
-            SpecializerKey, Texture, TextureSampleType, TextureView, TextureViewDimension,
-            Variants, VertexState,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
+            Texture, TextureSampleType, TextureView, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -28,13 +32,12 @@ use bevy::{
     },
 };
 
-use crate::{
-    AtmosphereFrame,
-    atmosphere_render::{AtmosphereGpu, textures::upload_rgba},
-    weather::{
-        MAX_PRECIPITATION_LAYERS, OCCLUSION_SIDE, PrecipitationLayerRecord, PrecipitationScene,
-        WeatherTextureAssets, particle_mesh,
+use {
+    crate::atmosphere_render::{AtmosphereGpu, textures::upload_rgba},
+    render_model::{
+        MAX_PRECIPITATION_LAYERS, OCCLUSION_SIDE, PrecipitationLayerRecord, particle_mesh,
     },
+    render_scene::{AtmosphereFrame, PrecipitationScene, WeatherTextureAssets},
 };
 
 const WEATHER_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5b0f2f6e-6c1d-4a58-9f0a-3f1d7a9e2c11");
@@ -71,7 +74,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
                 prepare_weather_records.in_set(RenderSystems::PrepareResources),
                 prepare_weather_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_weather
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -305,7 +308,7 @@ impl FromWorld for WeatherPipeline {
                 shader: WEATHER_SHADER_HANDLE,
                 entry_point: Some("weather_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -346,9 +349,9 @@ impl Specializer<RenderPipeline> for WeatherPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }

@@ -61,7 +61,7 @@ fn font() -> Arc<RuntimeFontCatalog> {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 128,
         height: 16,
-        pixels: FontPixels::Rgba8(pixels),
+        pixels: FontPixels::Rgba8(pixels.into()),
     };
     let manifest = [4; 32];
     let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();

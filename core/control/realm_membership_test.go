@@ -2,24 +2,35 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
 )
+
+// opaqueInviteCodes admits any code without a URL path.
+type opaqueInviteCodes struct{}
+
+func (opaqueInviteCodes) RealmInviteCode(input string) (string, error) {
+	if strings.Contains(input, "/") {
+		return "", errors.New("invitation link")
+	}
+	return input, nil
+}
 
 // membershipStub records whether resolving a code or accepting it was requested.
 type membershipStub struct {
 	stubServices
+	opaqueInviteCodes
 	accepted bool
 	code     string
 }
 
 // RealmMembership returns an isolated invitation preview without an account service.
-func (s *membershipStub) RealmMembership(_ context.Context, code string, accept bool) (catalog.Realm, error) {
+func (s *membershipStub) RealmMembership(_ context.Context, code string, accept bool) (Realm, error) {
 	s.code, s.accepted = code, accept
-	return catalog.Realm{Name: "Fixture Realm", Target: "realm_id/7"}, nil
+	return Realm{Name: "Fixture Realm", Target: "realm_id/7"}, nil
 }
 
 func TestRealmMembershipSeparatesPreviewFromAcceptance(t *testing.T) {
@@ -38,21 +49,27 @@ func TestRealmMembershipSeparatesPreviewFromAcceptance(t *testing.T) {
 			t.Fatalf("request: %q %v", s.code, s.accepted)
 		}
 	}
+	s.code = ""
+	if response := rpc(t, dir, "realm_membership.v1", `{"code":"a/b","accept":true}`); response.Error == nil ||
+		response.Error.Code != codeInvalidTarget || s.code != "" {
+		t.Fatalf("invalid code reached the service: %+v", response.Error)
+	}
 }
 
 // blockingMembership observes cancellation propagated from a closed control stream.
 type blockingMembership struct {
 	stubServices
+	opaqueInviteCodes
 	started   chan struct{}
 	cancelled chan struct{}
 }
 
 // RealmMembership waits until its request context is cancelled.
-func (s *blockingMembership) RealmMembership(ctx context.Context, _ string, _ bool) (catalog.Realm, error) {
+func (s *blockingMembership) RealmMembership(ctx context.Context, _ string, _ bool) (Realm, error) {
 	close(s.started)
 	<-ctx.Done()
 	close(s.cancelled)
-	return catalog.Realm{}, ctx.Err()
+	return Realm{}, ctx.Err()
 }
 
 func TestRealmMembershipClosedStreamCancelsPreview(t *testing.T) {

@@ -5,6 +5,7 @@ use assets::{
     encode_entity_blob,
 };
 use pack_compiler::{compile_entity_assets, compile_icon_assets};
+use sha2::Digest;
 use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
@@ -14,6 +15,105 @@ mod spawn_eggs;
 
 #[path = "item_visuals/beds.rs"]
 mod beds;
+
+#[test]
+fn independent_retail_inventory_has_explicit_compiled_fuel_facts() {
+    let pack = item_pack(false);
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    for identifier in include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
+        .lines()
+        .filter_map(|row| row.split('\t').nth(1))
+    {
+        assert!(
+            matches!(
+                visual(&compiled.item_visuals, identifier, 0).fuel,
+                assets::item::fuel::ItemFuel::Provisional { .. }
+            ),
+            "{identifier}"
+        );
+    }
+    assert_eq!(
+        visual(&compiled.item_visuals, "minecraft:coal", 0)
+            .fuel
+            .eligible(),
+        Some(true)
+    );
+    assert_eq!(
+        visual(&compiled.item_visuals, "minecraft:crimson_planks", 0)
+            .fuel
+            .eligible(),
+        Some(false)
+    );
+    let decoded =
+        assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(decoded.item_visuals(), compiled.item_visuals.as_ref());
+}
+
+#[test]
+fn durability_values_compile_by_identity_and_cover_the_retail_inventory() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{"texture_data":{"custom:diamond_chestplate":{"textures":"textures/items/cloth"}}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        visual(&compiled.item_visuals, "minecraft:diamond_chestplate", 0)
+            .durability
+            .maximum(),
+        Some(528)
+    );
+    assert_eq!(
+        visual(&compiled.item_visuals, "custom:diamond_chestplate", 0).durability,
+        assets::item::durability::ItemDurability::Unresolved
+    );
+    let inventory = include_str!("../../../protocol/data/retail_items_1_26_50.tsv");
+    for identifier in inventory.lines().filter_map(|line| line.split('\t').nth(1)) {
+        assert_eq!(
+            visual(&compiled.item_visuals, identifier, 0).durability,
+            assets::item::durability::builtin_item_durability(identifier)
+        );
+    }
+    assert!(compiled.sources.iter().any(|source| source.path.as_ref()
+        == assets::item::durability::ITEM_DURABILITY_SOURCE_PATH
+        && source.source_sha256
+            == <[u8; 32]>::from(sha2::Sha256::digest(
+                assets::item::durability::ITEM_DURABILITY_SOURCE_BYTES
+            ))));
+}
+
+#[test]
+fn armour_values_compile_by_identity_with_unresolved_unknown_items() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{
+        "texture_data": {
+            "diamond_chestplate": {"textures": "textures/items/diamond_chestplate"},
+            "custom:cloth": {"textures": "textures/items/cloth"}
+        }
+    }"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        visual(&compiled.item_visuals, "minecraft:diamond_chestplate", 0).armour,
+        assets::item::armour::ItemArmour::Wearable {
+            slot: assets::item::armour::ItemArmourSlot::Chest,
+            protection: 8
+        }
+    );
+    assert_eq!(
+        visual(&compiled.item_visuals, "custom:cloth", 0).armour,
+        assets::item::armour::ItemArmour::Unresolved
+    );
+    let inventory = include_str!("../../../protocol/data/retail_items_1_26_50.tsv");
+    for identifier in inventory.lines().filter_map(|line| line.split('\t').nth(1)) {
+        let item = visual(&compiled.item_visuals, identifier, 0);
+        assert_eq!(item.key.identifier.as_ref(), identifier);
+    }
+}
 
 #[test]
 fn leather_tga_atlas_sources_keep_their_opaque_untinted_trim() {
@@ -313,12 +413,10 @@ fn absent_binding_aliases_do_not_invent_routes_and_missing_pixels_stay_missing()
         visual(&compiled.item_visuals, "minecraft:blue_bundle", 0).route,
         ItemVisualDefinitionRoute::Missing
     ));
-    assert!(
-        !compiled
-            .item_visuals
-            .iter()
-            .any(|item| item.key.identifier.as_ref() == "minecraft:golden_spear")
-    );
+    assert!(matches!(
+        visual(&compiled.item_visuals, "minecraft:golden_spear", 0).route,
+        ItemVisualDefinitionRoute::Missing
+    ));
     assert!(matches!(
         visual(&compiled.item_visuals, "minecraft:stone", 0).route,
         ItemVisualDefinitionRoute::BlockItem { .. }
@@ -475,11 +573,9 @@ fn legacy_icon_routes_bind_identifiers_to_their_atlas_variants() {
         sprite("minecraft:compass"),
         "textures/items/compass_item.png"
     );
-    assert!(
-        !compiled
-            .item_visuals
-            .iter()
-            .any(|visual| visual.key.identifier.as_ref() == "minecraft:bow")
-    );
+    assert!(matches!(
+        visual(&compiled.item_visuals, "minecraft:bow", 0).route,
+        ItemVisualDefinitionRoute::Missing
+    ));
     assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
 }

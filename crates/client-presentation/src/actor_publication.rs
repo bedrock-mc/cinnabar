@@ -1,3 +1,4 @@
+use bevy::prelude::DetectChanges;
 mod commit;
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
@@ -13,7 +14,6 @@ use hand::{hand_camera_from_rig, hand_progress};
 
 use std::sync::Arc;
 
-use bevy::prelude::DetectChanges;
 use bevy::{
     ecs::system::SystemParam,
     math::Mat4,
@@ -22,10 +22,14 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
-use render::{
-    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
-    RuntimeStageProfiler,
+use {
+    render_model::{
+        ActorCullView, ActorRigFrameBuilder, ActorRigSubmission, HandItemAtlas, HandRigLight,
+        MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    },
+    render_scene::{
+        ActorMainWitness, ActorRenderScene, HandRigScene, RuntimeStage, RuntimeStageProfiler,
+    },
 };
 
 use crate::camera::{CameraSettingsAuthority, FlyCamera};
@@ -61,10 +65,10 @@ pub struct ActorFrameInput {
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
     pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
-    pub swing_progress: Option<client_world::LocalSwingProgress>,
+    pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
-    pub custom_emote: Option<(client_world::CustomEmote, f64)>,
+    pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -109,9 +113,9 @@ fn apply_session_pack(
     equipment: Option<&mut EquipmentRuntime>,
     profiler: Option<&RuntimeStageProfiler>,
 ) -> (
-    Option<render::ActorArtworkPages>,
+    Option<render_model::ActorArtworkPages>,
     Option<StagedSessionIcons>,
-    Vec<Option<render::ActorArtworkLocation>>,
+    Vec<Option<render_model::ActorArtworkLocation>>,
 ) {
     let equipment_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorEquipmentSetup));
     let mut pages = resources.pages.clone();
@@ -196,21 +200,21 @@ pub struct ActorFramePublication<'w, 's> {
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     presentation: ActorPresentationState<'w, 's>,
-    artwork: Res<'w, render::ActorArtworkPages>,
+    artwork: Res<'w, render_scene::ActorArtworkResource>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
-    glint_settings: Option<Res<'w, render::UiGlintSettings>>,
+    glint_settings: Option<Res<'w, render_scene::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
-    profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
+    profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
 pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
-    swing_progress: Option<client_world::LocalSwingProgress>,
+    swing_progress: Option<actor_animation::LocalSwingProgress>,
     hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
     params: ActorFramePublication,
 ) {
@@ -286,7 +290,7 @@ pub fn prepare_actor_render_frame(
         .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
     let preparation = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorPreparation));
     let cull_view = camera
         .single()
         .ok()
@@ -304,7 +308,7 @@ pub fn prepare_actor_render_frame(
                 .authority()
                 .actor_rig(stream.local_player_runtime_id())?;
             let (emote, elapsed) = input.custom_emote?;
-            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+            actor_animation::sample_custom_emote(&rig, emote, elapsed, elapsed)
         })
         .flatten();
     let mut native_body_sampled = false;
@@ -733,7 +737,7 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
-            if (identity.layer == render::ACTOR_LAYER_BODY
+            if (identity.layer == render_model::ACTOR_LAYER_BODY
                 || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
                 || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
@@ -742,7 +746,7 @@ pub fn prepare_actor_render_frame(
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())
             {
-                submission.route = render::ActorRigRoute::NoDraw;
+                submission.route = render_model::ActorRigRoute::NoDraw;
             }
         }
     }
@@ -753,7 +757,7 @@ pub fn prepare_actor_render_frame(
     {
         let _rig_build = profiler
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
+            .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorRigBuild));
         register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
     }
     prepared.0 = Some(commit::PendingActorPublication {
@@ -851,7 +855,7 @@ fn actor_camera_rotation(rotation: bevy::math::Quat) -> [f32; 2] {
 fn animation_view(
     transform: &bevy::prelude::Transform,
     projection: &Projection,
-) -> Option<client_world::ActorAnimationView> {
+) -> Option<actor_animation::ActorAnimationView> {
     let Projection::Perspective(perspective) = projection else {
         return None;
     };
@@ -873,11 +877,11 @@ fn animation_view(
         .iter()
         .flatten()
         .all(|value| value.is_finite())
-        .then(|| client_world::ActorAnimationView {
+        .then(|| actor_animation::ActorAnimationView {
             planes,
             camera: transform.translation.to_array(),
             player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-            entity_radius: render::ACTOR_CANDIDATE_RADIUS_BLOCKS,
+            entity_radius: render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS,
         })
 }
 

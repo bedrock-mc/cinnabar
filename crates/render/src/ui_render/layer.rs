@@ -137,9 +137,9 @@ pub(super) fn draw_ui_layer(
             timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
                 draw.world,
                 if mode.0.is_some() {
-                    crate::RuntimeStage::GpuUiModel
+                    render_scene::RuntimeStage::GpuUiModel
                 } else {
-                    crate::RuntimeStage::GpuUiRaster
+                    render_scene::RuntimeStage::GpuUiRaster
                 },
             ),
             occlusion_query_set: None,
@@ -153,7 +153,7 @@ pub(super) fn draw_ui_layer(
             pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
             pass.draw(0..3, 0..1);
             if let Some(profile) = draw.world.get_resource::<super::profile::UiProfile>() {
-                profile.record_draw(crate::RuntimeStage::GpuUiRaster, 0);
+                profile.record_draw(render_scene::RuntimeStage::GpuUiRaster, 0);
             }
         }
         pass.set_render_pipeline(pipeline);
@@ -173,9 +173,9 @@ pub(super) fn draw_ui_layer(
                     (
                         profile,
                         if mode.0.is_some() {
-                            crate::RuntimeStage::GpuUiModel
+                            render_scene::RuntimeStage::GpuUiModel
                         } else {
-                            crate::RuntimeStage::GpuUiRaster
+                            render_scene::RuntimeStage::GpuUiRaster
                         },
                     )
                 }),
@@ -206,7 +206,7 @@ pub(super) fn draw_batches<'w>(
     batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
-    profile: Option<(&super::profile::UiProfile, crate::RuntimeStage)>,
+    profile: Option<(&super::profile::UiProfile, render_scene::RuntimeStage)>,
 ) {
     if let Some((profile, stage)) = profile {
         profile.record_pass(stage);

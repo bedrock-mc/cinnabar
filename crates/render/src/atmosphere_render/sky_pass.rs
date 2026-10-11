@@ -1,10 +1,11 @@
 //! The ordered sky pass owns colour initialization before any world geometry.
 
 use super::{AtmosphereGpu, AtmospherePipelineKey};
+use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
-    prelude::{IntoScheduleConfigs, Msaa, Resource, World},
+    prelude::{Msaa, Resource, World},
     render::{
         camera::ExtractedCamera,
         render_resource::{PipelineCache, RenderPassDescriptor, StoreOp},
@@ -26,7 +27,7 @@ pub(super) fn install(world: &mut World) {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
                     atmosphere,
-                    Some(crate::RuntimeStage::GpuSky),
+                    Some(render_scene::RuntimeStage::GpuSky),
                     "AtmospherePass",
                 )
                 .after(Core3dSystems::Prepass)
@@ -53,7 +54,7 @@ type AtmosphereQuery = (
 fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
     let (camera, target, scene, depth, offset, msaa, resolution) = query.into_inner();
     if world
-        .get_resource::<crate::PanoramaScene>()
+        .get_resource::<render_scene::PanoramaScene>()
         .is_some_and(|scene| !scene.game_visible())
     {
         return;
@@ -91,7 +92,7 @@ fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: Ren
         depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuSky,
+            render_scene::RuntimeStage::GpuSky,
         ),
         occlusion_query_set: None,
         multiview_mask: None,

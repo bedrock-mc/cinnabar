@@ -45,7 +45,7 @@ pub(in crate::chunk) fn install_graph(world: &mut World) {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
                     gamma_transparent::<false>,
-                    Some(crate::RuntimeStage::GpuTransparent),
+                    Some(render_scene::RuntimeStage::GpuTransparent),
                     "MainTransparentPass",
                 )
                 .in_set(crate::scene_target::ScenePass::Transparent),
@@ -67,7 +67,7 @@ type GammaView = (
     &'static ViewDepthStencilTexture,
     Option<&'static MainPassResolutionOverride>,
     &'static Msaa,
-    Option<&'static crate::EnhancedRendering>,
+    Option<&'static render_scene::EnhancedRendering>,
     &'static SceneTarget,
     Option<&'static bevy::anti_alias::smaa::Smaa>,
 );
@@ -166,7 +166,7 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool>(
                     depth_stencil_attachment: Some(depth),
                     timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                         world,
-                        crate::RuntimeStage::GpuTransparent,
+                        render_scene::RuntimeStage::GpuTransparent,
                     ),
                     occlusion_query_set: None,
                     multiview_mask: None,

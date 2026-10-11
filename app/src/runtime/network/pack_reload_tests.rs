@@ -9,8 +9,9 @@ use bevy::prelude::{App, Update};
 use client_ui::ui_runtime::UiRuntime;
 use pack_runtime::PackInputs;
 use resource_pack::ValidatedPackStack;
+use std::io::Write;
 use std::{
-    io::{Cursor, Write},
+    io::Cursor,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -70,7 +71,7 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             0,
         )))
-        .insert_resource(render::ChunkTextureAssets::with_revision(assets, 0))
+        .insert_resource(render_scene::ChunkTextureAssets::with_revision(assets, 0))
         .init_resource::<PackReload>()
         .add_systems(Update, reload_resource_packs);
     app
@@ -270,7 +271,7 @@ fn session_reload_publishes_prepared_actor_pages() {
         Arc::new(PackInputs::default()),
     );
     let mut app = app();
-    app.init_resource::<render::ActorArtworkPages>();
+    app.init_resource::<render_scene::ActorArtworkResource>();
     app.world_mut()
         .resource_mut::<PackReload>()
         .begin_session(1, &packs);
@@ -279,10 +280,11 @@ fn session_reload_publishes_prepared_actor_pages() {
     let world = app.world().resource::<ClientWorld>();
     let pack = world.pack_entities.as_ref().unwrap();
     assert!(!pack.textures.is_empty());
-    let base = app.world().resource::<render::ActorArtworkPages>();
+    let base = app.world().resource::<render_scene::ActorArtworkResource>();
     let prepared = world.prepared_actor_artwork.as_ref().unwrap();
     let pages = prepared.pages_for(base, pack).unwrap();
     let expected = base
+        .0
         .clone()
         .with_pack_artwork(&pack.textures, &pack.bindings);
     assert_eq!(pages.identity(), expected.identity());
@@ -295,7 +297,8 @@ fn session_reload_publishes_prepared_actor_pages() {
 
 #[test]
 fn aim_highlight_pack_art_is_available_at_join_and_released_at_session_end() {
-    let texture = Arc::new(render::AimAssistTexture::new([1, 1], Arc::from([255; 4])).unwrap());
+    let texture =
+        Arc::new(render_scene::AimAssistTexture::new([1, 1], Arc::from([255; 4])).unwrap());
     let packs = resource_packs::PackApplication {
         aim_assist_textures: [Some(texture.clone()), None],
         ..Default::default()

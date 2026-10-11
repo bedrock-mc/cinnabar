@@ -11,6 +11,7 @@ use super::*;
 pub(super) use crate::test_support::{creative_with, inventory_session as session};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 
+mod furnace_fuel_tests;
 mod furnace_recipe_tests;
 
 fn opened(
@@ -724,6 +725,25 @@ fn scrolling_the_creative_catalog_stays_interactive() {
         frame.report.scrolls[&key].offset,
         ((samples - 1) % 12 + 1) as f64 * 60.0
     );
+    // Scrolled to its end, the catalog's last entry takes input.
+    runtime
+        .screen_state_mut()
+        .container_scroll
+        .insert(key.clone(), metrics.max_offset());
+    presentation
+        .build(&player_runtime, &runtime, samples + 1, [1280, 720], dpi)
+        .unwrap();
+    let entries =
+        crate::ui_runtime::inventory_actions::recipe_book_entries(&player_runtime, &runtime).len();
+    let last = presentation
+        .engine_container_frame()
+        .unwrap()
+        .hits
+        .iter()
+        .filter(|hit| hit.collection.as_deref() == Some("recipe_book"))
+        .filter_map(|hit| hit.collection_index)
+        .max();
+    assert_eq!(last, Some(entries - 1));
 }
 
 // The inventory's live player renderer faces the viewer and turns toward the

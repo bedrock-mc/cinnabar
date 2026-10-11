@@ -9,6 +9,19 @@ impl WorldStream {
         budget: usize,
         removal_budget: usize,
     ) -> usize {
+        self.dispatch_mesh_jobs_reserving(camera_position, budget, removal_budget, 0)
+    }
+
+    /// [`Self::dispatch_mesh_jobs_with_limits`], letting urgent meshes take up to
+    /// `urgent_reserve` jobs beyond the worker cap, so a block the local player changed remeshes
+    /// while streaming work fills every worker.
+    pub(in crate::stream) fn dispatch_mesh_jobs_reserving(
+        &mut self,
+        camera_position: [f32; 3],
+        budget: usize,
+        removal_budget: usize,
+        urgent_reserve: usize,
+    ) -> usize {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!(
             "mesh.dispatch",
@@ -44,8 +57,9 @@ impl WorldStream {
             });
 
         let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
-        let worker_budget =
-            budget.min(super::admission::mesh_worker_cap().saturating_sub(occupied));
+        let mesh_worker_cap = super::admission::mesh_worker_cap();
+        let regular_budget = budget.min(mesh_worker_cap.saturating_sub(occupied));
+        let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
         let mut resident_candidates = if probe_near {
             scheduler::near_camera_keys(view, self.authority.current_dimension())
                 .filter_map(|key| {
@@ -167,6 +181,7 @@ impl WorldStream {
             let key = candidate.key;
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
                 || dispatched >= worker_budget
+                || (dispatched >= regular_budget && !candidate.urgent)
                 || (examined && self.poll_budget_exhausted())
             {
                 if queued {
@@ -239,7 +254,7 @@ impl WorldStream {
             let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
-            dispatch.spawn(move || {
+            dispatch.spawn(pending.urgent, move || {
                 #[cfg(feature = "tracy")]
                 let _zone =
                     tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)

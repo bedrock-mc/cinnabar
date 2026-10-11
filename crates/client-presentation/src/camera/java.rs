@@ -111,7 +111,7 @@ impl JavaCameraState {
             pair[0] = pair[1];
         }
         if tick.walks {
-            let walked = client_world::java_walked_distance(self.walked[1], [delta.x, delta.z]);
+            let walked = actor_animation::java_walked_distance(self.walked[1], [delta.x, delta.z]);
             if walked.is_finite() {
                 self.walked[1] = walked;
             }

@@ -76,7 +76,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         let shader = crate::shader_safety::from_actor_wesl(
             include_str!("../../hand_rig.wesl"),
             "hand",
-            crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+            render_model::ACTOR_GPU_INSTANCE_WORDS,
             render_model::ACTOR_RIG_VERTEX_WORDS,
         );
         let bevy::shader::Source::Wesl(source) = shader.source else {
@@ -119,10 +119,10 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         )
     };
     // Relocate the lightmap into the fixture's single bind group.
-    let item_flag = crate::HAND_ITEM_LAYER_FLAG;
-    let offhand_flag = crate::HAND_OFFHAND_LAYER_FLAG;
-    let blend_flag = crate::HandItemAlphaMode::Blend.texture_layer_flag();
-    let cutout_flag = crate::HandItemAlphaMode::Cutout.texture_layer_flag();
+    let item_flag = render_model::HAND_ITEM_LAYER_FLAG;
+    let offhand_flag = render_model::HAND_OFFHAND_LAYER_FLAG;
+    let blend_flag = render_model::HandItemAlphaMode::Blend.texture_layer_flag();
+    let cutout_flag = render_model::HandItemAlphaMode::Cutout.texture_layer_flag();
     let source = source
         .replace("EDGE_TARGET_SIDE", &format!("{SNAPSHOT_SIDE}.0"))
         .replace(

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chunk_pipeline::ViewCohortStatus;
-use render::{PresentedFrameAck, TargetRenderExpectation};
+use render_scene::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
 use diagnostics::metrics::{ExactFullViewProof, TeleportProof, deterministic_manifest_hash};

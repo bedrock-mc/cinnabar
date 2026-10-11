@@ -1,8 +1,12 @@
 //! One retained uniform and two texture bindings implement target highlight drawing.
 
-use super::{AimAssistHighlightScene, AimAssistTexture};
+use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
-use bevy::prelude::{IntoSystem, Mut, System, Vec3};
+use bevy::prelude::System;
+#[cfg(test)]
+use bevy::prelude::{IntoSystem, Mut, Vec3};
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -14,15 +18,15 @@ use bevy::{
         },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -31,7 +35,7 @@ use bevy::{
             ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
             Extent3d, FilterMode, FragmentState, PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            ShaderType, Specializer, SpecializerKey, Texture, TextureDataOrder, TextureDescriptor,
+            Specializer, SpecializerKey, Texture, TextureDataOrder, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
             TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
@@ -40,6 +44,7 @@ use bevy::{
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
+use render_scene::{AimAssistHighlightScene, AimAssistTexture};
 use std::sync::Arc;
 
 const SHADER: Handle<Shader> = uuid_handle!("611dc958-9030-414c-9530-297ebf8f6846");
@@ -88,7 +93,7 @@ fn install(app: &mut App) {
             (
                 prepare.in_set(RenderSystems::PrepareBindGroups),
                 queue_highlight
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -301,7 +306,7 @@ impl FromWorld for HighlightPipeline {
                 shader: SHADER,
                 entry_point: Some("highlight_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE,
                 })],
@@ -360,9 +365,9 @@ impl Specializer<RenderPipeline> for PipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -477,8 +482,8 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for DrawHighlight<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AimAssistHighlight, queue_review_support as fixture};
     use bevy::ecs::system::RunSystemOnce;
+    use {crate::queue_review_support as fixture, render_scene::AimAssistHighlight};
 
     /// A small NOOP fixture retains a real view binding and exercises upload bookkeeping.
     fn app() -> App {

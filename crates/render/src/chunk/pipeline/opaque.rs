@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::RuntimeStage;
 
 pub(in crate::chunk) fn install_opaque_commands(render_app: &mut SubApp) {
     render_app

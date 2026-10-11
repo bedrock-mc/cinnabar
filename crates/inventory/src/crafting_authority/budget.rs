@@ -53,6 +53,139 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_component_string_is_charged_before_registry_retention() {
+        use super::super::projection::RegistryOwner;
+        use protocol::{ItemAttackCooldown, ItemAttackTiming, ItemComponents};
+
+        let text: Arc<str> = "x".repeat(256).into();
+        let cases = [
+            ItemComponents {
+                icon: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                display_name: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                use_animation: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                wearable_slot: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                block_placer: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                rarity: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                hover_text_color: Some(Arc::clone(&text)),
+                ..Default::default()
+            },
+            ItemComponents {
+                attack: Some(ItemAttackTiming {
+                    attack_cooldown: Some(ItemAttackCooldown {
+                        category: Arc::clone(&text),
+                        ticks: 20,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ];
+        let mut entry = protocol::vanilla_item_registry()[0].clone();
+        entry.components = Some(Arc::new(ItemComponents::default()));
+        let mut event = protocol::ItemRegistryEvent {
+            entries: Arc::from([entry.clone()]),
+        };
+        let probe = Arc::new(Credits {
+            maximum: MAX_RETAINED_BYTES,
+            used: AtomicUsize::new(0),
+        });
+        let generation = std::num::NonZeroU64::new(1).unwrap();
+        let owner = RegistryOwner::with_credits(&event, generation, &probe).unwrap();
+        let base_charge = probe.used.load(Ordering::Acquire);
+        drop(owner);
+
+        for (index, components) in cases.into_iter().enumerate() {
+            entry.components = Some(Arc::new(components));
+            event.entries = Arc::from([entry.clone()]);
+            let credits = Arc::new(Credits {
+                maximum: base_charge + text.len() - 1,
+                used: AtomicUsize::new(0),
+            });
+            let before = Arc::strong_count(&event.entries);
+            assert!(
+                RegistryOwner::with_credits(&event, generation, &credits).is_none(),
+                "uncharged string {index}"
+            );
+            assert_eq!(credits.used.load(Ordering::Acquire), 0);
+            assert_eq!(Arc::strong_count(&event.entries), before);
+        }
+    }
+
+    #[test]
+    fn component_credits_remain_held_by_old_snapshots_until_their_final_drop() {
+        use super::super::projection::RegistryOwner;
+        let credits = Arc::new(Credits {
+            maximum: MAX_RETAINED_BYTES,
+            used: AtomicUsize::new(0),
+        });
+        let mut entry = protocol::vanilla_item_registry()[0].clone();
+        entry.components = Some(Arc::new(protocol::ItemComponents {
+            display_name: Some(Arc::from("x".repeat(256))),
+            wearable_slot: Some(Arc::from("slot.armor.chest")),
+            attack: Some(protocol::ItemAttackTiming {
+                attack_cooldown: Some(protocol::ItemAttackCooldown {
+                    category: "test:attack".into(),
+                    ticks: 20,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+        let event = protocol::ItemRegistryEvent {
+            entries: Arc::from([entry]),
+        };
+        let generation = std::num::NonZeroU64::new(1).unwrap();
+        let owner = RegistryOwner::with_credits(&event, generation, &credits).unwrap();
+        assert!(Arc::ptr_eq(
+            owner
+                .snapshot
+                .get(event.entries[0].network_id)
+                .unwrap()
+                .components
+                .as_ref()
+                .unwrap(),
+            event.entries[0].components.as_ref().unwrap()
+        ));
+        let charged = credits.used.load(Ordering::Acquire);
+        let clone = Arc::clone(&owner);
+        assert_eq!(credits.used.load(Ordering::Acquire), charged);
+        let held = credits.reserve(MAX_RETAINED_BYTES - charged).unwrap();
+        drop(owner);
+        let before = Arc::strong_count(&event.entries);
+        assert!(RegistryOwner::with_credits(&event, generation, &credits).is_none());
+        assert_eq!(Arc::strong_count(&event.entries), before);
+        assert_eq!(credits.used.load(Ordering::Acquire), MAX_RETAINED_BYTES);
+        drop(clone);
+        assert_eq!(
+            credits.used.load(Ordering::Acquire),
+            MAX_RETAINED_BYTES - charged
+        );
+        let replacement = RegistryOwner::with_credits(&event, generation, &credits).unwrap();
+        assert_eq!(credits.used.load(Ordering::Acquire), MAX_RETAINED_BYTES);
+        drop(replacement);
+        drop(held);
+        assert_eq!(credits.used.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn transaction_credit_refusal_releases_all_cells_without_partial_publication() {
         use super::super::projection::StackOwner;
         use protocol::{
@@ -200,6 +333,7 @@ mod tests {
         });
         let event = protocol::ItemRegistryEvent {
             entries: Arc::from([protocol::ItemRegistryEntry {
+                components: None,
                 identifier: Arc::from("minecraft:oak_log"),
                 network_id: 6,
                 component_based: false,
@@ -285,6 +419,7 @@ mod tests {
         let registry = protocol::ItemRegistryEvent {
             entries: (1..=protocol::MAX_ITEM_REGISTRY_ENTRIES)
                 .map(|id| protocol::ItemRegistryEntry {
+                    components: None,
                     identifier: format!("test:{prefix}{id:05}").into(),
                     network_id: i32::try_from(id).unwrap(),
                     component_based: false,

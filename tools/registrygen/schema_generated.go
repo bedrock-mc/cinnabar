@@ -4,15 +4,20 @@ package main
 import "encoding/binary"
 
 const (
-	registryHeader             = "BREG1003"
-	registryProtocol           = 1001
-	maxRecordCount             = 65536
-	maxStateBytes              = 1048576
-	maxCollisionBoxesPerRecord = 7
-	maxNameBytes               = 65535
-	registryHeaderBytes        = 36
-	recordHeaderBytes          = 56
-	collisionBoxBytes          = 24
+	registryHeader                 = "BREG1003"
+	physicsRegistryHeader          = "PREG1001"
+	physicsRegistryActiveHeader    = "PREG1002"
+	physicsRegistryHeaderBytes     = 48
+	physicsRecordHeaderBytes       = 28
+	physicsMovementSemanticsOffset = 11
+	registryProtocol               = 1001
+	maxRecordCount                 = 65536
+	maxStateBytes                  = 1048576
+	maxCollisionBoxesPerRecord     = 7
+	maxNameBytes                   = 65535
+	registryHeaderBytes            = 36
+	recordHeaderBytes              = 56
+	collisionBoxBytes              = 24
 )
 
 const (
@@ -30,6 +35,16 @@ const (
 	ProvenanceValentine  uint8 = 1 << 3
 	allProvenance              = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine | ProvenanceValentine
 )
+
+// Declared movement classification, with unresolved states distinct from ordinary behavior.
+type MovementSemantics uint8
+
+const (
+	MovementSemanticsUnresolved MovementSemantics = 0
+	MovementSemanticsOrdinary   MovementSemantics = 1
+	MovementSemanticsSpecial    MovementSemantics = 2
+)
+const maxMovementSemantics = MovementSemanticsSpecial
 
 // ModelFamily is a byte-sized registry discriminator.
 type ModelFamily uint8

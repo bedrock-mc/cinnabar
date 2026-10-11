@@ -46,6 +46,7 @@ fn batch_jobs(
                 prior: stream.light_prior_snapshot(key),
                 bounds: light_bounds(key).unwrap(),
                 queued_at: pending.queued_at,
+                changed: None,
             }
         })
         .collect()

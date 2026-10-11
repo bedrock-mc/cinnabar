@@ -57,6 +57,16 @@ impl WorldAuthority {
     pub fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
         self.actors.item_identifier(network_id)
     }
+
+    /// Reads protection resolved for this numeric item registry entry.
+    pub fn item_armour(&self, network_id: i32) -> assets::item::armour::ItemArmour {
+        self.actors.item_armour(network_id)
+    }
+
+    /// Reads durability resolved for this numeric item registry entry.
+    pub fn item_durability(&self, network_id: i32) -> assets::item::durability::ItemDurability {
+        self.actors.item_durability(network_id)
+    }
     /// Installs the StartGame item registry so server-defined item ids resolve
     /// before any play-time registry arrives. False when it is refused.
     pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
@@ -142,7 +152,7 @@ impl WorldAuthority {
         self.actors.set_camera_rotation(rotation);
     }
     /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
-    pub fn set_actor_animation_view(&mut self, view: Option<crate::ActorAnimationView>) {
+    pub fn set_actor_animation_view(&mut self, view: Option<actor_animation::ActorAnimationView>) {
         self.actors.set_animation_view(view);
     }
     /// Sets the view's world position that camera-relative queries sample per tick.
@@ -185,13 +195,13 @@ impl WorldAuthority {
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (u64, u64),
-        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+        samples: impl IntoIterator<Item = actor_animation::LocalSwingMotionSample>,
     ) {
         self.actors
             .sync_local_swing_motion(self.local_player_runtime_id, authority, samples);
     }
     /// Uses committed local swing samples without re-admitting them on the remote actor clock.
-    pub fn sync_local_swing(&mut self, progress: crate::LocalSwingProgress) {
+    pub fn sync_local_swing(&mut self, progress: actor_animation::LocalSwingProgress) {
         self.actors
             .sync_local_swing(self.local_player_runtime_id, progress);
     }
@@ -263,11 +273,11 @@ impl WorldAuthority {
         self.actors.actor_rig(runtime_id)
     }
     /// Render-controller values at the frame fraction, retaining completed tick poses.
-    pub fn actor_render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
+    pub fn actor_render_frame(&self, partial_tick: f32) -> actor_animation::ActorRenderFrame<'_> {
         self.actors.render_frame(partial_tick)
     }
     /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
-    pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
+    pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
     /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
@@ -276,8 +286,8 @@ impl WorldAuthority {
         &self,
         runtime_id: u64,
         partial_tick: f32,
-        targets: &[Option<crate::BoneTransform>],
-    ) -> Option<Vec<crate::BoneTransform>> {
+        targets: &[Option<actor_animation::BoneTransform>],
+    ) -> Option<Vec<actor_animation::BoneTransform>> {
         self.actors
             .actor_retargeted_pose(runtime_id, partial_tick, targets)
     }
@@ -287,9 +297,9 @@ impl WorldAuthority {
         &self,
         runtime_id: u64,
         partial_tick: f32,
-        targets: &[Option<crate::BoneTransform>],
-        cache: &'c mut crate::JavaRetargetCache,
-    ) -> Option<&'c [crate::BoneTransform]> {
+        targets: &[Option<actor_animation::BoneTransform>],
+        cache: &'c mut actor_animation::JavaRetargetCache,
+    ) -> Option<&'c [actor_animation::BoneTransform]> {
         self.actors
             .actor_retargeted_pose_cached(runtime_id, partial_tick, targets, cache)
     }
@@ -301,11 +311,11 @@ impl WorldAuthority {
         partial_tick: f32,
         targets: impl FnMut(
             &[Box<str>],
-            &[crate::BoneTransform],
-            &mut Vec<Option<crate::BoneTransform>>,
+            &[actor_animation::BoneTransform],
+            &mut Vec<Option<actor_animation::BoneTransform>>,
         ) -> Option<()>,
-        cache: &mut crate::JavaRetargetCache,
-    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        cache: &mut actor_animation::JavaRetargetCache,
+    ) -> Option<Vec<actor_animation::SkinRenderLayer>> {
         self.actors
             .actor_retargeted_layers(runtime_id, partial_tick, targets, cache)
     }
@@ -316,7 +326,7 @@ impl WorldAuthority {
     /// Borrows controller states that completed authored actor animation evaluation.
     pub fn actor_particle_controllers(
         &self,
-    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+    ) -> impl Iterator<Item = actor_animation::ActorParticleController<'_>> {
         self.actors.actor_particle_controllers()
     }
     /// Returns counters from the authoritative actor animation runtime.
@@ -338,7 +348,7 @@ impl WorldAuthority {
     /// Installs the compiler receiving each packet stop expression and its declared version.
     pub fn set_server_animation_compiler(
         &mut self,
-        compiler: crate::actor_animation::ServerAnimationCompiler,
+        compiler: actor_animation::ServerAnimationCompiler,
     ) {
         self.actors.set_server_animation_compiler(compiler);
     }

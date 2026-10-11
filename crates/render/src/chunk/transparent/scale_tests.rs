@@ -1,7 +1,9 @@
 //! Water at render-distance scale: an ocean of shores past the hard ref ceiling, turned in
 //! place, crossed sub-chunk by sub-chunk and streamed through, with each stage's CPU cost.
+
 use super::transparent_strafe::{Fixture, STAGES, SURFACE_SUBCHUNK_Y, drawn_water, fixture_sized};
 use super::*;
+use render_scene::{RuntimeStageProfiler, TransparentSortMetrics};
 
 /// Every sub-chunk is a 272-face shore, so the 101x101 ocean holds more refs than one
 /// snapshot can.

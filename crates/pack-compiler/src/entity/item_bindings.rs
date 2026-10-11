@@ -15,8 +15,7 @@ use super::invalid;
 pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
 pub(super) const SOURCE_BYTES: &[u8] =
     include_bytes!("../../../assets/data/default-sprite-bindings-1.26.50.json");
-pub(super) const RETAIL_ITEMS: &[u8] =
-    include_bytes!("../../../protocol/data/retail_items_1_26_50.tsv");
+
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
 const ROUTE_COUNT: usize = 43;
@@ -55,7 +54,7 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
         path: SOURCE_PATH.into(),
         source,
     })?;
-    let retail_hash = format!("{:x}", Sha256::digest(RETAIL_ITEMS));
+    let retail_hash = format!("{:x}", Sha256::digest(assets::item::retail::SOURCE_BYTES));
     // The table is audited against the pinned pack; a pack bump fails closed until re-audited.
     let pinned = assets::vanilla_source();
     if table.schema != 2
@@ -78,7 +77,7 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
             "default sprite binding provenance does not match reviewed inputs",
         ));
     }
-    let retail = std::str::from_utf8(RETAIL_ITEMS)
+    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
         .map_err(|_| invalid("retail item allowlist is not UTF-8"))?
         .lines()
         .filter_map(|line| line.split_once('\t').map(|(_, identifier)| identifier))

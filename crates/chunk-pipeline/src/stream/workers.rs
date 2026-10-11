@@ -54,6 +54,9 @@ type Queue = VecDeque<(Instant, Job)>;
 
 #[derive(Default)]
 struct Queues {
+    /// Work for a block the local player just changed, with its lane. Every worker takes it
+    /// before any lane's backlog, so the change shows at once.
+    urgent: VecDeque<(Lane, Job)>,
     mesh: Queue,
     decode: Queue,
     light: Queue,
@@ -71,7 +74,11 @@ impl Queues {
     }
 
     /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
+    /// Urgent work comes first on any thread.
     fn take(&mut self, background: bool, now: Instant) -> Option<Job> {
+        if let Some((_, job)) = self.urgent.pop_front() {
+            return Some(job);
+        }
         let overdue = |queue: &Queue, limit| {
             queue
                 .front()
@@ -194,21 +201,23 @@ impl WorldPool {
 pub(super) struct DispatchBatch<'a> {
     pool: &'a WorldPool,
     lane: Lane,
-    jobs: Vec<(Instant, Job)>,
+    jobs: Vec<(Instant, bool, Job)>,
 }
 
 impl DispatchBatch<'_> {
-    /// Adds an independent task without waking or locking the pool yet.
-    pub(super) fn spawn(&mut self, job: impl FnOnce() + Send + 'static) {
-        self.spawn_with_scratch(move |_| job());
+    /// Adds an independent task without waking or locking the pool yet; an `urgent` one, for a
+    /// block the local player just changed, runs ahead of every lane's backlog.
+    pub(super) fn spawn(&mut self, urgent: bool, job: impl FnOnce() + Send + 'static) {
+        self.spawn_with_scratch(urgent, move |_| job());
     }
 
     /// Gives a solve exclusive access to this worker's retained scratch buffers.
     pub(super) fn spawn_with_scratch(
         &mut self,
+        urgent: bool,
         job: impl FnOnce(&mut world::LightSolverScratch) + Send + 'static,
     ) {
-        self.jobs.push((Instant::now(), Box::new(job)));
+        self.jobs.push((Instant::now(), urgent, Box::new(job)));
     }
 }
 
@@ -218,8 +227,12 @@ impl Drop for DispatchBatch<'_> {
             return;
         }
         let mut queues = self.pool.shared.lock();
-        for (at, job) in self.jobs.drain(..) {
-            queues.push(self.lane, at, job);
+        for (at, urgent, job) in self.jobs.drain(..) {
+            if urgent {
+                queues.urgent.push_back((self.lane, job));
+            } else {
+                queues.push(self.lane, at, job);
+            }
         }
         drop(queues);
         self.pool.shared.ready.notify_all();

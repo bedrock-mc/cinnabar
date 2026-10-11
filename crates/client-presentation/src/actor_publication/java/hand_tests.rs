@@ -15,7 +15,7 @@ const HELD_ITEMS: [&str; 9] = [
 ];
 
 /// Supplies original item pixels, including a carried cube, without installed assets.
-fn equipment_fixture() -> (EquipmentRuntime, render::ActorArtworkPages) {
+fn equipment_fixture() -> (EquipmentRuntime, render_model::ActorArtworkPages) {
     let mut files = vec![
         ("models/entity/test.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":16,"texture_height":16},"bones":[{"name":"item","pivot":[0,0,0],"texture_meshes":[{"texture":"default","position":[0,0,0],"rotation":[0,0,0]}]}]}]}"#.to_vec()),
         ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"arrays":{"textures":{"Array.frames":["Texture.default","Texture.pull1","Texture.pull2","Texture.pull3"]}},"textures":["Array.frames[query.get_animation_frame]"]}}}"#.to_vec()),
@@ -88,7 +88,7 @@ fn equipment_fixture() -> (EquipmentRuntime, render::ActorArtworkPages) {
         icons,
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     (equipment, pages)
 }
@@ -150,7 +150,7 @@ fn source_for_use(
     let artwork = if with_artwork {
         artwork
     } else {
-        render::ActorArtworkPages::default()
+        render_model::ActorArtworkPages::default()
     };
     let rig = stream.authority().actor_rig(1).unwrap();
     equipment.register_skin_rig(
@@ -184,7 +184,7 @@ fn source_for_use(
             equipment_input: &input,
             owner_equipment: &input,
             consume_ticks: None,
-            item_animation: Some(client_world::AttachableAnimationInput {
+            item_animation: Some(actor_animation::AttachableAnimationInput {
                 first_person: true,
                 ..Default::default()
             }),
@@ -271,14 +271,14 @@ fn missing_held_item_artwork_does_not_publish_an_empty_arm() {
 fn first_person_texture_lookup_rejects_a_layer_absent_from_its_page() {
     let mut source = source_for(Some(BOW), true);
     let (mut item, _) = source.items[0].take().unwrap();
-    let raster = render::EquipmentRaster {
+    let raster = render_model::EquipmentRaster {
         width: 16,
         height: 16,
         rgba8: vec![255; 16 * 16 * 4].into(),
     };
-    let (_, locations) = render::ActorArtworkPages::default()
+    let (_, locations) = render_model::ActorArtworkPages::default()
         .with_equipment_rasters(&[raster.clone(), raster.clone()]);
-    let (artwork, _) = render::ActorArtworkPages::default().with_equipment_rasters(&[raster]);
+    let (artwork, _) = render_model::ActorArtworkPages::default().with_equipment_rasters(&[raster]);
     item.presentation.location = locations[1].unwrap();
     assert!(item_atlas(&item, &artwork).is_none());
 }

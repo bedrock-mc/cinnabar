@@ -24,7 +24,7 @@ struct PresentationEntry {
 /// Every input a [`TickPresentation`] reads; any difference rebuilds it.
 #[derive(Debug, PartialEq)]
 pub(super) struct TickKey {
-    lifetime: client_world::ActorLifetimeId,
+    lifetime: actor_animation::ActorLifetimeId,
     rig: u32,
     completed_tick: u64,
     reset_generation: u64,
@@ -48,7 +48,8 @@ impl TickKey {
         profile: Option<&PlayerProfile>,
         location: Option<ActorArtworkLocation>,
     ) -> Self {
-        let pose = |bones: &[client_world::BoneTransform]| (bones.as_ptr() as usize, bones.len());
+        let pose =
+            |bones: &[actor_animation::BoneTransform]| (bones.as_ptr() as usize, bones.len());
         Self {
             lifetime: selected.actor,
             rig: selected.rig.0,
@@ -188,7 +189,7 @@ impl PoseConversions {
             .entries
             .get(&rig.actor.runtime_id)
             .map(|entry| (Arc::clone(&entry.previous), Arc::clone(&entry.current)));
-        let mut reuse = |bones: &[client_world::BoneTransform]| {
+        let mut reuse = |bones: &[actor_animation::BoneTransform]| {
             self.scratch.clear();
             for bone in bones {
                 self.scratch
@@ -226,14 +227,14 @@ impl PoseConversions {
 }
 
 pub(crate) fn convert_bones(
-    bones: &[client_world::BoneTransform],
+    bones: &[actor_animation::BoneTransform],
 ) -> Option<Arc<[RenderBoneTransform]>> {
     convert_bones_with(bones, &mut Vec::with_capacity(bones.len()))
 }
 
 /// [`convert_bones`] staging the conversion in `scratch`, so only the shared pose allocates.
 pub(crate) fn convert_bones_with(
-    bones: &[client_world::BoneTransform],
+    bones: &[actor_animation::BoneTransform],
     scratch: &mut Vec<RenderBoneTransform>,
 ) -> Option<Arc<[RenderBoneTransform]>> {
     scratch.clear();

@@ -45,6 +45,7 @@ impl PlayerInventoryLedger {
         };
         let Some(previous) = self.item_registry.as_ref() else {
             self.item_registry = Some(std::sync::Arc::new(next));
+            self.refresh_fuel_facts();
             return;
         };
         if previous.as_ref() == &next {
@@ -74,6 +75,8 @@ impl PlayerInventoryLedger {
             self.mark_cell_recovery(cell);
         }
         self.item_registry = Some(std::sync::Arc::new(next));
+        self.refresh_fuel_facts();
+        self.retire_rerouted_furnace_moves();
         self.refold();
     }
 
@@ -245,6 +248,7 @@ mod tests {
 
     fn entry(identifier: &str, component_based: bool, declared: Option<u8>) -> ItemRegistryEntry {
         ItemRegistryEntry {
+            components: None,
             identifier: identifier.into(),
             network_id: 900,
             component_based,
@@ -273,6 +277,7 @@ mod tests {
     #[test]
     fn server_block_items_stack_to_the_item_default() {
         let block_item = |declared| ItemRegistryEntry {
+            components: None,
             version: ItemRegistryVersion::None,
             ..entry("benergistics:controller", false, declared)
         };

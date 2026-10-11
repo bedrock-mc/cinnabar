@@ -6,14 +6,18 @@ fn admitted_samples_and_route_handles_allocate_nothing() {
     let fogs = crate::environment::tests::fog_profiles();
     let bindings = FogBindings::for_profiles(&[], &profiles, &fogs);
     let before = crate::tests::alloc_count::thread_allocations();
-    let old_names: Vec<Option<Box<str>>> = [(); render::PRECIPITATION_SAMPLE_OFFSETS.len()]
+    let old_names: Vec<Option<Box<str>>> = [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
         .map(|_| Some(Box::<str>::from("minecraft:the_end")))
         .into_iter()
         .collect();
     let old_allocations = crate::tests::alloc_count::thread_allocations() - before;
-    assert_eq!(old_names.len(), render::PRECIPITATION_SAMPLE_OFFSETS.len());
+    assert_eq!(
+        old_names.len(),
+        render_model::PRECIPITATION_SAMPLE_OFFSETS.len()
+    );
     let before = crate::tests::alloc_count::thread_allocations();
-    let samples = [(); render::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(None, 2));
+    let samples =
+        [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(None, 2));
     let (profile, route, fog) = bindings.camera(None, 2);
     let context = crate::environment::EnvironmentContext {
         dimension: 2,
@@ -49,7 +53,10 @@ fn admitted_samples_and_route_handles_allocate_nothing() {
         .unwrap();
     assert_eq!(profile, Some(BiomeProfileIndex(expected)));
     assert_eq!(fog, Some(FogProfileIndex(expected_fog)));
-    assert_eq!(samples, [fog; render::PRECIPITATION_SAMPLE_OFFSETS.len()]);
+    assert_eq!(
+        samples,
+        [fog; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
+    );
     assert_eq!(
         route.unwrap().fog_identifier.as_deref(),
         Some(fogs[expected_fog].identifier.as_ref())
@@ -129,7 +136,7 @@ fn atmosphere_rejects_indices_sampled_before_a_registry_reload() {
             camera_fog,
             profile_route,
             fog_biomes: Some(
-                [bindings.fog(None, dimension); render::PRECIPITATION_SAMPLE_OFFSETS.len()],
+                [bindings.fog(None, dimension); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()],
             ),
             default_fog: bindings.default_fog,
             render_distance_blocks: Some(256.0),
@@ -233,10 +240,10 @@ fn unprofiled_custom_fog_samples_keep_dimension_fallback() {
                 );
                 let (camera_profile, profile_route, camera_fog) =
                     bindings.camera(Some(42), dimension);
-                let mut samples =
-                    [bindings.fog(Some(42), dimension); render::PRECIPITATION_SAMPLE_OFFSETS.len()];
-                let mut expected =
-                    [bindings.fog(None, dimension); render::PRECIPITATION_SAMPLE_OFFSETS.len()];
+                let mut samples = [bindings.fog(Some(42), dimension);
+                    render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+                let mut expected = [bindings.fog(None, dimension);
+                    render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
                 if include_authored_sample {
                     samples[0] = bindings.fog(Some(43), dimension);
                     expected[0] = samples[0];
@@ -302,14 +309,17 @@ fn admitted_custom_names_and_visual_routes_follow_registry_replacement() {
     let identifier = bindings.identifier(Some(42)).unwrap();
     let (_, route, fog) = bindings.camera(Some(42), 0);
     let samples =
-        [(); render::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(Some(42), 0));
+        [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(Some(42), 0));
     assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
     assert_eq!(identifier.as_ref(), "custom:profiled");
     assert_eq!(
         route.unwrap().biome_identifier.as_deref(),
         Some("custom:profiled")
     );
-    assert_eq!(samples, [fog; render::PRECIPITATION_SAMPLE_OFFSETS.len()]);
+    assert_eq!(
+        samples,
+        [fog; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
+    );
     let replaced = session_registry(&[(42, "custom:replacement")]);
     bindings.compile(
         FogBindings::registry_identifiers(&replaced),

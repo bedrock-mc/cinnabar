@@ -603,7 +603,7 @@ pub fn destroys_in_creative(identifier: Option<&str>) -> bool {
     identifier.is_none_or(|identifier| {
         identifier != "minecraft:trident"
             && HeldTool::from_identifier(identifier)
-                .is_none_or(|tool| tool.kind != sim::ToolKind::Sword)
+                .is_none_or(|tool| tool.kind != assets::compiled::block_destroy::ToolKind::Sword)
     })
 }
 
@@ -625,9 +625,9 @@ pub fn percent_roll() -> u32 {
 }
 
 /// Durability one destroy costs, per dragonfly's `item/*.go` durability info (MIT).
-pub const fn tool_break_damage(kind: sim::ToolKind) -> i32 {
+pub const fn tool_break_damage(kind: assets::compiled::block_destroy::ToolKind) -> i32 {
     match kind {
-        sim::ToolKind::Sword => 2,
+        assets::compiled::block_destroy::ToolKind::Sword => 2,
         _ => 1,
     }
 }

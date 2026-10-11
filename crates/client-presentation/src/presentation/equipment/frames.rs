@@ -8,7 +8,7 @@ use bevy::math::{Mat4, Vec3, Vec4};
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
 use protocol::{PlayerSkin, WorldBootstrap};
-use render::ActorRigFrameBuilder;
+use render_model::ActorRigFrameBuilder;
 use render_model::{ActorRigVertex, RenderBoneTransform};
 
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
@@ -200,8 +200,8 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
-        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
         fall_fly_ticks: 0,

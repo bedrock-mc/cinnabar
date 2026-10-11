@@ -1,5 +1,9 @@
 //! Retained GPU resources, uploads and pipeline variants for the camera-local hand.
 
+use render_scene::{
+    ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, viewmodel_depth_bytes,
+};
+
 use super::*;
 
 #[derive(Default, Resource)]
@@ -83,7 +87,7 @@ pub(super) fn init_gpu(
 #[derive(SystemParam)]
 pub(super) struct PrepareViewmodel<'w, 's> {
     pub(super) scene: Res<'w, ViewmodelScene>,
-    pub(super) background: Option<Res<'w, crate::panorama::PanoramaScene>>,
+    pub(super) background: Option<Res<'w, render_scene::PanoramaScene>>,
     pub(super) device: Res<'w, RenderDevice>,
     pub(super) adapter: Res<'w, RenderAdapter>,
     pub(super) queue: Res<'w, RenderQueue>,
@@ -213,8 +217,8 @@ pub(super) fn prepare(params: PrepareViewmodel) {
             &TextureDescriptor {
                 label: Some("validated neutral hand skin"),
                 size: Extent3d {
-                    width: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
-                    height: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
+                    width: render_model::viewmodel::VIEWMODEL_TEXTURE_SIDE,
+                    height: render_model::viewmodel::VIEWMODEL_TEXTURE_SIDE,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -360,9 +364,9 @@ pub(super) fn specialized_hand_pipeline(
         .as_mut()
         .unwrap()
         .format = if hdr {
-        crate::SCENE_HDR_FORMAT
+        render_scene::SCENE_HDR_FORMAT
     } else {
-        crate::SCENE_COLOR_FORMAT
+        render_scene::SCENE_COLOR_FORMAT
     };
     descriptor
 }
@@ -433,7 +437,7 @@ pub(super) fn hand_pipeline_descriptor(
             shader: HAND_SHADER,
             entry_point: Some("hand_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],

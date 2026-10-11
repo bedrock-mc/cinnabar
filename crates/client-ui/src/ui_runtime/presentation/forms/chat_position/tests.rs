@@ -175,7 +175,7 @@ fn chat_position_switch_repositions_retained_hud_and_focused_history() {
         show_days_played: Some(true),
     });
     presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
-    presentation.hud_frame_mut().world_time = Some(24_000.0 * 3.0);
+    presentation.hud_frame_mut().world_time = Some(f64::from(world::TICKS_PER_DAY) * 3.0);
     let size = [1280, 720];
     let dpi = DpiScale::new(1.0).unwrap();
     presentation.build(&player, &runtime, 0, size, dpi).unwrap();

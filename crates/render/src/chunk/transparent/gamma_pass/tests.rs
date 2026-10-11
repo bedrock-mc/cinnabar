@@ -48,7 +48,7 @@ fn homogeneous_and_empty_ranges_do_not_allocate_extra_passes() {
 
 #[test]
 fn scratch_and_scene_formats_are_raw_copy_compatible() {
-    let scene = crate::SCENE_COLOR_FORMAT;
+    let scene = render_scene::SCENE_COLOR_FORMAT;
     let scratch = scene.remove_srgb_suffix();
     assert_ne!(scene, scratch);
     assert_eq!(scene.remove_srgb_suffix(), scratch.remove_srgb_suffix());

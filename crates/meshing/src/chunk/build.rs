@@ -401,7 +401,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                         0
                                     } else {
                                         let origin = neighbourhood.block_origin();
-                                        crate::bamboo::transform_for_template(
+                                        assets::bamboo::transform_for_template(
                                             template.flags,
                                             entry.variant,
                                             [

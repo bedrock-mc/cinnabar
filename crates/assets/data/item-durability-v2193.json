@@ -1,0 +1,309 @@
+{
+  "schema": 1,
+  "maximums": [
+    {
+      "identifier": "minecraft:bow",
+      "maximum": 384
+    },
+    {
+      "identifier": "minecraft:brush",
+      "maximum": 64
+    },
+    {
+      "identifier": "minecraft:carrot_on_a_stick",
+      "maximum": 25
+    },
+    {
+      "identifier": "minecraft:chainmail_boots",
+      "maximum": 195
+    },
+    {
+      "identifier": "minecraft:chainmail_chestplate",
+      "maximum": 240
+    },
+    {
+      "identifier": "minecraft:chainmail_helmet",
+      "maximum": 165
+    },
+    {
+      "identifier": "minecraft:chainmail_leggings",
+      "maximum": 225
+    },
+    {
+      "identifier": "minecraft:copper_axe",
+      "maximum": 190
+    },
+    {
+      "identifier": "minecraft:copper_boots",
+      "maximum": 143
+    },
+    {
+      "identifier": "minecraft:copper_chestplate",
+      "maximum": 176
+    },
+    {
+      "identifier": "minecraft:copper_helmet",
+      "maximum": 121
+    },
+    {
+      "identifier": "minecraft:copper_hoe",
+      "maximum": 190
+    },
+    {
+      "identifier": "minecraft:copper_leggings",
+      "maximum": 165
+    },
+    {
+      "identifier": "minecraft:copper_pickaxe",
+      "maximum": 190
+    },
+    {
+      "identifier": "minecraft:copper_shovel",
+      "maximum": 190
+    },
+    {
+      "identifier": "minecraft:copper_sword",
+      "maximum": 190
+    },
+    {
+      "identifier": "minecraft:crossbow",
+      "maximum": 464
+    },
+    {
+      "identifier": "minecraft:diamond_axe",
+      "maximum": 1561
+    },
+    {
+      "identifier": "minecraft:diamond_boots",
+      "maximum": 429
+    },
+    {
+      "identifier": "minecraft:diamond_chestplate",
+      "maximum": 528
+    },
+    {
+      "identifier": "minecraft:diamond_helmet",
+      "maximum": 363
+    },
+    {
+      "identifier": "minecraft:diamond_hoe",
+      "maximum": 1561
+    },
+    {
+      "identifier": "minecraft:diamond_leggings",
+      "maximum": 495
+    },
+    {
+      "identifier": "minecraft:diamond_pickaxe",
+      "maximum": 1561
+    },
+    {
+      "identifier": "minecraft:diamond_shovel",
+      "maximum": 1561
+    },
+    {
+      "identifier": "minecraft:diamond_sword",
+      "maximum": 1561
+    },
+    {
+      "identifier": "minecraft:elytra",
+      "maximum": 432
+    },
+    {
+      "identifier": "minecraft:fishing_rod",
+      "maximum": 384
+    },
+    {
+      "identifier": "minecraft:flint_and_steel",
+      "maximum": 64
+    },
+    {
+      "identifier": "minecraft:golden_axe",
+      "maximum": 32
+    },
+    {
+      "identifier": "minecraft:golden_boots",
+      "maximum": 91
+    },
+    {
+      "identifier": "minecraft:golden_chestplate",
+      "maximum": 112
+    },
+    {
+      "identifier": "minecraft:golden_helmet",
+      "maximum": 77
+    },
+    {
+      "identifier": "minecraft:golden_hoe",
+      "maximum": 32
+    },
+    {
+      "identifier": "minecraft:golden_leggings",
+      "maximum": 105
+    },
+    {
+      "identifier": "minecraft:golden_pickaxe",
+      "maximum": 32
+    },
+    {
+      "identifier": "minecraft:golden_shovel",
+      "maximum": 32
+    },
+    {
+      "identifier": "minecraft:golden_sword",
+      "maximum": 32
+    },
+    {
+      "identifier": "minecraft:iron_axe",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:iron_boots",
+      "maximum": 195
+    },
+    {
+      "identifier": "minecraft:iron_chestplate",
+      "maximum": 240
+    },
+    {
+      "identifier": "minecraft:iron_helmet",
+      "maximum": 165
+    },
+    {
+      "identifier": "minecraft:iron_hoe",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:iron_leggings",
+      "maximum": 225
+    },
+    {
+      "identifier": "minecraft:iron_pickaxe",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:iron_shovel",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:iron_sword",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:leather_boots",
+      "maximum": 65
+    },
+    {
+      "identifier": "minecraft:leather_chestplate",
+      "maximum": 80
+    },
+    {
+      "identifier": "minecraft:leather_helmet",
+      "maximum": 55
+    },
+    {
+      "identifier": "minecraft:leather_leggings",
+      "maximum": 75
+    },
+    {
+      "identifier": "minecraft:mace",
+      "maximum": 500
+    },
+    {
+      "identifier": "minecraft:netherite_axe",
+      "maximum": 2031
+    },
+    {
+      "identifier": "minecraft:netherite_boots",
+      "maximum": 481
+    },
+    {
+      "identifier": "minecraft:netherite_chestplate",
+      "maximum": 592
+    },
+    {
+      "identifier": "minecraft:netherite_helmet",
+      "maximum": 407
+    },
+    {
+      "identifier": "minecraft:netherite_hoe",
+      "maximum": 2031
+    },
+    {
+      "identifier": "minecraft:netherite_leggings",
+      "maximum": 555
+    },
+    {
+      "identifier": "minecraft:netherite_pickaxe",
+      "maximum": 2031
+    },
+    {
+      "identifier": "minecraft:netherite_shovel",
+      "maximum": 2031
+    },
+    {
+      "identifier": "minecraft:netherite_sword",
+      "maximum": 2031
+    },
+    {
+      "identifier": "minecraft:shears",
+      "maximum": 238
+    },
+    {
+      "identifier": "minecraft:shield",
+      "maximum": 336
+    },
+    {
+      "identifier": "minecraft:stone_axe",
+      "maximum": 131
+    },
+    {
+      "identifier": "minecraft:stone_hoe",
+      "maximum": 131
+    },
+    {
+      "identifier": "minecraft:stone_pickaxe",
+      "maximum": 131
+    },
+    {
+      "identifier": "minecraft:stone_shovel",
+      "maximum": 131
+    },
+    {
+      "identifier": "minecraft:stone_sword",
+      "maximum": 131
+    },
+    {
+      "identifier": "minecraft:trident",
+      "maximum": 250
+    },
+    {
+      "identifier": "minecraft:turtle_helmet",
+      "maximum": 275
+    },
+    {
+      "identifier": "minecraft:warped_fungus_on_a_stick",
+      "maximum": 100
+    },
+    {
+      "identifier": "minecraft:wooden_axe",
+      "maximum": 59
+    },
+    {
+      "identifier": "minecraft:wooden_hoe",
+      "maximum": 59
+    },
+    {
+      "identifier": "minecraft:wooden_pickaxe",
+      "maximum": 59
+    },
+    {
+      "identifier": "minecraft:wooden_shovel",
+      "maximum": 59
+    },
+    {
+      "identifier": "minecraft:wooden_sword",
+      "maximum": 59
+    }
+  ]
+}

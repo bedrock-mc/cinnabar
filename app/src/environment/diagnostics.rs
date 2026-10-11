@@ -2,7 +2,7 @@
 
 use bevy::prelude::{Local, Res, Time};
 use bevy::time::Real;
-use render::{AtmosphereFrame, WorldLighting};
+use render_scene::{AtmosphereFrame, WorldLighting};
 
 use super::{EnvironmentContext, EnvironmentProfileRoute, WorldClock};
 use {

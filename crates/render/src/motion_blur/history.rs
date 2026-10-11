@@ -1,5 +1,5 @@
-use super::CameraMotionBlur;
 use bevy::prelude::*;
+use render_scene::CameraMotionBlur;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]

@@ -100,7 +100,7 @@ pub(super) fn page(
         pixels_sha256: Sha256::digest(&coverage).into(),
         width: side,
         height: side,
-        pixels: FontPixels::Coverage(coverage),
+        pixels: FontPixels::Coverage(coverage.into()),
     })
 }
 

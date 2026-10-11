@@ -15,11 +15,11 @@ pub(super) fn configure(app: &mut App) {
 fn drain_actor_audio(
     mut world: ResMut<ClientWorld>,
     mut messages: MessageWriter<SequencedAudioEvent>,
-    profiler: Option<Res<render::RuntimeStageProfiler>>,
+    profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::Audio));
     if let Some(stream) = world.stream.as_mut() {
         client_audio::audio_ingress::drain_committed_audio(stream, |event| {
             messages.write(event);

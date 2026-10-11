@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	physicsRegistryHeader = "PREG1001"
-	physicsRecordCount    = 16_913
-	maxPhysicsBoxes       = 32
-	defaultFrictionQ1E8   = 60_000_000
-	defaultSpeedQ1E8      = 100_000_000
+	physicsRecordCount  = 16_913
+	maxPhysicsBoxes     = 32
+	defaultFrictionQ1E8 = 60_000_000
+	defaultSpeedQ1E8    = 100_000_000
 	// soulSandSpeedQ1E8 is the pinned bedsim v0.1.3 grounded movement-speed
 	// multiplier for "minecraft:soul_sand" (simulation.go: `mSpeed *= 0.543`),
 	// applied at the same point in the force law that crates/sim applies this
@@ -81,6 +80,7 @@ type PhysicsRecord struct {
 	FluidHeightQ1E8     int32
 	Flags               uint8
 	SurfaceResponse     SurfaceResponse
+	MovementSemantics   MovementSemantics
 }
 
 type PrismarinePhysicsFact struct {
@@ -514,7 +514,7 @@ func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expe
 	sorted := append([]PhysicsRecord(nil), records...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SequentialID < sorted[j].SequentialID })
 	seenHashes := make(map[uint32]struct{}, len(sorted))
-	encoded := make([]byte, 0, 48+len(sorted)*36+32)
+	encoded := make([]byte, 0, physicsRegistryHeaderBytes+len(sorted)*physicsRecordHeaderBytes+32)
 	encoded = append(encoded, physicsRegistryHeader...)
 	encoded = binary.LittleEndian.AppendUint32(encoded, protocol)
 	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(sorted)))
@@ -533,7 +533,11 @@ func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expe
 		}
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.SequentialID)
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.NetworkHash)
-		encoded = append(encoded, byte(len(record.Boxes)), record.Flags, byte(record.SurfaceResponse), 0)
+		support := uint8(0)
+		if protocol == v2193BlockProtocol {
+			support = uint8(record.MovementSemantics)
+		}
+		encoded = append(encoded, byte(len(record.Boxes)), record.Flags, byte(record.SurfaceResponse), support)
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.FrictionQ1E8)
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.HorizontalSpeedQ1E8)
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.VerticalSpeedQ1E8)
@@ -560,6 +564,9 @@ func validatePhysicsRecord(record PhysicsRecord) error {
 	}
 	if record.FrictionQ1E8 == 0 || record.HorizontalSpeedQ1E8 == 0 || record.VerticalSpeedQ1E8 == 0 {
 		return fmt.Errorf("friction and speed factors must be non-zero")
+	}
+	if record.MovementSemantics > maxMovementSemantics {
+		return fmt.Errorf("unknown movement semantics %d", record.MovementSemantics)
 	}
 	if record.SurfaceResponse > SurfaceBubbleDown {
 		return fmt.Errorf("unknown surface response %d", record.SurfaceResponse)

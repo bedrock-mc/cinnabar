@@ -41,6 +41,7 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
     let mut runtime = UiRuntime::new(7);
     let registry = ItemRegistryEvent {
         entries: std::sync::Arc::from([ItemRegistryEntry {
+            components: None,
             identifier: "minecraft:apple".into(),
             network_id: 878,
             component_based: true,
@@ -337,6 +338,7 @@ fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
         .unwrap();
     let registry = ItemRegistryEvent {
         entries: std::sync::Arc::from([ItemRegistryEntry {
+            components: None,
             identifier: "minecraft:apple".into(),
             network_id: 6,
             component_based: true,

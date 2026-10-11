@@ -25,6 +25,7 @@ fn air_job(dimension: i32, sky: u8, direct: bool) -> PreparedLightJob {
         prior: stream.light_prior_snapshot(key),
         bounds: light_bounds(key).unwrap(),
         queued_at: Instant::now(),
+        changed: None,
     }
 }
 

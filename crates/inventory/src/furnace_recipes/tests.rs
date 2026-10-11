@@ -22,6 +22,7 @@ fn fixture(window_type: i8) -> InventorySession {
             .into_iter()
             .enumerate()
             .map(|(index, name)| ItemRegistryEntry {
+                components: None,
                 identifier: name.into(),
                 network_id: index as i32 + 1,
                 component_based: false,
@@ -67,17 +68,25 @@ fn fixture(window_type: i8) -> InventorySession {
         slots: stacks.into(),
         storage_item: NetworkItemStack::empty(),
     }));
-    let recipes = [
-        ("minecraft:oak_log", 3, "furnace"),
-        ("minecraft:birch_log", 3, "furnace"),
-        ("minecraft:raw_iron", 4, "furnace"),
-        ("minecraft:birch_log", 3, "smoker"),
-    ];
+    apply_recipes(&mut inventory, &FIXTURE_RECIPES, 1);
+    inventory
+}
+
+/// Ingredient, output network id and station tag of the fixture's furnace-family recipes.
+const FIXTURE_RECIPES: [(&str, i32, &str); 4] = [
+    ("minecraft:oak_log", 3, "furnace"),
+    ("minecraft:birch_log", 3, "furnace"),
+    ("minecraft:raw_iron", 4, "furnace"),
+    ("minecraft:birch_log", 3, "smoker"),
+];
+
+/// Commits a clearing recipe update carrying exactly `recipes` at `sequence`.
+fn apply_recipes(inventory: &mut InventorySession, recipes: &[(&str, i32, &str)], sequence: u64) {
     let packet = CraftingDataPacket {
         shapeless_recipes: recipes
-            .into_iter()
+            .iter()
             .enumerate()
-            .map(|(index, (name, output, tag))| ShapelessRecipePayload {
+            .map(|(index, &(name, output, tag))| ShapelessRecipePayload {
                 ingredients: vec![CerealizerRecipeIngredientSerializedData {
                     descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
                         key: "name".into(),
@@ -108,13 +117,12 @@ fn fixture(window_type: i8) -> InventorySession {
     inventory
         .enqueue_inventory_event(
             1,
-            1,
+            sequence,
             InventoryEvent::Recipes(::protocol::decode_recipe_update(&bytes).unwrap()),
         )
         .unwrap();
-    inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
+    inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(sequence))));
     inventory.drain_pending_inventory();
-    inventory
 }
 
 #[test]
@@ -792,4 +800,305 @@ fn furnace_recipe_selection_moves_matching_fuel_into_the_ingredient_role() {
         .unwrap();
     assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
     assert!(inventory.ledger().storage_stack(1).is_none());
+}
+
+#[test]
+fn furnace_quick_move_keeps_admitted_recipe_inputs_out_of_the_fuel_role() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let ledger = inventory.ledger_mut();
+    let entries = ledger
+        .item_registry_snapshot()
+        .unwrap()
+        .values()
+        .cloned()
+        .map(|mut entry| {
+            if entry.network_id == 2 {
+                entry.component_based = true;
+                entry.version = ::protocol::ItemRegistryVersion::DataDriven;
+                entry.canonical_empty_component_data = false;
+                entry.component_digest = [40; 32];
+                entry.components = Some(Arc::new(::protocol::ItemComponents {
+                    fuel_duration_ticks: Some(40),
+                    ..Default::default()
+                }));
+            }
+            entry
+        })
+        .collect();
+    ledger.apply_registry(&::protocol::ItemRegistryEvent { entries });
+    inventory
+        .ledger_mut()
+        .begin_quick_move(InventoryTarget::Player(5))
+        .unwrap();
+    assert_eq!(
+        inventory
+            .ledger()
+            .storage_stack(0)
+            .map(|stack| (stack.network_id, stack.count)),
+        Some((2, 8))
+    );
+    assert!(inventory.ledger().storage_stack(1).is_none());
+}
+
+/// Resends the registry with `network_id` as a component item burning for `ticks`.
+fn resend_with_fuel(inventory: &mut InventorySession, network_id: i32, ticks: u32) {
+    let entries = inventory
+        .ledger()
+        .item_registry_snapshot()
+        .unwrap()
+        .values()
+        .cloned()
+        .map(|mut entry| {
+            if entry.network_id == network_id {
+                entry.component_based = true;
+                entry.version = ::protocol::ItemRegistryVersion::DataDriven;
+                entry.canonical_empty_component_data = false;
+                entry.component_digest = [ticks as u8; 32];
+                entry.components = Some(Arc::new(::protocol::ItemComponents {
+                    fuel_duration_ticks: Some(ticks),
+                    ..Default::default()
+                }));
+            }
+            entry
+        })
+        .collect();
+    inventory
+        .ledger_mut()
+        .apply_registry(&::protocol::ItemRegistryEvent { entries });
+}
+
+#[test]
+fn fuel_changes_retire_only_quick_moves_they_reroute() {
+    let mut inventory = fuel_and_input_fixture();
+    inventory
+        .ledger_mut()
+        .begin_quick_move(InventoryTarget::Player(5))
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
+    resend_with_fuel(&mut inventory, 2, 40);
+    assert_eq!(inventory.ledger().pending_request_count(), 1);
+
+    inventory
+        .ledger_mut()
+        .begin_quick_move(InventoryTarget::Player(7))
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(1).unwrap().count, 3);
+    assert_eq!(inventory.ledger().pending_request_count(), 2);
+    resend_with_fuel(&mut inventory, 4, 80);
+    assert_eq!(inventory.ledger().pending_request_count(), 2);
+    resend_with_fuel(&mut inventory, 4, 0);
+    assert_eq!(inventory.ledger().pending_request_count(), 1);
+    assert!(inventory.ledger().storage_stack(1).is_none());
+}
+
+/// Opens the fixture furnace with player slot 5 holding birch logs and slot 7 iron ingot fuel.
+fn fuel_and_input_fixture() -> InventorySession {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    resend_with_fuel(&mut inventory, 4, 40);
+    let mut stacks =
+        vec![NetworkItemStack::empty(); usize::from(::protocol::PLAYER_INVENTORY_SLOTS)];
+    stacks[5] = NetworkItemStack {
+        network_id: 2,
+        count: 8,
+        stack_network_id: 25,
+        ..NetworkItemStack::empty()
+    };
+    stacks[7] = NetworkItemStack {
+        network_id: 4,
+        count: 3,
+        stack_network_id: 27,
+        ..NetworkItemStack::empty()
+    };
+    inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: stacks.into(),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    inventory
+}
+
+#[test]
+fn unrelated_recipe_changes_keep_pending_furnace_inputs() {
+    let mut inventory = fuel_and_input_fixture();
+    inventory
+        .ledger_mut()
+        .begin_quick_move(InventoryTarget::Player(5))
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
+    apply_recipes(&mut inventory, &FIXTURE_RECIPES[..3], 2);
+    let _ = inventory.ledger_mut();
+    assert_eq!(inventory.ledger().pending_request_count(), 1);
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
+}
+
+#[test]
+fn recipe_admission_reroutes_a_pending_fuel_move() {
+    let mut inventory = fuel_and_input_fixture();
+    inventory
+        .ledger_mut()
+        .begin_quick_move(InventoryTarget::Player(7))
+        .unwrap();
+    assert_eq!(inventory.ledger().storage_stack(1).unwrap().count, 3);
+    let mut recipes = FIXTURE_RECIPES.to_vec();
+    recipes.push(("minecraft:iron_ingot", 5, "furnace"));
+    apply_recipes(&mut inventory, &recipes, 2);
+    let _ = inventory.ledger_mut();
+    assert_eq!(inventory.ledger().pending_request_count(), 0);
+    assert!(inventory.ledger().storage_stack(1).is_none());
+}
+
+#[test]
+fn furnace_recipe_replacement_retires_unsent_input_before_transport() {
+    for poll_timeouts in [false, true] {
+        let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+        inventory
+            .ledger_mut()
+            .begin_quick_move(InventoryTarget::Player(5))
+            .unwrap();
+        assert_eq!(inventory.ledger().pending_request_count(), 1);
+        assert!(inventory.ledger().displayed_stack(5).is_none());
+        assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
+
+        let packet = CraftingDataPacket {
+            clear_recipes: true,
+            ..Default::default()
+        };
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes).unwrap();
+        inventory
+            .enqueue_inventory_event(
+                1,
+                2,
+                InventoryEvent::Recipes(::protocol::decode_recipe_update(&bytes).unwrap()),
+            )
+            .unwrap();
+        inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
+        inventory.drain_pending_inventory();
+        assert!(inventory.furnace_recipes(false).is_empty());
+
+        let mut sent = Vec::new();
+        let send = |packet| {
+            sent.push(packet);
+            Ok::<_, ()>(())
+        };
+        let admitted = if poll_timeouts {
+            inventory.flush_inventory_send(1, send)
+        } else {
+            inventory.flush_pending_inventory_send(1, send)
+        };
+        assert_eq!(admitted, Ok(false));
+        assert!(sent.is_empty());
+        assert_eq!(inventory.ledger().pending_request_count(), 0);
+        assert_eq!(inventory.ledger().displayed_stack(5).unwrap().count, 8);
+        assert!(inventory.ledger().storage_stack(0).is_none());
+    }
+}
+
+#[test]
+fn furnace_input_admission_tracks_station_metadata_registry_and_catalog_removal() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::Furnace, 2, 0),
+        Some(true)
+    );
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::Furnace, 2, 1),
+        Some(false)
+    );
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::Smoker, 2, 0),
+        Some(true)
+    );
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::BlastFurnace, 2, 0),
+        Some(false)
+    );
+    let mut entries: Vec<_> = inventory
+        .ledger()
+        .item_registry_snapshot()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect();
+    entries
+        .iter_mut()
+        .find(|entry| entry.network_id == 2)
+        .unwrap()
+        .identifier = Arc::from("custom:unrelated_icon");
+    inventory
+        .ledger_mut()
+        .apply_registry(&::protocol::ItemRegistryEvent {
+            entries: entries.into(),
+        });
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::Furnace, 2, 0),
+        Some(false)
+    );
+    let ledger = inventory.ledger_mut();
+    ledger.bind_furnace_inputs(None);
+    assert_eq!(
+        ledger.furnace_input_accepts(::protocol::WindowKind::Furnace, 2, 0),
+        None
+    );
+}
+
+#[test]
+fn idle_flushes_keep_a_shared_ledger_snapshot() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let _ = inventory.ledger_mut();
+    let snapshot = inventory.ledger_snapshot();
+    let admitted = inventory.flush_pending_inventory_send(1, |_| Ok::<_, ()>(()));
+    assert_eq!(admitted, Ok(false));
+    assert!(Arc::ptr_eq(&snapshot, &inventory.ledger_snapshot()));
+}
+
+#[test]
+fn recipe_changes_keep_partial_takes_from_the_ingredient_slot() {
+    let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
+    let ledger = inventory.ledger_mut();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(-1),
+            slot_type: Some(::protocol::CONTAINER_NAME_CURSOR),
+            dynamic_id: None,
+        },
+        slots: Arc::from([NetworkItemStack::empty()]),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    let mut slots = vec![NetworkItemStack::empty(); 3];
+    slots[0] = NetworkItemStack {
+        network_id: 2,
+        count: 8,
+        stack_network_id: 30,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(7),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.begin_storage_take_count(0, 1).unwrap();
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 7);
+    apply_recipes(&mut inventory, &FIXTURE_RECIPES[2..3], 2);
+    let _ = inventory.ledger_mut();
+    assert_eq!(
+        inventory
+            .ledger_mut()
+            .furnace_input_accepts(::protocol::WindowKind::Furnace, 2, 0),
+        Some(false)
+    );
+    assert_eq!(inventory.ledger().pending_request_count(), 1);
+    assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 7);
 }

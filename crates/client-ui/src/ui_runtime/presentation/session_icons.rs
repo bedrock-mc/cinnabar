@@ -157,7 +157,9 @@ impl UiPresentationRuntime {
         } else {
             "not in the vanilla icon catalog"
         };
-        bevy::log::info!(
+        // Debug level: opening the creative search can miss hundreds at once, and every line
+        // costs a synchronous console write in browsers.
+        bevy::log::debug!(
             identifier,
             metadata,
             custom = !identifier.starts_with("minecraft:"),

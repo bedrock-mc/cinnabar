@@ -2,11 +2,10 @@
 use crate::ingestion::MAX_ADMITTED_WORLD_EVENTS;
 use crate::{
     ActorArmorSnapshot, ActorEquipmentSnapshot, ActorSnapshot, LocalPlayerFeed, PlayerProfile,
-    RemoteActionSnapshot, RemoteActionStats, ResolvedServerPosition,
-    actor_animation::{ActorAnimationStats, ActorRigSnapshot},
-    actor_store::ActorStore,
+    RemoteActionSnapshot, RemoteActionStats, ResolvedServerPosition, actor_store::ActorStore,
     server_position::resolve_server_position,
 };
+use actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets};
 use protocol::{
     ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,

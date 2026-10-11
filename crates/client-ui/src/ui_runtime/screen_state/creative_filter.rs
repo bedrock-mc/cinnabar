@@ -232,6 +232,7 @@ mod display_name_tests {
         ledger.apply_registry(&ItemRegistryEvent {
             entries: Arc::from([(1, "custom:blade"), (2, "minecraft:stone")].map(
                 |(network_id, identifier)| ItemRegistryEntry {
+                    components: None,
                     network_id,
                     identifier: identifier.into(),
                     component_based: network_id == 1,
@@ -239,6 +240,7 @@ mod display_name_tests {
                     component_digest: [0; 32],
                     negotiated_max_stack_size: None,
                     canonical_empty_component_data: true,
+                    components: None,
                     item_tags: Arc::from([]),
                 },
             )),

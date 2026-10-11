@@ -26,8 +26,8 @@ use bevy::{
     },
 };
 
-use crate::RuntimeStage;
 use readback::{IDLE, Target};
+use render_scene::RuntimeStage;
 
 const CAPTURE_INTERVAL_FRAMES: u64 = 120;
 const FORMAT: TextureFormat = TextureFormat::Rgba16Float;

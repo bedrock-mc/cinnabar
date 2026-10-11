@@ -204,7 +204,7 @@ fn emote_data(
         "#emote_name",
         Scalar::Text(selected.map_or(String::new(), |emote| emote.label().to_owned())),
     );
-    let chosen = client_world::CustomEmote::ALL
+    let chosen = actor_animation::CustomEmote::ALL
         .first()
         .map_or("", |emote| emote.label());
     data.set_global("#emote_popup_title", Scalar::Text(chosen.to_owned()));

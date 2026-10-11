@@ -1,9 +1,10 @@
 //! Independently authored player-shaped pack compiled end to end: rig scripts, a nested
 //! root controller, expression channels, and actor-state queries drive the pose.
+use actor_animation::BoneTransform;
 use assets::{EntityRigFallback, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
 use client_presentation::presentation::actors::rig_world_from_actor;
-use client_world::{BoneTransform, LocalPlayerFeed};
+use client_world::LocalPlayerFeed;
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, ItemActorEvent, MovePlayerEvent,
@@ -462,8 +463,8 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
-        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
         fall_fly_ticks: 0,
@@ -521,7 +522,7 @@ fn view_bobbing_toggle_stops_authored_hand_bob_but_preserves_attacks() {
         }
         assert_eq!(turned(bone_of(&world, &entities, 1, "rightArm")), enabled);
     }
-    world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
+    world.start_local_player_swing(actor_animation::ACTOR_SWING_TICKS);
     world.prepare_actor_appearance_fixture();
     world.advance_actor_interpolation_frame(2);
     assert!(turned(bone_of(&world, &entities, 1, "rightArm")));
@@ -610,7 +611,7 @@ fn a_local_swing_animates_the_first_and_third_person_arm() {
             !turned(arm(&mut world)),
             "first person {first_person}: rests"
         );
-        world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
+        world.start_local_player_swing(actor_animation::ACTOR_SWING_TICKS);
         let swing = (0..3).map(|_| turned(arm(&mut world))).collect::<Vec<_>>();
         assert!(
             swing.contains(&true),
@@ -718,7 +719,7 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
                     .is_some(),
                 matches!(skin, PlayerSkin::Standard(_))
             );
-            world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
+            world.start_local_player_swing(actor_animation::ACTOR_SWING_TICKS);
             let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
             let item = world.authority().actor_rig(1).unwrap().item_animation;
             assert!(item[1].attack_time > item[0].attack_time);

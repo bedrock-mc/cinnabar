@@ -27,13 +27,16 @@ use bevy::{
     },
 };
 
-use super::{
-    EnhancedRendering,
-    frame::{CascadeBounds, EnhancedFrameGpu, ViewInputs, build_frame},
-    materials::material_classes,
+use {
+    super::{
+        frame::{CascadeBounds, EnhancedFrameGpu, ViewInputs, build_frame},
+        materials::material_classes,
+    },
+    render_scene::EnhancedRendering,
 };
-use crate::{
-    AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets, scene_sampling::ResolvedDepth,
+use {
+    crate::scene_sampling::ResolvedDepth,
+    render_scene::{AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets},
 };
 
 pub(crate) const CASTER_SLOT_BYTES: u64 = 256;
@@ -407,7 +410,7 @@ impl EnhancedViewGpu {
             frame: buffer("enhanced frame uniform", FRAME_BYTES),
             casters: buffer(
                 "enhanced caster uniforms",
-                CASTER_SLOT_BYTES * u64::from(super::MAX_SHADOW_CASCADES),
+                CASTER_SLOT_BYTES * u64::from(render_scene::MAX_SHADOW_CASCADES),
             ),
             settings,
             cascades: Vec::new(),
@@ -514,7 +517,7 @@ pub(crate) fn prepare_enhanced_views(
             state.resolved_depth = Some(ResolvedDepth::new(
                 &device,
                 depth,
-                crate::RuntimeStage::GpuPost,
+                render_scene::RuntimeStage::GpuPost,
             ));
         }
         if state

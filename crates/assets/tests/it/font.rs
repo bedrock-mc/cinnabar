@@ -17,7 +17,7 @@ fn runtime_uses_existing_multi_page_glyph_routes_without_provider_changes() {
             pixels_sha256: Sha256::digest(&pixels).into(),
             width: 1,
             height: 1,
-            pixels: FontPixels::Rgba8(pixels),
+            pixels: FontPixels::Rgba8(pixels.into()),
         }
     };
     let glyph = |codepoint, page| GlyphMetrics {
@@ -53,7 +53,7 @@ fn runtime_decodes_exact_provenance_and_unmodified_rgba8() {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 2,
         height: 1,
-        pixels: FontPixels::Rgba8(pixels.clone()),
+        pixels: FontPixels::Rgba8(pixels.clone().into()),
     };
     let glyph = GlyphMetrics {
         codepoint: 'A',
@@ -149,7 +149,7 @@ fn page() -> FontTexturePage {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     }
 }
 
@@ -188,7 +188,7 @@ fn attached_named_font_keeps_default_metrics_and_rebases_private_pages() {
     let FontPixels::Rgba8(pixels) = &mut private_page.pixels else {
         unreachable!("authored pages are RGBA");
     };
-    pixels[3] = 128;
+    std::sync::Arc::get_mut(pixels).unwrap()[3] = 128;
     private_page.pixels_sha256 = Sha256::digest(&pixels[..]).into();
     let glyph = GlyphMetrics {
         advance_64: 192,

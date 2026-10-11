@@ -1,22 +1,13 @@
 use assets::EntityRenderMaterialState;
 
-use super::ActorMaterial;
+#[cfg(test)]
+use render_model::ActorMaterial;
 
 /// Renderer-only routing for a color layer that must follow a sorted dissolve mask.
 pub(crate) const LATE_DISSOLVE_COLOR: u32 = 1 << 31;
 
-impl ActorMaterial {
-    /// Shader kind and independently admitted raster states in the shared instance word.
-    pub fn gpu_word(self) -> u32 {
-        self.kind.word(self.state)
-    }
-
-    pub fn blend_state(self) -> Option<bevy::render::render_resource::BlendState> {
-        self.state.and_then(blend_state)
-    }
-}
-
-pub(crate) fn blend_state(
+/// Translates admitted actor blending into the GPU pipeline state.
+pub fn blend_state(
     state: EntityRenderMaterialState,
 ) -> Option<bevy::render::render_resource::BlendState> {
     use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation, BlendState};

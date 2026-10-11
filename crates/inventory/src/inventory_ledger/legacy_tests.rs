@@ -45,6 +45,7 @@ fn ready() -> PlayerInventoryLedger {
     ledger.apply_registry(&ItemRegistryEvent {
         entries: [
             ItemRegistryEntry {
+                components: None,
                 identifier: Arc::from("minecraft:apple"),
                 network_id: 6,
                 component_based: false,
@@ -55,6 +56,7 @@ fn ready() -> PlayerInventoryLedger {
                 item_tags: Arc::from([]),
             },
             ItemRegistryEntry {
+                components: None,
                 identifier: Arc::from("minecraft:stick"),
                 network_id: 7,
                 component_based: false,

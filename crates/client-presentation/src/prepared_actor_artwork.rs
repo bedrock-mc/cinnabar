@@ -1,8 +1,8 @@
 //! Pack workers prepare immutable artwork and meshes before session publication.
 use crate::presentation::equipment::EquipmentRuntime;
 use assets::SessionEntityPack;
-use render::{ActorArtworkLocation, ActorArtworkPages};
 use render_model::ActorRigGeometry;
+use render_model::{ActorArtworkLocation, ActorArtworkPages};
 use std::{borrow::Cow, sync::Arc};
 
 /// Source snapshots prevent a concurrent reload from publishing stale routes or geometry.

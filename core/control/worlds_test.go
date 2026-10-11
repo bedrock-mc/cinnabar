@@ -6,24 +6,28 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/hashimthearab/rust-mcbe/core/localworld"
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 type stubWorlds struct {
-	reports []localworld.Status
-	opened  bool
+	reports []LocalWorld
 	err     error
 }
 
-func (s *stubWorlds) SetLocal(status localworld.Status) (bool, error) {
+func (s *stubWorlds) SetLocal(report LocalWorld) error {
 	if s.err != nil {
-		return false, s.err
+		return s.err
 	}
-	s.reports = append(s.reports, status)
-	return s.opened, nil
+	s.reports = append(s.reports, report)
+	return nil
 }
+
+// hostedWorlds also serves world_invite.v1.
+type hostedWorlds struct {
+	*stubWorlds
+	invite func(context.Context, string) error
+}
+
+func (w hostedWorlds) Invite(ctx context.Context, xuid string) error { return w.invite(ctx, xuid) }
 
 func startWorlds(t *testing.T, worlds Worlds) string {
 	t.Helper()
@@ -44,7 +48,7 @@ func call(t *testing.T, dir, method, params string) []byte {
 	return exchange(t, dir, []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":%q%s}`, method, params)))
 }
 
-func TestLocalWorldReportsReachTheRoute(t *testing.T) {
+func TestLocalWorldReportsReachTheWorlds(t *testing.T) {
 	stub := &stubWorlds{}
 	dir := startWorlds(t, stub)
 	payload := call(t, dir, methodLocalWorld, `{"state":"running","world":{"id":"0123456789abcdef","name":"Home","game_mode":"creative","backend":"bds"},`+
@@ -56,10 +60,11 @@ func TestLocalWorldReportsReachTheRoute(t *testing.T) {
 		t.Fatalf("reports = %+v", stub.reports)
 	}
 	report := stub.reports[0]
-	if report.State != localworld.StateRunning || report.World.Name != "Home" || report.Target.Transport != localworld.TransportNetherNetLAN || report.Target.LevelName != "0123456789abcdef" {
+	if report.State != "running" || report.World.Name != "Home" || report.Target.Transport != "nethernet-lan" || report.Target.LevelName != "0123456789abcdef" {
 		t.Fatalf("report = %+v %+v %+v", report, report.World, report.Target)
 	}
-	if call(t, dir, methodLocalWorld, `{"state":"idle"}`); len(stub.reports) != 2 || stub.reports[1].State != localworld.StateIdle {
+	call(t, dir, methodLocalWorld, `{"state":"idle"}`)
+	if len(stub.reports) != 2 || stub.reports[1].State != "idle" || stub.reports[1].World != nil {
 		t.Fatalf("reports = %+v", stub.reports)
 	}
 }
@@ -77,8 +82,8 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		code int
 		msg  string
 	}{
-		{fmt.Errorf("%w: unknown state", localworld.ErrInvalid), -32602, "unknown state"},
-		{localworld.ErrNotOpen, codeWorldBusy, "no world is open"},
+		{fmt.Errorf("%w: unknown state", ErrWorldInvalid), -32602, "unknown state"},
+		{ErrWorldNotOpen, codeWorldBusy, "no world is open"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {
 		dir := startWorlds(t, &stubWorlds{err: tc.err})
@@ -92,10 +97,10 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 
 func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
 	var invited []string
-	hosted := WithInvites(&stubWorlds{}, func(_ context.Context, xuid string) error {
+	hosted := hostedWorlds{stubWorlds: &stubWorlds{}, invite: func(_ context.Context, xuid string) error {
 		invited = append(invited, xuid)
 		return nil
-	})
+	}}
 	dir := startWorlds(t, hosted)
 	for _, params := range []string{"", `{}`, `{"xuid":""}`, `{"xuid":"12a"}`, `{"xuid":"1","extra":1}`, `{"xuid":"123456789012345678901"}`} {
 		assertRPCError(t, call(t, dir, methodWorldInvite, params), -32602)
@@ -110,7 +115,7 @@ func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
 	assertRPCError(t, call(t, unhosted, methodWorldInvite, `{"xuid":"2535400000000000"}`), codeWorldBusy)
 }
 
-// The core no longer runs worlds; the launcher's world methods are unknown here.
+// The launcher runs worlds now; the old world_* methods are unknown to the core.
 func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	dir := t.TempDir()
 	server, err := Start(dir, NewStore())
@@ -123,26 +128,9 @@ func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	assertRPCError(t, call(t, served, "world_list.v1", ""), -32601)
 }
 
-func TestOpenHookRunsOnlyWhenAWorldBeginsOpening(t *testing.T) {
-	stub := &stubWorlds{}
-	opened := 0
-	worlds := WithOpenHook(stub, func() { opened++ })
-	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateIdle}); err != nil || opened != 0 {
-		t.Fatalf("SetLocal() = %v, hook calls %d", err, opened)
-	}
-	stub.opened = true
-	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateStarting}); err != nil || opened != 1 {
-		t.Fatalf("SetLocal() = %v, hook calls %d", err, opened)
-	}
-	stub.err = errors.New("invalid")
-	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateStarting}); err == nil || opened != 1 {
-		t.Fatalf("a failed report ran the hook: err=%v calls=%d", err, opened)
-	}
-}
-
 func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
 	store := NewStore()
-	store.ObserveTransfer(proxy.TransferTarget{Host: "a", Port: 1})
+	store.ObserveTransfer("a", 1)
 	store.ClearTransfer()
 	if store.Status().Transfer != nil {
 		t.Fatal("transfer still pending after ClearTransfer")

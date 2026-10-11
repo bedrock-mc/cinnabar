@@ -47,6 +47,31 @@ impl DensePositionSet {
     pub(super) fn insert_at_index(&mut self, index: usize) {
         self.present[index] = true;
     }
+
+    /// Calls `visit` with each present position inside `min..=max`, walking the set's rows
+    /// directly rather than mapping every position.
+    pub(super) fn for_each_within(
+        &self,
+        min: [i64; 3],
+        max: [i64; 3],
+        mut visit: impl FnMut(BlockPos),
+    ) {
+        let low = [self.bounds.min.x, self.bounds.min.y, self.bounds.min.z].map(i64::from);
+        let high = [self.bounds.max.x, self.bounds.max.y, self.bounds.max.z].map(i64::from);
+        let from: [i64; 3] = std::array::from_fn(|axis| min[axis].max(low[axis]));
+        let to: [i64; 3] = std::array::from_fn(|axis| max[axis].min(high[axis]));
+        // Every clipped coordinate lies inside the set's bounds, so its offsets fit an index.
+        for x in from[0]..=to[0] {
+            for y in from[1]..=to[1] {
+                let row = ((x - low[0]) as usize * self.y_len + (y - low[1]) as usize) * self.z_len;
+                for z in from[2]..=to[2] {
+                    if self.present[row + (z - low[2]) as usize] {
+                        visit(BlockPos::new(x as i32, y as i32, z as i32));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]

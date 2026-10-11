@@ -3,7 +3,7 @@ use crate::gpu_snapshot;
 
 use bevy::math::Vec3;
 use gpu_snapshot::{Draw, Gpu};
-use render::ActorGpuInstance;
+use render_model::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId, STANDARD_SKIN_SIDE};
 
 fn box_uv_cube() -> Vec<ActorRigVertex> {
@@ -105,8 +105,8 @@ fn raster(
     let instance = ActorGpuInstance {
         world_from_actor: affine,
         partial_tick: 1.0,
-        uv_anim: render::IDENTITY_UV_ANIM,
-        light: render::pack_actor_light(15, 15),
+        uv_anim: render_model::IDENTITY_UV_ANIM,
+        light: render_model::pack_actor_light(15, 15),
         multitexture_layers: [u32::MAX; 2],
         texture_layer: layer,
         dissolve_multiplier: 1.0,
@@ -201,7 +201,7 @@ fn native_class_arrays_draw_the_same_pixels_as_the_standard_raster() {
         // Every other binding holds a black decoy, so only the class array can match.
         let mut views = [&decoy; 4];
         views[class] = &small;
-        let drawn = raster(&gpu, &cube, views, render::pack_skin_slot(class, 0));
+        let drawn = raster(&gpu, &cube, views, render_model::pack_skin_slot(class, 0));
         let background = &reference[..4];
         let covered = reference
             .as_chunks::<4>()

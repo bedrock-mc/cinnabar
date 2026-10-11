@@ -1,5 +1,4 @@
 //! Keeps the hand outside grading without copying the graded scene into MSAA.
-use super::{EnhancedRendering, gpu::EnhancedViews};
 use crate::scene_target::SceneTarget;
 use bevy::{
     prelude::*,
@@ -9,6 +8,7 @@ use bevy::{
         view::ViewTarget,
     },
 };
+use {super::gpu::EnhancedViews, render_scene::EnhancedRendering};
 
 /// A resolved transparent hand layer; the world's discarded MSAA storage is reused for drawing.
 pub(crate) struct HandLayer {
@@ -105,7 +105,7 @@ pub(crate) fn clear(context: &mut RenderContext, world: &World, scene: &SceneTar
             depth_stencil_attachment: None,
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuHand,
+                render_scene::RuntimeStage::GpuHand,
             ),
             occlusion_query_set: None,
             multiview_mask: None,
@@ -151,7 +151,7 @@ pub(crate) fn enhanced_hand_composite(
                 depth_stencil_attachment: None,
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuHand,
+                    render_scene::RuntimeStage::GpuHand,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -171,7 +171,7 @@ pub(crate) fn enhanced_hand_composite(
             depth_stencil_attachment: None,
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuHand,
+                render_scene::RuntimeStage::GpuHand,
             ),
             occlusion_query_set: None,
             multiview_mask: None,

@@ -97,7 +97,8 @@ fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {
 fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settings() {
     let (_pack, _geometry, entities) = super::viewmodel_presentation::hand_fixture();
     let scene =
-        render::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[]).unwrap();
+        render_scene::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[])
+            .unwrap();
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
             &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),
@@ -111,7 +112,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
             icons,
             None,
             None,
-            render::ActorArtworkPages::default(),
+            render_model::ActorArtworkPages::default(),
         );
     let mut world = super::actor_frame_allocations::actor_frame_world(
         player_world(entities.clone()),
@@ -130,7 +131,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         "HUD submits the hand"
     );
     world.resource_mut::<MenuRuntime>().open_pause();
@@ -139,7 +140,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         "pause keeps the hand"
     );
     let opaque_pause =
@@ -161,7 +162,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        !world.resource::<render::HandRigScene>().is_active(),
+        !world.resource::<render_scene::HandRigScene>().is_active(),
         "opaque pack screen clears the hand"
     );
     world
@@ -172,7 +173,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         "pause restores the hand"
     );
     world
@@ -183,7 +184,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         "Settings opened from pause retains the live world hand"
     );
     world.resource_mut::<MenuRuntime>().set_visible(false);
@@ -192,7 +193,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         "closing Settings restores it"
     );
 }

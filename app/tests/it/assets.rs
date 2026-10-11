@@ -82,6 +82,7 @@ fn synthetic_blob() -> Box<[u8]> {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }]
         .into_boxed_slice(),
         light_properties: vec![::assets::LightProperties::new(0, 15).unwrap()].into_boxed_slice(),
@@ -219,7 +220,7 @@ fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let glyphs = [GlyphMetrics {
         codepoint: '\u{fffd}',
@@ -818,8 +819,12 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     let (runtime, identity) = loaded.atmosphere.into_parts();
     let decoded = Arc::downgrade(&runtime);
     let mut app = bevy::prelude::App::new();
-    app.insert_resource(render::AtmosphereTextureAssets::new(runtime, identity));
-    let renderer = app.world().resource::<render::AtmosphereTextureAssets>();
+    app.insert_resource(render_scene::AtmosphereTextureAssets::new(
+        runtime, identity,
+    ));
+    let renderer = app
+        .world()
+        .resource::<render_scene::AtmosphereTextureAssets>();
     assert_eq!(
         renderer.identity(),
         <[u8; 32]>::from(Sha256::digest(&bytes))

@@ -1,7 +1,10 @@
 //! Grid expansion: one `grid_item_template` instance per cell the grid holds,
 //! the retained template, and the cell indices of grids listing their cells.
+//! A virtualized grid builds only the cells around those in view; the rest are
+//! placeholders laid out at the cell size.
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -9,8 +12,15 @@ use serde_json::Value;
 use super::feed::collection_name;
 use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
-use crate::layout::GRID_TEMPLATE_KEY;
+use crate::layout::{GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY};
 use crate::tree::{ControlRef, ResolvedControl};
+
+#[cfg(test)]
+mod tests;
+
+/// Collection grids with fewer cells always build every cell; a virtualized grid no layout
+/// has shown yet builds this many first, as a list opens scrolled to its start.
+const VIRTUAL_GRID_CELLS: usize = 64;
 
 impl Binder<'_> {
     /// One `grid_item_template` instance per cell the grid holds (columns × rows,
@@ -38,10 +48,20 @@ impl Binder<'_> {
             ));
             return Vec::new();
         };
+        let window = (self.state.virtualizes(collection) && count >= VIRTUAL_GRID_CELLS)
+            .then(|| self.grid_window(scope.parent_key, &resolved))
+            .flatten();
         let mut cells = Vec::with_capacity(count);
         for index in 0..count {
             if !self.can_create() {
                 break;
+            }
+            if let Some((built, placeholder)) = &window
+                && !built.contains(&index)
+            {
+                let cell = with_index(Src::root(Arc::clone(placeholder)), index);
+                cells.push(self.placeholder(cell, &inner));
+                continue;
             }
             let child_scope = match (collection, &key) {
                 (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
@@ -70,6 +90,88 @@ impl Binder<'_> {
 }
 
 impl Binder<'_> {
+    /// The cells the virtualized grid at bind key `grid` builds and the placeholder standing in
+    /// for the others, when the cell template has fixed pixel bounds no binding resizes, so a
+    /// placeholder lays out exactly where its cell would.
+    fn grid_window(
+        &mut self,
+        grid: u64,
+        template: &Arc<ResolvedControl>,
+    ) -> Option<(Range<usize>, Arc<ResolvedControl>)> {
+        if binds_size(template) {
+            return None;
+        }
+        let mut geometry = BTreeMap::new();
+        for key in ["size", "min_size", "max_size"] {
+            match template.properties.get(key) {
+                Some(value) if pixel_pair(value).is_some() => {
+                    geometry.insert(key.to_owned(), value.clone());
+                }
+                None if key != "size" => {}
+                _ => return None,
+            }
+        }
+        let placeholders = &mut self.state.placeholders;
+        let placeholder = match placeholders
+            .iter()
+            .find(|(key, cell, _)| *key == grid && Arc::ptr_eq(cell, template))
+        {
+            Some((_, _, placeholder)) => Arc::clone(placeholder),
+            None => {
+                let placeholder = Arc::new(ResolvedControl {
+                    name: template.name.clone(),
+                    control_type: Some("panel".to_owned()),
+                    base: None,
+                    unresolved_base: None,
+                    properties: geometry
+                        .into_iter()
+                        .chain([(GRID_PLACEHOLDER_KEY.to_owned(), Value::from(grid))])
+                        .collect::<BTreeMap<_, _>>()
+                        .into(),
+                    children: Vec::new(),
+                    factory: None,
+                });
+                placeholders.retain(|(key, _, _)| *key != grid);
+                placeholders.push((grid, Arc::clone(template), Arc::clone(&placeholder)));
+                placeholder
+            }
+        };
+        let built = self
+            .state
+            .grid_windows
+            .entry(grid)
+            .or_insert(0..VIRTUAL_GRID_CELLS)
+            .clone();
+        Some((built, placeholder))
+    }
+
+    /// An out-of-view cell's placeholder, under the key its built cell has; one standing
+    /// unchanged since the last bind is moved over.
+    fn placeholder(&mut self, src: Src, scope: &Scope) -> Node {
+        let key = self.control_key(&src, scope.parent_key);
+        let prior = match self.pool.remove(&key) {
+            Some(previous) if previous.src.same(&src) => return self.reuse(previous),
+            Some(previous) => Some(self.replace(previous).1),
+            None => None,
+        };
+        self.created += 1;
+        self.state.built.push(key);
+        Node {
+            src,
+            key,
+            layout_key: String::new(),
+            own: BTreeMap::new(),
+            native: Default::default(),
+            memory: Default::default(),
+            bindings: Arc::default(),
+            children: Vec::new(),
+            deferred: None,
+            retained: false,
+            scope: scope.clone(),
+            track: super::reuse::Track::built(Default::default(), false, None, prior),
+        }
+    }
+
     /// Measures a template without binding while retaining the common creation budget.
     fn unbound(&mut self, src: Src) -> Option<Node> {
         if !self.can_create() {
@@ -98,6 +200,31 @@ impl Binder<'_> {
             track: super::reuse::Track::built(Default::default(), false, None, None),
         })
     }
+}
+
+/// A `[w, h]` of plain numbers.
+fn pixel_pair(value: &Value) -> Option<[f64; 2]> {
+    match value.as_array()?.as_slice() {
+        [w, h] => Some([w.as_f64()?, h.as_f64()?]),
+        _ => None,
+    }
+}
+
+/// Whether one of `control`'s own bindings writes its size.
+fn binds_size(control: &ResolvedControl) -> bool {
+    let Some(Value::Array(bindings)) = control.properties.get("bindings") else {
+        return false;
+    };
+    bindings.iter().any(|binding| {
+        [
+            "binding_name",
+            "binding_name_override",
+            "target_property_name",
+        ]
+        .iter()
+        .filter_map(|key| binding.get(*key)?.as_str())
+        .any(|name| name.starts_with("#size_binding"))
+    })
 }
 
 /// A templated grid's cell count, or `None` when a filling grid's count waits

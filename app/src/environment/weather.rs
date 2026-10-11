@@ -6,12 +6,18 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use meshing::CameraMedium;
-use render::{
-    AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, OcclusionGrid,
-    PRECIPITATION_LEVEL_PER_TICK, PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND,
-    PrecipitationMix, PrecipitationScene, PrecipitationSim, RainSplashQueue, SkyKind,
-    approach_level, average_precipitation, lightning_bolt_segments, lightning_flash_level,
-    pick_rain_splashes, precipitation_forward_offset, push_bolt_records,
+use {
+    render_model::ColumnSampler,
+    render_model::{
+        ColumnSample, OcclusionGrid, PRECIPITATION_LEVEL_PER_TICK, PRECIPITATION_SAMPLE_OFFSETS,
+        PRECIPITATION_TICKS_PER_SECOND, PrecipitationMix, PrecipitationSim, approach_level,
+        average_precipitation, pick_rain_splashes, precipitation_forward_offset,
+    },
+    render_scene::{
+        AtmosphereFrame, LightningScene, PrecipitationMixResource, PrecipitationScene,
+        RainSplashQueue, SkyKind, lightning_bolt_segments, lightning_flash_level,
+        push_bolt_records,
+    },
 };
 
 use super::{WeatherState, WeatherTickFrame, weather_fog::WeatherFog};
@@ -30,7 +36,7 @@ const WEATHER_TEXTURES_COMPILE_COMMAND: &str = "make weather-assets";
 #[must_use]
 pub(crate) fn load_optional_weather_textures(
     world_asset_path: &std::path::Path,
-) -> render::WeatherTextureAssets {
+) -> render_scene::WeatherTextureAssets {
     let path = world_asset_path.with_file_name(WEATHER_TEXTURES_FILENAME);
     let decoded = std::fs::read(&path)
         .map_err(|error| error.to_string())
@@ -41,14 +47,14 @@ pub(crate) fn load_optional_weather_textures(
     match decoded {
         Ok((textures, identity)) => {
             diagnostics::log_stderr!("loaded weather textures from {}", path.display());
-            render::WeatherTextureAssets::new(std::sync::Arc::new(textures), identity)
+            render_scene::WeatherTextureAssets::new(std::sync::Arc::new(textures), identity)
         }
         Err(error) => {
             diagnostics::log_stderr!(
                 "weather textures unavailable at {} ({error}); using procedural precipitation and End sky; build with {WEATHER_TEXTURES_COMPILE_COMMAND}",
                 path.display()
             );
-            render::WeatherTextureAssets::default()
+            render_scene::WeatherTextureAssets::default()
         }
     }
 }
@@ -237,7 +243,7 @@ pub(crate) fn update_precipitation_scene(
     time: Res<Time<Real>>,
     mut scene: ResMut<PrecipitationScene>,
     mut splashes: ResMut<RainSplashQueue>,
-    mut mix: ResMut<PrecipitationMix>,
+    mut mix: ResMut<PrecipitationMixResource>,
     mut cadence: Local<PrecipitationCadence>,
 ) {
     let level = frame.rain_level();
@@ -249,7 +255,7 @@ pub(crate) fn update_precipitation_scene(
         level > 0.0 && frame.sky_kind() == SkyKind::Overworld,
     ) else {
         scene.layers.clear();
-        *mix = PrecipitationMix::default();
+        mix.0 = PrecipitationMix::default();
         *cadence = PrecipitationCadence::default();
         return;
     };
@@ -273,7 +279,7 @@ pub(crate) fn update_precipitation_scene(
                 .map(|(temperature, downfall)| (temperature, downfall, position[1] as i32))
         });
         let averaged = average_precipitation(&samples);
-        *mix = PrecipitationMix {
+        mix.0 = PrecipitationMix {
             rain: averaged.rain * level,
             snow: averaged.snow * level,
         };

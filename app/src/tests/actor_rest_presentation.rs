@@ -1,10 +1,10 @@
 //! Independently authored producer-to-adapter fixture; no trusted raw page constructor.
+use actor_animation::ActorRigSnapshot;
 use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
 use client_presentation::presentation::actors::entity_rig_presentation;
-use client_world::ActorRigSnapshot;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
-use render::{ActorArtworkPages, ActorRigRoute};
+use render_model::{ActorArtworkPages, ActorRigRoute};
 use std::{fs, path::PathBuf, sync::Arc};
 
 pub(crate) struct Pack(PathBuf);
@@ -213,7 +213,7 @@ fn absent_nonfinite_or_wrong_length_rest_is_nodraw_without_pose_substitution() {
         assert_eq!(draw.submission.route, ActorRigRoute::NoDraw);
         assert!(draw.submission.input.previous_bones.is_empty());
         assert!(draw.submission.input.current_bones.is_empty());
-        let mut builder = render::ActorRigFrameBuilder::new([]).unwrap();
+        let mut builder = render_model::ActorRigFrameBuilder::new([]).unwrap();
         let frame = builder.build(0.5, None, [draw.submission]);
         assert_eq!(frame.rejects.no_draw, 1);
         assert!(frame.instances.is_empty());
@@ -398,7 +398,8 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
     let mut stream = stream(Arc::clone(&entities));
     stream.submit(1, spawn_runtime(100, -100)).unwrap();
     let mut scene =
-        render::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[]).unwrap();
+        render_scene::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[])
+            .unwrap();
     scene.configure_artwork(artwork.clone());
     let mut client_world = crate::runtime::world::ClientWorld::new_with_entity_assets(
         Arc::new(RuntimeAssets::diagnostic()),
@@ -433,13 +434,13 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
                 .unwrap();
         }
         world
-            .resource::<render::ActorRenderFrame>()
+            .resource::<render_scene::ActorRenderFrame>()
             .rig
             .instances
             .len()
     };
     assert_eq!(drawn(&mut world), 1);
-    world.insert_resource(replaced.clone());
+    world.insert_resource(render_scene::ActorArtworkResource(replaced.clone()));
     assert_eq!(
         drawn(&mut world),
         1,
@@ -447,7 +448,7 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
     );
     assert_eq!(
         world
-            .resource::<render::ActorRenderFrame>()
+            .resource::<render_scene::ActorRenderFrame>()
             .artwork_pages()
             .identity(),
         replaced.identity()

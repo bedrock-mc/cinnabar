@@ -282,9 +282,12 @@ func redialAfterLoginTimeout(t *testing.T, authDelay time.Duration) {
 	}
 	serving, stopServing := context.WithCancel(t.Context())
 	defer func() {
+		// A server already closing ignores the client's disconnect, and a closed listener socket cannot
+		// receive it, so either would leave the handler waiting out RakNet's close timeout. A miss is
+		// reported below with the goroutine dump.
+		testwait.WaitUntil(testwait.DefaultTimeout, func() bool { return listener.PlayerCount() == 0 })
 		stopServing()
 		_ = listener.Close()
-		// Allow the transport's graceful close to finish before checking listener ownership.
 		waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, testwait.DefaultTimeout)
 	}()
 	go func() {

@@ -1,4 +1,5 @@
 //! Keeps each sub-chunk's face order and committed range until its mesh or class changes.
+
 use super::layout::plan_transparent_slot;
 use super::state::{
     TransparentAllocationIdentity, TransparentSortError, TransparentSortWork,
@@ -7,6 +8,7 @@ use super::state::{
 use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef};
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::*;
+use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
 
 /// The manifest's sort inputs, parallel to its key-sorted allocations.
 pub(in crate::chunk) type TransparentGroups = Arc<[Arc<TransparentGroupInput>]>;

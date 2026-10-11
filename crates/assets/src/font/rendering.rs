@@ -38,7 +38,7 @@ mod tests {
             pixels_sha256: sha2::Sha256::digest(&pixels).into(),
             width: 1,
             height: 1,
-            pixels: FontPixels::Rgba8(pixels),
+            pixels: FontPixels::Rgba8(pixels.into()),
         };
         let glyph = GlyphMetrics {
             codepoint: '\u{fffd}',

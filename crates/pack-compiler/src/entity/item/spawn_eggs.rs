@@ -25,7 +25,7 @@ pub(super) fn compile(
     definitions: &mut Definitions,
 ) -> Result<(), AssetError> {
     let supported_version = version(assets::vanilla_source().tag.trim_start_matches('v'))?;
-    let retail = std::str::from_utf8(item_bindings::RETAIL_ITEMS)
+    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
         .map_err(|_| invalid("retail item allowlist is not UTF-8"))?
         .lines()
         .filter_map(|line| line.split_once('\t').map(|(_, identifier)| identifier))

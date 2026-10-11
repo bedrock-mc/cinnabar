@@ -8,8 +8,6 @@ import (
 	"io"
 	"net"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/localworld"
 )
 
 const (
@@ -20,27 +18,15 @@ const (
 	codeWorldBusy   = -32011
 )
 
-// Worlds receives the launcher's open local world behind local_world.v1; *localworld.Local implements it.
+// Local-world failures the world methods report by code; a sentinel's message is safe to show.
+var (
+	ErrWorldInvalid = errors.New("invalid local world report") // its wrapping message names the bad field
+	ErrWorldNotOpen = errors.New("no world is open")
+)
+
+// Worlds takes the launcher's open local world, which it runs, behind local_world.v1.
 type Worlds interface {
-	SetLocal(status localworld.Status) (opened bool, err error)
-}
-
-type openHookWorlds struct {
-	Worlds
-	onOpen func()
-}
-
-func (w openHookWorlds) SetLocal(status localworld.Status) (bool, error) {
-	opened, err := w.Worlds.SetLocal(status)
-	if opened {
-		w.onOpen()
-	}
-	return opened, err
-}
-
-// WithOpenHook returns worlds that also call onOpen each time a world begins opening.
-func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
-	return openHookWorlds{Worlds: worlds, onOpen: onOpen}
+	SetLocal(LocalWorld) error
 }
 
 // Inviter sends Xbox Live invites to the open world while it is hosted for friends.
@@ -48,16 +34,28 @@ type Inviter interface {
 	Invite(ctx context.Context, xuid string) error
 }
 
-type invitingWorlds struct {
-	Worlds
-	invite func(context.Context, string) error
+// LocalWorld is the launcher's report of its open world; Error never carries paths.
+type LocalWorld struct {
+	State  string            `json:"state"`
+	World  *LocalWorldInfo   `json:"world,omitempty"`  // set unless idle
+	Target *LocalWorldTarget `json:"target,omitempty"` // set while running
+	Error  string            `json:"error,omitempty"`
 }
 
-func (w invitingWorlds) Invite(ctx context.Context, xuid string) error { return w.invite(ctx, xuid) }
+// LocalWorldInfo identifies the open world to Xbox friends.
+type LocalWorldInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	GameMode string `json:"game_mode"`
+	Backend  string `json:"backend"`
+}
 
-// WithInvites returns worlds that also serve world_invite.v1 through invite.
-func WithInvites(worlds Worlds, invite func(context.Context, string) error) Worlds {
-	return invitingWorlds{Worlds: worlds, invite: invite}
+// LocalWorldTarget is the running world's loopback server and how to dial it.
+type LocalWorldTarget struct {
+	Address    string `json:"address"`
+	Transport  string `json:"transport"`
+	LANAddress string `json:"lan_address,omitempty"`
+	LevelName  string `json:"level_name,omitempty"`
 }
 
 var worldMethods = map[string]struct{}{methodLocalWorld: {}, methodWorldInvite: {}}
@@ -87,11 +85,11 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 	var err error
 	switch method {
 	case methodLocalWorld:
-		var status localworld.Status
-		if !decodeParams(raw, &status) {
+		var report LocalWorld
+		if !decodeParams(raw, &report) {
 			return reply.invalid()
 		}
-		_, err = worlds.SetLocal(status)
+		err = worlds.SetLocal(report)
 	case methodWorldInvite:
 		var params struct {
 			XUID string `json:"xuid"`
@@ -101,7 +99,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 		inviter, ok := worlds.(Inviter)
 		if !ok {
-			err = localworld.ErrNotOpen
+			err = ErrWorldNotOpen
 			break
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -129,9 +127,9 @@ func validXUID(xuid string) bool {
 
 func worldErrorCode(err error) int {
 	switch {
-	case errors.Is(err, localworld.ErrNotOpen):
+	case errors.Is(err, ErrWorldNotOpen):
 		return codeWorldBusy
-	case errors.Is(err, localworld.ErrInvalid):
+	case errors.Is(err, ErrWorldInvalid):
 		return -32602
 	}
 	return codeWorldFailed
@@ -140,9 +138,9 @@ func worldErrorCode(err error) int {
 // worldErrorMessage exposes only sentinel-class messages; other errors may carry local paths.
 func worldErrorMessage(err error) string {
 	switch {
-	case errors.Is(err, localworld.ErrNotOpen):
-		return localworld.ErrNotOpen.Error()
-	case errors.Is(err, localworld.ErrInvalid):
+	case errors.Is(err, ErrWorldNotOpen):
+		return ErrWorldNotOpen.Error()
+	case errors.Is(err, ErrWorldInvalid):
 		return err.Error()
 	}
 	return "world operation failed"

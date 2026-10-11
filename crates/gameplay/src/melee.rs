@@ -26,11 +26,11 @@ pub fn swing_duration(effects: MiningEffects) -> i32 {
     };
     let haste = level(effects.haste).max(level(effects.conduit_power));
     let duration = match (haste, level(effects.mining_fatigue)) {
-        (Some(haste), _) => client_world::ACTOR_SWING_TICKS.saturating_sub(haste),
+        (Some(haste), _) => actor_animation::ACTOR_SWING_TICKS.saturating_sub(haste),
         (None, Some(fatigue)) => {
-            client_world::ACTOR_SWING_TICKS.saturating_add(fatigue.saturating_mul(2))
+            actor_animation::ACTOR_SWING_TICKS.saturating_add(fatigue.saturating_mul(2))
         }
-        (None, None) => client_world::ACTOR_SWING_TICKS,
+        (None, None) => actor_animation::ACTOR_SWING_TICKS,
     };
     duration.max(1)
 }

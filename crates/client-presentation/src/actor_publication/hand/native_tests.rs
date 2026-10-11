@@ -1,7 +1,7 @@
 use super::*;
 use crate::presentation::equipment::HeldKind;
 use bevy::math::Quat;
-use render::ActorArtworkPages;
+use render_model::ActorArtworkPages;
 
 /// Supplies an original attack-driven player arm and an identity-pose held attachable.
 fn fixture(
@@ -249,7 +249,7 @@ fn hand_source_for_mode(
             equipment_input: input,
             owner_equipment: input,
             consume_ticks: None,
-            item_animation: Some(client_world::AttachableAnimationInput {
+            item_animation: Some(actor_animation::AttachableAnimationInput {
                 first_person: true,
                 ..Default::default()
             }),
@@ -270,7 +270,7 @@ fn assert_sampled(held: bool) {
     let (mut stream, mut equipment, artwork, input) = fixture(held.then_some("minecraft:shield"));
     let mut cache = java::HandCache::default();
     for (physics_alpha, actor_alpha) in [(0.75, 0.1), (0.25, 0.9)] {
-        stream.sync_local_swing(client_world::LocalSwingProgress {
+        stream.sync_local_swing(actor_animation::LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(physics_alpha),
@@ -356,7 +356,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
                     kind: HeldKind::Sprite,
                 });
             }
-            stream.sync_local_swing(client_world::LocalSwingProgress {
+            stream.sync_local_swing(actor_animation::LocalSwingProgress {
                 bedrock: [0.25, 0.5],
                 java: [0.25, 0.5],
                 frame_alpha: Some(0.75),
@@ -402,7 +402,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
 #[test]
 fn native_hand_unchanged_sampling_reuses_the_owned_pose_without_work() {
     let (mut stream, mut equipment, artwork, input) = fixture(None);
-    stream.sync_local_swing(client_world::LocalSwingProgress {
+    stream.sync_local_swing(actor_animation::LocalSwingProgress {
         bedrock: [0.25, 0.5],
         java: [0.25, 0.5],
         frame_alpha: Some(0.75),
@@ -426,7 +426,7 @@ fn native_hand_unchanged_sampling_reuses_the_owned_pose_without_work() {
         0.1,
     )
     .unwrap();
-    let animation = Some(client_world::AttachableAnimationInput {
+    let animation = Some(actor_animation::AttachableAnimationInput {
         first_person: true,
         ..Default::default()
     });
@@ -464,7 +464,7 @@ fn assert_java_without_native_work(main: Option<&str>) {
     let (mut stream, mut equipment, artwork, input) = fixture(main);
     let mut cache = java::HandCache::default();
     for physics_alpha in [0.75, 0.25] {
-        stream.sync_local_swing(client_world::LocalSwingProgress {
+        stream.sync_local_swing(actor_animation::LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(physics_alpha),
@@ -516,7 +516,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     }
     let mut cache = java::HandCache::default();
     for physics_alpha in [0.75, 0.25] {
-        stream.sync_local_swing(client_world::LocalSwingProgress {
+        stream.sync_local_swing(actor_animation::LocalSwingProgress {
             bedrock: [0.25, 0.5],
             java: [0.25, 0.5],
             frame_alpha: Some(physics_alpha),
@@ -578,13 +578,15 @@ fn assert_attachable_readiness_clock(changed: bool) {
     time.advance_by(std::time::Duration::from_millis(50));
     world.insert_resource(time);
     world.insert_resource(equipment);
-    world.insert_resource(artwork);
-    world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
+    world.insert_resource(render_scene::ActorArtworkResource(artwork));
+    world.insert_resource(
+        render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
+    );
     world.insert_resource(super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap());
     world.init_resource::<super::super::ActorFrameState>();
     world.init_resource::<super::super::PreparedActorPublication>();
     world.init_resource::<super::super::ActorFramePartialTick>();
-    world.init_resource::<render::HandRigScene>();
+    world.init_resource::<render_scene::HandRigScene>();
     let mut avatar = crate::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(stream.authority().actor_session_id(), 1);
     world.insert_resource(avatar);
@@ -626,7 +628,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
         |_, _| {
             (
                 None,
-                Some(client_world::AttachableAnimationInput {
+                Some(actor_animation::AttachableAnimationInput {
                     first_person: true,
                     ..Default::default()
                 }),
@@ -651,7 +653,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
         Quat::from_array(early.rotation)
             .abs_diff_eq(Quat::from_rotation_x(-10f32.to_radians()), 1e-5)
     );
-    let swing = changed.then_some(client_world::LocalSwingProgress {
+    let swing = changed.then_some(actor_animation::LocalSwingProgress {
         bedrock: [0.25, 0.5],
         java: [0.25, 0.5],
         frame_alpha: Some(1.0),
@@ -669,17 +671,19 @@ fn assert_attachable_readiness_clock(changed: bool) {
         |_, _, _, _| false,
         params.get_mut(&mut world).unwrap(),
     );
-    let scene = world.resource::<render::HandRigScene>();
+    let scene = world.resource::<render_scene::HandRigScene>();
     assert!(scene.is_active());
     // A rest-parent draw exposes only the authored clock the production frame committed.
-    stream.sync_local_swing(client_world::LocalSwingProgress {
+    stream.sync_local_swing(actor_animation::LocalSwingProgress {
         bedrock: [0.0; 2],
         java: [0.0; 2],
         frame_alpha: Some(1.0),
     });
     stream.advance_actor_interpolation_frame(0);
     let mut cache = java::HandCache::default();
-    let artwork = world.resource::<ActorArtworkPages>().clone();
+    let artwork = world
+        .resource::<render_scene::ActorArtworkResource>()
+        .clone();
     let result = hand_source_for_mode(
         &stream,
         &mut world.resource_mut::<EquipmentRuntime>(),
@@ -735,8 +739,8 @@ pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
-        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
         fall_fly_ticks: 0,

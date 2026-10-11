@@ -361,6 +361,7 @@ fn registry_rebinding_and_dropping_clones_keep_only_real_current_origins() {
     let fixture = Fixture::new();
     let entry = |name: &str| protocol::ItemRegistryEvent {
         entries: vec![protocol::ItemRegistryEntry {
+            components: None,
             identifier: Arc::from(name),
             network_id: 6,
             component_based: false,

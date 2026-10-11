@@ -1,6 +1,6 @@
 use super::{java_swing_duration, swing_duration};
 use crate::movement::{LocalMovementEffectTimeline, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME};
-use client_world::LocalSwingProgress;
+use actor_animation::LocalSwingProgress;
 
 /// Packet admission and both animation counters on the committed local simulation clock.
 #[derive(Debug, Default, Clone)]
@@ -32,7 +32,7 @@ impl Default for Counter {
         Self {
             counter: None,
             progress: [0.0; 2],
-            duration: client_world::ACTOR_SWING_TICKS,
+            duration: actor_animation::ACTOR_SWING_TICKS,
         }
     }
 }

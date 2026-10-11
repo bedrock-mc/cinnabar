@@ -18,6 +18,7 @@ client-presentation = { path = "../client-presentation" }
 client-state = { path = "../client-state" }
 client-ui = { path = "../client-ui" }
 client-world = { path = "../client-world" }
+actor-animation = { path = "../actor-animation" }
 diagnostics = { path = "../diagnostics" }
 gameplay = { path = "../gameplay" }
 inventory = { path = "../inventory" }

@@ -1,9 +1,9 @@
 //! Native cube face axes must not align opposite cutout masks in world space.
-use crate::gpu_snapshot;
 
+use crate::gpu_snapshot;
 use gpu_snapshot::{Draw, Gpu};
 use meshing::Face;
-use render::greedy_texture_uv;
+use render_scene::greedy_texture_uv;
 
 /// Compile the actual production functions, not a test-side UV implementation.
 fn shader() -> String {

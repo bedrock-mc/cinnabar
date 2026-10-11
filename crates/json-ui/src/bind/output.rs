@@ -49,9 +49,7 @@ pub(super) fn put(node: &Node, properties: Properties) {
     let key = (node.src.get().properties.identity(), node.key);
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if cache.len() >= MAX_OUTPUTS {
-            cache.retain(|entry| entry.owner.strong_count() != 0);
-        }
+        cache.prune_dead(|entry| entry.owner.strong_count() != 0);
         cache.insert(
             key,
             Entry {

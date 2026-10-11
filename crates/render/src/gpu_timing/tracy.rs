@@ -1,4 +1,4 @@
-use super::{GpuFrameTimes, RuntimeStage};
+use render_scene::{GpuFrameTimes, RuntimeStage};
 use std::sync::LazyLock;
 use tracy_client::{Client, PlotName};
 

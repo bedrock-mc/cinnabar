@@ -4,7 +4,7 @@ Owner-mandated default, selected with Video › Animations: Java 1.7 or Bedrock 
 
 New installs and existing installs with no saved animation preference default to Java 1.7. Saved toggle values migrate: on selects Java 1.7; off selects Bedrock.
 
-Code: `render-model::java_animation` (pose, cape and matrix stacks), `client-world` `actor_animation/java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
+Code: `render-model::java_animation` (pose, cape and matrix stacks), `actor-animation` `java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
 
 ## Frame mapping
 

@@ -567,13 +567,14 @@ mod tests {
 
     #[test]
     fn ui_model_resize_rebuilds_uploads_and_never_retains_old_bucket_bindings() {
-        use super::super::{
-            UiGpu, UiRenderInput, UiRenderScene, UiRenderSceneResource, UiRenderStatsResource,
-        };
         use bevy::ecs::system::RunSystemOnce;
         use render_model::{
             UI_DYNAMIC_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
             UI_PLAYER_SKIN_PAGE_OFFSET,
+        };
+        use {
+            super::super::{UiGpu, UiRenderInput, UiRenderScene},
+            render_scene::{UiRenderSceneResource, UiRenderStatsResource},
         };
 
         let small = UiTexturePage::owned(

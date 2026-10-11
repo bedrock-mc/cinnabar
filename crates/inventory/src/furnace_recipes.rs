@@ -16,7 +16,7 @@ mod selection;
 pub(crate) use selection::Selection;
 
 /// The recipe family associated with a furnace-style station.
-fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
+pub(crate) fn kind(window: WindowKind) -> Option<ScreenRecipeKind> {
     Some(match window {
         WindowKind::Furnace => ScreenRecipeKind::Furnace,
         WindowKind::BlastFurnace => ScreenRecipeKind::BlastFurnace,

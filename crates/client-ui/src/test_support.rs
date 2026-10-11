@@ -24,7 +24,7 @@ pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 16,
         height: 16,
-        pixels: FontPixels::Rgba8(pixels),
+        pixels: FontPixels::Rgba8(pixels.into()),
     };
     let glyphs = ['/', '0', '2', '\u{fffd}'].map(|codepoint| GlyphMetrics {
         codepoint,

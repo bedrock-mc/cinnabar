@@ -119,7 +119,7 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             pixels_sha256: Sha256::digest(&pixels).into(),
             width: ATLAS_SIDE,
             height: ATLAS_SIDE,
-            pixels: FontPixels::Rgba8(pixels),
+            pixels: FontPixels::Rgba8(pixels.into()),
         })
         .collect::<Vec<_>>();
     let glyphs = atlas

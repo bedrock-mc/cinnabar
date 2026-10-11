@@ -17,6 +17,7 @@ fn positional_materials_keep_one_cell_per_quad_on_every_cube_face() {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         light_properties: vec![assets::LightProperties::OPAQUE_DARK],
         materials: vec![
@@ -80,6 +81,7 @@ fn mixed_biome_option_keeps_tinted_faces_one_block_wide() {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         light_properties: vec![assets::LightProperties::OPAQUE_DARK],
         materials: vec![Material {

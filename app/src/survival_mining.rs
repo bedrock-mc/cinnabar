@@ -233,10 +233,12 @@ fn observe_destroy_target(
     }
     let stream = context.client_world.stream.as_ref()?;
     let mode = stream.network_id_mode();
-    let block = context
-        .collisions
-        .block_identifier(mode, observed.target.runtime_id)
-        .and_then(sim::block_destroy_info);
+    let block = sim::BlockDestroyInfo::from_facts(
+        stream
+            .runtime_assets()
+            .resolve(mode, observed.target.runtime_id)
+            .destroy(),
+    );
     let item = &observed.selection.item;
     let identifier = (item.network_id() != 0)
         .then(|| {

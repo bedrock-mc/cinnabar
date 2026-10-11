@@ -69,6 +69,8 @@ pub struct FormEngine {
     pub(super) server_sheet_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
+    /// Whether a server pack's ui files are layered over the base catalog.
+    pub(super) server_ui: bool,
     menu_title_source: menu_title::TitleSource,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub(super) cache: Option<FormCache>,
@@ -145,6 +147,7 @@ impl FormEngine {
             server_pages: Vec::new(),
             server_sheet_pages: Vec::new(),
             server_source: None,
+            server_ui: false,
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),

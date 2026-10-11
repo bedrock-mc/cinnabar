@@ -277,6 +277,9 @@ pub struct LayoutReport {
     pub clip_states: BTreeMap<String, (String, bool)>,
     /// Whether a laid-out control follows the pointer ([`ViewState::pointer`]).
     pub tracks_pointer: bool,
+    /// Each grid holding placeholder cells, by its bind key: the collection indices of the
+    /// cells laid out in view, which [`crate::BindState::show_grid_cells`] has bound next.
+    pub grid_cells: BTreeMap<u64, std::ops::Range<usize>>,
 }
 
 impl LayoutReport {

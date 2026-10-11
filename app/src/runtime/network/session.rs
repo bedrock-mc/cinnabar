@@ -19,7 +19,7 @@ pub struct NetworkConfig {
     /// The player's language, input mode and GUI scale, reported at login.
     pub login_settings: protocol::LoginSettings,
     /// Rechecked against live artwork before presentation publication.
-    pub actor_artwork: Option<render::ActorArtworkPages>,
+    pub actor_artwork: Option<render_model::ActorArtworkPages>,
     /// The carrier catalog initial server UI resolves against on the worker.
     pub ui_catalog: Option<std::sync::Arc<json_ui::Catalog>>,
 }

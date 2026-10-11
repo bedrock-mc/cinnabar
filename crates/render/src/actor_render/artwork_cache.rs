@@ -1,7 +1,8 @@
 //! Content keys retain immutable device textures across artwork publications.
 use super::GpuArtworkPage;
+use std::hash::BuildHasher;
 use std::{
-    hash::{BuildHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     sync::Arc,
 };
 
@@ -48,7 +49,7 @@ impl Hash for TextureKey {
         self.fingerprint.hash(state);
     }
 }
-use crate::ActorTexturePage;
+use render_model::ActorTexturePage;
 use std::collections::{HashMap, hash_map::RandomState};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]

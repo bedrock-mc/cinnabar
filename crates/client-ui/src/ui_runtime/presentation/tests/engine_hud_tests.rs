@@ -902,7 +902,7 @@ fn world_rules_raise_the_position_and_days_lines() {
     };
     let mut runtime = UiRuntime::new(1);
     presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
-    presentation.hud_frame_mut().world_time = Some(24_000.0 * 3.0 + 5.0);
+    presentation.hud_frame_mut().world_time = Some(f64::from(world::TICKS_PER_DAY) * 3.0 + 5.0);
     build(&player_runtime, &mut presentation, &runtime, 0);
     let shown = |presentation: &UiPresentationRuntime, wanted: &str| {
         text(presentation.hud_draw_nodes(), wanted).is_some()

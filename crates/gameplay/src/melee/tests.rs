@@ -541,7 +541,7 @@ fn local_swing_progress_is_exact_for_batched_held_ticks() {
     for (duration, interval) in [(6, 4), (4, 3), (8, 5)] {
         let mut batched = SwingTracker::default();
         let mut sequential = SwingTracker::default();
-        let mut expected = client_world::LocalSwingProgress::default();
+        let mut expected = actor_animation::LocalSwingProgress::default();
         for tick in 1..=8 {
             batched.try_swing(tick, duration);
             sequential.try_swing(tick, duration);
@@ -864,7 +864,7 @@ fn committed_swing_samples_replace_a_recovered_published_restart() {
 #[test]
 fn committed_swing_samples_are_bounded_across_large_tick_jumps_and_authority_resets() {
     use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
-    use client_world::LocalSwingProgress;
+    use actor_animation::LocalSwingProgress;
     let mut effects = crate::movement::LocalMovementEffectTimeline::default();
     effects.begin_session(1);
     let mut swings = SwingTracker::default();

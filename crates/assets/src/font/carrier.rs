@@ -399,9 +399,9 @@ pub(super) fn decode_pages(
             width,
             height,
             pixels: if format == 1 {
-                FontPixels::Coverage(pixels)
+                FontPixels::Coverage(pixels.into())
             } else {
-                FontPixels::Rgba8(pixels)
+                FontPixels::Rgba8(pixels.into())
             },
         });
     }

@@ -22,7 +22,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 8,
         height: 8,
-        pixels: FontPixels::Rgba8(rgba8.clone()),
+        pixels: FontPixels::Rgba8(rgba8.clone().into()),
     };
     let glyph = |codepoint: char, page: u16, u0: u16| GlyphMetrics {
         codepoint,

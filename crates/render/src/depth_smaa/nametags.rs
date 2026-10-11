@@ -1,13 +1,12 @@
 //! World name text retains its colour space and depth policy after spatial edge smoothing.
 
 use super::*;
+use bevy::render::render_phase::PhaseItem;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::core_3d::Transparent3d,
     render::{
-        camera::ExtractedCamera,
-        render_phase::{PhaseItem, ViewSortedRenderPhases},
-        renderer::RenderContext,
+        camera::ExtractedCamera, render_phase::ViewSortedRenderPhases, renderer::RenderContext,
         view::ExtractedView,
     },
 };
@@ -24,7 +23,7 @@ type NametagsAfterSmaaQuery = (
     &'static Msaa,
     &'static crate::scene_target::SceneTarget,
     Option<&'static MainPassResolutionOverride>,
-    Option<&'static crate::EnhancedRendering>,
+    Option<&'static render_scene::EnhancedRendering>,
 );
 
 /// Draws world names after spatial filtering unless motion blur owns their final pass.
@@ -65,7 +64,7 @@ pub(crate) fn nametags_after_smaa(
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuUi,
+                render_scene::RuntimeStage::GpuUi,
             ),
             occlusion_query_set: None,
             multiview_mask: None,

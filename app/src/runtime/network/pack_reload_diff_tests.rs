@@ -9,7 +9,7 @@ fn aim_highlight_overrides_track_only_their_texture_inputs() {
     image::RgbaImage::from_pixel(1, 1, image::Rgba([7, 11, 13, 255]))
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
-    let path = format!("{}.png", render::AIM_ASSIST_TEXTURES[0]);
+    let path = format!("{}.png", render_scene::AIM_ASSIST_TEXTURES[0]);
     let before = stack(&[(path.as_str(), png.get_ref())]);
     let mut dependencies = Dependencies::default();
     let textures = compile(

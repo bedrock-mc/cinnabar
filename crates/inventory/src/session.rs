@@ -101,7 +101,16 @@ impl InventorySession {
 
     /// Issue synchronous inventory commands through the single ledger owner.
     pub fn ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
-        Arc::make_mut(&mut self.inventory_ledger)
+        let catalog = self.crafting_authority.catalog_snapshot();
+        let ledger = Arc::make_mut(&mut self.inventory_ledger);
+        ledger.bind_furnace_inputs(catalog);
+        ledger
+    }
+
+    /// Whether furnace admission already matches the committed recipes, so no binding is due.
+    pub(crate) fn furnace_admission_bound(&self) -> bool {
+        self.inventory_ledger
+            .furnace_inputs_bound(&self.crafting_authority.catalog_snapshot())
     }
 
     /// Expire outstanding requests; the caller updates its screen if a lifecycle expired.

@@ -39,6 +39,9 @@ impl RegistryOwner {
                 .checked_add(32)?
                 .checked_add(entry.item_tags.len().checked_mul(size_of::<Arc<str>>())?)?
                 .checked_add(32)?;
+            if let Some(components) = &entry.components {
+                bytes = bytes.checked_add(components.retained_bytes())?;
+            }
             for tag in entry.item_tags.iter() {
                 bytes = bytes.checked_add(tag.len())?.checked_add(32)?;
             }

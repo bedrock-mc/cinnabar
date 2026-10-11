@@ -4,25 +4,11 @@ use protocol::ActorPropertySyncEvent;
 use world::{BlockEntityNbt, NbtValue};
 
 use super::ActorStore;
+use actor_animation::{PropertyDefinition, PropertyKind};
 
 /// Most entity types and properties per type retained from property syncs.
 const MAX_PROPERTY_TYPES: usize = 1_024;
 const MAX_PROPERTIES_PER_TYPE: usize = 256;
-
-/// How a property's stored number reads: enums store the index of their value name.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum PropertyKind {
-    Number,
-    Enum(Arc<[Arc<str>]>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct PropertyDefinition {
-    pub(crate) name: Arc<str>,
-    pub(crate) kind: PropertyKind,
-    /// Stored number an actor reads before the server sets it (enums: the value index).
-    pub(crate) default: f32,
-}
 
 /// A property default from a pack's behavior definition of an entity type.
 #[derive(Clone, Debug, PartialEq)]

@@ -5,11 +5,11 @@ use client_presentation::{
     actor_publication::ActorFramePartialTick, primitive_shapes::PrimitiveShapePublisher,
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use render::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 use {
     crate::runtime::world::ClientWorld, client_presentation::local_player::LocalViewPose,
     client_state::ClientFrameSet,
 };
+use {render::PrimitiveShapesRenderPlugin, render_scene::PrimitiveShapesScene};
 
 pub(crate) fn configure(app: &mut App) {
     app.add_plugins(PrimitiveShapesRenderPlugin);

@@ -58,6 +58,10 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
     assert_mutation_rejected(|c| c.rig_animations[0].clip = u32::MAX);
     assert_mutation_rejected(|c| c.rig_controllers[0].name = u32::MAX);
     assert_mutation_rejected(|c| c.rig_controllers[0].controller = u32::MAX);
+    assert_mutation_rejected(|c| {
+        c.item_visuals[0].durability =
+            assets::item::durability::ItemDurability::Maximum { maximum: 0 }
+    });
     assert_mutation_rejected(|c| c.item_visuals[0].source = u32::MAX);
     assert_mutation_rejected(|c| {
         c.item_visuals[0].route = item::ItemVisualDefinitionRoute::BlockItem {
@@ -522,5 +526,62 @@ fn review_molang_rejects_unbounded_backward_jumps() {
     compiled.molang_expressions[0].first_op = 0;
     compiled.molang_expressions[0].op_count = 1;
     compiled.molang_expressions[0].max_stack = 0;
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn compiled_item_facts_admit_only_hash_checked_missing_retail_visuals() {
+    let mut compiled = super::suite::fixture();
+    let mut sources = compiled.sources.to_vec();
+    let source = sources.len();
+    sources.push(entity::EntityAssetSource {
+        path: assets::item::armour::ITEM_ARMOUR_SOURCE_PATH.into(),
+        source_bytes: assets::item::armour::ITEM_ARMOUR_SOURCE_BYTES.len() as u32,
+        source_sha256: Sha256::digest(assets::item::armour::ITEM_ARMOUR_SOURCE_BYTES).into(),
+    });
+    compiled.sources = sources.into_boxed_slice();
+    compiled.item_visuals = carrier_v4_fixture().item_visuals;
+    compiled.item_visuals[0].source = source as u32;
+    compiled.item_visuals[0].route = item::ItemVisualDefinitionRoute::Missing;
+    let blob = entity::encode_entity_blob(&compiled).unwrap();
+    RuntimeEntityAssets::decode(&blob).unwrap();
+
+    for case in ["hash", "size", "custom", "metadata", "visual"] {
+        let mut invalid = compiled.clone();
+        match case {
+            "hash" => invalid.sources[source].source_sha256[0] ^= 1,
+            "size" => invalid.sources[source].source_bytes += 1,
+            "custom" => invalid.item_visuals[0].key.identifier = "fixture:unbound".into(),
+            "metadata" => invalid.item_visuals[0].key.metadata = 1,
+            "visual" => {
+                invalid.item_visuals[0].route = item::ItemVisualDefinitionRoute::BlockItem {
+                    block_visual: item::BlockVisualId(7),
+                };
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            invalid.validate().is_err(),
+            "accepted invalid facts source: {case}"
+        );
+    }
+}
+
+#[test]
+fn compiled_durability_source_rejects_forged_identity() {
+    let mut compiled = super::suite::fixture();
+    let mut sources = compiled.sources.to_vec();
+    sources.push(entity::EntityAssetSource {
+        path: assets::item::durability::ITEM_DURABILITY_SOURCE_PATH.into(),
+        source_bytes: assets::item::durability::ITEM_DURABILITY_SOURCE_BYTES.len() as u32,
+        source_sha256: Sha256::digest(assets::item::durability::ITEM_DURABILITY_SOURCE_BYTES)
+            .into(),
+    });
+    compiled.sources = sources.into_boxed_slice();
+    entity::encode_entity_blob(&compiled).unwrap();
+    let mut wrong_hash = compiled.clone();
+    wrong_hash.sources.last_mut().unwrap().source_sha256[0] ^= 1;
+    assert!(wrong_hash.validate().is_err());
+    compiled.sources.last_mut().unwrap().source_bytes += 1;
     assert!(compiled.validate().is_err());
 }

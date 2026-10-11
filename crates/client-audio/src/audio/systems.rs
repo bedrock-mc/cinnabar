@@ -837,7 +837,7 @@ mod tests {
         state.bind(1, 4, &mut AudioEngine::default());
         assert!(state.admits(&event(20, 0, 4), 0, false));
         let mut delayed = event(2, 0, 4);
-        delayed.actor_synchronization = Some(client_world::ActorLifetimeId {
+        delayed.actor_synchronization = Some(actor_animation::ActorLifetimeId {
             session_id: 1,
             dimension: 0,
             runtime_id: 7,

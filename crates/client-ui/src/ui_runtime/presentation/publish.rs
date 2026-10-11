@@ -19,14 +19,24 @@ pub fn capture_hud_frame(
     };
     let worn = runtime.local_armor(player_runtime);
     let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
-    let identifiers = worn.map(|stack| {
-        (!stack.is_empty())
-            .then(|| resolve_identifier(stack))
-            .flatten()
+    let protection = worn.map(|stack| {
+        if stack.is_empty() {
+            Some(0)
+        } else {
+            stream.and_then(|stream| {
+                stream
+                    .authority()
+                    .item_armour(stack.network_id)
+                    .protection()
+            })
+        }
     });
-    runtime.set_derived_armor(Some(item_facts::total_armor_points(
-        identifiers.iter().map(|id| id.as_deref()),
-    )));
+    runtime.set_derived_armor(
+        protection
+            .into_iter()
+            .try_fold(0u32, |sum, points| Some(sum.saturating_add(points?)))
+            .map(|points| points.min(20) as u16),
+    );
     let mount_health = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
         stream.and_then(|stream| stream.authority().actor_health_by_unique(unique))
     });
@@ -124,7 +134,12 @@ pub fn capture_hud_frame(
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
-            let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+            let maximum = stream.and_then(|stream| {
+                stream
+                    .authority()
+                    .item_durability(stack.network_id)
+                    .maximum()
+            });
             runtime.stack_durability(stack, maximum, correction)
         };
         for (slot, bar) in durability.player.iter_mut().enumerate() {
@@ -461,7 +476,12 @@ pub fn capture_hud_frame(
                 .presented_slot_overlay(slot);
             *durability = runtime.stack_durability(
                 stack,
-                runtime.item_max_durability(identifier.as_deref()),
+                stream.and_then(|stream| {
+                    stream
+                        .authority()
+                        .item_durability(stack.network_id)
+                        .maximum()
+                }),
                 overlay.and_then(|overlay| overlay.durability_correction),
             );
             hotbar_icons[usize::from(slot)] = identifier.as_deref().and_then(|id| {
@@ -477,7 +497,12 @@ pub fn capture_hud_frame(
     }
     presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+        let maximum = stream.and_then(|stream| {
+            stream
+                .authority()
+                .item_durability(stack.network_id)
+                .maximum()
+        });
         runtime.stack_durability(stack, maximum, None)
     });
     let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {

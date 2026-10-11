@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::EntityShadowScene;
 
 /// Retains the overlap stencil and bindings for this view's shadow coverage.
 #[derive(Component)]

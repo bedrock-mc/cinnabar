@@ -1,6 +1,11 @@
 {
   "magic": "BREG1003",
   "legacy_protocol": 1001,
+  "physics_magic": "PREG1002",
+  "physics_legacy_magic": "PREG1001",
+  "physics_header_bytes": 48,
+  "physics_record_header_bytes": 28,
+  "physics_movement_semantics_offset": 11,
   "limits": [
     {"rust_name": "MAX_REGISTRY_RECORDS", "go_name": "maxRecordCount", "value": 65536},
     {"rust_name": "MAX_REGISTRY_STATE_BYTES", "go_name": "maxStateBytes", "value": 1048576},
@@ -8,6 +13,20 @@
     {"rust_name": null, "go_name": "maxNameBytes", "value": 65535}
   ],
   "enums": [
+    {
+      "name": "MovementSemantics",
+      "doc": "Declared movement classification, with unresolved states distinct from ordinary behavior.",
+      "default": "Unresolved",
+      "go_prefix": "MovementSemantics",
+      "go_max": "maxMovementSemantics",
+      "read": true,
+      "read_visibility": "pub(crate)",
+      "values": [
+        {"name": "Unresolved", "value": 0},
+        {"name": "Ordinary", "value": 1},
+        {"name": "Special", "value": 2}
+      ]
+    },
     {
       "name": "ModelFamily",
       "default": "Unknown",

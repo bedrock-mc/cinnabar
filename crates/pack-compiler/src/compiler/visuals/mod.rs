@@ -46,6 +46,8 @@ pub(in crate::compiler) mod portal;
 pub(in crate::compiler) mod pressure_plates;
 pub(in crate::compiler) mod rails;
 pub(in crate::compiler) mod resin_clump;
+pub(in crate::compiler) mod respawn_anchor;
+pub(in crate::compiler) mod sea_pickle;
 pub(in crate::compiler) mod selector_alias;
 pub(in crate::compiler) mod shelf;
 pub(in crate::compiler) mod signs;

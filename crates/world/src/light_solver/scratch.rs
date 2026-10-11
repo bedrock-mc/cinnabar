@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use super::{
     cache::{BlockCacheScratch, PriorCacheScratch},
+    full::FullSolveScratch,
     output::MutableOutputScratch,
     queue::IncreaseQueue,
     solve::DarkenEntry,
@@ -17,6 +18,7 @@ pub struct LightSolverScratch {
     pub(super) darken: VecDeque<DarkenEntry>,
     pub(super) block_increase: IncreaseQueue,
     pub(super) sky_increase: IncreaseQueue,
+    pub(super) full: FullSolveScratch,
 }
 
 #[cfg(test)]

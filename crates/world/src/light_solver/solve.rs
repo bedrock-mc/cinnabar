@@ -22,9 +22,9 @@ pub(super) struct IncreaseEntry {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DarkenEntry {
     pub(super) position: BlockPos,
-    channel: LightChannel,
-    old_level: u8,
-    direct_sky: bool,
+    pub(super) channel: LightChannel,
+    pub(super) old_level: u8,
+    pub(super) direct_sky: bool,
 }
 
 pub(super) const NEIGHBOURS: [[i32; 3]; 6] = [
@@ -133,11 +133,12 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
     stats.queue_peak = stats.queue_peak.max(darken.len());
     while let Some(entry) = darken.pop_front() {
         stats.darken_dequeued += 1;
-        for offset in NEIGHBOURS {
-            let Some(next) = entry.position.checked_offset(offset) else {
-                continue;
-            };
-            let Some(index) = output.index(next) else {
+        let entry_index = output
+            .index(entry.position)
+            .expect("darkened cells stay inside the solve bounds");
+        for (direction, offset) in NEIGHBOURS.into_iter().enumerate() {
+            let Some((next, index)) = output.neighbour(entry.position, entry_index, direction)
+            else {
                 continue;
             };
             if blocks.sample_at_index(index).filter().is_none() {
@@ -246,7 +247,7 @@ pub fn solve_light_with_scratch<A: LightBlockAccess, P: LightReadAccess>(
 }
 
 /// Validates a lazily cached raw prior value at an already mapped interior cell.
-fn read_prior<P: LightReadAccess>(
+pub(super) fn read_prior<P: LightReadAccess>(
     prior: &CachedLightReadAccess<'_, P>,
     index: usize,
     position: BlockPos,
@@ -261,7 +262,7 @@ fn read_prior<P: LightReadAccess>(
 }
 
 /// Reads local emission and validates sky seeds without remapping an interior cell.
-fn local_base<A: LightBlockAccess>(
+pub(super) fn local_base<A: LightBlockAccess>(
     blocks: &CachedLightBlockAccess<'_, A>,
     index: usize,
     channel: LightChannel,
@@ -289,7 +290,7 @@ fn local_base<A: LightBlockAccess>(
 
 /// Stops once cached neighbour support reaches the retained light level.
 #[allow(clippy::too_many_arguments)]
-fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
+pub(super) fn prior_supports_level<A: LightBlockAccess, P: LightReadAccess>(
     blocks: &CachedLightBlockAccess<'_, A>,
     prior: &CachedLightReadAccess<'_, P>,
     bounds: LightBounds,
@@ -384,7 +385,7 @@ fn incoming_level(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn propagate<A: LightBlockAccess, P: LightReadAccess>(
+pub(super) fn propagate<A: LightBlockAccess, P: LightReadAccess>(
     blocks: &CachedLightBlockAccess<'_, A>,
     prior: &P,
     bounds: LightBounds,
@@ -414,11 +415,9 @@ fn propagate<A: LightBlockAccess, P: LightReadAccess>(
     while let Some(entry) = queue.pop_front() {
         stats.increase_dequeued += 1;
         let source = output.get_at_index(entry.index, channel);
-        for offset in NEIGHBOURS {
-            let Some(next) = entry.position.checked_offset(offset) else {
-                continue;
-            };
-            let Some(index) = output.index(next) else {
+        for (direction, offset) in NEIGHBOURS.into_iter().enumerate() {
+            let Some((next, index)) = output.neighbour(entry.position, entry.index, direction)
+            else {
                 continue;
             };
             let Some(filter) = blocks.sample_at_index(index).filter() else {
@@ -476,16 +475,7 @@ pub(super) fn seed_boundary_from_halo<A: LightBlockAccess, P: LightReadAccess>(
     if channel == LightChannel::Sky && !profile.allows_sky() {
         return Ok(());
     }
-    for position in bounds.positions() {
-        if position.x != bounds.min.x
-            && position.x != bounds.max.x
-            && position.y != bounds.min.y
-            && position.y != bounds.max.y
-            && position.z != bounds.min.z
-            && position.z != bounds.max.z
-        {
-            continue;
-        }
+    for position in bounds.surface_positions() {
         let Some(filter) = blocks.sample(position).filter() else {
             continue;
         };

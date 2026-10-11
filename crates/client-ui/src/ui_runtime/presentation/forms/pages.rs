@@ -2,6 +2,8 @@
 //! page is padded to the largest page's size so all of them share one texture
 //! bucket; pixel UVs stay valid because padding only extends right and down.
 
+use std::sync::Arc;
+
 use assets::RuntimeUiAssets;
 use render_model::{UiRenderTextureArray, UiTexturePage};
 use sha2::{Digest, Sha256};
@@ -21,14 +23,20 @@ pub(super) fn with_ui_pages(
     let row_bytes = side[0] as usize * 4;
     let mut ui_pages = Vec::with_capacity(atlas.len());
     for page in atlas {
-        let mut pixels = vec![0u8; row_bytes * side[1] as usize];
-        let source_row = page.width as usize * 4;
-        for (row, source) in page.rgba8.chunks_exact(source_row).enumerate() {
-            let start = row * row_bytes;
-            pixels[start..start + source_row].copy_from_slice(source);
-        }
+        // A full-size page shares the carrier's pixels; only a smaller one is padded into a copy.
+        let pixels = if [page.width, page.height] == side {
+            Arc::clone(&page.rgba8)
+        } else {
+            let mut pixels = vec![0u8; row_bytes * side[1] as usize];
+            let source_row = page.width as usize * 4;
+            for (row, source) in page.rgba8.chunks_exact(source_row).enumerate() {
+                let start = row * row_bytes;
+                pixels[start..start + source_row].copy_from_slice(source);
+            }
+            pixels.into()
+        };
         ui_pages.push(
-            UiTexturePage::owned(side, pixels.into())
+            UiTexturePage::owned(side, pixels)
                 .map_err(|_| UiPresentationError::InvalidFontTexture)?,
         );
     }

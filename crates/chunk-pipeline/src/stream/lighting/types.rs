@@ -51,22 +51,11 @@ impl DirectSkyMask {
     pub(in crate::stream) fn from_output(output: &LightSolveOutput, key: SubChunkKey) -> Self {
         let mut words = Box::new([0_u64; 64]);
         let mut count = 0_usize;
-        for x in 0_u8..16 {
-            for z in 0_u8..16 {
-                for y in 0_u8..16 {
-                    let position = BlockPos::new(
-                        key.x.saturating_mul(16).saturating_add(i32::from(x)),
-                        key.y.saturating_mul(16).saturating_add(i32::from(y)),
-                        key.z.saturating_mul(16).saturating_add(i32::from(z)),
-                    );
-                    if output.has_direct_sky_provenance(key.dimension, position) {
-                        let index = light_local_index(x, y, z);
-                        words[index / 64] |= 1_u64 << (index % 64);
-                        count += 1;
-                    }
-                }
-            }
-        }
+        output.for_each_direct_sky_in(key, |[x, y, z]| {
+            let index = light_local_index(x, y, z);
+            words[index / 64] |= 1_u64 << (index % 64);
+            count += 1;
+        });
         match count {
             0 => Self::Uniform(false),
             4_096 => Self::Uniform(true),
@@ -175,6 +164,51 @@ pub(in crate::stream) fn sample_resident_light(
     }
 }
 
+/// [`sample_resident_light`] for every block of `sub_chunk` at once, into `out` indexed
+/// `x << 8 | z << 4 | y`: each layer's palette is resolved once rather than per block.
+pub(in crate::stream) fn fill_resident_light(
+    sub_chunk: &SubChunk,
+    classifier: BlockClassifier,
+    mut resolve: impl FnMut(u32) -> SolverLightProperties,
+    out: &mut [LightBlockSample; world::BLOCKS_PER_SUB_CHUNK],
+) {
+    let mut emission = [0_u8; world::BLOCKS_PER_SUB_CHUNK];
+    let mut filter = [0_u8; world::BLOCKS_PER_SUB_CHUNK];
+    let mut found = [false; world::BLOCKS_PER_SUB_CHUNK];
+    let mut indices = [0_u32; world::BLOCKS_PER_SUB_CHUNK];
+    let mut palette_light = Vec::new();
+    for storage in sub_chunk.storages() {
+        storage.palette_indices(&mut indices);
+        palette_light.clear();
+        palette_light.extend(
+            storage
+                .palette()
+                .values()
+                .iter()
+                .map(|&runtime_id| (!classifier.is_air(runtime_id)).then(|| resolve(runtime_id))),
+        );
+        for (linear, &index) in indices.iter().enumerate() {
+            // A missing word or an index past the palette has no runtime ID, as one block's read.
+            let Some(Some(properties)) = palette_light.get(index as usize) else {
+                continue;
+            };
+            emission[linear] = emission[linear].max(properties.emission());
+            filter[linear] = filter[linear].max(properties.filter());
+            found[linear] = true;
+        }
+    }
+    for (linear, sample) in out.iter_mut().enumerate() {
+        *sample = if found[linear] {
+            LightBlockSample::Resident(
+                SolverLightProperties::new(emission[linear], filter[linear])
+                    .expect("resolved light properties are nibble-bounded"),
+            )
+        } else {
+            LightBlockSample::KnownAir
+        };
+    }
+}
+
 #[cfg(test)]
 mod covered_emission_tests {
     use super::*;
@@ -195,6 +229,41 @@ mod covered_emission_tests {
             );
         }
     }
+
+    #[test]
+    fn a_whole_section_read_matches_every_block_read() {
+        // Layer 0: a two-bit network palette [air, 1, 2, 3] in a varied pattern; layer 1: 2.
+        let mut bytes = vec![8, 2, (2 << 1) | 1];
+        let mut words = [0_u32; world::BLOCKS_PER_SUB_CHUNK / 16];
+        for linear in 0..world::BLOCKS_PER_SUB_CHUNK {
+            let value = (linear * 7 + linear / 13) % 4;
+            words[linear / 16] |= (value as u32) << ((linear % 16) * 2);
+        }
+        for word in words {
+            bytes.extend(word.to_le_bytes());
+        }
+        bytes.extend([4 << 1, 0, 1 << 1, 2 << 1, 3 << 1, 1, 2 << 1]);
+        let chunk = SubChunk::decode(&bytes, &world::RawBlockIds { air: 0 });
+        assert_eq!(chunk.storages().len(), 2);
+        let classifier = BlockClassifier::new(0);
+        let resolve =
+            |id: u32| SolverLightProperties::new((id * 5 % 16) as u8, (id * 3 % 16) as u8).unwrap();
+        let mut whole = [LightBlockSample::Unknown; world::BLOCKS_PER_SUB_CHUNK];
+        fill_resident_light(&chunk, classifier, resolve, &mut whole);
+        for (linear, sample) in whole.iter().enumerate() {
+            let position = [
+                (linear >> 8) as u8,
+                (linear & 15) as u8,
+                ((linear >> 4) & 15) as u8,
+            ];
+            assert_eq!(
+                *sample,
+                sample_resident_light(&chunk, position, classifier, resolve),
+                "{position:?}"
+            );
+        }
+        assert!(whole.iter().any(|sample| *sample != whole[0]));
+    }
 }
 
 impl LightBlockAccess for LightBlockSnapshot {
@@ -214,6 +283,37 @@ impl LightBlockAccess for LightBlockSnapshot {
                 })
             }
         }
+    }
+
+    fn sample_section(
+        &self,
+        key: SubChunkKey,
+        out: &mut [LightBlockSample; world::BLOCKS_PER_SUB_CHUNK],
+    ) -> bool {
+        if key.dimension != self.dimension {
+            return false;
+        }
+        match self.blocks.get(&key) {
+            None => out.fill(LightBlockSample::Unknown),
+            Some(SnapshotBlock::KnownAir) => out.fill(LightBlockSample::KnownAir),
+            Some(SnapshotBlock::Resident(sub_chunk)) => {
+                fill_resident_light(
+                    sub_chunk,
+                    self.classifier,
+                    |runtime_id| {
+                        self.resolved_light
+                            .get(&runtime_id)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                SolverLightProperties::new(0, 15)
+                                    .expect("constant nibbles are valid")
+                            })
+                    },
+                    out,
+                );
+            }
+        }
+        true
     }
 
     fn sky_seed(&self, position: BlockPos) -> u8 {
@@ -314,6 +414,9 @@ pub(in crate::stream) struct PreparedLightJob {
     pub(in crate::stream) prior: LightPriorSnapshot,
     pub(in crate::stream) bounds: LightBounds,
     pub(in crate::stream) queued_at: Instant,
+    /// The only cells whose blocks changed since `prior` was solved around the same light, or
+    /// `None` to solve every cell.
+    pub(in crate::stream) changed: Option<Arc<[BlockPos]>>,
 }
 
 pub(in crate::stream) struct SolvedLightBatchEntry {
@@ -351,15 +454,27 @@ fn solve_prepared_light_job_with_scratch(
         } else {
             job.blocks.resolve_palette_light();
             let profile = job.blocks.profile;
-            let output = world::solve_light_with_scratch(
-                &job.blocks,
-                &job.prior,
-                job.bounds,
-                job.identity.revision,
-                profile,
-                LIGHT_SOLVE_LIMITS,
-                scratch,
-            )
+            let output = match &job.changed {
+                Some(changed) => world::solve_light_changes_with_scratch(
+                    &job.blocks,
+                    &job.prior,
+                    job.bounds,
+                    job.identity.revision,
+                    profile,
+                    LIGHT_SOLVE_LIMITS,
+                    scratch,
+                    changed,
+                ),
+                None => world::solve_light_full_with_scratch(
+                    &job.blocks,
+                    &job.prior,
+                    job.bounds,
+                    job.identity.revision,
+                    profile,
+                    LIGHT_SOLVE_LIMITS,
+                    scratch,
+                ),
+            }
             .map_err(LightJobError::Solve)?;
             let light = output
                 .sub_chunks()
@@ -459,6 +574,12 @@ pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
     if remaining.is_empty() {
         return solved_prefix;
     }
+    // A section solved above in this batch changed the light around the rest.
+    if !solved_prefix.is_empty() {
+        for job in &mut remaining {
+            job.changed = None;
+        }
+    }
     if remaining.len() == 1 {
         let job = remaining.pop().expect("single remaining light job exists");
         let key = job.key;
@@ -480,6 +601,8 @@ pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
     let mut min = first.bounds.min();
     let mut max = first.bounds.max();
     let mut targets = vec![light_batch_target(&first)];
+    // The batch solves together, so it revisits only changed cells when every member knows them.
+    let mut changed = first.changed.as_deref().map(<[BlockPos]>::to_vec);
     let mut blocks = first.blocks;
     let mut prior = first.prior;
     for job in jobs {
@@ -496,6 +619,10 @@ pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
             max.z.max(job_max.z),
         );
         targets.push(light_batch_target(&job));
+        changed = changed.zip(job.changed.as_deref()).map(|(mut all, cells)| {
+            all.extend_from_slice(cells);
+            all
+        });
         blocks.blocks.extend(job.blocks.blocks);
         blocks.resolved_light.extend(job.blocks.resolved_light);
         prior.light.extend(job.prior.light);
@@ -515,15 +642,27 @@ pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
     blocks.resolve_palette_light();
     let profile = blocks.profile;
     let generation = targets[0].identity.revision;
-    let output = match world::solve_light_with_scratch(
-        &blocks,
-        &prior,
-        bounds,
-        generation,
-        profile,
-        LIGHT_COLUMN_SOLVE_LIMITS,
-        scratch,
-    ) {
+    let output = match match &changed {
+        Some(changed) => world::solve_light_changes_with_scratch(
+            &blocks,
+            &prior,
+            bounds,
+            generation,
+            profile,
+            LIGHT_COLUMN_SOLVE_LIMITS,
+            scratch,
+            changed,
+        ),
+        None => world::solve_light_full_with_scratch(
+            &blocks,
+            &prior,
+            bounds,
+            generation,
+            profile,
+            LIGHT_COLUMN_SOLVE_LIMITS,
+            scratch,
+        ),
+    } {
         Ok(output) => output,
         Err(error) => {
             solved_prefix.extend(failed_light_batch(targets, LightJobError::Solve(error)));

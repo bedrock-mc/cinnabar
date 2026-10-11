@@ -4,10 +4,12 @@ use crate::acceptance::AcceptanceRun;
 use ::acceptance::AcceptanceRun;
 use std::time::Instant;
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     prelude::{EulerRot, Local, Res, ResMut, Time, Vec3},
     time::Real,
 };
+use client_runtime::network::NetworkHandle;
 use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
@@ -40,17 +42,13 @@ pub(crate) fn advance_local_physics(
     player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
     mut locals: Local<LocomotionLocals>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
     }
     if auto_fly.enabled() || !physics.is_active() {
         locals.reset();
-        return;
-    }
-    if !movement_ticker.can_advance_physics_frame() {
-        // Transport admission pauses ticks, not publication of the retained visual pose.
-        publish_physics_view(&physics, &mut view);
         return;
     }
     let Some(stream) = client_world.stream.as_ref() else {
@@ -81,6 +79,43 @@ pub(crate) fn advance_local_physics(
         .as_deref()
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
+    let frame = gameplay::movement::PhysicsFrameInput {
+        delta: time.delta(),
+        now: time.elapsed(),
+        active,
+        input_authority_released: semantic.is_none_or(|snapshot| snapshot.authority_released),
+        movement,
+        raw_movement,
+        analogue_movement,
+        movement_buttons: semantic
+            .map_or_else(Default::default, |snapshot| snapshot.movement_buttons),
+        yaw,
+        pitch: -bevy_pitch.to_degrees(),
+        camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
+        input_mode,
+        jump: input.phase(Action::Jump),
+        sprint: input.phase(Action::Sprint),
+        sneak: input.phase(Action::Sneak),
+        toggle_sprint: gameplay.toggle_sprint,
+        always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
+        toggle_sneak: gameplay.toggle_sneak,
+        facts,
+        item_use_modifier: item_use
+            .as_deref()
+            .and_then(|item_use| item_use.movement_modifier()),
+        hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held()).then(
+            || gameplay::movement::PhysicsFrameHold {
+                registry: collisions.registry(stream.network_id_mode()).identity(),
+                withhold_input: client_world.respawn.input_held(),
+            },
+        ),
+    };
+    locals.observe_dismount(&frame, movement_ticker.session_generation());
+    if !movement_ticker.can_advance_physics_frame() {
+        // Retain presses and publish the pose while transport pauses simulation.
+        publish_physics_view(&physics, &mut view);
+        return;
+    }
     let world = sim::PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),
@@ -88,35 +123,7 @@ pub(crate) fn advance_local_physics(
         Default::default(),
     );
     let advanced = locals.advance(
-        gameplay::movement::PhysicsFrameInput {
-            delta: time.delta(),
-            now: time.elapsed(),
-            active,
-            movement,
-            raw_movement,
-            analogue_movement,
-            movement_buttons: semantic
-                .map_or_else(Default::default, |snapshot| snapshot.movement_buttons),
-            yaw,
-            pitch: -bevy_pitch.to_degrees(),
-            camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
-            input_mode,
-            jump: input.phase(Action::Jump),
-            sprint: input.phase(Action::Sprint),
-            sneak: input.phase(Action::Sneak),
-            toggle_sprint: gameplay.toggle_sprint,
-            always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
-            toggle_sneak: gameplay.toggle_sneak,
-            facts,
-            item_use_modifier: item_use
-                .as_deref()
-                .and_then(|item_use| item_use.movement_modifier()),
-            hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held())
-                .then(|| gameplay::movement::PhysicsFrameHold {
-                    registry: collisions.registry(stream.network_id_mode()).identity(),
-                    withhold_input: client_world.respawn.input_held(),
-                }),
-        },
+        frame,
         &mut physics,
         &mut movement_ticker,
         &mut movement_effects,
@@ -125,6 +132,11 @@ pub(crate) fn advance_local_physics(
     );
     if !advanced {
         return;
+    }
+    if let (Some(position), Some(network)) = (physics.network_position(), network) {
+        locals.flush_dismount(position, |packet| {
+            network.send_inventory_packets(vec![packet])
+        });
     }
     publish_physics_view(&physics, &mut view);
 }

@@ -10,7 +10,7 @@ pub struct SequencedAudioEvent {
     pub sequence: u64,
     pub dimension: i32,
     pub dimension_epoch: u64,
-    pub actor_synchronization: Option<client_world::ActorLifetimeId>,
+    pub actor_synchronization: Option<actor_animation::ActorLifetimeId>,
     pub event: protocol::AudioEvent,
 }
 

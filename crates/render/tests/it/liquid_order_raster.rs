@@ -62,12 +62,12 @@ fn render(
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    let frame = render::AtmosphereFrame::default();
+    let frame = render_scene::AtmosphereFrame::default();
     let atmosphere = gpu.buffer(
         bytemuck::cast_slice(std::slice::from_ref(&frame)),
         wgpu::BufferUsages::UNIFORM,
     );
-    let table = render::LightmapInputs::default()
+    let table = render_model::LightmapInputs::default()
         .build()
         .map(|_| [1.0_f32; 4]);
     let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);

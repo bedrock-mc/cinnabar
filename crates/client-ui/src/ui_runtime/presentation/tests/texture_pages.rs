@@ -13,7 +13,7 @@ fn independent_font(sides: &[u32]) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: side,
                 height: side,
-                pixels: FontPixels::Rgba8(pixels),
+                pixels: FontPixels::Rgba8(pixels.into()),
             }
         })
         .collect::<Vec<_>>();
