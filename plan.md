@@ -7172,7 +7172,7 @@ open and do not close a parity gate.
 ### Authored particle lifecycle fields
 
 The core block-membership, expiration-expression, and optional parametric-field
-contracts have been checked for exact namespaced identifiers. Alias and unresolved
-authored-name handling, end-to-end world-query binding, emitter-frame integration,
-and before/after rendered captures remain provisional and incomplete.
-Focused authored-data regression coverage does not close their parity gate.
+contracts have been checked for exact namespaced identifiers. Matched headless
+GPU fixtures cover expiry, direction, and an unchanged control. Alias and unresolved
+authored-name handling, end-to-end world-query binding, and emitter-frame integration
+remain incomplete. These fixtures do not close the full parity gate.
