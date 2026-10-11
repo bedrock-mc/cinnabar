@@ -1,7 +1,7 @@
 //! Category cooldown values for the published hotbar.
 
-use crate::player_runtime::PlayerRuntime;
 use chunk_pipeline::WorldStream;
+use client_state::PlayerRuntime;
 use client_ui::ui_runtime::UiRuntime;
 use gameplay::item_use::ItemUseRuntime;
 

@@ -15,7 +15,7 @@ use {
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_screen_effect_facts(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<bevy::prelude::Time>,
     item_use: Option<Res<ItemUseRuntime>>,
     ui: Option<Res<UiRuntime>>,
@@ -43,7 +43,7 @@ pub(crate) fn collect_screen_effect_facts(
 }
 
 pub(crate) fn collect_portal_contact(
-    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: Res<client_state::PlayerRuntime>,
     view: Res<LocalViewPose>,
     physics: Option<Res<LocalPhysicsController>>,
     client_world: Option<Res<ClientWorld>>,

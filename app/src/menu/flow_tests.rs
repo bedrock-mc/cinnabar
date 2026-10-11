@@ -60,7 +60,7 @@ fn settings_background_follows_the_world_or_launcher_below() {
         !menu.uses_panorama(),
         "Settings opened from pause retains the live world background"
     );
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let ui = client_ui::ui_runtime::UiRuntime::new(1);
     let presentation = client_ui::test_support::mini_engine_presentation();
     assert!(crate::screen_policy::renders_game(

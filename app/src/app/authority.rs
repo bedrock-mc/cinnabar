@@ -3,6 +3,8 @@ use super::*;
 use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
 
 pub(crate) fn configure_client_frame_schedule(app: &mut App) {
+    app.init_resource::<client_state::ScreenFocus>()
+        .init_resource::<client_state::GameplayScreenControls>();
     app.configure_sets(
         Update,
         (
@@ -68,7 +70,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 crate::settings_runtime::apply_window_settings,
                 crate::settings_runtime::apply_render_distance,
                 crate::store::drive_store,
-                synchronize_semantic_input_authority,
+                (
+                    crate::menu::screen_focus::publish_screen_focus,
+                    synchronize_semantic_input_authority,
+                )
+                    .chain(),
                 drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),
             )
                 .chain()
@@ -77,11 +83,18 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                crate::menu::screen_focus::publish_screen_focus,
                 finalize_semantic_input_after_ui_authority,
                 crate::ui_runtime::emotes::cancel_emote_from_gameplay,
             )
                 .chain()
                 .in_set(ClientFrameSet::SemanticFinalize),
+        )
+        .add_systems(
+            Update,
+            crate::menu::screen_focus::publish_gameplay_screen_controls
+                .after(crate::camera::update_cursor_capture)
+                .before(crate::camera::update_look),
         )
         .add_systems(
             Update,
@@ -96,7 +109,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             advance_dimension_transfer
                 .after(reconcile_world_stream_before_physics)
                 .after(ClientFrameSet::UiAuthority)
-                .before(ClientFrameSet::Physics),
+                .before(ClientFrameSet::SemanticFinalize),
         )
         .add_systems(
             Update,

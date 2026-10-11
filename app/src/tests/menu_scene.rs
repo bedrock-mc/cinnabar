@@ -1,5 +1,5 @@
 //! Scene-stack regressions through the real animated hand publication system.
-use crate::player_runtime::PlayerRuntime;
+use client_state::PlayerRuntime;
 use std::sync::Arc;
 
 use bevy::prelude::*;
@@ -123,7 +123,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         (Vec3::new(0., 66., -2.), Vec3::new(0., 66., 0.)),
     );
     world.insert_resource(equipment);
-    world.insert_resource(PlayerRuntime::new(1));
+    world.insert_resource(PlayerRuntime(player_state::PlayerState::new(1)));
     world.insert_resource(UiRuntime::new(1));
     world.insert_resource(mini_engine_presentation());
     world.insert_resource(MenuRuntime::new(false, 2, "Tester".into()));

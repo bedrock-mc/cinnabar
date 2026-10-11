@@ -94,7 +94,9 @@ fn gamepad_sign_in_focus_selects_the_cancel_button_and_cancels() {
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
         .insert_resource(menu)
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(
             UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
         )

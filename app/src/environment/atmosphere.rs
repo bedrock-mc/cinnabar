@@ -206,7 +206,7 @@ pub(crate) fn update_atmosphere_frame(
         Option<Res<client_presentation::camera::ServerCameraView>>,
     ),
     outputs: AtmosphereOutputs,
-    settings: Res<crate::settings_runtime::RuntimeSettings>,
+    settings: Res<client_state::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
     mut renderer_clock: Local<super::renderer_clock::RendererClock>,
     preferences: AtmospherePreferences,

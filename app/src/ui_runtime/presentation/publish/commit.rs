@@ -4,7 +4,7 @@ use super::*;
 /// Publishes the UI captured during preparation.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
-    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -59,7 +59,9 @@ mod tests {
     /// Supplies only CPU presentation owners, without a window or network connection.
     fn world() -> World {
         let mut world = World::new();
-        world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+        world.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )));
         world.insert_resource(UiRuntime::new(1));
         let mut presentation =
             UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
@@ -77,9 +79,7 @@ mod tests {
     fn publish(world: &mut World, size: [u32; 2]) {
         let inventory = world
             .resource::<UiRuntime>()
-            .capture_presentation_inventory(
-                world.resource::<crate::player_runtime::PlayerRuntime>(),
-            );
+            .capture_presentation_inventory(world.resource::<client_state::PlayerRuntime>());
         world.resource_mut::<PreparedUiPublication>().0 = Some(PendingUiPublication {
             inventory,
             preview: PreviewCapture {

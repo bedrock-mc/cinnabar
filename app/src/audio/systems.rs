@@ -40,7 +40,7 @@ pub(crate) fn configure(app: &mut App) {
                     .after(crate::block_use::produce_block_use),
                 drive_consume_audio,
                 drive_actor_audio,
-                pump_audio.after(crate::app::ClientFrameSet::Camera),
+                pump_audio.after(client_state::ClientFrameSet::Camera),
             )
                 .chain()
                 .after(crate::ui_runtime::drive_world_inventory_keys)
@@ -49,7 +49,7 @@ pub(crate) fn configure(app: &mut App) {
 }
 
 pub(crate) fn drive_inventory_audio(
-    mut player_runtime: ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: ResMut<client_state::PlayerRuntime>,
     world: Res<ClientWorld>,
     view: Res<LocalViewPose>,
     engine: ResMut<AudioEngine>,
@@ -131,7 +131,7 @@ pub(crate) fn drive_ambience(
     world: Res<ClientWorld>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     view: Res<LocalViewPose>,
-    player_runtime: Option<Res<crate::player_runtime::PlayerRuntime>>,
+    player_runtime: Option<Res<client_state::PlayerRuntime>>,
     ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     engine: ResMut<AudioEngine>,
     state: Local<AmbientState>,

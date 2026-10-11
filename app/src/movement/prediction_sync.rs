@@ -8,7 +8,7 @@ use gameplay::movement::PredictionSyncState;
 pub(crate) fn send_movement_prediction_sync(
     mut physics: ResMut<LocalPhysicsController>,
     client_world: Res<ClientWorld>,
-    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: Res<client_state::PlayerRuntime>,
     network: Option<Res<NetworkHandle>>,
     mut state: Local<PredictionSyncState>,
 ) {

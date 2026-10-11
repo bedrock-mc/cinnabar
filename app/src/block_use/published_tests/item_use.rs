@@ -28,7 +28,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
         )
     };
     world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -73,8 +73,9 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         .unwrap();
     assert!(snapshot.phases[Action::Attack as usize].held);
     assert!(snapshot.phases[Action::Use as usize].pressed);
-    world
-        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
     world.insert_resource(input);
     if enabled {
         world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
@@ -85,7 +86,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         input_mode: protocol::PlayerInputMode::Mouse,
         local_runtime_id: 42,
         selection: crate::block_use::verified_use_selection(
-            world.resource::<crate::player_runtime::PlayerRuntime>(),
+            world.resource::<client_state::PlayerRuntime>(),
             world.resource::<UiRuntime>(),
         ),
         swing_duration: 6,

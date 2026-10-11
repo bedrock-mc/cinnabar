@@ -4,7 +4,7 @@ use launcher_host::launcher_account::menu_home;
 
 #[test]
 fn snapshot_core_home_promo() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
     else {

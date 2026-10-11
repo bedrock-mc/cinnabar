@@ -33,15 +33,17 @@ pub(crate) fn menu_input_app_with(
     presentation: UiPresentationRuntime,
 ) -> (App, Entity) {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1))
-        .add_message::<KeyboardInput>()
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<ButtonInput<MouseButton>>()
-        .init_resource::<Touches>()
-        .insert_resource(presentation)
-        .insert_resource(MenuRuntime::new(true, 2, "test".into()))
-        .insert_resource(clipboard)
-        .add_systems(Update, drive_menu_input);
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )))
+    .add_message::<KeyboardInput>()
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<ButtonInput<MouseButton>>()
+    .init_resource::<Touches>()
+    .insert_resource(presentation)
+    .insert_resource(MenuRuntime::new(true, 2, "test".into()))
+    .insert_resource(clipboard)
+    .add_systems(Update, drive_menu_input);
     let window = app
         .world_mut()
         .spawn((
@@ -405,7 +407,7 @@ fn chat_focus_loss_preserves_draft_and_does_not_open_pause() {
         .position(|option| option.name == "pause_menu_on_focus_lost")
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 1));
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat(&mut player);
     runtime.insert_chat_text("unsent draft").unwrap();
@@ -467,7 +469,9 @@ fn chat_input_preserves_buttons_for_the_visible_menu() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(MenuRuntime::new(true, 2, "test".into()))
         .add_systems(Update, super::super::drive_chat_keyboard_input);
     app.world_mut()
@@ -503,7 +507,9 @@ fn chat_typing_consumes_movement_keys_and_mouse_input() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .add_systems(Update, super::super::drive_chat_keyboard_input);
     let window = app
         .world_mut()
@@ -561,7 +567,7 @@ fn chat_typing_consumes_movement_keys_and_mouse_input() {
 
 #[test]
 fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use crate::server_experiences::input::{ConsentInput, consume};
     use bevy::input::{

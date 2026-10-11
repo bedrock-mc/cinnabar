@@ -6,8 +6,9 @@ pub(crate) mod font;
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::{app::ClientFrameSet, environment::VisualTimeOverride, menu::MenuRuntime},
+    crate::{environment::VisualTimeOverride, menu::MenuRuntime},
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_state::ClientFrameSet,
     client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     mod_host::{ModGrants, ModHost},
     std::{
@@ -307,7 +308,7 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.add_systems(
         Update,
         drive_mod
-            .in_set(crate::camera::ModCameraInputSet)
+            .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
@@ -332,7 +333,7 @@ type ModOutputs<'w> = (
 )]
 #[cfg(feature = "local-mods")]
 fn drive_mod(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,
     focus: Option<Res<client_presentation::camera::CursorFocus>>,
@@ -588,7 +589,9 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
             .insert_resource(ButtonInput::<KeyCode>::default());
         let window = app
             .world_mut()
@@ -621,7 +624,7 @@ mod tests {
     fn sample_frame(app: &mut App) -> render_model::UiRenderInput {
         let player_runtime = app
             .world()
-            .resource::<crate::player_runtime::PlayerRuntime>()
+            .resource::<client_state::PlayerRuntime>()
             .clone();
         app.world_mut()
             .resource_mut::<UiPresentationRuntime>()

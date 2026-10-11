@@ -2,7 +2,6 @@
 use super::*;
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
-use crate::player_runtime::PlayerRuntime;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::{
@@ -15,6 +14,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use client_presentation::server_camera::ServerCameraInstructions;
+use client_state::PlayerRuntime;
 use client_ui::ui_runtime::{
     LocalFormAction, flush_form_response, presentation::UiPresentationRuntime,
 };
@@ -37,15 +37,14 @@ use {
     crate::runtime::network::{NetworkHandle, ResourcePackAdmissionState},
     crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
     crate::semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets,
+        PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
     },
-    crate::settings_runtime::RuntimeSettings,
     acceptance::model_witness::ModelWitnessFileSource,
     client_presentation::camera::CameraSettingsAuthority,
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
     },
+    client_state::{RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };
 
@@ -635,7 +634,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
 
 /// Builds a complete authority schedule with independent player and UI owners.
 fn fixture_app() -> (App, Entity) {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);

@@ -116,7 +116,7 @@ fn readback_rows_drop_their_alignment_padding() {
 #[test]
 #[ignore = "offline native GPU menu timings and snapshots"]
 fn menu_frames_on_native_gpu() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = client_ui::test_support::pack_harness::scratch_dir("gpu-menu");
@@ -282,7 +282,7 @@ fn menu_frames_on_native_gpu() {
 #[test]
 #[ignore = "offline native GPU Zeqa page ordering"]
 fn zeqa_late_pages_match_the_published_frame_on_gpu() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let pack = client_ui::test_support::pack_harness::env_pack().expect("CINNABAR_FORM_PACK_DIR");
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
@@ -374,7 +374,7 @@ fn profile_frames_on_native_gpu() {
     };
     let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
     view.screen = MenuScreen::Profile;
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::pack_harness::menu_runtime();
     runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");

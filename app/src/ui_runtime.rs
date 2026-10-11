@@ -45,7 +45,7 @@ mod tests;
 
 /// Drains inventory ingress before movement and UI observations at the existing phase.
 pub(crate) fn drain_inventory_authority(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut runtime: bevy::prelude::ResMut<UiRuntime>,
 ) {
     runtime.drain_pending_inventory(&mut player_runtime);

@@ -7,8 +7,8 @@ use client_presentation::{
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use render::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 use {
-    crate::{app::ClientFrameSet, runtime::world::ClientWorld},
-    client_presentation::local_player::LocalViewPose,
+    crate::runtime::world::ClientWorld, client_presentation::local_player::LocalViewPose,
+    client_state::ClientFrameSet,
 };
 
 pub(crate) fn configure(app: &mut App) {

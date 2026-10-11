@@ -3,7 +3,7 @@ use std::num::NonZeroU16;
 use bevy::prelude::{App, DetectChanges, IntoScheduleConfigs, MinimalPlugins, Update};
 use render_model::{OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, VrrStatus};
 
-use crate::{present_mode::apply_present_mode, settings_runtime::RuntimeSettings};
+use {crate::present_mode::apply_present_mode, client_state::RuntimeSettings};
 
 use super::*;
 

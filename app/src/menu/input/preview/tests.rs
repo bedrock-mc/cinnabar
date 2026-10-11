@@ -34,7 +34,9 @@ fn fixture() -> (App, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(PreUpdate, touch_screen_input_system)
@@ -64,7 +66,7 @@ fn frame(app: &mut App) -> [f32; 4] {
             presentation.set_player_preview_skin(None, Default::default());
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     &UiRuntime::new(1),
                     0,
                     PHYSICAL,

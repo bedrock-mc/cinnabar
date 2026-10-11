@@ -7,7 +7,9 @@ use {
 /// Builds the app camera adapter with a primary window of the requested size.
 fn camera_app(width: u32, height: u32) -> (App, Entity) {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
     let window = app

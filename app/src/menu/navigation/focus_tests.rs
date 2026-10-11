@@ -22,7 +22,7 @@ fn draw(app: &mut App) {
             presentation.set_menu_view(Some(view));
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     &UiRuntime::new(1),
                     0,
                     [1280, 720],
@@ -47,7 +47,9 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
         .insert_resource(MenuRuntime::new(true, 2, "BugTest".into()))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(presentation)
         .add_systems(Update, drive_menu_input);
     let window = app

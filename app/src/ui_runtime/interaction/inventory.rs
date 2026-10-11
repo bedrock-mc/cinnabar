@@ -21,7 +21,7 @@ use {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_screen_presses(
     buttons: &[MouseButton],
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     window: &Window,
     presentation: Option<&UiPresentationRuntime>,
@@ -58,7 +58,7 @@ pub(super) fn apply_screen_presses(
 /// Applies one frame's buttons, key presses and wheel notches to the open inventory screen.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_inventory_pointer(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     window: &Window,
     presentation: &UiPresentationRuntime,

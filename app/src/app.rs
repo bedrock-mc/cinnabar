@@ -14,11 +14,12 @@ use bevy::{
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
-        Resource, SystemSet, Update, default,
+        Resource, Update, default,
     },
     render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
+use client_state::ClientFrameSet;
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render::{
@@ -140,24 +141,6 @@ impl ClientBlobCacheOwner {
 mod authority;
 mod executor;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
-
-#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ClientFrameSet {
-    RawInput,
-    SemanticSample,
-    UiAuthority,
-    SemanticFinalize,
-    Physics,
-    Camera,
-    Interaction,
-    NetworkSend,
-    WorldPublication,
-    ActorPreparation,
-    UiPreparation,
-    ActorFinalization,
-    ActorPublication,
-    UiPublication,
-}
 
 /// Registers the production actor observation and publication boundaries.
 pub(crate) fn configure_actor_render_systems(app: &mut App) {
@@ -792,7 +775,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ui_runtime.set_active_language(active_lang);
         ui_runtime
     })
-    .insert_resource(crate::player_runtime::PlayerRuntime::new(0))
+    .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        0,
+    )))
     .insert_resource(ui_presentation)
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())

@@ -134,7 +134,9 @@ fn fixture_with_skin(with_skin: bool) -> World {
             render::ActorArtworkPages::default(),
         );
     let mut world = World::new();
-    world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    world.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     world.insert_resource(client);
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
@@ -398,7 +400,7 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
     crate::app::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
-        admit_frame_swing.in_set(crate::app::ClientFrameSet::NetworkSend),
+        admit_frame_swing.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let mut schedule = app
         .world_mut()
@@ -496,7 +498,7 @@ fn production_early_ui_readiness_matches_the_current_hand_source() {
     crate::app::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
-        observe_hand_readiness.in_set(crate::app::ClientFrameSet::UiPreparation),
+        observe_hand_readiness.in_set(client_state::ClientFrameSet::UiPreparation),
     );
     let mut schedule = app
         .world_mut()

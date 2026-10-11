@@ -7,8 +7,8 @@ use std::{
 
 use bevy::prelude::ResMut;
 
-use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
 use launcher::menu::settings_options::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
+use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Limits disk retries after a failed write without discarding pending preferences.
 const SETTINGS_RETRY: Duration = Duration::from_secs(1);

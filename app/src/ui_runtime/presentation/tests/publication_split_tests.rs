@@ -2,7 +2,7 @@
 use super::*;
 
 /// Seeds the authoritative catalog used by the allocation benchmark.
-fn catalog_runtime(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+fn catalog_runtime(player_runtime: &mut client_state::PlayerRuntime) -> UiRuntime {
     let mut runtime = client_ui::test_support::creative_with(player_runtime, 1500);
     runtime
         .inventory_ledger_mut(player_runtime)
@@ -20,16 +20,16 @@ fn ui_publication_capture_bench() {
     let cases = [
         (
             "idle",
-            crate::player_runtime::PlayerRuntime::new(1),
+            client_state::PlayerRuntime(player_state::PlayerState::new(1)),
             UiRuntime::new(1),
         ),
         {
-            let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+            let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
             let runtime = catalog_runtime(&mut player_runtime);
             ("creative1500_registry", player_runtime, runtime)
         },
         {
-            let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+            let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
             let runtime = client_ui::test_support::pack_harness::action_form(
                 &mut player_runtime,
                 "Actions",

@@ -18,7 +18,7 @@ fn actor_damage_publication_advances_before_ui_and_clears_with_the_stream() {
     crate::app::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
-        observe_damage.in_set(crate::app::ClientFrameSet::UiPreparation),
+        observe_damage.in_set(client_state::ClientFrameSet::UiPreparation),
     );
     let mut schedule = app
         .world_mut()
@@ -77,7 +77,7 @@ fn hud_health_uses_the_actors_attribute_range_after_a_health_packet() {
         )
         .unwrap();
     world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         ui.apply(
             &mut player,
             client_ui::ui_runtime::SequencedUiEvent {

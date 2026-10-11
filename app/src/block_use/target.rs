@@ -13,7 +13,7 @@ use {
 /// Recasts the pre-tick frame pick against the current world and resolves the held support.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn observe_use_target(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &BlockUseContext,
     input_mode: PlayerInputMode,
     survival: bool,

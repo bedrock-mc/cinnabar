@@ -15,7 +15,9 @@ fn configured_time_changer_is_visual_only_offline() {
     };
     app.insert_resource(presentation)
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ButtonInput::<KeyCode>::default());
     app.world_mut().spawn((Window::default(), PrimaryWindow));
     configure(&mut app, Some(Path::new(&path)));

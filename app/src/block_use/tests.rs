@@ -75,7 +75,7 @@ fn placement_skips_empty_air_and_uninitialized_block_ids() {
 
 #[test]
 fn unknown_or_inventory_pending_selection_fails_closed() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
 
     let mut ui = UiRuntime::new(7);
     player_runtime
@@ -115,7 +115,7 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
         .unwrap();
     assert!(verified_use_selection(&player_runtime, &ui).is_none());
 
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     let mut pending_hotbar = UiRuntime::new(7);
     player_runtime
         .facts

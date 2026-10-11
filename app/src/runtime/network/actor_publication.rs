@@ -1,9 +1,4 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
-use crate::{
-    movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
-    player_runtime::PlayerRuntime,
-    runtime::world::ClientWorld,
-};
 #[cfg(test)]
 use bevy::prelude::{App, IntoScheduleConfigs, Mut, Resource, Update};
 use bevy::time::Real;
@@ -14,6 +9,13 @@ use bevy::{
 use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+        runtime::world::ClientWorld,
+    },
+    client_state::PlayerRuntime,
+};
 
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
 pub(crate) fn publish_local_actor_damage(
@@ -46,7 +48,7 @@ pub(crate) struct ActorObservations<'w> {
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
-    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
@@ -249,7 +251,7 @@ pub(crate) fn advance_actor_frame(
 #[derive(SystemParam)]
 pub(crate) struct ActorFinalObservations<'w> {
     world: ResMut<'w, ClientWorld>,
-    player: Option<Res<'w, crate::player_runtime::PlayerRuntime>>,
+    player: Option<Res<'w, client_state::PlayerRuntime>>,
     physics: Res<'w, LocalPhysicsController>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     swings: Option<ResMut<'w, crate::melee::SwingTracker>>,

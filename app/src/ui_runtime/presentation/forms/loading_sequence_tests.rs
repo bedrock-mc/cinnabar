@@ -39,7 +39,7 @@ pub(super) fn lazy(mut pack: ServerUiPack) -> ServerUiPack {
 
 /// Publishes the same runtime across menu, join, reload and cancellation frames.
 fn frame(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
 ) -> render_model::UiRenderInput {
@@ -56,7 +56,7 @@ fn frame(
 
 #[test]
 fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(pack) = client_ui::test_support::pack_harness::env_pack() else {
         eprintln!(
@@ -142,7 +142,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
 
 #[test]
 fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
     else {

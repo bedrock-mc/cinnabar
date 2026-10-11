@@ -10,7 +10,7 @@ use mod_host::{
     GameplayVector3, ModGrants,
 };
 
-use crate::{runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot};
+use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
@@ -24,7 +24,7 @@ pub(super) struct GameplayContext<'w> {
     clock: Option<Res<'w, crate::environment::WorldClock>>,
     physics: Option<ResMut<'w, crate::movement::LocalPhysicsController>>,
     movement: Option<Res<'w, crate::movement::MovementTicker>>,
-    player: Option<Res<'w, crate::player_runtime::PlayerRuntime>>,
+    player: Option<Res<'w, client_state::PlayerRuntime>>,
     ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
 }
 

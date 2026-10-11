@@ -130,7 +130,9 @@ fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() 
     use bevy::window::{CursorOptions, PrimaryWindow, WindowResolution};
     let mut app = App::new();
     crate::app::configure_client_frame_schedule(&mut app);
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(crate::camera::FlyCameraPlugin::default());
     configure(&mut app);

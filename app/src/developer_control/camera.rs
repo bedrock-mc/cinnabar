@@ -6,8 +6,8 @@ use developer_control::camera::CameraPath;
 use serde_json::{Value, json};
 
 use {
-    crate::{app::ClientFrameSet, runtime::telemetry::bedrock_camera_rotation},
-    client_presentation::camera::FlyCamera,
+    crate::runtime::telemetry::bedrock_camera_rotation, client_presentation::camera::FlyCamera,
+    client_state::ClientFrameSet,
 };
 
 #[derive(Resource)]

@@ -1,9 +1,9 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
-use crate::player_runtime::PlayerRuntime;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use client_state::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
 
@@ -44,7 +44,7 @@ use {
 
 /// Creates the real committed-drain schedule with independent domain ownership.
 fn app() -> App {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);

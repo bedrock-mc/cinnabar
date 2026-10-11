@@ -7,7 +7,7 @@ pub(super) fn configure(app: &mut App) {
     app.add_systems(
         Update,
         drain_actor_audio
-            .after(crate::app::ClientFrameSet::ActorPreparation)
+            .after(client_state::ClientFrameSet::ActorPreparation)
             .before(crate::named_audio::drain_live_named_audio),
     );
 }

@@ -75,7 +75,7 @@ fn production_melee_picks_remote_actors_at_current_frame_positions() {
     let mut app = App::new();
     app.add_systems(
         Update,
-        pick_ahead.in_set(crate::app::ClientFrameSet::NetworkSend),
+        pick_ahead.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let (mut schedule, mut world) = production(&mut app);
     world.init_resource::<Picked>();
@@ -106,7 +106,7 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
     let mut app = App::new();
     app.add_systems(
         Update,
-        capture_predicted_box.in_set(crate::app::ClientFrameSet::NetworkSend),
+        capture_predicted_box.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let (mut schedule, mut world) = production(&mut app);
     world.init_resource::<PredictedBox>();

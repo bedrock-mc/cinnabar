@@ -18,7 +18,9 @@ fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, apply_gui_scale_setting);
@@ -50,7 +52,7 @@ fn build_menu(app: &mut App, physical: [u32; 2], dpi: f32) -> render_model::UiRe
             presentation.set_menu_view(Some(view));
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     &UiRuntime::new(1),
                     0,
                     physical,
@@ -271,7 +273,7 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
 
 #[test]
 fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!(
@@ -300,7 +302,7 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
         app.update();
         app.world_mut().resource_scope(
             |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
-                let player_runtime = world.resource::<crate::player_runtime::PlayerRuntime>();
+                let player_runtime = world.resource::<client_state::PlayerRuntime>();
                 let passes = presentation.hud_passes();
                 let input = presentation
                     .build(
@@ -354,7 +356,7 @@ fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2]
 
 #[test]
 fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!(
@@ -390,7 +392,7 @@ fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
         app.update();
         app.world_mut().resource_scope(
             |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
-                let player_runtime = world.resource::<crate::player_runtime::PlayerRuntime>();
+                let player_runtime = world.resource::<client_state::PlayerRuntime>();
                 let passes = presentation.hud_passes();
                 let input = presentation
                     .build(

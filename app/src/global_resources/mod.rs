@@ -22,7 +22,7 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
             crate::runtime::network::reload_resource_packs
                 .after(crate::runtime::network::receive_network_events)
                 .before(crate::runtime::world::drive_world_stream)
-                .before(crate::app::ClientFrameSet::UiPublication)
+                .before(client_state::ClientFrameSet::UiPublication)
                 .before(render::ChunkRenderApplySet),
         );
 }

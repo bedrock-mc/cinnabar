@@ -11,9 +11,9 @@ use bevy::{
 use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
-    crate::player_runtime::PlayerRuntime, crate::runtime::world::ClientWorld,
-    crate::semantic_controls::SemanticInputSnapshot, crate::settings_runtime::RuntimeSettings,
-    client_presentation::camera::AutoFly, client_presentation::local_player::LocalViewPose,
+    crate::runtime::world::ClientWorld, client_presentation::camera::AutoFly,
+    client_presentation::local_player::LocalViewPose, client_state::PlayerRuntime,
+    client_state::RuntimeSettings, client_state::SemanticInputSnapshot,
 };
 
 use super::{

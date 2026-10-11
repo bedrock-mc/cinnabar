@@ -86,7 +86,9 @@ mod tests {
         app.insert_resource(runtime)
             .insert_resource(keys)
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
             .insert_resource(
                 UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
             )
@@ -352,7 +354,7 @@ pub(super) fn prepare_mod_input(
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
     mut windows: Query<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
     ui: Res<UiRuntime>,
-    player: Res<crate::player_runtime::PlayerRuntime>,
+    player: Res<client_state::PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
     time: Option<Res<Time>>,

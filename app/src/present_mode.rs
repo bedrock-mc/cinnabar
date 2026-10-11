@@ -8,7 +8,7 @@ use render_model::{
     DisplayTiming, PresentModeKind, PresentationIntent, initial_present_mode, select_present_mode,
 };
 
-use crate::settings_runtime::RuntimeSettings;
+use client_state::RuntimeSettings;
 
 /// The session's presentation choice; the only writer of the primary window's present mode.
 #[derive(Resource, Debug)]

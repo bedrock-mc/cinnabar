@@ -68,7 +68,7 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 
 #[test]
 fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     failed_automatic_replacement(&mut player_runtime, true, false);
 }
@@ -116,14 +116,14 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
 
 #[test]
 fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     failed_automatic_replacement(&mut player_runtime, false, false);
 }
 
 #[test]
 fn failed_remote_transfer_from_a_local_world_offers_retry_after_teardown() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     failed_automatic_replacement(&mut player_runtime, false, true);
 }
 
@@ -171,7 +171,9 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ClientWorld::default())
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
@@ -223,7 +225,9 @@ fn app_with_core(root: &Path, script: &str) -> App {
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ClientWorld::default())
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
@@ -350,7 +354,7 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
 }
 
 fn failed_automatic_replacement(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     from_settings: bool,
     from_local_world: bool,
 ) {

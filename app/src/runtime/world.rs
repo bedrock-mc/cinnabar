@@ -329,7 +329,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     (visibility_diagnostics, profiler, mut player_runtime): (
         Option<Res<VisibilityDiagnosticsInput>>,
         Option<Res<RuntimeStageProfiler>>,
-        ResMut<crate::player_runtime::PlayerRuntime>,
+        ResMut<client_state::PlayerRuntime>,
     ),
 ) {
     let _timer = profiler

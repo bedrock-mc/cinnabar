@@ -1,4 +1,4 @@
-use crate::player_runtime::PlayerRuntime;
+use client_state::PlayerRuntime;
 #[test]
 fn local_avatar_publishes_only_frozen_visibility_without_owning_the_render_arena() {
     let mut presentation = LocalAvatarPresentation::default();
@@ -240,7 +240,7 @@ fn semantic_runtime_wires_context_bindings_authority_and_release_at_finalize() {
 
 #[test]
 fn semantic_authority_tracks_ui_settings_session_and_dimension_transitions_in_production_order() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = SemanticInputRuntime::default();
     let mut ui = UiRuntime::new(1);

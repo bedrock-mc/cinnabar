@@ -17,7 +17,7 @@ fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
 
 #[test]
 fn only_current_successful_bootstrap_can_install_or_retire_language() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(2));
 
     let mut runtime = UiRuntime::new(2);
     let old = overlay(b"item.stone.name=Old\n");

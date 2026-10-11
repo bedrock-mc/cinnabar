@@ -5,7 +5,7 @@ use client_ui::ui_runtime::{UiRuntime, UiRuntimeError};
 use super::session;
 
 pub(crate) fn publish_bootstrap_inventory(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     registry: Option<ItemRegistryEvent>,
     inventory: InventoryEvent,
@@ -24,7 +24,7 @@ pub(crate) fn publish_bootstrap_inventory(
 }
 
 pub(crate) fn route_inventory_ingress(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<u64, UiRuntimeError> {
@@ -42,7 +42,7 @@ pub(crate) fn route_inventory_ingress(
 }
 
 pub(crate) fn route_item_registry_ingress(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: &session::SequencedWorldEvent,
 ) -> Result<(), UiRuntimeError> {

@@ -254,8 +254,8 @@ fn glint_renderer_factors_follow_each_persisted_percent() {
 
 #[test]
 fn settings_handoff_preserves_native_window_and_viewport_preferences() {
-    use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
     use bevy::prelude::{App, ResMut, Update};
+    use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
     /// Applies the runtime handoff without flushing host configuration.
     fn sync(mut menu: ResMut<MenuRuntime>, settings: ResMut<RuntimeSettings>) {
@@ -524,7 +524,7 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
                     .unwrap();
                 assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap(row, control));
             }
-            let mut player = crate::player_runtime::PlayerRuntime::new(1);
+            let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
             let mut runtime = client_ui::test_support::inventory_session(&mut player);
             let mut slots = vec![
                 NetworkItemStack::empty();
@@ -575,9 +575,7 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
                 PrimaryWindow,
             ));
             app.update();
-            let player = app
-                .world()
-                .resource::<crate::player_runtime::PlayerRuntime>();
+            let player = app.world().resource::<client_state::PlayerRuntime>();
             let runtime = app.world().resource::<client_ui::ui_runtime::UiRuntime>();
             let ledger = runtime.inventory_ledger(player);
             assert_eq!(

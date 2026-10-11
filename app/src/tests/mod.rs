@@ -1,6 +1,5 @@
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
-use crate::player_runtime::PlayerRuntime;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use assets::RuntimeAssets;
@@ -9,6 +8,7 @@ use bevy::prelude::{
 };
 use bevy::window::WindowCloseRequested;
 use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
+use client_state::PlayerRuntime;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,

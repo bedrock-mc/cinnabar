@@ -13,7 +13,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     let (network, mut captured) = NetworkHandle::stub_capturing_packets();
     app.insert_resource(network)
         .insert_resource(client_presentation::camera::AutoFly::new(false))
-        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<client_state::SemanticInputSnapshot>()
         .add_systems(
             Update,
             (

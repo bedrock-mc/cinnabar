@@ -36,10 +36,12 @@ fn atmosphere_app(cycle: bool) -> App {
         .init_resource::<render::AtmosphereViewInputs>()
         .init_resource::<WorldLighting>()
         .init_resource::<client_presentation::camera::VisionEffects>()
-        .init_resource::<crate::settings_runtime::RuntimeSettings>()
+        .init_resource::<client_state::RuntimeSettings>()
         .init_resource::<Time<Real>>()
         .insert_resource(client_ui::ui_runtime::UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .add_systems(Update, environment::update_atmosphere_frame);
     app
 }

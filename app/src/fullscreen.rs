@@ -9,7 +9,7 @@ use bevy::{
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 
-use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
+use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Read before menu input clears its keyboard state. OS key repeats must not
 /// flip fullscreen again while F11 is held, including on a visible menu.

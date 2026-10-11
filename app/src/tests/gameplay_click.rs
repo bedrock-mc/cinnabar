@@ -1,11 +1,11 @@
 //! A left click during gameplay must reach the attack producers through the production input chain.
-use crate::player_runtime::PlayerRuntime;
 use bevy::{
     input::{ButtonInput, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, touch::Touches},
     prelude::{App, MouseButton},
     time::{Real, Time},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
+use client_state::PlayerRuntime;
 use semantic_input::Action;
 
 use bevy::prelude::{IntoScheduleConfigs, Update};
@@ -13,25 +13,26 @@ use bevy::prelude::{IntoScheduleConfigs, Update};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
     crate::{
-        app::{ClientFrameSet, configure_client_frame_schedule},
+        app::configure_client_frame_schedule,
         menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         runtime::world::ClientWorld,
         semantic_controls::{
-            SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
-            route_semantic_input, synchronize_semantic_input_authority,
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
         },
-        settings_runtime::RuntimeSettings,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
             drive_world_inventory_keys, gameplay_touch::drive_gameplay_touch_targets,
         },
     },
+    client_state::RuntimeSettings,
+    client_state::{ClientFrameSet, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };
 
 fn gameplay_app(menu_visible: bool) -> App {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     // The production RawInput/SemanticSample/UiAuthority/SemanticFinalize registrations.
@@ -57,6 +58,7 @@ fn gameplay_app(menu_visible: bool) -> App {
                 drive_menu_input,
                 drive_inventory_ui_actions,
                 // Connection and store drivers own no input and are left out.
+                crate::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
                 drive_world_inventory_keys,
             )

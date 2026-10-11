@@ -1,7 +1,7 @@
 //! The physics phase reads the same player owner that earlier commands mutate.
 use crate::movement::GameplayWorldView;
-use crate::player_runtime::PlayerRuntime;
 use bevy::prelude::*;
+use client_state::PlayerRuntime;
 use gameplay::movement::control_modes::SPRINT_HUNGER_FLOOR;
 use gameplay::movement::local_facts::{LocalMovementFacts, read};
 use gameplay::test_support::DEPTH_STRIDER_ENCHANTMENT_ID;
@@ -44,7 +44,7 @@ fn enchanted_boots() -> NetworkItemStack {
 
 /// Seeds known cells and an acknowledged personal window without a transport connection.
 fn player() -> PlayerRuntime {
-    let mut player = PlayerRuntime::new(1);
+    let mut player = PlayerRuntime(player_state::PlayerState::new(1));
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
@@ -153,16 +153,16 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
         .configure_sets(
             Update,
             (
-                crate::app::ClientFrameSet::UiAuthority,
-                crate::app::ClientFrameSet::Physics,
+                client_state::ClientFrameSet::UiAuthority,
+                client_state::ClientFrameSet::Physics,
             )
                 .chain(),
         )
         .add_systems(
             Update,
-            command.in_set(crate::app::ClientFrameSet::UiAuthority),
+            command.in_set(client_state::ClientFrameSet::UiAuthority),
         )
-        .add_systems(Update, sample.in_set(crate::app::ClientFrameSet::Physics));
+        .add_systems(Update, sample.in_set(client_state::ClientFrameSet::Physics));
     app.update();
     let after = app.world().resource::<Observed>().0.unwrap();
     assert_eq!(after.depth_strider, 0);

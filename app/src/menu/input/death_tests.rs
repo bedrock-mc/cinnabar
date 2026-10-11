@@ -9,7 +9,7 @@ fn death_discards_a_same_frame_pause_settings_click() {
     let mut menu = MenuRuntime::new(false, 2, "Player".into());
     menu.show_world();
     menu.open_pause();
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     let mut presentation =
         UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
@@ -86,7 +86,7 @@ fn death_discards_a_same_frame_pause_settings_click() {
     );
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
-            let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+            let mut player = world.resource_mut::<client_state::PlayerRuntime>();
             runtime
                 .apply_local_attributes(
                     &mut player,
@@ -115,17 +115,17 @@ fn death_discards_a_same_frame_pause_settings_click() {
 #[test]
 fn death_controls_advance_on_real_time_while_simulation_is_paused() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1))
-        .add_message::<KeyboardInput>()
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<ButtonInput<MouseButton>>()
-        .init_resource::<Touches>()
-        .insert_resource(
-            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
-        )
-        .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
-        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
-        .add_systems(Update, drive_menu_input);
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )))
+    .add_message::<KeyboardInput>()
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<ButtonInput<MouseButton>>()
+    .init_resource::<Touches>()
+    .insert_resource(UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap())
+    .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
+    .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+    .add_systems(Update, drive_menu_input);
     app.world_mut().spawn((
         Window {
             focused: true,
@@ -169,17 +169,17 @@ fn death_respawn_retains_explicit_cursor_return_until_recovery() {
     use client_presentation::camera::CursorFocus;
 
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1))
-        .add_message::<KeyboardInput>()
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<ButtonInput<MouseButton>>()
-        .init_resource::<Touches>()
-        .insert_resource(
-            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
-        )
-        .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
-        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
-        .add_systems(Update, drive_menu_input);
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )))
+    .add_message::<KeyboardInput>()
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<ButtonInput<MouseButton>>()
+    .init_resource::<Touches>()
+    .insert_resource(UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap())
+    .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
+    .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+    .add_systems(Update, drive_menu_input);
     let window = app
         .world_mut()
         .spawn((Window::default(), CursorOptions::default(), PrimaryWindow))

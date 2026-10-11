@@ -105,7 +105,7 @@ pub(crate) fn configure_particles(app: &mut App) {
         Update,
         drive_particles
             .after(client_presentation::camera::FlyCameraUpdateSet)
-            .after(crate::app::ClientFrameSet::ActorPreparation)
+            .after(client_state::ClientFrameSet::ActorPreparation)
             .after(crate::environment::update_seasonal_foliage),
     );
 }

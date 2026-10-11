@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use bevy::prelude::{App, IntoScheduleConfigs, ResMut, Resource, Update};
 use sha2::{Digest, Sha256};
 
-use crate::app::{ClientFrameSet, configure_client_frame_schedule};
+use {crate::app::configure_client_frame_schedule, client_state::ClientFrameSet};
 
 #[derive(Resource)]
 struct SendTrace {

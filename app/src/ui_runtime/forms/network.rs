@@ -5,7 +5,7 @@ use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,
-    player: Res<crate::player_runtime::PlayerRuntime>,
+    player: Res<client_state::PlayerRuntime>,
     network: Res<NetworkHandle>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
 ) {

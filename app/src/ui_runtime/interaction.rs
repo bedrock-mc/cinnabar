@@ -60,7 +60,7 @@ pub(crate) fn dispatch_bound_inventory_hotbar(
 }
 
 pub(crate) fn flush_inventory_network(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
     mut runtime: ResMut<UiRuntime>,
     network: Res<crate::runtime::network::NetworkHandle>,
@@ -87,7 +87,7 @@ pub(crate) fn flush_inventory_network(
 }
 
 pub(crate) fn flush_chat_network(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     network: Res<crate::runtime::network::NetworkHandle>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
@@ -139,7 +139,7 @@ pub(crate) fn flush_chat_network(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_inventory_ui_actions(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
@@ -219,7 +219,7 @@ fn route_press(
     button: MouseButton,
     router: &mut PointerRouter,
     menu: Option<&crate::menu::MenuRuntime>,
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     mut presentation: Option<&mut UiPresentationRuntime>,
     pointer: (Option<[f32; 2]>, f64),
@@ -290,7 +290,7 @@ pub(crate) fn inventory_consumes_key(
     reason = "Player authority is borrowed separately from UI state."
 )]
 pub(crate) fn drive_world_inventory_keys(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     gamepads: Query<&Gamepad>,
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -335,7 +335,7 @@ pub(crate) fn drive_world_inventory_keys(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_keyboard_input(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     gamepads: Query<&Gamepad>,
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,

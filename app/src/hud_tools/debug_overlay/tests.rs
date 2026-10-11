@@ -411,7 +411,7 @@ fn covering_screens_skip_expensive_diagnostic_gathers() {
         .insert_resource(Time::<Real>::default())
         .insert_resource(ClientWorld::default())
         .insert_resource(LocalPlayerFrameCarrier::default())
-        .insert_resource(PlayerRuntime::new(1))
+        .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
         .insert_resource(UiRuntime::new(1))
         .insert_resource(client_ui::test_support::mini_engine_presentation());
     configure(&mut app);
@@ -556,7 +556,7 @@ fn first_eligible_publication_samples_frame_counters() {
     world.insert_resource(ClientWorld::default());
     world.insert_resource(LocalPlayerFrameCarrier::default());
     world.insert_resource(DebugOverlayState::default());
-    world.insert_resource(PlayerRuntime::new(1));
+    world.insert_resource(PlayerRuntime(player_state::PlayerState::new(1)));
     world.insert_resource(UiRuntime::new(1));
     world.insert_resource(UiRenderStatsResource::default());
     world.insert_resource(client_ui::test_support::mini_engine_presentation());

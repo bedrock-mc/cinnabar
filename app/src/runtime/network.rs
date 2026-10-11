@@ -111,7 +111,7 @@ pub(crate) enum EquipmentIngress {
 }
 
 pub(crate) fn publish_equipment_identity(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_id: u64,
     runtime_id: u64,
@@ -125,7 +125,7 @@ pub(crate) fn publish_equipment_identity(
 }
 
 pub(crate) fn route_equipment_ingress(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<EquipmentIngress, InventoryRouterError> {
@@ -145,7 +145,7 @@ pub(crate) fn route_equipment_ingress(
 }
 
 fn consume_equipment_route(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_generation: u64,
     route: EquipmentRoute,
@@ -174,7 +174,7 @@ fn consume_equipment_route(
 // shared publication allowance into each newly created world stream.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     mut pack_reload: Option<ResMut<PackReload>>,

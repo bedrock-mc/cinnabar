@@ -51,7 +51,7 @@ fn select_authored_swing(world: &mut World, ticks: u32) {
         },
     ));
     world.resource_scope(|world, mut ui: Mut<client_ui::ui_runtime::UiRuntime>| {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         player
             .facts
             .publish_player_game_mode(protocol::PlayerGameMode::Survival);
@@ -84,7 +84,7 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
     world.init_resource::<crate::movement::MovementTicker>();
     world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
     world.init_resource::<crate::melee::SwingTracker>();
-    assert!(!world.contains_resource::<crate::semantic_controls::SemanticInputSnapshot>());
+    assert!(!world.contains_resource::<client_state::SemanticInputSnapshot>());
 
     for frame in 0..4_u64 {
         *world.resource_mut::<crate::movement::MovementTicker>() = {
@@ -101,7 +101,7 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
         world.run_system_cached(super::advance_actor_frame).unwrap();
         assert_eq!(
             crate::melee::selected_attack_timing(
-                world.resource::<crate::player_runtime::PlayerRuntime>(),
+                world.resource::<client_state::PlayerRuntime>(),
                 world.resource::<ClientWorld>(),
             )
             .and_then(|timing| timing.swing_duration_ticks),

@@ -93,7 +93,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     let mut app = wiring_app(ticker, physics);
     app.world_mut().resource_mut::<ClientWorld>().stream = Some(grounded_stream(initial));
     app.insert_resource(client_presentation::camera::AutoFly::new(false))
-        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<client_state::SemanticInputSnapshot>()
         .add_systems(
             Update,
             super::super::advance_local_physics.after(reconcile_world_stream_before_physics),

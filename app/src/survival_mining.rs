@@ -20,16 +20,15 @@ use {
     crate::{
         interaction_authority::observe_block,
         melee::{MeleeRuntime, SwingTracker},
-        menu::MenuRuntime,
         mining::hand_interaction_selection,
         movement::{
             LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
             PhysicsCollisionRegistries,
         },
         runtime::{network::NetworkHandle, world::ClientWorld},
-        semantic_controls::SemanticInputSnapshot,
     },
     client_presentation::local_player::InteractionOriginSnapshot,
+    client_state::SemanticInputSnapshot,
     gameplay::{
         interaction_authority::within_pick_range,
         melee::swing_duration,
@@ -64,7 +63,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
     ui: Res<'w, UiRuntime>,
-    menu: Res<'w, MenuRuntime>,
+    focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -78,7 +77,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
 
 /// Runs after the committed world poll and before the movement flush.
 pub(crate) fn produce_survival_mining(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut context: SurvivalMiningContext,
     mut runtime: ResMut<SurvivalMiningRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -101,7 +100,7 @@ pub(crate) fn produce_survival_mining(
         .map(BlockBreakingAuthority::from_negotiation);
     let caps = player_runtime.facts.game_mode_capabilities();
     let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let attack = context.input.phase(Action::Attack);
     let snapshot = context.input.snapshot();
     let snapshot_present = snapshot.is_some();
@@ -209,7 +208,7 @@ pub(crate) fn produce_survival_mining(
 }
 
 fn observe_destroy_target(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &SurvivalMiningContext,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
@@ -220,7 +219,7 @@ fn observe_destroy_target(
     // The capability gate in the producer already confirmed this mode edits;
     // here only an open UI blocks the pick.
     let caps = caps?;
-    if ui.ui_focused(player_runtime) {
+    if context.focus.ui_focused {
         return None;
     }
     let selection = hand_interaction_selection(player_runtime)?;

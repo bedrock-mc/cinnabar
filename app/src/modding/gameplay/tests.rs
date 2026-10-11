@@ -137,7 +137,9 @@ fn finalized_input(attack_held: bool) -> SemanticInputSnapshot {
             ..Default::default()
         })
         .unwrap();
-    SemanticInputSnapshot::from_finalized(snapshot)
+    SemanticInputSnapshot(semantic_input::finalized::FinalizedInput::from_finalized(
+        snapshot,
+    ))
 }
 
 #[test]

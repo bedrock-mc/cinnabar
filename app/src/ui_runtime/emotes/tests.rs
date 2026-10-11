@@ -20,7 +20,7 @@ struct Harness {
 impl Harness {
     fn new() -> Self {
         let mut runtime = UiRuntime::new(1);
-        let mut player = PlayerRuntime::new(1);
+        let mut player = PlayerRuntime(player_state::PlayerState::new(1));
         runtime
             .publish_local_runtime_id(&mut player, 1, 42)
             .unwrap();

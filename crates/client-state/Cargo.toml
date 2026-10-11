@@ -1,0 +1,15 @@
+[package]
+name = "client-state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+player-state = { path = "../player-state" }
+semantic-input = { path = "../input" }
+ui = { path = "../ui" }
+
+[lints]
+workspace = true

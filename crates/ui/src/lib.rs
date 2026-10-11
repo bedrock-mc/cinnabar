@@ -11,6 +11,7 @@ mod model;
 pub mod oreui_theme;
 mod scoreboard;
 mod settings;
+pub mod settings_state;
 mod text;
 
 pub use action::{PointerPhase, UiAction, UiLimits};

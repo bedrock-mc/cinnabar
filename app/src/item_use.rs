@@ -19,11 +19,10 @@ use {
     crate::{
         block_use::{BlockUseRuntime, verified_use_selection},
         melee::{MeleeRuntime, SwingTracker},
-        menu::MenuRuntime,
         movement::{LocalMovementEffectTimeline, MovementTicker},
         runtime::{network::NetworkHandle, world::ClientWorld},
-        semantic_controls::SemanticInputSnapshot,
     },
+    client_state::SemanticInputSnapshot,
     gameplay::melee::swing_duration,
 };
 
@@ -67,7 +66,7 @@ impl ItemUseRuntime {
     /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.
     pub(crate) fn render_input(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         stream: &WorldStream,
         ui: &UiRuntime,
         tick: u64,
@@ -133,7 +132,7 @@ impl ItemUseRuntime {
     /// The same native frame used by the attachable, for a player-inventory cell.
     pub(crate) fn inventory_animation_frame(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         stream: &WorldStream,
         ui: &UiRuntime,
         slot: u8,
@@ -159,7 +158,7 @@ impl ItemUseRuntime {
     /// The local rig's use flag: set while a use runs, cleared while a held-use item idles.
     pub(crate) fn local_item_use(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         stream: &WorldStream,
         ui: &UiRuntime,
     ) -> LocalItemUse {
@@ -178,7 +177,7 @@ impl ItemUseRuntime {
     /// Resolves a charge prediction against the currently selected authoritative stack.
     fn selected_projectile(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         ui: &UiRuntime,
     ) -> Option<Option<&'static str>> {
         let slot = player_runtime.selected_hotbar_slot()?;
@@ -192,7 +191,7 @@ impl ItemUseRuntime {
     /// Resolves a charge prediction against an authoritative inventory slot.
     fn slot_projectile(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         ui: &UiRuntime,
         slot: u8,
     ) -> Option<Option<&'static str>> {
@@ -207,14 +206,14 @@ impl ItemUseRuntime {
 
 /// The selected stack's authoritative air use, if supported.
 pub(crate) fn selected_air_use(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
 ) -> Option<AirUse> {
     selected_air_use_with_projectile(player_runtime, stream, None)
 }
 
 fn selected_air_use_with_projectile(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
     projectile_override: Option<Option<&str>>,
 ) -> Option<AirUse> {
@@ -243,7 +242,7 @@ fn selected_air_use_with_projectile(
 
 /// The use duration of the selected stack when vanilla animates its use as eating or drinking.
 pub(crate) fn consume_ticks(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
 ) -> Option<u32> {
     let canonical = stream
@@ -261,7 +260,7 @@ pub(crate) fn consume_ticks(
 
 /// Whether the known state meets `needs`.
 fn needs_met(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
     ui: &UiRuntime,
     needs: Needs,
@@ -303,7 +302,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     delay_fix: Option<Res<'w, ModItemUsePolicy>>,
     ui: Res<'w, UiRuntime>,
-    menu: Res<'w, MenuRuntime>,
+    focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     melee: Res<'w, MeleeRuntime>,
@@ -317,7 +316,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
-    mut player_runtime: ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: ResMut<client_state::PlayerRuntime>,
     context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
@@ -334,11 +333,11 @@ pub(crate) fn produce_item_use(
 
     runtime.synchronize(context.ui.session_id());
     let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let use_phase = context.input.phase(Action::Use);
     let admitted = if context.input.snapshot().is_none() {
         false
-    } else if !focused || context.ui.ui_focused(&player_runtime) {
+    } else if !focused || context.focus.ui_focused {
         use_phase
             .pressed
             .then(|| gameplay::movement::note_click_drop("use", "screen_open"));
@@ -498,7 +497,7 @@ fn admit_with_action_aim(
 /// Release checks the offhand for either projectile first, then inventory
 /// arrows, and synthesizes an arrow only in creative.
 fn loading_projectile(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &chunk_pipeline::WorldStream,
     ui: &UiRuntime,
     creative: bool,

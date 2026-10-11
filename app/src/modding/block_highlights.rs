@@ -7,8 +7,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use {
-    crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::world::ClientWorld},
+    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
     client_presentation::camera::FlyCamera,
+    client_state::ClientFrameSet,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -67,7 +68,7 @@ fn publish(
     world: Option<Res<ClientWorld>>,
     menu: Option<Res<MenuRuntime>>,
     ui: Option<Res<UiRuntime>>,
-    player: Option<Res<crate::player_runtime::PlayerRuntime>>,
+    player: Option<Res<client_state::PlayerRuntime>>,
     cameras: Query<&Transform, With<FlyCamera>>,
     mut discovery: Local<Discovery>,
     mut scene: ResMut<ModRenderScene>,

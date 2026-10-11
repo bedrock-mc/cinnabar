@@ -15,7 +15,7 @@ use client_ui::ui_runtime::presentation::{
 pub(crate) use commit::publish_ui_runtime;
 
 pub(crate) fn observe_mount_jump_input(
-    input: Res<crate::semantic_controls::SemanticInputSnapshot>,
+    input: Res<client_state::SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntime>,
     time: Res<Time<Real>>,
 ) {
@@ -63,7 +63,7 @@ type PublishExtras<'w> = (
 /// Observes UI authority and captures inventory, including this frame's outbound predictions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_ui_runtime(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
@@ -401,7 +401,7 @@ pub(crate) fn prepare_ui_runtime(
 fn observe_paper_doll(
     stream: &chunk_pipeline::WorldStream,
     runtime: &client_ui::ui_runtime::UiRuntime,
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     physics: &crate::movement::LocalPhysicsController,
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
     use inventory::inventory_ledger::InventoryTarget;

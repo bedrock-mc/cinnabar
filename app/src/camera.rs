@@ -1,12 +1,16 @@
 //! Composition and observations for the presentation-owned camera.
-use crate::app::ClientFrameSet;
-use crate::semantic_controls::{
-    PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-    SemanticTouchTargets,
-};
-use crate::settings_runtime::RuntimeSettings;
 use bevy::{prelude::*, window::PrimaryWindow};
+use client_state::ClientFrameSet;
+#[cfg(feature = "local-mods")]
+use client_state::ModCameraInputSet;
+use client_state::RuntimeSettings;
 use {crate::local_player::resolve_camera_pose, client_presentation::local_player::LocalViewPose};
+use {
+    crate::semantic_controls::{
+        PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+    },
+    client_state::SemanticInputSnapshot,
+};
 
 use client_presentation::camera::{
     AutoFly, CameraPresentationPlugin, CameraSettingsAuthority, FlyCamera, FlyCameraUpdateSet,
@@ -19,10 +23,6 @@ mod facts;
 mod focus;
 mod presentation;
 
-/// Optional developer camera input, after physical look and before movement.
-#[cfg(feature = "local-mods")]
-#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ModCameraInputSet;
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
     auto_fly: bool,
@@ -61,6 +61,8 @@ impl Plugin for FlyCameraPlugin {
         .init_resource::<client_presentation::aim_assist::AimAssistFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticInputSnapshot>()
+        .init_resource::<client_state::ScreenFocus>()
+        .init_resource::<client_state::GameplayScreenControls>()
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticRouteState>()
         .init_resource::<SemanticTouchTargets>()
@@ -163,7 +165,7 @@ pub(crate) fn update_perspective(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_look(
     spyglass: (
-        Option<Res<crate::menu::MenuRuntime>>,
+        Option<Res<client_state::GameplayScreenControls>>,
         Option<Res<fov::CameraFovInputs>>,
     ),
     window: Option<Single<&Window, With<PrimaryWindow>>>,
@@ -177,14 +179,16 @@ pub(crate) fn update_look(
 ) {
     client_presentation::camera::update_look(
         (
-            spyglass.0.as_ref().map_or(0.0, |menu| {
-                menu.spyglass_damping(
-                    input
-                        .snapshot()
-                        .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
-                            snapshot.input_mode
-                        }),
-                )
+            spyglass.0.as_ref().map_or(0.0, |controls| {
+                match input
+                    .snapshot()
+                    .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
+                        snapshot.input_mode
+                    }) {
+                    semantic_input::InputMode::KeyboardMouse => controls.spyglass_mouse_damping,
+                    semantic_input::InputMode::GamePad => controls.spyglass_gamepad_damping,
+                    semantic_input::InputMode::Touch => 0.0,
+                }
             }),
             spyglass.1,
         ),

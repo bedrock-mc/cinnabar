@@ -1,6 +1,6 @@
-use crate::{app::ClientFrameSet, runtime::world::ClientWorld};
 use bevy::prelude::*;
 use render::WorldFullbright;
+use {crate::runtime::world::ClientWorld, client_state::ClientFrameSet};
 
 pub(super) fn configure(app: &mut App) {
     app.add_systems(

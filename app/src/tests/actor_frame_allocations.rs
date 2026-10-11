@@ -31,7 +31,9 @@ pub(crate) fn actor_frame_world(
     (eye, target): (Vec3, Vec3),
 ) -> World {
     let mut world = World::new();
-    world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    world.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     world.insert_resource(client_world);
     world.insert_resource(Time::<Real>::new(Instant::now()));
     world.insert_resource(scene);

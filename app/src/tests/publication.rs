@@ -8,10 +8,6 @@ use bevy::{
     prelude::{App, Update},
 };
 
-use crate::app::{
-    ClientFrameSet, configure_acceptance_finish_system, configure_client_frame_schedule,
-    configure_client_production_frame_systems, configure_client_runtime_frame_systems,
-};
 use crate::block_use::produce_block_use;
 use crate::item_use::produce_item_use;
 use crate::melee::produce_melee;
@@ -34,6 +30,13 @@ use crate::semantic_controls::{
 use crate::session::recover_session_failure;
 use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
+use {
+    crate::app::{
+        configure_acceptance_finish_system, configure_client_frame_schedule,
+        configure_client_production_frame_systems, configure_client_runtime_frame_systems,
+    },
+    client_state::ClientFrameSet,
+};
 use {
     crate::local_player::{publish_local_player_frame, resolve_camera_pose},
     client_presentation::local_player::publish_interaction_origin,

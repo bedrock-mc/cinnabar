@@ -1,11 +1,5 @@
 use std::time::Duration;
 
-use crate::app::{ClientFrameSet, configure_client_frame_schedule};
-use crate::semantic_controls::{
-    SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
-    route_semantic_input,
-};
-use crate::settings_runtime::RuntimeSettings;
 use bevy::{
     anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
@@ -14,6 +8,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
 use client_presentation::local_player::LocalViewPose;
+use client_state::RuntimeSettings;
 use semantic_input::{Action, PerspectiveMode};
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts,
@@ -21,11 +16,18 @@ use sim::{
 };
 use ui::UserSettings;
 use world::ChunkKey;
+use {crate::app::configure_client_frame_schedule, client_state::ClientFrameSet};
 use {
     crate::camera::{self, FlyCameraPlugin},
     client_presentation::camera::{
         AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
     },
+};
+use {
+    crate::semantic_controls::{
+        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+    },
+    client_state::SemanticInputSnapshot,
 };
 
 mod cursor_changes;
@@ -426,14 +428,24 @@ fn capture_test_app(
     capture_on_start: bool,
 ) -> (App, Entity) {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<client_presentation::camera::CursorFocus>()
         .add_systems(PreUpdate, track_test_focus)
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))
-        .add_systems(Update, camera::update_cursor_capture);
+        .init_resource::<client_state::ScreenFocus>()
+        .add_systems(
+            Update,
+            (
+                crate::menu::screen_focus::publish_screen_focus,
+                camera::update_cursor_capture,
+            )
+                .chain(),
+        );
 
     let entity = app
         .world_mut()
@@ -555,7 +567,9 @@ fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
 #[test]
 fn production_schedule_consumes_recapture_click_until_physical_release() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -625,7 +639,9 @@ fn production_schedule_consumes_recapture_click_until_physical_release() {
 #[test]
 fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -677,7 +693,9 @@ fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
 #[test]
 fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -739,7 +757,9 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 #[test]
 fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -782,7 +802,9 @@ fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
 #[test]
 fn stable_presentation_pause_ignores_held_movement_and_look_input() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true))
@@ -960,7 +982,9 @@ fn review_unrelated_settings_keep_the_hotkey_perspective() {
 #[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -1007,7 +1031,9 @@ fn captured_f5_cycles_perspective_without_moving_the_local_view() {
 #[test]
 fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -1066,7 +1092,9 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut()

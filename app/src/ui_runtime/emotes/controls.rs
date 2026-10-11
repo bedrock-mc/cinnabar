@@ -4,7 +4,7 @@ use bevy::{
     prelude::{KeyCode, Query},
 };
 
-use crate::semantic_controls::SemanticInputSnapshot;
+use client_state::SemanticInputSnapshot;
 use semantic_input::Action;
 use ui::UiAction;
 

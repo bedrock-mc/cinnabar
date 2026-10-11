@@ -10,7 +10,7 @@ use client_ui::ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntim
 use client_world::{CommittedControlEvent, CommittedUiEvent};
 
 pub(crate) fn drain_committed_ui_before_authority(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     clock: Res<WorldClock>,
     mut ui_runtime: ResMut<UiRuntime>,

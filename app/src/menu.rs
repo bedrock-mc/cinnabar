@@ -34,6 +34,7 @@ mod presence_targets;
 mod reconnect;
 #[cfg(test)]
 mod reconnect_tests;
+pub(crate) mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;

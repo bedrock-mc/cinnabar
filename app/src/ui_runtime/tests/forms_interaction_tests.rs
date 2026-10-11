@@ -21,15 +21,15 @@ use {
 
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
-    use crate::{
-        app::{
-            ClientFrameSet, configure_client_frame_schedule,
-            configure_client_production_frame_systems,
+    use {
+        crate::{
+            app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+            runtime::world::{
+                drain_committed_ui_before_authority, drive_world_stream,
+                reconcile_world_stream_before_physics,
+            },
         },
-        runtime::world::{
-            drain_committed_ui_before_authority, drive_world_stream,
-            reconcile_world_stream_before_physics,
-        },
+        client_state::ClientFrameSet,
     };
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
@@ -129,13 +129,10 @@ fn production_system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M
         .unwrap()
 }
 
-fn app(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> (App, Entity) {
+fn app(player_runtime: &mut client_state::PlayerRuntime) -> (App, Entity) {
     app_for(player_runtime, false)
 }
-fn app_for(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
-    unsupported: bool,
-) -> (App, Entity) {
+fn app_for(player_runtime: &mut client_state::PlayerRuntime, unsupported: bool) -> (App, Entity) {
     let mut app = App::new();
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.set_visible(false);
@@ -205,7 +202,7 @@ fn press(app: &mut App, entity: Entity, key: KeyCode) {
 
 #[test]
 fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     for (action, unsupported) in [
         (KeyCode::Enter, false),
@@ -268,7 +265,7 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
 
 #[test]
 fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let (mut app, entity) = app(&mut player_runtime);
     press(&mut app, entity, KeyCode::ArrowDown);
@@ -305,7 +302,7 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
 
 #[test]
 fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     for stale in [false, true] {
         let (mut app, entity) = app(&mut player_runtime);
@@ -356,7 +353,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
 
 #[test]
 fn enter_reveals_a_hidden_button_before_it_can_submit() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let (mut app, entity) = app(&mut player_runtime);
     let mut event = retained(7, 2);
@@ -420,7 +417,7 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
 // index, on a HiDPI window whose cursor reports logical pixels.
 #[test]
 fn clicking_an_engine_drawn_button_answers_its_index() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::input::mouse::MouseButtonInput;
     use {
@@ -505,7 +502,7 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
 fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     use bevy::input::mouse::MouseButtonInput;
     use client_ui::test_support::pack_harness;
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     // Vanilla's form screen carries the real key mappings; skipped without the installed pack.
     let Some(mut presentation) = pack_harness::engine_presentation() else {
@@ -582,7 +579,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
     presentation
@@ -652,7 +649,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
             let mut player_runtime = world
-                .remove_resource::<crate::player_runtime::PlayerRuntime>()
+                .remove_resource::<client_state::PlayerRuntime>()
                 .unwrap();
             runtime
                 .apply(
@@ -699,7 +696,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
 // With no form open, a left click stays gameplay's: the form input system never swallows it.
 #[test]
 fn a_click_without_a_form_reaches_gameplay() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::input::mouse::MouseButtonInput;
     let mut app = App::new();
@@ -755,7 +752,7 @@ fn a_click_without_a_form_reaches_gameplay() {
 // A custom form's toggle and edit box keep their values through the mapping dispatcher.
 #[test]
 fn custom_form_toggle_and_input_edit_their_values() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::input::mouse::MouseButtonInput;
     use client_ui::test_support::pack_harness;
@@ -888,16 +885,22 @@ fn custom_form_toggle_and_input_edit_their_values() {
 
 #[test]
 fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     for key in [KeyCode::Enter, KeyCode::Escape] {
         let (mut app, window) = app(&mut player);
         let mut focus = client_presentation::camera::CursorFocus::default();
         focus.begin_frame(false);
         app.insert_resource(focus)
+            .init_resource::<client_state::ScreenFocus>()
             .insert_resource(client_presentation::camera::AutoFly::new(false))
             .add_systems(
                 Update,
-                crate::camera::update_cursor_capture.after(drive_menu_input),
+                (
+                    crate::menu::screen_focus::publish_screen_focus,
+                    crate::camera::update_cursor_capture,
+                )
+                    .chain()
+                    .after(drive_menu_input),
             );
         app.update();
         {

@@ -125,7 +125,7 @@ fn registry_with_custom_item() -> ItemRegistryEvent {
 // report names the stage where each other stack stops.
 #[test]
 fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(Harness {
         mut presentation,
@@ -250,7 +250,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
 // local rig's worn items.
 #[test]
 fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(Harness {
         mut presentation,

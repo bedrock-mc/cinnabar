@@ -35,7 +35,7 @@ fn fixture_with_capture(capture_key: bool) -> String {
 
 fn render(
     presentation: &mut UiPresentationRuntime,
-    player: &crate::player_runtime::PlayerRuntime,
+    player: &client_state::PlayerRuntime,
     ui: &UiRuntime,
 ) {
     presentation
@@ -54,7 +54,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
     let mut host =
         mod_host::ModHost::load_snapshot_with_grants(&path, fixture().as_bytes(), grants).unwrap();
     host.set_panel_open(true);
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let ui = UiRuntime::new(1);
     let mut presentation = mini_engine_presentation();
     presentation.set_mod_panel(host.panel()).unwrap();
@@ -181,7 +181,7 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
     )
     .unwrap();
     host.set_panel_open(true);
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let ui = UiRuntime::new(1);
     let mut presentation = mini_engine_presentation();
     presentation.set_mod_panel(host.panel()).unwrap();
@@ -481,7 +481,7 @@ fn incremental_hud_save_retains_component_owner_until_editor_finishes() {
             presentation.open_mod_hud_editor(&preview).unwrap();
             render(
                 &mut presentation,
-                world.resource::<crate::player_runtime::PlayerRuntime>(),
+                world.resource::<client_state::PlayerRuntime>(),
                 world.resource::<UiRuntime>(),
             );
             presentation.mod_panel_events([640., 360.], true, false);

@@ -15,7 +15,7 @@ use {
 
 /// Assisted actor identity is preserved while ordinary reach and world obstruction remain authoritative.
 pub(super) fn resolve_crosshair(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &MeleeContext,
     input_mode: PlayerInputMode,
     attack_reach: f64,

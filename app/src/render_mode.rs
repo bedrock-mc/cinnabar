@@ -22,8 +22,7 @@ use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 
 use {
-    crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings},
-    client_presentation::camera::FlyCamera,
+    crate::menu::MenuRuntime, client_presentation::camera::FlyCamera, client_state::RuntimeSettings,
 };
 
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";

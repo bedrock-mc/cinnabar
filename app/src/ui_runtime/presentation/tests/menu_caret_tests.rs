@@ -28,7 +28,7 @@ fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
             let dpi = DpiScale::new(1.0).unwrap();
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     &runtime,
                     now_millis,
                     SIZE,

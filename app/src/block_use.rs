@@ -18,13 +18,12 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
         melee::{MeleeRuntime, SwingTracker},
-        menu::MenuRuntime,
         mining::verified_selection,
         movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
         runtime::{network::NetworkHandle, world::ClientWorld},
-        semantic_controls::SemanticInputSnapshot,
     },
     client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},
+    client_state::SemanticInputSnapshot,
     gameplay::{
         interaction_authority::FrozenBlockObservation,
         melee::obstructs_placement,
@@ -109,7 +108,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     origin: Res<'w, InteractionOriginSnapshot>,
     view: Res<'w, LocalViewPose>,
     ui: Res<'w, UiRuntime>,
-    menu: Res<'w, MenuRuntime>,
+    focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -121,7 +120,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
 }
 
 pub(crate) fn produce_block_use(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -143,12 +142,12 @@ pub(crate) fn produce_block_use(
 
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = player_runtime.facts.player_game_mode();
     let caps = player_runtime.facts.game_mode_capabilities();
     let Some((input, caps)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
         focused
-            && !context.ui.ui_focused(&player_runtime)
+            && !context.focus.ui_focused
             && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
     }) else {
@@ -515,7 +514,7 @@ use target::observe_use_target;
 /// The selected stack, unless its own slot awaits a gesture answer or the hotbar change is unsent.
 /// Requests on other cells never hold a use back: vanilla acts on the predicted held item.
 pub(crate) fn verified_use_selection(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     ui: &UiRuntime,
 ) -> Option<FrozenMiningSelection> {
     let ledger = ui.inventory_ledger(player_runtime);

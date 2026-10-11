@@ -80,19 +80,19 @@ fn synchronized_audio_is_delivered_in_the_actor_completion_frame_once() {
         .configure_sets(
             Update,
             (
-                crate::app::ClientFrameSet::WorldPublication,
-                crate::app::ClientFrameSet::ActorPreparation,
+                client_state::ClientFrameSet::WorldPublication,
+                client_state::ClientFrameSet::ActorPreparation,
             )
                 .chain(),
         )
         .add_systems(
             Update,
-            advance_actor_tick.in_set(crate::app::ClientFrameSet::ActorPreparation),
+            advance_actor_tick.in_set(client_state::ClientFrameSet::ActorPreparation),
         )
         .add_systems(
             Update,
             listen
-                .after(crate::app::ClientFrameSet::ActorPreparation)
+                .after(client_state::ClientFrameSet::ActorPreparation)
                 .after(drain_actor_audio),
         );
     app.world_mut().resource_mut::<ClientWorld>().stream = Some(stream);

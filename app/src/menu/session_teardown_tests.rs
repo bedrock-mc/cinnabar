@@ -16,7 +16,7 @@ use {
     launcher::menu::{MenuAction, MenuScreen},
 };
 use {
-    crate::app::{ClientBlobCacheOwner, ClientFrameSet, configure_client_frame_schedule},
+    crate::app::{ClientBlobCacheOwner, configure_client_frame_schedule},
     crate::movement::{LocalPhysicsController, MovementTicker},
     crate::runtime::network::{
         NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
@@ -26,11 +26,12 @@ use {
     crate::runtime::telemetry::send_player_auth_inputs,
     crate::runtime::visibility::AppMetrics,
     crate::runtime::world::ClientWorld,
-    crate::semantic_controls::SemanticInputSnapshot,
     crate::session::{SessionController, drive_session, recover_session_failure},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
     },
+    client_state::ClientFrameSet,
+    client_state::SemanticInputSnapshot,
     gameplay::movement::{MovementSource, PhysicsMovementSample, ProcessedMovementState},
 };
 
@@ -184,7 +185,9 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(runtime)
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ClientWorld::default())
         .insert_resource(movement)
         .insert_resource(physics)
@@ -274,7 +277,9 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ClientWorld::default())
         .insert_resource(movement)
         .insert_resource(LocalPhysicsController::default())
@@ -354,7 +359,9 @@ fn drive_once((menu, controller): (MenuRuntime, SessionController), network: Net
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(ClientWorld::default())
         .insert_resource(MovementTicker::default())
         .insert_resource(LocalPhysicsController::default())

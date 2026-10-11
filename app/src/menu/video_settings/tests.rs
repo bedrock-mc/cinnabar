@@ -9,10 +9,8 @@ use bevy::prelude::{App, IntoScheduleConfigs, MinimalPlugins, Update};
 
 use super::*;
 use {
-    crate::{
-        fullscreen::{apply_runtime_fullscreen_setting, toggle_fullscreen_hotkey},
-        settings_runtime::RuntimeSettings,
-    },
+    crate::fullscreen::{apply_runtime_fullscreen_setting, toggle_fullscreen_hotkey},
+    client_state::RuntimeSettings,
     launcher::menu::MenuAction,
 };
 

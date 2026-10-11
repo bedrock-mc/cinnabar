@@ -18,7 +18,6 @@ use {
     crate::{
         menu::{LauncherCoreSlot, MenuRuntime},
         movement::{LocalPhysicsController, MovementTicker},
-        player_runtime::PlayerRuntime,
         runtime::{
             network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
             shutdown::record_fatal_error,
@@ -28,6 +27,7 @@ use {
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
     },
+    client_state::PlayerRuntime,
 };
 
 use std::{path::PathBuf, time::Instant};
@@ -341,7 +341,7 @@ pub(crate) struct SessionResources<'w> {
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
-    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
 }
 
 impl SessionResources<'_> {
@@ -557,12 +557,12 @@ fn poll_join(
 /// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
 pub(crate) fn login_settings(
     menu: &MenuRuntime,
-    input: Option<&crate::semantic_controls::SemanticInputSnapshot>,
+    input: Option<&client_state::SemanticInputSnapshot>,
 ) -> protocol::LoginSettings {
     protocol::LoginSettings {
         language_code: client_session::pack_language::active_language_code(),
         input_mode: input
-            .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
+            .and_then(client_state::SemanticInputSnapshot::snapshot)
             .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
                 gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),

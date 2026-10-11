@@ -14,13 +14,13 @@ use {
     crate::{
         environment::WorldClock,
         movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        player_runtime::PlayerRuntime,
         runtime::{network::NetworkHandle, world::ClientWorld},
     },
     client_presentation::{
         camera::{CameraSettingsAuthority, ServerCameraView},
         local_player::{InteractionOriginSnapshot, LocalViewPose},
     },
+    client_state::PlayerRuntime,
 };
 
 /// Retains only activation identity; steady frames create no outbound packets.

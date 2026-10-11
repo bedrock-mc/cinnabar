@@ -15,8 +15,11 @@ use semantic_input::{
     MAX_TOUCH_CONTACTS, ModifierChord, TouchContact,
 };
 
-use super::{SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets};
 use crate::camera::mouse_input_active;
+use {
+    super::{SemanticInputRuntime, SemanticTouchTargets},
+    client_state::SemanticInputSnapshot,
+};
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct PendingDeviceFrame {

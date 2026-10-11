@@ -100,7 +100,7 @@ fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRunti
 
 /// Publishes the production menu/HUD composite into the offscreen graph.
 fn publish_ui(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     app: &mut App,
     presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
     runtime: &client_ui::ui_runtime::UiRuntime,
@@ -128,7 +128,7 @@ fn publish_ui(
 #[test]
 #[ignore = "requires the local captured lobby and its resource pack"]
 fn enhanced_lobby_replay_on_native_gpu() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE").expect("offline capture path");
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("offline pack path");

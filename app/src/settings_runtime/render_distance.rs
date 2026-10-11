@@ -1,8 +1,8 @@
 //! Live view-radius requests; the server response updates residency and atmosphere distance.
 
-use super::RuntimeSettings;
 use crate::runtime::{network::NetworkHandle, world::ClientWorld};
 use bevy::prelude::{Local, Res};
+use client_state::RuntimeSettings;
 use client_ui::ui_runtime::UiRuntime;
 
 /// Sends the selected radius after joining and whenever it changes, retrying backpressure.

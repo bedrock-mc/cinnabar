@@ -22,9 +22,9 @@ use {
     crate::menu::settings_options::control_bindings::{
         binding_gamepad, binding_key, binding_mouse, gamepad_button,
     },
-    crate::player_runtime::PlayerRuntime,
     crate::runtime::world::ClientWorld,
-    crate::semantic_controls::SemanticInputSnapshot,
+    client_state::PlayerRuntime,
+    client_state::SemanticInputSnapshot,
 };
 
 use controls::{should_stop_emote, slot_key, wheel_key};

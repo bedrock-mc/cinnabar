@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[test]
 fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
     else {
@@ -53,7 +53,7 @@ fn settings_storage() {
     if client_ui::test_support::pack_harness::carrier().is_none() {
         return;
     }
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned());
     menu.activate(MenuAction::SettingsSection(
         launcher::menu::settings_storage::SECTION_INDEX,

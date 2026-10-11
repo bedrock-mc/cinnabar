@@ -25,7 +25,7 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
 
 #[test]
 fn captured_hotbar_survives_network_registry_and_inventory_publication() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(path) = std::env::var_os("CINNABAR_LOBBY_CAPTURE") else {
         eprintln!(

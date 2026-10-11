@@ -68,7 +68,7 @@ fn idle_menu_does_not_repeat_cursor_os_notifications() {
 
 /// Publishes through the same presentation builder after the production input system.
 fn publish(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     menu: Res<MenuRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut frame: ResMut<Frame>,
@@ -100,7 +100,7 @@ struct Harness {
 impl Harness {
     /// Uses a temporary user directory; never touches the owner's saved servers.
     fn new(dpi: f32) -> Option<Self> {
-        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
         let mut presentation = client_ui::test_support::pack_harness::engine_presentation()?;
         let frame = presentation
             .build(

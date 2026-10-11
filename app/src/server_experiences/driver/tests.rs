@@ -67,7 +67,9 @@ fn join_app(state: State) -> App {
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(runtime)
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(client_ui::test_support::mini_engine_presentation())
         .insert_resource(NetworkHandle::disconnected())
         .init_resource::<ClientWorld>()
@@ -103,7 +105,7 @@ fn present(app: &mut App) {
         .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     world.resource::<UiRuntime>(),
                     0,
                     [1280, 720],
@@ -274,7 +276,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
 
 #[test]
 fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
@@ -354,7 +356,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 
 #[test]
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     use client_ui::test_support::pack_harness;
@@ -441,11 +443,17 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
     for key in [KeyCode::Escape, KeyCode::F8, KeyCode::F6] {
         let mut app = join_app(State::Offered(offer()));
         app.init_resource::<CursorFocus>()
+            .init_resource::<client_state::ScreenFocus>()
             .insert_resource(client_presentation::camera::AutoFly::new(false))
             .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
             .add_systems(
                 Update,
-                crate::camera::update_cursor_capture.after(super::super::input::consume),
+                (
+                    crate::menu::screen_focus::publish_screen_focus,
+                    crate::camera::update_cursor_capture,
+                )
+                    .chain()
+                    .after(super::super::input::consume),
             );
         let window = app
             .world_mut()

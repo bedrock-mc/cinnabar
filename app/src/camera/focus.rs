@@ -97,15 +97,12 @@ pub(crate) fn mouse_input_active(
 /// Samples UI cursor authority immediately before presentation updates capture.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     keys: ResMut<ButtonInput<KeyCode>>,
     mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mouse_motion: ResMut<AccumulatedMouseMotion>,
     auto_fly: ResMut<AutoFly>,
-    ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
+    screen_focus: Res<client_state::ScreenFocus>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
@@ -115,20 +112,8 @@ pub(crate) fn update_cursor_capture(
         capture_allowed: true,
         driven: driven.is_some(),
         consent: consent.is_some_and(|consent| consent.0),
-        absorbs_input: crate::screen_policy::absorbs_input(
-            &player_runtime,
-            ui.as_deref(),
-            menu.as_deref(),
-            presentation.as_deref(),
-        ),
-        steals_mouse: ui.as_deref().map(|ui| {
-            ui.steals_mouse(
-                &player_runtime,
-                menu.as_deref().map(|menu| {
-                    menu as &dyn client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene
-                }),
-            )
-        }),
+        absorbs_input: screen_focus.absorbs_input,
+        steals_mouse: screen_focus.steals_mouse,
     };
     if let Some(mut focus) = focus {
         policy.capture_allowed = focus.allow_capture(

@@ -27,7 +27,7 @@ pub(crate) struct SignInputAuthority<'w> {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_sign_editor(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,

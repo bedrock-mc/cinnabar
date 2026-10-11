@@ -6,14 +6,14 @@ pub(crate) fn drive_menu_services(
     mut commands: Commands,
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
     launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<client_presentation::audio::AudioSettings>>,
-    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
+    settings: Option<ResMut<client_state::RuntimeSettings>>,
     antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
     network: Option<Res<crate::runtime::network::NetworkHandle>>,
@@ -39,8 +39,7 @@ pub(crate) fn drive_menu_services(
     menu.sync_language(&mut runtime);
     let in_session = client_world.stream.is_some();
     if let Some(mut slot) = launcher {
-        // Remote direct sessions have a separate game core. Local worlds use
-        // the account core, so sign-in must not restart it during local play.
+        // Remote direct sessions have a separate game core. Local worlds use // the account core, so sign-in must not restart it during local play.
         let idle = launcher_core::account_core_idle(
             menu.is_launcher(),
             menu.is_connecting(),

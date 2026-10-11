@@ -8,7 +8,7 @@ use semantic_input::PerspectiveMode;
 
 #[test]
 fn free_camera_retires_cpu_hand_draws_and_clear_restores_them() {
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());

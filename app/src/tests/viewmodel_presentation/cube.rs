@@ -67,7 +67,7 @@ fn cube_world_assets(
 
 #[test]
 fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rejection() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::{
         camera::{Camera, ComputedCameraValues, RenderTarget, RenderTargetInfo},

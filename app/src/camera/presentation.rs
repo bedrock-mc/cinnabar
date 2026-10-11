@@ -13,9 +13,9 @@ use {
             LocalMovementSpeedAuthority, LocalPhysicsController, PhysicsCollisionRegistries,
         },
         runtime::world::ClientWorld,
-        semantic_controls::SemanticInputSnapshot,
     },
     client_presentation::local_player::LocalViewPose,
+    client_state::SemanticInputSnapshot,
 };
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
@@ -117,7 +117,7 @@ pub(crate) fn advance_presentation_state(
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_screen_overlays(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,

@@ -64,7 +64,7 @@ fn crossbow(projectile: Option<&str>) -> NetworkItemStack {
 }
 
 fn publish(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     ui: &mut UiRuntime,
     sequence: u64,
     slot: u16,
@@ -104,7 +104,7 @@ fn stream() -> chunk_pipeline::WorldStream {
 }
 
 fn charge_frame(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     ui: &UiRuntime,
     tick: u64,
 ) -> UseFrame {
@@ -179,7 +179,7 @@ fn native_crossbow_icon_uses_loaded_nbt_and_frame_minus_one_not_damage() {
 
 #[test]
 fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_corrections() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut presentation = presentation();
     let stream = stream();
@@ -202,7 +202,7 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
         _ => unreachable!(),
     };
     item_use.step(&charge_frame(&player_runtime, &ui, 10 + duration));
-    let mut capture = |player_runtime: &crate::player_runtime::PlayerRuntime,
+    let mut capture = |player_runtime: &client_state::PlayerRuntime,
                        ui: &mut UiRuntime,
                        item_use: &ItemUseRuntime,
                        tick| {

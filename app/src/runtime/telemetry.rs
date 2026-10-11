@@ -59,11 +59,11 @@ use {
             visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
             world::{ClientWorld, WorldStreamFramePoll},
         },
-        semantic_controls::SemanticInputSnapshot,
     },
     client_presentation::{
         camera::THIRD_PERSON_RADIUS_BLOCKS, local_player::LocalPlayerFrameCarrier,
     },
+    client_state::SemanticInputSnapshot,
     diagnostics::{
         markers::{
             ERROR_COUNTERS, STAGE_PROFILE, VISIBILITY_SNAPSHOT, acceptance_runtime_metadata_marker,

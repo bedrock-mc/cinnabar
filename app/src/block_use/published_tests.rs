@@ -120,7 +120,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     // The frame before this one picked along the same ray.
     let mut block_use = BlockUseRuntime::default();
     block_use.retain_pick(&origin, movement.interaction_authority_identity());
-    let mut player = crate::player_runtime::PlayerRuntime::new(7);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(7));
     player
         .facts
         .publish_player_game_mode(PlayerGameMode::Survival);
@@ -150,8 +150,10 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         .unwrap();
     assert!(snapshot.phases[Action::Use as usize].pressed);
     let mut world = World::new();
-    world
-        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
+    world.init_resource::<client_state::ScreenFocus>();
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
     world.insert_resource(origin);
     world.insert_resource(LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(input);
@@ -405,7 +407,7 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
             })
     );
     world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -492,7 +494,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
         }
     }
     world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -557,9 +559,9 @@ fn hold(
             ..Default::default()
         })
         .unwrap();
-    world.insert_resource(
-        crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot.clone()),
-    );
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot.clone()),
+    ));
     snapshot
 }
 
@@ -678,7 +680,9 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
         "the attack was tapped between frames"
     );
     assert!(tapped.phases[Action::Use as usize].pressed);
-    world.insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(tapped));
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(tapped),
+    ));
     world.run_system_cached(produce_block_use).unwrap();
     // Melee runs later in the frame and resolves the same tap.
     let mut melee = world.resource_mut::<crate::melee::MeleeRuntime>();
@@ -699,7 +703,9 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     );
     let held = frame(&mut router, false);
     assert!(!held.phases[Action::Use as usize].pressed);
-    world.insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(held));
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(held),
+    ));
     world.run_system_cached(produce_block_use).unwrap();
     transaction_targets(&mut captured)
 }
@@ -737,8 +743,9 @@ fn hold_use(world: &mut World) {
         })
         .unwrap();
     assert!(!snapshot.phases[Action::Use as usize].pressed);
-    world
-        .insert_resource(crate::semantic_controls::SemanticInputSnapshot::from_finalized(snapshot));
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
 }
 
 /// Publishes an authoritative hotbar stack with the matched block palette for placement tests.
@@ -763,7 +770,7 @@ fn set_hotbar_stack(world: &mut World, slot: u16, block: Option<&str>) {
         }
     });
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .ledger_mut()
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -788,7 +795,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
         set_hotbar_stack(&mut world, 0, Some("minecraft:stone"));
         set_hotbar_stack(&mut world, 1, placeable.then_some("minecraft:dirt"));
         let selected = verified_use_selection(
-            world.resource::<crate::player_runtime::PlayerRuntime>(),
+            world.resource::<client_state::PlayerRuntime>(),
             world.resource::<UiRuntime>(),
         )
         .unwrap();
@@ -822,7 +829,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
                 survival: true,
             },
         );
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         if pending {
             player
                 .inventory
@@ -890,7 +897,7 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
     physics.reanchor_network_position(position, 101, true);
     world.insert_resource(physics);
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .ledger_mut()
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
@@ -948,7 +955,7 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
 fn pending_hotbar_selection_retains_a_deferred_block_press() {
     let (mut world, mut captured) = fixture();
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .queue_local_hotbar_selection(1, Some(PlayerGameMode::Survival));
     world.run_system_cached(produce_block_use).unwrap();
@@ -984,7 +991,7 @@ fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
     assert_eq!(transaction_targets(&mut captured), [[4, 0, 7]]);
     set_hotbar_stack(&mut world, 1, Some("minecraft:dirt"));
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .set_local_selected_slot(1);
     let mut sent = Vec::new();
@@ -1025,7 +1032,7 @@ fn an_unrelated_inventory_request_does_not_delay_a_placement() {
     let (mut world, mut captured) =
         floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .inventory
         .ledger_mut()
         .apply(&InventoryEvent::Authority(
@@ -1033,7 +1040,7 @@ fn an_unrelated_inventory_request_does_not_delay_a_placement() {
         ));
     set_hotbar_stack(&mut world, 3, Some("minecraft:dirt"));
     {
-        let mut player = world.resource_mut::<crate::player_runtime::PlayerRuntime>();
+        let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let ledger = player.inventory.ledger_mut();
         ledger.begin_world_drop(3, Some(1)).unwrap();
         assert!(ledger.pending_request_id().is_some());

@@ -7,7 +7,7 @@ use client_ui::ui_runtime::UiRuntime;
 
 #[test]
 fn mining_mode_requires_current_complete_bootstrap_and_failed_repeat_stays_unknown() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
 
     let mut runtime = UiRuntime::new(7);
     assert_eq!(
@@ -77,7 +77,7 @@ fn mining_mode_requires_current_complete_bootstrap_and_failed_repeat_stays_unkno
 
 #[test]
 fn old_terminal_receiver_cannot_clear_new_mining_mode() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(8);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(8));
 
     for terminal in [
         NetworkControlEvent::Stopped {

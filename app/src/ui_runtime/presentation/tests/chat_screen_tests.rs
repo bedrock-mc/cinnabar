@@ -17,7 +17,7 @@ fn link_confirmation_consumes_typing_and_escape_preserves_chat_draft() {
         eprintln!("skipping link_confirmation input: missing installed UI carrier (make assets)");
         return;
     };
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     chat(
         &mut player,
@@ -91,7 +91,7 @@ fn text_node<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
 
 /// Applies one authoritative chat message.
 fn chat(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequence: u64,
     message: &str,
@@ -112,7 +112,7 @@ fn chat(
 
 /// Lays out one gameplay frame.
 fn build(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now: u64,
@@ -130,7 +130,7 @@ fn build(
 
 #[test]
 fn wheel_input_system_scrolls_the_open_chat() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     use bevy::{
         input::mouse::AccumulatedMouseScroll, prelude::*, time::Real, window::PrimaryWindow,
@@ -157,7 +157,7 @@ fn wheel_input_system_scrolls_the_open_chat() {
     app.init_resource::<Time<Real>>()
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
-        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<client_state::SemanticInputSnapshot>()
         .init_resource::<crate::runtime::world::ClientWorld>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
@@ -179,7 +179,7 @@ fn wheel_input_system_scrolls_the_open_chat() {
     app.update();
     let player_runtime = app
         .world_mut()
-        .remove_resource::<crate::player_runtime::PlayerRuntime>()
+        .remove_resource::<client_state::PlayerRuntime>()
         .unwrap();
     let runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
     let mut presentation = app
@@ -206,7 +206,7 @@ fn texts(nodes: &[DrawNode]) -> Vec<&str> {
 
 #[test]
 fn server_chat_screen_keeps_the_java_layout_and_input_policy() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let Some(mut presentation) =
         engine_presentation_with(client_ui::test_support::pack_harness::font())

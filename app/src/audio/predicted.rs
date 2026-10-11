@@ -46,7 +46,7 @@ pub(crate) fn drive_block_cues(
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_consume_audio(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<Time>,
     ui: Option<Res<UiRuntime>>,
     world: Res<ClientWorld>,

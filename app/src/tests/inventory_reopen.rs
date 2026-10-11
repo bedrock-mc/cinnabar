@@ -1,6 +1,5 @@
 //! Real keyboard and production ingress regression for close-response admission.
 
-use crate::player_runtime::PlayerRuntime;
 use bevy::{
     input::{
         ButtonInput, ButtonState,
@@ -11,6 +10,7 @@ use bevy::{
     time::{Real, Time},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
+use client_state::PlayerRuntime;
 use protocol::{
     ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryEvent,
 };
@@ -23,7 +23,7 @@ use {
 
 /// Builds the keyboard fixture with one live domain owner.
 fn app(authority: InventoryAuthority) -> (App, Entity) {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(&mut player_runtime, authority);
     runtime
