@@ -12,13 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 )
 
 const (
-	MaxFrameLen = 64 * 1024
+	MaxFrameLen = bridgecontract.MaxControlFrameLen
 
 	// requestIOTimeout bounds each read and write phase on the local, serial
 	// status endpoint so one stalled tool cannot deny service to later clients.

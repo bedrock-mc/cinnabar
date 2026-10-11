@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
@@ -23,7 +24,7 @@ type PingResult struct {
 
 const (
 	// MaxPingTargets bounds one ping request.
-	MaxPingTargets = 64
+	MaxPingTargets = bridgecontract.MaxPingTargets
 	pingTimeout    = 2 * time.Second
 	pingWorkers    = 8
 	defaultPort    = "19132"
