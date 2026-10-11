@@ -1,6 +1,6 @@
 //! Native application policy for invisible developer-control sessions.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use bevy::{ecs::system::NonSendMarker, prelude::*};
 use objc2::{
     ClassType, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained,
@@ -38,8 +38,10 @@ define_class!(
 
 /// Own the application singleton before the window backend installs its launch callbacks.
 pub(super) fn prepare_hidden_application() -> Result<()> {
-    let _main_thread =
-        MainThreadMarker::new().context("hidden rendering requires the main thread")?;
+    let _main_thread = anyhow::Context::context(
+        MainThreadMarker::new(),
+        "hidden rendering requires the main thread",
+    )?;
     // SAFETY: This inherited selector constructs the singleton on the main thread and returns
     // an NSApplication. Check its dynamic type before relying on our activation overrides.
     let app: Retained<NSApplication> =
