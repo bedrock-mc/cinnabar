@@ -78,6 +78,40 @@ fn assert_frame(input: &render_model::UiRenderInput, color: [u8; 4]) {
 }
 
 #[test]
+fn archive_source_readiness_rebuilds_static_crop_coordinates() {
+    let mut pack = animated_sheet_pack();
+    let mut root: serde_json::Value = serde_json::from_slice(&pack.ui_layers[0][2].1).unwrap();
+    root["hud_screen"]["controls"][0]["sheet"]["uv"] = serde_json::json!([0, 4064]);
+    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap();
+    pack.catalog = Some(Arc::new(
+        json_ui::Catalog::from_files(
+            pack.ui_layers[0]
+                .iter()
+                .map(|(p, b)| (p.as_str(), b.as_slice())),
+        )
+        .unwrap(),
+    ));
+    pack.textures[0]
+        .1
+        .resize(resource_pack::MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    pack.view =
+        Some(super::super::super::super::server_pack::external_paths_tests::view(&pack.textures));
+    pack.textures.clear();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_server_ui(Some(Arc::new(pack)));
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    presentation.gui_scale_preference = Some(1);
+    draw(&mut presentation, &runtime, 0);
+    test_time::eventually("source metadata restores its authored static crop", || {
+        snapshot::rasterize(&draw(&mut presentation, &runtime, 0))
+            .get_pixel(48, 48)
+            .0
+            == BLUE
+    });
+    assert_frame(&draw(&mut presentation, &runtime, 0), BLUE);
+}
+
+#[test]
 fn large_authored_uv_sheet_publishes_native_frame_pixels_and_loops() {
     let pack = animated_sheet_pack();
     let mut runtime = UiRuntime::new(1);

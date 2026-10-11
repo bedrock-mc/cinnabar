@@ -142,17 +142,14 @@ impl PackTextures {
             .filter_map(|layer| layer.file_size(path))
             .max()?;
         if size > MAX_PACK_TEXTURE_BYTES {
-            if !self.admit_large_source(key, size) {
-                return None;
-            }
-            self.reads.request(key, path, &self.view);
+            self.reads.request(key, path, &self.view, self.read_limit());
             return None;
         }
         self.read_image(key)
     }
 
-    /// Bounds large encoded-source residency independently of decoded tile residency.
-    fn admit_large_source(&self, key: &str, size: u64) -> bool {
+    /// Caps each readable layer by the remaining large-source budget without charging shadowed copies.
+    fn read_limit(&self) -> u64 {
         let bytes: usize = self
             .loaded
             .borrow()
@@ -161,12 +158,10 @@ impl PackTextures {
             .filter(|source| source.bytes.len() as u64 > MAX_PACK_TEXTURE_BYTES)
             .map(|source| source.bytes.len())
             .sum();
-        if size > render_model::MAX_UI_NATIVE_SHEET_BYTES.saturating_sub(bytes) as u64 {
-            bevy::log::warn!(texture = key, "skipping over-budget encoded UI image");
-            self.loaded.borrow_mut().insert(key.to_owned(), None);
-            return false;
-        }
-        true
+        render_model::MAX_UI_NATIVE_SHEET_BYTES
+            .saturating_sub(bytes)
+            .max(MAX_PACK_TEXTURE_BYTES as usize)
+            .min(resource_pack::MAX_FILE_BYTES as usize) as u64
     }
 
     /// Reads on the reload worker or for a small first-use entry, retaining the result once.
@@ -174,17 +169,10 @@ impl PackTextures {
         if let Some(found) = self.loaded.borrow().get(key) {
             return found.clone();
         }
-        let found = self.images.get(key).and_then(|path| {
-            let size = self
-                .view
-                .layers()
-                .filter_map(|layer| layer.file_size(path))
-                .max()?;
-            if size > MAX_PACK_TEXTURE_BYTES && !self.admit_large_source(key, size) {
-                return None;
-            }
-            read_source(&self.view, key, path)
-        });
+        let found = self
+            .images
+            .get(key)
+            .and_then(|path| read_source(&self.view, key, path, self.read_limit()));
         self.loaded
             .borrow_mut()
             .insert(key.to_owned(), found.clone());
@@ -229,14 +217,17 @@ impl PackTextures {
 }
 
 /// Reads one admitted image and its header on the source worker or a bounded small-image path.
-fn read_source(view: &resource_pack::LayeredPackView, key: &str, path: &str) -> Option<Source> {
+fn read_source(
+    view: &resource_pack::LayeredPackView,
+    key: &str,
+    path: &str,
+    limit: u64,
+) -> Option<Source> {
     #[cfg(test)]
     PACK_READS.with(|reads| reads.borrow_mut().push(key.to_owned()));
     #[cfg(not(test))]
     let _ = key;
-    source(Arc::from(
-        view.read_capped(path, resource_pack::MAX_FILE_BYTES)?,
-    ))
+    source(Arc::from(view.read_capped(path, limit)?))
 }
 
 /// Where a resident server texture sits: its page (relative to the first
@@ -318,6 +309,8 @@ pub(super) struct ServerAtlas {
     max_pages: usize,
     clock: u64,
     dirty: bool,
+    metadata_revision: u64,
+    metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
     oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
     decodes: Decodes,
@@ -517,7 +510,21 @@ impl ServerAtlas {
     /// Collects image completions before a retained menu can reuse its saved frame.
     pub(super) fn poll_native_images(&mut self) -> bool {
         let ready = self.pack.as_ref().is_some_and(|pack| pack.collect());
+        if ready {
+            self.metadata_revision = self.metadata_revision.wrapping_add(1);
+            self.metadata_dirty = true;
+        }
         ready | self.native.collect()
+    }
+
+    /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
+    pub(super) fn metadata_revision(&self) -> u64 {
+        self.metadata_revision
+    }
+
+    /// Keeps readiness observed during painting visible to the next retained-frame poll.
+    pub(super) fn take_metadata_changed(&mut self) -> bool {
+        std::mem::take(&mut self.metadata_dirty)
     }
 
     /// Original virtual-image pages, separate from the ordinary small atlas.
@@ -917,7 +924,7 @@ fn decode(bytes: &[u8], size: [u32; 2]) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 #[path = "server_pack/external_paths_tests.rs"]
-mod external_paths_tests;
+pub(super) mod external_paths_tests;
 
 #[cfg(test)]
 thread_local! {

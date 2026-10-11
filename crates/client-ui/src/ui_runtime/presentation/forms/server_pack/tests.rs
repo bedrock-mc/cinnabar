@@ -356,3 +356,23 @@ fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
     );
     assert!(PACK_READS.with(|reads| reads.borrow().is_empty()));
 }
+
+#[test]
+fn small_winning_source_remains_readable_above_large_lower_layers_at_the_budget_boundary() {
+    let mut large = png(1, 1);
+    large.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    let source = source(Arc::from(large.clone())).unwrap();
+    let key = "textures/ui/winning";
+    let lower = [(format!("{key}.png"), large)];
+    let higher = [(format!("{key}.png"), png(2, 3))];
+    let pack = PackTextures::index(super::external_paths_tests::layered_view(&[
+        &lower, &higher,
+    ]));
+    pack.loaded
+        .borrow_mut()
+        .extend((0..23).map(|i| (format!("resident_{i}"), Some(source.clone()))));
+    test_time::eventually("small winning pixels survive a large shadowed copy", || {
+        pack.collect();
+        pack.image(key).is_some_and(|source| source.size == [2, 3])
+    });
+}

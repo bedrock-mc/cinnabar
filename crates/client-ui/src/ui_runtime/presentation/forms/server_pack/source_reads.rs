@@ -16,6 +16,7 @@ struct Job {
     key: String,
     path: String,
     view: resource_pack::LayeredPackView,
+    limit: u64,
     cancelled: Arc<AtomicBool>,
     done: Sender<Completed>,
 }
@@ -33,7 +34,7 @@ fn worker() -> Option<&'static Sender<Job>> {
                         if job.cancelled.load(Ordering::Acquire) {
                             continue;
                         }
-                        let source = super::read_source(&job.view, &job.key, &job.path);
+                        let source = super::read_source(&job.view, &job.key, &job.path, job.limit);
                         if !job.cancelled.load(Ordering::Acquire) {
                             let _ = job.done.try_send((job.key, source));
                         }
@@ -81,7 +82,13 @@ impl Drop for SourceReads {
 
 impl SourceReads {
     /// Starts one large entry without reading or decompressing it on the requesting thread.
-    pub(super) fn request(&self, key: &str, path: &str, view: &resource_pack::LayeredPackView) {
+    pub(super) fn request(
+        &self,
+        key: &str,
+        path: &str,
+        view: &resource_pack::LayeredPackView,
+        limit: u64,
+    ) {
         let mut state = self.state.borrow_mut();
         if state.pending.is_some() || state.retry.is_some() {
             return;
@@ -90,6 +97,7 @@ impl SourceReads {
             key: key.to_owned(),
             path: path.to_owned(),
             view: view.clone(),
+            limit,
             cancelled: Arc::clone(&self.cancelled),
             done: state.sender.clone(),
         };

@@ -318,6 +318,7 @@ impl UiPresentationRuntime {
             .is_some_and(|engine| engine.poll_native_images())
         {
             self.retained_menu = None;
+            self.form_presentation.hud.invalidate_textures();
             self.sync_server_ui_pages();
         }
     }

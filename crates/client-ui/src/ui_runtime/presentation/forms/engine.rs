@@ -99,6 +99,7 @@ struct LaidForm {
     px: f32,
     text: [usize; 3],
     font: assets::FontCatalogIdentity,
+    texture_metadata: u64,
     render: FormRender,
 }
 
@@ -199,11 +200,16 @@ impl FormEngine {
     /// Install a server texture atlas whose pages start at texture page `first`.
     pub(super) fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
         self.textures.set_atlas(atlas, first);
+        if let Some(cache) = &mut self.cache {
+            cache.laid = None;
+        }
+        self.screens.invalidate_layouts();
     }
 
     /// Polls original-image readiness even when the current menu needs no repaint.
     pub(super) fn poll_native_images(&mut self) -> bool {
-        self.textures.atlas_mut().poll_native_images()
+        let atlas = self.textures.atlas_mut();
+        atlas.poll_native_images() | atlas.take_metadata_changed()
     }
 
     /// The atlas page images when they changed since the last call.
@@ -303,6 +309,7 @@ impl FormEngine {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
         let font = inputs.font.identity();
+        let texture_metadata = self.textures.lock().metadata_revision();
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -330,6 +337,7 @@ impl FormEngine {
                     laid.view.same_layout(view)
                         && (laid.root, laid.px, laid.text) == (root, px, text)
                         && laid.font == font
+                        && laid.texture_metadata == texture_metadata
                 });
                 if !fresh {
                     let bound = cache.bound.clone()?;
@@ -342,6 +350,7 @@ impl FormEngine {
                         px,
                         text,
                         font,
+                        texture_metadata,
                         render,
                     });
                 }
@@ -433,6 +442,7 @@ impl FormEngine {
         art.view = Some(view);
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
+        let texture_metadata = self.textures.lock().metadata_revision();
         render_with(self.art(), inputs, out, art, None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,
@@ -443,6 +453,7 @@ impl FormEngine {
                 root,
                 px,
                 text,
+                texture_metadata,
             };
             self.screens.render(key, env)
         })
