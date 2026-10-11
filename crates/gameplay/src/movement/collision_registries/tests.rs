@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sha2::{Digest, Sha256};
-
 use super::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
 
 #[path = "tests/bamboo.rs"]
@@ -31,41 +29,39 @@ const BREG_V2193: &[u8] = include_bytes!("../../../../assets/data/block-registry
 /// digest; shape mirrors the committed movement fixtures so no new
 /// artifact is required.
 fn synthetic_preg(protocol: u32, breg: &[u8], records: &[assets::RegistryRecord]) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"PREG1001");
-    bytes.extend_from_slice(&protocol.to_le_bytes());
-    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
-    bytes.extend_from_slice(&Sha256::digest(breg));
-    for record in records {
-        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
-        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
-        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
-        bytes.push(if record.collision_seed.boxes.is_empty() {
-            assets::BlockPhysicsFlags::PASSABLE.bits()
-        } else {
-            0
-        });
-        bytes.extend_from_slice(&[0, 0]);
-        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_i32.to_le_bytes());
-        for shape in &record.collision_seed.boxes {
-            for coordinate in [
-                shape.min_x,
-                shape.min_y,
-                shape.min_z,
-                shape.max_x,
-                shape.max_y,
-                shape.max_z,
-            ] {
-                bytes.extend_from_slice(&coordinate.to_le_bytes());
-            }
-        }
-    }
-    let digest = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&digest);
-    bytes
+    let original = assets::read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let compiled = assets::read_physics_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2193,
+        &original,
+        2193,
+    )
+    .unwrap();
+    let facts: Vec<_> = records
+        .iter()
+        .map(|record| {
+            let identity = original
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && candidate.canonical_state == record.canonical_state
+                })
+                .or_else(|| {
+                    original
+                        .iter()
+                        .find(|candidate| candidate.name == record.name)
+                })
+                .unwrap();
+            let mut fact = compiled
+                .by_sequential_id(identity.sequential_id)
+                .unwrap()
+                .clone();
+            fact.sequential_id = record.sequential_id;
+            fact.network_hash = record.network_hash;
+            fact
+        })
+        .collect();
+    assets::encode_physics_registry(protocol, breg, records, &facts).unwrap()
 }
 
 fn bind(
@@ -225,10 +221,15 @@ fn noncolliding_plants_have_vanilla_pick_shapes_in_both_id_spaces() {
                     (shape.min.y + shape.max.y) * 0.5,
                     0.5,
                 );
-                let hit = sim::PaletteWorld::new(&store, registries.registry(mode), 0)
-                    .block_interaction_ray_current(origin, sim::Vec3::new(0.0, 0.0, 1.0), 3.0)
-                    .unwrap()
-                    .expect("a first punch can pick the plant");
+                let hit = sim::PaletteWorld::new(
+                    &store,
+                    registries.registry(mode),
+                    0,
+                    Default::default(),
+                )
+                .block_interaction_ray_current(origin, sim::Vec3::new(0.0, 0.0, 1.0), 3.0)
+                .unwrap()
+                .expect("a first punch can pick the plant");
                 assert_eq!((hit.block_pos, hit.runtime_id), ([0, 0, 2], id));
             }
         }

@@ -9,7 +9,7 @@ fn half(registry: &mut CollisionRegistry, id: u32, upper: bool, hinge_right: boo
     assert!(registry.set_door_state(
         id,
         DoorState {
-            family: "minecraft:oak_door".into(),
+            family: world::block_state_identity::state_identity("minecraft:oak_door", []),
             facing: if upper {
                 DoorFacing::North
             } else {
@@ -44,7 +44,7 @@ fn fixture() -> (CollisionRegistry, ChunkStore) {
 fn both_halves_use_lower_open_state_and_upper_hinge() {
     let (registry, mut store) = fixture();
     let query = Aabb::new(Vec3::new(8.0, 8.0, 8.0), Vec3::new(9.0, 10.0, 9.0));
-    let before = PaletteWorld::new(&store, &registry, 0)
+    let before = PaletteWorld::new(&store, &registry, 0, Default::default())
         .collision_boxes(query)
         .unwrap();
     assert_eq!(before.value.len(), 2);
@@ -62,7 +62,7 @@ fn both_halves_use_lower_open_state_and_upper_hinge() {
             0,
         )
         .unwrap();
-    let after = PaletteWorld::new(&store, &registry, 0)
+    let after = PaletteWorld::new(&store, &registry, 0, Default::default())
         .collision_boxes(query)
         .unwrap();
     assert_ne!(before.identity, after.identity);
@@ -84,7 +84,7 @@ fn proposed_door_pairs_use_the_same_geometry_before_and_after_commit() {
         store.mark_sub_chunk_loaded(key).unwrap();
         let updates = [([8, 8, 8], 1), ([8, 9, 8], upper)];
         let proposed = {
-            let world = PaletteWorld::new(&store, &registry, 0);
+            let world = PaletteWorld::new(&store, &registry, 0, Default::default());
             let mut shapes = Vec::new();
             for &(position, runtime_id) in &updates {
                 let offset = Vec3::new(8.0, f64::from(position[1]), 8.0);
@@ -108,7 +108,7 @@ fn proposed_door_pairs_use_the_same_geometry_before_and_after_commit() {
                 )
                 .unwrap();
         }
-        let world = PaletteWorld::new(&store, &registry, 0);
+        let world = PaletteWorld::new(&store, &registry, 0, Default::default());
         let committed = world
             .collision_boxes(Aabb::new(
                 Vec3::new(8.0, 8.0, 8.0),
@@ -139,7 +139,7 @@ fn unpaired_door_uses_native_default_plane() {
             0,
         )
         .unwrap();
-    let result = PaletteWorld::new(&store, &registry, 0)
+    let result = PaletteWorld::new(&store, &registry, 0, Default::default())
         .collision_boxes(Aabb::new(
             Vec3::new(8.0, 8.0, 8.0),
             Vec3::new(9.0, 9.0, 9.0),
@@ -162,7 +162,7 @@ fn unrelated_upper_door_does_not_require_unloaded_lower_half() {
     store
         .update_block(key, BlockUpdate::new(8, 0, 8, 0, 2), 0)
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let result = world
         .collision_boxes(Aabb::new(
             Vec3::new(8.1, 17.9, 8.1),
@@ -186,7 +186,7 @@ fn review_door_pick_ray_observes_the_paired_hinge() {
     let origin = Vec3::new(7.0, 8.5, 8.9);
     let direction = Vec3::new(1.0, 0.0, 0.0);
     assert!(
-        PaletteWorld::new(&store, &registry, 0)
+        PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray_current(origin, direction, 3.0)
             .unwrap()
             .is_some()
@@ -199,7 +199,7 @@ fn review_door_pick_ray_observes_the_paired_hinge() {
         )
         .unwrap();
     assert!(
-        PaletteWorld::new(&store, &registry, 0)
+        PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray_current(origin, direction, 3.0)
             .unwrap()
             .is_none()

@@ -258,8 +258,11 @@ impl ChunkStore {
         let (sub_chunk, block_entities) = decoded.into_parts();
         let replacement_bytes =
             self.validate_sub_chunk_block_entity_replacement(key, &block_entities)?;
+        let actor_revision =
+            self.reserve_actor_replacement(key.chunk(), Some(key), block_entities.entities())?;
         let changed = self.commit_sub_chunk(key, sub_chunk)?;
         self.replace_sub_chunk_block_entities(key, block_entities, replacement_bytes);
+        self.apply_reserved_revision(key.chunk(), actor_revision);
         Ok(changed)
     }
 
@@ -299,9 +302,15 @@ impl ChunkStore {
             .expect("stored block-entity byte total matches its sparse map");
         let replacement_bytes = retained_bytes.saturating_add(nbt.bytes().len());
         ensure_chunk_block_entity_bytes(replacement_bytes)?;
+        let actor_revision = self.reserve_actor_change(
+            key.chunk(),
+            replacing.map_or(&crate::ShapeActor::None, |nbt| nbt.shape_actor())
+                != nbt.shape_actor(),
+        )?;
         let chunk = self.chunks.entry(key.chunk()).or_default();
         Arc::make_mut(&mut chunk.block_entities).insert(key, Arc::new(nbt));
         chunk.block_entity_bytes = replacement_bytes;
+        self.apply_reserved_revision(key.chunk(), actor_revision);
         Ok(true)
     }
 
@@ -311,7 +320,8 @@ impl ChunkStore {
         &mut self,
         key: ChunkKey,
         replacement: DecodedBlockEntities,
-    ) {
+    ) -> Result<(), CollisionRevisionError> {
+        let actor_revision = self.reserve_actor_replacement(key, None, replacement.entities())?;
         let mut replacement = replacement.into_entities();
         if let Some(previous) = self.chunks.get(&key) {
             for (&entity_key, entity) in &mut replacement {
@@ -325,7 +335,7 @@ impl ChunkStore {
             }
         }
         if replacement.is_empty() && !self.chunks.contains_key(&key) {
-            return;
+            return Ok(());
         }
         let chunk = self.chunks.entry(key).or_default();
         chunk.block_entity_bytes = replacement
@@ -337,6 +347,8 @@ impl ChunkStore {
         {
             self.chunks.remove(&key);
         }
+        self.apply_reserved_revision(key, actor_revision);
+        Ok(())
     }
 
     /// Applies a successful-all-air SubChunk response without allocating a
@@ -348,8 +360,11 @@ impl ChunkStore {
         &mut self,
         key: SubChunkKey,
     ) -> Result<Option<SubChunkKey>, CollisionRevisionError> {
+        let actor_revision =
+            self.reserve_actor_replacement(key.chunk(), Some(key), std::iter::empty())?;
         let changed = self.remove_sub_chunk(key)?;
         self.clear_sub_chunk_block_entities(key);
+        self.apply_reserved_revision(key.chunk(), actor_revision);
         Ok(changed)
     }
 
@@ -550,8 +565,13 @@ impl ChunkStore {
             .transpose()
     }
 
+    /// Publishes the newest reservation when palette and actor changes share one commit.
     fn apply_reserved_revision(&mut self, key: ChunkKey, revision: Option<u64>) {
         if let Some(revision) = revision {
+            let revision = self
+                .collision_revisions
+                .get(&key)
+                .map_or(revision, |current| current.revision.max(revision));
             self.set_collision_revision(key, revision);
         }
     }
@@ -777,9 +797,15 @@ impl ChunkStore {
                 .map(|y| SubChunkKey::from_chunk(key, y))
                 .collect::<Vec<_>>();
         let collision_changed = !block_changed.is_empty();
-        let revision = (newly_loaded || collision_changed)
-            .then(|| self.collision_revision_allocator.allocate())
-            .transpose()?;
+        let revision = if newly_loaded || collision_changed {
+            Some(self.collision_revision_allocator.allocate()?)
+        } else {
+            self.reserve_actor_replacement(
+                key,
+                None,
+                block_entities.iter().map(|(&key, nbt)| (key, nbt.as_ref())),
+            )?
+        };
         let mut changed = block_changed;
         changed.extend(biome_changed.iter().copied());
         let changed = changed.into_iter().collect::<Vec<_>>();
@@ -830,3 +856,4 @@ impl ChunkStore {
 #[cfg(test)]
 #[path = "store_revision_tests.rs"]
 mod collision_revision_allocator_tests;
+mod shape_revisions;

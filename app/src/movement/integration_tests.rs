@@ -4,10 +4,8 @@ use crate::acceptance::AcceptanceRun;
 use ::acceptance::AcceptanceRun;
 use std::time::{Duration, Instant};
 
-use assets::{BlockPhysicsFlags, RegistryRecord};
 use gameplay::movement::coordination::physics_authority_fault_for_frame;
 use protocol::PlayerInputMode;
-use sha2::{Digest, Sha256};
 use sim::{
     Aabb, CollisionIdSpace, CollisionQuery, CollisionRegistryIdentity, CollisionWorld,
     MovementInput, Vec3, WorldCollisionIdentity, WorldQueryError,
@@ -216,45 +214,6 @@ fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
         assert!(result.blocked.is_none());
     }
     physics
-}
-
-/// Encodes physics records bound to the checked-in block registry.
-pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"PREG1001");
-    bytes.extend_from_slice(&assets::active_content_registry_protocol().to_le_bytes());
-    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
-    bytes.extend_from_slice(&Sha256::digest(breg));
-    for record in records {
-        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
-        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
-        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
-        bytes.push(if record.collision_seed.boxes.is_empty() {
-            BlockPhysicsFlags::PASSABLE.bits()
-        } else {
-            0
-        });
-        bytes.extend_from_slice(&[0, 0]);
-        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_i32.to_le_bytes());
-        for shape in &record.collision_seed.boxes {
-            for coordinate in [
-                shape.min_x,
-                shape.min_y,
-                shape.min_z,
-                shape.max_x,
-                shape.max_y,
-                shape.max_z,
-            ] {
-                bytes.extend_from_slice(&coordinate.to_le_bytes());
-            }
-        }
-    }
-    let digest = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&digest);
-    bytes
 }
 
 #[derive(Default)]

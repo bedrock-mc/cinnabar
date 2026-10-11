@@ -11,6 +11,7 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let probes = stream.authority().actor_fluid_probes();
     let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));

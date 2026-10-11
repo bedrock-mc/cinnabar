@@ -433,6 +433,7 @@ name = "asset-compiler"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "block-transform",
  "clap",
  "image",
  "pack-compiler",
@@ -443,6 +444,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "world",
 ]
 
 [[package]]
@@ -6981,6 +6983,7 @@ dependencies = [
 name = "sim"
 version = "0.1.12"
 dependencies = [
+ "assets",
  "block-transform",
  "serde",
  "serde_json",
@@ -9484,6 +9487,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
 ]
 

@@ -56,6 +56,7 @@ impl ChatCoordinateContext<'_> {
             &self.world,
             self.collisions.as_deref()?,
             selection,
+            player_runtime.facts.player_game_mode(),
             (
                 mode,
                 reach,

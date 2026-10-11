@@ -6,7 +6,7 @@ set -euo pipefail
 repo_root="$(CDPATH= cd -- "${CINNABAR_SOURCE_ROOT:-$(dirname -- "${BASH_SOURCE[0]}")/../..}" && pwd)"
 
 # Shared with check-payload.sh; Windows copies the same set in build-installer.ps1.
-kit_registry_stems=(block-registry block-light-registry biome-registry)
+kit_registry_stems=(block-registry block-light-registry biome-registry block-physics-seed)
 
 # stage_prep_kit <kit_dir> <assetc_binary>
 stage_prep_kit() {

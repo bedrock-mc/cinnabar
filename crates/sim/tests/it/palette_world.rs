@@ -26,7 +26,7 @@ fn nonintersecting_unavailable_terrain_does_not_suspend_loaded_motion() {
             .unwrap();
         let mut state = PlayerState::new(position);
         state.velocity = Vec3::new(-0.1, -0.1, -0.1);
-        let world = PaletteWorld::new(&store, &registry, 0);
+        let world = PaletteWorld::new(&store, &registry, 0, Default::default());
         let mut actual = state.clone();
         let tick = simulator
             .tick(&mut actual, MovementInput::default(), &world)
@@ -35,7 +35,7 @@ fn nonintersecting_unavailable_terrain_does_not_suspend_loaded_motion() {
         store
             .mark_sub_chunk_loaded(SubChunkKey::new(0, missing[0], missing[1], missing[2]))
             .unwrap();
-        let complete = PaletteWorld::new(&store, &registry, 0);
+        let complete = PaletteWorld::new(&store, &registry, 0, Default::default());
         let expected = simulator
             .tick(&mut state, MovementInput::default(), &complete)
             .unwrap();
@@ -108,7 +108,7 @@ fn palette_adapter_preserves_negative_floor_chunk_and_local_coordinates() {
     registry
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let boxes = world
         .collision_boxes(Aabb::new(
@@ -140,7 +140,7 @@ fn palette_adapter_translates_exact_compound_runtime_shapes() {
             ],
         )
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let boxes = world
         .collision_boxes(Aabb::new(
@@ -165,7 +165,7 @@ fn unknown_runtime_ids_fail_closed_instead_of_becoming_full_cubes_or_air() {
     let store = loaded_uniform_store(chunk, 77);
     let mut registry = CollisionRegistry::new();
     registry.register(0, []).unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     assert_eq!(
         world.collision_boxes(Aabb::new(Vec3::ZERO, Vec3::ONE)),
@@ -192,7 +192,7 @@ fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
     registry
         .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let query = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(6.0, 1.0, 4.0));
 
     let lenient = world.collision_boxes_camera_lenient(query).unwrap();
@@ -240,7 +240,7 @@ fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
 fn camera_lenient_query_skips_unloaded_cells_but_keeps_framing_errors_fatal() {
     let store = ChunkStore::new();
     let registry = CollisionRegistry::new();
-    let world = PaletteWorld::new(&store, &registry, 2);
+    let world = PaletteWorld::new(&store, &registry, 2, Default::default());
 
     let lenient = world
         .collision_boxes_camera_lenient(Aabb::new(Vec3::ZERO, Vec3::ONE))
@@ -260,7 +260,7 @@ fn camera_lenient_query_skips_unloaded_cells_but_keeps_framing_errors_fatal() {
 fn absent_column_fails_closed_even_though_sparse_lookup_looks_like_air() {
     let store = ChunkStore::new();
     let registry = CollisionRegistry::new();
-    let world = PaletteWorld::new(&store, &registry, 2);
+    let world = PaletteWorld::new(&store, &registry, 2, Default::default());
 
     assert_eq!(
         world.collision_boxes(Aabb::new(Vec3::ZERO, Vec3::ONE)),
@@ -279,7 +279,7 @@ fn request_mode_sub_chunk_is_collision_authoritative_before_its_column_completes
 
     let mut registry = CollisionRegistry::new();
     registry.register(0, []).unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     assert_eq!(world.block_physics([1, 1, 1]).unwrap().layers.len(), 1);
     assert_eq!(
         world.block_physics([1, 16, 1]),
@@ -295,7 +295,7 @@ fn palette_adapter_reads_runtime_specific_surface_friction_without_flattening() 
     registry
         .register_with_friction(9, [Aabb::new(Vec3::ZERO, Vec3::ONE)], 0.98)
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     assert_eq!(
         world.block_physics([2, 0, 3]).unwrap().primary().friction,
@@ -325,7 +325,7 @@ fn deterministic_tick_collides_directly_against_palette_packed_store() {
     registry
         .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
-    let palette_world = PaletteWorld::new(&store, &registry, 0);
+    let palette_world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = PlayerState::new(Vec3::new(8.0, 1.0, 8.0));
     state.on_ground = true;
 
@@ -438,7 +438,7 @@ fn collision_registry_rejects_shapes_outside_the_one_block_query_halo() {
 fn palette_adapter_rejects_oversized_queries_before_chunk_scanning() {
     let store = ChunkStore::new();
     let registry = CollisionRegistry::new();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let oversized = sim::MAX_COLLISION_QUERY_EXTENT + 1.0;
     for (min, max) in [
@@ -463,7 +463,7 @@ fn identity_is_exact_sorted_and_changes_with_any_queried_column() {
     let mut registry = CollisionRegistry::with_identity(registry_identity());
     registry.register(0, []).unwrap();
     registry.register(1, []).unwrap();
-    let before = PaletteWorld::new(&store, &registry, 0)
+    let before = PaletteWorld::new(&store, &registry, 0, Default::default())
         .collision_boxes(Aabb::new(
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(16.0, 1.0, 1.0),
@@ -484,7 +484,7 @@ fn identity_is_exact_sorted_and_changes_with_any_queried_column() {
             99,
         )
         .unwrap();
-    let after = PaletteWorld::new(&store, &registry, 0)
+    let after = PaletteWorld::new(&store, &registry, 0, Default::default())
         .collision_boxes(Aabb::new(
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(16.0, 1.0, 1.0),
@@ -529,7 +529,7 @@ fn block_physics_returns_full_facts_and_exact_identity() {
             sim::SurfaceResponse::None,
         )
         .unwrap();
-    let sample = PaletteWorld::new(&store, &registry, 0)
+    let sample = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_physics([2, 0, 3])
         .unwrap();
     assert_eq!(sample.layers.len(), 2);
@@ -618,7 +618,7 @@ fn provenance_surface_names_exact_block_and_runtime_id_per_collider() {
             ],
         )
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let query = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.0, 1.6, 4.0));
     let provenanced = world.collision_boxes_with_provenance(query).unwrap();
@@ -677,7 +677,7 @@ fn provenance_surface_preserves_halo_shapes_with_their_source_cell() {
             )],
         )
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let query = Aabb::new(Vec3::new(1.0, 0.0, 1.0), Vec3::new(3.0, 1.0, 3.0));
     let provenanced = world.collision_boxes_with_provenance(query).unwrap();
@@ -731,7 +731,7 @@ fn provenance_surface_matches_the_box_only_surface_exactly() {
     registry
         .register(19, [Aabb::new(Vec3::new(-1.0, -1.0, -1.0), Vec3::ONE)])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     for query in [
         Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(3.5, 2.5, 4.5)),
@@ -773,7 +773,7 @@ fn provenance_surface_keeps_the_box_only_error_contract_exactly() {
     let mut registry = CollisionRegistry::new();
     registry.register(0, []).unwrap();
     let empty_store = ChunkStore::new();
-    let empty = PaletteWorld::new(&empty_store, &registry, 2);
+    let empty = PaletteWorld::new(&empty_store, &registry, 2, Default::default());
     let query = Aabb::new(Vec3::ZERO, Vec3::ONE);
     assert_eq!(
         assert_same_error(&empty, query, "unloaded columns fail identically"),
@@ -782,7 +782,7 @@ fn provenance_surface_keeps_the_box_only_error_contract_exactly() {
 
     let chunk = ChunkKey::new(0, 0, 0);
     let store = loaded_uniform_store(chunk, 77);
-    let unknown = PaletteWorld::new(&store, &registry, 0);
+    let unknown = PaletteWorld::new(&store, &registry, 0, Default::default());
     assert_eq!(
         assert_same_error(&unknown, query, "unknown runtime ids fail identically"),
         WorldQueryError::UnknownRuntimeId {
@@ -861,7 +861,7 @@ fn camera_segment_stops_at_the_first_collider_including_shapes_rising_from_the_c
     registry
         .register(2, [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.5, 1.0))])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
     let (wall, skipped) = world
         .camera_segment_entry(Vec3::new(0.5, 1.75, 3.5), Vec3::new(10.0, 0.0, 0.0))
@@ -881,7 +881,7 @@ fn camera_segment_cost_is_linear_in_length_even_through_unloaded_space() {
     registry
         .register(2, [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.5, 1.0))])
         .unwrap();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let (origin, delta) = (Vec3::new(0.3, 64.7, 0.45), Vec3::new(100.0, 30.0, 70.0));
 
     let ((entry, skipped), allocations) =

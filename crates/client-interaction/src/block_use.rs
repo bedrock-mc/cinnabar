@@ -123,6 +123,7 @@ pub fn predicted_placement(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let range = stream
         .authority()

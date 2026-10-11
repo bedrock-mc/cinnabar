@@ -319,6 +319,7 @@ pub fn drive_local_motion(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let after = *last_tick;
     physics.visit_motion_ticks(after, &mut |tick, sample| {
@@ -463,6 +464,7 @@ pub fn drive_ambience(
                 stream.collision_store(),
                 collisions.registry(mode),
                 stream.current_dimension(),
+                Default::default(),
             );
             let block = [
                 eye.x.floor() as i32,

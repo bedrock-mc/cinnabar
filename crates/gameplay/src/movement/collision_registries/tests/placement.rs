@@ -102,7 +102,7 @@ fn predict(
     context: &PlacementContext<'_>,
 ) -> Option<crate::block_use::PredictedPlacement> {
     let registry = &fixtures().1;
-    let world = sim::PaletteWorld::new(store, registry.registry(mode), 0);
+    let world = sim::PaletteWorld::new(store, registry.registry(mode), 0, Default::default());
     predicted_placement(registry, mode, id(record(name, &[]), mode), &world, context)
 }
 
@@ -661,7 +661,7 @@ fn bamboo_placement_tests_the_destination_column_at_custom_build_heights() {
                     click.build_height = y - 1..y + 2;
                     let bamboo = id(record("minecraft:bamboo", &[]), mode);
                     let registry = fixtures().1.registry(mode);
-                    let world = sim::PaletteWorld::new(&store, registry, 0);
+                    let world = sim::PaletteWorld::new(&store, registry, 0, Default::default());
                     let destination = around.destination(click.clicked, click.input.face).0;
                     assert!(click.build_height.contains(&destination[1]));
                     assert_eq!(world.primary_runtime_id(destination).unwrap(), air);

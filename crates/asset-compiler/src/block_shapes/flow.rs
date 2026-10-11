@@ -1,9 +1,10 @@
 //! Vanilla material/flow facts per block; geometry flags do not establish them.
 
+use assets::block_shapes::CompiledFlow;
 use assets::{ModelStateField, RegistryRecord};
-use sim::{CollisionRegistry, FlowBlockFacts};
 
-pub(super) fn register(registry: &mut CollisionRegistry, runtime_id: u32, record: &RegistryRecord) {
+/// Compiles the admitted material and liquid-depth facts for a state.
+pub(super) fn facts(record: &RegistryRecord) -> Option<CompiledFlow> {
     let (blocks_motion, is_solid, liquid) = match record.name.as_ref() {
         // Air and liquid materials neither block motion nor count as solid.
         "minecraft:air" => (false, false, false),
@@ -19,7 +20,7 @@ pub(super) fn register(registry: &mut CollisionRegistry, runtime_id: u32, record
         "minecraft:stone" | "minecraft:sand" => (true, true, false),
         // Gravel uses the same material; it falls with falling_dust_gravel_particle.
         "minecraft:gravel" => (true, true, false),
-        _ => return,
+        _ => return None,
     };
     let liquid_depth = if liquid {
         let Some(depth) = record
@@ -28,22 +29,19 @@ pub(super) fn register(registry: &mut CollisionRegistry, runtime_id: u32, record
             .and_then(|depth| u8::try_from(depth).ok())
             .filter(|depth| *depth < 16)
         else {
-            return;
+            return None;
         };
         Some(depth)
     } else {
         None
     };
-    registry.set_flow_facts(
-        runtime_id,
-        FlowBlockFacts {
-            blocks_motion,
-            is_solid,
-            // These blocks use vanilla's default liquid detection (no blocked
-            // faces) and allow flow on every face.
-            blocked_faces: 0,
-            allowed_faces: 0x3f,
-            liquid_depth,
-        },
-    );
+    Some(CompiledFlow {
+        blocks_motion,
+        is_solid,
+        // These blocks use vanilla's default liquid detection (no blocked
+        // faces) and allow flow on every face.
+        blocked_faces: 0,
+        allowed_faces: 0x3f,
+        liquid_depth,
+    })
 }

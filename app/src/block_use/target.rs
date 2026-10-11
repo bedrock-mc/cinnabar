@@ -59,6 +59,7 @@ pub(super) fn observe_use_target(
         &context.client_world,
         &context.collisions,
         selection,
+        player_runtime.facts.player_game_mode(),
         (
             input_mode,
             reach,

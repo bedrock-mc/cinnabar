@@ -46,7 +46,7 @@ fn verified_physics_registry_rejects_stale_carrier_with_guidance() {
     let message = format!("{error:#}");
 
     assert!(message.contains("stale or corrupt"));
-    assert!(message.contains("make physics-assets"));
+    assert!(message.contains("make assets"));
     assert!(message.contains("make client"));
 }
 
@@ -62,6 +62,6 @@ fn missing_physics_registry_reports_acquisition_guidance() {
     let message = format!("{error:#}");
 
     assert!(message.contains("read required protocol-2193 physics registry"));
-    assert!(message.contains("make physics-assets"));
+    assert!(message.contains("make assets"));
     assert!(message.contains("make client"));
 }

@@ -696,6 +696,20 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Block selection outlines and visual bounds
 
+- Block shape compilation now belongs to `assets` and `asset-compiler`. The
+  physics carrier stores final movement boxes, independent selection boxes,
+  eligibility, outlines, tags, and typed context facts for both runtime ID spaces.
+  Gameplay indexes these facts; ray, collision and outline queries do not parse
+  canonical-state JSON or match block names.
+- Runtime exceptions are paired doors, neighbour support and portal axes, vine
+  and chorus outlines, deterministic column offsets, and piston actor inputs.
+  Geometry-bearing actor updates retire pick revisions and historical snapshots
+  retain their original facts, including remote piston-owner dependencies.
+- Incomplete parity: client piston animation timing, legacy moving-block state
+  migration, animated shulker outlines, remaining material/support bindings, and
+  newer block identifiers using compatibility recipes. These do not close the
+  interaction or rendering parity gates.
+
 - At the owner's request, untouched and older settings select the native black
   outline instead of the filled highlight. Explicit Outline Selection choices
   retain the native two-mode rendering contract.
@@ -708,9 +722,9 @@ these changes do not close the movement, camera, or actor parity gates.
   Cinnabar's FXAA; matching vanilla sample anti-aliasing and stroke coverage
   remains incomplete.
 - Fence and wall selection use visual bounds independently of taller movement
-  collision. Wall heights currently follow the pinned visible models.
-- Incomplete parity: exact wall selection insets, the matching-version material
-  depth offset, scaled deferred outlines and platform-specific factory defaults
+  collision. Wall selection retains its state-dependent visual height and insets.
+- Incomplete parity: the matching-version material depth offset, scaled deferred
+  outlines and platform-specific factory defaults
   remain unverified. The material witness is from the neighbouring installed client.
 - The visibility update's Rust client build passes. The production stroke shader
   renders on Metal and retains dark pixels through FXAA at horizontal, vertical

@@ -1,6 +1,5 @@
 use std::cell::Cell;
 
-
 fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
@@ -18,7 +17,10 @@ fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
     physics
 }
 
-fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) -> PhysicsMovementSample {
+fn run_one_tick(
+    physics: &mut LocalPhysicsController,
+    world: &VersionedFloor,
+) -> PhysicsMovementSample {
     let frame = physics.advance_with_context(
         Duration::from_millis(50),
         forward_physics_input(),
@@ -133,8 +135,10 @@ fn untimed_server_motion_is_discarded_by_session_reanchor() {
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let mut baseline = LocalPhysicsController::default();
     baseline.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    assert_eq!(run_one_tick(&mut physics, &VersionedFloor(1)).position,
-        run_one_tick(&mut baseline, &VersionedFloor(1)).position);
+    assert_eq!(
+        run_one_tick(&mut physics, &VersionedFloor(1)).position,
+        run_one_tick(&mut baseline, &VersionedFloor(1)).position
+    );
 }
 
 #[test]
@@ -249,8 +253,6 @@ fn multi_tick_frames_snapshot_the_authority_present_at_the_frame_boundary() {
     assert_eq!(batched.state(), split.state());
 }
 
-
-
 #[test]
 fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     let mut physics = LocalPhysicsController::default();
@@ -288,7 +290,9 @@ impl DeferredCollisionWorld {
 impl CollisionWorld for DeferredCollisionWorld {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         if !self.available.get() {
-            return Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(0, 0, 0)));
+            return Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+                0, 0, 0,
+            )));
         }
         Floor.collision_boxes(query)
     }
@@ -305,20 +309,16 @@ fn unavailable_collision_discards_blocked_elapsed_without_mutating_then_retries_
     let before = physics.state().unwrap().clone();
     let before_eye = physics.render_eye_position();
 
-    let frame = physics.advance(
-        Duration::from_millis(250),
-        forward_physics_input(),
-        &world,
-    );
+    let frame = physics.advance(Duration::from_millis(250), forward_physics_input(), &world);
 
     assert_eq!(frame.due_ticks, 5);
     assert_eq!(frame.completed_ticks, 0);
     assert_eq!(frame.dropped_ticks, 0);
     assert!(matches!(
         frame.blocked,
-        Some(sim::SimulationError::World(
-            WorldQueryError::UnloadedChunk(_)
-        ))
+        Some(sim::SimulationError::World(WorldQueryError::UnloadedChunk(
+            _
+        )))
     ));
     assert!(physics.is_active());
     assert!(ticker.physics_is_authorized());
@@ -344,8 +344,6 @@ fn unavailable_collision_discards_blocked_elapsed_without_mutating_then_retries_
     assert_eq!(physics.history_len(), 1);
 }
 
-
-
 #[test]
 fn collision_data_returning_after_a_long_block_does_not_immediately_fault() {
     let world = DeferredCollisionWorld::default();
@@ -356,22 +354,14 @@ fn collision_data_returning_after_a_long_block_does_not_immediately_fault() {
     ticker.set_source(MovementSource::Physics);
 
     for _ in 0..12 {
-        let frame = physics.advance(
-            Duration::from_millis(50),
-            forward_physics_input(),
-            &world,
-        );
+        let frame = physics.advance(Duration::from_millis(50), forward_physics_input(), &world);
         assert!(frame.blocked.is_some());
         assert_eq!(frame.dropped_ticks, 0);
         assert_eq!(physics_authority_fault_for_frame(&frame), None);
     }
 
     world.set_available();
-    let frame = physics.advance(
-        Duration::from_millis(50),
-        forward_physics_input(),
-        &world,
-    );
+    let frame = physics.advance(Duration::from_millis(50), forward_physics_input(), &world);
     assert!(frame.blocked.is_none());
     assert_eq!(frame.completed_ticks, 1);
     assert_eq!(frame.dropped_ticks, 0);
@@ -440,7 +430,10 @@ fn local_physics_catch_up_overflow_stays_contiguous_and_keeps_authority() {
         ticker.enqueue_completed_physics(sample.clone()).unwrap();
         ticks.push(sample.tick);
     }
-    assert_eq!(ticks, (1..=MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64).collect::<Vec<_>>());
+    assert_eq!(
+        ticks,
+        (1..=MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64).collect::<Vec<_>>()
+    );
     assert!(ticker.physics_is_authorized());
     assert!(ticker.take_authority_fault().is_none());
 }
@@ -508,44 +501,17 @@ fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
     );
 }
 
+/// Uses the compiled fixture so integration tests exercise runtime projection only.
 pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"PREG1001");
-    bytes.extend_from_slice(
-        &active_content_registry_protocol().to_le_bytes(),
-    );
-    bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
-    bytes.extend_from_slice(&Sha256::digest(breg));
-    for record in records {
-        bytes.extend_from_slice(&record.sequential_id.to_le_bytes());
-        bytes.extend_from_slice(&record.network_hash.to_le_bytes());
-        bytes.push(u8::try_from(record.collision_seed.boxes.len()).unwrap());
-        bytes.push(if record.collision_seed.boxes.is_empty() {
-            BlockPhysicsFlags::PASSABLE.bits()
-        } else {
-            0
-        });
-        bytes.extend_from_slice(&[0, 0]);
-        bytes.extend_from_slice(&60_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&100_000_000_u32.to_le_bytes());
-        bytes.extend_from_slice(&0_i32.to_le_bytes());
-        for shape in &record.collision_seed.boxes {
-            for coordinate in [
-                shape.min_x,
-                shape.min_y,
-                shape.min_z,
-                shape.max_x,
-                shape.max_y,
-                shape.max_z,
-            ] {
-                bytes.extend_from_slice(&coordinate.to_le_bytes());
-            }
-        }
-    }
-    let digest = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&digest);
-    bytes
+    let preg = include_bytes!("../../../../assets/data/block-physics-v2193.bin");
+    assets::read_physics_registry_for_protocol(
+        preg,
+        breg,
+        records,
+        active_content_registry_protocol(),
+    )
+    .unwrap();
+    preg.to_vec()
 }
 
 #[test]
@@ -605,12 +571,23 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
         Some(f64::from(0.35_f32 * 0.35_f32)),
         "vanilla slows by the modifier's f32 square"
     );
-    let near_one = physics_movement_input([0.0, 1.0], 0.0, true, false, false, false, Some(f64::from(1.0_f32 - f32::EPSILON / 2.0)));
+    let near_one = physics_movement_input(
+        [0.0, 1.0],
+        0.0,
+        true,
+        false,
+        false,
+        false,
+        Some(f64::from(1.0_f32 - f32::EPSILON / 2.0)),
+    );
     assert_eq!(near_one.item_use_movement_modifier, Some(1.0));
 
     assert_eq!(
         physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
-        MovementInput { yaw_degrees: 90.0, ..MovementInput::default() }
+        MovementInput {
+            yaw_degrees: 90.0,
+            ..MovementInput::default()
+        }
     );
 }
 
@@ -632,8 +609,7 @@ fn processed_sprint_requires_forward_movement_input() {
 
     // Sneaking does not cancel an active sprint: vanilla keeps the faster
     // sneak-sprint pace, so the forward gate alone decides processed sprint.
-    let sneaking_forward =
-        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, None);
+    let sneaking_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, None);
     assert!(sneaking_forward.sprinting);
 }
 
@@ -756,7 +732,11 @@ fn completed_motion_ticks_survive_minimum_rewind_window() {
     ticks.clear();
     physics.visit_completed_ticks(Some(48), &mut |sample, _, _| ticks.push(sample.tick));
     assert!(ticks.is_empty());
-    physics.reanchor_network_position([0.0, protocol::PLAYER_NETWORK_OFFSET + 20.0, 0.0], 48, false);
+    physics.reanchor_network_position(
+        [0.0, protocol::PLAYER_NETWORK_OFFSET + 20.0, 0.0],
+        48,
+        false,
+    );
     physics.visit_completed_ticks(Some(40), &mut |sample, _, _| ticks.push(sample.tick));
     assert_eq!(ticks, [48]);
 }
@@ -770,7 +750,14 @@ fn completed_motion_ticks_prime_from_anchor_before_initial_jump() {
         anchor.push((sample.tick, sample.grounded_after_tick));
     });
     assert_eq!(anchor, [(0, true)]);
-    let frame = physics.advance(Duration::from_millis(100), MovementInput { jumping: true, ..Default::default() }, &Floor);
+    let frame = physics.advance(
+        Duration::from_millis(100),
+        MovementInput {
+            jumping: true,
+            ..Default::default()
+        },
+        &Floor,
+    );
     assert_eq!(frame.completed_ticks, 2);
     let mut first_frame = Vec::new();
     physics.visit_completed_ticks(None, &mut |sample, _, _| {

@@ -11,6 +11,14 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
     let mut outputs: Vec<&Path> = Vec::new();
     let sidecar;
     match command {
+        BlockPhysics {
+            registry,
+            seed,
+            out,
+        } => {
+            inputs.extend([registry.as_path(), seed.as_path()]);
+            outputs.push(out);
+        }
         Atmosphere {
             source_manifest,
             out,

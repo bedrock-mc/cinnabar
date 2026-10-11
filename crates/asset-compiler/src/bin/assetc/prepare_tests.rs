@@ -1,7 +1,8 @@
 use std::{collections::HashMap, fs, path::Path};
 
 use assets::carriers::{
-    self, AUDIO, AUDIO_PCM, CARRIERS, Carrier, FONT, HUD, ICON, Sources, WEATHER, WORLD,
+    self, AUDIO, AUDIO_PCM, BLOCK_PHYSICS, CARRIERS, Carrier, FONT, HUD, ICON, Sources, WEATHER,
+    WORLD,
 };
 
 use super::{Command, Queue, Reporter, command, execute, take_ready};
@@ -115,7 +116,7 @@ fn unchanged_inputs_skip_every_carrier() {
 fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
     let dir = checkout();
     build_all(dir.path());
-    fs::write(dir.path().join("assets/fonts/Font.ttf"), b"font-2").unwrap();
+    fs::write(dir.path().join("assets/fonts/Font.ttf"), b"font-22").unwrap();
     assert_eq!(stale(dir.path(), COMPILER), [FONT.name]);
     build_all(dir.path());
     let root = Sources::Checkout(dir.path().to_path_buf());
@@ -125,7 +126,10 @@ fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
         root.resolve("crates/assets/data/block-registry-v2193.bin")
     );
     fs::write(registry, b"changed").unwrap();
-    assert_eq!(stale(dir.path(), COMPILER), [WORLD.name, ICON.name]);
+    assert_eq!(
+        stale(dir.path(), COMPILER),
+        [BLOCK_PHYSICS.name, WORLD.name, ICON.name]
+    );
 }
 
 #[test]
@@ -336,4 +340,49 @@ fn an_input_with_unchanged_size_and_mtime_is_not_rehashed() {
     assert!(stale(dir.path(), COMPILER).is_empty());
     set(b"font-22");
     assert_eq!(stale(dir.path(), COMPILER), [FONT.name]);
+}
+
+#[test]
+fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
+    let dir = checkout();
+    let files = context(dir.path()).files(&BLOCK_PHYSICS);
+    fs::write(&files[0], assets::pinned_block_registry_bytes()).unwrap();
+    fs::write(
+        &files[1],
+        include_bytes!("../../../../assets/data/block-physics-seed-v2193.bin"),
+    )
+    .unwrap();
+    let (result, _) = run(dir.path(), BLOCK_PHYSICS.name);
+    result.unwrap();
+    let ctx = context(dir.path());
+    let output = fs::read(ctx.out.join(BLOCK_PHYSICS.output)).unwrap();
+    let protocol = assets::active_content_registry_protocol();
+    let records =
+        assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+            .unwrap();
+    let registry = assets::read_physics_registry_for_protocol(
+        &output,
+        assets::pinned_block_registry_bytes(),
+        &records,
+        protocol,
+    )
+    .unwrap();
+    assert_eq!(registry.len(), records.len());
+    assert!(records.iter().all(|record| {
+        registry
+            .by_sequential_id(record.sequential_id)
+            .unwrap()
+            .shapes
+            .is_some()
+    }));
+    assert!(
+        plan_for(dir.path(), COMPILER, &[BLOCK_PHYSICS.name.to_owned()])
+            .stale
+            .is_empty()
+    );
+    fs::write(&files[1], b"changed seed").unwrap();
+    assert_eq!(
+        plan_for(dir.path(), COMPILER, &[BLOCK_PHYSICS.name.to_owned()]).stale[0].name,
+        BLOCK_PHYSICS.name
+    );
 }

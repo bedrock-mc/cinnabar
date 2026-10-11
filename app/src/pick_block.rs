@@ -66,6 +66,7 @@ pub(crate) fn produce_pick_block(
         &context.client_world,
         &context.collisions,
         selection,
+        player_runtime.facts.player_game_mode(),
         (
             input_mode,
             reach,

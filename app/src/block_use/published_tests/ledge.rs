@@ -97,6 +97,7 @@ fn looking_past_a_ledge_places_on_the_forward_face_of_support() {
             .resource::<PhysicsCollisionRegistries>()
             .registry(stream.network_id_mode()),
         stream.current_dimension(),
+        Default::default(),
     );
     assert_eq!(
         palette.primary_runtime_id([4, 0, 5]).unwrap(),

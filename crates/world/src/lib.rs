@@ -28,7 +28,7 @@ pub use block_entity::{
     DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITIES_PER_SUB_CHUNK,
     MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MAX_BLOCK_ENTITY_NBT_BYTES, MAX_BLOCK_ENTITY_TAIL_BYTES,
     MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS,
-    RootByteCandidate,
+    RootByteCandidate, ShapeActor,
 };
 pub use block_highlights::BlockHighlightScan;
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
@@ -69,3 +69,6 @@ pub const MAX_FRAME_ELAPSED: std::time::Duration = std::time::Duration::from_mil
 pub const TICK_DURATION: std::time::Duration = std::time::Duration::from_nanos(
     std::time::Duration::from_secs(1).as_nanos() as u64 / TICKS_PER_SECOND as u64,
 );
+
+/// Stable identities shared by decoded and compiled block states.
+pub mod block_state_identity;

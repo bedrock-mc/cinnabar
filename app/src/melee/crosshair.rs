@@ -47,6 +47,7 @@ pub(super) fn resolve_crosshair(
             &context.client_world,
             &context.collisions,
             selection,
+            player_runtime.facts.player_game_mode(),
             (
                 input_mode,
                 reach,

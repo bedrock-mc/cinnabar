@@ -28,7 +28,7 @@ fn registry_connections_extend_fence_and_pane_colliders() {
             let sub_chunk = world::SubChunkKey::new(0, 0, 0, 0);
             store.mark_sub_chunk_loaded(sub_chunk).unwrap();
             store.update_block(sub_chunk, world::BlockUpdate::new(8, 8, 8, 0, id), air_id).unwrap();
-            let world = sim::PaletteWorld::new(&store, registries.registry(mode), 0);
+            let world = sim::PaletteWorld::new(&store, registries.registry(mode), 0, Default::default());
             let arm = world.collision_boxes(Aabb::new(Vec3::new(8.45, 8.0, 8.01), Vec3::new(8.55, 9.0, 8.1))).unwrap();
             assert_eq!(arm.value, [expected[0].translated(Vec3::new(8.0, 8.0, 8.0))]);
         }
@@ -62,7 +62,7 @@ fn registry_door_halves_share_the_lower_open_state_and_upper_hinge() {
         for (half, y) in halves.into_iter().zip([8, 9]) {
             store.update_block(key, world::BlockUpdate::new(8, y, 8, 0, id(half)), id(air)).unwrap();
         }
-        let world = sim::PaletteWorld::new(&store, registries.registry(mode), 0);
+        let world = sim::PaletteWorld::new(&store, registries.registry(mode), 0, Default::default());
         let boxes = world.collision_boxes(Aabb::new(Vec3::new(8.0, 8.0, 8.0), Vec3::new(9.0, 10.0, 9.0))).unwrap();
         assert_eq!(boxes.value.len(), 2);
         assert!(boxes.value.iter().all(|shape| shape.min.z == f64::from(8.0_f32 + f32::from_bits(0x3f51_47ae)) && shape.max.z == 9.0));

@@ -38,7 +38,7 @@ impl WorldAuthority {
         &mut self,
         key: ChunkKey,
         replacement: DecodedBlockEntities,
-    ) {
+    ) -> Result<(), CollisionRevisionError> {
         self.terrain.commit_chunk_block_entities(key, replacement)
     }
     /// Commits one decoded subchunk with its collision revision checks.

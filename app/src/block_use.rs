@@ -159,6 +159,7 @@ pub(crate) fn produce_block_use(
         &context,
         &mut runtime,
         &selection,
+        player_runtime.facts.player_game_mode(),
         pick.expect("the current pick was checked above"),
         &state,
         input_mode,
@@ -375,6 +376,7 @@ fn use_surroundings(
             stream.collision_store(),
             context.collisions.registry(mode),
             stream.current_dimension(),
+            Default::default(),
         );
         if world.is_air(position).ok()? {
             return Some("minecraft:air".to_owned());

@@ -44,7 +44,7 @@ func TestEducationConstructionRetainsUnrelatedPaletteRecords(t *testing.T) {
 		t.Fatal("construction admission changed palette size")
 	}
 	previousPhysics := decodeV2193PhysicsArtifact(t, read(previousRoot, "block-physics-v2193.bin"), previousBREG, len(previous))
-	currentPhysics := decodeV2193PhysicsArtifact(t, read(currentRoot, "block-physics-v2193.bin"), currentBREG, len(current))
+	currentPhysics := decodeV2193PhysicsArtifact(t, read(currentRoot, "block-physics-seed-v2193.bin"), currentBREG, len(current))
 	changed := 0
 	for index, record := range current {
 		before := previous[index]

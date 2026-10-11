@@ -75,6 +75,7 @@ fn pick(
         world,
         collisions,
         FrozenMiningSelection { slot: 0, item },
+        Some(protocol::PlayerGameMode::Survival),
         (PlayerInputMode::Mouse, 5.7, (NonZeroU64::MIN, 1), 0),
     )
     .unwrap()
