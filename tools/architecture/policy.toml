@@ -83,7 +83,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["render-api", "assets", "protocol", "render-model", "world"]
+allowed_dependencies = ["render-api", "assets", "protocol", "render-model", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -93,6 +93,13 @@ path = "crates/pack-compiler"
 allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "pack-runtime"
+path = "crates/pack-runtime"
+allowed_dependencies = ["assets", "block-transform", "json-ui", "pack-compiler", "protocol", "resource-pack", "sim"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
 
 [[crates]]
 name = "chunk-pipeline"
@@ -127,8 +134,8 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["bridge", "assets", "block-transform", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
+allowed_dependencies = ["bridge", "protocol", "server-experience", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -234,7 +241,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time"]
+allowed_dependencies = ["client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -802,7 +809,7 @@ owned_type = "PlayerState"
 
 [[module_boundaries]]
 path = "crates/client-session/src"
-forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
+forbidden_modules = ["pack_compiler", "pack_runtime", "bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
 forbidden_crate_modules = ["app", "runtime", "movement", "camera", "local_player", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
 
@@ -889,46 +896,11 @@ exports = [
 path = "app/src/runtime/network.rs"
 exports = [
     "client_session::WORLD_EVENT_CAPACITY",
-    "resource_packs::BootstrapGenerationDisposition",
-    "resource_packs::active_language_code",
-    "resource_packs::classify_bootstrap_generation",
-    "resource_packs::set_active_language",
-    "resource_packs::set_base_terrain_catalog",
     "session::BatchSendError",
     "session::NetworkFailureOrigin",
     "session::PacketSendError",
     "session::SessionTransferTarget",
     "session::session_failure_display",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/network/block_overlay/textures.rs"
-exports = [
-    "super::super::resource_packs::DecodedTexture",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/network/pack_reload.rs"
-exports = [
-    "client_session::PackInputs",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/network/resource_packs.rs"
-exports = [
-    "client_session::BootstrapGenerationDisposition",
-    "client_session::StackFingerprint",
-    "client_session::classify_bootstrap_generation",
-    "client_session::pack_language::active_language_code",
-    "client_session::pack_language::set_active_language",
-    "client_session::pack_textures::DecodedTexture",
-    "client_session::pack_textures::MAX_CATALOG_ENTRIES",
-    "client_session::pack_textures::base_terrain_catalog",
-    "client_session::pack_textures::decode_pack_texture",
-    "client_session::pack_textures::parse_pack_json",
-    "client_session::pack_textures::set_base_terrain_catalog",
-    "client_session::pack_textures::texture_key_paths",
-    "client_session::stack_fingerprint",
 ]
 
 [[reexport_allowances]]

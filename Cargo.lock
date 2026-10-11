@@ -704,6 +704,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-metal 0.3.2",
  "pack-compiler",
+ "pack-runtime",
  "particles",
  "player-state",
  "profiling",
@@ -2287,20 +2288,12 @@ dependencies = [
 name = "client-session"
 version = "0.1.12"
 dependencies = [
- "assets",
- "block-transform",
  "bridge",
  "bytes",
  "crossbeam-channel",
- "image",
- "pack-compiler",
  "protocol",
- "resource-pack",
  "serde_json",
  "server-experience",
- "sha2",
- "sim",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2372,6 +2365,7 @@ dependencies = [
  "render-api",
  "render-model",
  "sha2",
+ "test-time",
  "thiserror 2.0.18",
  "tracing",
  "world",
@@ -5630,6 +5624,26 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pack-runtime"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "block-transform",
+ "image",
+ "json-ui",
+ "pack-compiler",
+ "protocol",
+ "resource-pack",
+ "serde_json",
+ "sha2",
+ "sim",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "zip",
 ]
 
 [[package]]

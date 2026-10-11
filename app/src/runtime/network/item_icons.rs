@@ -12,8 +12,8 @@ pub(crate) use vanilla::{set_vanilla_item_paths, vanilla_item_paths_installed};
 
 use resource_pack::LayeredPackView;
 
-use super::resource_packs::{DecodedTexture, decode_pack_texture};
 use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+use pack_runtime::pack_textures::{DecodedTexture, decode_pack_texture};
 use render_model::equipment::blocks::overlay_sheet;
 
 /// One icon per registry item, the most a session can name.
@@ -122,7 +122,7 @@ pub(super) struct BlockIcons {
 }
 
 #[cfg(test)]
-use client_session::custom_block_items;
+use pack_runtime::custom_block_items;
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
 /// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain

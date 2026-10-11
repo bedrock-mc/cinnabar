@@ -340,7 +340,7 @@ fn packcache_item_icon_keys_resolve_when_requested() {
             continue;
         };
         let keys =
-            super::super::resource_packs::texture_key_paths(&view, "textures/item_texture.json")
+            pack_runtime::pack_textures::texture_key_paths(&view, "textures/item_texture.json")
                 .into_keys()
                 .map(|key| {
                     (

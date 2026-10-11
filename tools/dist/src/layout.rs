@@ -36,7 +36,10 @@ pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
         (options.core.clone(), format!("{binary_root}{core_name}")),
         (
             options.physics.clone(),
-            format!("{resource_root}/block-physics-v2193.bin"),
+            format!(
+                "{resource_root}/{}",
+                assets::carriers::physics_registry_basename()
+            ),
         ),
         (
             options.notices.clone(),

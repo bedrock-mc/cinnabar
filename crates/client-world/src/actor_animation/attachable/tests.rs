@@ -506,7 +506,7 @@ fn main_hand_queries_are_remaining_ticks_in_actor_and_attachable_contexts() {
     };
     let read_with_args =
         |context: &ActorTickContext, name: &str, arguments: &[evaluation::MolangValue]| {
-            query::query(
+            query::named_query(
                 &query::QueryInputs {
                     actor: &owner,
                     input: &input,

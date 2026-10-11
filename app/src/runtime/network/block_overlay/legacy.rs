@@ -6,10 +6,8 @@ use protocol::{CustomMaterialInstance, CustomVisualComponents};
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 
-use super::{
-    super::resource_packs::{MAX_CATALOG_ENTRIES, parse_pack_json},
-    geometry::FACE_NAMES,
-};
+use super::geometry::FACE_NAMES;
+use pack_runtime::pack_textures::{MAX_CATALOG_ENTRIES, parse_pack_json};
 
 pub(super) struct TextureBindings {
     materials: HashMap<String, Box<[CustomMaterialInstance]>>,

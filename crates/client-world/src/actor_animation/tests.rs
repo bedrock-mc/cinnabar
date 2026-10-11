@@ -102,7 +102,7 @@ fn read_with(
         bones: &[],
         bone_names: &[],
     };
-    query::query(&inputs, name, arguments)
+    query::named_query(&inputs, name, arguments)
 }
 
 #[test]
@@ -1007,7 +1007,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         bone_names: &names,
     };
     let pivot = |name: &str, axis: f32| {
-        query::query(
+        query::named_query(
             &inputs,
             "query.get_default_bone_pivot",
             &[MolangValue::String(name.into()), MolangValue::Number(axis)],

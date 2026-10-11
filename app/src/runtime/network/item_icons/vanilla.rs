@@ -93,7 +93,7 @@ pub(super) fn append(view: &LayeredPackView, icons: &mut Vec<SessionIcon>) {
         let override_path = aliases
             .iter()
             .find_map(|key| catalog.get(key)?.get(*variant as usize));
-        if let Some(texture) = super::super::resource_packs::decode_pack_texture(
+        if let Some(texture) = pack_runtime::pack_textures::decode_pack_texture(
             view,
             override_path.map_or(stem, String::as_str),
         ) {

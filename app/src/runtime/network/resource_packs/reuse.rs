@@ -11,7 +11,8 @@ use client_ui::ui_runtime::presentation::ServerUiPack;
 use resource_pack::{PackAdmission, ValidatedPackStack};
 
 use super::{PackApplication, compile_application};
-use crate::runtime::network::{pack_reload::PackInputs, pack_reload_diff::Changes};
+use pack_runtime::PackInputs;
+use pack_runtime::reload_diff::Changes;
 
 /// A lobby and the game it transfers to.
 const KEPT_STACKS: usize = 2;
@@ -32,17 +33,17 @@ pub(in crate::runtime::network) struct CompileEnvironment {
 impl CompileEnvironment {
     /// The tables a compile starting now reads.
     pub(in crate::runtime::network) fn current() -> Self {
-        use crate::runtime::network::{entity_pack, entity_texture_reload, item_icons};
+        use crate::runtime::network::{entity_texture_reload, item_icons};
         Self {
-            language: super::active_language_code(),
+            language: pack_runtime::pack_language::active_language_code(),
             carrier_tables: [
                 super::BASE_MATERIAL_KEYS.get().is_some(),
-                client_session::pack_textures::base_terrain_catalog_installed(),
+                pack_runtime::pack_textures::base_terrain_catalog_installed(),
                 item_icons::vanilla_item_paths_installed(),
                 entity_texture_reload::base_actor_artwork_installed(),
             ],
-            vanilla_refs: entity_pack::vanilla_refs(),
-            vanilla_pack_dir: entity_pack::vanilla_pack_dir(),
+            vanilla_refs: pack_runtime::entity_pack::vanilla_refs(),
+            vanilla_pack_dir: pack_runtime::entity_pack::vanilla_pack_dir(),
         }
     }
 }

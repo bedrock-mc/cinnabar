@@ -6,10 +6,11 @@ use protocol::{
 };
 
 use crate::runtime::network::{
-    BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
-    publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
-    route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
+    EquipmentIngress, publish_bootstrap_inventory, publish_equipment_identity,
+    route_equipment_ingress, route_inventory_ingress, route_item_registry_ingress,
+    session::SequencedWorldEvent,
 };
+use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 use {
     client_ui::ui_runtime::UiRuntime,
     inventory::{

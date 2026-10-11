@@ -1,12 +1,13 @@
 //! Offline reload evidence: no transport or server is constructed by these tests.
 
 use super::{
-    pack_reload::{PackInputs, PackReload, reload_resource_packs},
+    pack_reload::{PackReload, reload_resource_packs},
     resource_packs,
 };
 use crate::runtime::world::ClientWorld;
 use bevy::prelude::{App, Update};
 use client_ui::ui_runtime::UiRuntime;
+use pack_runtime::PackInputs;
 use resource_pack::ValidatedPackStack;
 use std::{
     io::{Cursor, Write},

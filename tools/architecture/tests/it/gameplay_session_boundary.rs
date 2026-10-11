@@ -74,7 +74,7 @@ fn gameplay_and_session_accept_their_separate_domain_dependencies() {
     set_dependencies(
         root,
         "client-session",
-        "[dependencies]\nprotocol={path='../protocol'}\nresource-pack={path='../resource-pack'}\npack-compiler={path='../pack-compiler'}\nassets={path='../assets'}",
+        "[dependencies]\nprotocol={path='../protocol'}\nbridge={path='../bridge'}\nserver-experience={path='../server-experience'}\nworld={path='../world'}",
     );
     assert_eq!(diagnostics(root), Vec::<String>::new());
 }
@@ -207,5 +207,69 @@ fn domain_fixtures_cannot_be_enabled_by_production_dependencies() {
             == &format!(
                 "app: production dependency `{name}` enables test-support feature `test-support`"
             )));
+    }
+}
+
+#[test]
+fn session_rejects_pack_compilers_directly_and_through_an_allowed_dependency() {
+    for compiler in ["pack-compiler", "pack-runtime"] {
+        for indirect in [false, true] {
+            let temp = fixture();
+            let root = temp.path();
+            let owner = if indirect {
+                set_dependencies(
+                    root,
+                    "client-session",
+                    "[dependencies]\nprotocol={path='../protocol'}",
+                );
+                "protocol"
+            } else {
+                "client-session"
+            };
+            set_dependencies(
+                root,
+                owner,
+                &format!("[dependencies]\ncompiler={{package='{compiler}',path='../{compiler}'}}"),
+            );
+            let path = if indirect {
+                format!("client-session -> protocol -> {compiler}")
+            } else {
+                format!("client-session -> {compiler}")
+            };
+            assert!(
+                diagnostics(root)
+                    .iter()
+                    .any(|line| line
+                        == &format!("client-session: forbidden dependency path `{path}`"))
+            );
+        }
+    }
+}
+
+#[test]
+fn pack_runtime_accepts_compilation_but_rejects_engine_and_transport_edges() {
+    let temp = fixture();
+    let root = temp.path();
+    set_dependencies(
+        root,
+        "pack-runtime",
+        "[dependencies]\npack-compiler={path='../pack-compiler'}\nassets={path='../assets'}\nresource-pack={path='../resource-pack'}\nprotocol={path='../protocol'}",
+    );
+    assert_eq!(diagnostics(root), Vec::<String>::new());
+    for dependency in [
+        "bevy",
+        "bevy_ecs",
+        "render",
+        "client-session",
+        "client-ui",
+        "client-presentation",
+    ] {
+        set_dependencies(
+            root,
+            "pack-runtime",
+            &format!("[dependencies]\nblocked={{package='{dependency}',version='1'}}"),
+        );
+        assert!(diagnostics(root).iter().any(|line| line
+            == &format!("pack-runtime: forbidden dependency path `pack-runtime -> {dependency}`")));
     }
 }

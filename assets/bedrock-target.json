@@ -6,12 +6,12 @@
   "wire_protocol": 2193,
   "codec_feature": "bedrock_1_26_51",
   "hashes": {
-    "block_registry": "59652a994463dd367986788bc7456fb524174ad60d471ca2655c36d43961eaf3",
-    "light_registry": "85dfd646431a06bc4b2015435e4c3711611d65b18b9ce00a64839aacc40aebd2",
+    "block_registry": "f94b480b472317a79652010605fea589cfd7031c4b1d72a38c1b6fa11bd14af4",
+    "light_registry": "e5276ff486048d46a7d70ee2a5e2bffb0dfe841a31bd69f1a1d72aba180e5be7",
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
-    "physics_registry": "dc5c437d3e559f2f44945971b1cf2f823c8829f231727946bab9793ac0930dc2",
+    "physics_registry": "ee06f1f6ee1674cd54d7004410831dd1f5f10eee2243ca5255f0ec4a94fbc02d",
     "fallback_inventory": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74",
-    "block_item_routes": "8d959b1e4db706b016b65e7d8045a2ebb7f09e3fc3a2e50b5d7380152d47ef80"
+    "block_item_routes": "718ed6d173e395721752e587516145da059a35ed96bdfd0630b999621f687faa"
   },
   "artifacts": {
     "block_registry": "crates/assets/data/block-registry-v2193.bin",

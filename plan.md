@@ -30,6 +30,19 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
 - Startup carrier selection remains in `app/src/asset_startup`.
 
+## Runtime pack ownership
+
+`pack-runtime` owns server-pack admission, custom-block physics preparation, entity
+compilation and its cache, language and texture preparation, and reload dependency
+comparison. It has no Bevy dependency. `client-session` owns transport and join
+bootstrap, receiving prepared block facts and an opaque presentation payload from
+its caller; it has no dependency on `pack-compiler` or `pack-runtime`.
+
+The app retains renderer, UI, audio, and world publication adapters and their
+subscriber orchestration. Block visuals still use renderer-owned material flags,
+and item, glyph, audio, and artwork payloads retain their existing owners. These
+moves do not change the open behavior or performance acceptance gates.
+
 ## Login identity
 
 - New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
@@ -7382,3 +7395,31 @@ resolve. The equipment carrier stores Dye, NoMask or Unresolved; unknown parent 
 acquire dye from a material name. The existing undyed colour and legacy armour material defaults
 are retained. Complete native shader coverage and session item-component dye overrides remain
 open; this descriptor change does not close those parity gates.
+
+### Block-family routing coverage
+
+Crossed-plane routing now comes from the shared family catalog and is retained
+in current registry records. Historical records resolve that catalog at
+admission. Broader native material and movement descriptors remain incomplete;
+this routing cleanup does not close their parity gates.
+
+### Session block highlights
+
+Mod block identifiers resolve to every admitted state in the active session, in
+sequential and hashed ID modes. Replacing the custom palette or starting another
+session invalidates highlight discovery. Unresolved identifiers are reported when
+that mapping is refreshed. This closes the custom-name lookup gap; wider selection
+shape and frame performance acceptance remain incomplete.
+
+### Typed Molang query contracts (incomplete query behavior)
+
+Admitted query symbols bind to typed handlers before evaluation. The query manifest owns
+argument forms, output kinds and implementation support. Queries marked unimplemented
+retain their explicit idle behavior; provisional queries still need matched behavior
+verification. Typed dispatch does not close the actor animation parity gate.
+
+## Inherited block overlay geometry
+
+Block overlays use the shared pack compiler to resolve legacy geometry inheritance before projecting faces. Parents may come from other model files or pack layers; missing parents, cycles and chains beyond the depth limit are rejected. Budget-limited reads admit higher-priority definitions first.
+
+Incomplete parity: bone mirror, inflation and visibility projection, modern geometry composition and broader block geometry behavior remain open.

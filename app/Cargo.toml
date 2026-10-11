@@ -35,6 +35,7 @@ reports = []
 
 [dependencies]
 client-state = { path = "../crates/client-state" }
+pack-runtime = { path = "../crates/pack-runtime" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }
@@ -109,6 +110,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+pack-runtime = { path = "../crates/pack-runtime", features = ["test-support"] }
 launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }
 launcher = { path = "../crates/launcher", features = ["test-support"] }
 test-time = { path = "../crates/test-time" }

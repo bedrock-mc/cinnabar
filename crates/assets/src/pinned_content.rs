@@ -10,6 +10,7 @@ const BEDROCK_TARGET_JSON: &str = include_str!("../../../assets/bedrock-target.j
 struct BedrockTarget {
     wire_protocol: u32,
     hashes: BTreeMap<Box<str>, Box<str>>,
+    artifacts: BTreeMap<Box<str>, Box<str>>,
 }
 
 /// The one checkout-wide authority for the active content registry wire
@@ -27,25 +28,36 @@ struct BedrockTarget {
 /// decode errors.
 /// The active content registry protocol every startup gate binds to.
 pub fn active_content_registry_protocol() -> u32 {
+    target().wire_protocol
+}
+
+/// Decode and validate the checkout's shared target manifest once.
+fn target() -> &'static BedrockTarget {
     static TARGET: OnceLock<BedrockTarget> = OnceLock::new();
-    TARGET
-        .get_or_init(|| {
-            let target: BedrockTarget =
-                serde_json::from_str(BEDROCK_TARGET_JSON).expect("valid Bedrock target manifest");
-            for (name, bytes) in [
-                ("block_registry", BLOCK_REGISTRY_BYTES),
-                ("light_registry", LIGHT_REGISTRY_BYTES),
-                ("biome_registry", BIOME_REGISTRY_BYTES),
-            ] {
-                let actual = format!("{:x}", Sha256::digest(bytes));
-                assert_eq!(
-                    target.hashes.get(name).map(AsRef::as_ref),
-                    Some(actual.as_str())
-                );
-            }
-            target
-        })
-        .wire_protocol
+    TARGET.get_or_init(|| {
+        let target: BedrockTarget =
+            serde_json::from_str(BEDROCK_TARGET_JSON).expect("valid Bedrock target manifest");
+        for (name, bytes) in [
+            ("block_registry", BLOCK_REGISTRY_BYTES),
+            ("light_registry", LIGHT_REGISTRY_BYTES),
+            ("biome_registry", BIOME_REGISTRY_BYTES),
+        ] {
+            let actual = format!("{:x}", Sha256::digest(bytes));
+            assert_eq!(
+                target.hashes.get(name).map(AsRef::as_ref),
+                Some(actual.as_str())
+            );
+        }
+        target
+    })
+}
+
+/// The checkout-relative physics carrier path owned by the target manifest.
+pub(crate) fn physics_registry_source() -> &'static str {
+    target()
+        .artifacts
+        .get("physics_registry")
+        .expect("target manifest names the physics registry")
 }
 
 const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;

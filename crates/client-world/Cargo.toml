@@ -19,6 +19,7 @@ thiserror.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 protocol = { path = "../protocol", features = ["wire-test-support"] }
 
 [lints]

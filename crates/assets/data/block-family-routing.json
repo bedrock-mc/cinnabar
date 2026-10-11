@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "crossed_planes": [
+    "minecraft:brain_coral",
+    "minecraft:bubble_coral",
+    "minecraft:dead_brain_coral",
+    "minecraft:dead_bubble_coral",
+    "minecraft:dead_fire_coral",
+    "minecraft:dead_horn_coral",
+    "minecraft:dead_tube_coral",
+    "minecraft:fire_coral",
+    "minecraft:golden_dandelion",
+    "minecraft:horn_coral",
+    "minecraft:orange_tulip",
+    "minecraft:pink_tulip",
+    "minecraft:red_tulip",
+    "minecraft:tube_coral",
+    "minecraft:white_tulip"
+  ]
+}

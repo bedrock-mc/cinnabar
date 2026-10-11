@@ -310,7 +310,7 @@ fn oversized_winning_skybox_face_does_not_reveal_a_lower_pack() {
     let low = skybox_png(1, 1, [10, 20, 30, 255]);
     let oversized = vec![0; resource_pack::MAX_PACK_TEXTURE_BYTES as usize + 1];
     let packs = stack(&[&[(&path, &low)], &[(&path, &oversized)]]);
-    let cubes = client_session::pack_skybox::prepare_pack_skyboxes(&packs);
+    let cubes = pack_runtime::pack_skybox::prepare_pack_skyboxes(&packs);
     assert_eq!(
         cubes[assets::SkyboxDimension::Overworld as usize].face_mask(),
         0

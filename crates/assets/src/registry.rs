@@ -203,6 +203,11 @@ pub fn read_registry_for_protocol(
                 source,
             })?
             .into();
+        let model_family = crate::family_routing::resolve(
+            metadata.protocol == LEGACY_REGISTRY_PROTOCOL,
+            &name,
+            model_family,
+        )?;
         records.push(RegistryRecord {
             sequential_id,
             network_hash,
