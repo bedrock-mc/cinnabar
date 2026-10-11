@@ -165,7 +165,7 @@ fn expanded_features(
     found
 }
 
-/// Allows cross-crate fixtures only through explicit development dependency features.
+/// Allows cross-crate fixtures through development dependencies or registered fixture features.
 fn check_test_support_features(
     policy: &Policy,
     graph: &BTreeMap<String, CrateDependencies>,
@@ -187,6 +187,21 @@ fn check_test_support_features(
             }
         }
         for (consumer, dependencies) in graph {
+            let fixture_features = policy
+                .crate_rules
+                .iter()
+                .find(|rule| rule.name == *consumer)
+                .map(|rule| rule.test_support_features.as_slice())
+                .unwrap_or_default();
+            let production_features = expanded_features(
+                &dependencies
+                    .features
+                    .keys()
+                    .filter(|name| !fixture_features.contains(name))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &dependencies.features,
+            );
             for dependency in &dependencies.production {
                 let package = dependency
                     .path
@@ -197,7 +212,7 @@ fn check_test_support_features(
                     continue;
                 }
                 let mut requested = dependency.features.clone();
-                for value in dependencies.features.values().flatten() {
+                for value in &production_features {
                     if let Some((name, feature)) = value.split_once('/')
                         && name.trim_end_matches('?') == dependency.key
                     {

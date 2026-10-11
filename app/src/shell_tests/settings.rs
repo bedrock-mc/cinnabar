@@ -1,3 +1,4 @@
+use client_shell::menu::test_support as menu_fixture;
 use semantic_input::PhysicalControl;
 use {
     launcher::menu::settings_options::EXTRA_KEYS, launcher::menu::settings_options::KEY_BINDINGS,
@@ -93,7 +94,7 @@ fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
                 .iter()
                 .position(|(candidate, _)| *candidate == action)
                 .unwrap();
-            assert!(menu.remap_control_for_test(row, control));
+            assert!(menu_fixture::remap_control(&mut menu, row, control));
         }
         let mut player = player_state::PlayerState::new(1);
         let mut runtime = client_ui::test_support::inventory_session(&mut player);
@@ -176,7 +177,7 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
                     .chain(EXTRA_KEYS.iter().map(|(name, _)| *name))
                     .position(|candidate| candidate == name)
                     .unwrap();
-                assert!(menu.remap_control_for_test(row, control));
+                assert!(menu_fixture::remap_control(&mut menu, row, control));
             }
             let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
             let mut runtime = client_ui::test_support::inventory_session(&mut player);
@@ -252,7 +253,8 @@ fn rebound_hotbar_keys_are_reserved_only_while_the_container_is_visible() {
         .iter()
         .position(|(action, _)| *action == Action::Hotbar1)
         .unwrap();
-    assert!(menu.remap_control_for_test(
+    assert!(menu_fixture::remap_control(
+        &mut menu,
         row,
         PhysicalControl::KeyboardUsage(
             client_ui::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()

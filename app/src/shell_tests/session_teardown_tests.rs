@@ -8,6 +8,7 @@ use bevy::{
     prelude::{IntoScheduleConfigs, Quat, ResMut, Resource, Transform, Vec3},
 };
 use client_runtime::network::NetworkHandle;
+use client_shell::menu::test_support as menu_fixture;
 use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
@@ -345,10 +346,10 @@ fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, Sess
     let mut controller = SessionController::default();
     controller.set_connecting(true);
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
-    menu.suppress_catalog_for_test();
+    menu_fixture::suppress_catalog(&mut menu);
     menu.show_connecting();
     menu.observe_session(controller.status());
-    menu.set_join_stage_for_test(stage);
+    menu_fixture::set_join_stage(&mut menu, stage);
     (menu, controller)
 }
 

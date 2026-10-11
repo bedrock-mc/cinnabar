@@ -1,4 +1,5 @@
 //! Leaving for the menu releases the server packs recent joins keep for a following join.
+use client_shell::menu::test_support as menu_fixture;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
@@ -76,7 +77,7 @@ fn run_session<M>(
         missing_core_layout(root),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
-    menu.suppress_catalog_for_test();
+    menu_fixture::suppress_catalog(&mut menu);
     menu.show_world();
     prepare(&mut menu);
     let mut app = App::new();

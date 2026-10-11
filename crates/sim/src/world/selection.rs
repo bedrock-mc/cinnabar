@@ -200,16 +200,16 @@ impl PaletteWorld<'_> {
                     &physics.contextual_selection[index..=index]
                 })));
             }
-            SelectionContext::ScaffoldSupport => {
+            SelectionContext::ScaffoldSupport
                 if !self.neighbour_has_flag(
                     position,
                     1,
                     -1,
                     ShapeFlags::FULL_TOP_SUPPORT,
                     &mut lookup,
-                )? {
-                    return Ok(Cow::Borrowed(&physics.contextual_selection));
-                }
+                )? =>
+            {
+                return Ok(Cow::Borrowed(&physics.contextual_selection));
             }
             _ => {}
         }

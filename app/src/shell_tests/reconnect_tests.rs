@@ -1,4 +1,5 @@
 use client_shell::menu::MenuRuntime;
+use client_shell::menu::test_support as menu_fixture;
 use launcher::menu::{MenuAction, MenuScreen};
 #[test]
 fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
@@ -12,8 +13,8 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
     use client_ui::ui_runtime::UiRuntime;
 
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
-    menu.suppress_catalog_for_test();
-    menu.use_missing_core_for_test();
+    menu_fixture::suppress_catalog(&mut menu);
+    menu_fixture::use_missing_core(&mut menu);
     menu.activate(MenuAction::Navigate(MenuScreen::Servers));
     menu.request_connect("127.0.0.1:19132".into());
     let mut network = NetworkHandle::<PackApplication>::disconnected();

@@ -9,6 +9,7 @@ use bevy::{
     window::WindowEvent,
 };
 use client_shell::menu::MenuRuntime;
+use client_shell::menu::test_support as menu_fixture;
 use client_state::SemanticInputSnapshot;
 use client_ui::ui_runtime::UiRuntime;
 use semantic_input::{Action, PhysicalControl};
@@ -18,7 +19,12 @@ mod regression;
 /// Arms one command without changing the ordinary gameplay bindings.
 fn arm(app: &mut App, control: PhysicalControl) {
     let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
-    assert!(menu.arm_command_macro_for_test(0, control, "time set day"));
+    assert!(menu_fixture::arm_command_macro(
+        &mut menu,
+        0,
+        control,
+        "time set day"
+    ));
 }
 
 /// Finds the focused window used by the input fixtures.
