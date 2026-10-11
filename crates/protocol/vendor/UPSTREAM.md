@@ -30,6 +30,8 @@ shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
+Jolyne and the core-session login share the supported highest desktop memory tier.
+
 Jolyne's login retains client-authored geometry, resource patches and minimum engine
 versions. Uploads without explicit geometry select the classic or slim resource patch.
 

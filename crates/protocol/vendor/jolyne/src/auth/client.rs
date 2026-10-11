@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+/// The highest Bedrock memory tier, used by desktop client-data claims.
+pub const SUPER_HIGH_MEMORY_TIER: u32 = 4;
+
 /// Minecraft authentication endpoint for getting Mojang-signed chains
 const MINECRAFT_AUTH_URL: &str = "https://multiplayer.minecraft.net/authentication";
 
@@ -502,7 +505,7 @@ fn generate_chain_internal(
         is_editor_mode: false,
         language_code: "en_US".into(),
         max_view_distance: 32,
-        memory_tier: 5, // Super High
+        memory_tier: SUPER_HIGH_MEMORY_TIER,
         override_skin: false,
         persona_pieces: vec![],
         persona_skin: false,
@@ -604,7 +607,7 @@ fn generate_client_data_token(
         is_editor_mode: false,
         language_code: "en_US".into(),
         max_view_distance: 32,
-        memory_tier: 5,
+        memory_tier: SUPER_HIGH_MEMORY_TIER,
         override_skin: false,
         persona_pieces: vec![],
         persona_skin: false,
@@ -657,6 +660,18 @@ mod skin_upload_tests {
     use crate::stream::client::ClientSkin;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
+    /// Authenticated client-data tokens use the same supported memory-tier range.
+    #[test]
+    fn authenticated_login_reports_a_supported_memory_tier() {
+        let key = SecretKey::random(&mut rand::thread_rng());
+        let jwt = generate_client_data_token(&key, "Fixture", Uuid::new_v4(), None).unwrap();
+        let claims = client_data_claims(&jwt);
+        assert!(
+            claims["MemoryTier"].as_u64().unwrap() <= u64::from(SUPER_HIGH_MEMORY_TIER),
+            "unsupported memory tier rejects otherwise valid login claims"
+        );
+    }
+    /// Decodes the serialized client-data claims without verifying their fixture signature.
     fn client_data_claims(client_jwt: &str) -> serde_json::Value {
         let payload = client_jwt
             .split('.')
