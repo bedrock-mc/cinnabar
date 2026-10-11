@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"net"
 	"strings"
 	"sync"
@@ -23,7 +24,7 @@ type PingResult struct {
 
 const (
 	// MaxPingTargets bounds one ping request.
-	MaxPingTargets = 64
+	MaxPingTargets = bridgecontract.MaxPingTargets
 	pingTimeout    = 2 * time.Second
 	pingWorkers    = 8
 	defaultPort    = "19132"

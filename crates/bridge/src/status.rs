@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoint::EndpointKind;
 use crate::{BridgeError, FramedStream};
 
-pub(crate) const CONTROL_MAX_FRAME_LEN: usize = 64 * 1024;
+use crate::contract::CONTROL_MAX_FRAME_LEN;
 const STATUS_REQUEST_ID: u64 = 1;
 const STATUS_SCHEMA_VERSION: u32 = 1;
 

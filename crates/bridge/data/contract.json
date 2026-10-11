@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "constants": [
+    {"rust_name": "MAX_FRAME_LEN", "go_name": "MaxFrameLen", "value": 67108864, "rust_type": "usize", "doc": "Largest game and session frame payload in bytes."},
+    {"rust_name": "CONTROL_MAX_FRAME_LEN", "go_name": "MaxControlFrameLen", "value": 65536, "rust_type": "usize", "doc": "Largest control request or response payload in bytes."},
+    {"rust_name": "MAX_PING_TARGETS", "go_name": "MaxPingTargets", "value": 64, "rust_type": "usize", "doc": "Most server addresses admitted in one ping request."},
+    {"rust_name": "KIND_CONNECT", "go_name": "SessionKindConnect", "value": 1, "rust_type": "u8", "doc": "Client session setup carrying JSON login data."},
+    {"rust_name": "KIND_BATCH", "go_name": "SessionKindBatch", "value": 2, "rust_type": "u8", "doc": "A batch of length-prefixed packets in either direction."},
+    {"rust_name": "KIND_HANDOFF", "go_name": "SessionKindHandoff", "value": 3, "rust_type": "u8", "doc": "Core handoff containing JSON and startup packets."},
+    {"rust_name": "KIND_PACK_DATA", "go_name": "SessionKindPackData", "value": 4, "rust_type": "u8", "doc": "Core resource-pack index followed by archive bytes."},
+    {"rust_name": "KIND_TRANSFER", "go_name": "SessionKindTransfer", "value": 5, "rust_type": "u8", "doc": "Terminal core transfer message."},
+    {"rust_name": "KIND_DISCONNECT", "go_name": "SessionKindDisconnect", "value": 6, "rust_type": "u8", "doc": "Terminal core disconnect message."},
+    {"rust_name": null, "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": null, "doc": "Archive bytes in one resource-pack data frame."}
+  ]
+}

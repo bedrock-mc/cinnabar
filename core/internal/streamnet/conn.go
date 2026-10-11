@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"io"
 	"net"
 	"sync"
@@ -13,7 +14,7 @@ import (
 
 const (
 	// MaxFrameLen is the largest local transport frame accepted by the bridge.
-	MaxFrameLen = 64 * 1024 * 1024
+	MaxFrameLen = bridgecontract.MaxFrameLen
 	maxFrameLen = MaxFrameLen
 )
 

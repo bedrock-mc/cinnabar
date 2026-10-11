@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"io"
 	"log/slog"
 	"net"
@@ -279,13 +280,13 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 	return session.Flush()
 }
 
-// writeSessionPacks streams each archive in PackData frames of at most sessionPackChunkBytes.
+// writeSessionPacks streams each archive in PackData frames of at most bridgecontract.SessionPackChunkBytes.
 func writeSessionPacks(session *sessionConn, packs []*resource.Pack) error {
 	var frame []byte
 	for index, pack := range packs {
 		size := pack.Size()
 		for offset := 0; offset < size; {
-			n := min(sessionPackChunkBytes, size-offset)
+			n := min(bridgecontract.SessionPackChunkBytes, size-offset)
 			if cap(frame) < 5+n {
 				frame = make([]byte, 5+n)
 			}
@@ -442,7 +443,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	if errors.As(cause, &refused) {
 		key = refused.key
 	}
-	frame, err := encodeSessionJSON(sessionKindDisconnect, sessionDisconnectMessage{Message: key})
+	frame, err := encodeSessionJSON(bridgecontract.SessionKindDisconnect, sessionDisconnectMessage{Message: key})
 	if err != nil {
 		return err
 	}
