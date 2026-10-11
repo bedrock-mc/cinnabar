@@ -14,6 +14,7 @@ mod sliced_frames;
 mod title_layout;
 mod titles;
 mod visibility;
+mod world_text;
 
 struct FixedText;
 
