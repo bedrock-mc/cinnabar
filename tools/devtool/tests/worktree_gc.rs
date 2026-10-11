@@ -45,7 +45,13 @@ mod unix {
                 "fixture",
             ]);
             repo.git(&["init", "--quiet", "--bare", remote.to_str().unwrap()]);
-            repo.git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+            // Pushes reach the local remote while the configured URL names the GitHub repository.
+            repo.git(&["remote", "add", "origin", FIXTURE_REMOTE]);
+            repo.git(&[
+                "config",
+                &format!("url.{}.insteadOf", remote.display()),
+                FIXTURE_REMOTE,
+            ]);
             repo.git(&["push", "--quiet", "origin", "HEAD"]);
             repo.script("gh", &merged_pr(&repo.head(&repo.root)));
             repo.script(
@@ -134,9 +140,21 @@ mod unix {
         );
     }
 
-    /// A fake `gh pr list` reporting one merged PR whose head is `head`.
+    const FIXTURE_REMOTE: &str = "https://github.com/fixture-owner/cinnabar.git";
+
+    /// One `gh pr list` JSON entry for a PR from `owner`'s `cinnabar` fork.
+    fn pr_json(state: &str, head: &str, owner: &str) -> String {
+        format!(
+            "{{\"state\":\"{state}\",\"headRefOid\":\"{head}\",\"headRepositoryOwner\":{{\"login\":\"{owner}\"}},\"headRepository\":{{\"name\":\"cinnabar\"}}}}"
+        )
+    }
+
+    /// A fake `gh pr list` reporting one merged PR from the fixture repository whose head is `head`.
     fn merged_pr(head: &str) -> String {
-        format!("#!/bin/sh\nprintf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]'\n")
+        format!(
+            "#!/bin/sh\nprintf '[%s]' '{}'\n",
+            pr_json("MERGED", head, "fixture-owner")
+        )
     }
 
     #[test]
@@ -325,7 +343,13 @@ mod unix {
         fs::create_dir(path.join("target")).unwrap();
         fs::write(path.join("target/keep"), "artifact").unwrap();
         let merged = repo.head(&path);
-        repo.script("gh", &format!("#!/bin/sh\ncase \"$6\" in unpublished) printf '[]';; *) printf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{merged}\"}}]';; esac\n"));
+        repo.script(
+            "gh",
+            &format!(
+                "#!/bin/sh\ncase \"$6\" in unpublished) printf '[]';; *) printf '[%s]' '{}';; esac\n",
+                pr_json("MERGED", &merged, "fixture-owner")
+            ),
+        );
         repo.script("lsof", &format!(
             "#!/bin/sh\ncase \"$3\" in *switched) if [ ! -e '{}' ]; then git -C \"$3\" switch --quiet unpublished; touch '{}'; fi;; esac\nexit 1\n",
             repo.bin.join("switched-once").display(), repo.bin.join("switched-once").display()));
@@ -512,7 +536,14 @@ mod unix {
         let path = repo.worktree("reopened");
         let head = repo.head(&path);
         // Only the open-state query sees the open PR; the all-state page holds older merged ones.
-        repo.script("gh", &format!("#!/bin/sh\ncase \"$4\" in open) printf '[{{\"state\":\"OPEN\",\"headRefOid\":\"{head}\"}}]';; *) printf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]';; esac\n"));
+        repo.script(
+            "gh",
+            &format!(
+                "#!/bin/sh\ncase \"$4\" in open) printf '[%s]' '{}';; *) printf '[%s]' '{}';; esac\n",
+                pr_json("OPEN", &head, "fixture-owner"),
+                pr_json("MERGED", &head, "fixture-owner")
+            ),
+        );
         let output = repo.gc(&["--apply"]);
         assert!(
             output.status.success(),
@@ -520,6 +551,26 @@ mod unix {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(path.exists(), "removed a worktree whose PR is open");
+    }
+
+    #[test]
+    fn another_forks_merged_pr_does_not_retire_the_branch() {
+        let repo = Repo::new();
+        let path = repo.worktree("shared-name");
+        repo.script(
+            "gh",
+            &format!(
+                "#!/bin/sh\nprintf '[%s]' '{}'\n",
+                pr_json("MERGED", &repo.head(&path), "someone-else")
+            ),
+        );
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(path.exists(), "a fork's merged PR retired this branch");
     }
 
     #[test]

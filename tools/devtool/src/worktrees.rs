@@ -26,6 +26,18 @@ struct PullRequest {
     state: String,
     #[serde(rename = "headRefOid", default)]
     head: Option<String>,
+    #[serde(rename = "headRepositoryOwner")]
+    owner: Option<Owner>,
+    #[serde(rename = "headRepository")]
+    repository: Option<Repository>,
+}
+#[derive(Debug, Deserialize)]
+struct Owner {
+    login: String,
+}
+#[derive(Debug, Deserialize)]
+struct Repository {
+    name: String,
 }
 #[derive(Debug, PartialEq, Eq)]
 enum Processes {
@@ -354,20 +366,59 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     })
 }
 
-/// Returns the open or newest PR for `branch`, or `None` when a lookup fails; reads the published
-/// head even after a squash deletes its branch.
+/// Returns the open or newest PR for `branch`, or `None` when the lookup or the branch's GitHub
+/// repository is unknown; reads the published head even after a squash deletes its branch.
 fn pull_request(path: &Path, branch: Option<&str>) -> Option<Option<PullRequest>> {
     let Some(branch) = branch else {
         return Some(None);
     };
+    // Forks can publish the same branch name, so only PRs from this branch's repository count.
+    let (owner, name) = publishing_repository(path, branch)?;
+    let ours = |pr: &PullRequest| {
+        pr.owner
+            .as_ref()
+            .is_some_and(|head| head.login.eq_ignore_ascii_case(&owner))
+            && pr
+                .repository
+                .as_ref()
+                .is_some_and(|head| head.name.eq_ignore_ascii_case(&name))
+    };
     // Open PRs are queried alone: a reused branch name can have more history than one page.
     if let Some(open) = pull_requests(path, branch, "open")?
         .into_iter()
-        .find(|pr| pr.state == "OPEN")
+        .find(|pr| pr.state == "OPEN" && ours(pr))
     {
         return Some(Some(open));
     }
-    Some(pull_requests(path, branch, "all")?.into_iter().next())
+    Some(
+        pull_requests(path, branch, "all")?
+            .into_iter()
+            .find(|pr| ours(pr)),
+    )
+}
+
+/// Returns the GitHub `(owner, name)` that `branch` is pushed to, read from its push or upstream
+/// remote's configured URL.
+fn publishing_repository(path: &Path, branch: &str) -> Option<(String, String)> {
+    let config = |key: String| {
+        git(path, &["config", "--get", &key])
+            .ok()
+            .map(|value| value.trim().to_owned())
+    };
+    let remote = config(format!("branch.{branch}.pushRemote"))
+        .or_else(|| config("remote.pushDefault".into()))
+        .or_else(|| config(format!("branch.{branch}.remote")))
+        .unwrap_or_else(|| "origin".into());
+    github_repository(&config(format!("remote.{remote}.url"))?)
+}
+
+/// Parses `owner/name` from HTTPS, SSH, or scp-style GitHub URLs.
+fn github_repository(url: &str) -> Option<(String, String)> {
+    let (_, path) = url.split_once("github.com")?;
+    let path = path.strip_prefix([':', '/'])?.trim_end_matches('/');
+    let (owner, name) = path.strip_suffix(".git").unwrap_or(path).split_once('/')?;
+    (!owner.is_empty() && !name.is_empty() && !name.contains('/'))
+        .then(|| (owner.to_owned(), name.to_owned()))
 }
 
 /// Lists PRs with head `branch` in `state`, newest first; `None` when `gh` fails.
@@ -382,7 +433,7 @@ fn pull_requests(path: &Path, branch: &str, state: &str) -> Option<Vec<PullReque
             "--head",
             branch,
             "--json",
-            "state,headRefOid",
+            "state,headRefOid,headRepositoryOwner,headRepository",
             "--limit",
             "100",
         ])
@@ -504,6 +555,20 @@ mod tests {
             None
         );
         assert_eq!(last_push_age("", &head, 150), None);
+    }
+
+    #[test]
+    fn github_remote_urls_resolve_their_repository() {
+        let expected = Some(("bedrock-mc".to_owned(), "cinnabar".to_owned()));
+        for url in [
+            "https://github.com/bedrock-mc/cinnabar.git",
+            "https://github.com/bedrock-mc/cinnabar/",
+            "git@github.com:bedrock-mc/cinnabar.git",
+            "ssh://git@github.com/bedrock-mc/cinnabar",
+        ] {
+            assert_eq!(github_repository(url), expected, "{url}");
+        }
+        assert_eq!(github_repository("/srv/git/cinnabar.git"), None);
     }
 
     #[test]
