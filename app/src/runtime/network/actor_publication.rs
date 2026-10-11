@@ -10,9 +10,9 @@ use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::{
-        movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
-        runtime::world::ClientWorld,
+    crate::runtime::world::ClientWorld,
+    client_interaction::movement::{
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
     },
     client_state::PlayerRuntime,
 };
@@ -42,12 +42,12 @@ pub(crate) struct ActorObservations<'w> {
     view: Res<'w, client_presentation::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
     settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
-    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
+    effects: Option<Res<'w, client_interaction::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
-    item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
+    item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
@@ -201,9 +201,9 @@ pub(crate) fn advance_actor_frame(
             }
         },
         |stream, partial_tick| {
-            let consume = ui
-                .as_deref()
-                .and_then(|_| crate::item_use::consume_ticks(&player, stream));
+            let consume = ui.as_deref().and_then(|_| {
+                client_interaction::item_use::selection::consume_ticks(&player, stream)
+            });
             let animation = ui
                 .as_deref()
                 .zip(item_use.as_deref())
@@ -230,8 +230,8 @@ pub(crate) struct ActorFinalObservations<'w> {
     world: ResMut<'w, ClientWorld>,
     player: Option<Res<'w, client_state::PlayerRuntime>>,
     physics: Res<'w, LocalPhysicsController>,
-    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
-    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
+    effects: Option<Res<'w, client_interaction::movement::LocalMovementEffectTimeline>>,
+    swings: Option<ResMut<'w, client_interaction::melee::SwingTracker>>,
     movement: Option<Res<'w, MovementTicker>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,

@@ -1,7 +1,7 @@
 //! Adapts the ordered prediction-sync phase to its session transport.
-use super::LocalPhysicsController;
 use crate::runtime::{network::NetworkHandle, world::ClientWorld};
 use bevy::prelude::{Local, Res, ResMut};
+use client_interaction::movement::LocalPhysicsController;
 use gameplay::movement::PredictionSyncState;
 
 /// Keeps the existing system slot while gameplay owns countdown and packet construction.
@@ -17,7 +17,7 @@ pub(crate) fn send_movement_prediction_sync(
     };
     gameplay::movement::send_movement_prediction_sync(
         &mut physics,
-        &super::GameplayWorldView(stream),
+        &client_interaction::movement::world_view::GameplayWorldView(stream),
         player_runtime.facts.air_drag_modifier(),
         &mut state,
         |packet| network.send_movement_packet(packet).is_ok(),

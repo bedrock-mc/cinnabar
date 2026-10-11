@@ -8,7 +8,10 @@ use particles::{
 };
 
 use super::AmbientParticles;
-use crate::{movement::PhysicsCollisionRegistries, particles::world_adapter::StreamParticleWorld};
+use {
+    crate::particles::world_adapter::StreamParticleWorld,
+    client_interaction::movement::PhysicsCollisionRegistries,
+};
 
 const NEIGHBORS: [(BlockFace, [i32; 3]); 6] = [
     (BlockFace::West, [-1, 0, 0]),

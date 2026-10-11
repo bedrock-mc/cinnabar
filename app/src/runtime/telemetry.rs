@@ -48,18 +48,16 @@ use diagnostics::metrics::{
     TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
 };
 use {
-    crate::{
-        movement::MovementTicker,
-        runtime::{
-            network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-            publication::{
-                PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
-            },
-            shutdown::record_fatal_error,
-            visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-            world::{ClientWorld, WorldStreamFramePoll},
+    crate::runtime::{
+        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+        publication::{
+            PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
         },
+        shutdown::record_fatal_error,
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::{ClientWorld, WorldStreamFramePoll},
     },
+    client_interaction::movement::MovementTicker,
     client_presentation::{
         camera::THIRD_PERSON_RADIUS_BLOCKS, local_player::LocalPlayerFrameCarrier,
     },

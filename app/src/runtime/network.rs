@@ -32,7 +32,6 @@ use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, Runt
 use {
     crate::{
         environment::{bind_session_generation, replace_session},
-        movement::PhysicsAuthorityGate,
         runtime::{
             publication::PublicationController,
             shutdown::record_fatal_error,
@@ -40,6 +39,7 @@ use {
         },
         session::quiesce_local_player,
     },
+    client_interaction::movement::PhysicsAuthorityGate,
     client_presentation::{
         camera::{AutoFly, CameraSettingsAuthority},
         local_player::{

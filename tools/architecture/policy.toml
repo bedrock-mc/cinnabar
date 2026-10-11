@@ -164,6 +164,14 @@ forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render"]
 test_support_features = ["test-support"]
 
+# Interaction systems consume the shared frame contract without sibling app plugin edges.
+[[crates]]
+name = "client-interaction"
+path = "crates/client-interaction"
+allowed_dependencies = ["assets", "chunk-pipeline", "client-audio", "client-presentation", "client-state", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "player-state", "protocol", "semantic-input", "sim", "ui", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "client-shell", "client-extensions", "acceptance", "client-session", "asset-compiler", "pack-compiler", "pack-runtime"]
+test_support_features = ["test-support"]
+
 # Presentation borrows authoritative facts; transport/gameplay and evidence stay outside it.
 [[crates]]
 name = "client-presentation"
@@ -250,7 +258,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["client-interaction", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -587,19 +595,19 @@ consumer = "app/src/runtime/world/service.rs"
 literal = "RUST_MCBE_MOVEMENT_TRACE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
-consumer = "app/src/movement.rs"
+consumer = "crates/client-interaction/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_ACK"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
-consumer = "app/src/movement.rs"
+consumer = "crates/client-interaction/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ANCHOR_PROBE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
-consumer = "app/src/movement.rs"
+consumer = "crates/client-interaction/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
@@ -899,13 +907,6 @@ sleep_exceptions = [
 ]
 
 # These named protocol, bridge and client-session shims are removed with #532.
-
-[[reexport_allowances]]
-path = "app/src/movement.rs"
-exports = [
-    "gameplay::movement::InteractionPacketGuard",
-    "gameplay::movement::PhysicsSendIdentity",
-]
 
 [[reexport_allowances]]
 path = "app/src/runtime/network.rs"

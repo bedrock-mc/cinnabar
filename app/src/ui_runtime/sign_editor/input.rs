@@ -41,7 +41,7 @@ pub(crate) fn drive_sign_editor(
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
-    collisions: Option<Res<crate::movement::PhysicsCollisionRegistries>>,
+    collisions: Option<Res<client_interaction::movement::PhysicsCollisionRegistries>>,
     authority: SignInputAuthority,
 ) {
     let SignInputAuthority { mut focus, driven } = authority;

@@ -94,7 +94,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             Update,
             crate::menu::screen_focus::publish_gameplay_screen_controls
                 .after(crate::camera::update_cursor_capture)
-                .before(crate::camera::update_look),
+                .before(client_interaction::camera::update_look),
         )
         .add_systems(
             Update,

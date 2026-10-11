@@ -42,7 +42,7 @@ type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
     Res<'w, crate::menu::MenuRuntime>,
     Res<'w, client_presentation::actor_publication::ActorFrameState>,
-    Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
     Option<Res<'w, render::PipelineWarmupReadiness>>,
@@ -54,9 +54,9 @@ type PublishExtras<'w> = (
         Res<'w, crate::environment::WeatherState>,
         Res<'w, crate::runtime::network::NetworkHandle>,
         Option<ResMut<'w, render::UiGlintSettings>>,
-        Res<'w, crate::item_use::ItemUseRuntime>,
-        Res<'w, crate::movement::MovementTicker>,
-        Res<'w, crate::movement::LocalPhysicsController>,
+        Res<'w, client_interaction::item_use::ItemUseRuntime>,
+        Res<'w, client_interaction::movement::MovementTicker>,
+        Res<'w, client_interaction::movement::LocalPhysicsController>,
     ),
 );
 
@@ -402,7 +402,7 @@ fn observe_paper_doll(
     stream: &chunk_pipeline::WorldStream,
     runtime: &client_ui::ui_runtime::UiRuntime,
     player_runtime: &client_state::PlayerRuntime,
-    physics: &crate::movement::LocalPhysicsController,
+    physics: &client_interaction::movement::LocalPhysicsController,
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
     use inventory::inventory_ledger::InventoryTarget;
     let actor = stream.authority().actor(stream.local_player_runtime_id())?;
@@ -438,7 +438,7 @@ fn observe_paper_doll(
 /// Resolves the crafter block's triggered state at the existing UI capture boundary.
 fn station_triggered(
     stream: &chunk_pipeline::WorldStream,
-    collisions: &crate::movement::PhysicsCollisionRegistries,
+    collisions: &client_interaction::movement::PhysicsCollisionRegistries,
     position: [i32; 3],
 ) -> Option<bool> {
     let mode = stream.network_id_mode();
@@ -457,7 +457,7 @@ fn station_triggered(
 fn picked_nametag_actor(
     stream: &chunk_pipeline::WorldStream,
     camera_transform: &GlobalTransform,
-    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    collisions: Option<&client_interaction::movement::PhysicsCollisionRegistries>,
 ) -> Option<u64> {
     let eye = camera_transform.translation();
     let direction = *camera_transform.forward();

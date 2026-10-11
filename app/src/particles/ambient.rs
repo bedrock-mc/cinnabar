@@ -15,7 +15,7 @@ use particles::{
 
 use super::world_adapter::StreamParticleWorld;
 use {
-    crate::movement::PhysicsCollisionRegistries,
+    client_interaction::movement::PhysicsCollisionRegistries,
     gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
 };
 

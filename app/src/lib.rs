@@ -29,7 +29,6 @@ pub mod local_player;
 mod local_worlds;
 mod melee;
 mod menu;
-mod mining;
 mod modding;
 pub mod movement;
 mod named_audio;
@@ -64,7 +63,6 @@ mod window_icon;
 mod acceptance;
 mod app;
 mod presentation;
-mod presentation_observations;
 mod runtime;
 
 pub use app::run;

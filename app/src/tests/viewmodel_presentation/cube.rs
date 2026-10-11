@@ -205,8 +205,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .unwrap();
     let empty = presentation.cpu_empty_hand_fallback();
     let mut app = App::new();
-    let mut movement = crate::movement::MovementTicker::default();
-    let mut physics = crate::movement::LocalPhysicsController::default();
+    let mut movement = client_interaction::movement::MovementTicker::default();
+    let mut physics = client_interaction::movement::LocalPhysicsController::default();
     gameplay::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
     movement.set_source(gameplay::movement::MovementSource::Physics);
     let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
@@ -295,7 +295,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = assets::pinned_block_registry_bytes();
     let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
-    let collisions = crate::movement::PhysicsCollisionRegistries::from_assets(
+    let collisions = client_interaction::movement::PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
         include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
@@ -308,8 +308,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .insert_resource(physics)
         .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
         .insert_resource(acceptance::model_witness::ModelWitnessFileSource::new(None))
-        .init_resource::<crate::movement::LocalMovementEffectTimeline>()
-        .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
+        .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
         .init_resource::<Time<bevy::time::Real>>()
         .init_resource::<render::ChunkUploadBudget>()
         .init_resource::<client_presentation::camera::CameraSettingsAuthority>()
@@ -345,11 +345,11 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     ];
     for (index, event) in controls.into_iter().enumerate() {
         app.world_mut()
-            .resource_mut::<crate::movement::MovementTicker>()
+            .resource_mut::<client_interaction::movement::MovementTicker>()
             .set_source(gameplay::movement::MovementSource::FreeCamera);
         let before = app
             .world()
-            .resource::<crate::movement::MovementTicker>()
+            .resource::<client_interaction::movement::MovementTicker>()
             .interaction_authority_identity();
         app.world_mut()
             .resource_mut::<ClientWorld>()
@@ -363,7 +363,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             .unwrap();
         let after = app
             .world()
-            .resource::<crate::movement::MovementTicker>()
+            .resource::<client_interaction::movement::MovementTicker>()
             .interaction_authority_identity();
         assert_eq!(before.0, after.0);
         assert!(after.1 > before.1);
@@ -386,7 +386,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             .unwrap();
         assert_cube_scene(&app, false);
         app.world_mut()
-            .resource_mut::<crate::movement::MovementTicker>()
+            .resource_mut::<client_interaction::movement::MovementTicker>()
             .set_source(gameplay::movement::MovementSource::Physics);
         let input = input.clone();
         app.world_mut()
@@ -532,7 +532,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         );
     });
     app.world_mut()
-        .resource_mut::<crate::movement::MovementTicker>()
+        .resource_mut::<client_interaction::movement::MovementTicker>()
         .reset(2, 0, [0., 64., 0.]);
     let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(2, 1);
@@ -591,7 +591,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     // Retiring genuine local authority withholds the cube; no remote spawn was
     // ever installed, and a visibility snapshot alone cannot grant admission.
     app.world_mut()
-        .resource_mut::<crate::movement::MovementTicker>()
+        .resource_mut::<client_interaction::movement::MovementTicker>()
         .deactivate();
     app.world_mut()
         .run_system_once(

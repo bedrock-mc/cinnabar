@@ -14,7 +14,7 @@ use sim::{
 };
 use ui::UserSettings;
 use {
-    super::{LocalPhysicsController, MovementTicker, PhysicsAuthorityGate},
+    client_interaction::movement::{LocalPhysicsController, MovementTicker, PhysicsAuthorityGate},
     gameplay::movement::{
         MovementOutboxReconciliation, MovementSource, PhysicsCorrectionMode,
         PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
@@ -99,7 +99,7 @@ fn replay_with_admitted_future_ticks(
 ) -> (
     MovementTicker,
     LocalPhysicsController,
-    Vec<super::PhysicsSendIdentity>,
+    Vec<gameplay::movement::PhysicsSendIdentity>,
 ) {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);

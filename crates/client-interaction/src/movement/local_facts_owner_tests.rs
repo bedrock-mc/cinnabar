@@ -1,5 +1,5 @@
 //! The physics phase reads the same player owner that earlier commands mutate.
-use crate::movement::GameplayWorldView;
+use crate::movement::world_view::GameplayWorldView;
 use bevy::prelude::*;
 use client_state::PlayerRuntime;
 use gameplay::movement::control_modes::SPRINT_HUNGER_FLOOR;

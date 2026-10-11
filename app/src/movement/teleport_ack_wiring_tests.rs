@@ -34,7 +34,9 @@ use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 use {
-    super::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+    client_interaction::movement::{
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
+    },
     gameplay::movement::{
         MovementSource, ProcessedMovementState, ServerTeleportKind, flush_player_auth_inputs,
     },
@@ -135,8 +137,8 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
         .init_resource::<WeatherState>()
         .insert_resource(ticker)
         .insert_resource(physics)
-        .init_resource::<crate::movement::LocalMovementEffectTimeline>()
-        .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
+        .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
         .insert_resource(fixture_registries())
         .insert_resource(UiRuntime::new(1))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(

@@ -24,7 +24,8 @@ use super::{
 };
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
+    client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::{actor_publication::ActorFramePartialTick, local_player::LocalViewPose},
 };
 

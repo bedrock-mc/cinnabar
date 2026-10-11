@@ -33,72 +33,13 @@ use std::fs;
 use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
-    crate::acceptance::model_witness::drive_model_witness,
-    crate::acceptance::world_ready::emit_world_ready,
+    crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
     acceptance::transparent_witness::poll_transparent_witness_request,
 };
 mod logging;
 mod startup;
 use startup::bind_direct_session_directory;
 
-use crate::{
-    args,
-    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
-    block_use::{BlockUseRuntime, produce_block_use},
-    camera::FlyCameraPlugin,
-    environment::{
-        self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-        update_atmosphere_frame, update_lightning, update_precipitation_scene,
-        update_seasonal_foliage,
-    },
-    local_player::{publish_local_player_frame, resolve_camera_pose},
-    melee::{MeleeRuntime, SwingTracker, produce_melee},
-    menu::{MenuRuntime, drive_menu_input, drive_menu_services},
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
-    },
-    present_mode::{PresentModeRuntime, apply_present_mode},
-    runtime::{
-        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
-        network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
-            prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
-            spawn_network,
-        },
-        publication::{PublicationController, begin_publication_frame},
-        shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
-        telemetry::{
-            publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
-            update_visibility_diagnostics,
-        },
-        visibility::{
-            AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
-            refresh_cave_visibility, remove_chunk_visibility,
-        },
-        world::{
-            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
-            WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
-            reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
-        },
-    },
-    semantic_controls::{
-        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
-        synchronize_semantic_input_authority,
-    },
-    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-        drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
-        flush_server_form_network,
-        gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{
-            drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
-        },
-    },
-};
 use client_presentation::{
     actor_publication::publish_actor_render_frame,
     camera::FlyCameraUpdateSet,
@@ -109,6 +50,70 @@ use diagnostics::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
+use {
+    crate::{
+        args,
+        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
+        block_use::produce_block_use,
+        camera::FlyCameraPlugin,
+        environment::{
+            self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+            update_atmosphere_frame, update_lightning, update_precipitation_scene,
+            update_seasonal_foliage,
+        },
+        local_player::{publish_local_player_frame, resolve_camera_pose},
+        melee::produce_melee,
+        menu::{MenuRuntime, drive_menu_input, drive_menu_services},
+        movement::{advance_local_physics, send_movement_prediction_sync},
+        present_mode::{PresentModeRuntime, apply_present_mode},
+        runtime::{
+            endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
+            network::{
+                NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+                prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
+                spawn_network,
+            },
+            publication::{PublicationController, begin_publication_frame},
+            shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
+            telemetry::{
+                publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
+                update_visibility_diagnostics,
+            },
+            visibility::{
+                AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
+                refresh_cave_visibility, remove_chunk_visibility,
+            },
+            world::{
+                ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
+                WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
+                reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
+            },
+        },
+        semantic_controls::{
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
+        },
+        session::{
+            SessionController, drive_session, follow_server_transfer, recover_session_failure,
+        },
+        survival_mining::produce_survival_mining,
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+            drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+            flush_server_form_network,
+            gameplay_touch::drive_gameplay_touch_targets,
+            presentation::{
+                drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime,
+                publish_ui_runtime,
+            },
+        },
+    },
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        PhysicsAuthorityGate,
+    },
+};
 
 mod render_setup;
 use render_setup::render_plugin;
@@ -182,11 +187,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     configure_actor_render_systems(app);
     crate::audio::configure(app);
-    app.init_resource::<BlockUseRuntime>()
-        .init_resource::<crate::item_use::ItemUseRuntime>()
-        .init_resource::<SurvivalMiningRuntime>()
-        .init_resource::<MeleeRuntime>()
-        .init_resource::<SwingTracker>()
+    app.add_plugins(client_interaction::ClientInteractionPlugin)
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
@@ -232,8 +233,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
+                .before(client_state::ClientInteractionSet::RetainPick)
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
         )
@@ -256,7 +258,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            crate::hotbar::select_hotbar_slot
+            crate::hotbar::flush_hotbar_selection
+                .in_set(client_state::ClientInteractionSet::HotbarSend)
                 .after(ClientFrameSet::SemanticFinalize)
                 .before(ClientFrameSet::ActorPreparation),
         )
@@ -265,7 +268,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)
-                .after(crate::hotbar::select_hotbar_slot)
+                .after(crate::hotbar::flush_hotbar_selection)
                 .after(reconcile_world_stream_before_physics)
                 .before(ClientFrameSet::Physics),
         )

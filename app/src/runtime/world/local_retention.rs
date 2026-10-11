@@ -1,7 +1,7 @@
 use chunk_pipeline::WorldStream;
 use client_presentation::local_player_camera_receipt::{CameraOwner, CameraPublicationAttempt};
 
-use crate::movement::LocalPhysicsController;
+use client_interaction::movement::LocalPhysicsController;
 
 /// Uses completed physics only after this frame proves its current session and control ownership.
 /// Without local physics (free camera or a faulted authority) the server position owns the grid.

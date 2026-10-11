@@ -16,22 +16,25 @@ use {
     launcher::menu::{MenuAction, MenuScreen},
 };
 use {
-    crate::app::{ClientBlobCacheOwner, configure_client_frame_schedule},
-    crate::movement::{LocalPhysicsController, MovementTicker},
-    crate::runtime::network::{
-        NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
-        drain_network_controls,
+    crate::{
+        app::{ClientBlobCacheOwner, configure_client_frame_schedule},
+        runtime::{
+            network::{
+                NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
+                ResourcePackAdmissionState, drain_network_controls,
+            },
+            shutdown::record_fatal_error,
+            telemetry::send_player_auth_inputs,
+            visibility::AppMetrics,
+            world::ClientWorld,
+        },
+        session::{SessionController, drive_session, recover_session_failure},
     },
-    crate::runtime::shutdown::record_fatal_error,
-    crate::runtime::telemetry::send_player_auth_inputs,
-    crate::runtime::visibility::AppMetrics,
-    crate::runtime::world::ClientWorld,
-    crate::session::{SessionController, drive_session, recover_session_failure},
+    client_interaction::movement::{LocalPhysicsController, MovementTicker},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
     },
-    client_state::ClientFrameSet,
-    client_state::SemanticInputSnapshot,
+    client_state::{ClientFrameSet, SemanticInputSnapshot},
     gameplay::movement::{MovementSource, PhysicsMovementSample, ProcessedMovementState},
 };
 

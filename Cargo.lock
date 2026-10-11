@@ -680,6 +680,7 @@ dependencies = [
  "bytes",
  "chunk-pipeline",
  "client-audio",
+ "client-interaction",
  "client-presentation",
  "client-session",
  "client-state",
@@ -2274,6 +2275,31 @@ dependencies = [
  "windows-sys 0.61.2",
  "world",
  "zip",
+]
+
+[[package]]
+name = "client-interaction"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "bevy",
+ "chunk-pipeline",
+ "client-audio",
+ "client-presentation",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "diagnostics",
+ "gameplay",
+ "inventory",
+ "player-state",
+ "protocol",
+ "semantic-input",
+ "sha2 0.10.9",
+ "sim",
+ "tokio",
+ "ui",
+ "world",
 ]
 
 [[package]]

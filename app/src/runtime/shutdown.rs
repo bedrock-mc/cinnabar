@@ -17,9 +17,9 @@ use crate::runtime::{
     world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
 };
 #[cfg(feature = "acceptance")]
-use crate::{movement::MovementTicker, runtime::visibility::AppMetrics};
-#[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;
+#[cfg(feature = "acceptance")]
+use {crate::runtime::visibility::AppMetrics, client_interaction::movement::MovementTicker};
 
 pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {

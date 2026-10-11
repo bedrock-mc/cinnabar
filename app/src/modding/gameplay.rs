@@ -22,8 +22,8 @@ pub(super) struct GameplayContext<'w> {
     time: Option<Res<'w, Time>>,
     real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, crate::environment::WorldClock>>,
-    physics: Option<ResMut<'w, crate::movement::LocalPhysicsController>>,
-    movement: Option<Res<'w, crate::movement::MovementTicker>>,
+    physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
+    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
     player: Option<Res<'w, client_state::PlayerRuntime>>,
     ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
 }

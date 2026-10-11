@@ -11,9 +11,10 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
         interaction_authority::observe_block,
-        mining::hand_interaction_selection,
-        movement::PhysicsCollisionRegistries,
         runtime::{network::NetworkHandle, world::ClientWorld},
+    },
+    client_interaction::{
+        mining::hand_interaction_selection, movement::PhysicsCollisionRegistries,
     },
     client_presentation::local_player::InteractionOriginSnapshot,
     client_state::SemanticInputSnapshot,

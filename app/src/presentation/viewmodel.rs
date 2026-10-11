@@ -9,7 +9,7 @@ use client_ui::ui_runtime::UiRuntime;
 pub(crate) struct ViewmodelPublish<'w, 's> {
     inner: client_presentation::presentation::viewmodel::ViewmodelPublish<'w, 's>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
-    movement: Option<Res<'w, crate::movement::MovementTicker>>,
+    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
 }
 
 impl<'w, 's> std::ops::Deref for ViewmodelPublish<'w, 's> {
@@ -29,7 +29,7 @@ impl std::ops::DerefMut for ViewmodelPublish<'_, '_> {
 /// Borrows the current authority and artwork without retaining another mutable owner.
 fn observation<'a>(
     world: &'a ClientWorld,
-    movement: Option<&crate::movement::MovementTicker>,
+    movement: Option<&client_interaction::movement::MovementTicker>,
     renders_game: bool,
 ) -> ViewmodelWorld<'a> {
     ViewmodelWorld {

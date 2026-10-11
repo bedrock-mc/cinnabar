@@ -43,7 +43,7 @@ pub(crate) fn actor_frame_world(
         client_presentation::local_player::LocalAvatarVisibilityCarrier::default(),
     );
     world.insert_resource(client_presentation::camera::CameraSettingsAuthority::default());
-    world.insert_resource(crate::movement::LocalPhysicsController::default());
+    world.insert_resource(client_interaction::movement::LocalPhysicsController::default());
     world.insert_resource(render::ActorRuntimeWitness::default());
     world.insert_resource(artwork);
     world.insert_resource(hand);

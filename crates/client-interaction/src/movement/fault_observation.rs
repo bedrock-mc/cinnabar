@@ -1,4 +1,4 @@
-//! Projects gameplay faults into the existing app-owned evidence record.
+//! Projects gameplay faults into retained evidence observations.
 
 use {super::MovementTicker, gameplay::movement::PhysicsAuthorityFault};
 
@@ -13,7 +13,7 @@ pub struct PhysicsAuthorityFaultRecord {
 }
 
 impl From<gameplay::movement::PhysicsAuthorityFaultRecord> for PhysicsAuthorityFaultRecord {
-    /// Transfers a drained domain record into the app's existing evidence contract.
+    /// Transfers a drained domain record into the evidence observation contract.
     fn from(record: gameplay::movement::PhysicsAuthorityFaultRecord) -> Self {
         Self {
             session_generation: record.session_generation,
@@ -25,32 +25,28 @@ impl From<gameplay::movement::PhysicsAuthorityFaultRecord> for PhysicsAuthorityF
 }
 
 /// A borrowed pending fault; it stores no second copy of gameplay state.
-pub(crate) struct PendingPhysicsFault<'a>(
-    Option<&'a gameplay::movement::PhysicsAuthorityFaultRecord>,
-);
+pub struct PendingPhysicsFault<'a>(Option<&'a gameplay::movement::PhysicsAuthorityFaultRecord>);
 
 impl PendingPhysicsFault<'_> {
     /// Reports whether gameplay currently retains a fault.
-    pub(crate) fn is_some(&self) -> bool {
+    pub fn is_some(&self) -> bool {
         self.0.is_some()
     }
 
     /// Copies an observation only when the evidence adapter requests it.
-    #[cfg(feature = "acceptance")]
-    pub(crate) fn cloned(&self) -> Option<PhysicsAuthorityFaultRecord> {
+    pub fn cloned(&self) -> Option<PhysicsAuthorityFaultRecord> {
         self.0.cloned().map(Into::into)
     }
 }
 
 impl MovementTicker {
     /// Borrows the retained domain fault at the existing telemetry boundary.
-    pub(crate) fn pending_authority_fault(&self) -> PendingPhysicsFault<'_> {
+    pub fn pending_authority_fault(&self) -> PendingPhysicsFault<'_> {
         PendingPhysicsFault(self.0.pending_authority_fault())
     }
 
     /// Drains the domain fault once, preserving the existing evidence record type.
-    #[cfg(feature = "acceptance")]
-    pub(crate) fn take_authority_fault(&mut self) -> Option<PhysicsAuthorityFaultRecord> {
+    pub fn take_authority_fault(&mut self) -> Option<PhysicsAuthorityFaultRecord> {
         self.0.take_authority_fault().map(Into::into)
     }
 }

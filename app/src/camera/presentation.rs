@@ -8,37 +8,10 @@ use client_presentation::camera::{
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        movement::{
-            LocalMovementSpeedAuthority, LocalPhysicsController, PhysicsCollisionRegistries,
-        },
-        runtime::world::ClientWorld,
-    },
+    crate::runtime::world::ClientWorld,
+    client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     client_presentation::local_player::LocalViewPose,
-    client_state::SemanticInputSnapshot,
 };
-
-/// Borrows current owner facts and forwards them at the existing system boundary.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn collect_fov_inputs(
-    input: Res<SemanticInputSnapshot>,
-    settings: Res<CameraSettingsAuthority>,
-    ui: Option<Res<UiRuntime>>,
-    physics: Option<Res<LocalPhysicsController>>,
-    movement_speed: Option<Res<LocalMovementSpeedAuthority>>,
-    inputs: ResMut<CameraFovInputs>,
-) {
-    client_presentation::camera::presentation::collect_fov_inputs(
-        client_presentation::observations::InputObservation(input.snapshot()),
-        settings,
-        ui.as_deref(),
-        physics
-            .as_deref()
-            .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
-        movement_speed.and_then(|speed| speed.current()),
-        inputs,
-    );
-}
 
 /// Samples the local actor after tick preparation and clears death time when it leaves or recovers.
 pub(crate) fn collect_death_fov_inputs(

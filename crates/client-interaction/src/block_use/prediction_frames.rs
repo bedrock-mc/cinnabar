@@ -3,16 +3,16 @@
 use world::SubChunkKey;
 
 #[derive(Debug, Default)]
-pub(crate) struct PredictionFrames {
-    pub(crate) committed_frame: Option<u32>,
-    pub(crate) staged_frame: Option<u32>,
-    pub(crate) upload_acknowledged_frame: Option<u32>,
+pub struct PredictionFrames {
+    pub committed_frame: Option<u32>,
+    pub staged_frame: Option<u32>,
+    pub upload_acknowledged_frame: Option<u32>,
     pending: Vec<(SubChunkKey, u64, bool, bool)>,
 }
 
 impl PredictionFrames {
     /// Bounds late worker service to the latest placement's initial publication.
-    pub(crate) fn publication_budget(&self, frame: u32) -> usize {
+    pub fn publication_budget(&self, frame: u32) -> usize {
         if self.staged_frame.is_none()
             && self
                 .committed_frame
@@ -25,7 +25,7 @@ impl PredictionFrames {
     }
 
     /// Starts one receipt for all sub-chunks touched by the latest local placement.
-    pub(crate) fn committed(&mut self, frame: u32, keys: impl Iterator<Item = (SubChunkKey, u64)>) {
+    pub fn committed(&mut self, frame: u32, keys: impl Iterator<Item = (SubChunkKey, u64)>) {
         *self = Self {
             committed_frame: Some(frame),
             ..Self::default()
@@ -38,7 +38,7 @@ impl PredictionFrames {
     }
 
     /// Records the frame that handed every predicted generation to the render queue.
-    pub(crate) fn staged(&mut self, frame: u32, key: SubChunkKey, generation: u64) {
+    pub fn staged(&mut self, frame: u32, key: SubChunkKey, generation: u64) {
         if let Some(cell) = self
             .pending
             .iter_mut()
@@ -52,7 +52,7 @@ impl PredictionFrames {
     }
 
     /// Records the main frame that received acknowledgements for every predicted upload.
-    pub(crate) fn uploaded(&mut self, frame: u32, key: SubChunkKey, generation: u64) {
+    pub fn uploaded(&mut self, frame: u32, key: SubChunkKey, generation: u64) {
         if let Some(cell) = self
             .pending
             .iter_mut()

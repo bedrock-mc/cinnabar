@@ -6,10 +6,8 @@ use {
     gameplay::melee::{Crosshair, classify},
 };
 use {
-    crate::{
-        interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
-        mining::hand_interaction_selection,
-    },
+    crate::interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
+    client_interaction::mining::hand_interaction_selection,
     gameplay::mining::{creative_reach, survival_reach},
 };
 

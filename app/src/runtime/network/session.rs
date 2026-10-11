@@ -69,8 +69,10 @@ impl NetworkHandle {
     }
 
     /// Couples the gameplay outbox epoch to the session's socket-write cancellation fence.
-    pub(crate) fn movement_ticker(&self) -> crate::movement::MovementTicker {
-        crate::movement::MovementTicker::with_epoch_publisher(self.inner.physics_epoch_publisher())
+    pub(crate) fn movement_ticker(&self) -> client_interaction::movement::MovementTicker {
+        client_interaction::movement::MovementTicker::with_epoch_publisher(
+            self.inner.physics_epoch_publisher(),
+        )
     }
 
     /// Provides isolated queues for app adapter tests.

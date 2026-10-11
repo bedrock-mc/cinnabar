@@ -27,8 +27,10 @@ use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
 use {
     crate::{
         environment::{WeatherState, WorldClock},
-        movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
         runtime::{network::NetworkHandle, visibility::CaveVisibilityCache, world::ClientWorld},
+    },
+    client_interaction::movement::{
+        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
     },
     client_presentation::{
         camera::CameraSettingsAuthority,

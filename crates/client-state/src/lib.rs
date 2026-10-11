@@ -60,3 +60,10 @@ pub struct GameplayScreenControls {
     pub spyglass_mouse_damping: f32,
     pub spyglass_gamepad_damping: f32,
 }
+
+/// Interaction phases whose surrounding world and transport adapters share the frame.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientInteractionSet {
+    HotbarSend,
+    RetainPick,
+}

@@ -1,3 +1,4 @@
+use super::selection::{loading_projectile, selected_air_use};
 use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, SlotIdentity,

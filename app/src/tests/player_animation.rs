@@ -891,7 +891,7 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
 // the local vanilla-pack arm.
 #[test]
 fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
-    use crate::melee::{MeleeRuntime, SwingTracker};
+    use client_interaction::melee::{MeleeRuntime, SwingTracker};
     use gameplay::melee::{ActorHit, Crosshair, PressContext};
     let Some(entities) = vanilla_entities() else {
         eprintln!(

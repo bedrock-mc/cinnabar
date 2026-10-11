@@ -25,24 +25,29 @@ use render::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
 use {
-    crate::app::{
-        ClientBlobCacheOwner, configure_client_authority_systems, configure_client_frame_schedule,
+    crate::{
+        app::{
+            ClientBlobCacheOwner, configure_client_authority_systems,
+            configure_client_frame_schedule,
+        },
+        environment::{WeatherState, bind_session_generation},
+        menu::{MenuClipboard, MenuRuntime},
+        runtime::{
+            network::{NetworkHandle, ResourcePackAdmissionState},
+            phase3_evidence::Phase3EvidenceEmitter,
+        },
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+        },
     },
-    crate::environment::{WeatherState, bind_session_generation},
-    crate::menu::{MenuClipboard, MenuRuntime},
-    crate::movement::{
+    acceptance::model_witness::ModelWitnessFileSource,
+    client_interaction::movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries,
     },
-    crate::runtime::network::{NetworkHandle, ResourcePackAdmissionState},
-    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
-    crate::semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
-    },
-    acceptance::model_witness::ModelWitnessFileSource,
-    client_presentation::camera::CameraSettingsAuthority,
-    client_presentation::local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+    client_presentation::{
+        camera::CameraSettingsAuthority,
+        local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
     },
     client_state::{RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
@@ -231,7 +236,7 @@ fn prepare_ability_control_fixture(app: &mut App) {
     app.init_resource::<crate::runtime::publication::PublicationController>()
         .init_resource::<render::ChunkUploadAcknowledgements>()
         .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
-        .init_resource::<crate::movement::PhysicsAuthorityGate>()
+        .init_resource::<client_interaction::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(
             diagnostics::metrics::MetricsCollector::new(),
         ))

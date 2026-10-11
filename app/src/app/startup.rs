@@ -5,12 +5,12 @@ use crate::asset_startup::{
     self, AssetSelection, AssetStartupError, LoadTimes, LoadedAssets, LoadedHudAssets,
     LoadedIconAssets, LoadedLangAssets, join,
 };
-use crate::movement::PhysicsCollisionRegistries;
 use anyhow::{Context, Result, bail};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
     RuntimeEquipmentCatalog, RuntimeParticleAssets, RuntimeUiAssets,
 };
+use client_interaction::movement::PhysicsCollisionRegistries;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, sync::Arc, time::Instant};

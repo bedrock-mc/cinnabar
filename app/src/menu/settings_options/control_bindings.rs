@@ -7,7 +7,7 @@ pub(crate) fn hotbar_control_slots(
     menu: Option<&crate::menu::MenuRuntime>,
     control: PhysicalControl,
 ) -> impl Iterator<Item = u8> + '_ {
-    crate::hotbar::HOTBAR_DIGIT_ACTIONS
+    client_interaction::hotbar::HOTBAR_DIGIT_ACTIONS
         .iter()
         .enumerate()
         .filter_map(move |(slot, action)| {

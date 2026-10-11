@@ -9,6 +9,7 @@ members = [
     "crates/block-transform",
     "crates/client-world",
     "crates/client-state",
+    "crates/client-interaction",
     "crates/gameplay",
     "crates/client-session",
     "crates/chunk-pipeline",

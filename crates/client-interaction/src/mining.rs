@@ -1,9 +1,10 @@
-//! App inventory adapter for frozen gameplay interaction selections.
+//! Inventory adapter for frozen gameplay interaction selections.
 use gameplay::mining::FrozenMiningSelection;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use protocol::VerifiedNetworkItemStack;
 
-pub(crate) fn verified_selection(
+/// Freezes the selected authoritative stack when its inventory slot is known.
+pub fn verified_selection(
     player_runtime: &client_state::PlayerRuntime,
 ) -> Option<FrozenMiningSelection> {
     let selected = player_runtime.selected_stack_snapshot()?;
@@ -23,7 +24,7 @@ pub(crate) fn verified_selection(
 /// selected slot resolves to an empty hand, matching vanilla (assume empty
 /// until restated), so hand actions work before the inventory arrives. Block
 /// placement must not use this — it stays fail-closed via `verified_selection`.
-pub(crate) fn hand_interaction_selection(
+pub fn hand_interaction_selection(
     player_runtime: &client_state::PlayerRuntime,
 ) -> Option<FrozenMiningSelection> {
     let selected = player_runtime.selected_stack_snapshot()?;

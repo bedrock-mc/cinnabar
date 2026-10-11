@@ -6,10 +6,8 @@ use sim::PaletteWorld;
 
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        interaction_authority::ray_is_current, movement::PhysicsCollisionRegistries,
-        runtime::world::ClientWorld,
-    },
+    crate::{interaction_authority::ray_is_current, runtime::world::ClientWorld},
+    client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::local_player::InteractionOriginSnapshot,
     client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
     gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},

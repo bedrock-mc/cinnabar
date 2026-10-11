@@ -17,13 +17,13 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
         menu::{LauncherCoreSlot, MenuRuntime},
-        movement::{LocalPhysicsController, MovementTicker},
         runtime::{
             network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
             shutdown::record_fatal_error,
             world::{ClientWorld, TransferNotice},
         },
     },
+    client_interaction::movement::{LocalPhysicsController, MovementTicker},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
     },

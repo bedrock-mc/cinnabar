@@ -1,7 +1,7 @@
 //! Synchronous adapter from the published chunk stream to gameplay queries.
 
 /// Borrows the current stream without creating another world owner.
-pub(crate) struct GameplayWorldView<'a>(pub(crate) &'a chunk_pipeline::WorldStream);
+pub struct GameplayWorldView<'a>(pub &'a chunk_pipeline::WorldStream);
 
 impl gameplay::GameplayWorld for GameplayWorldView<'_> {
     /// Resolves one authoritative stack through the existing stream.
