@@ -354,19 +354,31 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     })
 }
 
-/// Returns the open or newest PR for `branch`, or `None` when the lookup itself fails; reads the
-/// published head even after a squash deletes its branch.
+/// Returns the open or newest PR for `branch`, or `None` when a lookup fails; reads the published
+/// head even after a squash deletes its branch.
 fn pull_request(path: &Path, branch: Option<&str>) -> Option<Option<PullRequest>> {
     let Some(branch) = branch else {
         return Some(None);
     };
+    // Open PRs are queried alone: a reused branch name can have more history than one page.
+    if let Some(open) = pull_requests(path, branch, "open")?
+        .into_iter()
+        .find(|pr| pr.state == "OPEN")
+    {
+        return Some(Some(open));
+    }
+    Some(pull_requests(path, branch, "all")?.into_iter().next())
+}
+
+/// Lists PRs with head `branch` in `state`, newest first; `None` when `gh` fails.
+fn pull_requests(path: &Path, branch: &str, state: &str) -> Option<Vec<PullRequest>> {
     let output = Command::new("gh")
         .current_dir(path)
         .args([
             "pr",
             "list",
             "--state",
-            "all",
+            state,
             "--head",
             branch,
             "--json",
@@ -379,12 +391,7 @@ fn pull_request(path: &Path, branch: Option<&str>) -> Option<Option<PullRequest>
     if !output.status.success() {
         return None;
     }
-    let requests: Vec<PullRequest> = serde_json::from_slice(&output.stdout).ok()?;
-    let chosen = requests
-        .iter()
-        .position(|pr| pr.state == "OPEN")
-        .unwrap_or(0);
-    Some(requests.into_iter().nth(chosen))
+    serde_json::from_slice(&output.stdout).ok()
 }
 
 /// Uses the reflog event time, since the pushed commit itself may be years old; the latest entry

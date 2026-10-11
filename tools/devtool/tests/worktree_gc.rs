@@ -507,6 +507,22 @@ mod unix {
     }
 
     #[test]
+    fn open_pr_beyond_the_history_page_keeps_the_worktree() {
+        let repo = Repo::new();
+        let path = repo.worktree("reopened");
+        let head = repo.head(&path);
+        // Only the open-state query sees the open PR; the all-state page holds older merged ones.
+        repo.script("gh", &format!("#!/bin/sh\ncase \"$4\" in open) printf '[{{\"state\":\"OPEN\",\"headRefOid\":\"{head}\"}}]';; *) printf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]';; esac\n"));
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(path.exists(), "removed a worktree whose PR is open");
+    }
+
+    #[test]
     fn unavailable_process_checks_keep_worktrees_and_symlink_targets() {
         let repo = Repo::new();
         let path = repo.worktree("unknown-process");
