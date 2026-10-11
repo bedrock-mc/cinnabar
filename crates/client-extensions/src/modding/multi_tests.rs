@@ -6,6 +6,7 @@ const EMPTY_COMPONENT: &str = r#"(component
     (func (export "init") (canon lift (core func $i "init")))
     (func (export "frame") (canon lift (core func $i "frame"))))"#;
 
+/// Writes a minimal component fixture to the selected directory.
 fn component(directory: &Path, name: &str) -> PathBuf {
     let path = directory.join(name);
     std::fs::write(&path, EMPTY_COMPONENT).unwrap();
@@ -128,28 +129,23 @@ fn a_set_loads_every_valid_component_in_order_and_skips_broken_ones() {
     let directory = tempfile::tempdir().unwrap();
     let broken = directory.path().join("broken.wat");
     std::fs::write(&broken, "(component").unwrap();
-    let mut app = bevy::prelude::App::new();
-    super::super::configure_set(
-        &mut app,
-        vec![
-            (broken, ModGrants::default()),
-            (
-                component(directory.path(), "camera.wat"),
-                ModGrants {
-                    camera: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                component(directory.path(), "effects.wat"),
-                ModGrants {
-                    environment: true,
-                    ..Default::default()
-                },
-            ),
-        ],
-    );
-    let runtime = app.world().resource::<ModRuntime>();
+    let runtime = load_set(vec![
+        (broken, ModGrants::default()),
+        (
+            component(directory.path(), "camera.wat"),
+            ModGrants {
+                camera: true,
+                ..Default::default()
+            },
+        ),
+        (
+            component(directory.path(), "effects.wat"),
+            ModGrants {
+                environment: true,
+                ..Default::default()
+            },
+        ),
+    ]);
     assert_eq!(runtime.host_count(), 2);
     assert!(runtime.host(0).grants().camera);
     assert!(runtime.host(1).grants().environment);
@@ -168,6 +164,7 @@ struct Probe {
 }
 
 impl Probe {
+    /// Creates a component probe with the selected presentation output.
     fn new(label: &'static str, ticks: u32, rig_x: f32) -> Self {
         Self {
             label,
@@ -179,8 +176,9 @@ impl Probe {
         }
     }
 
+    /// Writes this probe using the guest SDK package version.
     fn write(&self, directory: &Path) -> PathBuf {
-        let package = include_str!("../../../crates/mod-api/wit/extension.wit")
+        let package = include_str!("../../../mod-api/wit/extension.wit")
             .lines()
             .next()
             .unwrap()
@@ -206,6 +204,7 @@ impl Probe {
     }
 }
 
+/// Grants the capabilities exercised by the load-order probes.
 fn granted() -> ModGrants {
     ModGrants {
         environment: true,
@@ -215,6 +214,7 @@ fn granted() -> ModGrants {
     }
 }
 
+/// Supplies one connected gameplay frame for the probes.
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,
@@ -233,15 +233,13 @@ fn snapshot() -> GameplaySnapshot {
 }
 
 /// Loads `probes` as one set and runs `frames` frames, returning the last merge and failures.
-fn run(probes: &[Probe], frames: usize) -> (ModRuntime, Merged, Vec<usize>) {
+fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
     let directory = tempfile::tempdir().unwrap();
-    let mut app = bevy::prelude::App::new();
     let set = probes
         .iter()
         .map(|probe| (probe.write(directory.path()), granted()))
         .collect();
-    super::super::configure_set(&mut app, set);
-    let mut runtime = app.world_mut().remove_resource::<ModRuntime>().unwrap();
+    let mut runtime = load_set(set);
     let controls = mod_host::empty_controls();
     let mut previous = Vec::new();
     let mut failures = Vec::new();
@@ -327,21 +325,16 @@ fn a_trapping_mod_is_quarantined_without_disturbing_the_others() {
 #[test]
 fn grants_stay_per_mod() {
     let directory = tempfile::tempdir().unwrap();
-    let mut app = bevy::prelude::App::new();
-    super::super::configure_set(
-        &mut app,
-        vec![
-            (
-                Probe::new("A", 1000, 0.5).write(directory.path()),
-                ModGrants::default(),
-            ),
-            (
-                Probe::new("B", 6000, -0.5).write(directory.path()),
-                granted(),
-            ),
-        ],
-    );
-    let mut runtime = app.world_mut().remove_resource::<ModRuntime>().unwrap();
+    let mut runtime = load_set(vec![
+        (
+            Probe::new("A", 1000, 0.5).write(directory.path()),
+            ModGrants::default(),
+        ),
+        (
+            Probe::new("B", 6000, -0.5).write(directory.path()),
+            granted(),
+        ),
+    ]);
     let controls = mod_host::empty_controls();
     let merged = run_frame(
         &mut runtime,
@@ -441,4 +434,18 @@ fn inactive_hosts_do_not_capture_world_state() {
         |_| panic!("inactive hosts must not capture the world"),
         |_, _| panic!("quarantined host ran again"),
     );
+}
+
+/// Loads the same component entries as the app without its presentation adapters.
+fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
+    let mut hosts = load_entries(
+        mods.into_iter()
+            .map(|(path, grants)| (ModSource::Component(path), grants))
+            .collect(),
+    )
+    .into_iter();
+    ModHosts::new(
+        hosts.next().unwrap(),
+        hosts.map(|host| Companion { host }).collect(),
+    )
 }

@@ -4,6 +4,10 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Only the first tick of a render frame may consume pending anchor recovery.
+    pub frame_start: bool,
+    /// Recovery state after this tick, including freezes that defer the first probe.
+    pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
     pub eye_height: f32,
@@ -30,6 +34,7 @@ impl ControllerFrame {
     pub(super) fn prepare(
         &mut self,
         modes: &mut ModeTracker,
+        anchor_state: &mut AnchorProbeState,
         environment: sim::MovementEnvironment,
         state: &mut PlayerState,
         input: &mut MovementInput,
@@ -60,30 +65,31 @@ impl ControllerFrame {
         }
         let previous_modes = *modes;
         let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
-        let choice = modes.select(
-            self.intent,
-            ModeObservation {
-                feet: state.position,
-                on_ground: state.on_ground,
-                in_water: environment.in_water,
-                sprinting: input.sprinting,
-                sprint_blinded: input.effects.blindness,
-                sprint_down: self.sprint_down,
-                input_mode: self.input_mode,
-                requested_movement: state.requested_movement,
-                move_sideways,
-                move_forward,
-                sneaking: self.requested_sneak,
-                pitch: input.pitch_degrees as f32,
-                yaw: input.yaw_degrees as f32,
-                liquid_attach_height: input
-                    .liquid_attach_height
-                    .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
-                jumping: input.jumping,
-                jump_edge: self.jump_edge,
-            },
-            world,
-        );
+        let mut observed = ModeObservation {
+            feet: state.position,
+            on_ground: state.on_ground,
+            in_water: environment.in_water,
+            sprinting: input.sprinting,
+            sprint_blinded: input.effects.blindness,
+            sprint_down: self.sprint_down,
+            input_mode: self.input_mode,
+            requested_movement: state.requested_movement,
+            move_sideways,
+            move_forward,
+            sneaking: self.requested_sneak,
+            pitch: input.pitch_degrees as f32,
+            yaw: input.yaw_degrees as f32,
+            liquid_attach_height: input
+                .liquid_attach_height
+                .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
+            jumping: input.jumping,
+            jump_edge: self.jump_edge,
+        };
+        if self.frame_start {
+            anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+            state.position = observed.feet;
+        }
+        let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
             Ok(choice) => choice,
             Err(_) if input.immobile => {
@@ -133,6 +139,7 @@ impl ControllerFrame {
             state.velocity.z as f32,
         ];
         self.modes = *modes;
+        self.anchor_state = *anchor_state;
         self.input = *input;
         Ok(())
     }

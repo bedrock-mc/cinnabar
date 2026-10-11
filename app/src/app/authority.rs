@@ -52,16 +52,18 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         Update,
         (
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
-            drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
-            drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
+            drive_sign_editor.run_if(client_extensions::server_experiences::input::ordinary_input),
+            drive_server_form_input
+                .run_if(client_extensions::server_experiences::input::ordinary_input),
             crate::ui_runtime::emotes::drive_emote_input,
-            drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
+            drive_chat_ui_actions
+                .run_if(client_extensions::server_experiences::input::ordinary_input),
             drain_inventory_authority,
             drive_chat_keyboard_input
-                .run_if(crate::server_experiences::input::ordinary_input)
+                .run_if(client_extensions::server_experiences::input::ordinary_input)
                 .before(client_state::ShellFrameSet::MenuInput),
             drive_inventory_ui_actions
-                .run_if(crate::server_experiences::input::ordinary_input)
+                .run_if(client_extensions::server_experiences::input::ordinary_input)
                 .after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
             drive_session.in_set(client_state::ShellFrameSet::Session),
@@ -69,7 +71,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .after(client_state::ShellFrameSet::WindowSettings),
             crate::store::drive_store.in_set(client_state::ShellFrameSet::Store),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
-            drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),
+            drive_world_inventory_keys
+                .run_if(client_extensions::server_experiences::input::ordinary_input),
         )
             .chain()
             .in_set(ClientFrameSet::UiAuthority),

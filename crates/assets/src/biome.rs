@@ -281,13 +281,6 @@ pub struct SessionBiome {
     pub downfall: f32,
 }
 
-impl SessionBiome {
-    /// Returns whether this admitted climate permits precipitation.
-    pub fn precipitation_eligible(&self) -> bool {
-        world::weather::precipitation_eligible(self.downfall)
-    }
-}
-
 /// Deterministic dense tint records and direct raw-palette-ID lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedBiomeTints {

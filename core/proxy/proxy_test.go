@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -662,7 +663,7 @@ func TestServeCancellationClosesRawPreLoginConnection(t *testing.T) {
 func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 	dir := t.TempDir()
 	var output lockedBuffer
-	logger := slog.New(slog.NewTextHandler(&output, nil))
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -672,7 +673,7 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 
 	readyCtx, stopWaiting := context.WithTimeout(context.Background(), 2*time.Second)
 	defer stopWaiting()
-	if !output.waitFor(readyCtx, "msg=\"listener ready; waiting for local Rust client\"") {
+	if !output.waitFor(readyCtx, "listener ready; waiting for local Rust client") {
 		select {
 		case err := <-done:
 			t.Fatalf("Serve() stopped before reporting readiness: %v", err)
@@ -690,13 +691,24 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.Name() != "session.lock" && filepath.Join(dir, entry.Name()) != endpoint {
-			t.Fatalf("unexpected endpoint or lease %q", entry.Name())
+		if entry.Name() == "session.lock" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if network == "unix" {
+			if path != endpoint {
+				t.Fatalf("unexpected endpoint or lease %q", entry.Name())
+			}
+		} else {
+			published, err := os.ReadFile(path)
+			if err != nil || string(published) != endpoint+"\n" {
+				t.Fatalf("endpoint publication %q = %q, %v; want %q", entry.Name(), published, err, endpoint)
+			}
 		}
 	}
-	if got := output.String(); !strings.Contains(got, "msg=\"listener ready; waiting for local Rust client\" socket_dir="+dir+" network="+network+" endpoint="+endpoint) {
-		cancel()
-		t.Fatalf("listener readiness output = %q, want published %s endpoint %q for socket directory %q", got, network, endpoint, dir)
+	record := listenerReadyRecord(t, output.String())
+	if record["socket_dir"] != dir || record["network"] != network || record["endpoint"] != endpoint {
+		t.Fatalf("listener readiness = %v, want socket directory %q and %s endpoint %q", record, dir, network, endpoint)
 	}
 
 	cancel()
@@ -713,16 +725,35 @@ func TestServeReportsListenerReadyAfterEndpointPublication(t *testing.T) {
 func TestReportListenerReadyFallsBackToSocketDirectory(t *testing.T) {
 	dir := t.TempDir()
 	var output lockedBuffer
-	logger := slog.New(slog.NewTextHandler(&output, nil))
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	reportListenerReady(logger, dir)
 
-	got := output.String()
-	if !strings.Contains(got, "msg=\"listener ready; waiting for local Rust client\" socket_dir="+dir) {
-		t.Fatalf("fallback listener readiness output = %q, want socket directory %q", got, dir)
+	record := listenerReadyRecord(t, output.String())
+	if record["socket_dir"] != dir {
+		t.Fatalf("fallback listener readiness = %v, want socket directory %q", record, dir)
 	}
-	if strings.Contains(got, " network=") || strings.Contains(got, " endpoint=") {
-		t.Fatalf("fallback listener readiness claimed an unresolved endpoint: %q", got)
+	if _, ok := record["network"]; ok {
+		t.Fatalf("fallback listener readiness claimed a network: %v", record)
 	}
+	if _, ok := record["endpoint"]; ok {
+		t.Fatalf("fallback listener readiness claimed an endpoint: %v", record)
+	}
+}
+
+// listenerReadyRecord returns readiness fields without depending on platform-specific text escaping.
+func listenerReadyRecord(t *testing.T, output string) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("decode listener log: %v", err)
+		}
+		if record["msg"] == "listener ready; waiting for local Rust client" {
+			return record
+		}
+	}
+	t.Fatalf("listener readiness missing from log: %s", output)
+	return nil
 }
 
 func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout time.Duration) {

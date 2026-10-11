@@ -144,6 +144,13 @@ fn delayed_immobile_clear_preserves_later_authoritative_freezes() {
         );
     }
     assert_eq!(physics.state(), expected.state());
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(
+        physics.state(),
+        expected.state(),
+        "repeating a rewind preserves contact faces"
+    );
+
     assert_ne!(physics.sample_at(102).unwrap().movement, [0.0; 3]);
     assert_eq!(physics.sample_at(104).unwrap().movement, [0.0; 3]);
     assert_eq!(physics.sample_at(105).unwrap().movement, [0.0; 3]);

@@ -110,3 +110,7 @@ pub enum ShellFrameSet {
     GameplayControls,
     Presence,
 }
+
+/// Consumes consent input after the experience controller and before ordinary input.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ExperienceInputSet;

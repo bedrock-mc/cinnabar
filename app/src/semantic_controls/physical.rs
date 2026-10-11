@@ -383,6 +383,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn additional_keys_use_their_usb_keyboard_usages() {
+        for (key, expected) in [
+            (KeyCode::CapsLock, 0x39),
+            (KeyCode::PrintScreen, 0x46),
+            (KeyCode::ScrollLock, 0x47),
+            (KeyCode::Pause, 0x48),
+            (KeyCode::NumLock, 0x53),
+            (KeyCode::NumpadDivide, 0x54),
+            (KeyCode::NumpadMultiply, 0x55),
+            (KeyCode::NumpadSubtract, 0x56),
+            (KeyCode::NumpadAdd, 0x57),
+            (KeyCode::NumpadEnter, 0x58),
+            (KeyCode::Numpad1, 0x59),
+            (KeyCode::Numpad2, 0x5a),
+            (KeyCode::Numpad3, 0x5b),
+            (KeyCode::Numpad4, 0x5c),
+            (KeyCode::Numpad5, 0x5d),
+            (KeyCode::Numpad6, 0x5e),
+            (KeyCode::Numpad7, 0x5f),
+            (KeyCode::Numpad8, 0x60),
+            (KeyCode::Numpad9, 0x61),
+            (KeyCode::Numpad0, 0x62),
+            (KeyCode::NumpadDecimal, 0x63),
+            (KeyCode::IntlBackslash, 0x64),
+            (KeyCode::ContextMenu, 0x65),
+            (KeyCode::NumpadEqual, 0x67),
+            (KeyCode::F13, 0x68),
+            (KeyCode::F14, 0x69),
+            (KeyCode::F15, 0x6a),
+            (KeyCode::F16, 0x6b),
+            (KeyCode::F17, 0x6c),
+            (KeyCode::F18, 0x6d),
+            (KeyCode::F19, 0x6e),
+            (KeyCode::F20, 0x6f),
+            (KeyCode::F21, 0x70),
+            (KeyCode::F22, 0x71),
+            (KeyCode::F23, 0x72),
+            (KeyCode::F24, 0x73),
+            (KeyCode::NumpadComma, 0x85),
+        ] {
+            assert_eq!(keyboard_usage(key), Some(expected), "{key:?}");
+        }
+    }
+
     /// Every key this layer translates must produce a distinct HID usage, so a
     /// mapping typo cannot quietly alias two keys onto one action.
     #[test]
@@ -395,6 +440,95 @@ mod tests {
         usages.sort_unstable();
         usages.dedup();
         assert_eq!(usages.len(), translated);
+    }
+
+    #[test]
+    fn mapped_keys_drive_sneak_only_while_physically_held() {
+        use crate::semantic_controls::SemanticInputRuntime;
+        use launcher::menu::settings_options::{KEY_BINDINGS, SettingsOptions};
+        use semantic_input::Action;
+
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Sneak)
+            .unwrap();
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<Touches>()
+            .init_resource::<SemanticTouchTargets>()
+            .init_resource::<PendingDeviceFrame>()
+            .add_systems(Update, collect_raw_input);
+        app.world_mut().spawn((
+            Window::default(),
+            CursorOptions {
+                grab_mode: CursorGrabMode::Locked,
+                visible: false,
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+        for &(key, usage) in [
+            (KeyCode::CapsLock, 0x39),
+            (KeyCode::NumLock, 0x53),
+            (KeyCode::ScrollLock, 0x47),
+        ]
+        .iter()
+        .chain(KEYBOARD_USAGES)
+        {
+            let mut settings = SettingsOptions::default();
+            assert!(settings.remap(row, PhysicalControl::KeyboardUsage(usage)));
+            let mut runtime = SemanticInputRuntime::default();
+            runtime
+                .replace_bindings(settings.controls().unwrap())
+                .unwrap();
+            for _ in 0..2 {
+                for (pressed, released, held) in [
+                    (true, false, true),
+                    (false, false, true),
+                    (false, true, false),
+                    (false, false, false),
+                ] {
+                    {
+                        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+                        keys.clear();
+                        if pressed {
+                            keys.press(key);
+                        }
+                        if released {
+                            keys.release(key);
+                        }
+                    }
+                    app.update();
+                    let frame = app
+                        .world_mut()
+                        .resource_mut::<PendingDeviceFrame>()
+                        .frame
+                        .take()
+                        .unwrap();
+                    let keyboard = frame.keyboard_mouse.as_ref().unwrap();
+                    assert_eq!(keyboard.keys.contains(&usage), held, "{key:?}");
+                    assert_eq!(
+                        keyboard.key_edges.pressed.contains(&usage),
+                        pressed,
+                        "{key:?}"
+                    );
+                    assert_eq!(
+                        keyboard.key_edges.released.contains(&usage),
+                        released,
+                        "{key:?}"
+                    );
+                    let phase =
+                        runtime.route_and_finalize(frame).unwrap().phases[Action::Sneak as usize];
+                    assert_eq!(
+                        (phase.pressed, phase.released, phase.held),
+                        (pressed, released, held),
+                        "{key:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

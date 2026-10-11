@@ -75,7 +75,8 @@ fn publish(
         .as_deref()
         .filter(|runtime| !runtime.suspended)
         .and_then(|runtime| {
-            (0..runtime.host_count()).find_map(|index| runtime.host(index).block_highlights())
+            (0..runtime.hosts.host_count())
+                .find_map(|index| runtime.hosts.host(index).block_highlights())
         });
     let camera = cameras.single().ok();
     let (Some(stream), Some(spec), Some(camera)) = (stream, spec, camera) else {

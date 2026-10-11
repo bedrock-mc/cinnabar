@@ -1,7 +1,7 @@
 use std::{fs, io::Cursor, path::Path};
 
 use ::image::{ImageFormat, ImageReader};
-use assets::{
+use assets::weather_textures::{
     END_SKY_SIDE, WEATHER_SHEET_SIDE, WeatherImage, WeatherTextures, encode_weather_textures,
 };
 

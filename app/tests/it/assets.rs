@@ -803,17 +803,32 @@ fn malformed_required_atmosphere_carrier_fails_closed_with_rebuild_command() {
 
 #[test]
 fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
-    let source = include_str!("../../src/app.rs");
-    assert!(source.contains("loaded_assets.atmosphere.startup_summary()"));
-    assert!(source.contains("loaded_assets.atmosphere.into_parts()"));
-    assert!(source.contains(".insert_resource(AtmosphereTextureAssets::new("));
+    let directory = temporary_directory("atmosphere-render-handoff");
+    let path = directory.join("vanilla.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    let bytes = synthetic_atmosphere_blob(0x42);
+    fs::write(atmosphere_asset_path(&path), &bytes).unwrap();
+    write_sibling_entity(&path, 0x43);
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+    let evidence = loaded.atmosphere.evidence();
+    let (runtime, identity) = loaded.atmosphere.into_parts();
+    let decoded = Arc::downgrade(&runtime);
+    let mut app = bevy::prelude::App::new();
+    app.insert_resource(render::AtmosphereTextureAssets::new(runtime, identity));
+    let renderer = app.world().resource::<render::AtmosphereTextureAssets>();
     assert_eq!(
-        source
-            .matches("loaded_assets.atmosphere.into_parts()")
-            .count(),
-        1,
-        "the required MCBEATM2 runtime must move into render exactly once"
+        renderer.identity(),
+        <[u8; 32]>::from(Sha256::digest(&bytes))
     );
+    assert_eq!(
+        evidence.envelope_sha256,
+        format!("{:x}", Sha256::digest(&bytes))
+    );
+    let rendered = renderer.runtime().unwrap();
+    assert!(Arc::ptr_eq(rendered, &decoded.upgrade().unwrap()));
+    assert_eq!(Arc::strong_count(rendered), 1);
+    fs::remove_dir_all(directory).unwrap();
 }
 
 include!("assets/provenance_tests.rs");

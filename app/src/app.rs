@@ -934,6 +934,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
     app.init_resource::<client_state::PresenceObservation>()
         .add_systems(

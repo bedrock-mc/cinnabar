@@ -86,6 +86,7 @@ fn join_app(state: State) -> App {
         },
         PrimaryWindow,
     ));
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     configure(&mut app);
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut service = app.world_mut().resource_mut::<ExperienceService>();
@@ -231,6 +232,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()));
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     configure(&mut app);
     let schedules = app.world().resource::<Schedules>();
     let graph = schedules.get(Update).unwrap().graph();
@@ -329,6 +331,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .add_message::<bevy::input::mouse::MouseButtonInput>()
         .add_systems(Update, drain_committed_ui_before_authority);
     configure_client_frame_schedule(&mut app);
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     configure(&mut app);
     let mut service = app.world_mut().resource_mut::<ExperienceService>();
     service.generation = 1;
@@ -391,6 +394,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
         .add_message::<KeyboardInput>()
         .add_message::<MouseButtonInput>()
         .add_message::<bevy::input::mouse::MouseWheel>();
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     configure(&mut app);
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -447,7 +451,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
                     crate::camera::update_cursor_capture,
                 )
                     .chain()
-                    .after(super::super::input::consume),
+                    .after(client_state::ExperienceInputSet),
             );
         let window = app
             .world_mut()

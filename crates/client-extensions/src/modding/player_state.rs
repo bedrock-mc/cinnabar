@@ -9,7 +9,7 @@ use inventory::{
 use mod_host::{PlayerStateEffect, PlayerStateItem, PlayerStateSlot, PlayerStateSnapshot};
 
 /// Capture one connected session; no data survives an owner/session mismatch.
-pub(super) fn snapshot(
+pub fn snapshot(
     authority: &WorldAuthority,
     session: u64,
     player: &player_state::PlayerState,
@@ -91,6 +91,7 @@ pub(super) fn snapshot(
     })
 }
 
+/// Keeps unknown slots distinct from empty and validated item observations.
 fn project_slot(
     authority: &WorldAuthority,
     ledger: &inventory::PlayerInventoryLedger,
@@ -116,6 +117,7 @@ fn project_slot(
     }
 }
 
+/// Projects admitted item identity and durability into the bounded guest payload.
 fn project_item(
     authority: &WorldAuthority,
     ledger: &inventory::PlayerInventoryLedger,

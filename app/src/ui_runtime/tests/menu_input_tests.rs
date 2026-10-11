@@ -573,7 +573,8 @@ fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
         gamepad::{Gamepad, GamepadButton},
         touch::{TouchInput, TouchPhase, touch_screen_input_system},
     };
-    use {crate::server_experiences::input::consume, client_state::ConsentInput};
+    use client_extensions::server_experiences::input::consume;
+    use client_state::ConsentInput;
     let (mut app, window) = menu_input_app(MenuClipboard::default());
     app.insert_resource(ConsentInput(true))
         .add_message::<TouchInput>()
