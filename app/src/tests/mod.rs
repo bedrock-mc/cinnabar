@@ -8,19 +8,21 @@ use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
 };
 use bevy::window::WindowCloseRequested;
+use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
     FaceConnectivity, PackedBiomeRecord, PackedModelDrawRef, PackedModelRef, PackedQuadLighting,
 };
 use protocol::{
     ActorKind, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockUpdateEvent, LevelChunkEvent,
-    LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, StandardSkin, SubChunkBatchEvent,
+    LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, SubChunkBatchEvent,
     SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
 };
 use render::{
     ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadPriority,
     PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
 };
+use render_api::StandardSkin;
 use render_model::{
     GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
 };
@@ -59,16 +61,12 @@ fn actor_snapshot(spawn: protocol::ActorSpawnEvent) -> client_world::ActorSnapsh
         .clone()
 }
 
-use crate::menu::core_process::{CoreProcessGuard, CoreStopOutcome};
 use crate::runtime::network::{
     NetworkControlEvent,
     session::{SequencedWorldEvent, WorldIngress},
 };
 use crate::runtime::{
-    endpoint::{
-        bridge_endpoint_exists, bridge_endpoint_path, preflight_bridge_endpoint,
-        resolve_socket_dir_from,
-    },
+    endpoint::{preflight_bridge_endpoint, resolve_socket_dir_from},
     network::{
         NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET,
         WorldIngressDrain, actor_render_source, drain_network_controls, drain_network_ingress,
@@ -307,7 +305,7 @@ mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
-mod core_process;
+
 mod crafting_authority_schedule;
 mod finish;
 #[cfg(feature = "reports")]
@@ -327,7 +325,7 @@ mod player_animation;
 mod publication;
 mod publication_pressure;
 mod runtime_metrics;
-mod servers;
+
 mod teleport;
 mod viewmodel_presentation;
 

@@ -196,7 +196,7 @@ mod tests {
         });
         let original_world_projection = projection.get_clip_from_view();
         let hand_fov = crate::actor_publication::HAND_FOV_DEGREES.to_radians();
-        let skin = protocol::SkinRgba8::from(Arc::<[u8]>::from(vec![
+        let skin = render_api::SkinRgba8::from(Arc::<[u8]>::from(vec![
             255;
             render_model::STANDARD_SKIN_BYTES
         ]));

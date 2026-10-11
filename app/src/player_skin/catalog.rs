@@ -61,13 +61,13 @@ struct ImportedGeometry {
 
 /// Older PNG-only preferences retain the shared default engine version.
 fn default_engine_version() -> String {
-    protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.to_owned()
+    render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.to_owned()
 }
 
 /// The starter skins and the classic and slim geometry they share, read from the optional carrier.
 struct Starter {
     skins: Vec<assets::starter_skins::StarterSkin>,
-    geometries: [Arc<protocol::SkinGeometrySource>; 2],
+    geometries: [Arc<render_api::SkinGeometrySource>; 2],
 }
 
 pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> DressingRoomView {
@@ -97,7 +97,7 @@ pub(crate) fn load(layout: &InstallLayout, fallback: &LocalPlayerSkin) -> Dressi
             path: layout.starter_skins_asset().to_string_lossy().into_owned(),
             imported: false,
             model,
-            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             skin,
         });
     }
@@ -337,7 +337,7 @@ fn starter(layout: &InstallLayout) -> Option<Starter> {
 fn geometry(
     layout: &InstallLayout,
     model: SkinModel,
-) -> Result<Option<Arc<protocol::SkinGeometrySource>>, String> {
+) -> Result<Option<Arc<render_api::SkinGeometrySource>>, String> {
     if model == SkinModel::Custom {
         return Err("The selected skin model is unavailable.".to_owned());
     }
@@ -356,7 +356,7 @@ fn geometry_for_view(
     layout: &InstallLayout,
     view: &DressingRoomView,
     model: SkinModel,
-) -> Result<Option<Arc<protocol::SkinGeometrySource>>, String> {
+) -> Result<Option<Arc<render_api::SkinGeometrySource>>, String> {
     if let Some(source) = view
         .skins
         .iter()
@@ -368,17 +368,17 @@ fn geometry_for_view(
     geometry(layout, model)
 }
 
-fn geometry_catalog(data: &str) -> Result<[Arc<protocol::SkinGeometrySource>; 2], String> {
-    if data.len() > protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
+fn geometry_catalog(data: &str) -> Result<[Arc<render_api::SkinGeometrySource>; 2], String> {
+    if data.len() > render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
         return Err("Skin geometry is too large.".to_owned());
     }
     let data: Arc<str> = data.into();
-    let make = |model: SkinModel| -> Result<Arc<protocol::SkinGeometrySource>, String> {
+    let make = |model: SkinModel| -> Result<Arc<render_api::SkinGeometrySource>, String> {
         let patch = serde_json::json!({"geometry":{"default":model.geometry()}}).to_string();
         assets::parse_skin_geometry(&patch, &data)
             .map_err(|error| format!("The skin model could not be read: {error:?}"))?
             .ok_or("The selected skin model is unavailable.")?;
-        Ok(Arc::new(protocol::SkinGeometrySource {
+        Ok(Arc::new(render_api::SkinGeometrySource {
             resource_patch: patch.into(),
             geometry_data: data.clone(),
             animations: Arc::from([]),
@@ -409,11 +409,14 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 }
 
 /// Decodes supported native image sizes without adding classic body coverage to custom models.
-fn decode_png_with_model(bytes: &[u8], model: SkinModel) -> Result<protocol::StandardSkin, String> {
+fn decode_png_with_model(
+    bytes: &[u8],
+    model: SkinModel,
+) -> Result<render_api::StandardSkin, String> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(protocol::MAX_CLASSIC_SKIN_SIDE as u32);
-    limits.max_image_height = Some(protocol::MAX_CLASSIC_SKIN_SIDE as u32);
+    limits.max_image_width = Some(render_api::MAX_CLASSIC_SKIN_SIDE as u32);
+    limits.max_image_height = Some(render_api::MAX_CLASSIC_SKIN_SIDE as u32);
     reader.limits(limits);
     let rgba = reader
         .decode()
@@ -428,18 +431,18 @@ fn standard_skin(
     height: u32,
     mut pixels: Vec<u8>,
     model: SkinModel,
-) -> Result<protocol::StandardSkin, String> {
-    if !(width as usize == protocol::CLASSIC_SKIN_SIDE
-        || width as usize == protocol::MAX_CLASSIC_SKIN_SIDE)
+) -> Result<render_api::StandardSkin, String> {
+    if !(width as usize == render_api::CLASSIC_SKIN_SIDE
+        || width as usize == render_api::MAX_CLASSIC_SKIN_SIDE)
     {
         return Err(format!(
             "Unsupported skin dimensions {width}×{height}. Choose a classic skin PNG."
         ));
     }
     let legacy =
-        width as usize == protocol::CLASSIC_SKIN_SIDE && height.checked_mul(2) == Some(width);
+        width as usize == render_api::CLASSIC_SKIN_SIDE && height.checked_mul(2) == Some(width);
     if legacy {
-        pixels = protocol::expand_legacy_skin_rgba8(&pixels, width as usize);
+        pixels = render_api::expand_legacy_skin_rgba8(&pixels, width as usize);
     }
     let normalize = if model == SkinModel::Custom {
         protocol::normalize_custom_skin_rgba8
@@ -451,7 +454,7 @@ fn standard_skin(
             "Unsupported skin dimensions {width}×{height}. Choose a classic skin PNG."
         ));
     }
-    Ok(protocol::StandardSkin {
+    Ok(render_api::StandardSkin {
         width,
         height: width,
         rgba8: pixels.into(),

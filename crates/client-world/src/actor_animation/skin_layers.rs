@@ -1,4 +1,4 @@
-use protocol::{SkinAnimation, SkinAnimationKind, SkinGeometrySource};
+use render_api::{SkinAnimation, SkinAnimationKind, SkinGeometrySource};
 
 use super::{pose::LocalDelta, *};
 

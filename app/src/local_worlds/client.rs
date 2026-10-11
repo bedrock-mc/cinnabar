@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf, thread, time::Duration};
 
+use bridge::{self as control, BridgeError};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use protocol::world_control::{self as control, BridgeError};
 
 use super::model::{Effect, Event};
 

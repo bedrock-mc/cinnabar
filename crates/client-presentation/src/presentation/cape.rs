@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
 use bevy::math::{EulerRot, Quat, Vec3};
 use client_world::{ActorRigSnapshot, PlayerProfile};
-use protocol::{PlayerSkin, SkinRgba8};
+use protocol::PlayerSkin;
 use render::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
+use render_api::SkinRgba8;
 use render_model::{
     ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES,
     STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,

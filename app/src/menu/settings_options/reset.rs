@@ -16,7 +16,7 @@ impl MenuRuntime {
             self.settings_apply = true;
         }
         if matches!(group, SettingsGroup::Video | SettingsGroup::Accessibility) {
-            let defaults = super::super::video_settings::SavedVideoSettings::default();
+            let defaults = launcher_host::video_settings::SavedVideoSettings::default();
             self.gui_scale_preference = None;
             self.gui_scale_offset = defaults.gui_scale_offset;
             self.gui_scale_display_offset = defaults.gui_scale_offset;

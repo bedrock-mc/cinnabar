@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use launcher::menu::invite::{Action, InviteState};
 
-use super::account_control::AccountControl;
+use launcher_host::account_control::AccountControl;
 use {
     super::MenuRuntime,
     launcher::menu::{MenuAction, MenuScreen},

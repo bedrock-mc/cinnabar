@@ -1,12 +1,8 @@
 //! Generation-fenced join progress independent of the menu and process owner.
 
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, time::Instant};
 
-/// How long a freshly spawned core has to publish its bridge endpoint.
-pub const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
+use bridge::bridge_endpoint_exists;
 
 /// A join still provisioning while the connecting screen shows; polled each frame.
 #[derive(Debug)]
@@ -115,19 +111,10 @@ impl<D> JoinAttempt<D> {
     }
 }
 
-/// Applies the bridge transport's platform-specific endpoint readiness rule.
-pub fn bridge_endpoint_exists(directory: &Path) -> bool {
-    let endpoint = protocol::bridge_endpoint_path(directory);
-    if cfg!(windows) {
-        endpoint.is_file()
-    } else {
-        endpoint.exists()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bridge::CORE_START_TIMEOUT;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},

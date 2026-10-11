@@ -6,14 +6,17 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
 };
+use bridge::CORE_START_TIMEOUT;
+use launcher_host::{
+    core_process::{CoreProcessGuard, spawn_core_for_address},
+    server_trust::SessionTrust,
+    session_cleanup::SessionDirectoryGuard,
+};
 
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
-        menu::{
-            CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-            server_trust::SessionTrust, spawn_core_for_address,
-        },
+        menu::{LauncherCoreSlot, MenuRuntime},
         movement::{LocalPhysicsController, MovementTicker},
         player_runtime::PlayerRuntime,
         runtime::{
@@ -21,7 +24,6 @@ use {
             shutdown::record_fatal_error,
             world::{ClientWorld, TransferNotice},
         },
-        session_cleanup::SessionDirectoryGuard,
     },
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
@@ -285,7 +287,7 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
 /// joiner to see it through Xbox. Realms carry no invite, a local world's comes from its host
 /// (see `MenuRuntime::hosted_world_address`), and no identifier is ever shown on the card.
 fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
-    use protocol::launcher_control::ConnectTarget;
+    use bridge::ConnectTarget;
     use rich_presence::{Destination, Target};
     if local_world {
         return Target {
@@ -296,7 +298,7 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
         };
     }
     let address = address.trim();
-    let (destination, join) = match crate::menu::target_for(address) {
+    let (destination, join) = match launcher_host::launcher_core::target_for(address) {
         ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
@@ -765,7 +767,7 @@ mod tests {
     // A hidden-menu direct launch must still report the player's saved GUI scale.
     #[test]
     fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
-        let layout = crate::install_layout::scratch("login-settings");
+        let layout = launcher::test_support::scratch("login-settings");
         std::fs::create_dir_all(&layout.user_config_root).unwrap();
         std::fs::write(
             layout.user_config_root.join("video-settings.json"),

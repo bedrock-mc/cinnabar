@@ -41,7 +41,7 @@ pub(crate) fn import(
                 skin_import::parse_skin_geometry(
                     &read_bounded(
                         geometry_path,
-                        protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
+                        render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
                     )?,
                     None,
                 )
@@ -63,7 +63,7 @@ pub(crate) fn import(
                 SkinModel::Classic
             },
             geometry,
-            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
         }]
     };
     let mut next = view.clone();
@@ -99,7 +99,7 @@ pub(crate) fn import(
                 hash.update(SkinModel::Slim.geometry().as_bytes());
             }
             if input.model != SkinModel::Custom
-                && input.engine_version.as_ref() != protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
+                && input.engine_version.as_ref() != render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION
             {
                 hash.update((input.engine_version.len() as u64).to_le_bytes());
                 hash.update(input.engine_version.as_bytes());
@@ -181,13 +181,13 @@ fn write_new(path: &Path, bytes: &[u8], files: &mut Vec<PathBuf>) -> Result<(), 
 pub(super) fn restore(
     layout: &InstallLayout,
     geometry: &ImportedGeometry,
-) -> Result<Arc<protocol::SkinGeometrySource>, String> {
+) -> Result<Arc<render_api::SkinGeometrySource>, String> {
     if !single_filename(&geometry.file) {
         return Err("The saved model path is invalid.".to_owned());
     }
     let bytes = read_bounded(
         &layout.dressing_room_dir().join(&geometry.file),
-        protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
+        render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
     )?;
     let source = skin_import::parse_skin_geometry(&bytes, Some(&geometry.identifier))
         .map_err(|error| error.to_string())?;
@@ -196,7 +196,7 @@ pub(super) fn restore(
 }
 
 /// Validates imports and saved models with the shared mesh builder.
-fn validate_source(source: &protocol::SkinGeometrySource) -> Result<(), String> {
+fn validate_source(source: &render_api::SkinGeometrySource) -> Result<(), String> {
     let geometry = assets::parse_skin_geometry(&source.resource_patch, &source.geometry_data)
         .ok()
         .flatten()
@@ -211,7 +211,7 @@ fn validate_source(source: &protocol::SkinGeometrySource) -> Result<(), String> 
 /// Built-in geometry names retain their native alpha rules even when the pack overrides their model.
 pub(super) fn alpha_model(
     model: SkinModel,
-    geometry: Option<&protocol::SkinGeometrySource>,
+    geometry: Option<&render_api::SkinGeometrySource>,
 ) -> SkinModel {
     if model == SkinModel::Custom
         && geometry

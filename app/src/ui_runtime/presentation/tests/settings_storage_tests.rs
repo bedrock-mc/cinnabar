@@ -14,7 +14,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
         );
         return;
     };
-    let layout = crate::install_layout::scratch("storage-ui");
+    let layout = launcher::test_support::scratch("storage-ui");
     std::fs::create_dir_all(layout.resource_pack_cache_dir()).unwrap();
     std::fs::write(
         layout.resource_pack_cache_dir().join("fixture-pack"),
@@ -23,7 +23,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     .unwrap();
     let mut view = settings();
     view.settings_section = launcher::menu::settings_storage::SECTION_INDEX;
-    view.storage = Arc::new(crate::menu::settings_storage::read_storage(&layout));
+    view.storage = Arc::new(launcher_host::settings_storage::read_storage(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
     let actions = draw(&player_runtime, &mut presentation, &view);
     assert!(

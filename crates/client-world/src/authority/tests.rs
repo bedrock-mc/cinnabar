@@ -8,7 +8,7 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
         prefer_client_skin: false,
         uuid: [0; 16],
         username: "Player".into(),
-        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
             geometry: None,
             cape: None,
             width: 64,

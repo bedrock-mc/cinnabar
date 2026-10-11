@@ -455,7 +455,7 @@ pub(super) fn render_body_with_cape(
     view: PreviewView,
     bob: f32,
     gear: &PreviewEquipment,
-    cape: Option<&protocol::CapeImage>,
+    cape: Option<&render_api::CapeImage>,
 ) -> Vec<u8> {
     let width = PREVIEW_WIDTH as usize;
     let height = PREVIEW_HEIGHT as usize;

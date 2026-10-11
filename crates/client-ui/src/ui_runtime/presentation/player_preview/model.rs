@@ -6,33 +6,33 @@ use super::{PlayerPreviewPose, PreviewEquipment, skin::validated_ui_skin};
 
 #[derive(Default)]
 pub(crate) struct MenuPreviewModel {
-    source: Option<Arc<protocol::SkinGeometrySource>>,
+    source: Option<Arc<render_api::SkinGeometrySource>>,
     pub(crate) vertices: Option<Arc<[ActorVertex]>>,
-    pub(crate) cape: Option<protocol::CapeImage>,
+    pub(crate) cape: Option<render_api::CapeImage>,
     pub(crate) cape_key: Option<String>,
     pub(super) bounds: Option<super::fitting::OrbitBounds>,
     body_bounds: Option<super::fitting::OrbitBounds>,
     pending: Option<PendingModel>,
     completed: Option<PreparedModel>,
-    rejected: Option<Arc<protocol::SkinGeometrySource>>,
+    rejected: Option<Arc<render_api::SkinGeometrySource>>,
 }
 
 /// One changed source in flight; stale results are discarded before publication.
 struct PendingModel {
-    source: Option<Arc<protocol::SkinGeometrySource>>,
+    source: Option<Arc<render_api::SkinGeometrySource>>,
     receiver: crossbeam_channel::Receiver<Option<PreparedModel>>,
 }
 
 struct PreparedModel {
-    source: Option<Arc<protocol::SkinGeometrySource>>,
+    source: Option<Arc<render_api::SkinGeometrySource>>,
     vertices: Arc<[ActorVertex]>,
     bounds: Option<super::fitting::OrbitBounds>,
 }
 
 /// Compares retained pointers without parsing or hashing on the frame thread.
 fn same_source(
-    a: Option<&Arc<protocol::SkinGeometrySource>>,
-    b: Option<&Arc<protocol::SkinGeometrySource>>,
+    a: Option<&Arc<render_api::SkinGeometrySource>>,
+    b: Option<&Arc<render_api::SkinGeometrySource>>,
 ) -> bool {
     match (a, b) {
         (None, None) => true,
@@ -43,14 +43,14 @@ fn same_source(
 
 impl MenuPreviewModel {
     /// Keeps the current model while only texture or cape inputs change.
-    fn body_matches(&self, skin: &protocol::StandardSkin) -> bool {
+    fn body_matches(&self, skin: &render_api::StandardSkin) -> bool {
         same_source(self.source.as_ref(), skin.geometry.as_ref())
     }
 }
 
 impl super::UiPresentationRuntime {
     /// Publishes a worker-built model, retaining the previous preview while a changed source prepares.
-    pub fn set_menu_preview_skin(&mut self, skin: &protocol::StandardSkin) -> bool {
+    pub fn set_menu_preview_skin(&mut self, skin: &render_api::StandardSkin) -> bool {
         let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
         let body_matches = self.menu_preview_model.body_matches(skin);
         let cape_matches = super::cape::same(self.menu_preview_model.cape.as_ref(), cape);
@@ -99,7 +99,7 @@ impl super::UiPresentationRuntime {
 
 impl MenuPreviewModel {
     /// Admits one source at a time and never waits for an unfinished preparation.
-    fn prepare(&mut self, skin: &protocol::StandardSkin) -> Option<PreparedModel> {
+    fn prepare(&mut self, skin: &render_api::StandardSkin) -> Option<PreparedModel> {
         if same_source(self.rejected.as_ref(), skin.geometry.as_ref()) && self.rejected.is_some() {
             return None;
         }
@@ -153,7 +153,7 @@ impl MenuPreviewModel {
 }
 
 /// Builds immutable preview vertices only on a worker or in a synchronous fixture.
-fn model_vertices(skin: &protocol::StandardSkin) -> Option<Arc<[ActorVertex]>> {
+fn model_vertices(skin: &render_api::StandardSkin) -> Option<Arc<[ActorVertex]>> {
     #[cfg(test)]
     BUILT_ON_THIS_THREAD.with(|built| built.set(built.get() + 1));
     let Some(source) = &skin.geometry else {
@@ -205,7 +205,7 @@ fn part(geometry: &assets::SkinGeometry, mut index: usize) -> u32 {
 }
 
 /// Builds gallery artwork from the selected skin's original texels and model.
-pub fn render_skin_thumbnail(skin: &protocol::StandardSkin) -> Option<Vec<u8>> {
+pub fn render_skin_thumbnail(skin: &render_api::StandardSkin) -> Option<Vec<u8>> {
     let pixels = validated_ui_skin(&render_model::ActorSkinPixels {
         width: skin.width,
         height: skin.height,
@@ -226,7 +226,7 @@ pub fn render_skin_thumbnail(skin: &protocol::StandardSkin) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    fn skin(arm_width: f32) -> protocol::StandardSkin {
+    fn skin(arm_width: f32) -> render_api::StandardSkin {
         let arm_min = -4.0 - arm_width;
         let geometry = serde_json::json!({
             "format_version":"1.12.0",
@@ -242,12 +242,12 @@ mod tests {
                 ]
             }]
         });
-        protocol::StandardSkin {
+        render_api::StandardSkin {
             width: 64,
             height: 64,
             rgba8: vec![255; 64 * 64 * 4].into(),
             cape: None,
-            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+            geometry: Some(Arc::new(render_api::SkinGeometrySource {
                 resource_patch: r#"{"geometry":{"default":"geometry.preview.fixture"}}"#.into(),
                 geometry_data: geometry.to_string().into(),
                 animations: Arc::from([]),
@@ -256,7 +256,7 @@ mod tests {
     }
 
     /// Awaits this fixture's own model job without relying on frame timing.
-    fn select(runtime: &mut super::super::UiPresentationRuntime, skin: &protocol::StandardSkin) {
+    fn select(runtime: &mut super::super::UiPresentationRuntime, skin: &render_api::StandardSkin) {
         while !runtime.set_menu_preview_skin(skin) {
             let pending = runtime
                 .menu_preview_model
@@ -317,7 +317,7 @@ mod tests {
     fn selected_cape_changes_the_character_thumbnail_without_changing_the_skin() {
         let bare = skin(4.0);
         let mut caped = bare.clone();
-        caped.cape = Some(protocol::CapeImage {
+        caped.cape = Some(render_api::CapeImage {
             width: 64,
             height: 32,
             rgba8: [17, 229, 61, 255].repeat(64 * 32).into(),
@@ -339,7 +339,7 @@ mod tests {
         let mut skin = skin(4.0);
         select(&mut runtime, &skin);
         let body = runtime.menu_preview_model.vertices.clone().unwrap();
-        skin.cape = Some(protocol::CapeImage {
+        skin.cape = Some(render_api::CapeImage {
             width: 64,
             height: 32,
             rgba8: vec![255; 64 * 32 * 4].into(),

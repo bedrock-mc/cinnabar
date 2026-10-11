@@ -171,7 +171,7 @@ fn review_short_profile_is_scrollable() {
 #[test]
 fn review_short_world_settings_are_scrollable() {
     let mut view = launcher::menu::MenuView::new(true, "Test".into());
-    use protocol::world_control::{Backend, Difficulty, GameMode, Generator, World};
+    use bridge::{Backend, Difficulty, GameMode, Generator, World};
     let mut worlds = launcher::local_worlds::WorldsMenu::default();
     worlds.apply(launcher::local_worlds::Event::Listed(vec![World {
         id: "test".into(),

@@ -14,8 +14,8 @@ use bevy::{
     },
     window::WindowPlugin,
 };
-use client_ui::ui_runtime::presentation::forms::panorama;
 use launcher::menu::MenuScreen;
+use render_model::panorama;
 use std::{sync::Arc, time::Instant};
 
 /// The frame size: `CINNABAR_GPU_SIZE=<width>x<height>` overrides 1280×720, for checking odd
@@ -411,7 +411,7 @@ fn profile_frames_on_native_gpu() {
         profile.avatar_error = true;
         profile.achievements_loaded = true;
         profile.achievements_error = false;
-        profile.achievements = Some(protocol::launcher_control::ProfileAchievements {
+        profile.achievements = Some(bridge::ProfileAchievements {
             unlocked: 2,
             total: 10,
             current_gamerscore: Some(20),
@@ -425,7 +425,7 @@ fn profile_frames_on_native_gpu() {
         profile.followers = Some(24);
         profile.statistics_loaded = true;
         profile.statistics_error = false;
-        profile.statistics = Some(protocol::launcher_control::ProfileStatistics {
+        profile.statistics = Some(bridge::ProfileStatistics {
             minutes_played: (state != "empty").then(|| "120.5".into()),
             blocks_broken: (state != "empty").then(|| "12345".into()),
             mobs_defeated: (state != "empty").then(|| "0".into()),

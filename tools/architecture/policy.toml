@@ -83,8 +83,8 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["assets", "protocol", "render-model", "world"]
-forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "render-api", "bevy", "wgpu"]
+allowed_dependencies = ["render-api", "assets", "protocol", "render-model", "world"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -127,21 +127,23 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["assets", "block-transform", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
+allowed_dependencies = ["bridge", "assets", "block-transform", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "launcher"
 path = "crates/launcher"
-allowed_dependencies = ["assets", "protocol", "render-api", "resource-pack", "semantic-input", "server-experience", "ui"]
+test_support_features = ["test-support"]
+allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui"]
+forbidden_dependencies = ["protocol", "server-experience"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+allowed_dependencies = ["launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render"]
 test_support_features = ["test-support"]
@@ -216,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
+allowed_dependencies = ["first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -691,7 +693,7 @@ forbidden_modules = ["test_support"]
 # Authoritative world state cannot regain mesh scheduling or publication ownership.
 [[module_boundaries]]
 path = "crates/client-world/src"
-forbidden_modules = ["chunk_pipeline", "meshing", "render_api"]
+forbidden_modules = ["chunk_pipeline", "meshing"]
 forbidden_owned_types = ["ChunkMesh", "PublicationPermit", "PublicationAllowance", "MeshMemoryPermit"]
 
 # The coordinator composes the authority owner, never a second mutable world store.
@@ -756,22 +758,10 @@ dependency_free = true
 # These named protocol, bridge and client-session shims are removed with #532.
 
 [[reexport_allowances]]
-path = "app/src/menu/core_process.rs"
-exports = [
-    "client_session::connection::CORE_START_TIMEOUT",
-]
-
-[[reexport_allowances]]
 path = "app/src/movement.rs"
 exports = [
     "gameplay::movement::InteractionPacketGuard",
     "gameplay::movement::PhysicsSendIdentity",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/endpoint.rs"
-exports = [
-    "client_session::connection::bridge_endpoint_exists",
 ]
 
 [[reexport_allowances]]
@@ -939,79 +929,6 @@ exports = [
 ]
 
 [[reexport_allowances]]
-path = "crates/launcher/src/skin_import.rs"
-exports = [
-    "protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION as DEFAULT_GEOMETRY_ENGINE_VERSION",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/actor.rs"
-exports = [
-    "render_api::MAX_STANDARD_SKIN_SIDE",
-    "skin::CLASSIC_SKIN_SIDE",
-    "skin::MAX_CLASSIC_SKIN_SIDE",
-    "skin::MAX_SKIN_ANIMATION_LAYERS",
-    "skin::SkinRgba8",
-    "skin::expand_legacy_skin_rgba8",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/launcher_control.rs"
-exports = [
-    "bridge::Account",
-    "bridge::Artwork",
-    "bridge::AuthState",
-    "bridge::BridgeError",
-    "bridge::ConnectProgress",
-    "bridge::ConnectStage",
-    "bridge::ConnectTarget",
-    "bridge::Events",
-    "bridge::FeaturedGame",
-    "bridge::FeaturedServer",
-    "bridge::Friend",
-    "bridge::Home",
-    "bridge::Inbox",
-    "bridge::LiveEvent",
-    "bridge::Message",
-    "bridge::MessageButton",
-    "bridge::MessageEvent",
-    "bridge::MessageImage",
-    "bridge::PacketDelayLease",
-    "bridge::Person",
-    "bridge::Profile",
-    "bridge::ProfileAchievement",
-    "bridge::ProfileAchievements",
-    "bridge::ProfileStatistics",
-    "bridge::Realm",
-    "bridge::RealmMembership",
-    "bridge::RelayedPosition",
-    "bridge::ServerDisconnect",
-    "bridge::ServerPing",
-    "bridge::ServerTrustPrompt",
-    "bridge::TransferPending",
-    "bridge::XboxPresenceState",
-    "bridge::account_status",
-    "bridge::answer_server_trust",
-    "bridge::connect_target",
-    "bridge::control_endpoint_path",
-    "bridge::home",
-    "bridge::list_featured_servers",
-    "bridge::list_featured_servers_with_counts",
-    "bridge::list_friends",
-    "bridge::list_people",
-    "bridge::list_realms",
-    "bridge::packet_delay_with_position",
-    "bridge::ping_servers",
-    "bridge::poll_events",
-    "bridge::profile",
-    "bridge::realm_membership",
-    "bridge::report_message_event",
-    "bridge::report_xbox_presence",
-    "bridge::set_packet_delay",
-    "bridge::sign_out",
-]
-
-[[reexport_allowances]]
 path = "crates/protocol/src/lib.rs"
 exports = [
     "jolyne",
@@ -1034,88 +951,9 @@ exports = [
     "render_api::primitive_shapes::PrimitiveText",
     "valentine",
     "valentine::bedrock::context::BedrockSession",
-    "actor::CLASSIC_SKIN_SIDE",
-    "actor::MAX_CLASSIC_SKIN_SIDE",
-    "actor::MAX_SKIN_ANIMATION_LAYERS",
-    "actor::MAX_STANDARD_SKIN_SIDE",
-    "actor::SkinRgba8",
-    "actor::expand_legacy_skin_rgba8",
     "transfer::MAX_TRANSFER_HOST_BYTES",
     "transfer::ServerTransferEvent",
     "transfer::ServerTransferRejection",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/store_control.rs"
-exports = [
-    "bridge::BridgeError",
-    "bridge::ConfirmedPurchase",
-    "bridge::PendingPurchase",
-    "bridge::PurchaseOutcome",
-    "bridge::PurchaseStatus",
-    "bridge::StoreBalance",
-    "bridge::StoreEntitlements",
-    "bridge::StoreImage",
-    "bridge::StoreOffer",
-    "bridge::StoreOfferDetail",
-    "bridge::StorePage",
-    "bridge::StorePrice",
-    "bridge::StoreRating",
-    "bridge::StoreRow",
-    "bridge::StoreRowMore",
-    "bridge::StoreSearch",
-    "bridge::StoreSearchResults",
-    "bridge::store_balance",
-    "bridge::store_entitlements",
-    "bridge::store_home",
-    "bridge::store_image",
-    "bridge::store_offer",
-    "bridge::store_purchase",
-    "bridge::store_row_more",
-    "bridge::store_search",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/world_control.rs"
-exports = [
-    "bridge::Backend",
-    "bridge::BridgeError",
-    "bridge::CODE_EULA_REQUIRED",
-    "bridge::Difficulty",
-    "bridge::GameMode",
-    "bridge::Generator",
-    "bridge::NewWorld",
-    "bridge::Prefs",
-    "bridge::PrefsUpdate",
-    "bridge::Setup",
-    "bridge::SetupState",
-    "bridge::UnavailableReason",
-    "bridge::World",
-    "bridge::WorldState",
-    "bridge::WorldStatus",
-    "bridge::WorldUpdate",
-    "bridge::accept_bds_eula",
-    "bridge::close_world",
-    "bridge::create_world",
-    "bridge::delete_world",
-    "bridge::invite_to_world",
-    "bridge::list_worlds",
-    "bridge::local_worlds_prefs",
-    "bridge::open_world",
-    "bridge::open_world_with",
-    "bridge::set_world_paused",
-    "bridge::update_world",
-    "bridge::world_status",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/actor/skin.rs"
-exports = [
-    "render_api::CLASSIC_SKIN_SIDE",
-    "render_api::MAX_CLASSIC_SKIN_SIDE",
-    "render_api::MAX_SKIN_ANIMATION_LAYERS",
-    "render_api::SkinRgba8",
-    "render_api::expand_legacy_skin_rgba8",
 ]
 
 [[reexport_allowances]]
@@ -1131,3 +969,16 @@ exports = [
     "jolyne::transfer::ServerTransferEvent",
     "jolyne::transfer::ServerTransferRejection",
 ]
+
+[[crates]]
+name = "launcher-host"
+path = "crates/launcher-host"
+allowed_dependencies = ["bridge", "launcher", "server-experience", "update-manifest"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
+
+[[crates]]
+name = "first-run"
+path = "crates/first-run"
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*"]

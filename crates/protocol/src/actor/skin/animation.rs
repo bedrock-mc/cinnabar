@@ -6,43 +6,7 @@ use valentine::bedrock::version::v1_26_51::{
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
-/// Named geometry and texture slots used by the persona render controllers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkinAnimationKind {
-    Face,
-    Body32,
-    Body128,
-}
-
-impl SkinAnimationKind {
-    /// Returns the stable atlas slot for this animation kind.
-    pub const fn slot(self) -> usize {
-        match self {
-            Self::Face => 0,
-            Self::Body32 => 1,
-            Self::Body128 => 2,
-        }
-    }
-    /// Returns the resource-patch geometry slot for this animation image.
-    pub const fn geometry_key(self) -> &'static str {
-        match self {
-            Self::Face => "animated_face",
-            Self::Body32 => "animated_32x32",
-            Self::Body128 => "animated_128x128",
-        }
-    }
-}
-
-/// A transmitted persona animation atlas, without resampling or alpha modification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkinAnimation {
-    pub kind: SkinAnimationKind,
-    pub width: u32,
-    pub height: u32,
-    pub rgba8: Arc<[u8]>,
-    pub frames: u32,
-    pub blinking: bool,
-}
+use render_api::{SkinAnimation, SkinAnimationKind};
 
 /// Retains valid transmitted atlases within the same budget as the base skin.
 pub(super) fn normalize(

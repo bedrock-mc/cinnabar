@@ -204,7 +204,7 @@ fn present(
 
 #[test]
 fn settings_oreui_body_and_heading_choose_separate_runtime_fonts() {
-    use crate::ui_runtime::oreui_fonts::OreUiFont;
+    use ui::oreui_theme::OreUiFont;
 
     let base = fixture_font();
     let font = base
@@ -253,9 +253,9 @@ fn settings_oreui_body_and_heading_choose_separate_runtime_fonts() {
 
 #[test]
 fn settings_small_text_selects_native_rasters_by_physical_size() {
-    use crate::ui_runtime::oreui_fonts::OreUiFont;
     use assets::{FontLineMetrics, FontRendering};
     use std::collections::BTreeMap;
+    use ui::oreui_theme::OreUiFont;
 
     let base = fixture_font();
     let face = |pixels: u32, rendering| {
@@ -316,8 +316,8 @@ fn settings_small_text_selects_native_rasters_by_physical_size() {
 
 #[test]
 fn settings_native_font_keeps_css_line_boxes_and_pointer_caret_in_sync() {
-    use crate::ui_runtime::oreui_fonts::OreUiFont;
     use launcher::menu::MenuField;
+    use ui::oreui_theme::OreUiFont;
 
     let base = fixture_font();
     let native = base

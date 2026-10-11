@@ -1,4 +1,4 @@
-use protocol::store_control::{PurchaseOutcome, StoreEntitlements, StoreRow, StoreRowMore};
+use bridge::{PurchaseOutcome, StoreEntitlements, StoreRow, StoreRowMore};
 
 use super::*;
 use crate::store::flow::PurchaseDialog;
@@ -123,10 +123,9 @@ fn buy_uses_the_displayed_detail_offer() {
     let [StoreRequest::Purchase(purchase)] = sent.as_slice() else {
         panic!("expected a purchase, got {sent:?}");
     };
-    let expected =
-        protocol::store_control::PendingPurchase::for_offer(&detail_offer, &detail_offer.prices[0])
-            .unwrap()
-            .confirm(purchase.purchase_id().to_owned());
+    let expected = bridge::PendingPurchase::for_offer(&detail_offer, &detail_offer.prices[0])
+        .unwrap()
+        .confirm(purchase.purchase_id().to_owned());
     assert_eq!(purchase, &expected);
     assert!(
         matches!(&state.flow, PurchaseFlow::InProgress { offer_title, .. }

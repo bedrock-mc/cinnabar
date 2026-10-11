@@ -979,7 +979,7 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
             true,
             &player_runtime,
         );
-        let mut layout = crate::install_layout::checkout();
+        let mut layout = launcher::test_support::checkout();
         layout.user_config_root =
             std::env::temp_dir().join(format!("review-drop-{}-{control}", std::process::id()));
         app.insert_resource(MenuRuntime::new_with_layout(

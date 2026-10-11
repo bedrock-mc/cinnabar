@@ -320,8 +320,9 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     };
     use protocol::{
         ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-        StandardSkin, WorldBootstrap, WorldEvent,
+        WorldBootstrap, WorldEvent,
     };
+    use render_api::StandardSkin;
     use std::sync::Arc;
     use {
         crate::{presentation::viewmodel::ViewmodelPublish, runtime::world::ClientWorld},

@@ -81,7 +81,7 @@ fn malformed_missing_cyclic_and_oversized_geometry_are_rejected() {
     assert!(parse_skin_geometry(&geometry("geometry.fixture"), Some("geometry.missing")).is_err());
     assert!(matches!(
         parse_skin_geometry(
-            &vec![b' '; protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES + 1],
+            &vec![b' '; render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES + 1],
             None
         ),
         Err(SkinImportError::TooLarge)

@@ -38,9 +38,8 @@ impl ActorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::{
-        ActorEvent, CLASSIC_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, StandardSkin,
-    };
+    use protocol::{ActorEvent, PlayerListEntry, PlayerListUpdateEvent};
+    use render_api::{CLASSIC_SKIN_SIDE, StandardSkin};
     use std::sync::Arc;
 
     /// A small valid appearance with a recognisable pixel value.
@@ -118,7 +117,7 @@ mod tests {
         let PlayerSkin::Standard(mut larger) = skin(3) else {
             unreachable!();
         };
-        larger.cape = Some(protocol::CapeImage {
+        larger.cape = Some(render_api::CapeImage {
             width: 64,
             height: 32,
             rgba8: vec![255; 64 * 32 * 4].into(),

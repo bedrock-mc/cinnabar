@@ -464,7 +464,10 @@ fn vanilla_form_button_images_resolve() {
     image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    let url = format!("{}/icon.png", crate::remote_images::tests::serve(png));
+    let url = format!(
+        "{}/icon.png",
+        launcher_host::remote_images::tests::serve(png)
+    );
     let runtime = image_form(
         &mut player_runtime,
         "Shop",
@@ -478,7 +481,7 @@ fn vanilla_form_button_images_resolve() {
     let engine = presentation.form_presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    crate::remote_images::tests::settle(&remote, &url);
+    launcher_host::remote_images::tests::settle(&remote, &url);
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     let (drawn, missing) = presentation
         .form_presentation

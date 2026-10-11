@@ -54,8 +54,6 @@ pub(super) const TITLE_KEY: &str = "textures/ui/title";
 /// Prefix of a server-pack texture's full-resolution copy on the art pages, so
 /// a pack's `textures/ui/title` never collides with Cinnabar's logo.
 pub(super) const SERVER_ART_PREFIX: &str = "server-pack:";
-/// Cinnabar's logo; the pack's title draws only if this fails to decode.
-pub const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../../assets/branding/title.png");
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {

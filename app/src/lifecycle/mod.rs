@@ -1,22 +1,9 @@
 //! Process lifecycle around the client: crash capture, first-run asset preparation, update checks.
 
-pub(crate) mod children;
-pub(crate) mod core_health;
-mod crash;
-mod update;
-
 use anyhow::{Context, Result};
+use launcher_host::lifecycle::{core_health, crash, update};
 
-use {crate::first_run, launcher::install_layout::InstallLayout};
-
-/// Argument that turns this process into the first-run setup window.
-pub const FIRST_RUN_SETUP_FLAG: &str = first_run::SETUP_FLAG;
-
-/// Runs the first-run setup window; returns the process exit code.
-#[must_use]
-pub fn run_first_run_setup() -> i32 {
-    first_run::run_setup_process()
-}
+use launcher::install_layout::InstallLayout;
 
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
@@ -27,7 +14,9 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
         return Ok(true);
     }
     core_health::capture_client_stderr(&layout);
-    crash::install_panic_hook(&layout);
+    crash::install_panic_hook(&layout, || {
+        diagnostics::console::flush_before_exit();
+    });
     crash::prune_reports(&layout);
     if !assets_overridden && first_run::ensure_prepared(&layout)? == first_run::Outcome::Quit {
         return Ok(false);

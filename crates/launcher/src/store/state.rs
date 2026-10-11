@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use protocol::store_control::{
+use bridge::{
     PurchaseStatus, StoreBalance, StoreOffer, StoreOfferDetail, StorePage, StorePrice, StoreSearch,
     StoreSearchResults,
 };
@@ -396,10 +396,7 @@ impl StoreState {
 
     /// The single place a purchase leaves the client; it re-checks the setting so no path can send
     /// while purchases are off.
-    fn dispatch(
-        &mut self,
-        purchase: protocol::store_control::ConfirmedPurchase,
-    ) -> Vec<StoreRequest> {
+    fn dispatch(&mut self, purchase: bridge::ConfirmedPurchase) -> Vec<StoreRequest> {
         if !self.purchases_enabled {
             let id = purchase.purchase_id().to_owned();
             self.flow.finish(&id, Err(StoreError::Unavailable));

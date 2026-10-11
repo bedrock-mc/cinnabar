@@ -67,3 +67,9 @@ impl PanoramaView {
         ]
     }
 }
+
+mod launcher;
+pub use launcher::{built_in_faces, launcher_faces, launcher_view, overlay_tint};
+
+/// Panorama shader shared by the setup window and game renderer.
+pub const PANORAMA_WGSL: &str = include_str!("panorama.wgsl");

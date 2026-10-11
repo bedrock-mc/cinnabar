@@ -78,7 +78,7 @@ pub(crate) fn drive_chat_ui_actions(
             Some(ChatHit::Link(index)) => presentation.request_chat_link(index),
             Some(ChatHit::LinkOpen) => {
                 if let Some(url) = presentation.take_confirmed_chat_link() {
-                    crate::desktop::open_url(&url);
+                    launcher_host::desktop::open_url(&url);
                 }
             }
             Some(ChatHit::LinkCancel) => presentation.cancel_chat_link(),

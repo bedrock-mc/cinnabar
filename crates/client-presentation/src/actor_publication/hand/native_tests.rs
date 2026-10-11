@@ -177,7 +177,7 @@ fn fixture_with_binding(
     );
     let mut feed = player_feed();
     if clock {
-        feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        feed.skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
             width: 64,
             height: 64,
             rgba8: vec![255; 64 * 64 * 4].into(),
@@ -192,14 +192,14 @@ fn fixture_with_binding(
             "description":{"identifier":"geometry.persona_layer","texture_width":32,"texture_height":32},
             "bones":[{"name":"rightarm","pivot":[8,18,0],"cubes":[{"origin":[8,8,0],"size":[4,10,4],"uv":[0,0]}]}]
         });
-        let side = protocol::CLASSIC_SKIN_SIDE as u32;
-        feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        let side = render_api::CLASSIC_SKIN_SIDE as u32;
+        feed.skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
             width: side, height: side, rgba8: vec![255; (side * side * 4) as usize].into(), cape: None,
-            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+            geometry: Some(Arc::new(render_api::SkinGeometrySource {
                 resource_patch: serde_json::json!({"geometry":{"default":"geometry.persona_test","animated_32x32":"geometry.persona_layer"}}).to_string().into(),
                 geometry_data: serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[body,layer]}).to_string().into(),
-                animations: Arc::from([protocol::SkinAnimation {
-                    kind: protocol::SkinAnimationKind::Body32, width:32,height:32,rgba8: vec![255;32*32*4].into(),frames:1,blinking:false,
+                animations: Arc::from([render_api::SkinAnimation {
+                    kind: render_api::SkinAnimationKind::Body32, width:32,height:32,rgba8: vec![255;32*32*4].into(),frames:1,blinking:false,
                 }]),
             })),
         });

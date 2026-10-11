@@ -67,7 +67,7 @@ pub(crate) struct ActorTickContext {
     /// The player's skin carries a cape image.
     pub(crate) has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.
-    pub(crate) skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub(crate) skin_geometry: Option<Arc<render_api::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.

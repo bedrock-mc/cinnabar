@@ -1,0 +1,51 @@
+[package]
+name = "launcher-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+test-support = ["launcher/test-support"]
+
+[dependencies]
+anyhow.workspace = true
+bridge = { path = "../bridge" }
+crossbeam-channel = "0.5"
+ctrlc = { version = "3.4", features = ["termination"] }
+launcher = { path = "../launcher" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+server-experience = { path = "../server-experience" }
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+update-manifest = { path = "../update-manifest" }
+url = "2"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io = "2"
+futures-lite = "2"
+zbus = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+launcher = { path = "../launcher", features = ["test-support"] }
+tempfile = "3"
+
+[lints]
+workspace = true

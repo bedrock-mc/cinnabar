@@ -22,6 +22,6 @@ impl MenuRuntime {
 
     /// The immutable bundle cache follows the installed per-user data layout.
     pub(crate) fn experience_cache_dir(&self) -> PathBuf {
-        self.layout.experience_cache_dir()
+        server_experience::cache::objects_dir(&self.layout.user_data_root)
     }
 }

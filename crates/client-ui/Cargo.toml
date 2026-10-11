@@ -6,10 +6,12 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = []
+test-support = ["launcher-host/test-support"]
 tracy = []
 
 [dependencies]
+launcher-host = { path = "../launcher-host" }
+bridge = { path = "../bridge" }
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
 assets = { path = "../assets" }
@@ -40,6 +42,7 @@ tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
 [dev-dependencies]
+launcher-host = { path = "../launcher-host", features = ["test-support"] }
 tempfile = "3"
 protocol = { path = "../protocol", features = ["wire-test-support"] }
 mod-host = { path = "../mod-host" }

@@ -2,37 +2,9 @@
 
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
-use assets::{
-    RuntimeFontCatalog,
-    carriers::{self, Carrier},
-};
+use assets::RuntimeFontCatalog;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OreUiFont {
-    Seven,
-    Ten,
-    Five,
-    FiveBold,
-}
-
-impl OreUiFont {
-    pub const ALL: [Self; 4] = [Self::Seven, Self::Ten, Self::Five, Self::FiveBold];
-
-    /// Selects the shared carrier definition for this theme role.
-    pub const fn carrier(self) -> &'static Carrier {
-        match self {
-            Self::Seven => &carriers::FONT_SEVEN,
-            Self::Ten => &carriers::FONT_TEN,
-            Self::Five => &carriers::FONT_FIVE,
-            Self::FiveBold => &carriers::FONT_FIVE_BOLD,
-        }
-    }
-
-    /// Returns the shipped family name used by the theme and font catalog.
-    pub const fn name(self) -> &'static str {
-        self.carrier().font_face.unwrap().name
-    }
-}
+use ui::oreui_theme::OreUiFont;
 
 /// Attaches valid optional carriers, retaining the default font for unavailable faces.
 pub fn install(base: Arc<RuntimeFontCatalog>, compiled_dir: &Path) -> Arc<RuntimeFontCatalog> {

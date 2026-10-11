@@ -384,7 +384,7 @@ impl HandAdapter {
         }
         Some((cached.geometry.clone(), cached.pixels.clone()))
     }
-    fn skin(&mut self, raw: &protocol::StandardSkin) -> Option<ViewmodelSkin> {
+    fn skin(&mut self, raw: &render_api::StandardSkin) -> Option<ViewmodelSkin> {
         if raw.width != 64
             || raw.height != 64
             || raw.rgba8.len() != 64 * 64 * 4

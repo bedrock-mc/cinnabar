@@ -1,7 +1,7 @@
 //! Backend and terrain remain independent choices on the advanced world form.
 
+use bridge::{Backend, UnavailableReason};
 use launcher::local_worlds::backend_label;
-use protocol::world_control::{Backend, UnavailableReason};
 use {
     super::*,
     launcher::local_worlds::{WorldsView, world_type_label},

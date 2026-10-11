@@ -641,9 +641,9 @@ dependencies = [
  "anyhow",
  "ash",
  "assets",
- "async-io",
  "bevy",
  "block-transform",
+ "bridge",
  "bytes",
  "chunk-pipeline",
  "client-presentation",
@@ -651,18 +651,17 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-channel",
- "ctrlc",
  "developer-control",
  "diagnostics",
  "experience-sdk",
+ "first-run",
  "fontdue",
- "futures-lite",
  "gameplay",
- "gilrs",
  "image",
  "inventory 0.1.12",
  "json-ui",
  "launcher",
+ "launcher-host",
  "libc",
  "meshing",
  "mod-api",
@@ -684,7 +683,6 @@ dependencies = [
  "resource-pack",
  "rich-presence",
  "rodio",
- "rustix 1.1.4",
  "semantic-input",
  "serde",
  "serde_json",
@@ -696,14 +694,12 @@ dependencies = [
  "tokio",
  "tracing-tracy",
  "ui",
- "update-manifest",
  "url",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
  "wit-component",
  "world",
- "zbus",
  "zip",
 ]
 
@@ -2048,6 +2044,7 @@ version = "0.1.12"
 dependencies = [
  "assets",
  "block-transform",
+ "bridge",
  "bytes",
  "crossbeam-channel",
  "image",
@@ -2075,6 +2072,7 @@ dependencies = [
  "arboard",
  "assets",
  "bevy",
+ "bridge",
  "chunk-pipeline",
  "client-world",
  "crossbeam-channel",
@@ -2082,6 +2080,7 @@ dependencies = [
  "inventory 0.1.12",
  "json-ui",
  "launcher",
+ "launcher-host",
  "mod-host",
  "pack-compiler",
  "player-state",
@@ -2114,6 +2113,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "protocol",
  "rayon",
+ "render-api",
  "render-model",
  "sha2",
  "thiserror 2.0.18",
@@ -3155,6 +3155,31 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "first-run"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "assets",
+ "fontdue",
+ "gilrs",
+ "image",
+ "launcher",
+ "launcher-host",
+ "render-model",
+ "reqwest",
+ "rustix 1.1.4",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "ui",
+ "wgpu",
+ "winit",
+ "zip",
+]
 
 [[package]]
 name = "fixedbitset"
@@ -4249,17 +4274,43 @@ name = "launcher"
 version = "0.1.12"
 dependencies = [
  "assets",
- "protocol",
+ "bridge",
  "render-api",
  "resource-pack",
  "semantic-input",
  "serde",
  "serde_json",
- "server-experience",
  "sha2",
  "thiserror 2.0.18",
  "ui",
  "zip",
+]
+
+[[package]]
+name = "launcher-host"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "async-io",
+ "bridge",
+ "crossbeam-channel",
+ "ctrlc",
+ "futures-lite",
+ "launcher",
+ "reqwest",
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "update-manifest",
+ "url",
+ "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]
@@ -6026,6 +6077,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tracing",
  "world",
 ]
 

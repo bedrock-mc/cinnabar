@@ -197,12 +197,12 @@ fn add_player(store: &mut crate::actor_store::ActorStore, id: u8, skin: protocol
 
 /// Distinct pixels, capes and geometry reveal an incomplete appearance replacement.
 fn profile_skin(byte: u8) -> protocol::PlayerSkin {
-    let side = protocol::CLASSIC_SKIN_SIDE;
-    protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE;
+    protocol::PlayerSkin::Standard(render_api::StandardSkin {
         width: side as u32,
         height: side as u32,
         rgba8: vec![byte; side * side * 4].into(),
-        cape: Some(protocol::CapeImage {
+        cape: Some(render_api::CapeImage {
             width: side as u32,
             height: side as u32 / 2,
             rgba8: vec![byte; side * side * 2].into(),
@@ -280,8 +280,8 @@ fn warm_source(store: &mut ActorAnimationStore, source: &Arc<SkinGeometrySource>
 
 /// A skin naming a catalog model, as classic skins do, has nothing to wait for.
 fn standard_skin() -> protocol::PlayerSkin {
-    let side = protocol::CLASSIC_SKIN_SIDE;
-    protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE;
+    protocol::PlayerSkin::Standard(render_api::StandardSkin {
         width: side as u32,
         height: side as u32,
         rgba8: vec![9; side * side * 4].into(),
@@ -333,8 +333,8 @@ fn cold_catalog_model_prepares_off_the_frame_thread_then_resolves_inline() {
 fn standard_humanoid_skin_is_drawable_in_the_frame_it_is_added() {
     let mut store = player_store();
     let prepared = prepared_on_this_thread();
-    let side = protocol::CLASSIC_SKIN_SIDE;
-    let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE;
+    let skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
         width: side as u32,
         height: side as u32,
         rgba8: vec![9; side * side * 4].into(),
@@ -371,8 +371,8 @@ fn a_normal_ready_join_publishes_every_player_in_the_arrival_frame() {
 
 /// Creates a standard appearance that needs no model preparation.
 fn ready_standard_skin(color: u8) -> protocol::PlayerSkin {
-    let side = protocol::CLASSIC_SKIN_SIDE;
-    protocol::PlayerSkin::Standard(protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE;
+    protocol::PlayerSkin::Standard(render_api::StandardSkin {
         width: side as u32,
         height: side as u32,
         rgba8: vec![color; side * side * 4].into(),

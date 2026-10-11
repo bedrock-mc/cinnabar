@@ -419,14 +419,14 @@ fn an_attached_cape_stays_inside_the_fitted_stage_when_the_character_turns() {
     use crate::ui_runtime::presentation::player_preview::{
         PREVIEW_HEIGHT, PREVIEW_WIDTH, Rig, cape,
     };
-    let side = protocol::CLASSIC_SKIN_SIDE as u32;
-    let (width, height) = protocol::CAPE_DIMENSIONS[0];
-    let skin = protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE as u32;
+    let (width, height) = render_api::CAPE_DIMENSIONS[0];
+    let skin = render_api::StandardSkin {
         width: side,
         height: side,
         rgba8: vec![255; (side * side * 4) as usize].into(),
         geometry: None,
-        cape: Some(protocol::CapeImage {
+        cape: Some(render_api::CapeImage {
             width,
             height,
             rgba8: vec![255; (width * height * 4) as usize].into(),

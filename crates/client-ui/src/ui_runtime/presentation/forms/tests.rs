@@ -454,7 +454,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     .unwrap();
     let url = format!(
         "{}/remote.png",
-        crate::remote_images::tests::serve(png([1, 2, 3, 255]))
+        launcher_host::remote_images::tests::serve(png([1, 2, 3, 255]))
     );
     let mut presentation = mini_engine_presentation();
     let apple = IconRef {
@@ -498,7 +498,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         1,
         "the block decodes from the vanilla pack"
     );
-    crate::remote_images::tests::settle(&remote, &url);
+    launcher_host::remote_images::tests::settle(&remote, &url);
     let loaded = frame(&mut presentation);
     assert_eq!(on_server(&loaded), 2, "the downloaded image joins it");
     assert_eq!(presentation.server_ui_pages().len(), 1);
@@ -862,12 +862,12 @@ fn oreui_texts(view: &launcher::menu::MenuView) -> Vec<String> {
 // Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
-    use launcher::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
-    };
-    use protocol::world_control::{
+    use bridge::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
         World, WorldState, WorldStatus,
+    };
+    use launcher::local_worlds::{
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;
