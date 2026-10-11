@@ -35,7 +35,9 @@ mod pack_catalog;
 mod pixel_snap;
 mod rounded;
 mod vector_icons;
+#[cfg(test)]
 pub(super) use pack_catalog::layer_pack_catalog;
+pub(super) use pack_catalog::layer_pack_catalogs;
 #[cfg(test)]
 mod death_reason_tests;
 pub(super) mod host_edit;
@@ -60,6 +62,8 @@ pub struct FormEngine {
     /// Vanilla under the built-in Java HUD pack: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
+    /// Built-in chat with the installed pack's message filters.
+    chat_catalog: Arc<Catalog>,
     pub(super) formatting_palette: ui::FormattingPalette,
     context: Context,
     /// Where texture paths draw from, including the on-demand server atlas.
@@ -136,6 +140,7 @@ impl FormEngine {
             textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
             catalog: Arc::clone(&base),
+            chat_catalog: Arc::clone(&base),
             formatting_palette: formatting_colors::from_catalog(&base),
             screens: screen_cache::ScreenCache::default(),
             vanilla,
@@ -256,10 +261,11 @@ impl FormEngine {
     /// Apply a server pack's ui files over vanilla and the Java HUD pack; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
-            self.install_pack_catalog(Arc::clone(&self.base));
+            self.install_pack_catalog(Arc::clone(&self.base), None);
             return;
         }
-        self.install_pack_catalog(Arc::new(layer_pack_catalog(&self.vanilla, layers)));
+        let layered = layer_pack_catalogs(&self.vanilla, layers);
+        self.install_pack_catalog(Arc::new(layered.pack), layered.chat.map(Arc::new));
     }
 
     /// Returns the original catalog used by background pack compilation.
@@ -267,8 +273,9 @@ impl FormEngine {
         self.vanilla.clone()
     }
 
-    /// Publishes a worker-resolved catalog and retires caches holding the previous one.
-    pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+    /// Publishes worker-resolved catalogs and retires caches holding the previous ones.
+    pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>, chat: Option<Arc<Catalog>>) {
+        self.chat_catalog = chat.unwrap_or_else(|| Arc::clone(&self.base));
         self.menu_title_source = menu_title::TitleSource::new(&catalog, &self.context);
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
@@ -377,6 +384,15 @@ impl FormEngine {
         &self.catalog
     }
 
+    /// Chat resolves against built-in chat carrying pack filters; other screens use the pack stack.
+    pub(super) fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
+        if reference == super::chat_screen::CHAT_SCREEN {
+            &self.chat_catalog
+        } else {
+            &self.catalog
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(&mut self, native: bool) {
         self.base = if native {
@@ -384,7 +400,7 @@ impl FormEngine {
         } else {
             Arc::new(hud_renderers::with_java_hud(&self.vanilla))
         };
-        self.install_pack_catalog(Arc::clone(&self.base));
+        self.install_pack_catalog(Arc::clone(&self.base), None);
     }
 
     pub(super) fn context(&self) -> &Context {

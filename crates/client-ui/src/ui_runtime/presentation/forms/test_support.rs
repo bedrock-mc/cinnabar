@@ -106,7 +106,7 @@ pub fn snapshot_menu_with_catalog(
             .engine
             .as_mut()
             .unwrap()
-            .install_pack_catalog(catalog);
+            .install_pack_catalog(catalog, None);
     }
     let mut runtime = UiRuntime::new(1);
     let lang = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

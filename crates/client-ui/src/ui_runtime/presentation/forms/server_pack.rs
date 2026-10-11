@@ -52,6 +52,8 @@ pub struct ServerUiPack {
     /// The session's pack stack, which texture files read from on first draw.
     pub view: Option<resource_pack::LayeredPackView>,
     pub catalog: Option<Arc<json_ui::Catalog>>,
+    /// Built-in chat carrying this pack's message filters; absent when it adds none.
+    pub chat_catalog: Option<Arc<json_ui::Catalog>>,
     /// Immutable screen policies prepared alongside the matching catalog.
     pub screen_settings: Option<Arc<PreparedScreenSettings>>,
 }
@@ -72,7 +74,8 @@ impl ServerUiPack {
     /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
     pub fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
         let mut prepared = self.clone();
-        let catalog = Arc::new(super::engine::layer_pack_catalog(base, &self.ui_layers));
+        let layered = super::engine::layer_pack_catalogs(base, &self.ui_layers);
+        let catalog = Arc::new(layered.pack);
         let textures = super::hud::prepared::prepare(&catalog);
         if let Some(view) = &self.view {
             super::hud::prepared::keep_textures(&catalog, PrereadTextures::read(view, &textures));
@@ -82,6 +85,7 @@ impl ServerUiPack {
             super::menu_screens::retail_context(),
         )));
         prepared.catalog = Some(catalog);
+        prepared.chat_catalog = layered.chat.map(Arc::new);
         Arc::new(prepared)
     }
 

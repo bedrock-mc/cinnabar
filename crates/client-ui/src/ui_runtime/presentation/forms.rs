@@ -245,7 +245,7 @@ impl UiPresentationRuntime {
             return;
         };
         if let Some(catalog) = &pack.catalog {
-            engine.install_pack_catalog(catalog.clone());
+            engine.install_pack_catalog(catalog.clone(), pack.chat_catalog.clone());
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }
