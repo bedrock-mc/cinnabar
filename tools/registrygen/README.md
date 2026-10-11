@@ -45,3 +45,10 @@ The active biome generator reads numeric IDs from the shared catalog and keeps
 only names in the local retail allowlist. Its source lock is recorded in the
 projection manifest. No local BDS executable or PMMP biome map is needed.
 Client rendering policy and movement algorithms remain local.
+
+The registry wire contract is `crates/assets/data/registry-schema.json`. It owns
+the byte order, discriminants, source flags, compiled enrichment flags and limits.
+After editing it, run `python3 tools/registrygen/generate_schema.py` from the root
+with Python 3, Go and Rust installed. The Go tests check that both generated
+declarations are current and share the synthetic fixture used by the Rust reader.
+Changing the wire layout also requires a new carrier version and regenerated carriers.

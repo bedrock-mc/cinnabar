@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn coalesced_swing_weight_updates_the_body_between_ticks() {
+    let mut compiled = camera_compiled();
+    compiled.molang_symbols[1].kind = MolangSymbolKind::Variable;
+    compiled.molang_symbols[1].identifier = "variable.attack_time".into();
+    compiled.molang_ops = vec![
+        MolangOp::Coalesce(assets::MolangBranch {
+            symbol: 1,
+            target: 2,
+        }),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::LoadVariable(1),
+    ]
+    .into_boxed_slice();
+    compiled.molang_expressions = [(0, 2), (2, 1)]
+        .map(|(first_op, op_count)| CompiledMolangExpression {
+            first_op,
+            op_count,
+            max_stack: 1,
+        })
+        .into();
+    compiled.rig_animations[0].weight = Some(0);
+    compiled.render.layers[0].color = Some([1; 4]);
+    for key in &mut compiled.animation_keyframes {
+        key.expressions = [None; 3];
+        key.value[0] = EntityGeometryScalar::new(45.0).unwrap();
+    }
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.exclude_remote_state_for(1);
+    let progress = crate::LocalSwingProgress {
+        bedrock: [0.25, 0.5],
+        java: [0.25, 0.5],
+        frame_alpha: Some(0.75),
+    };
+    store.sync_local_swing(1, progress);
+    store.advance_interpolation_frame(0);
+    let rig = store.actor_rig(1).unwrap();
+    let completed_tick = rig.completed_tick;
+    let completed = rig.current[0];
+    let layers = store.render_frame(0.25).layers(1).unwrap().into_owned();
+    assert_eq!(layers[0].color, [progress.bedrock_progress(0.25); 4]);
+    assert_ne!(*layers[0].pose.first().unwrap_or(&completed), completed);
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+}
+
+#[test]
 fn camera_derived_selection_writes_follow_live_presentation_inputs() {
     for clock_write in [false, true] {
         let mut compiled = camera_compiled();

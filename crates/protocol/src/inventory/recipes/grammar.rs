@@ -36,7 +36,12 @@ pub(super) struct ScreenRecord<'a> {
 /// Something the screens need beyond crafting-table recipes.
 pub(super) enum ScreenItem<'a> {
     Recipe(ScreenRecord<'a>),
-    Multi { uuid: [u8; 16], id: u32 },
+    Multi {
+        uuid: [u8; 16],
+        id: u32,
+    },
+    /// A station recipe outside the supported input shape.
+    Skipped,
 }
 
 pub(super) fn identifier(value: &str) -> bool {
@@ -135,7 +140,7 @@ fn normal<'a>(
     reader: &mut Reader<'a>,
     shaped: bool,
     eligible: bool,
-) -> ReadResult<(u32, Option<Candidate<'a>>, Option<ScreenRecord<'a>>)> {
+) -> ReadResult<(u32, Option<Candidate<'a>>, Option<ScreenRecord<'a>>, bool)> {
     reader.string()?;
     let (width, height) = if shaped {
         (reader.int()?, reader.int()?)
@@ -190,21 +195,27 @@ fn normal<'a>(
         "smoker" => Some(ScreenRecipeKind::Smoker),
         _ => None,
     };
+    // Current station consumers support one item per required slot only.
+    let supported = screen_kind.is_some_and(|kind| {
+        let expected = if kind == ScreenRecipeKind::Cartography {
+            2
+        } else {
+            1
+        };
+        count == expected && ingredients.iter().take(count).all(|item| item.count == 1)
+    });
+    let skipped = screen_kind.is_some() && !(valid && !shaped && supported && result.is_some());
     let screen = screen_kind
-        .filter(|_| valid && !shaped)
+        .filter(|_| valid && !shaped && supported)
         .zip(result)
         .map(|(kind, output)| {
             let mut kept = [Ingredient::default(); 3];
-            let mut len = 0;
-            for item in ingredients.iter().filter(|item| item.count > 0).take(3) {
-                kept[len] = *item;
-                len += 1;
-            }
+            kept[..count].copy_from_slice(&ingredients[..count]);
             ScreenRecord {
                 id,
                 kind,
                 ingredients: kept,
-                len,
+                len: count,
                 output: Some(output),
             }
         });
@@ -225,6 +236,7 @@ fn normal<'a>(
             None
         },
         screen,
+        skipped,
     ))
 }
 
@@ -246,8 +258,11 @@ pub(super) fn walk<'a>(
         for _ in 0..count {
             match family {
                 0 | 1 | 3 | 4 | 5 => {
-                    let (id, candidate, screen_recipe) =
+                    let (id, candidate, screen_recipe, skipped) =
                         normal(reader, matches!(family, 0 | 5), matches!(family, 0 | 1))?;
+                    if skipped {
+                        screen(ScreenItem::Skipped)?;
+                    }
                     if let Some(recipe) = screen_recipe {
                         screen(ScreenItem::Recipe(recipe))?;
                     }
@@ -268,7 +283,7 @@ pub(super) fn walk<'a>(
                     let result = if family == 6 { output(reader)? } else { None };
                     reader.string()?;
                     let id = reader.uint()?;
-                    let sound = ingredients.iter().all(|item| item.valid && item.count > 0)
+                    let sound = ingredients.iter().all(|item| item.valid && item.count == 1)
                         && id != 0
                         && (family == 7 || result.is_some());
                     if sound {
@@ -283,6 +298,9 @@ pub(super) fn walk<'a>(
                             len: 3,
                             output: result,
                         }))?;
+                    }
+                    if !sound {
+                        screen(ScreenItem::Skipped)?;
                     }
                     record(id, None)?;
                 }

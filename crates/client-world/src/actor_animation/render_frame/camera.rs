@@ -287,6 +287,7 @@ pub(in crate::actor_animation) fn camera_expression(
 fn camera_op(assets: &RuntimeEntityAssets, op: &MolangOp, swing: bool) -> bool {
     let symbol = match op {
         MolangOp::LoadVariable(symbol) => *symbol,
+        MolangOp::Coalesce(branch) => branch.symbol,
         MolangOp::LoadQuery(symbol) if !swing => *symbol,
         MolangOp::CallQuery(call) if !swing => call.symbol,
         _ => return false,

@@ -340,10 +340,10 @@ fn compiler_cactus_rejects_nonexact_pack_routes_even_when_materials_are_interned
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_cactus_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let records = cactus_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned cactus family");
     assert!(records.iter().all(|record| {
