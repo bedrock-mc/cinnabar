@@ -30,6 +30,8 @@ use {
 
 use std::{path::PathBuf, time::Instant};
 
+mod client_id;
+
 /// Bounded number of consecutive automatic transfer-follow hops.
 ///
 /// Mirrors the Go core's pre-login transfer-follower limit so a transfer loop
@@ -65,6 +67,10 @@ pub(crate) struct SessionController {
     /// The join provisioning behind the connecting screen.
     join: Option<JoinAttempt>,
     generation: u64,
+    client_random_id: Option<protocol::ClientRandomId>,
+    client_id_load: Option<
+        std::sync::Mutex<std::sync::mpsc::Receiver<std::io::Result<protocol::ClientRandomId>>>,
+    >,
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
     /// Automatic transfer-follow hops remaining in the current chain.
@@ -90,6 +96,8 @@ impl SessionController {
             directory: None,
             join: None,
             generation: 1,
+            client_random_id: None,
+            client_id_load: None,
             presence: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
@@ -216,6 +224,7 @@ impl SessionController {
     /// Installs a connecting join at the current generation.
     #[cfg(all(test, unix))]
     pub(crate) fn adopt_join(&mut self, address: &str, local_world: bool, stage: JoinStage) {
+        self.client_random_id = Some(protocol::ClientRandomId::new(-7).unwrap());
         self.join = Some(JoinAttempt {
             generation: self.generation,
             address: address.to_owned(),
@@ -431,6 +440,10 @@ fn attempt_connect(
         )
     });
     let controller = &mut *session.controller;
+    if let Err(message) = controller.prepare_client_random_id(menu.layout()) {
+        controller.fail_join(menu, message);
+        return;
+    }
     let stage = match launcher {
         Some(receiver) => JoinStage::Launcher(receiver),
         // A local world exists only behind the launcher core.
@@ -468,9 +481,20 @@ fn poll_join(
     cache: &BlobCache,
 ) {
     let controller = &mut *session.controller;
-    let Some(attempt) = controller.join.take() else {
+    if controller.join.is_none() {
         return;
+    }
+    let client_random_id = match controller.poll_client_random_id() {
+        Ok(Some(id)) => id,
+        Ok(None) => return,
+        Err(message) => {
+            let join = controller.join.take();
+            controller.core.stop_detached(move || drop(join));
+            controller.fail_join(menu, message);
+            return;
+        }
     };
+    let attempt = controller.join.take().expect("pending join");
     use client_session::connection::JoinPoll;
     match attempt.poll(controller.generation, controller.connecting, || {
         controller.core.exited()
@@ -508,6 +532,7 @@ fn poll_join(
                 cache,
                 socket_dir,
                 login_settings,
+                client_random_id,
                 session.actor_artwork.as_deref(),
                 session.ui_catalog.as_deref(),
             ) {
@@ -551,6 +576,7 @@ fn start_network(
     cache: &BlobCache,
     socket_dir: PathBuf,
     login_settings: protocol::LoginSettings,
+    client_random_id: protocol::ClientRandomId,
     actor_artwork: Option<&render::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
@@ -558,10 +584,7 @@ fn start_network(
         session_generation,
         socket_dir,
         display_name: menu.display_name().to_owned(),
-        client_random_id: menu
-            .layout()
-            .load_client_random_id()
-            .map_err(|error| error.to_string())?,
+        client_random_id,
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
         login_settings,

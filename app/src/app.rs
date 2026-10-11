@@ -768,7 +768,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(SessionController::new(core_process).with_address(args.address.as_deref()))
+    .insert_resource(
+        SessionController::new(core_process)
+            .with_client_random_id(client_random_id)
+            .with_address(args.address.as_deref()),
+    )
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)

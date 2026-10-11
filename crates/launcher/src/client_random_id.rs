@@ -12,6 +12,19 @@ const FILE_NAME: &str = "clientId.txt";
 const LOCK_FILE_NAME: &str = "clientId.lock";
 const MAX_STORED_BYTES: u64 = 64;
 
+/// Starts storage loading on an owned worker; dropping the receiver never waits for disk I/O.
+pub(crate) fn load_async(
+    root: std::path::PathBuf,
+) -> io::Result<std::sync::mpsc::Receiver<io::Result<ClientRandomId>>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("login-client-id".to_owned())
+        .spawn(move || {
+            let _ = sender.send(load(&root));
+        })?;
+    Ok(receiver)
+}
+
 /// Reuses a nonzero signed ID or saves a new full-width OS-random value before returning it.
 pub(crate) fn load(root: &Path) -> io::Result<ClientRandomId> {
     load_with_entropy(root, |bytes| {
