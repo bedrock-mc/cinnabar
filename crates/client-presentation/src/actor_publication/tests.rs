@@ -105,8 +105,6 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         None
     }
 
-    /// This actor-publication fixture does not retain motion ticks.
-
     /// The fixture always has a current player state.
     fn is_active(&self) -> bool {
         true

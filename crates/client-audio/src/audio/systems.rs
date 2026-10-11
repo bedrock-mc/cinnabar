@@ -623,7 +623,7 @@ fn enqueue_destroy_sound(engine: &mut AudioEngine, position: [f32; 3], request: 
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Pumps pending sounds at the sampled listener and submits them to the optional device.
 pub fn pump_audio(
     time: Res<Time>,
     listener: super::engine::Listener,

@@ -200,6 +200,7 @@ fn inside_radius(raw: [i32; 3], camera: [f32; 3]) -> bool {
     squared.is_finite() && squared < 256.0
 }
 
+/// Admits current-session sounds using the host-validated default camera position.
 #[allow(clippy::too_many_arguments)]
 pub fn drain_live_named_audio(
     mut messages: MessageReader<SequencedAudioEvent>,
