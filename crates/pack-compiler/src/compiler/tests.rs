@@ -10,6 +10,8 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 mod anvil;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/end_rod.rs"]
+mod end_rod;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/isotropic.rs"]

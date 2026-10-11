@@ -9,6 +9,15 @@
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## End rod terrain geometry
+
+End rods compile a separate shaft and mounting plate for all six integer-facing states.
+Each surface samples its authored sprite rectangle, with independent face orientation,
+alpha testing and no full-face occlusion. The owning regression covers active registry
+identities, carrier roundtrips, bounds, UVs and unsupported selectors. Offline GPU
+acceptance uses original fixture art and production terrain meshing and shaders;
+broader residual-family, world-join and performance gates remain open.
+
 ## RakNet transport compatibility
 
 The Go core, local server, and fixture generator share a reviewed transport revision with
