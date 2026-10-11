@@ -28,6 +28,11 @@ pub(super) fn check_timing(
         }
     }
     let mut used = vec![false; rules.sleep_exceptions.len()];
+    let test_features: BTreeSet<String> = policy
+        .crate_rules
+        .iter()
+        .flat_map(|rule| rule.test_support_features.iter().cloned())
+        .collect();
     let mut scans = BTreeMap::new();
     for path in files {
         let relative = relative_slash(root, path);
@@ -45,7 +50,7 @@ pub(super) fn check_timing(
         } else if relative.ends_with(".rs") {
             match syn::parse_file(&read(path)?) {
                 Ok(file) => {
-                    let mut scan = RustScan::new(path, is_rust_test(&relative));
+                    let mut scan = RustScan::new(path, is_rust_test(&relative), &test_features);
                     scan.visit_file(&file);
                     scans.insert(
                         path.canonicalize().unwrap_or_else(|_| path.clone()),
@@ -131,8 +136,8 @@ fn is_rust_test(relative: &str) -> bool {
             .any(|dir| dir == "tests" || dir.ends_with("_tests"))
 }
 
-/// Recognizes test entry attributes and cfg predicates that require `test`.
-fn test_attributes(attributes: &[syn::Attribute]) -> bool {
+/// Recognizes test entry attributes and cfg predicates that require `test` or a registered test-support feature.
+fn test_attributes(attributes: &[syn::Attribute], features: &BTreeSet<String>) -> bool {
     attributes.iter().any(|attribute| {
         attribute
             .path()
@@ -142,24 +147,29 @@ fn test_attributes(attributes: &[syn::Attribute]) -> bool {
             || (attribute.path().is_ident("cfg")
                 && attribute
                     .parse_args::<syn::Meta>()
-                    .is_ok_and(|meta| requires_test(&meta)))
+                    .is_ok_and(|meta| requires_test(&meta, features)))
     })
 }
 
-/// Recognizes `test`, conjunctions containing it, and disjunctions requiring it in every arm.
-fn requires_test(meta: &syn::Meta) -> bool {
+/// Recognizes `test` or a test-support feature, conjunctions containing one, and disjunctions of only those.
+fn requires_test(meta: &syn::Meta, features: &BTreeSet<String>) -> bool {
     match meta {
         syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::NameValue(pair) => {
+            pair.path.is_ident("feature")
+                && matches!(&pair.value, syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(name), .. })
+                    if features.contains(&name.value()))
+        }
         syn::Meta::List(list) => {
             let Ok(arms) =
                 list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
             else {
                 return false;
             };
-            (list.path.is_ident("all") && arms.iter().any(requires_test))
-                || (list.path.is_ident("any") && !arms.is_empty() && arms.iter().all(requires_test))
+            let test = |arm: &syn::Meta| requires_test(arm, features);
+            (list.path.is_ident("all") && arms.iter().any(test))
+                || (list.path.is_ident("any") && !arms.is_empty() && arms.iter().all(test))
         }
-        _ => false,
     }
 }
 
@@ -230,6 +240,7 @@ fn import_paths(
 
 /// Parsed calls retain their item scope so module inheritance can be applied after all files are read.
 struct RustScan {
+    test_features: BTreeSet<String>,
     file_test: bool,
     in_test: bool,
     module_dir: PathBuf,
@@ -241,7 +252,7 @@ struct RustScan {
 
 impl RustScan {
     /// Starts a file scan using Rust's module directory rules.
-    fn new(path: &Path, file_test: bool) -> Self {
+    fn new(path: &Path, file_test: bool, test_features: &BTreeSet<String>) -> Self {
         let parent = path.parent().unwrap_or(Path::new("."));
         let stem = path.file_stem().unwrap_or_default();
         let module_dir = if ["lib", "main", "mod"].iter().any(|name| stem == *name) {
@@ -250,6 +261,7 @@ impl RustScan {
             parent.join(stem)
         };
         Self {
+            test_features: test_features.clone(),
             file_test,
             in_test: file_test,
             module_dir,
@@ -326,7 +338,7 @@ impl RustScan {
 impl<'ast> Visit<'ast> for RustScan {
     /// Applies file-level test attributes before visiting its imports and items.
     fn visit_file(&mut self, file: &'ast syn::File) {
-        self.file_test |= test_attributes(&file.attrs);
+        self.file_test |= test_attributes(&file.attrs, &self.test_features);
         self.in_test = self.file_test;
         self.collect_imports(file.items.iter());
         syn::visit::visit_file(self, file);
@@ -335,7 +347,7 @@ impl<'ast> Visit<'ast> for RustScan {
     /// Keeps cfg-based test scope inside the attributed item.
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let previous = self.in_test;
-        self.in_test |= test_attributes(item_attributes(item));
+        self.in_test |= test_attributes(item_attributes(item), &self.test_features);
         syn::visit::visit_item(self, item);
         self.in_test = previous;
     }
@@ -350,7 +362,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs);
+        self.in_test |= test_attributes(attrs, &self.test_features);
         syn::visit::visit_impl_item(self, item);
         self.in_test = previous;
     }
@@ -365,7 +377,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs);
+        self.in_test |= test_attributes(attrs, &self.test_features);
         syn::visit::visit_trait_item(self, item);
         self.in_test = previous;
     }
@@ -458,12 +470,29 @@ mod tests {
             })
             .collect();
         let policy = toml::from_str::<Policy>(
-            "production_rust_max = 1000\nmodule_root_max = 1000\npowershell_max = 1000\ntest_max = 1000\n[timing]\nclock_free_crates = ['crates/a']"
+            "production_rust_max = 1000\nmodule_root_max = 1000\npowershell_max = 1000\ntest_max = 1000\n[[crates]]\nname = 'a'\npath = 'crates/a'\ntest_support_features = ['test-support']\n[timing]\nclock_free_crates = ['crates/a']"
         ).unwrap();
         let mut diagnostics = Vec::new();
         check_timing(root.path(), &policy, &files, &mut diagnostics).unwrap();
         diagnostics.sort();
         diagnostics
+    }
+
+    // Fixtures behind a registered test-support feature are test code; unregistered features are not.
+    #[test]
+    fn registered_test_support_features_are_test_scope() {
+        let found = diagnostics(&[(
+            "crates/a/src/lib.rs",
+            r#"
+#[cfg(any(test, feature = "test-support"))]
+fn fixture() { std::thread::sleep(Duration::ZERO); Instant::now(); }
+#[cfg(any(test, feature = "other"))]
+fn shipped() { Instant::now(); }
+"#,
+        )]);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found[0].contains("lib.rs:3") && found[0].contains("never sleep"), "{found:?}");
+        assert!(found[1].contains("lib.rs:5") && found[1].contains("only edge code reads the clock"), "{found:?}");
     }
 
     #[test]

@@ -778,6 +778,7 @@ clock_free_crates = [
     "crates/world",
 ]
 sleep_exceptions = [
+    { path = "crates/client-ui/src/ui_runtime/presentation/forms/test_support.rs", reason = "warm snapshot frames give background menu artwork time to load; no ready signal" },
     { path = "crates/bridge/tests/it/go_echo.rs", reason = "deleted with frame-echo" },
     { path = "crates/client-ui/src/ui_runtime/presentation/forms/menu_latency.rs", reason = "paces idle frames before measuring menu navigation latency" },
     { path = "crates/client-session/src/session/network_latency_bench.rs", reason = "paces movement packets at the simulation tick rate for a latency benchmark" },
