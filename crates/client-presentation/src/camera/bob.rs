@@ -8,7 +8,6 @@ use bevy::prelude::{Mat4, Resource, Vec3};
 const WALK_DISTANCE_PER_BLOCK: f32 = 0.6;
 const BOB_TARGET_CAP_PER_TICK: f32 = 0.1;
 const BOB_KEEP_PER_TICK: f32 = 0.6;
-const TICKS_PER_SECOND: f32 = 20.0;
 const TELEPORT_BLOCKS: f32 = 8.0;
 const TRANSLATION_GAIN_X: f32 = 0.65;
 const ROLL_DEGREES: f32 = 3.0;
@@ -98,7 +97,7 @@ impl WalkBobState {
         if !(delta_seconds.is_finite() && delta_seconds > 0.0) {
             return;
         }
-        let ticks = delta_seconds * TICKS_PER_SECOND;
+        let ticks = delta_seconds * world::TICKS_PER_SECOND as f32;
         let per_tick_speed = horizontal / ticks;
         let target = if on_ground && alive {
             per_tick_speed.min(BOB_TARGET_CAP_PER_TICK)
