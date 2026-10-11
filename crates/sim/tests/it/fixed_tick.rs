@@ -155,6 +155,148 @@ fn grounded_horizontal_collision_steps_only_when_the_point_six_path_is_farther()
     assert_close(state.position.z, 0.9);
 }
 
+/// Builds a level floor and individually stacked cubes with no supporting ledge.
+fn column_world() -> StaticWorld {
+    let mut world = StaticWorld {
+        boxes: vec![Aabb::new(
+            Vec3::new(8.0, -61.0, -20.0),
+            Vec3::new(14.0, -60.0, -10.0),
+        )],
+        fail: None,
+    };
+    for y in -60..-50 {
+        world.boxes.push(Aabb::new(
+            Vec3::new(11.0, f64::from(y), -16.0),
+            Vec3::new(12.0, f64::from(y + 1), -15.0),
+        ));
+    }
+    world
+}
+
+#[test]
+fn jumping_against_a_column_returns_to_its_floor_across_block_seams() {
+    let simulator = Simulator::default();
+    for swap_axes in [false, true] {
+        let transform = |v: Vec3| {
+            if swap_axes {
+                Vec3::new(v.z, v.y, v.x)
+            } else {
+                v
+            }
+        };
+        let mut world = column_world();
+        for bounds in &mut world.boxes {
+            *bounds = Aabb::new(transform(bounds.min), transform(bounds.max));
+        }
+        let forward = MovementInput {
+            forward: 1.0,
+            yaw_degrees: if swap_axes { -90.0 } else { 0.0 },
+            ..MovementInput::default()
+        };
+        for approach_ticks in [3, 20] {
+            let mut state = grounded_state(transform(Vec3::new(11.5, -60.0, -17.5)));
+            for _ in 0..approach_ticks {
+                simulator.tick(&mut state, forward, &world).unwrap();
+            }
+            assert_eq!(state.position.y, -60.0);
+            simulator
+                .tick(
+                    &mut state,
+                    MovementInput {
+                        jumping: true,
+                        jump_pressed: true,
+                        ..forward
+                    },
+                    &world,
+                )
+                .unwrap();
+            let mut rose_above_seam = false;
+            let mut replay = state.clone();
+            for tick in 0..40 {
+                simulator.tick(&mut state, forward, &world).unwrap();
+                if tick == 10 {
+                    replay = serde_json::from_slice(&serde_json::to_vec(&replay).unwrap()).unwrap();
+                }
+                simulator.tick(&mut replay, forward, &world).unwrap();
+                assert_eq!(
+                    replay, state,
+                    "saved movement must retain collision contact"
+                );
+                rose_above_seam |= state.position.y > -59.0;
+            }
+            assert!(rose_above_seam, "the jump must cross a column block seam");
+            assert_eq!(
+                state.position.y, -60.0,
+                "a column face cannot support the player"
+            );
+            assert!(state.on_ground);
+        }
+    }
+}
+
+#[test]
+fn changing_pose_at_a_column_face_keeps_jumps_clear() {
+    let world = column_world();
+    let simulator = Simulator::default();
+    let mut state = grounded_state(Vec3::new(11.5, -60.0, -17.5));
+    let forward = MovementInput {
+        forward: 1.0,
+        ..MovementInput::default()
+    };
+    for _ in 0..20 {
+        simulator.tick(&mut state, forward, &world).unwrap();
+    }
+    simulator
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                ..forward
+            },
+            &world,
+        )
+        .unwrap();
+    simulator.tick(&mut state, forward, &world).unwrap();
+    simulator
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..forward
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(state.position.y > -60.0);
+    assert!(!state.on_ground);
+}
+
+#[test]
+fn a_position_correction_discards_the_previous_column_contact() {
+    let world = column_world();
+    let simulator = Simulator::default();
+    let mut state = grounded_state(Vec3::new(11.5, -60.0, -17.5));
+    for _ in 0..20 {
+        simulator
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+    }
+    state.position = Vec3::new(9.5, -60.0, -18.5);
+    state.velocity = Vec3::ZERO;
+    simulator
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert_eq!(state.position, Vec3::new(9.5, -60.0, -18.5));
+}
+
 #[test]
 fn world_query_failure_is_transactional_and_does_not_advance_tick() {
     let world = StaticWorld {

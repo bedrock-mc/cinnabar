@@ -121,27 +121,19 @@ pub(super) fn tick_mode(
         _ => {}
     }
 
-    let view = ScaffoldingView::new(
-        world,
-        crate::Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
-        sampled.descend_through,
-    );
     let height = input.mode.hitbox_height(input.sneaking);
+    let collision_box = next.collision_box(height);
+    let view = ScaffoldingView::new(world, collision_box, sampled.descend_through);
     let stuck = super::inside::stuck_multiplier(&sampled, &input);
     if let Some(multiplier) = stuck {
         super::inside::slow_request(&mut next.velocity, multiplier);
     }
     next.requested_movement = next.velocity;
-    let motion = resolve_motion(
-        &view,
-        next.position,
-        next.velocity,
-        grounded_at_start,
-        height,
-    )?;
+    let motion = resolve_motion(&view, collision_box, next.velocity, grounded_at_start)?;
     let mut identity = identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
     next.position = motion.position;
+    next.retain_collision_box(motion.aabb, height);
     next.on_ground = motion.stepped
         || (motion.collisions.y && pre_collision_velocity.y < 0.0)
         || (grounded_at_start

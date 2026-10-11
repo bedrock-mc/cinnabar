@@ -5007,7 +5007,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
   collision shapes, and failed replay queries stop prediction instead of guessing.
   Collision scans floor their inclusive upper bounds so fractional queries do not suspend
-  movement over an extra, unavailable cell. Required missing collision data still stops
+  movement over an extra, unavailable cell. Resolved collision faces survive rounded
+  center updates and replay, so stacked column faces cannot fabricate support or
+  block a jump; pose changes retain horizontal contact and relocations rebuild it.
+  Required missing collision data still stops
   prediction; full unloaded-boundary behavior remains incomplete.
   A generator pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
   matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim

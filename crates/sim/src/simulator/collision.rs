@@ -17,12 +17,10 @@ pub(super) struct ResolvedMotion {
 
 pub(super) fn resolve_motion(
     world: &impl CollisionWorld,
-    position: Vec3,
+    start: Aabb,
     velocity: Vec3,
     was_on_ground: bool,
-    height: f64,
 ) -> Result<ResolvedMotion, WorldQueryError> {
-    let start = Aabb::player_with_height_at(position, height);
     let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
     let mut identity = colliders.identity;
     let (normal_box, normal) = resolve_axes_reverse(start, velocity, &colliders.value);
