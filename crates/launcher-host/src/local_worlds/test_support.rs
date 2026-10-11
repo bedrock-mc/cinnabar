@@ -285,9 +285,10 @@ pub(crate) fn write_script(path: &Path, body: &[u8]) {
 pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\r\\n[INFO] Server started.\\r\\n'\nwhile IFS= read -r line; do\n  case \"$line\" in stop*) exit 0 ;; esac\ndone\n";
 
 /// A Docker CLI that logs each invocation to `$FAKE_DOCKER_LOG` and answers the subcommands
-/// the container runner uses; `$FAKE_DOCKER_DOWN` makes `info` fail.
+/// the container runner uses; `$FAKE_DOCKER_DOWN` makes `info` fail and `$FAKE_DOCKER_HANG` makes
+/// `image` hang.
 #[cfg(unix)]
-pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done ;;\nesac\n";
+pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done ;;\nesac\n";
 
 /// Records every pause request; exits once stopped.
 pub(crate) struct FakeInstance {

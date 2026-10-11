@@ -2,7 +2,7 @@ use std::{
     ffi::OsString,
     io::{self, BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
+    process::{ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -13,6 +13,8 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
 use launcher::local_worlds::world::World;
+
+use crate::lifecycle::children::{self, Spawned};
 
 use super::{
     Cancel, lock,
@@ -123,7 +125,8 @@ pub(crate) struct Launch {
 
 /// A launched server process.
 pub(crate) struct Process {
-    child: Arc<Mutex<Child>>,
+    /// Tracked so the client's exit sweep ends it even when no destructor runs.
+    child: Arc<Spawned>,
     stdin: Mutex<Option<ChildStdin>>,
     address: String,
     can_pause: bool,
@@ -132,7 +135,8 @@ pub(crate) struct Process {
     stop_requested: AtomicBool,
 }
 
-/// Starts `command` and waits for its ready line, killing it on exit, timeout or cancellation.
+/// Starts `command` as a tracked child and waits for its ready line, killing it on exit, timeout
+/// or cancellation.
 pub(crate) fn launch(
     mut command: Command,
     spec: Launch,
@@ -142,11 +146,10 @@ pub(crate) fn launch(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
+    let child = children::spawn(&mut command)
         .map_err(|error| failed(format!("start local server: {error}")))?;
-    let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
-    let child = Arc::new(Mutex::new(child));
+    let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
+    let child = Arc::new(child);
     let status = Arc::new(Mutex::new(None));
     let (ready_sender, ready) = crossbeam_channel::bounded(1);
     let (exit_sender, exited) = crossbeam_channel::bounded::<()>(0);
@@ -175,7 +178,7 @@ pub(crate) fn launch(
                 let _ = reader.join();
             }
             loop {
-                match lock(&child).try_wait() {
+                match child.try_wait() {
                     Ok(Some(exit)) => {
                         *lock(&status) = Some(exit);
                         break;
@@ -250,7 +253,7 @@ impl Process {
     }
 
     fn kill(&self) {
-        let _ = lock(&self.child).kill();
+        self.child.kill();
     }
 
     fn has_exited(&self) -> bool {

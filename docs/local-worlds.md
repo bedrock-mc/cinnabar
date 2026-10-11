@@ -55,7 +55,8 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
-  Closing the client asks the open world's server to stop without waiting; the server saves on its own.
+  Server processes are tracked children: on exit the client asks the open world's server to stop its
+  own way (`stop`, or `docker stop`), then the exit sweep escalates to SIGTERM and kill.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
@@ -71,7 +72,7 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 The launcher reports the open world to the core with `local_world.v1`: `state` (`idle`, `starting`,
 `running`, `stopping`, `failed`), `world` (`id`, `name`, `game_mode`, `backend`), `target` while running
 (`address`, `transport` = `raknet` | `nethernet` | `nethernet-lan`, `lan_address`, `level_name`) and a path-free
-`error` while failed. A session waits while the world starts, fails while it stops or has failed, and falls
+`error` while failed. The menu treats a world as ready only once the core has acknowledged its running route. A session waits while the world starts, fails while it stops or has failed, and falls
 through to other routes only when idle. A world that begins opening clears any `connect.v1` selection and
 pending transfer. The core hosts a running BDS world to Xbox friends and serves `world_invite.v1` for it.
 

@@ -44,10 +44,7 @@ fn a_partial_archive_resumes() {
         sha256(&archive),
         "the digest covers the whole archive"
     );
-    assert!(
-        !part.exists(),
-        "the part survived the install"
-    );
+    assert!(!part.exists(), "the part survived the install");
 }
 
 /// A resumed prefix that is not the archive fails to unpack once; the next attempt starts clean.

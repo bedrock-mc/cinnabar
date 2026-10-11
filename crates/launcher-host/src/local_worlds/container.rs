@@ -19,7 +19,7 @@ use super::{
         BDS_READY_MARKER, BDS_TRANSPORT, BdsRunner, level_type, sanitize_property, view_and_tick,
     },
     create_private_dir,
-    docker::{PROBE_TIMEOUT, docker_command, succeeds},
+    docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
     download::direct_url,
     lock,
     ports::{
@@ -187,6 +187,18 @@ impl BdsRunner {
         succeeds(command, timeout)
     }
 
+    /// Runs a startup Docker call that the start's cancellation ends, as a closed world needs.
+    fn docker_until(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+        cancel: &Cancel,
+    ) -> Result<bool, WorldError> {
+        let mut command = self.docker();
+        command.args(args);
+        finishes(command, timeout, cancel).ok_or(WorldError::Cancelled)
+    }
+
     /// Runs the Linux build in a container; the open-time probe flips the runtime when Docker has
     /// stopped so the client offers Retry.
     pub(super) fn start_container(
@@ -202,7 +214,7 @@ impl BdsRunner {
             return Err(WorldError::ImageNotPinned);
         }
         let max_players = self.max_players.max(1);
-        self.check_docker()?;
+        self.check_docker(cancel)?;
         self.ensure_image(cancel)?;
         let binary = provisioner.ensure(cancel)?;
         let install = install_dir(&binary)?;
@@ -224,7 +236,7 @@ impl BdsRunner {
         }
         let name = container_name(&spec.world.id);
         // A leftover of an earlier crash would hold the name.
-        self.docker_succeeds(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT);
+        self.docker_until(&["rm", "-f", name.as_str()], DOCKER_TIMEOUT, cancel)?;
         let mut command = self.docker();
         command.args(container_args(&ContainerArgs {
             spec,
@@ -272,10 +284,14 @@ impl BdsRunner {
         Ok(instance)
     }
 
-    fn check_docker(&self) -> Result<(), WorldError> {
+    fn check_docker(&self, cancel: &Cancel) -> Result<(), WorldError> {
         let provisioner = &self.provisioner;
         provisioner.set_op(Some(SetupState::CheckingRuntime), None, 0, 0);
-        let running = self.docker_succeeds(&["info"], PROBE_TIMEOUT);
+        let running = self.docker_until(&["info"], PROBE_TIMEOUT, cancel);
+        let Ok(running) = running else {
+            provisioner.set_op(None, None, 0, 0);
+            return Err(WorldError::Cancelled);
+        };
         if !running {
             provisioner.set_runtime(RuntimeInfo::none(
                 "Docker stopped; new worlds use dragonfly",
@@ -292,7 +308,11 @@ impl BdsRunner {
 
     /// Pulls the image once, reporting layer progress.
     fn ensure_image(&self, cancel: &Cancel) -> Result<(), WorldError> {
-        if self.docker_succeeds(&["image", "inspect", self.image.as_str()], DOCKER_TIMEOUT) {
+        if self.docker_until(
+            &["image", "inspect", self.image.as_str()],
+            DOCKER_TIMEOUT,
+            cancel,
+        )? {
             return Ok(());
         }
         let provisioner = &self.provisioner;
@@ -415,9 +435,16 @@ impl Instance for ContainerInstance {
         Ok(())
     }
 
+    /// Starts `docker stop` at once, untracked, so it still stops the container when the client
+    /// exits right after.
     fn request_stop(&self) {
-        let stop = self.stop_command();
-        thread::spawn(move || succeeds(stop, DOCKER_TIMEOUT));
+        let mut stop = self.stop_command();
+        stop.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Ok(mut stopping) = stop.spawn() {
+            thread::spawn(move || stopping.wait());
+        }
     }
 
     fn stop(&self, timeout: Duration) -> Result<(), String> {

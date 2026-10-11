@@ -1,12 +1,13 @@
 use super::*;
+use crate::local_worlds::{
+    process::Runner,
+    provision::{Provisioner, RuntimeKind},
+    test_support::{VERSION, scratch, spec},
+};
 #[cfg(unix)]
 use crate::local_worlds::{
     provision::Platform,
     test_support::{FAKE_DOCKER, installed_provisioner, write_script},
-};
-use crate::local_worlds::{
-    provision::{Provisioner, RuntimeKind},
-    test_support::{VERSION, scratch, spec},
 };
 
 const IMAGE: &str = "itzg/minecraft-bedrock-server:2026.9.2@sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -161,6 +162,30 @@ fn a_stopped_daemon_flips_the_runtime() {
             Some(UnavailableReason::DockerNotRunning)
         )
     );
+}
+
+/// Closing a world mid-start ends a hung Docker call instead of waiting out its timeout.
+#[cfg(unix)]
+#[test]
+fn cancelling_a_start_ends_a_hung_docker_call() {
+    let dir = scratch();
+    let (mut runner, log) = container_runner(dir.path(), IMAGE, false);
+    runner.env.push(("FAKE_DOCKER_HANG".into(), "1".into()));
+    let (handle, cancel) = crate::local_worlds::cancel_pair();
+    let spec = spec(&dir.path().join("world"));
+    let (sender, started) = crossbeam_channel::bounded(1);
+    thread::spawn(move || {
+        let _ = sender.send(runner.start(&spec, &cancel).err());
+    });
+    test_time::eventually("the hung image check", || {
+        docker_log(&log).contains("image inspect")
+    });
+    drop(handle);
+    let error = started
+        .recv_timeout(test_time::DEFAULT_TIMEOUT)
+        .expect("the start ended")
+        .expect("a cancelled start");
+    assert!(matches!(error, WorldError::Cancelled), "{error}");
 }
 
 #[test]

@@ -9,7 +9,10 @@ use std::{
 
 use launcher::local_worlds::world::UnavailableReason;
 
-use super::provision::{Platform, RuntimeInfo, RuntimeKind};
+use super::{
+    Cancel,
+    provision::{Platform, RuntimeInfo, RuntimeKind},
+};
 
 /// The Docker-compatible CLI's default name.
 pub(crate) const DOCKER: &str = "docker";
@@ -144,23 +147,30 @@ pub(crate) fn env_value(env: &[(OsString, OsString)], key: &str) -> Option<OsStr
 }
 
 /// Runs `command` quietly, killing it once `timeout` passes; true when it exited successfully.
-pub(crate) fn succeeds(mut command: Command, timeout: Duration) -> bool {
+pub(crate) fn succeeds(command: Command, timeout: Duration) -> bool {
+    finishes(command, timeout, &Cancel::never()) == Some(true)
+}
+
+/// Runs `command` quietly, killing it once `timeout` passes or `cancel` fires; `None` when
+/// cancelled, else whether it exited successfully.
+pub(crate) fn finishes(mut command: Command, timeout: Duration, cancel: &Cancel) -> Option<bool> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let Ok(mut child) = command.spawn() else {
-        return false;
+        return Some(false);
     };
     let deadline = Instant::now() + timeout;
     loop {
+        let cancelled = cancel.is_cancelled();
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < deadline => thread::sleep(POLL),
+            Ok(Some(status)) => return Some(status.success()),
+            Ok(None) if !cancelled && Instant::now() < deadline => thread::sleep(POLL),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return false;
+                return (!cancelled).then_some(false);
             }
         }
     }

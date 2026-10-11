@@ -57,9 +57,7 @@ impl Default for LocalWorlds {
 /// Asks the open world's server to save and stop as the client exits.
 impl Drop for LocalWorlds {
     fn drop(&mut self) {
-        if let Some(manager) = &self.manager {
-            manager.close();
-        }
+        self.detach();
     }
 }
 
@@ -76,6 +74,9 @@ impl LocalWorlds {
                 manager
             }
         };
+        if let Some(previous) = self.client.take() {
+            previous.revoke();
+        }
         self.client = Some(WorldsClient::spawn(manager, socket_dir)?);
         self.playing = false;
         self.menu = WorldsMenu::default();
@@ -86,7 +87,10 @@ impl LocalWorlds {
 
     /// Drops the worker and closes the open world, whose route left with the old core.
     pub fn detach(&mut self) {
-        self.client = None;
+        // Revoked first, so a request the worker already took cannot reopen the world.
+        if let Some(client) = self.client.take() {
+            client.revoke();
+        }
         self.playing = false;
         if let Some(manager) = &self.manager {
             manager.close();

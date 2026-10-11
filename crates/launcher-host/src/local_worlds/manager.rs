@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, TryLockError},
     thread,
     time::Duration,
 };
@@ -9,6 +9,8 @@ use crossbeam_channel::{Receiver, Sender, TrySendError};
 use launcher::local_worlds::world::{
     NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldStatus, WorldUpdate,
 };
+
+use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
@@ -98,6 +100,8 @@ struct Inner {
     /// Background starts, stops and exit watches still running.
     background: Mutex<usize>,
     background_done: Condvar,
+    /// Asks the running server to stop its own way when the client exits without destructors.
+    _exit: ExitHookGuard<'static>,
 }
 
 /// The single open world's lifecycle.
@@ -136,7 +140,15 @@ impl Manager {
             }));
         }
         Self {
-            inner: Arc::new(Inner {
+            inner: Arc::new_cyclic(|inner| Inner {
+                _exit: {
+                    let inner = inner.clone();
+                    children::on_exit(move || {
+                        if let Some(inner) = inner.upgrade() {
+                            Self { inner }.request_exit_stop();
+                        }
+                    })
+                },
                 store: parts.store,
                 runners: parts.runners,
                 setup: parts.setup,
@@ -402,6 +414,21 @@ impl Manager {
                 }
             }
             WorldState::Idle | WorldState::Stopping => {}
+        }
+    }
+
+    /// Asks the running server to save and stop without waiting; the exit sweep then ends the
+    /// tracked process. A lifecycle lock held by the exiting thread skips the request.
+    pub(crate) fn request_exit_stop(&self) {
+        let life = match self.inner.life.try_lock() {
+            Ok(life) => life,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return,
+        };
+        let instance = life.instance.clone();
+        drop(life);
+        if let Some(instance) = instance {
+            instance.request_stop();
         }
     }
 

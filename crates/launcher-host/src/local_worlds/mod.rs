@@ -17,7 +17,7 @@ mod test_support;
 mod unpack;
 mod world;
 
-pub use core_link::CoreLink;
+pub use core_link::{CoreLink, CoreRoute};
 pub use manager::Manager;
 pub use world::WorldError;
 
@@ -130,7 +130,6 @@ pub(crate) fn cancel_pair() -> (CancelHandle, Cancel) {
 
 impl Cancel {
     /// A cancellation that never fires.
-    #[cfg(test)]
     pub(crate) fn never() -> Self {
         Self(crossbeam_channel::never())
     }

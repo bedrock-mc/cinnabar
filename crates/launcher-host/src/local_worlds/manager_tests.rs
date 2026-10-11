@@ -213,6 +213,23 @@ fn an_unexpected_exit_fails_the_world() {
     wait_for(manager, WorldState::Failed);
 }
 
+/// An exit that skips destructors still asks the running server to stop its own way.
+#[test]
+fn the_exit_sweep_asks_the_running_server_to_stop() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("w")).expect("create");
+    manager.request_exit_stop();
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    manager.request_exit_stop();
+    assert!(
+        runner.last().stopped(),
+        "the running server was not asked to stop"
+    );
+}
+
 #[test]
 fn a_server_that_cannot_pause_is_never_marked_paused() {
     let runner = Arc::new(FakeRunner {

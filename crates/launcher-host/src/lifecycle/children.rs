@@ -3,7 +3,7 @@
 
 use std::{
     io,
-    process::{Child, ChildStdout, Command, ExitStatus},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     thread,
     time::{Duration, Instant},
@@ -32,6 +32,7 @@ pub enum StopOutcome {
 }
 
 type Entry = Arc<Mutex<Child>>;
+type ExitHook = Arc<dyn Fn() + Send + Sync>;
 
 /// A registry of unreaped children.
 pub struct Children {
@@ -42,6 +43,22 @@ pub struct Children {
 struct Registry {
     entries: Vec<Entry>,
     shutting_down: bool,
+    hooks: Vec<(u64, ExitHook)>,
+    next_hook: u64,
+}
+
+/// Unregisters its exit hook when dropped.
+pub struct ExitHookGuard<'a> {
+    children: &'a Children,
+    id: u64,
+}
+
+impl Drop for ExitHookGuard<'_> {
+    fn drop(&mut self) {
+        lock(&self.children.live)
+            .hooks
+            .retain(|(id, _)| *id != self.id);
+    }
 }
 
 /// One tracked child. Dropping it unreaped leaves the child to the registry's exit sweep.
@@ -54,6 +71,8 @@ impl Children {
             live: Mutex::new(Registry {
                 entries: Vec::new(),
                 shutting_down: false,
+                hooks: Vec::new(),
+                next_hook: 0,
             }),
         }
     }
@@ -83,10 +102,35 @@ impl Children {
         Ok(Spawned(entry))
     }
 
-    /// Ends every tracked child: close stdin and wait `graceful`, then SIGTERM, then SIGKILL.
-    pub fn stop_all(&self, graceful: Duration) {
+    /// Runs `hook` once at the start of [`Self::stop_all`], until the guard drops, so a child can
+    /// be asked to stop its own way (a server's save command) before the signals; registered
+    /// during shutdown, it runs at once.
+    pub fn on_exit(&self, hook: impl Fn() + Send + Sync + 'static) -> ExitHookGuard<'_> {
         let mut live = lock(&self.live);
-        live.shutting_down = true;
+        let id = live.next_hook;
+        live.next_hook += 1;
+        if live.shutting_down {
+            drop(live);
+            hook();
+        } else {
+            live.hooks.push((id, Arc::new(hook)));
+        }
+        ExitHookGuard { children: self, id }
+    }
+
+    /// Ends every tracked child: run the exit hooks, close stdin and wait `graceful`, then
+    /// SIGTERM, then SIGKILL.
+    pub fn stop_all(&self, graceful: Duration) {
+        let hooks: Vec<ExitHook> = {
+            let mut live = lock(&self.live);
+            live.shutting_down = true;
+            live.hooks.drain(..).map(|(_, hook)| hook).collect()
+        };
+        // Outside the lock: a hook may drop the last owner of another hook's guard.
+        for hook in hooks {
+            hook();
+        }
+        let mut live = lock(&self.live);
         escalate(&live.entries, graceful);
         live.entries.retain(|entry| running(&mut lock(entry)));
     }
@@ -119,6 +163,11 @@ pub fn spawn(command: &mut Command) -> io::Result<Spawned> {
 /// Ends every child this process spawned; for exit paths.
 pub fn stop_all(graceful: Duration) {
     CHILDREN.stop_all(graceful);
+}
+
+/// Runs `hook` when this process's children are stopped on exit, until the guard drops.
+pub fn on_exit(hook: impl Fn() + Send + Sync + 'static) -> ExitHookGuard<'static> {
+    CHILDREN.on_exit(hook)
 }
 
 /// Stops every child when dropped, including while unwinding out of `run`.
@@ -163,6 +212,14 @@ impl Spawned {
 
     pub fn take_stdout(&self) -> Option<ChildStdout> {
         lock(&self.0).stdout.take()
+    }
+
+    pub fn take_stdin(&self) -> Option<ChildStdin> {
+        lock(&self.0).stdin.take()
+    }
+
+    pub fn take_stderr(&self) -> Option<ChildStderr> {
+        lock(&self.0).stderr.take()
     }
 
     /// Sends SIGKILL without waiting; a no-op once reaped.
@@ -349,6 +406,35 @@ mod tests {
         assert!(gone(pid));
         assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(reaper.join().unwrap(), StopOutcome::Exited);
+    }
+
+    #[test]
+    fn exit_hooks_run_once_before_the_sweep_until_dropped() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let children = Children::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let count = |amount: usize| {
+            let runs = Arc::clone(&runs);
+            move || {
+                runs.fetch_add(amount, Ordering::SeqCst);
+            }
+        };
+        let kept = children.on_exit(count(1));
+        drop(children.on_exit(count(10)));
+        children.stop_all(Duration::ZERO);
+        children.stop_all(Duration::ZERO);
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "hooks run once and dropped ones never"
+        );
+        let late = children.on_exit(count(100));
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            101,
+            "a hook registered during shutdown runs at once"
+        );
+        drop((kept, late));
     }
 
     #[test]
