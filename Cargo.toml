@@ -10,6 +10,7 @@ members = [
     "crates/client-world",
     "crates/client-state",
     "crates/client-shell",
+    "crates/client-interaction",
     "crates/client-runtime",
     "crates/client-extensions",
     "crates/gameplay",

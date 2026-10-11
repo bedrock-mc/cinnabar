@@ -106,6 +106,11 @@ impl SemanticInputRuntime {
         self.router.replace_authority(generation);
     }
 
+    /// Consumes one UI-owned desktop control in the already sampled gameplay frame.
+    pub(crate) fn consume_control(&mut self, control: semantic_input::PhysicalControl) {
+        self.router.consume_control(control);
+    }
+
     pub fn release_all(&mut self, reason: ReleaseReason) {
         self.router.release_all(reason);
     }

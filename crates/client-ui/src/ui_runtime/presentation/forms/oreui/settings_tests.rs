@@ -453,6 +453,63 @@ fn settings_focus_includes_offscreen_edits_and_reveals_the_selected_control() {
 }
 
 #[test]
+fn command_macro_focus_reveals_the_entire_validation_error() {
+    for size in [[1280.0, 720.0], [800.0, 450.0]] {
+        for slot in [0, launcher::menu::settings_options::COMMAND_MACRO_COUNT - 1] {
+            let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+            let mut view = settings_view("keyboard_and_mouse_forced_index");
+            view.macro_commands = Some(core::array::from_fn(|_| String::new()));
+            view.focused_action = Some(MenuAction::SettingsMacroCommand(slot));
+            present(&mut presentation, &view, size);
+            view.macro_commands.as_mut().unwrap()[slot] = "x".repeat(ui::MAX_CHAT_INPUT_BYTES);
+            let nodes = present(&mut presentation, &view, size);
+            let error = nodes
+                .iter()
+                .find(|node| match node.visual() {
+                    ui::UiVisual::Text { layout, .. } => layout
+                        .glyphs()
+                        .iter()
+                        .map(|glyph| glyph.codepoint)
+                        .collect::<String>()
+                        .replace(' ', "")
+                        .contains("Commandistoolong."),
+                    _ => false,
+                })
+                .expect("an invalid draft shows a validation error");
+            let mut top = error.bounds().min().y();
+            let mut bottom = error.bounds().max().y();
+            let mut parent = error.parent();
+            while let Some(node) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+                top += node.bounds().min().y();
+                bottom += node.bounds().min().y();
+                parent = node.parent();
+            }
+            assert!(
+                top >= 0.0 && bottom <= size[1],
+                "error is clipped: {top}..{bottom}"
+            );
+            let field = presentation
+                .menu_hit_targets
+                .iter()
+                .find_map(|(action, bounds)| {
+                    (*action == MenuAction::SettingsMacroCommand(slot)).then_some(*bounds)
+                })
+                .unwrap();
+            assert!(presentation.scroll_menu(centre(field), 1000.0, false));
+            presentation.menu_seconds += 0.2;
+            present(&mut presentation, &view, size);
+            assert!(
+                presentation
+                    .menu_hit_targets
+                    .iter()
+                    .all(|(action, _)| { *action != MenuAction::SettingsMacroCommand(slot) }),
+                "a stable error must not undo later wheel scrolling"
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_focus_returns_from_header_and_reveals_the_same_body_control() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = settings_view("accessibility_forced_index");

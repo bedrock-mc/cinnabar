@@ -61,6 +61,13 @@ pub struct GameplayScreenControls {
     pub spyglass_gamepad_damping: f32,
 }
 
+/// Interaction phases whose surrounding world and transport adapters share the frame.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientInteractionSet {
+    HotbarSend,
+    RetainPick,
+}
+
 /// Runtime boundaries that app-owned ingress and world adapters order against.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeFrameSet {

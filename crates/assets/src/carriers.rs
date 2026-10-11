@@ -1,6 +1,8 @@
 //! The carrier table: every compiled carrier with its `assetc` recipe, inputs and outputs. `assetc
 //! prepare`, first-run setup, `dist-local` and the startup filename constants all read it.
 
+pub mod startup;
+
 use std::path::{Path, PathBuf};
 
 /// Output directory below a checkout.

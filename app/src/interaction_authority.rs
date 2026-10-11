@@ -9,7 +9,8 @@ use sim::{PaletteWorld, Vec3};
 
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
+    client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::local_player::InteractionOriginSnapshot,
     gameplay::mining::{
         FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget,
@@ -31,7 +32,7 @@ pub(crate) fn pick_context(
         holding_light: selected_block
             .and_then(|id| {
                 gameplay::block_use::held_block_store_id(
-                    &crate::movement::GameplayWorldView(stream),
+                    &client_interaction::movement::world_view::GameplayWorldView(stream),
                     id,
                 )
             })

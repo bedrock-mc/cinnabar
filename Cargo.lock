@@ -462,6 +462,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
  "windows-sys 0.61.2",
  "zip",
 ]
@@ -681,6 +682,7 @@ dependencies = [
  "chunk-pipeline",
  "client-audio",
  "client-extensions",
+ "client-interaction",
  "client-presentation",
  "client-runtime",
  "client-session",
@@ -2302,6 +2304,31 @@ dependencies = [
  "sha2",
  "tempfile",
  "ui",
+]
+
+[[package]]
+name = "client-interaction"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "bevy",
+ "chunk-pipeline",
+ "client-audio",
+ "client-presentation",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "diagnostics",
+ "gameplay",
+ "inventory 0.1.12",
+ "player-state",
+ "protocol",
+ "semantic-input",
+ "sha2",
+ "sim",
+ "tokio",
+ "ui",
+ "world",
 ]
 
 [[package]]

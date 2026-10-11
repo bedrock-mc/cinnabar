@@ -198,7 +198,7 @@ fn actors(world: &World) -> Vec<Value> {
 fn player_motion(world: &World) -> Option<Value> {
     let stream = world.get_resource::<ClientWorld>()?.stream.as_ref()?;
     let player = world.get_resource::<client_state::PlayerRuntime>()?;
-    let physics = world.get_resource::<crate::movement::LocalPhysicsController>()?;
+    let physics = world.get_resource::<client_interaction::movement::LocalPhysicsController>()?;
     let authority = stream.authority();
     let rig = authority.actor_rig(stream.local_player_runtime_id())?;
     let java = rig.java;
@@ -214,7 +214,7 @@ fn player_motion(world: &World) -> Option<Value> {
         "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),
         "jump_delay": state.map(|state| state.jump_delay),
         "knockback_sequence": physics.knockback_sequence(),
-        "physics_authorized": world.get_resource::<crate::movement::MovementTicker>()
+        "physics_authorized": world.get_resource::<client_interaction::movement::MovementTicker>()
             .map(|movement| movement.physics_is_authorized()),
         "jump_eligible": physics.jump_pulse_eligible(),
         "jump_held": jump_held,
@@ -339,7 +339,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
         "frame_count": world.get_resource::<bevy::diagnostic::FrameCount>().map(|count| count.0),
-        "placement_frames": world.get_resource::<crate::block_use::BlockUseRuntime>().map(|runtime| json!({
+        "placement_frames": world.get_resource::<client_interaction::block_use::BlockUseRuntime>().map(|runtime| json!({
             "committed": runtime.prediction_frames.committed_frame,
             "staged": runtime.prediction_frames.staged_frame,
             "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,

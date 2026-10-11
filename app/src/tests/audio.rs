@@ -119,7 +119,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::CameraPose>()
-        .init_resource::<crate::movement::LocalPhysicsController>()
+        .init_resource::<client_interaction::movement::LocalPhysicsController>()
         .init_resource::<client_audio::named_audio::NamedAudio>()
         .add_systems(Update, crate::named_audio::drain_live_named_audio);
     for event in events {
@@ -365,8 +365,8 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
         .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
-        .insert_resource(crate::movement::MovementTicker::default())
-        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(client_interaction::movement::MovementTicker::default())
+        .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default());
 }

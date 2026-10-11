@@ -17,5 +17,3 @@ pub use pack_preparation::{
 
 #[cfg(test)]
 mod test_support;
-
-pub mod language_carrier;

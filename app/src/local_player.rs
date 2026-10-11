@@ -4,11 +4,8 @@ use bevy::{
 };
 
 use {
-    crate::{
-        environment::WorldClock,
-        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        runtime::world::ClientWorld,
-    },
+    crate::{environment::WorldClock, runtime::world::ClientWorld},
+    client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
 };
 

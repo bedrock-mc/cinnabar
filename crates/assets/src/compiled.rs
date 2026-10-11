@@ -47,7 +47,12 @@ impl BlockFace {
 }
 
 pub const DIAGNOSTIC_MATERIAL: u32 = 0;
-pub const MAX_TEXTURE_LAYERS: usize = 2_048;
+/// Layer capacity of a texture reference. Runtime pages also check the device limit.
+pub const MAX_TEXTURE_LAYERS: usize = 8_192;
+/// Offline page budget for carriers that must fit a 2,048-layer device.
+pub const MAX_CARRIER_TEXTURE_LAYERS: usize = 2_048;
+/// Layer bits shared by carrier references and GPU shader encoders.
+pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;

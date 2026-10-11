@@ -23,7 +23,7 @@ impl Default for RealmUi {
     fn default() -> Self {
         Self {
             state: None,
-            code: super::input::field_editor(MenuField::RealmCode),
+            code: super::input::fields::field_editor(MenuField::RealmCode),
             ticket: 0,
             request: None,
             cancel: false,

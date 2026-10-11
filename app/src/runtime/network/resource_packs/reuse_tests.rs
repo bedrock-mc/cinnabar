@@ -269,6 +269,12 @@ fn only_an_uncancelled_join_under_unchanged_tables_is_kept() {
     };
     kept.keep_join(before_the_change, &now, &application, None, &|| false);
     assert_eq!(kept.len(), 0, "the language changed mid-compile");
+    let before_device = CompileEnvironment {
+        max_layers: now.max_layers + 1,
+        ..now.clone()
+    };
+    kept.keep_join(before_device, &now, &application, None, &|| false);
+    assert_eq!(kept.len(), 0, "device capacity changed mid-compile");
     kept.keep_join(now.clone(), &now, &application, None, &|| false);
     assert_eq!(kept.len(), 1);
 }

@@ -21,14 +21,12 @@ use launcher_host::{
 use client_shell::presence_target::presence_target;
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        movement::{LocalPhysicsController, MovementTicker},
-        runtime::{
-            network::{CompiledStacks, session::NetworkConfig},
-            shutdown::record_fatal_error,
-            world::{ClientWorld, TransferNotice},
-        },
+    crate::runtime::{
+        network::{CompiledStacks, session::NetworkConfig},
+        shutdown::record_fatal_error,
+        world::{ClientWorld, TransferNotice},
     },
+    client_interaction::movement::{LocalPhysicsController, MovementTicker},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
     },
@@ -537,9 +535,11 @@ fn start_network(
         ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
     .map_err(|error| error.to_string())?;
-    commands.insert_resource(crate::movement::MovementTicker::with_epoch_publisher(
-        replacement.physics_epoch_publisher(),
-    ));
+    commands.insert_resource(
+        client_interaction::movement::MovementTicker::with_epoch_publisher(
+            replacement.physics_epoch_publisher(),
+        ),
+    );
     commands.insert_resource(replacement);
     Ok(())
 }

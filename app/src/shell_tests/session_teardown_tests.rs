@@ -16,13 +16,13 @@ use diagnostics::metrics::MetricsCollector;
 use {
     crate::{
         app::configure_client_frame_schedule,
-        movement::{LocalPhysicsController, MovementTicker},
         runtime::{
             network::session::NetworkControlEvent, shutdown::record_fatal_error,
             telemetry::send_player_auth_inputs, visibility::AppMetrics, world::ClientWorld,
         },
         session::{SessionController, drive_session, recover_session_failure},
     },
+    client_interaction::movement::{LocalPhysicsController, MovementTicker},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
     },

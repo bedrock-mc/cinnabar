@@ -239,3 +239,43 @@ fn exact_server_ping_setting_has_a_title_description_and_toggle() {
             .any(|(action, _)| *action == MenuAction::SettingsOption(index as u16, 1))
     );
 }
+
+#[test]
+fn command_macro_invalid_draft_shows_a_chat_limit_error() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.macro_commands = Some(core::array::from_fn(|slot| {
+        if slot == 0 {
+            "x".repeat(ui::MAX_CHAT_INPUT_BYTES)
+        } else {
+            String::new()
+        }
+    }));
+    let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [100.0, 900.0],
+            column_width: 800.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        sections::draw(&mut content, "keyboard_and_mouse_forced_index").unwrap();
+    });
+    let labels: String = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect::<String>()
+        .replace(' ', "");
+    assert!(labels.contains("Commandistoolong."));
+    assert!(labels.contains(&format!("{}-bytechatlimit.", ui::MAX_CHAT_INPUT_BYTES)));
+}

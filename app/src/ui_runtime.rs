@@ -16,7 +16,7 @@ pub(crate) use interaction::{
 pub(crate) use sign_editor::drive_sign_editor;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Drains inventory ingress before movement and UI observations at the existing phase.
 pub(crate) fn drain_inventory_authority(

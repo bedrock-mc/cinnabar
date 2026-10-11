@@ -68,9 +68,9 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
         crate::{
             environment::WorldClock,
             local_player::{publish_local_player_frame, resolve_camera_pose},
-            movement::{LocalPhysicsController, PhysicsCollisionRegistries},
             runtime::world::ClientWorld,
         },
+        client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
         client_presentation::{
             camera::{CameraSettingsAuthority, FlyCamera},
             local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},

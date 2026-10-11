@@ -31,4 +31,14 @@ impl MenuRuntime {
     ) -> bool {
         std::sync::Arc::make_mut(&mut self.settings_options).remap(row, control)
     }
+    /// Arms a stored command without altering ordinary controls in an input fixture.
+    pub fn arm_command_macro_for_test(
+        &mut self,
+        slot: usize,
+        control: semantic_input::PhysicalControl,
+        command: &str,
+    ) -> bool {
+        let settings = std::sync::Arc::make_mut(&mut self.settings_options);
+        settings.remap_macro(slot, control) && settings.set_macro_command(slot, command)
+    }
 }

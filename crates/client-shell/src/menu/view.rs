@@ -39,6 +39,9 @@ impl MenuRuntime {
             name: self.name.as_str().to_owned(),
             address: self.address.as_str().to_owned(),
             port: self.port.as_str().to_owned(),
+            macro_commands: (self.screen == launcher::menu::MenuScreen::Settings).then(|| {
+                core::array::from_fn(|slot| self.macro_commands[slot].as_str().to_owned())
+            }),
             message: self.message.clone(),
             death_reason: String::new(),
             death_loading: self.death_loading,

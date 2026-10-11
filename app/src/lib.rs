@@ -1,5 +1,5 @@
 pub mod args;
-pub mod asset_startup;
+pub mod asset_bindings;
 mod audio;
 mod audio_observations;
 mod block_entities;
@@ -24,7 +24,6 @@ mod item_use;
 pub mod lifecycle;
 pub mod local_player;
 mod melee;
-mod mining;
 mod modding;
 pub mod movement;
 mod named_audio;
@@ -56,7 +55,6 @@ mod window_icon;
 mod acceptance;
 mod app;
 mod presentation;
-mod presentation_observations;
 mod runtime;
 
 pub use app::run;

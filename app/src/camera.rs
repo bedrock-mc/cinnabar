@@ -1,10 +1,8 @@
 //! Composition and observations for the presentation-owned camera.
-use bevy::{prelude::*, window::PrimaryWindow};
+use crate::local_player::resolve_camera_pose;
+use bevy::prelude::*;
 use client_state::ClientFrameSet;
-#[cfg(feature = "local-mods")]
-use client_state::ModCameraInputSet;
 use client_state::RuntimeSettings;
-use {crate::local_player::resolve_camera_pose, client_presentation::local_player::LocalViewPose};
 use {
     crate::semantic_controls::{
         PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
@@ -13,10 +11,9 @@ use {
 };
 
 use client_presentation::camera::{
-    AutoFly, CameraPresentationPlugin, CameraSettingsAuthority, FlyCamera, FlyCameraUpdateSet,
-    ServerCameraView, spawn_fly_camera, update_camera_fov,
+    CameraPresentationPlugin, FlyCameraUpdateSet, spawn_fly_camera, update_camera_fov,
 };
-use client_presentation::camera::{antialiasing, fov, look, motion_blur, overlay_publish};
+use client_presentation::camera::{antialiasing, motion_blur, overlay_publish};
 pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
@@ -53,6 +50,7 @@ impl Default for FlyCameraPlugin {
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
         focus::install(app);
+        app.add_plugins(client_interaction::camera::CameraInputPlugin);
         app.add_plugins(CameraPresentationPlugin {
             auto_fly: self.auto_fly,
             capture_on_start: self.capture_on_start,
@@ -85,10 +83,11 @@ impl Plugin for FlyCameraPlugin {
             Update,
             (
                 (
-                    apply_runtime_camera_settings,
-                    antialiasing::apply_camera_antialiasing,
-                    presentation::collect_fov_inputs,
-                    facts::collect_screen_effect_facts,
+                    antialiasing::apply_camera_antialiasing
+                        .after(client_interaction::camera::apply_runtime_camera_settings)
+                        .before(client_interaction::camera::collect_fov_inputs),
+                    facts::collect_screen_effect_facts
+                        .after(client_interaction::camera::collect_fov_inputs),
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
@@ -105,13 +104,8 @@ impl Plugin for FlyCameraPlugin {
                     .after(ClientFrameSet::Camera)
                     .after(ClientFrameSet::ActorPreparation)
                     .before(ClientFrameSet::UiPreparation),
-                (
-                    update_cursor_capture,
-                    update_perspective,
-                    update_look,
-                    update_movement,
-                )
-                    .chain()
+                update_cursor_capture
+                    .before(client_interaction::camera::update_perspective)
                     .in_set(FlyCameraUpdateSet),
                 (
                     facts::collect_portal_contact,
@@ -128,102 +122,9 @@ impl Plugin for FlyCameraPlugin {
                     .before(ClientFrameSet::Interaction),
             ),
         );
-        #[cfg(feature = "local-mods")]
-        app.configure_sets(
-            Update,
-            ModCameraInputSet
-                .in_set(FlyCameraUpdateSet)
-                .after(update_look)
-                .before(update_movement),
-        );
     }
 }
 
-/// Forwards each retained settings revision to the camera authority once.
-fn apply_runtime_camera_settings(
-    runtime: Res<RuntimeSettings>,
-    mut camera: ResMut<CameraSettingsAuthority>,
-) {
-    let (generation, settings) = runtime.user_settings_update();
-    if generation > camera.generation() {
-        let _ = camera.replace(generation, settings);
-    }
-}
-/// Borrows current owner facts and forwards them at the existing system boundary.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn update_perspective(
-    input: Res<SemanticInputSnapshot>,
-    settings: ResMut<CameraSettingsAuthority>,
-) {
-    client_presentation::camera::update_perspective(
-        client_presentation::observations::InputObservation(input.snapshot()),
-        settings,
-    );
-}
-
-/// Borrows current owner facts and forwards them at the existing system boundary.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn update_look(
-    spyglass: (
-        Option<Res<client_state::GameplayScreenControls>>,
-        Option<Res<fov::CameraFovInputs>>,
-    ),
-    window: Option<Single<&Window, With<PrimaryWindow>>>,
-    input: Res<SemanticInputSnapshot>,
-    auto_fly: Res<AutoFly>,
-    settings: ResMut<CameraSettingsAuthority>,
-    time: Res<Time>,
-    smoother: ResMut<look::LookSmoother>,
-    view: ResMut<LocalViewPose>,
-    server: Option<ResMut<ServerCameraView>>,
-) {
-    client_presentation::camera::update_look(
-        (
-            spyglass.0.as_ref().map_or(0.0, |controls| {
-                match input
-                    .snapshot()
-                    .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
-                        snapshot.input_mode
-                    }) {
-                    semantic_input::InputMode::KeyboardMouse => controls.spyglass_mouse_damping,
-                    semantic_input::InputMode::GamePad => controls.spyglass_gamepad_damping,
-                    semantic_input::InputMode::Touch => 0.0,
-                }
-            }),
-            spyglass.1,
-        ),
-        window.map_or(0, |window| window.physical_width()),
-        client_presentation::observations::InputObservation(input.snapshot()),
-        auto_fly,
-        settings,
-        time,
-        smoother,
-        view,
-        server,
-    );
-}
-
-/// Borrows current owner facts and forwards them at the existing system boundary.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn update_movement(
-    input: Res<SemanticInputSnapshot>,
-    time: Res<Time>,
-    auto_fly: ResMut<AutoFly>,
-    local_physics: Option<Res<crate::movement::LocalPhysicsController>>,
-    camera: Single<&FlyCamera>,
-    view: ResMut<LocalViewPose>,
-) {
-    client_presentation::camera::update_movement(
-        client_presentation::observations::InputObservation(input.snapshot()),
-        time,
-        auto_fly,
-        local_physics
-            .as_deref()
-            .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
-        camera,
-        view,
-    );
-}
 pub(crate) use focus::{mouse_input_active, update_cursor_capture};
 
 #[cfg(test)]
@@ -244,49 +145,3 @@ fn axis(positive: bool, negative: bool) -> f32 {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod antialiasing_settings_tests {
-    use bevy::anti_alias::smaa::Smaa;
-    use {
-        super::*,
-        client_presentation::camera::{CameraSettingsAuthority, FlyCamera},
-    };
-
-    #[test]
-    fn runtime_settings_enable_and_disable_world_smaa_alongside_msaa() {
-        let mut app = App::new();
-        app.init_resource::<RuntimeSettings>()
-            .init_resource::<CameraSettingsAuthority>()
-            .init_resource::<antialiasing::CameraAntiAliasingSupport>()
-            .add_systems(
-                Update,
-                (
-                    apply_runtime_camera_settings,
-                    antialiasing::apply_camera_antialiasing,
-                )
-                    .chain(),
-            );
-        let camera = app
-            .world_mut()
-            .spawn((FlyCamera::default(), Msaa::Off))
-            .id();
-        let mut settings = ui::UserSettings::default();
-        settings.video.smaa_mode = ui::SmaaMode::Smaa;
-        app.world_mut()
-            .resource_mut::<RuntimeSettings>()
-            .replace_user_settings(settings.clone());
-        app.update();
-        assert!(app.world().get::<Smaa>(camera).is_some());
-        assert_eq!(
-            app.world().get::<Msaa>(camera).unwrap().samples(),
-            settings.video.anti_aliasing_samples
-        );
-        settings.video.smaa_mode = ui::SmaaMode::Off;
-        app.world_mut()
-            .resource_mut::<RuntimeSettings>()
-            .replace_user_settings(settings);
-        app.update();
-        assert!(app.world().get::<Smaa>(camera).is_none());
-    }
-}

@@ -18,18 +18,18 @@ use semantic_input::{
     ReleaseReason, TouchContact,
 };
 use {
-    crate::movement::PhysicsAuthorityFaultRecord,
-    gameplay::movement::{
-        MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
-        PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
-    },
-};
-use {
     crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
     acceptance::phase3_evidence::{
         MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
         Phase3EvidenceEventKind, Phase3EvidenceFrame, Phase3EvidenceIdentity,
         validate_phase3_build_source,
+    },
+};
+use {
+    client_interaction::movement::fault_observation::PhysicsAuthorityFaultRecord,
+    gameplay::movement::{
+        MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
+        PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
     },
 };
 

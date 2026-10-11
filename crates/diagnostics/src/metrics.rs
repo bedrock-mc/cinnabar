@@ -104,6 +104,28 @@ pub struct AssetMetrics {
     pub diagnostic_attribution: DiagnosticAttributionSnapshot,
 }
 
+impl From<assets::carriers::startup::CarrierMetrics> for AssetMetrics {
+    /// Starts runtime diagnostics with the measurements from decoded startup carriers.
+    fn from(metrics: assets::carriers::startup::CarrierMetrics) -> Self {
+        Self {
+            source_tag: metrics.source_tag,
+            source_sha256: metrics.source_sha256,
+            blob_sha256: metrics.blob_sha256,
+            texture_layers: metrics.texture_layers,
+            texture_pages: metrics.texture_pages,
+            texture_bytes_including_mips: metrics.texture_bytes_including_mips,
+            material_count: metrics.material_count,
+            model_template_count: metrics.model_template_count,
+            model_quad_count: metrics.model_quad_count,
+            animation_count: metrics.animation_count,
+            animation_frame_count: metrics.animation_frame_count,
+            missing_mapping_count: metrics.missing_mapping_count,
+            diagnostic_quad_count: 0,
+            diagnostic_attribution: DiagnosticAttributionSnapshot::default(),
+        }
+    }
+}
+
 impl Default for AssetMetrics {
     fn default() -> Self {
         Self {

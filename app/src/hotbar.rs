@@ -5,82 +5,24 @@
 //! highlight follows input without waiting for the server), and the choice is announced upstream
 //! with a `PlayerHotbar` packet.
 
-use crate::runtime::network::resource_packs::PackApplication;
-use bevy::{
-    input::mouse::AccumulatedMouseScroll,
-    prelude::{Res, ResMut},
+use crate::runtime::{
+    network::resource_packs::PackApplication, shutdown::record_fatal_error, world::ClientWorld,
 };
+use bevy::prelude::{Res, ResMut};
 use client_runtime::network::NetworkHandle;
-use protocol::{HOTBAR_SLOT_COUNT, Packet};
-use semantic_input::Action;
+use client_session::PacketSendError;
+use protocol::Packet;
 
-use {
-    crate::runtime::{shutdown::record_fatal_error, world::ClientWorld},
-    client_session::PacketSendError,
-    client_state::SemanticInputSnapshot,
-};
-
-use semantic_input::HOTBAR_DIGIT_ACTIONS;
-
-/// Applies number-key, mouse-wheel, and controller hotbar selection to the local prediction and
-/// notifies the server. Runs after semantic input is finalized and before UI publication.
+/// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
 )]
-pub(crate) fn select_hotbar_slot(
+pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    input: Res<SemanticInputSnapshot>,
-    scroll: Res<AccumulatedMouseScroll>,
-    focus: Res<client_state::ScreenFocus>,
     network: Res<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<ClientWorld>,
 ) {
-    // Direct number-key selection. The router only resolves Hotbar1..9 in the Gameplay context,
-    // so digits typed while chat is focused never reach this snapshot.
-    let mut requested: Option<u8> = None;
-    for (index, action) in HOTBAR_DIGIT_ACTIONS.iter().enumerate() {
-        if input.phase(*action).pressed {
-            requested = Some(index as u8);
-        }
-    }
-
-    // Controller actions are router-gated; raw wheel input needs the same screen ownership.
-    let mut cycle: i32 = 0;
-    if input.phase(Action::HotbarNext).pressed {
-        cycle += 1;
-    }
-    if input.phase(Action::HotbarPrevious).pressed {
-        cycle -= 1;
-    }
-    if !focus.absorbs_input {
-        // One slot per frame: scrolling up selects the previous slot.
-        if scroll.delta.y > 0.0 {
-            cycle -= 1;
-        } else if scroll.delta.y < 0.0 {
-            cycle += 1;
-        }
-    }
-
-    if requested.is_none() && cycle != 0 {
-        let current = i32::from(
-            player_runtime
-                .inventory
-                .selected_hotbar_slot(player_runtime.facts.player_game_mode())
-                .unwrap_or(0)
-                .min(HOTBAR_SLOT_COUNT - 1),
-        );
-        let slots = i32::from(HOTBAR_SLOT_COUNT);
-        requested = Some((((current + cycle) % slots + slots) % slots) as u8);
-    }
-
-    if let Some(target) = requested {
-        let game_mode = player_runtime.facts.player_game_mode();
-        player_runtime
-            .inventory
-            .queue_local_hotbar_selection(target, game_mode);
-    }
-
     if network.closed_command_has_pending_control() {
         return;
     }
@@ -136,6 +78,8 @@ fn flush_pending_hotbar_selection(
 
 #[cfg(test)]
 mod tests {
+    use bevy::input::mouse::AccumulatedMouseScroll;
+    use client_state::SemanticInputSnapshot;
     use client_ui::ui_runtime::UiRuntime;
     use std::sync::Arc;
 
@@ -148,6 +92,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
+    use client_interaction::hotbar::queue_hotbar_selection;
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
     fn publish_slot(
@@ -258,7 +203,12 @@ mod tests {
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
-        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(flush_hotbar_selection)
+            .unwrap();
         *player_runtime = app
             .world_mut()
             .remove_resource::<client_state::PlayerRuntime>()
@@ -343,7 +293,12 @@ mod tests {
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
-        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(flush_hotbar_selection)
+            .unwrap();
         *player_runtime = app
             .world_mut()
             .remove_resource::<client_state::PlayerRuntime>()

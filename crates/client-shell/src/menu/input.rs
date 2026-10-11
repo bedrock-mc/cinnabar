@@ -1,6 +1,8 @@
 mod cancel;
+pub(super) mod command_macros;
 pub mod context;
 mod death;
+pub(super) mod fields;
 mod preview;
 mod remapping;
 mod server_list;
@@ -27,12 +29,8 @@ use bevy::{
 use ui::{ChatClipboard, ChatEditor, ToastPress, UiPoint};
 
 use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
-use launcher::local_worlds::form::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
 use launcher::menu::view::MenuCaret;
-use {
-    super::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuRuntime},
-    launcher::menu::MenuField,
-};
+use {super::MenuRuntime, launcher::menu::MenuField};
 
 /// Vanilla's fixed desktop option hotkeys.
 pub const HOTKEY_OPTIONS: [(KeyCode, &str); 2] =
@@ -195,12 +193,6 @@ impl MenuModifiers {
     }
 }
 
-/// The editor `field` types into, bounded by its byte budget. The menu boxes share the
-/// chat box's caret model: a byte caret on character boundaries plus a selection.
-pub(super) fn field_editor(field: MenuField) -> ChatEditor {
-    ChatEditor::new(max_bytes(field)).expect("menu field budgets are valid editor bounds")
-}
-
 impl MenuRuntime {
     /// Focus `field` with its caret after the text, as a newly selected box.
     pub(super) fn focus_field(&mut self, field: MenuField) {
@@ -221,6 +213,7 @@ impl MenuRuntime {
             MenuField::WorldName => &self.local_ui.name,
             MenuField::WorldSeed => &self.local_ui.seed,
             MenuField::SkinName => &self.skin_name,
+            MenuField::MacroCommand(slot) => &self.macro_commands[slot],
         }
     }
 
@@ -233,6 +226,7 @@ impl MenuRuntime {
             MenuField::WorldName => &mut self.local_ui.name,
             MenuField::WorldSeed => &mut self.local_ui.seed,
             MenuField::SkinName => &mut self.skin_name,
+            MenuField::MacroCommand(slot) => &mut self.macro_commands[slot],
         }
     }
 
@@ -265,6 +259,9 @@ impl MenuRuntime {
             return;
         }
         edit(self.editor_mut(field));
+        if let MenuField::MacroCommand(slot) = field {
+            self.sync_macro_command(slot);
+        }
         if field == MenuField::RealmCode
             && let Some(state) = &mut self.realm_membership.state
         {
@@ -355,19 +352,6 @@ impl MenuRuntime {
         }
         self.edit_field(|editor| edit(editor, selecting));
         true
-    }
-}
-
-/// A field's byte budget; world fields allow their vanilla character limits in any script.
-fn max_bytes(field: MenuField) -> usize {
-    match field {
-        MenuField::RealmCode => MAX_SERVER_ADDRESS_BYTES,
-        MenuField::Name => MAX_SERVER_NAME_BYTES,
-        MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
-        MenuField::Port => MAX_SERVER_PORT_BYTES,
-        MenuField::WorldName => MAX_WORLD_NAME_CHARS * 4,
-        MenuField::WorldSeed => MAX_SEED_CHARS,
-        MenuField::SkinName => launcher::dressing_room::MAX_SKIN_NAME_BYTES,
     }
 }
 
@@ -756,6 +740,7 @@ pub fn drive_menu_input(
         && let Some(action) = native_release_action(action, menu.hovered)
     {
         press(&mut menu, action);
+        caret_press = pointer.zip(action.text_field());
     }
     if touches.any_just_pressed() {
         menu.input_mode = MenuInputMode::Touch;
@@ -832,6 +817,9 @@ pub fn drive_menu_input(
                 .and_then(|point| presentation.hit_test_menu(point));
             if native_settings && let Some(action) = native_release_action(action, hovered) {
                 press(&mut menu, action);
+                caret_press = UiPoint::new(position.x, position.y)
+                    .ok()
+                    .zip(action.text_field());
             }
             gui_scale_drag.touch_press = None;
         } else if native_settings && let Some(touch) = touches.get_pressed(id) {
@@ -946,7 +934,9 @@ pub fn drive_menu_input(
                 ));
             }
             KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
-            KeyCode::Space if native_settings => menu.activate_focused(),
+            KeyCode::Space if native_settings && !menu.has_focused_field() => {
+                menu.activate_focused()
+            }
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);

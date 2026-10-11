@@ -209,7 +209,7 @@ pub enum AssetError {
     FlipbookTimelineOverflow { index: usize },
 
     #[error(
-        "invalid animation texture limits: max_layers_per_page={max_layers_per_page}, max_pages={max_pages}; limits are 1..=2048 layers and 1..=2 pages"
+        "invalid animation texture limits: max_layers_per_page={max_layers_per_page}, max_pages={max_pages}; both exceed their page and layer bounds"
     )]
     InvalidAnimationLimits {
         max_layers_per_page: u32,

@@ -204,6 +204,16 @@ fn assert_grid_coverage(model: bool) {
     for enhanced in [false, true] {
         let one = grid_raster(&gpu, model, enhanced, 1);
         let four = grid_raster(&gpu, model, enhanced, 4);
+        if !enhanced {
+            crate::gpu_snapshot::save(
+                if model {
+                    "gridded-model"
+                } else {
+                    "gridded-cube"
+                },
+                &one,
+            );
+        }
         let pixel = |frame: &[u8], index: usize| {
             let cell = CELL_SIDE as usize;
             let row = index / COLUMNS as usize * cell + cell / 2;

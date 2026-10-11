@@ -29,6 +29,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
+    app.add_systems(
+        bevy::prelude::Startup,
+        crate::runtime::network::initialize_overlay_texture_limit,
+    );
     app.add_plugins((
         client_presentation::ClientPresentationPlugin,
         client_shell::ClientShellPlugin,
@@ -91,7 +95,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         Update,
         client_state::ShellFrameSet::GameplayControls
             .after(crate::camera::update_cursor_capture)
-            .before(crate::camera::update_look),
+            .before(client_interaction::camera::update_look),
     )
     .add_systems(
         Update,

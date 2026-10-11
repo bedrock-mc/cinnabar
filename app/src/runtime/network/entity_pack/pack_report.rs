@@ -341,8 +341,8 @@ fn local_vanilla_refs() -> Option<assets::VanillaEntityRefs> {
 fn local_entity_path() -> std::path::PathBuf {
     let world = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join(crate::asset_startup::DEFAULT_ASSET_PATH);
-    crate::asset_startup::entity_asset_path(&world)
+        .join(assets::carriers::startup::DEFAULT_ASSET_PATH);
+    assets::carriers::startup::entity_asset_path(&world)
 }
 
 /// Env-gated: `CINNABAR_PACKCACHE_DIR` names a directory of cached `<uuid>_<version>.zip`

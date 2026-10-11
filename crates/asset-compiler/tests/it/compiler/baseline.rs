@@ -3,8 +3,8 @@ use {
     assets::{
         AssetError, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
         MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
-        MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_WATER_TINT, MAX_TEXTURE_LAYERS, ModelFamily,
-        ModelStateField, RegistryRecord, VisualKind,
+        MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS,
+        ModelFamily, ModelStateField, RegistryRecord, VisualKind,
     },
     std::{
         fmt::Write as FmtWrite,
@@ -531,12 +531,13 @@ fn compiler_rejects_unsupported_static_texture_formats_with_source_context() {
 }
 
 #[test]
-fn compiler_rolls_reachable_layers_into_the_bounded_second_page() {
+fn compiler_keeps_large_carrier_pages_device_compatible() {
     let directory = tempfile::tempdir().expect("create fixture");
     let mut blocks = String::from("{");
     let mut terrain = String::from(r#"{"texture_data":{"#);
-    let mut records = Vec::with_capacity(MAX_TEXTURE_LAYERS);
-    for index in 0..MAX_TEXTURE_LAYERS {
+    let total_layers = 3_000;
+    let mut records = Vec::with_capacity(total_layers - 1);
+    for index in 0..total_layers - 1 {
         if index != 0 {
             blocks.push(',');
             terrain.push(',');
@@ -572,7 +573,21 @@ fn compiler_rolls_reachable_layers_into_the_bounded_second_page() {
     assert_eq!(compiled.texture_pages.len(), 2);
     assert_eq!(
         compiled.texture_pages[0].texture.layers,
-        MAX_TEXTURE_LAYERS as u32
+        MAX_CARRIER_TEXTURE_LAYERS as u32
     );
-    assert_eq!(compiled.texture_pages[1].texture.layers, 1);
+    assert_eq!(
+        compiled.texture_pages[1].texture.layers,
+        (total_layers - MAX_CARRIER_TEXTURE_LAYERS) as u32
+    );
+    for (index, visual) in compiled.visuals.iter().take(records.len()).enumerate() {
+        let material = compiled.materials[visual.faces[0] as usize];
+        assert_ne!(visual.faces[0], DIAGNOSTIC_MATERIAL);
+        let page = &compiled.texture_pages[material.texture.page() as usize];
+        assert!(material.texture.layer() < page.texture.layers);
+        let offset = material.texture.layer() as usize * (TILE_SIZE * TILE_SIZE * 4) as usize;
+        assert_eq!(
+            &page.texture.mips[0].rgba8[offset..offset + 4],
+            &[index as u8, (index >> 8) as u8, (index >> 16) as u8, 255]
+        );
+    }
 }

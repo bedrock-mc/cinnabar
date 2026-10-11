@@ -22,6 +22,7 @@ pub use chat::{
     ChatMessageKind, ChatPasteError, ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest,
     ChatStore, ChatViewNode, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY,
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
+    validate_chat_message,
 };
 pub use geometry::{
     DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, SafeArea, UiPoint, UiRect,

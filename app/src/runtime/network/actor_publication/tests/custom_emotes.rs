@@ -114,7 +114,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     }
     let mut client = ClientWorld::new_with_entity_assets(assets, entities.clone());
     client.stream = Some(stream);
-    let mut physics = crate::movement::LocalPhysicsController::default();
+    let mut physics = client_interaction::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(anchor, 0, true);
     let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(1, 1);
@@ -374,9 +374,9 @@ fn emotes_keep_vanilla_bones_with_java_enabled() {
 
 /// Models the committed-tick admission used by the four production interaction owners.
 fn admit_frame_swing(
-    movement: Res<crate::movement::MovementTicker>,
-    effects: Res<crate::movement::LocalMovementEffectTimeline>,
-    mut swings: ResMut<crate::melee::SwingTracker>,
+    movement: Res<client_interaction::movement::MovementTicker>,
+    effects: Res<client_interaction::movement::LocalMovementEffectTimeline>,
+    mut swings: ResMut<client_interaction::melee::SwingTracker>,
     mut accepted: ResMut<SwingAdmission>,
 ) {
     swings.sync_ticks(
@@ -408,11 +408,11 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
         .remove(Update)
         .unwrap();
     let mut world = fixture();
-    let mut movement = crate::movement::MovementTicker::default();
+    let mut movement = client_interaction::movement::MovementTicker::default();
     *movement = gameplay::test_support::survival_mining::ticker_with_ticks(1);
     world.insert_resource(movement);
-    world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
-    world.init_resource::<crate::melee::SwingTracker>();
+    world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<client_interaction::melee::SwingTracker>();
     world.init_resource::<SwingAdmission>();
     world.init_resource::<render::ActorRenderFrame>();
     world.init_resource::<render::ActorRuntimeWitness>();
@@ -437,8 +437,8 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
         (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
     ];
     for (index, (admitted, expected)) in states.into_iter().enumerate() {
-        *world.resource_mut::<crate::movement::MovementTicker>() = {
-            let mut movement = crate::movement::MovementTicker::default();
+        *world.resource_mut::<client_interaction::movement::MovementTicker>() = {
+            let mut movement = client_interaction::movement::MovementTicker::default();
             *movement =
                 gameplay::test_support::survival_mining::ticker_with_ticks(index as u64 + 1);
             movement

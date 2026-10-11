@@ -61,6 +61,9 @@ impl SettingsOptions {
         if let Some(language) = saved.language() {
             validated.set_language(language);
         }
+        for slot in 0..super::COMMAND_MACRO_COUNT {
+            validated.set_macro_command(slot, saved.macro_command(slot));
+        }
         validated.keys = saved.keys;
         validated.server_list = saved.server_list;
         if let Some(slots) = saved.emote_slots {

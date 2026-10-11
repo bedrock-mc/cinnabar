@@ -52,13 +52,11 @@ fn production_registration_orders_actual_network_control_before_observer_drain()
 #[test]
 fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_frontier() {
     use {
-        crate::{
-            movement::PhysicsAuthorityGate,
-            runtime::{
-                network::{receive_network_events, session::NetworkControlEvent},
-                visibility::AppMetrics,
-            },
+        crate::runtime::{
+            network::{receive_network_events, session::NetworkControlEvent},
+            visibility::AppMetrics,
         },
+        client_interaction::movement::PhysicsAuthorityGate,
         client_presentation::{camera::AutoFly, local_player::LocalAvatarPresentation},
         client_runtime::{
             pack_admission::ResourcePackAdmissionState, publication::PublicationController,

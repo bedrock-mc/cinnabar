@@ -1,7 +1,10 @@
 //! Settings actions stay separate from launcher navigation.
 
 use std::sync::Arc;
-use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
+use {
+    crate::menu::MenuRuntime,
+    launcher::menu::{MenuAction, MenuField, settings_options::macro_row},
+};
 
 impl MenuRuntime {
     /// Applies settings navigation and edits without starting a game session.
@@ -80,8 +83,18 @@ impl MenuRuntime {
                 self.settings_apply = true;
             }
             MenuAction::SettingsKey(index) => self.key_remap = Some(index),
+            MenuAction::SettingsMacroCommand(slot) => {
+                self.focus_field(MenuField::MacroCommand(slot));
+            }
             MenuAction::SettingsResetKey(index) => {
-                if Arc::make_mut(&mut self.settings_options).reset_key(usize::from(index)) {
+                if let Some(slot) = macro_row(usize::from(index)) {
+                    if Arc::make_mut(&mut self.settings_options).reset_macro(slot) {
+                        self.settings_dirty = true;
+                        self.settings_apply = true;
+                    } else {
+                        self.message = Some("That macro key was not assigned.".to_owned());
+                    }
+                } else if Arc::make_mut(&mut self.settings_options).reset_key(usize::from(index)) {
                     self.settings_dirty = true;
                     self.settings_apply = true;
                 } else {
@@ -97,7 +110,15 @@ impl MenuRuntime {
         let Some(index) = self.key_remap.take() else {
             return;
         };
-        if Arc::make_mut(&mut self.settings_options).remap(usize::from(index), control) {
+        let settings = Arc::make_mut(&mut self.settings_options);
+        if let Some(slot) = macro_row(usize::from(index)) {
+            if settings.remap_macro(slot, control) {
+                self.settings_dirty = true;
+                self.settings_apply = true;
+            } else {
+                self.message = Some("That control cannot be assigned to this action.".to_owned());
+            }
+        } else if settings.remap(usize::from(index), control) {
             self.settings_dirty = true;
             self.settings_apply = true;
         } else {

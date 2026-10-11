@@ -171,6 +171,17 @@ impl SemanticInputRouter {
         self.queue_held_releases(reason);
     }
 
+    /// Keeps one desktop control out of gameplay until its physical release.
+    /// Other held controls and pointer motion remain available in the routed frame.
+    pub fn consume_control(&mut self, control: PhysicalControl) {
+        let control = match control {
+            PhysicalControl::KeyboardUsage(code) => QuarantinedControl::KeyboardUsage(code),
+            PhysicalControl::MouseButton(code) => QuarantinedControl::MouseButton(code),
+            _ => return,
+        };
+        push_quarantine(&mut self.quarantined_controls, control);
+    }
+
     pub fn finalize(&mut self) -> Result<ActionSnapshot, RouterError> {
         let next_sequence = self
             .frame_sequence

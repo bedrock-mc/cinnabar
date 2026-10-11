@@ -80,6 +80,20 @@ pub fn binding_mouse(
         .any(|button| binding_mouse_button(menu, name, *button))
 }
 
+/// The command a physical press runs through an armed Alt+key macro, if any.
+pub fn binding_macro_command(
+    menu: Option<&crate::menu::MenuRuntime>,
+    control: PhysicalControl,
+) -> Option<String> {
+    let defaults = launcher::menu::settings_options::SettingsOptions::default();
+    let settings = match menu {
+        Some(menu) => &*menu.settings_options,
+        None => &defaults,
+    };
+    let slot = settings.match_macro(control)?;
+    settings.macro_send_text(slot)
+}
+
 /// Whether the control named `name` is bound to `button`.
 pub fn binding_mouse_button(
     menu: Option<&crate::menu::MenuRuntime>,
