@@ -461,6 +461,7 @@ fn edits_while_jobs_wait_preserve_inputs_and_requeue_stale_completions() {
         prior: stream.light_prior_snapshot(key),
         bounds,
         queued_at: Instant::now(),
+        changed: None,
     };
     let revision = stream.mark_dirty_exact(key, Instant::now());
     stream.mesh_jobs.pending.remove(&key);
@@ -578,7 +579,7 @@ fn batched_dispatch_allocations_are_bounded_by_jobs_and_queue_growth() {
             capture_mesh(&stream, key),
         );
         let done = done.clone();
-        batch.spawn(move || {
+        batch.spawn(false, move || {
             drop(black_box(inputs));
             let _ = done.send(());
         });

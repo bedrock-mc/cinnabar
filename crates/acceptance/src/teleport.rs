@@ -7,7 +7,7 @@ use std::{
 
 use chunk_pipeline::ViewCohortStatus;
 use client_world::{CommittedControlEvent, ViewCohort};
-use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+use render_scene::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
 #[cfg(any(test, feature = "test-support"))]
 use world::SubChunkKey;
 

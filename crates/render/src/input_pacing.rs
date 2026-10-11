@@ -10,6 +10,7 @@
 //! frame's input, so events arriving meanwhile are read fresh, and since every update passes
 //! through it, input events can wake the loop but never admit an extra frame.
 
+use bevy::prelude::IntoScheduleConfigs;
 mod frame_time;
 mod wait;
 
@@ -26,12 +27,12 @@ use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
     ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::{App, First, IntoScheduleConfigs, Last, Plugin, Res, Resource, World},
+    prelude::{App, First, Last, Plugin, Res, Resource, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};
 
-use crate::{RuntimeStage, RuntimeStageProfiler};
+use render_scene::{RuntimeStage, RuntimeStageProfiler};
 
 /// `0` keeps measuring input age but never delays an update for render completion.
 const PACING_ENV: &str = "RUST_MCBE_INPUT_PACING";

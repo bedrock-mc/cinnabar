@@ -1,31 +1,17 @@
 mod action;
-mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
-pub mod custom_emotes;
 pub mod game_mode_capabilities;
 pub mod ingestion;
 mod item;
 mod local_player_facts;
 pub mod server_position;
 
-pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 
 pub use action::{
     ActorEventIdentity, ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR,
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
-};
-pub use actor_animation::{
-    ACTOR_SWING_TICKS, ActorAnimationStats, ActorAnimationVariables, ActorAnimationView,
-    ActorLifetimeId, ActorParticleController, ActorRenderFrame, ActorRenderLayers,
-    ActorRigSnapshot, AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot,
-    AttachablesRuntime, BoneTransform, EntityRigId, HandPhase, ItemAnimationState, JavaHeldItem,
-    JavaMotion, JavaRetargetCache, LocalSwingMotionSample, LocalSwingProgress,
-    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
-    MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
-    MODEL_PART_ORIGIN_Y, RenderTextureLayer, ServerAnimationCompiler, SkinRenderLayer,
-    java_mounted_body_yaw, java_walked_distance,
 };
 pub use actor_store::{
     ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose, ActorShadowCaster,
@@ -45,7 +31,7 @@ pub use block_entity_visuals::{
 pub use item::{
     ActorArmorPiece, ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord,
     CanonicalItemStack, EquipmentNotice, EquipmentOutcome, MAX_EQUIPMENT_NOTICES,
-    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS, vanilla_max_durability,
+    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 

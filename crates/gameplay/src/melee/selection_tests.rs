@@ -24,7 +24,7 @@ fn reject_block_press(
         input_mode: PlayerInputMode::Mouse,
         local_runtime_id: 1,
         selection: None,
-        swing_duration: client_world::ACTOR_SWING_TICKS,
+        swing_duration: actor_animation::ACTOR_SWING_TICKS,
         item_attack: None,
         now_millis: 1,
     };
@@ -108,7 +108,7 @@ fn fresh_block_selection_cannot_borrow_another_owners_retry() {
     runtime.observe_input(true, true);
     let mut swings = SwingTracker::default();
     let mut candidate = swings.clone();
-    assert!(candidate.try_swing(101, client_world::ACTOR_SWING_TICKS));
+    assert!(candidate.try_swing(101, actor_animation::ACTOR_SWING_TICKS));
     swings.defer_unadmitted_attempt(&candidate);
     swings.published_progress(101);
     assert!(
@@ -197,7 +197,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
         input_mode: PlayerInputMode::Mouse,
         local_runtime_id: 1,
         selection: None,
-        swing_duration: client_world::ACTOR_SWING_TICKS,
+        swing_duration: actor_animation::ACTOR_SWING_TICKS,
         item_attack: None,
         now_millis: 1,
     };
@@ -400,7 +400,7 @@ fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
             item: protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
                 .unwrap(),
         }),
-        swing_duration: client_world::ACTOR_SWING_TICKS,
+        swing_duration: actor_animation::ACTOR_SWING_TICKS,
         item_attack: None,
         now_millis: 1,
     }

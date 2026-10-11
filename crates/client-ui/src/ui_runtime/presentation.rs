@@ -12,7 +12,7 @@ use ui::{
 
 use super::scene_stack::Scene;
 use super::{UiRuntime, render_adapter::UiRenderViewport};
-use crate::ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list};
+use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
 mod construction;

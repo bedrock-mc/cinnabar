@@ -11,12 +11,9 @@ use bevy::prelude::SystemSet;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{Core3d, Core3dSystems},
-    ecs::query::QueryItem,
     render::{
         camera::ExtractedCamera,
-        render_resource::{
-            LoadOp, Operations, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp,
-        },
+        render_resource::{LoadOp, Operations, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::ViewDepthStencilTexture,
     },
@@ -117,7 +114,7 @@ pub(crate) fn retained_batch_ranges(
 }
 /// Selects the ordinary or enhanced stage for the current camera.
 pub(crate) fn grade_stage<const POST: bool>(
-    view: bevy::render::renderer::ViewQuery<Has<crate::EnhancedRendering>>,
+    view: bevy::render::renderer::ViewQuery<Has<render_scene::EnhancedRendering>>,
 ) -> bool {
     (render_model::enhanced_rendering_enabled() && view.into_inner()) == POST
 }
@@ -132,7 +129,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
             schedule.add_systems((
                 crate::gpu_timing::profiled(
                     world::ui_world,
-                    Some(crate::RuntimeStage::GpuUi),
+                    Some(render_scene::RuntimeStage::GpuUi),
                     "UiWorldLabel",
                 )
                 .in_set(UiWorldLabel)
@@ -141,7 +138,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
                 .in_set(Core3dSystems::MainPass),
                 crate::gpu_timing::profiled(
                     ui_overlay,
-                    Some(crate::RuntimeStage::GpuUi),
+                    Some(render_scene::RuntimeStage::GpuUi),
                     "UiOverlayLabel",
                 )
                 .in_set(UiOverlayLabel)
@@ -150,7 +147,7 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
                 .run_if(grade_stage::<false>),
                 crate::gpu_timing::profiled(
                     ui_overlay,
-                    Some(crate::RuntimeStage::GpuUi),
+                    Some(render_scene::RuntimeStage::GpuUi),
                     "UiOverlayPostLabel",
                 )
                 .in_set(UiOverlayPostLabel)
@@ -630,7 +627,7 @@ pub(crate) fn ui_overlay(
                     .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
                 timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuUiInvert,
+                    render_scene::RuntimeStage::GpuUiInvert,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -651,7 +648,7 @@ pub(crate) fn ui_overlay(
                 None,
                 world
                     .get_resource::<super::profile::UiProfile>()
-                    .map(|profile| (profile, crate::RuntimeStage::GpuUiInvert)),
+                    .map(|profile| (profile, render_scene::RuntimeStage::GpuUiInvert)),
             );
         }
     }

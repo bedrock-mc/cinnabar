@@ -1,28 +1,32 @@
 //! Mod world primitives: one premultiplied, depth-tested, non-writing draw per view, after
 //! the world's own transparent geometry. Block highlights use a separate through-world draw.
 
-use super::ModRenderScene;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
             BindingType, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferId,
             BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, FragmentState, PipelineCache, RenderPipeline,
-            RenderPipelineDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
-            Variants, VertexState,
+            RenderPipelineDescriptor, ShaderStages, Specializer, SpecializerKey, Variants,
+            VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -30,6 +34,7 @@ use bevy::{
     },
 };
 use mod_render::geometry::ModVertex;
+use render_scene::ModRenderScene;
 use std::sync::Arc;
 
 const PRIMITIVE_SHADER: Handle<Shader> = uuid_handle!("8e1f4b6c-2d7a-4c93-b5e0-7a19c3d84f26");
@@ -57,7 +62,7 @@ pub(super) fn install(app: &mut App) {
                 prepare.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -297,7 +302,7 @@ impl FromWorld for PrimitivePipeline {
                 shader: PRIMITIVE_SHADER,
                 entry_point: Some("mod_primitive_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -349,9 +354,9 @@ impl Specializer<RenderPipeline> for PrimitiveSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -471,12 +476,12 @@ pub(crate) fn queue(
 }
 
 pub(crate) type DrawPrimitiveCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuModPrimitives as usize },
+    { render_scene::RuntimeStage::GpuModPrimitives as usize },
     (SetItemPipeline, SetPrimitiveBindGroup, DrawPrimitives),
 >;
 
 pub(crate) type DrawBlockHighlightCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuModPrimitives as usize },
+    { render_scene::RuntimeStage::GpuModPrimitives as usize },
     (SetItemPipeline, SetPrimitiveBindGroup, DrawBlockHighlights),
 >;
 

@@ -32,13 +32,13 @@ use bevy::{
 use chunk_pipeline::PresentationSnapshot;
 #[cfg(feature = "acceptance")]
 use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
-use render::{
+use render_scene::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWorkloadMetrics, RuntimeStage,
     RuntimeStageProfiler, TransparentSortMetrics, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
 #[cfg(feature = "acceptance")]
-use render::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
+use render_scene::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
 use world::SubChunkKey;
 
 mod visibility_snapshot;
@@ -127,7 +127,11 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
 }
 
-use diagnostics::AcceptanceRuntimeConfig;
+/// Build identity recorded alongside runtime measurements.
+#[derive(bevy::prelude::Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AcceptanceRuntimeConfig {
+    pub(crate) build_profile: &'static str,
+}
 
 #[cfg(feature = "acceptance")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,7 +393,8 @@ pub(crate) fn record_metrics(
     if !sampling.runtime_metadata_emitted
         && let Some(graphics_adapter) = visibility_diagnostics.graphics_adapter()
     {
-        let marker = acceptance_runtime_metadata_marker(*runtime_config, &graphics_adapter);
+        let marker =
+            acceptance_runtime_metadata_marker(runtime_config.build_profile, &graphics_adapter);
         let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
         sampling.runtime_metadata_emitted = true;
@@ -674,7 +679,7 @@ pub(crate) fn record_metrics(
                 render_queue.pending_bytes(),
                 render_queue.gpu_upload_bytes(),
                 snapshot,
-                *runtime_config,
+                runtime_config.build_profile,
                 &graphics,
             );
             let mut stdout = diagnostics::console::stdout();

@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use render::BlockEntityKind;
+use render_model::BlockEntityKind;
 use world::{BLOCKS_PER_SUB_CHUNK, ChunkStore, RawBlockIds, SubChunkKey};
 
 use super::*;

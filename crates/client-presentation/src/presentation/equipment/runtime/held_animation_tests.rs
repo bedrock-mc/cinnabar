@@ -1,7 +1,8 @@
 use super::{local_carrier, pack_runtime, player_body};
 use crate::presentation::equipment::runtime::*;
+use actor_animation::{ActorLifetimeId, ActorRigSnapshot};
 use bevy::math::{Quat, Vec3};
-use client_world::{ActorLifetimeId, ActorRigSnapshot, WorldAuthority};
+use client_world::WorldAuthority;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use std::sync::Arc;
 
@@ -61,7 +62,7 @@ fn owner_rig<'a>(
             runtime_id: owner.runtime_id,
             spawn_revision: owner.spawn_revision,
         },
-        rig: client_world::EntityRigId(0),
+        rig: actor_animation::EntityRigId(0),
         previous: &[],
         current: &[],
         rest: &[],
@@ -80,9 +81,9 @@ fn owner_rig<'a>(
         skin_geometry: None,
         skin_mesh: None,
         skin_layers: &[],
-        hand: [client_world::HandPhase::default(); 2],
-        item_animation: [client_world::ItemAnimationState::default(); 2],
-        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        hand: [actor_animation::HandPhase::default(); 2],
+        item_animation: [actor_animation::ItemAnimationState::default(); 2],
+        off_hand_animation: [actor_animation::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
         java: Default::default(),
         java_equipped: None,
@@ -245,7 +246,7 @@ fn controller_channel(expression: &str) -> Vec<(Box<str>, Vec<u8>)> {
 /// Draws through the equipment route and returns the selected authored X channel.
 fn authored_x(
     runtime: &mut EquipmentRuntime,
-    body: &render::ActorRigSubmission,
+    body: &render_model::ActorRigSubmission,
     owner: &client_world::ActorSnapshot,
     rig: &ActorRigSnapshot<'_>,
     delta: f32,
@@ -662,7 +663,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
         Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap()),
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     let body = player_body(&mut runtime);
     let owner = owner();
@@ -733,7 +734,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         icons,
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     let body = player_body(&mut runtime);
     let mut owner = owner();
@@ -755,7 +756,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
             input.main.as_ref().unwrap(),
             &owner,
             &rig,
-            input.attachable_input(client_world::AttachableAnimationInput {
+            input.attachable_input(actor_animation::AttachableAnimationInput {
                 frame_alpha: 1.0,
                 ..Default::default()
             }),
@@ -956,7 +957,7 @@ fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
                 input.main.as_ref().unwrap(),
                 &owner,
                 &rig,
-                client_world::AttachableAnimationInput {
+                actor_animation::AttachableAnimationInput {
                     first_person: true,
                     off_hand,
                     ..Default::default()

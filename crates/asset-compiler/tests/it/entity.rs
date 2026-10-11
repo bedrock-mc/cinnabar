@@ -5,6 +5,8 @@ use pack_compiler::compile_entity_assets;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
+const SYNTHETIC_PACK_SOURCE_COUNT: usize = 7;
+
 const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[path = "entity/legacy_controller_roots.rs"]
@@ -80,7 +82,14 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let first = compile_entity_assets(pack.path(), MANIFEST).expect("compile entity catalog");
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
-    assert_eq!(first.sources.len(), 10);
+    assert_eq!(
+        first
+            .sources
+            .iter()
+            .filter(|source| pack.path().join(source.path.as_ref()).is_file())
+            .count(),
+        SYNTHETIC_PACK_SOURCE_COUNT
+    );
     assert!(
         first
             .sources
@@ -737,7 +746,14 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     assert_eq!(fs::read(&report).unwrap(), first_report);
 
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
-    assert_eq!(decoded.sources().len(), 10);
+    assert_eq!(
+        decoded
+            .sources()
+            .iter()
+            .filter(|source| pack.path().join(source.path.as_ref()).is_file())
+            .count(),
+        SYNTHETIC_PACK_SOURCE_COUNT
+    );
     let binding_source = decoded
         .sources()
         .iter()

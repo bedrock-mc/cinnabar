@@ -42,8 +42,8 @@ pub struct FirstPersonHand {
     pub consume: Option<(f32, f32)>,
 }
 
-impl From<client_world::ItemAnimationState> for FirstPersonHand {
-    fn from(state: client_world::ItemAnimationState) -> Self {
+impl From<actor_animation::ItemAnimationState> for FirstPersonHand {
+    fn from(state: actor_animation::ItemAnimationState) -> Self {
         Self {
             swing: state.attack_time,
             equip: state.arm_height,

@@ -102,6 +102,7 @@ fn fixture(
                 (FIREWORK, "minecraft:firework_rocket"),
             ]
             .map(|(network_id, identifier)| ItemRegistryEntry {
+                components: None,
                 identifier: identifier.into(),
                 network_id,
                 component_based: false,

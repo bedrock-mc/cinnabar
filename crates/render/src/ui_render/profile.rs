@@ -1,11 +1,11 @@
 //! Opt-in submitted UI work counters accompany the owned GPU pass timings.
 
-use crate::RuntimeStage;
 use bevy::{
     app::SubApp,
     prelude::*,
     render::{Render, RenderSystems, renderer::render_system},
 };
+use render_scene::RuntimeStage;
 use std::{
     sync::Mutex,
     time::{Duration, Instant},

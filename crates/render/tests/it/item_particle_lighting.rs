@@ -4,7 +4,7 @@ use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu};
 use particles::ParticleInstance;
-use render::LightmapInputs;
+use render_model::LightmapInputs;
 
 const TEXEL: [u8; 4] = [128, 192, 64, 255];
 const TINT: [f32; 4] = [0.75, 0.5, 1.0, 1.0];

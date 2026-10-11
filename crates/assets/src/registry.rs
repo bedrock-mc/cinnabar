@@ -8,8 +8,10 @@ mod schema;
 mod wire_tests;
 
 pub use schema::{
-    BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
-    ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
+    BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
+    LEGACY_PHYSICS_REGISTRY_MAGIC, ModelFamily, ModelState, ModelStateField, MovementSemantics,
+    PHYSICS_MOVEMENT_SEMANTICS_OFFSET, PHYSICS_RECORD_HEADER_BYTES, PHYSICS_REGISTRY_HEADER_BYTES,
+    PHYSICS_REGISTRY_MAGIC, RegistryProvenance, RegistryRecord,
 };
 use schema::{
     LEGACY_REGISTRY_PROTOCOL, MAX_COLLISION_BOXES, MAX_REGISTRY_RECORDS, MAX_REGISTRY_STATE_BYTES,

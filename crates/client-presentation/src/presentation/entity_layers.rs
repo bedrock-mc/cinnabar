@@ -3,9 +3,9 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 #[cfg(any(test, feature = "test-support"))]
-use client_world::ActorRigSnapshot;
-use client_world::{BoneTransform, RenderTextureLayer};
-use render::{
+use actor_animation::ActorRigSnapshot;
+use actor_animation::{BoneTransform, RenderTextureLayer};
+use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
     pack_actor_light_without_lightmap, pack_overlay_rgba8,
 };
@@ -28,7 +28,7 @@ struct LayerModel {
 
 #[derive(Debug)]
 struct ResolvedLayer {
-    material: render::ActorMaterial,
+    material: render_model::ActorMaterial,
     location: Option<ActorArtworkLocation>,
     tint: u32,
     overlay: Option<u32>,
@@ -184,7 +184,7 @@ fn resolve(
                     }),
                 };
                 Some(ResolvedLayer {
-                    material: render::ActorMaterial {
+                    material: render_model::ActorMaterial {
                         glint: Default::default(),
                         kind: layer.material,
                         state: layer.material_state,
@@ -366,7 +366,7 @@ mod tests {
             color: [1.0, 1.0, 1.0, 0.3],
             overlay: [0.0; 4],
             hidden_bones: Arc::from([1, 2, 3, 4, 5]),
-            uv_anim: render::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             geometry: None,
             previous_pose: Arc::from([]),
             pose: Arc::from([]),

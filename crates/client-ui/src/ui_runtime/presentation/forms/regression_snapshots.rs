@@ -321,6 +321,7 @@ fn snapshot_custom_display_name_search() {
         .inventory_ledger_mut(&mut player)
         .apply_registry(&protocol::ItemRegistryEvent {
             entries: Arc::from([protocol::ItemRegistryEntry {
+                components: None,
                 network_id: 1,
                 identifier: "custom:blade".into(),
                 component_based: true,
@@ -328,6 +329,7 @@ fn snapshot_custom_display_name_search() {
                 component_digest: [0; 32],
                 negotiated_max_stack_size: None,
                 canonical_empty_component_data: true,
+                components: None,
                 item_tags: Arc::from([]),
             }]),
         });

@@ -6,85 +6,8 @@ pub(super) fn bare(identifier: &str) -> &str {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier)
 }
 
-/// Trunks smelt to charcoal, so they are ingredients before fuel.
-fn is_wood_block(name: &str) -> bool {
-    ends_with_any(name, &["_log", "_wood", "_stem", "_hyphae"])
-}
-
-fn ends_with_any(name: &str, suffixes: &[&str]) -> bool {
-    suffixes.iter().any(|suffix| name.ends_with(suffix))
-}
-
 fn ends_with(name: &str, suffix: &str) -> bool {
     name.ends_with(suffix)
-}
-
-/// Whether a furnace burns the item.
-#[must_use]
-pub(super) fn is_fuel(identifier: &str) -> bool {
-    let name = bare(identifier);
-    matches!(
-        name,
-        "coal"
-            | "charcoal"
-            | "coal_block"
-            | "lava_bucket"
-            | "blaze_rod"
-            | "dried_kelp_block"
-            | "bamboo"
-            | "stick"
-            | "bowl"
-            | "bookshelf"
-            | "chest"
-            | "trapped_chest"
-            | "crafting_table"
-            | "ladder"
-            | "barrel"
-            | "lectern"
-            | "jukebox"
-            | "note_block"
-            | "composter"
-            | "daylight_detector"
-            | "fishing_rod"
-            | "bow"
-            | "crossbow"
-    ) || ends_with_any(
-        name,
-        &[
-            "_planks",
-            "_log",
-            "_wood",
-            "_stem",
-            "_hyphae",
-            "_slab",
-            "_stairs",
-            "_fence",
-            "_fence_gate",
-            "_door",
-            "_trapdoor",
-            "_button",
-            "_pressure_plate",
-            "_sign",
-            "_hanging_sign",
-            "_boat",
-            "_chest_boat",
-            "_sapling",
-            "_carpet",
-            "_wool",
-            "_banner",
-        ],
-    ) || name.starts_with("wooden_")
-}
-
-/// The furnace slot a shift-click aims at: `0` ingredient or `1` fuel.
-#[must_use]
-pub(super) fn furnace_slot(identifier: &str) -> u8 {
-    let name = bare(identifier);
-    if is_wood_block(name) || !is_fuel(name) {
-        0
-    } else {
-        1
-    }
 }
 
 /// The brewing-stand cells a shift-click aims at.
@@ -185,14 +108,6 @@ pub(super) fn horse_slot(identifier: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn furnace_routes_fuel_and_ingredients() {
-        assert_eq!(furnace_slot("minecraft:coal"), 1);
-        assert_eq!(furnace_slot("minecraft:oak_log"), 0);
-        assert_eq!(furnace_slot("minecraft:oak_planks"), 1);
-        assert_eq!(furnace_slot("minecraft:raw_iron"), 0);
-    }
 
     #[test]
     fn brewing_routes_by_role() {

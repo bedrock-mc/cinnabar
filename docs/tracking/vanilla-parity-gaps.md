@@ -278,7 +278,7 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 ## Entity animation query audit (Bedrock target)
 
 Queries referenced by the vanilla pack's entity, controller, animation and render-controller JSON
-(use count in parentheses), by how Cinnabar evaluates them. Sources: `actor_animation/query.rs`,
+(use count in parentheses), by how Cinnabar evaluates them. Sources: `actor-animation` `query.rs`,
 `tick.rs`. Unlisted queries read 0.
 
 | Status | Queries |

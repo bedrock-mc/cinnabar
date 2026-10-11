@@ -1,3 +1,5 @@
+pub mod block_destroy;
+
 use crate::{
     Animation, BlockFlags, CompiledBiomeAssets, ContributorRole, LightProperties, ModelQuad,
     ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TexturePage, TextureRef, VisualKind,
@@ -189,6 +191,7 @@ pub struct BlockVisual {
     pub model_template: u32,
     pub animation: u32,
     pub variant: u32,
+    pub destroy: block_destroy::BlockDestroyFacts,
 }
 
 impl BlockVisual {
@@ -203,6 +206,7 @@ impl BlockVisual {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: block_destroy::BlockDestroyFacts::Unresolved,
         }
     }
 }

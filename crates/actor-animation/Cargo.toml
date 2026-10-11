@@ -1,0 +1,23 @@
+[package]
+name = "actor-animation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# Fixtures and budget controls for actor authority's animation integration tests.
+test-support = []
+
+[dependencies]
+assets = { path = "../assets" }
+protocol = { path = "../protocol" }
+rayon.workspace = true
+render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
+sha2.workspace = true
+tracing.workspace = true
+world = { path = "../world" }
+
+[lints]
+workspace = true

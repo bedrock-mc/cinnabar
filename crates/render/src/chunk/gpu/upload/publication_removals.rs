@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::{ChunkUploadAcknowledgements, ChunkUploadBudget};
 
 /// Returns whether retirement capacity deferred a resident removal this frame.
 /// The independent zero-byte operation allowance is not retirement pressure.

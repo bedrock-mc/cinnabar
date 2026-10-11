@@ -15,7 +15,7 @@ fn fixture() -> &'static (Box<[RegistryRecord]>, PhysicsRegistry) {
         let breg = assets::pinned_block_registry_bytes();
         let version = assets::active_content_registry_protocol();
         let records = assets::read_registry_for_protocol(breg, version).unwrap();
-        let physics = assets::read_physics_registry_for_protocol(
+        let physics = assets::read_physics_registry_seed_for_protocol(
             include_bytes!("../../../assets/data/block-physics-seed-v2193.bin"),
             breg,
             &records,

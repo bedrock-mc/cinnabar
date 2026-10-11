@@ -100,15 +100,15 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
         .replace("MODEL_RANDOM_OFFSET_FLAG", &format!("{}u", meshing::MODEL_REF_FLAG_RANDOM_OFFSET))
         .replace("MODEL_BAMBOO_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_BAMBOO))
-        .replace("BAMBOO_STEM_SIDE_QUAD_MASK", &format!("{}u", meshing::bamboo::STEM_SIDE_QUAD_MASK))
-        .replace("BAMBOO_POSITIVE_X_LEAF_QUAD", &format!("{}u", meshing::bamboo::POSITIVE_X_LEAF_QUAD))
-        .replace("BAMBOO_POSITIVE_Z_LEAF_QUAD", &format!("{}u", meshing::bamboo::POSITIVE_Z_LEAF_QUAD))
+        .replace("BAMBOO_STEM_SIDE_QUAD_MASK", &format!("{}u", assets::bamboo::STEM_SIDE_QUAD_MASK))
+        .replace("BAMBOO_POSITIVE_X_LEAF_QUAD", &format!("{}u", assets::bamboo::POSITIVE_X_LEAF_QUAD))
+        .replace("BAMBOO_POSITIVE_Z_LEAF_QUAD", &format!("{}u", assets::bamboo::POSITIVE_Z_LEAF_QUAD))
         .replace("// BAMBOO_CONSTANTS", &format!(
             "const BAMBOO_OFFSET_MIN: f32 = {:?};\nconst BAMBOO_OFFSET_STEP: f32 = {:?};\nconst BAMBOO_STEM_UV_STRIDE: f32 = {:?};\nconst BAMBOO_LEAF_PLANE_INSET: f32 = {:?};",
             block_transform::bamboo::OFFSET_MIN,
             block_transform::bamboo::OFFSET_STEP,
-            meshing::bamboo::STEM_UV_STRIDE,
-            meshing::bamboo::LEAF_PLANE_INSET,
+            assets::bamboo::STEM_UV_STRIDE,
+            assets::bamboo::LEAF_PLANE_INSET,
         ))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
         .replace("MATERIAL_DISABLE_AO_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_AO))

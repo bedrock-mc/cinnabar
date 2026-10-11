@@ -1,8 +1,11 @@
 //! Publishes this frame's entity-shadow casters for the renderer.
 use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
-use render::{ACTOR_LAYER_BODY, ActorCullView, ActorRenderFrame, EntityShadowScene};
 use render_model::EntityShadow;
+use {
+    render_model::{ACTOR_LAYER_BODY, ActorCullView},
+    render_scene::{ActorRenderFrame, EntityShadowScene},
+};
 
 use crate::presentation::actors::within_actor_candidate_cube;
 
@@ -144,10 +147,10 @@ pub fn drive_entity_shadows(
     let view = camera
         .single()
         .ok()
-        .map(|(transform, projection)| render::ActorCullView {
+        .map(|(transform, projection)| render_model::ActorCullView {
             clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
             camera_position: transform.translation,
-            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+            max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
     crate::entity_shadows::drawn_bodies(&frame, &mut drawn);
     crate::entity_shadows::publish_entity_shadows(

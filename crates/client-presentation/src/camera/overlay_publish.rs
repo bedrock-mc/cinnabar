@@ -9,7 +9,7 @@ use bevy::{
     log::warn,
     prelude::{Local, Mat4, Projection, Query, Res, ResMut, Time, Transform, With},
 };
-use render::{
+use render_scene::{
     ChunkTextureAssetIdentity, ChunkTextureAssets, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenFireTexture,
     ScreenOverlayKind, ScreenOverlayLayer, ScreenOverlayScene, ScreenOverlayTextures,
 };

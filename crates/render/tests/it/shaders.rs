@@ -11,7 +11,7 @@ fn standalone(source: &str) -> String {
     let shader = shader_safety::from_actor_wesl(
         source,
         "standalone.wesl",
-        render::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
@@ -82,7 +82,7 @@ fn every_shader_parses_and_validates() {
             let shader = shader_safety::from_actor_wesl(
                 &raw,
                 path.to_string_lossy(),
-                render::ACTOR_GPU_INSTANCE_WORDS,
+                render_model::ACTOR_GPU_INSTANCE_WORDS,
                 render_model::ACTOR_RIG_VERTEX_WORDS,
             );
             let bevy::shader::Source::Wesl(source) = shader.source else {

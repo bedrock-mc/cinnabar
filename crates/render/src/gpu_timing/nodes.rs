@@ -3,20 +3,19 @@
 //! latency, including overlap and idle gaps; their empty passes are for attribution.
 //! Results arrive a few frames late through the shared nonblocking device poll.
 
-use super::{
-    SLOTS, mark,
-    readback::{ReadbackRing, SpanValidity, span_validity, ticks_to_duration},
-};
+use super::{SLOTS, mark, readback::ReadbackRing};
 use crate::device_poll::FrameSubmissions;
 use bevy::{
     prelude::{
-        IntoScheduleConfigs, Local, ResMut, Resource, Result, SubApp, World, info, resource_exists,
+        IntoScheduleConfigs, Local, Res, ResMut, Resource, Result, SubApp, World, info,
+        resource_exists,
     },
     render::{
         Render, RenderStartup, RenderSystems,
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
+use render_scene::gpu_times::{SpanValidity, span_validity, ticks_to_duration};
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering},

@@ -32,6 +32,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | Crate | What it does |
 | --- | --- |
 | `app` | The `bedrock-client` binary: Bevy app, networking glue, gameplay, menus and HUD. |
+| `crates/actor-animation` | Actor rigs, Molang evaluation, controllers and poses, driven by actor authority. |
 | `crates/asset-compiler` | `assetc`, which compiles the vanilla pack into the runtime carriers. |
 | `crates/assets` | Readers for pack sources and compiled carriers. |
 | `crates/bridge` | The local stream between the client and the Go core. |

@@ -283,7 +283,7 @@ fn drive_mod(
     mut screen_input: screens::ScreenInput,
     observation: (
         Option<Res<registration::Watcher>>,
-        Option<ResMut<::render::ModRenderScene>>,
+        Option<ResMut<render_scene::ModRenderScene>>,
         Query<(&GlobalTransform, &Projection), With<client_presentation::camera::FlyCamera>>,
         Local<presentation_facts::FrameRate>,
     ),

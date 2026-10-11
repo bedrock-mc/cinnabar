@@ -92,6 +92,11 @@ pub fn args_region(capacity: u32, phase: CullPhase, stream: CullStream) -> u32 {
     (phase as u32 * per_phase + before) * capacity * ARGS_WORDS
 }
 
+/// Commands one phase's `stream` region holds for `capacity` slots; no count may exceed it.
+pub const fn region_draws(capacity: u32, stream: CullStream) -> u32 {
+    capacity.saturating_mul(stream.draws_per_record())
+}
+
 pub fn args_words(capacity: u32) -> u64 {
     let per_phase: u64 = CullStream::ALL
         .iter()
@@ -347,6 +352,8 @@ pub struct CullViewUniform {
     pub params: [u32; 4],
     pub regions: [u32; 4],
     pub index_counts: [u32; 4],
+    /// Per-stream [`region_draws`]; the kernels drop commands and clamp counts past it.
+    pub region_draws: [u32; 4],
 }
 
 impl CullViewUniform {
@@ -382,6 +389,7 @@ impl CullViewUniform {
             ],
             regions: CullStream::ALL.map(|stream| args_region(capacity, phase, stream)),
             index_counts: input.index_counts,
+            region_draws: CullStream::ALL.map(|stream| region_draws(capacity, stream)),
         }
     }
 }

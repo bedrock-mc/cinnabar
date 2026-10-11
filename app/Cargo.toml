@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+render-scene = { path = "../crates/render-scene" }
 client-shell = { path = "../crates/client-shell" }
 client-interaction = { path = "../crates/client-interaction" }
 client-runtime = { path = "../crates/client-runtime" }
@@ -71,6 +72,7 @@ crossbeam-channel = "0.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }
+actor-animation = { path = "../crates/actor-animation" }
 image.workspace = true
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }

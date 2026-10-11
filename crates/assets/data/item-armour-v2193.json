@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "protocol": 2193,
+  "items": [
+    {
+      "identifier": "minecraft:chainmail_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 1
+      }
+    },
+    {
+      "identifier": "minecraft:chainmail_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 5
+      }
+    },
+    {
+      "identifier": "minecraft:chainmail_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:chainmail_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 4
+      }
+    },
+    {
+      "identifier": "minecraft:copper_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 1
+      }
+    },
+    {
+      "identifier": "minecraft:copper_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 4
+      }
+    },
+    {
+      "identifier": "minecraft:copper_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:copper_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:diamond_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:diamond_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 8
+      }
+    },
+    {
+      "identifier": "minecraft:diamond_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:diamond_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 6
+      }
+    },
+    {
+      "identifier": "minecraft:elytra",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 0
+      }
+    },
+    {
+      "identifier": "minecraft:golden_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 1
+      }
+    },
+    {
+      "identifier": "minecraft:golden_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 5
+      }
+    },
+    {
+      "identifier": "minecraft:golden_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:golden_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:iron_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:iron_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 6
+      }
+    },
+    {
+      "identifier": "minecraft:iron_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:iron_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 5
+      }
+    },
+    {
+      "identifier": "minecraft:leather_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 1
+      }
+    },
+    {
+      "identifier": "minecraft:leather_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:leather_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 1
+      }
+    },
+    {
+      "identifier": "minecraft:leather_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 2
+      }
+    },
+    {
+      "identifier": "minecraft:netherite_boots",
+      "armour": {
+        "support": "wearable",
+        "slot": "feet",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:netherite_chestplate",
+      "armour": {
+        "support": "wearable",
+        "slot": "chest",
+        "protection": 8
+      }
+    },
+    {
+      "identifier": "minecraft:netherite_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 3
+      }
+    },
+    {
+      "identifier": "minecraft:netherite_leggings",
+      "armour": {
+        "support": "wearable",
+        "slot": "legs",
+        "protection": 6
+      }
+    },
+    {
+      "identifier": "minecraft:turtle_helmet",
+      "armour": {
+        "support": "wearable",
+        "slot": "head",
+        "protection": 2
+      }
+    }
+  ]
+}

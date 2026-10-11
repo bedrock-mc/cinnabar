@@ -16,7 +16,7 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
-use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
+use render_scene::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
 use {
     crate::runtime::network::{advance_actor_frame, prepare_actor_render_frame},
@@ -293,7 +293,7 @@ fn build_world(
             crate::block_entities::load_block_entity_carrier(&loaded.selected_path),
             artwork,
         );
-    let mut scene = render::ActorRenderScene::with_runtime_entity_assets_and_equipment(
+    let mut scene = render_scene::ActorRenderScene::with_runtime_entity_assets_and_equipment(
         &entity_runtime,
         &equipment_geometries,
     )

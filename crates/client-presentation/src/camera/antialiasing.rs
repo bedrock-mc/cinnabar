@@ -57,9 +57,9 @@ pub fn device_support(adapter: &RenderAdapter, device: &RenderDevice) -> CameraA
         }
     };
     let colors = [
-        render::SCENE_COLOR_FORMAT,
-        render::SCENE_COLOR_FORMAT.remove_srgb_suffix(),
-        render::SCENE_HDR_FORMAT,
+        render_scene::SCENE_COLOR_FORMAT,
+        render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix(),
+        render_scene::SCENE_HDR_FORMAT,
     ]
     .map(format_features);
     let depth = format_features(CORE_3D_DEPTH_FORMAT);

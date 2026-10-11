@@ -200,7 +200,7 @@ impl WorldStream {
         self.authority.set_actor_camera_rotation(rotation)
     }
     /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
-    pub fn set_actor_animation_view(&mut self, view: Option<client_world::ActorAnimationView>) {
+    pub fn set_actor_animation_view(&mut self, view: Option<actor_animation::ActorAnimationView>) {
         self.authority.set_actor_animation_view(view)
     }
     /// Sets the view's world position that camera-relative queries sample per tick.
@@ -225,7 +225,7 @@ impl WorldStream {
         self.authority.start_local_player_swing(ticks)
     }
     /// Uses committed local swing samples without re-admitting them on the remote actor clock.
-    pub fn sync_local_swing(&mut self, progress: client_world::LocalSwingProgress) {
+    pub fn sync_local_swing(&mut self, progress: actor_animation::LocalSwingProgress) {
         self.authority.sync_local_swing(progress);
     }
     /// Selects the local motion authority before the actor clock advances unrelated animation.
@@ -236,7 +236,7 @@ impl WorldStream {
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (u64, u64),
-        samples: impl IntoIterator<Item = client_world::LocalSwingMotionSample>,
+        samples: impl IntoIterator<Item = actor_animation::LocalSwingMotionSample>,
     ) {
         self.authority.sync_local_swing_motion(authority, samples);
     }
@@ -247,7 +247,7 @@ impl WorldStream {
     /// Installs the compiler receiving each packet stop expression and its declared version.
     pub fn set_server_animation_compiler(
         &mut self,
-        compiler: client_world::ServerAnimationCompiler,
+        compiler: actor_animation::ServerAnimationCompiler,
     ) {
         self.authority.set_server_animation_compiler(compiler);
     }

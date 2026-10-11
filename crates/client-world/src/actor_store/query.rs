@@ -1,8 +1,8 @@
 use super::*;
-use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 use crate::{
     ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats, item::ActorArmorSnapshot,
 };
+use actor_animation::{ActorAnimationStats, ActorRigSnapshot};
 
 impl ActorStore {
     /// The newest sequence the store applied; it rejects anything at or below it.
@@ -150,6 +150,19 @@ impl ActorStore {
         self.items.identifier_for_network_id(network_id)
     }
 
+    /// Reads protection resolved for this numeric item registry entry.
+    pub(crate) fn item_armour(&self, network_id: i32) -> assets::item::armour::ItemArmour {
+        self.items.item_armour(network_id)
+    }
+
+    /// Reads durability resolved for this numeric item registry entry.
+    pub(crate) fn item_durability(
+        &self,
+        network_id: i32,
+    ) -> assets::item::durability::ItemDurability {
+        self.items.item_durability(network_id)
+    }
+
     pub(crate) fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.items.apply_registry(registry)
     }
@@ -178,47 +191,28 @@ impl ActorStore {
             .then(|| self.animation.get(runtime_id))
             .flatten()
     }
-    pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
-        crate::ActorRenderFrame::new(self, partial_tick)
-    }
-    /// Whether this actor's retained scale depends on the current swelling frame.
-    pub(crate) fn samples_rig_scale(&self, runtime_id: u64) -> bool {
-        self.actors
-            .get(&runtime_id)
-            .is_some_and(|actor| self.animation.samples_rig_scale(actor))
-    }
-    /// Whether the actor's own compiled rig can draw an always-passing depth layer.
-    pub(crate) fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
-        self.actors
-            .get(&runtime_id)
-            .is_some_and(|actor| self.animation.may_use_always_depth_material(actor))
-    }
-    pub(crate) fn render_layers(
-        &self,
-        runtime_id: u64,
-        partial_tick: f32,
-        remaining_ops: &mut usize,
-        sample_skin: bool,
-    ) -> Option<crate::ActorRenderLayers<'_>> {
-        self.animation.render_layers(
-            self.actors.get(&runtime_id)?,
-            partial_tick,
+    pub(crate) fn render_frame(&self, partial_tick: f32) -> actor_animation::ActorRenderFrame<'_> {
+        actor_animation::ActorRenderFrame::new(
+            &self.animation,
+            &self.actors,
             self.camera_rotation,
             self.camera_position,
-            remaining_ops,
-            sample_skin,
+            partial_tick,
         )
     }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
-    pub(crate) fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
+    pub(crate) fn actor_ui_pose(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
     }
     pub(crate) fn actor_retargeted_pose(
         &self,
         runtime_id: u64,
         alpha: f32,
-        targets: &[Option<crate::BoneTransform>],
-    ) -> Option<Vec<crate::BoneTransform>> {
+        targets: &[Option<actor_animation::BoneTransform>],
+    ) -> Option<Vec<actor_animation::BoneTransform>> {
         self.animation.retargeted_pose(runtime_id, alpha, targets)
     }
     /// Borrows the retargeted pose while retaining tick transforms in the caller's cache.
@@ -226,9 +220,9 @@ impl ActorStore {
         &self,
         runtime_id: u64,
         alpha: f32,
-        targets: &[Option<crate::BoneTransform>],
-        cache: &'c mut crate::JavaRetargetCache,
-    ) -> Option<&'c [crate::BoneTransform]> {
+        targets: &[Option<actor_animation::BoneTransform>],
+        cache: &'c mut actor_animation::JavaRetargetCache,
+    ) -> Option<&'c [actor_animation::BoneTransform]> {
         self.animation
             .retargeted_pose_cached(runtime_id, alpha, targets, cache)
     }
@@ -238,11 +232,11 @@ impl ActorStore {
         alpha: f32,
         targets: impl FnMut(
             &[Box<str>],
-            &[crate::BoneTransform],
-            &mut Vec<Option<crate::BoneTransform>>,
+            &[actor_animation::BoneTransform],
+            &mut Vec<Option<actor_animation::BoneTransform>>,
         ) -> Option<()>,
-        cache: &mut crate::JavaRetargetCache,
-    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        cache: &mut actor_animation::JavaRetargetCache,
+    ) -> Option<Vec<actor_animation::SkinRenderLayer>> {
         self.animation
             .retargeted_layers(runtime_id, alpha, targets, cache)
     }
@@ -255,7 +249,7 @@ impl ActorStore {
     }
     pub(crate) fn actor_particle_controllers(
         &self,
-    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+    ) -> impl Iterator<Item = actor_animation::ActorParticleController<'_>> {
         self.animation.particle_controllers()
     }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {

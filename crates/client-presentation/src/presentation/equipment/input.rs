@@ -1,9 +1,10 @@
 //! Gathers what an actor wears and holds from the world stream (and, for the local player, the
 //! client-owned inventory) into runtime input.
 
+use actor_animation::AttachableAnimationInput;
 use assets::ItemVisualRoute;
 use chunk_pipeline::WorldStream;
-use client_world::{ActorArmorSnapshot, AttachableAnimationInput, CanonicalItemStack};
+use client_world::{ActorArmorSnapshot, CanonicalItemStack};
 use protocol::ActorHandedness;
 
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};

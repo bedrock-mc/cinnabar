@@ -1,9 +1,10 @@
 use bevy::render::{
     Extract, ExtractSchedule, sync_component::SyncComponentPlugin, sync_world::RenderEntity,
 };
+use render_scene::ChunkRenderInstance;
 
 use super::*;
-use crate::{RuntimeStage, RuntimeStageProfiler};
+use render_scene::{RuntimeStage, RuntimeStageProfiler};
 
 pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
     app.add_plugins(SyncComponentPlugin::<ChunkRenderInstance>::default())

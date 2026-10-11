@@ -1,22 +1,22 @@
 use std::sync::Arc;
 
+use actor_animation::{ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId};
 use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
-use client_world::{
-    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
-    PlayerProfile,
-};
+use client_world::{ActorPose, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
-use render::{
-    ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission,
-};
 use render_api::StandardSkin;
 use render_model::{
     EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_SKIN_BYTES,
 };
 use semantic_input::PerspectiveMode;
+use {
+    render_model::{
+        ActorCullView, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    },
+    render_scene::ActorRenderScene,
+};
 
 use client_presentation::actor_clock::{
     authoritative_local_actor_eye, publish_local_actor_visibility,
@@ -129,8 +129,8 @@ fn rig<'a>(
         skin_mesh: None,
         skin_layers: &[],
         hand: Default::default(),
-        item_animation: [client_world::ItemAnimationState::default(); 2],
-        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        item_animation: [actor_animation::ItemAnimationState::default(); 2],
+        off_hand_animation: [actor_animation::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
         java: Default::default(),
         java_equipped: None,
@@ -168,7 +168,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
             texture_layer: u32::MAX,
             route: ActorRigRoute::Compiled,
             tint: 0,
-            uv_anim: render::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             light: 0,
             overlay_rgba8: 0,
         },
@@ -226,7 +226,7 @@ fn generic_actor_without_validated_artwork_remains_explicitly_no_draw() {
     let presentation = entity_rig_presentation(
         &rig(42, &bones, &bones),
         &actor,
-        &render::ActorArtworkPages::default(),
+        &render_model::ActorArtworkPages::default(),
         0.5,
     )
     .unwrap();
@@ -617,7 +617,7 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
                 let presentation = entity_rig_presentation(
                     &rig,
                     &actor,
-                    &render::ActorArtworkPages::default(),
+                    &render_model::ActorArtworkPages::default(),
                     1.0,
                 )
                 .unwrap();
@@ -687,7 +687,7 @@ fn authored_skin_bounds_reach_frustum_and_cave_admission() {
         )
     );
     let body = actor_rig_presentation(&authored, &actor, Some(&profile(42, 255)), 1.0).unwrap();
-    assert!(render::actor_rig_submission_is_visible(
+    assert!(render_model::actor_rig_submission_is_visible(
         &body.submission,
         Some(view)
     ));

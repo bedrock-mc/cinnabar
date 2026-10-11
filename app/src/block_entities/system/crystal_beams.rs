@@ -1,6 +1,6 @@
 use bevy::prelude::Vec3;
 use client_world::CrystalBeamView;
-use render::{BlockEntityKind, BlockEntityLight, BlockEntitySubmission, CrystalBeamModel};
+use render_model::{BlockEntityKind, BlockEntityLight, BlockEntitySubmission, CrystalBeamModel};
 
 /// Admits effects by their owning body's interpolated position before consuming scene capacity.
 pub(super) fn submit(
@@ -39,7 +39,7 @@ pub(super) fn submit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use render::ACTOR_CANDIDATE_RADIUS_BLOCKS;
+    use render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS;
 
     /// A beam reaching the camera from a crystal at the supplied interpolated position.
     fn beam(camera: Vec3, offset: Vec3) -> CrystalBeamView {
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(submissions.len(), 1);
         assert_eq!(
             submissions[0].light,
-            render::BlockEntityLight::Actor { block: 4, sky: 11 }
+            render_model::BlockEntityLight::Actor { block: 4, sky: 11 }
         );
         assert_eq!(samples, [(admitted.runtime_id, admitted.owner_position)]);
     }
@@ -167,7 +167,10 @@ mod tests {
         let admitted = beam(Vec3::ZERO, Vec3::ZERO);
         let mut submissions = Vec::new();
         submit(&mut submissions, [admitted], None, |_, _| None);
-        assert_eq!(submissions[0].light, render::BlockEntityLight::Scalar(1.0));
+        assert_eq!(
+            submissions[0].light,
+            render_model::BlockEntityLight::Scalar(1.0)
+        );
     }
 
     #[test]

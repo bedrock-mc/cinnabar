@@ -191,9 +191,9 @@ impl PrewarmPipelines for DepthSmaaPipelines {
         ids: &mut WarmupIds,
     ) -> Result<(), BevyError> {
         let format = if view.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         let pipelines = self.ids(cache, view.msaa.samples(), format);
         ids.extend([

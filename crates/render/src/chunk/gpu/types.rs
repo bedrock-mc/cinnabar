@@ -1,5 +1,6 @@
 use crate::chunk::*;
 use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
+use render_scene::{RuntimeStageProfiler, VisibilityDiagnosticsInput};
 
 pub(in crate::chunk) const MODEL_INDEX_COUNT: u32 = 6;
 

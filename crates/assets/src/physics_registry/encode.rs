@@ -1,6 +1,8 @@
 use sha2::{Digest, Sha256};
 
-use super::{BlockPhysicsRecord, MAGIC, invalid, read_physics_registry_for_protocol};
+use super::{
+    BlockPhysicsRecord, PHYSICS_REGISTRY_MAGIC, invalid, read_physics_registry_for_protocol,
+};
 use crate::{AssetError, RegistryRecord};
 
 /// Encodes and validates a complete compiled registry bound to these exact identities.
@@ -13,7 +15,7 @@ pub fn encode_physics_registry(
     if records.len() > super::MAX_RECORDS {
         return invalid("too many compiled records");
     }
-    let mut bytes = MAGIC.to_vec();
+    let mut bytes = PHYSICS_REGISTRY_MAGIC.to_vec();
     bytes.extend_from_slice(&protocol.to_le_bytes());
     bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&Sha256::digest(breg));
@@ -27,7 +29,7 @@ pub fn encode_physics_registry(
             record.boxes.len() as u8,
             record.flags.bits(),
             record.surface_response as u8,
-            0,
+            record.movement_semantics as u8,
         ]);
         for value in [
             record.friction_q1e8,

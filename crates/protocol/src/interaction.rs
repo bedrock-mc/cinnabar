@@ -1,14 +1,14 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
-    EnumsContainerEnumName, EnumsHandSlot, EnumsInventorySourceType,
-    EnumsItemReleaseInventoryTransactionActionType,
+    EnumsContainerEnumName, EnumsHandSlot, EnumsInteractPacketPayloadAction,
+    EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    EnumsPlayerActionType, InventoryAction, InventorySource, InventoryTransaction,
+    EnumsPlayerActionType, InteractPacket, InventoryAction, InventorySource, InventoryTransaction,
     InventoryTransactionPacket, InventoryTransactionPacketTransaction,
     ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
     ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket,
@@ -594,6 +594,28 @@ pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
         face: 0,
     }
     .into()
+}
+
+/// Requests release from a vehicle using the rider's current native actor position.
+pub fn stop_riding_packet(
+    mount_runtime_id: u64,
+    player_position: [f32; 3],
+) -> Result<crate::Packet, ActorUsePacketError> {
+    if mount_runtime_id == 0 {
+        return Err(ActorUsePacketError::InvalidActorRuntimeId);
+    }
+    if !player_position.into_iter().all(f32::is_finite) {
+        return Err(ActorUsePacketError::NonFinitePlayerPosition);
+    }
+    let [x, y, z] = player_position;
+    Ok(InteractPacket {
+        action: EnumsInteractPacketPayloadAction::Stopriding,
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: mount_runtime_id,
+        },
+        position: Some(Vec3 { x, y, z }),
+    }
+    .into())
 }
 
 /// Builds the local player's arm-swing animation packet.

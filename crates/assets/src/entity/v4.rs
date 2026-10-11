@@ -503,6 +503,7 @@ impl RuntimeEntityAssets {
 }
 
 pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+    crate::item::fuel::validate(&compiled.item_visuals, &compiled.sources)?;
     validate_animation_payload(compiled)?;
     validate_molang_payload(compiled)?;
     validate_controller_payload(compiled)?;
@@ -518,12 +519,32 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         .map_err(|_| invalid("embedded default sprite bindings are invalid"))?;
     let binding_hash: [u8; 32] = Sha256::digest(DEFAULT_SPRITE_BINDINGS).into();
     let legacy_hash: [u8; 32] = Sha256::digest(LEGACY_ICON_ROUTES).into();
+    let durability_hash: [u8; 32] =
+        Sha256::digest(crate::item::durability::ITEM_DURABILITY_SOURCE_BYTES).into();
+    let facts_hash: [u8; 32] = Sha256::digest(crate::item::armour::ITEM_ARMOUR_SOURCE_BYTES).into();
+    let retail = include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
+        .lines()
+        .filter_map(|line| line.split('\t').nth(1))
+        .collect::<std::collections::BTreeSet<_>>();
     for source in &compiled.sources {
         if source.path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH
             && (source.source_bytes as usize != DEFAULT_SPRITE_BINDINGS.len()
                 || source.source_sha256 != binding_hash)
         {
             return Err(invalid("default sprite defining source identity mismatch"));
+        }
+        if source.path.as_ref() == crate::item::armour::ITEM_ARMOUR_SOURCE_PATH
+            && (source.source_bytes as usize != crate::item::armour::ITEM_ARMOUR_SOURCE_BYTES.len()
+                || source.source_sha256 != facts_hash)
+        {
+            return Err(invalid("compiled item facts source identity mismatch"));
+        }
+        if source.path.as_ref() == crate::item::durability::ITEM_DURABILITY_SOURCE_PATH
+            && (source.source_bytes as usize
+                != crate::item::durability::ITEM_DURABILITY_SOURCE_BYTES.len()
+                || source.source_sha256 != durability_hash)
+        {
+            return Err(invalid("compiled durability source identity mismatch"));
         }
         if source.path.as_ref() == LEGACY_ICON_ROUTES_PATH
             && (source.source_bytes as usize != LEGACY_ICON_ROUTES.len()
@@ -561,6 +582,24 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
             {
                 return Err(invalid(
                     "item visual is outside reviewed legacy icon routes",
+                ));
+            }
+        } else if defining_path.as_ref() == crate::item::fuel::SOURCE_PATH {
+            if visual.key.metadata != 0
+                || visual.fuel == crate::item::fuel::ItemFuel::Unresolved
+                || visual.route != ItemVisualDefinitionRoute::Missing
+            {
+                return Err(invalid(
+                    "item fuel defining source has an invalid presentation route",
+                ));
+            }
+        } else if defining_path.as_ref() == crate::item::armour::ITEM_ARMOUR_SOURCE_PATH {
+            if visual.key.metadata != 0
+                || !retail.contains(visual.key.identifier.as_ref())
+                || visual.route != ItemVisualDefinitionRoute::Missing
+            {
+                return Err(invalid(
+                    "compiled item facts source requires a missing retail visual",
                 ));
             }
         } else if !valid_item_definition_source(defining_path) {

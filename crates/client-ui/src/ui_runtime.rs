@@ -142,6 +142,7 @@ impl UiAuthorityTransition {
 pub struct UiRuntime {
     pub experiences: crate::experience_session::ExperienceSession,
     session_id: u64,
+    item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
     last_local_millis: Option<u64>,
@@ -230,6 +231,7 @@ pub struct UiRuntime {
 impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
         Self {
+            item_fuel_catalog: None,
             session_id,
             experiences: Default::default(),
             last_fifo_sequence: None,
@@ -447,11 +449,20 @@ impl UiRuntime {
         self.block_cracks.synchronize_dimension(Some(dimension));
     }
 
+    /// Installs validated compiled fuel facts for subsequent inventory admission.
+    pub fn set_item_fuel_catalog(&mut self, catalog: Arc<assets::RuntimeEntityAssets>) {
+        self.item_fuel_catalog = Some(catalog);
+    }
+
     pub fn inventory_ledger_mut<'a>(
         &mut self,
         player_runtime: &'a mut player_state::PlayerState,
     ) -> &'a mut PlayerInventoryLedger {
-        player_runtime.inventory.ledger_mut()
+        let ledger = player_runtime.inventory.ledger_mut();
+        if let Some(catalog) = &self.item_fuel_catalog {
+            ledger.set_item_fuel_catalog(Arc::clone(catalog));
+        }
+        ledger
     }
 
     pub fn poll_inventory_timeout(

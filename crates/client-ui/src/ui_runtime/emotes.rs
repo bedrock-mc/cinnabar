@@ -1,5 +1,5 @@
 //! Local original emotes: native four-slot selection and unique equipped pieces.
-use client_world::CustomEmote;
+use actor_animation::CustomEmote;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::UiAction;
 

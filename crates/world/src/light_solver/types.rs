@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-use crate::{LightChannel, LightStorageError, LightStoreSnapshot, SubChunkKey};
+use crate::{
+    BLOCKS_PER_SUB_CHUNK, LightChannel, LightStorageError, LightStoreSnapshot, SubChunkKey,
+};
 
 #[cfg(test)]
 thread_local! {
@@ -105,6 +107,17 @@ pub trait LightBlockAccess {
     fn sky_seed(&self, _position: BlockPos) -> u8 {
         0
     }
+
+    /// Writes the samples of every block in sub-chunk `key` into `out`, indexed
+    /// `x << 8 | z << 4 | y` in section coordinates, as [`Self::sample`] would return them, and
+    /// returns true. Sources with no faster whole-section read return false and leave `out`.
+    fn sample_section(
+        &self,
+        _key: SubChunkKey,
+        _out: &mut [LightBlockSample; BLOCKS_PER_SUB_CHUNK],
+    ) -> bool {
+        false
+    }
 }
 
 /// Dimension profile selected by the caller rather than inferred from blocks.
@@ -182,11 +195,55 @@ impl LightBounds {
         usize::try_from(x.checked_mul(y)?.checked_mul(z)?).ok()
     }
 
-    pub(super) fn positions(self) -> impl Iterator<Item = BlockPos> {
-        (self.min.x..=self.max.x).flat_map(move |x| {
-            (self.min.y..=self.max.y)
-                .flat_map(move |y| (self.min.z..=self.max.z).map(move |z| BlockPos::new(x, y, z)))
-        })
+    /// Every cell in dense order: `x` outermost, then `y`, then `z`.
+    pub(super) fn positions(self) -> Positions {
+        Positions {
+            bounds: self,
+            next: Some(self.min),
+            surface_only: false,
+        }
+    }
+
+    /// The cells on the bounds' six faces, in the same dense order as [`Self::positions`].
+    pub(super) fn surface_positions(self) -> Positions {
+        Positions {
+            bounds: self,
+            next: Some(self.min),
+            surface_only: true,
+        }
+    }
+}
+
+/// Walks validated bounds in dense order, optionally skipping interior cells.
+pub(super) struct Positions {
+    bounds: LightBounds,
+    next: Option<BlockPos>,
+    surface_only: bool,
+}
+
+impl Iterator for Positions {
+    type Item = BlockPos;
+
+    #[inline]
+    fn next(&mut self) -> Option<BlockPos> {
+        let current = self.next?;
+        let (min, max) = (self.bounds.min, self.bounds.max);
+        let interior_row = self.surface_only
+            && current.x != min.x
+            && current.x != max.x
+            && current.y != min.y
+            && current.y != max.y;
+        self.next = if current.z < max.z {
+            let z = if interior_row { max.z } else { current.z + 1 };
+            Some(BlockPos::new(current.x, current.y, z))
+        } else if current.y < max.y {
+            Some(BlockPos::new(current.x, current.y + 1, min.z))
+        } else if current.x < max.x {
+            Some(BlockPos::new(current.x + 1, min.y, min.z))
+        } else {
+            None
+        };
+        Some(current)
     }
 }
 
@@ -367,4 +424,32 @@ pub(super) fn split_position(dimension: i32, position: BlockPos) -> (SubChunkKey
         position.z.rem_euclid(16) as u8,
     ];
     (key, local)
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn surface_positions_are_the_face_cells_of_positions_in_dense_order() {
+        for (min, max) in [
+            ([0, 0, 0], [3, 4, 5]),
+            ([-2, 7, 1], [-2, 9, 1]),
+            ([5, 5, 5], [5, 5, 5]),
+            ([0, 0, 0], [2, 2, 0]),
+        ] {
+            let bounds = LightBounds::new(0, min.into(), max.into()).unwrap();
+            let on_face = |p: &BlockPos| {
+                p.x == min[0]
+                    || p.x == max[0]
+                    || p.y == min[1]
+                    || p.y == max[1]
+                    || p.z == min[2]
+                    || p.z == max[2]
+            };
+            let expected = bounds.positions().filter(on_face).collect::<Vec<_>>();
+            assert_eq!(bounds.surface_positions().collect::<Vec<_>>(), expected);
+            assert_eq!(bounds.positions().count(), bounds.volume().unwrap());
+        }
+    }
 }

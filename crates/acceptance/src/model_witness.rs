@@ -1,16 +1,18 @@
+use anyhow::Context;
+use sha2::Digest;
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 #[cfg(test)]
 use bevy::prelude::{App, Update};
 use bevy::prelude::{Res, ResMut, Resource};
 
-use render::{
+use render_scene::{
     ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessRequest, PresentedFrameGate,
     TargetRenderExpectation,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::time::Instant;
 use world::SubChunkKey;
 

@@ -93,7 +93,7 @@ impl FromWorld for BlockEntityPipeline {
                 shader: SHADER_HANDLE,
                 entry_point: Some("block_entity_solid".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -152,9 +152,9 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         );
         let target = fragment.targets[0].as_mut().unwrap();
         target.format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         target.blend = match key.mode {
             PipelineMode::Solid | PipelineMode::Outline => None,
@@ -171,7 +171,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
                 },
             }),
             PipelineMode::Overlay => Some(BlendState::ALPHA_BLENDING),
-            PipelineMode::Additive => Some(super::super::dragon_death::DRAGON_DEATH_BLEND),
+            PipelineMode::Additive => Some(super::super::DRAGON_DEATH_BLEND),
             // Twice source times destination, like the classic destroy overlay.
             PipelineMode::Crack => Some(BlendState {
                 color: BlendComponent {

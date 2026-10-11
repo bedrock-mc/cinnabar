@@ -4,6 +4,7 @@ use ::protocol::{CreativeCategory, CreativeGroup, CreativeItem, ItemRegistryVers
 
 fn entry(network_id: i32, identifier: &str, tags: &[&str]) -> ItemRegistryEntry {
     ItemRegistryEntry {
+        components: None,
         identifier: identifier.into(),
         network_id,
         component_based: !tags.is_empty(),

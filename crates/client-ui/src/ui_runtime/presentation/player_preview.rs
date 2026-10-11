@@ -221,7 +221,7 @@ pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.
 pub(super) const HUD_SWIM_OFFSET: f32 = 0.8;
 /// UI rendering retains vanilla's model-part origin rather than the world feet origin.
-pub const PLAYER_UI_ORIGIN: f32 = client_world::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
+pub const PLAYER_UI_ORIGIN: f32 = actor_animation::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
 const POINTER_DISTANCE_GUI_PIXELS: f32 = 40.0;
 const POINTER_ANGLE_FACTOR: f32 = 20.0;
 const HEAD_PIVOT: [f32; 3] = [0.0, 1.5, 0.0];

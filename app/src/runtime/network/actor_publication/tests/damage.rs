@@ -27,8 +27,8 @@ fn actor_damage_publication_advances_before_ui_and_clears_with_the_stream() {
         .unwrap();
     let mut world = custom_emotes::fixture();
     world.init_resource::<DamageAtUiPreparation>();
-    world.init_resource::<render::ActorRenderFrame>();
-    world.init_resource::<render::ActorRuntimeWitness>();
+    world.init_resource::<render_scene::ActorRenderFrame>();
+    world.init_resource::<render_scene::ActorRuntimeWitness>();
     {
         let mut client = world.resource_mut::<ClientWorld>();
         let stream = client.stream.as_mut().unwrap();

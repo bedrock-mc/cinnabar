@@ -2,14 +2,17 @@
 //! PNGs and a pose trace stay in the caller's scratch directory; no server/world is touched.
 use std::{path::Path, sync::Arc};
 
+use actor_animation::BoneTransform;
 use assets::RuntimeEntityAssets;
 use bevy::prelude::*;
 use chunk_pipeline::WorldStream;
-use client_world::BoneTransform;
 use protocol::{
     ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
+use {
+    render_model::ActorArtworkPages,
+    render_scene::{ActorRenderFrame, ActorRenderScene},
+};
 
 use super::render_report::world_for;
 

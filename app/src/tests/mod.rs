@@ -18,10 +18,6 @@ use protocol::{
     LevelChunkMode, PlayerMovementCorrectionEvent, PlayerSkin, SubChunkBatchEvent,
     SubChunkEntryEvent, SubChunkResult, WorldBootstrap, WorldEvent,
 };
-use render::{
-    ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadPriority,
-    PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
-};
 use render_api::StandardSkin;
 use render_model::{
     GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
@@ -32,6 +28,13 @@ use std::{
     time::{Duration, Instant},
 };
 use world::{ChunkKey, LightSolveError, SubChunkKey};
+use {
+    render::ChunkRenderPlugin,
+    render_scene::{
+        ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadPriority,
+        PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
+    },
+};
 
 fn actor_snapshot(spawn: protocol::ActorSpawnEvent) -> client_world::ActorSnapshot {
     let runtime = spawn.runtime_id;

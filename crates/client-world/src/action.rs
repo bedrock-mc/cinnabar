@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use assets::{ItemActionPhase, RuntimeEntityAssets};
 use protocol::{ActorActionEvent, ActorActionKind};
 
-use crate::{ActorLifetimeId, EntityRigId};
+use actor_animation::{ActorLifetimeId, EntityRigId};
 
 pub const MAX_ACTIONS_PER_ACTOR: usize = 32;
 pub const MAX_ACTION_EVENTS_PER_TICK: usize = 4_096;

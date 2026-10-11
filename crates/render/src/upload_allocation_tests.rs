@@ -1,8 +1,8 @@
 //! Real owner preparation keeps Metal staging allocations visible until submission.
 
+use bevy::ecs::system::RunSystemOnce;
 use bevy::{
     core_pipeline::core_3d::Transparent3d,
-    ecs::system::RunSystemOnce,
     prelude::*,
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
@@ -123,9 +123,9 @@ fn ui_input() -> render_model::UiRenderInput {
 
 #[test]
 fn recurring_ui_viewport_updates_allocate_no_gpu_staging_buffers() {
-    use crate::ui_render::{
-        UiGlintSettings, UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource,
-        resources::prepare_ui_resources,
+    use {
+        crate::ui_render::{UiRenderPlugin, resources::prepare_ui_resources},
+        render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource},
     };
     let Some(mut app) = app(UiRenderPlugin) else {
         return;

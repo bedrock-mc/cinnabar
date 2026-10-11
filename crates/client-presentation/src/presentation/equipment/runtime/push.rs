@@ -286,7 +286,7 @@ impl EquipmentRuntime {
             .unwrap_or_default();
         let pack = self.pack.as_mut()?;
         let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
-        let input = equipment.attachable_input(client_world::AttachableAnimationInput {
+        let input = equipment.attachable_input(actor_animation::AttachableAnimationInput {
             worn: true,
             worn_slot: slot as u8,
             frame_alpha: animation.frame_alpha,

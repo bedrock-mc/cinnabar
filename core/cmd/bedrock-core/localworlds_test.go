@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 )
 
@@ -139,5 +141,38 @@ func TestBDSDefaultDoesNotRequireDragonflyBinary(t *testing.T) {
 	}
 	if worlds, _ := manager.List(); len(worlds) != 0 {
 		t.Fatalf("saved %v", worlds)
+	}
+}
+
+// failingRunner never starts a server, so an opened world fails in the background.
+type failingRunner struct{}
+
+func (failingRunner) Start(context.Context, localworld.StartSpec) (localworld.Instance, error) {
+	return nil, errors.New("no server")
+}
+
+// The open hook runs only after a successful Open, and manager failures reach control classified.
+func TestControlWorldsRunTheOpenHookOnlyAfterASuccessfulOpen(t *testing.T) {
+	saved, err := localworld.OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.SetDefaultBackend(localworld.BackendDragonfly)
+	manager := localworld.NewManager(saved, localworld.Runners{localworld.BackendDragonfly: failingRunner{}}, newLifecycleLogger(io.Discard))
+	t.Cleanup(manager.Shutdown)
+	opened := 0
+	worlds := controlWorlds{manager: manager, onOpen: func() { opened++ }}
+	world, err := worlds.Create(control.WorldSpec{Name: "w", Backend: localworld.BackendDragonfly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worlds.Open("0123456789abcdef", 0); !errors.Is(err, control.ErrWorldNotFound) || opened != 0 {
+		t.Fatalf("Open(missing) = %v, hook calls %d", err, opened)
+	}
+	if err := worlds.Open(world.ID, 8); err != nil || opened != 1 {
+		t.Fatalf("Open() = %v, hook calls %d", err, opened)
+	}
+	if err := worlds.Invite(context.Background(), "2535400000000000"); !errors.Is(err, control.ErrWorldNotOpen) {
+		t.Fatalf("Invite() without hosting = %v", err)
 	}
 }

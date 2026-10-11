@@ -8,8 +8,6 @@ import (
 	"io"
 	"net"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/localworld"
 )
 
 const (
@@ -35,36 +33,39 @@ const (
 	codeBackendAbsent = -32013
 )
 
-// Worlds is the local-world service behind the world_* methods; *localworld.Manager implements it.
+// World failures the world_* methods report by code; a sentinel's message is safe to show.
+var (
+	ErrWorldNotFound           = errors.New("world not found")
+	ErrWorldInvalid            = errors.New("invalid world settings") // its wrapping message names the bad setting
+	ErrWorldBusy               = errors.New("another world is starting, running or stopping")
+	ErrWorldInUse              = errors.New("world is open")
+	ErrWorldNotOpen            = errors.New("no world is open")
+	ErrWorldRuntimePending     = errors.New("still checking whether Docker is running; try again")
+	ErrEULARequired            = errors.New("the Minecraft EULA must be accepted before the server is downloaded")
+	ErrWorldBackendUnavailable = errors.New("world backend is not available on this platform")
+)
+
+// Worlds hosts local worlds behind the world_* methods.
 type Worlds interface {
-	List() ([]localworld.World, error)
-	Create(localworld.Spec) (localworld.World, error)
-	Update(id string, update localworld.Update) (localworld.World, error)
-	Delete(id string) error
-	Open(id string, opts ...localworld.OpenOptions) error
-	AcceptEULA() error
-	Prefs(ctx context.Context, update localworld.PrefsUpdate) (localworld.Prefs, error)
+	List() ([]World, error)
+	// Open begins starting a world; a zero viewDistance takes the backend default.
+	Open(id string, viewDistance int) error
 	Close() error
+	Status() WorldStatus
+}
+
+// WorldEditor saves, edits and deletes worlds; a Worlds value may implement it.
+type WorldEditor interface {
+	Create(WorldSpec) (World, error)
+	Update(id string, update WorldUpdate) (World, error)
+	Delete(id string) error
+}
+
+// WorldBackend controls the server that hosts worlds; a Worlds value may implement it.
+type WorldBackend interface {
 	SetPaused(paused bool) error
-	Status() localworld.Status
-}
-
-type openHookWorlds struct {
-	Worlds
-	onOpen func()
-}
-
-func (w openHookWorlds) Open(id string, opts ...localworld.OpenOptions) error {
-	err := w.Worlds.Open(id, opts...)
-	if err == nil {
-		w.onOpen()
-	}
-	return err
-}
-
-// WithOpenHook returns worlds that also call onOpen after each successful Open.
-func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
-	return openHookWorlds{Worlds: worlds, onOpen: onOpen}
+	AcceptEULA() error
+	Prefs(ctx context.Context, update WorldPrefsUpdate) (WorldPrefs, error)
 }
 
 // Inviter sends Xbox Live invites to the open world while it is hosted for friends.
@@ -72,16 +73,74 @@ type Inviter interface {
 	Invite(ctx context.Context, xuid string) error
 }
 
-type invitingWorlds struct {
-	Worlds
-	invite func(context.Context, string) error
+// World is one saved world.
+type World struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	GameMode       string `json:"game_mode"`
+	Generator      string `json:"generator"`
+	Difficulty     string `json:"difficulty"`
+	Backend        string `json:"backend"`
+	Seed           int64  `json:"seed"`
+	CreatedUnix    int64  `json:"created_unix"`
+	LastPlayedUnix int64  `json:"last_played_unix"`
+	SizeBytes      int64  `json:"size_bytes,omitempty"`
 }
 
-func (w invitingWorlds) Invite(ctx context.Context, xuid string) error { return w.invite(ctx, xuid) }
+// WorldSpec is the user-chosen settings of a new world; empty fields take defaults and a nil Seed is random.
+type WorldSpec struct {
+	Name       string `json:"name"`
+	GameMode   string `json:"game_mode,omitempty"`
+	Generator  string `json:"generator,omitempty"`
+	Difficulty string `json:"difficulty,omitempty"`
+	Backend    string `json:"backend,omitempty"`
+	Seed       *int64 `json:"seed,omitempty"`
+}
 
-// WithInvites returns worlds that also serve world_invite.v1 through invite.
-func WithInvites(worlds Worlds, invite func(context.Context, string) error) Worlds {
-	return invitingWorlds{Worlds: worlds, invite: invite}
+// WorldUpdate changes a saved world's settings; nil fields are left alone.
+type WorldUpdate struct {
+	Name       *string `json:"name,omitempty"`
+	GameMode   *string `json:"game_mode,omitempty"`
+	Difficulty *string `json:"difficulty,omitempty"`
+}
+
+// WorldPrefs are the per-user local-world preferences.
+type WorldPrefs struct {
+	DockerPromptDismissed bool `json:"docker_prompt_dismissed"`
+}
+
+// WorldPrefsUpdate changes preferences; a nil field is left alone and Redetect re-probes for Docker.
+type WorldPrefsUpdate struct {
+	DockerPromptDismissed *bool
+	Redetect              bool
+}
+
+// WorldStatus is the secret-safe view of the open world; Error never carries paths.
+type WorldStatus struct {
+	State                    string      `json:"state"`
+	WorldID                  string      `json:"world_id,omitempty"`
+	Backend                  string      `json:"backend,omitempty"`
+	Paused                   bool        `json:"paused"`
+	PauseSupported           bool        `json:"pause_supported"`
+	Error                    string      `json:"error,omitempty"`
+	Setup                    *WorldSetup `json:"setup,omitempty"`
+	BackendUnavailableReason string      `json:"backend_unavailable_reason,omitempty"`
+	MaxPlayers               int         `json:"max_players,omitempty"` // the host included; zero when unknown
+}
+
+// WorldSetup reports dedicated-server acquisition; Error never carries paths.
+type WorldSetup struct {
+	State             string `json:"state"`
+	Version           string `json:"version,omitempty"`
+	BytesDone         int64  `json:"bytes_done"`
+	BytesTotal        int64  `json:"bytes_total"`
+	LayersDone        int    `json:"layers_done,omitempty"`
+	LayersTotal       int    `json:"layers_total,omitempty"`
+	EULAAccepted      bool   `json:"eula_accepted"`
+	Error             string `json:"error,omitempty"`
+	Runtime           string `json:"runtime"`
+	Reason            string `json:"reason,omitempty"`
+	UnavailableReason string `json:"backend_unavailable_reason,omitempty"`
 }
 
 var worldMethods = map[string]struct{}{
@@ -97,11 +156,11 @@ func isWorldMethod(method string) bool {
 
 // WorldResultV1 is the result of every world_* method; unused members are omitted.
 type WorldResultV1 struct {
-	SchemaVersion uint32             `json:"schema_version"`
-	Worlds        []localworld.World `json:"worlds,omitempty"`
-	World         *localworld.World  `json:"world,omitempty"`
-	Status        *localworld.Status `json:"status,omitempty"`
-	Prefs         *localworld.Prefs  `json:"prefs,omitempty"`
+	SchemaVersion uint32       `json:"schema_version"`
+	Worlds        []World      `json:"worlds,omitempty"`
+	World         *World       `json:"world,omitempty"`
+	Status        *WorldStatus `json:"status,omitempty"`
+	Prefs         *WorldPrefs  `json:"prefs,omitempty"`
 }
 
 func decodeParams(raw json.RawMessage, into any) bool {
@@ -116,12 +175,22 @@ func decodeParams(raw json.RawMessage, into any) bool {
 func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
 	reply := responseWriter{server: server, conn: conn, id: id}
 	worlds := server.worldService()
+	editor, _ := worlds.(WorldEditor)
+	backend, _ := worlds.(WorldBackend)
 	result := &WorldResultV1{SchemaVersion: 1}
 	var err error
 	switch method {
 	case methodWorldList, methodWorldClose, methodWorldStatus:
 		if len(raw) != 0 {
 			return reply.invalid()
+		}
+	case methodWorldCreate, methodWorldUpdate, methodWorldDelete:
+		if editor == nil {
+			return reply.fail(-32601, "Method not found")
+		}
+	case methodWorldPause, methodBDSEULA, methodPrefs:
+		if backend == nil {
+			return reply.fail(-32601, "Method not found")
 		}
 	}
 	switch method {
@@ -131,25 +200,25 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			result.Worlds = result.Worlds[:maxListedWorlds]
 		}
 	case methodWorldCreate:
-		var spec localworld.Spec
+		var spec WorldSpec
 		if !decodeParams(raw, &spec) {
 			return reply.invalid()
 		}
-		var world localworld.World
-		if world, err = worlds.Create(spec); err == nil {
+		var world World
+		if world, err = editor.Create(spec); err == nil {
 			result.World = &world
 		}
 	case methodWorldUpdate:
 		var params struct {
 			ID *string `json:"id"`
-			localworld.Update
+			WorldUpdate
 		}
 		if !decodeParams(raw, &params) || params.ID == nil ||
 			(params.Name == nil && params.GameMode == nil && params.Difficulty == nil) {
 			return reply.invalid()
 		}
-		var world localworld.World
-		if world, err = worlds.Update(*params.ID, params.Update); err == nil {
+		var world World
+		if world, err = editor.Update(*params.ID, params.WorldUpdate); err == nil {
 			result.World = &world
 		}
 	case methodWorldDelete, methodWorldOpen:
@@ -162,9 +231,9 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			return reply.invalid()
 		}
 		if method == methodWorldDelete {
-			err = worlds.Delete(*params.ID)
+			err = editor.Delete(*params.ID)
 		} else {
-			err = worlds.Open(*params.ID, localworld.OpenOptions{ViewDistance: params.ViewDistance})
+			err = worlds.Open(*params.ID, params.ViewDistance)
 		}
 	case methodPrefs:
 		var params struct {
@@ -175,7 +244,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 			return reply.invalid()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		prefs, prefsErr := worlds.Prefs(ctx, localworld.PrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, Redetect: params.Redetect})
+		prefs, prefsErr := backend.Prefs(ctx, WorldPrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, Redetect: params.Redetect})
 		cancel()
 		err = prefsErr
 		result.Prefs = &prefs
@@ -186,7 +255,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		if !decodeParams(raw, &params) || params.Accepted == nil || !*params.Accepted {
 			return reply.invalid()
 		}
-		err = worlds.AcceptEULA()
+		err = backend.AcceptEULA()
 	case methodWorldClose:
 		err = worlds.Close()
 	case methodWorldPause:
@@ -196,7 +265,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		if !decodeParams(raw, &params) || params.Paused == nil {
 			return reply.invalid()
 		}
-		err = worlds.SetPaused(*params.Paused)
+		err = backend.SetPaused(*params.Paused)
 	case methodWorldInvite:
 		var params struct {
 			XUID string `json:"xuid"`
@@ -206,7 +275,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 		inviter, ok := worlds.(Inviter)
 		if !ok {
-			err = localworld.ErrNotOpen
+			err = ErrWorldNotOpen
 			break
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -238,15 +307,15 @@ func validXUID(xuid string) bool {
 
 func worldErrorCode(err error) int {
 	switch {
-	case errors.Is(err, localworld.ErrNotFound):
+	case errors.Is(err, ErrWorldNotFound):
 		return codeWorldNotFound
-	case errors.Is(err, localworld.ErrBusy), errors.Is(err, localworld.ErrInUse), errors.Is(err, localworld.ErrNotOpen), errors.Is(err, localworld.ErrRuntimePending):
+	case errors.Is(err, ErrWorldBusy), errors.Is(err, ErrWorldInUse), errors.Is(err, ErrWorldNotOpen), errors.Is(err, ErrWorldRuntimePending):
 		return codeWorldBusy
-	case errors.Is(err, localworld.ErrInvalid):
+	case errors.Is(err, ErrWorldInvalid):
 		return -32602
-	case errors.Is(err, localworld.ErrEULARequired):
+	case errors.Is(err, ErrEULARequired):
 		return codeEULARequired
-	case errors.Is(err, localworld.ErrBackendUnavailable):
+	case errors.Is(err, ErrWorldBackendUnavailable):
 		return codeBackendAbsent
 	}
 	return codeWorldFailed
@@ -254,12 +323,12 @@ func worldErrorCode(err error) int {
 
 // worldErrorMessage exposes only sentinel-class messages; other errors may carry local paths.
 func worldErrorMessage(err error) string {
-	for _, known := range []error{localworld.ErrNotFound, localworld.ErrBusy, localworld.ErrInUse, localworld.ErrNotOpen, localworld.ErrRuntimePending, localworld.ErrEULARequired, localworld.ErrBackendUnavailable} {
+	for _, known := range []error{ErrWorldNotFound, ErrWorldBusy, ErrWorldInUse, ErrWorldNotOpen, ErrWorldRuntimePending, ErrEULARequired, ErrWorldBackendUnavailable} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
 	}
-	if errors.Is(err, localworld.ErrInvalid) {
+	if errors.Is(err, ErrWorldInvalid) {
 		return err.Error()
 	}
 	return "world operation failed"

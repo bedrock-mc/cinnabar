@@ -154,7 +154,7 @@ fn offhand_raises_only_its_own_arm_in_the_live_controller() {
 #[test]
 fn bound_attachable_preview_preserves_the_resolved_hand_origin() {
     use render_model::equipment::{BoneChannels, attach};
-    let pivot = [0.0, client_world::MODEL_PART_ORIGIN_Y / 16.0, 0.0];
+    let pivot = [0.0, actor_animation::MODEL_PART_ORIGIN_Y / 16.0, 0.0];
     let identity = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),
         translation_scale: [0.0, 0.0, 0.0, 1.0],

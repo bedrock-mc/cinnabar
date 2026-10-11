@@ -24,7 +24,7 @@ use kernels::{CullKernels, CullStorage, HizPyramid};
 use model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullRecordSource, CullStream, CullViewInput,
     CullViewUniform, OFFSET_CORNERS, STREAM_COUNT, args_region, count_index, frustum_slack,
-    reference_args, resolve_culled_args,
+    reference_args, region_draws, resolve_culled_args,
 };
 
 const SIDE: f32 = world::SUB_CHUNK_SIDE as f32;
@@ -332,6 +332,66 @@ fn cull_and_pyramid_kernels_validate() {
         .validate(&module)
         .unwrap();
     }
+}
+
+/// Count draws are unvalidated: a dispatch wider than the storage still keeps every count and
+/// command inside its own stream region.
+#[test]
+fn cull_counts_and_commands_stay_inside_their_regions() {
+    let Some(gpu) = Gpu::for_fixture("gpu terrain cull region bounds") else {
+        return;
+    };
+    let records = (0..512_u32)
+        .map(|slot| {
+            CullRecord::new(&CullRecordSource {
+                origin: [0, 64, 0],
+                base_vertex: slot as i32 * 4,
+                bounds: [[0; 3], [16; 3]],
+                cube: slot * 64..slot * 64 + 12,
+                solid_ends: [2, 4, 6, 8, 10, 10],
+                model: 40_000 + slot * 16..40_004 + slot * 16,
+                liquid: 80_000 + slot * 16..80_004 + slot * 16,
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut culler = Culler::new(&gpu, &records, &vec![u32::MAX; 16]);
+    let capacity = culler.storage.capacity;
+    assert_eq!(capacity, 512);
+    culler.set_history(&vec![1; records.len()]);
+    // Slots past the storage clamp to its last record, so an unguarded kernel counts double.
+    culler.slots = capacity * 2;
+    let camera = camera(Vec3::new(8.0, 90.0, -30.0), Vec3::new(8.0, 72.0, 8.0));
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    culler.encode(
+        &mut encoder,
+        &view_input(&camera, 0),
+        CullPhase::Early,
+        None,
+    );
+    gpu.queue.submit([encoder.finish()]);
+
+    let counts = read_buffer(&gpu, &culler.storage.draw_counts, 32);
+    let counts = bytemuck::cast_slice::<u8, u32>(&counts);
+    let words = read_buffer(&gpu, &culler.storage.args, culler.storage.args.size());
+    let words = bytemuck::cast_slice::<u8, u32>(&words);
+    for stream in CullStream::ALL {
+        let count = counts[count_index(CullPhase::Early, stream) as usize];
+        let limit = region_draws(capacity, stream);
+        assert!(
+            count <= limit,
+            "{stream:?} counted {count} past its region of {limit}"
+        );
+        // One draw per record overfills these regions twice over, so they fill exactly.
+        if stream != CullStream::Solid {
+            assert_eq!(count, limit, "{stream:?} region must fill");
+        }
+    }
+    let late = args_region(capacity, CullPhase::Late, CullStream::Solid) as usize;
+    assert!(
+        words[late..].iter().all(|&word| word == 0),
+        "early commands spilled into the late regions"
+    );
 }
 
 /// Frustum and cave decisions match Bevy's CPU culling; compaction, facing runs and the
@@ -814,7 +874,7 @@ impl Raster {
         atmosphere[19] = 8.0;
         atmosphere[20] = 60.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
-        let table = render::LightmapInputs::default().build();
+        let table = render_model::LightmapInputs::default().build();
         let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
         let atlas = solid_terrain_raster::pattern_texture(gpu);
         let sampler = gpu.device.create_sampler(&Default::default());

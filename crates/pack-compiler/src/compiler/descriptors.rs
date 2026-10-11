@@ -33,6 +33,7 @@ pub(super) fn descriptor_for(
     }
     if crate::respawn_anchor::is_record(record)
         || visuals::shelf::is_record(record)
+        || visuals::sea_pickle::is_record(record)
         || visuals::grindstone::is_record(record)
         || visuals::end_portal_frame::is_record(record)
         || visuals::end_rod::is_record(record)

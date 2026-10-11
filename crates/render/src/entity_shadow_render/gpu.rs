@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{AtmosphereFrame, EntityShadowScene};
 
 #[derive(Resource)]
 pub(crate) struct EntityShadowGpu {
@@ -124,9 +125,9 @@ impl crate::pipeline_warmup::PrewarmPipelines for EntityShadowGpu {
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), bevy::prelude::BevyError> {
         let format = if view.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         ids.push(self.pipeline(cache, format.remove_srgb_suffix(), view.msaa.samples()));
         Ok(())
@@ -231,7 +232,7 @@ fn shadow_stencil() -> StencilFaceState {
 /// The colour multiplier for this frame's sky; Nether and End have no sunrise glow.
 pub(super) fn shadow_params(atmosphere: &AtmosphereFrame) -> EntityShadowParams {
     let sunrise = if atmosphere.sky_kind() == SkyKind::Overworld {
-        crate::celestial::raw_sunrise_band(atmosphere.celestial_angle())
+        render_model::celestial::raw_sunrise_band(atmosphere.celestial_angle())
     } else {
         [0.0; 4]
     };

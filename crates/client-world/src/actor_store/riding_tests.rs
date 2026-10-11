@@ -43,6 +43,116 @@ const fn link(
     }
 }
 
+/// Supplies a player rider and a boat whose native origins differ from collision feet.
+fn player_on_boat(offset: Option<[f32; 3]>, link_first: bool) -> ActorStore {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut mount) = spawn(20, 20) else {
+        unreachable!();
+    };
+    mount.kind = ActorKind::Entity {
+        identifier: "minecraft:boat".into(),
+    };
+    mount.position = [10.0, 5.0, 10.0];
+    mount.yaw = 90.0;
+    mount.metadata = Arc::from([protocol::ActorMetadata {
+        key: super::SCALE_METADATA_KEY,
+        value: protocol::ActorMetadataValue::Float(3.0),
+    }]);
+    let ActorEvent::Spawn(mut rider) = spawn(10, 10) else {
+        unreachable!();
+    };
+    rider.kind = ActorKind::Player {
+        uuid: [0; 16],
+        username: "Rider".into(),
+    };
+    rider.metadata = offset.map_or_else(
+        || Arc::from([]),
+        |offset| {
+            Arc::from([
+                protocol::ActorMetadata {
+                    key: super::placement::KEY_SEAT_OFFSET,
+                    value: protocol::ActorMetadataValue::Vector(offset),
+                },
+                protocol::ActorMetadata {
+                    key: super::SCALE_METADATA_KEY,
+                    value: protocol::ActorMetadataValue::Float(2.0),
+                },
+            ])
+        },
+    );
+    let mut sequence = 1;
+    if link_first {
+        store.apply_link(1, sequence, link(10, 20, ActorLinkType::Rider));
+        sequence += 1;
+    }
+    store.apply(1, sequence, ActorEvent::Spawn(mount));
+    store.apply(1, sequence + 1, ActorEvent::Spawn(rider));
+    if !link_first {
+        store.apply_link(1, sequence + 2, link(10, 20, ActorLinkType::Rider));
+    }
+    store
+}
+
+/// Streamed seats position the player's native origin; collision feet remove its origin offset.
+#[test]
+fn streamed_player_seats_use_native_origins_without_rescaling() {
+    for link_first in [false, true] {
+        for offset in [[0.0; 3], [1.0, 2.0, 0.5], [-1.0, -2.0, -0.5]] {
+            let mut store = player_on_boat(Some(offset), link_first);
+            let origin = store.get(20).unwrap().native_position();
+            let local = store.rider_seat_pose(10).unwrap().0;
+            store.advance_interpolation_ticks(1);
+            let rider = store.get(10).unwrap();
+            let native = rider.native_position();
+            let expected = [
+                origin[0] - offset[2],
+                origin[1] + offset[1],
+                origin[2] + offset[0],
+            ];
+            for axis in 0..3 {
+                assert!(
+                    (native[axis] - expected[axis]).abs() < 0.00001,
+                    "{offset:?}: {native:?}"
+                );
+                assert!((rider.position[axis] - local[axis]).abs() < 0.00001);
+            }
+        }
+    }
+}
+
+/// Late metadata and subsequent updates reach both placements; link removal releases the pose.
+#[test]
+fn streamed_player_seat_updates_and_dismount_release_placement() {
+    let mut store = player_on_boat(None, true);
+    let origin = store.get(20).unwrap().native_position();
+    assert!(store.rider_seat_pose(10).is_none());
+    for (sequence, offset) in [(4, [0.5, 2.0, 1.0]), (5, [-0.5, -1.0, -1.0])] {
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 10,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: super::placement::KEY_SEAT_OFFSET,
+                    value: protocol::ActorMetadataValue::Vector(offset),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        store.advance_interpolation_ticks(1);
+        assert!(
+            (store.get(10).unwrap().native_position()[1] - (origin[1] + offset[1])).abs() < 0.00001
+        );
+    }
+    store.apply_link(1, 6, link(10, 20, ActorLinkType::Remove));
+    assert!(store.rider_seat_pose(10).is_none());
+    let freed = store.get(10).unwrap().position;
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(10).unwrap().position, freed);
+}
+
 #[test]
 fn accepts_link_before_spawn_and_preserves_unknown_and_pair_removal() {
     let mut store = ActorStore::new(1, 0);
@@ -246,7 +356,7 @@ fn rider_with_a_streamed_seat_offset_follows_its_mount() {
         unreachable!();
     };
     spawned.metadata = Arc::from([protocol::ActorMetadata {
-        key: 56,
+        key: super::placement::KEY_SEAT_OFFSET,
         value: protocol::ActorMetadataValue::Vector([0.0, 1.0, 0.5]),
     }]);
     store.apply(1, 1, mount);
@@ -269,7 +379,7 @@ fn seat_rotation_turns_the_rider_body_and_clamps_its_head() {
     rider.head_yaw = -100.0;
     rider.metadata = Arc::from([
         protocol::ActorMetadata {
-            key: 56,
+            key: super::placement::KEY_SEAT_OFFSET,
             value: protocol::ActorMetadataValue::Vector([0.0; 3]),
         },
         protocol::ActorMetadata {
@@ -303,7 +413,7 @@ fn a_negative_seat_lock_is_skipped_without_panicking() {
     rider.head_yaw = 100.0;
     rider.metadata = Arc::from([
         protocol::ActorMetadata {
-            key: 56,
+            key: super::placement::KEY_SEAT_OFFSET,
             value: protocol::ActorMetadataValue::Vector([0.0; 3]),
         },
         protocol::ActorMetadata {

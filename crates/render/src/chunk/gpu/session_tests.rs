@@ -1,4 +1,7 @@
 use super::*;
+use render_scene::{
+    ChunkRenderInstance, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadToken,
+};
 
 #[test]
 fn session_reset_releases_old_publication_capacity_without_acknowledging_old_removals() {

@@ -27,14 +27,17 @@ use crate::{
 
 // World leaves require native atlas mips, per-face isotropy and pack-authored
 // AO exponents. Reject earlier carriers that omit those material selectors.
-pub const BLOB_VERSION: u32 = 12;
+pub const BLOB_VERSION: u32 = 15;
 pub const BLOB_MAGIC: [u8; 8] = {
     let mut magic = *b"MCBEAS00";
     magic[6] += (BLOB_VERSION / 10) as u8;
     magic[7] += (BLOB_VERSION % 10) as u8;
     magic
 };
-pub(crate) const HEADER_BYTES: usize = 296;
+/// Fixed world envelope size, including the destroy source identity.
+pub const HEADER_BYTES: usize = 328;
+/// Offset of the compiled destroy source identity in the envelope.
+pub const DESTROY_SHA_OFFSET: usize = HEADER_BYTES - 32;
 /// Header offset of the embedded source-manifest SHA-256 identity.
 pub(crate) const MANIFEST_SHA_OFFSET: usize = 64;
 /// Header offsets of the embedded block/light/biome registry SHA-256
@@ -43,7 +46,8 @@ pub(crate) const REGISTRY_SHA_OFFSETS: [usize; 3] = [96, 128, 160];
 /// Header offset where the canonical section-offset table begins.
 pub(crate) const OFFSETS_OFFSET: usize = 192;
 pub(crate) const HASH_BYTES: usize = 32;
-pub(crate) const VISUAL_BYTES: usize = 44;
+/// Fixed visual and destroy record size.
+pub const VISUAL_BYTES: usize = 56;
 pub(crate) const HASH_ENTRY_BYTES: usize = 8;
 pub const MATERIAL_BYTES: usize = std::mem::size_of::<crate::Material>();
 pub(crate) const TEMPLATE_BYTES: usize = 12;
@@ -139,6 +143,9 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     for offset in offsets {
         push_offset(&mut bytes, offset, "section offset")?;
     }
+    bytes.extend_from_slice(&crate::compiled::block_destroy::destroy_source_sha256(
+        crate::compiled::block_destroy::DESTROY_SOURCE,
+    ));
     debug_assert_eq!(bytes.len(), HEADER_BYTES);
 
     for (visual, light) in compiled.visuals.iter().zip(&compiled.light_properties) {
@@ -154,6 +161,7 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, visual.model_template);
         push_u32(&mut bytes, visual.animation);
         push_u32(&mut bytes, visual.variant);
+        visual.destroy.write(&mut bytes);
     }
     for &(hash, visual) in &compiled.hashed {
         push_u32(&mut bytes, hash);
@@ -320,6 +328,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     let connected_bases = compiled_connected_bases(&compiled.model_templates)?;
     let mut referenced_connected_bases = vec![false; connected_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
+        visual.destroy.validate()?;
         if !covered_grass_variant_is_valid(visual.kind, visual.variant, compiled.materials.len()) {
             return Err(invalid(format!(
                 "visual {index} has invalid covered-grass material"

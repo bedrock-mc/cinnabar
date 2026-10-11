@@ -5,7 +5,7 @@ use std::{
 };
 
 use chunk_pipeline::ViewCohortStatus;
-use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
+use render_scene::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
 use world::SubChunkKey;
 
 use super::teleport::{

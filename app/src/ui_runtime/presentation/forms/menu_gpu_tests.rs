@@ -73,7 +73,9 @@ fn app() -> App {
             capture.0 = unpadded_rows(&event.data, SIZE[0], SIZE[1]);
         },
     );
-    let mut scene = app.world_mut().resource_mut::<render::PanoramaScene>();
+    let mut scene = app
+        .world_mut()
+        .resource_mut::<render_scene::PanoramaScene>();
     scene.set_game_visible(false);
     scene.set_faces(synthetic_faces().map(Arc::new));
     scene.show(Some(panorama::launcher_view(
@@ -164,7 +166,7 @@ fn menu_frames_on_native_gpu() {
         .unwrap();
     let stats = app
         .world()
-        .resource::<render::UiRenderStatsResource>()
+        .resource::<render_scene::UiRenderStatsResource>()
         .clone();
     let skin = client_shell::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
@@ -202,7 +204,7 @@ fn menu_frames_on_native_gpu() {
             runtime.set_server_ui(client_ui::test_support::pack_harness::env_pack().map(Arc::new));
             runtime.set_session_glyphs(client_ui::test_support::pack_harness::env_glyphs());
             app.world_mut()
-                .resource_mut::<render::PanoramaScene>()
+                .resource_mut::<render_scene::PanoramaScene>()
                 .show(None);
         }
         let mut samples = Vec::new();
@@ -245,7 +247,7 @@ fn menu_frames_on_native_gpu() {
             let paint_done = Instant::now();
             geometry = (input.vertices.len(), input.batches.len());
             app.world_mut()
-                .resource_mut::<render::UiRenderSceneResource>()
+                .resource_mut::<render_scene::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             let published = Instant::now();
@@ -312,7 +314,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
     let mut app = app();
     let stats = app
         .world()
-        .resource::<render::UiRenderStatsResource>()
+        .resource::<render_scene::UiRenderStatsResource>()
         .clone();
     for phase in 0..3 {
         if phase != 0 {
@@ -344,11 +346,11 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
                 .unwrap();
             let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
             app.world_mut()
-                .resource_mut::<render::UiRenderSceneResource>()
+                .resource_mut::<render_scene::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             app.world_mut()
-                .resource_mut::<render::PanoramaScene>()
+                .resource_mut::<render_scene::PanoramaScene>()
                 .show(None);
             // Readback completion is delivered to the main world on the following update.
             for _ in 0..3 {
@@ -400,7 +402,7 @@ fn profile_frames_on_native_gpu() {
     let mut app = app();
     let stats = app
         .world()
-        .resource::<render::UiRenderStatsResource>()
+        .resource::<render_scene::UiRenderStatsResource>()
         .clone();
     for state in [
         "signed-out",
@@ -460,7 +462,7 @@ fn profile_frames_on_native_gpu() {
                 )
                 .unwrap();
             app.world_mut()
-                .resource_mut::<render::UiRenderSceneResource>()
+                .resource_mut::<render_scene::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             app.update();

@@ -8,12 +8,13 @@ use bevy::{
     window::WindowRef,
 };
 use client_ui::ui_runtime::UiRuntime;
-use render::{
-    ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode, ViewmodelScene, ViewmodelSkin,
-    ViewmodelToken,
-};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 use std::sync::Arc;
+use {
+    render_model::{ViewmodelGeometry, ViewmodelSkin},
+    render_scene::{ViewmodelCompletionGate, ViewmodelMode, ViewmodelScene, ViewmodelToken},
+};
 
 /// World and gameplay facts sampled by the host at the viewmodel preparation boundary.
 pub struct ViewmodelWorld<'a> {
@@ -75,7 +76,7 @@ pub struct HandAdapter {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HandOwner {
-    Actor(client_world::ActorLifetimeId),
+    Actor(actor_animation::ActorLifetimeId),
     Local {
         session: u64,
         actor_session: u64,
@@ -170,7 +171,7 @@ mod local_owner_tests {
             assert_eq!(adapter.revision, revision);
         }
         adapter
-            .select_owner(HandOwner::Actor(client_world::ActorLifetimeId {
+            .select_owner(HandOwner::Actor(actor_animation::ActorLifetimeId {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 1,
@@ -205,7 +206,7 @@ mod local_owner_tests {
         adapter.revision = u64::MAX;
         assert!(
             adapter
-                .select_owner(HandOwner::Actor(client_world::ActorLifetimeId {
+                .select_owner(HandOwner::Actor(actor_animation::ActorLifetimeId {
                     session_id: 1,
                     dimension: 0,
                     runtime_id: 1,
@@ -429,7 +430,7 @@ pub struct ViewmodelPublish<'w, 's> {
     scene: Option<ResMut<'w, ViewmodelScene>>,
     gate: Option<Res<'w, ViewmodelCompletionGate>>,
     adapter: Option<ResMut<'w, HandAdapter>>,
-    geometry: Option<Res<'w, ViewmodelGeometry>>,
+    geometry: Option<Res<'w, render_scene::ViewmodelGeometryResource>>,
     local_visibility: Option<Res<'w, crate::local_player::LocalAvatarVisibilityCarrier>>,
     cameras: ViewmodelCameras<'w, 's>,
 }
@@ -827,7 +828,7 @@ impl ViewmodelPublish<'_, '_> {
         };
         let adapter = self.adapter.as_deref_mut().unwrap();
         let owner_identity =
-            local_owner.unwrap_or(HandOwner::Actor(client_world::ActorLifetimeId {
+            local_owner.unwrap_or(HandOwner::Actor(actor_animation::ActorLifetimeId {
                 session_id: stream.authority().actor_session_id(),
                 dimension: stream.current_dimension(),
                 runtime_id: actor.map_or(0, |actor| actor.runtime_id),
@@ -864,7 +865,7 @@ impl ViewmodelPublish<'_, '_> {
                     return Err(HandFallback::Skin);
                 };
                 (
-                    (**geometry).clone(),
+                    geometry.0.clone(),
                     adapter.skin(raw).ok_or(HandFallback::Skin)?,
                     rig.actor,
                 )
@@ -886,7 +887,7 @@ impl ViewmodelPublish<'_, '_> {
                 (
                     geometry,
                     skin,
-                    client_world::ActorLifetimeId {
+                    actor_animation::ActorLifetimeId {
                         session_id: actor_session,
                         dimension,
                         runtime_id: runtime,

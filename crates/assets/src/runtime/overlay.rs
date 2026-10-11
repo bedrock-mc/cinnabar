@@ -483,6 +483,7 @@ mod tests {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: crate::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             }],
             light_properties: vec![LightProperties::OPAQUE_DARK],
             materials: vec![Material {

@@ -1,37 +1,18 @@
 //! Pack skybox presentation, separate from the required atmosphere carrier.
 
+use render_scene::SkyboxSettings;
+
 use assets::SkyboxDimension;
 use bevy::math::Vec4;
-use bevy::{
-    prelude::Resource,
-    render::{extract_resource::ExtractResource, render_resource::ShaderType},
-};
+use bevy::render::render_resource::ShaderType;
 use bytemuck::{Pod, Zeroable};
 
-use crate::{AtmosphereFrame, SkyKind};
+use render_scene::{AtmosphereFrame, SkyKind};
 
 /// Bedrock translates the cube before scaling its authored half-unit extent.
 const NATIVE_SKYBOX_TRANSLATION: f32 = 256.0;
 const NATIVE_SKYBOX_SCALE: f32 = 2000.0;
 const SKYBOX_HALF_EXTENT: f32 = 0.5;
-
-/// Whether custom skyboxes retain the ordinary Bedrock vertical translation.
-#[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq, Eq)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct SkyboxSettings {
-    pub native_vertical_offset: bool,
-    /// Admission from Fancy Skies and active camera vision effects.
-    pub visible: bool,
-}
-
-impl Default for SkyboxSettings {
-    fn default() -> Self {
-        Self {
-            native_vertical_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
-            visible: true,
-        }
-    }
-}
 
 /// Translation in cube half-extents, face mask, visibility, and radius.
 #[repr(C, align(16))]

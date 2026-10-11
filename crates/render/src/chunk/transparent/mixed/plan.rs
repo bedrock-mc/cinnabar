@@ -1,5 +1,6 @@
 use super::*;
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
+use render_scene::{ChunkRenderInstance, ChunkTextureAssets};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum MixedStream {

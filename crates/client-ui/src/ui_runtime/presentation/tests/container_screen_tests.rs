@@ -11,6 +11,7 @@ use super::*;
 pub(super) use crate::test_support::{creative_with, inventory_session as session};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 
+mod furnace_fuel_tests;
 mod furnace_recipe_tests;
 
 fn opened(

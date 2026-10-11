@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::actor::gpu::ActorDrawSpan;
-use crate::actor::{ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity};
+use render_model::{ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity};
 
 /// Stores sorted draw ranges in flat storage and keeps dependent passes adjacent.
 #[derive(Default)]

@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use render::{
+use render_model::{
     ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
 };
 use render_model::{
@@ -102,10 +102,10 @@ fn frame_cost_bench_block_entity_scene_400_static() {
         .map(|index| BlockEntitySubmission {
             block: [index % 20, 64, index / 20],
             light: 1.0.into(),
-            kind: BlockEntityKind::Chest(render::ChestModel {
-                variant: render::ChestVariant::Normal,
-                facing: render::Facing::North,
-                pair: render::ChestPair::Single,
+            kind: BlockEntityKind::Chest(render_model::ChestModel {
+                variant: render_model::ChestVariant::Normal,
+                facing: render_model::Facing::North,
+                pair: render_model::ChestPair::Single,
                 lid: 0.0,
             }),
         })

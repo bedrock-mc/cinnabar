@@ -51,6 +51,7 @@ pub struct SemanticInputRouter {
     quarantined_controllers: Vec<u32>,
     controller_activity_baselines: Vec<ControllerActivityBaseline>,
     pending_release_barrier: bool,
+    pending_authority_release: bool,
 }
 
 impl Default for SemanticInputRouter {
@@ -74,6 +75,7 @@ impl Default for SemanticInputRouter {
             quarantined_controllers: Vec::new(),
             controller_activity_baselines: Vec::new(),
             pending_release_barrier: false,
+            pending_authority_release: false,
         }
     }
 }
@@ -256,6 +258,7 @@ impl SemanticInputRouter {
         self.physical_down = sample.active;
         self.pending_releases = [None; Action::COUNT];
         self.pending_release_barrier = false;
+        let authority_released = std::mem::take(&mut self.pending_authority_release);
         self.pending_context = None;
         self.frame_sequence = next_sequence;
         self.input_mode = input_mode;
@@ -299,10 +302,12 @@ impl SemanticInputRouter {
             input_mode: self.input_mode,
             phases,
             release_reasons,
+            authority_released,
         })
     }
 
     fn queue_held_releases(&mut self, reason: ReleaseReason) {
+        self.pending_authority_release = true;
         let previous_quarantine_len = self.quarantined_controls.len();
         quarantine_active_controls(
             &self.previous_frame,

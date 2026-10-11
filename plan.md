@@ -1,3 +1,30 @@
+## Actor animation ownership
+
+`actor-animation` owns actor rigs, Molang evaluation, controllers, poses,
+attachables, custom skin models, Java 1.7 motion and the original emotes. It is
+Bevy-free and sits below `client-world`. Actor authority supplies each actor through
+the `AnimatedActor` trait and an `ActorTickContext` per tick, and drives the store
+at spawns, swings, hurts, server animations and fixed ticks. Synced property
+definitions and the wolf dye tint are animation inputs; `client-world` keeps the
+property registry and no longer depends on `render-model`.
+
+Tests that drive actor authority live in `client-world`'s `actor_store::animation_tests`,
+using fixtures from the `test-support` feature. Animation unit tests use a plain actor
+double. Compilation and execution of this move remain unverified, and no actor
+animation parity gate closes.
+
+## Render geometry and scene ownership
+
+- `render-model` owns CPU block-model and selection geometry, dropped-item meshes,
+  actor rig construction and artwork, and validated viewmodel meshes.
+- `render-scene` owns Bevy submission resources, chunk publication queues,
+  camera settings, and renderer acknowledgements. `client-presentation` and
+  `acceptance` consume these contracts without depending on `render`.
+- `render` owns GPU passes, pipelines, uploads, and render-world system registration.
+  The app composes the camera motion-blur plugin with the other GPU plugins.
+- Existing behavior tests are retained. Compilation and execution of these moves
+  remain unverified; behavior and performance acceptance gates stay open.
+
 ## Player interaction ownership
 
 `client-interaction` owns the movement and interaction resource wrappers, item-use
@@ -110,6 +137,16 @@ server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
 
+## Sea pickle terrain geometry
+
+Sea pickles compile one to four separate bodies and crossed live tips selected by
+the typed count and dead states. Bodies retain their side, top and inset cap sprite regions;
+replacement packs supply the sprite, and water remains a separate contributor.
+Original-art regressions cover all eight registry states, carrier roundtrips,
+material ownership and malformed selectors. Geometry uses the carrier's existing
+position and UV precision. Rendered/input acceptance and reported server-version
+placement remain incomplete; broader parity gates stay open.
+
 ## RakNet transport compatibility
 
 The Go core, local server, and fixture generator share a reviewed transport revision with
@@ -147,6 +184,20 @@ The app retains renderer, UI, audio, and world publication adapters and their
 subscriber orchestration. Block visuals still use renderer-owned material flags,
 and item, glyph, audio, and artwork payloads retain their existing owners. These
 moves do not change the open behavior or performance acceptance gates.
+
+## Diagnostics ownership
+
+`diagnostics` holds Bevy-free metrics and marker contracts, with no `protocol`
+dependency. The app owns the build-identity resource and passes its build profile
+into the runtime-metadata and world-publication markers. Marker output is unchanged;
+compilation and test execution of this move remain unverified until CI.
+
+## World day length
+
+`world::TICKS_PER_DAY` is the single day length for sky and moon-phase math, the HUD
+days-played count and their tests. The guest SDK keeps its time-override bound because
+it cannot depend on `world`; a compile-time check in `render` keeps the two equal.
+Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Login identity
 
@@ -5648,9 +5699,13 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
-  suspends player physics and streams steering input with boat paddle flags; rider seat
-  following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
-  signalling are not implemented. Sweet berry bush slowdown is written in `tools/registrygen`
+  suspends player physics and streams steering input with boat paddle flags. Server-defined
+  seat offsets follow the mount's actor origin and yaw for local and remote riders without
+  multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
+  vehicle-targeted dismount request; the server's removal link releases the rider.
+  Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
+  dismount exit placement, client-predicted vehicles (`IsInClientPredictedVehicle`) and
+  horse jump wire signalling remain open. Sweet berry bush slowdown is written in `tools/registrygen`
   (unverified state count and coefficients) and the sim, but the physics carrier is not
   regenerated: at reconcile run `go -C tools/registrygen run . -physics-v2168-out
   crates/assets/data/block-physics-v2168.bin -physics-v2168-sha-out
@@ -7642,3 +7697,39 @@ Incomplete parity: exact custom-biome fallback profiles and regional or height-a
 Composters retain inward walls and a level-dependent floor. Cauldrons retain their rim, inner floor, walls and feet, with separate water, lava and powder-snow surfaces at each fill level. These models do not occlude full neighbor faces.
 
 Incomplete parity: cauldron block-actor potion and dyed-water colours require runtime block-actor data; their state-only visual remains provisional. Enhanced lighting and performance acceptance remain open.
+
+### Compiled furnace fuel admission (incomplete)
+
+Furnace quick-move fuel decisions use numeric registry facts and validated compiled inputs.
+Retained retail compatibility eligibility and log ingredient preference remain provisional;
+the complete native fuel inventory and durations are unverified. Missing, malformed and
+unsupported component declarations stay unresolved. Unknown and explicitly nonfuel items
+are deferred to the player inventory rather than guessed into a furnace cell. Committed furnace
+recipe inputs are bound by numeric IDs, tags and metadata during admission.
+Session duration conversion and complete native recipe precedence remain unverified.
+Other container slot rules remain incomplete; this change
+does not close those gates.
+
+Block destroy facts are compiled into world carrier 15 and read by numeric runtime
+identity during mining. Every input state is checked against the independent pinned
+registry; changed or custom identities remain unresolved. The existing hardness and
+tool source is retained as explicitly provisional prediction data. Full native tool,
+state-dependent hardness, legacy protocol and session destroy-component coverage is
+incomplete; this does not close the complete destroy parity gate. `make assets`
+regenerates the carrier and stale envelopes fail admission. Held-item tool and
+creative-break classification still use item names and need separate admission
+facts before the complete mining path can be considered name-free.
+
+Movement descriptor coverage remains incomplete. The current physics carrier requires a typed
+movement disposition for every admitted state. Existing declared special rules retain their
+numerical behavior; unclassified states remain unresolved and keep the previous conservative
+numerical defaults. No ordinary movement classification is inferred from absence of a special
+rule. Complete native ordinary/special coverage, custom session movement components and
+all provisional rule values still require verification before this gate can close.
+
+## Compiled item armour
+
+- Protection and player slots live in the entity carrier; HUD capture reads numeric registry facts resolved at admission. Server wearable components replace protection without per-frame parsing.
+- Incomplete: the full armour identifier/class inventory, missing-member defaults, body slots and later component versions still need parity verification. Unverified items and malformed declarations retain explicit unresolved facts.
+
+Effective item durability is shared through required entity-carrier descriptors and session registry admission. Unknown entries and invalid declared maxima stay unresolved; UI and elytra gameplay read the admitted numeric-ID fact. This gate remains incomplete: the full damageable item inventory, native class bindings, numeric component bounds and all network replacement behavior still need verification. The pinned base table preserves the existing positive values and its coverage guard checks their membership in the independent retail inventory.

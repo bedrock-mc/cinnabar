@@ -3,6 +3,11 @@ use super::*;
 use crate::chunk::transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws,
 };
+use meshing::PackedBiomeRecord;
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
+};
+use render_scene::{ChunkUploadPriority, TransparentSortMetrics};
 
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
@@ -395,7 +400,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,

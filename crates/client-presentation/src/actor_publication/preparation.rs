@@ -11,7 +11,7 @@ pub struct ActorFrameState {
     pub(super) pack_geometry_ready: SessionGeometryReady,
     pub(super) published_items: Option<Arc<crate::session_assets::SessionItems>>,
     pub(super) actor_clock: ActorFrameClock,
-    pub(super) session_artwork: Option<render::ActorArtworkPages>,
+    pub(super) session_artwork: Option<render_model::ActorArtworkPages>,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
     pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
@@ -32,7 +32,7 @@ pub struct ActorFrameState {
     pub(super) java_mode: bool,
     pub(super) hand_use: (
         Option<u32>,
-        Option<client_world::AttachableAnimationInput<'static>>,
+        Option<actor_animation::AttachableAnimationInput<'static>>,
     ),
 }
 
@@ -74,7 +74,7 @@ pub fn advance_actor_frame(
         f32,
     ) -> (
         Option<u32>,
-        Option<client_world::AttachableAnimationInput<'static>>,
+        Option<actor_animation::AttachableAnimationInput<'static>>,
     ),
     params: ActorFramePublication,
 ) {
@@ -168,7 +168,7 @@ pub fn advance_actor_frame(
     if new_session || pack_changed || items_changed || artwork.is_changed() {
         let _setup = profiler
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorSessionSetup));
+            .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorSessionSetup));
         *published_pack = pack.clone();
         *published_items = items.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
@@ -269,7 +269,7 @@ pub fn advance_actor_frame(
         );
         let _animation = profiler
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
+            .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorAnimation));
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
         if step.ticks > 0 {
             sample_world(stream);
@@ -352,7 +352,7 @@ pub fn advance_actor_frame(
             );
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
             let item_animation =
-                item_animation.map(|input| client_world::AttachableAnimationInput {
+                item_animation.map(|input| actor_animation::AttachableAnimationInput {
                     delta_seconds: Some(time.delta_secs()),
                     ..input
                 });
@@ -405,7 +405,7 @@ pub fn advance_actor_frame(
 /// Registers the player's own model so hand readiness and final body use the same geometry.
 pub(super) fn register_player_skin(
     presentation: &mut ActorRigPresentation,
-    rig: &client_world::ActorRigSnapshot<'_>,
+    rig: &actor_animation::ActorRigSnapshot<'_>,
     cache: &mut crate::presentation::skin_rig::SkinRigCache,
     mut equipment: Option<&mut EquipmentRuntime>,
     geometries: &mut Vec<render_model::ActorRigGeometry>,
@@ -428,6 +428,6 @@ pub(super) fn register_player_skin(
     });
     match id {
         Some(id) => presentation.submission.input.rig = id,
-        None => presentation.submission.route = render::ActorRigRoute::NoDraw,
+        None => presentation.submission.route = render_model::ActorRigRoute::NoDraw,
     }
 }

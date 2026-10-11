@@ -398,6 +398,7 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
             .unwrap()
             .seed_item_registry(protocol::ItemRegistryEvent {
                 entries: [protocol::ItemRegistryEntry {
+                    components: None,
                     identifier: "minecraft:snowball".into(),
                     network_id: snowball,
                     component_based: false,

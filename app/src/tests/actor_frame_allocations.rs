@@ -11,7 +11,10 @@ use bevy::{
     time::{Real, Time},
 };
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldEvent};
-use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
+use {
+    render_model::ActorArtworkPages,
+    render_scene::{ActorRenderFrame, ActorRenderScene},
+};
 
 use super::actor_rest_presentation::{compiled_fixture, stream};
 use {
@@ -44,10 +47,10 @@ pub(crate) fn actor_frame_world(
     );
     world.insert_resource(client_presentation::camera::CameraSettingsAuthority::default());
     world.insert_resource(client_interaction::movement::LocalPhysicsController::default());
-    world.insert_resource(render::ActorRuntimeWitness::default());
-    world.insert_resource(artwork);
+    world.insert_resource(render_scene::ActorRuntimeWitness::default());
+    world.insert_resource(render_scene::ActorArtworkResource(artwork));
     world.insert_resource(hand);
-    world.insert_resource(render::HandRigScene::default());
+    world.insert_resource(render_scene::HandRigScene::default());
     world.insert_resource(client_shell::player_skin::LocalPlayerSkin::generated_default("bench"));
     world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.insert_resource(ActorFramePartialTick::default());

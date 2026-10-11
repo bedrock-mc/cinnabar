@@ -1,5 +1,7 @@
 //! Narrow access to the chunk arena for Enhanced shadow drawing.
 
+use render_scene::ChunkBiomeTints;
+
 use crate::chunk::*;
 use crate::enhanced::CascadeBounds;
 use bevy::{prelude::Handle, shader::Shader};
@@ -98,7 +100,7 @@ pub(crate) fn draw_shadow_geometry<'w>(
 
 /// Uses the terrain visibility envelope for displaced and overhanging shadow casters.
 fn intersects(bounds: &CascadeBounds, allocation: &GpuChunkAllocation) -> bool {
-    let origin = queue::chunk_origin(allocation.key);
+    let origin = render_scene::chunk::chunk_origin(allocation.key);
     let aabb = crate::chunk::bounds::aabb(true);
     let center = Vec3::from_array(origin.map(|value| value as f32)) + Vec3::from(aabb.center);
     bounds.intersects_aabb(center, Vec3::from(aabb.half_extents))

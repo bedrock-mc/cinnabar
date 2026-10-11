@@ -104,6 +104,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             };
             AIR as usize + 1
         ];
@@ -125,6 +126,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         // A non-full-cube record intentionally carries non-zero face IDs. The
         // mesher must still route it to the diagnostic material.
@@ -137,6 +139,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[LEAF_A as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -147,6 +150,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[LEAF_B as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -157,6 +161,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[CROSS as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -167,6 +172,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 0,
             animation: NO_ANIMATION,
             variant: 2,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[ZERO_QUAD_CROSS as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -177,6 +183,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 1,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         for runtime_id in [LIQUID_A, LIQUID_B] {
             visuals[runtime_id as usize] = BlockVisual {
@@ -188,6 +195,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             };
         }
         visuals[UNSUPPORTED_ADDITIONAL as usize] = BlockVisual {
@@ -199,6 +207,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[KELP as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -209,6 +218,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 2,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[MODEL_32 as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -219,6 +229,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 3,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[COMPOUND_40 as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -229,6 +240,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 4,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         visuals[MIXED_ALPHA_MODEL as usize] = BlockVisual {
             support: assets::VisualSupport::Exact,
@@ -239,6 +251,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: 6,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
 
         let textures = TextureArray {
@@ -702,6 +715,7 @@ fn compound_model_chain_meshes_every_visibility_part() {
             model_template: 0,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         light_properties: vec![assets::LightProperties::default()],
         materials: vec![Material {

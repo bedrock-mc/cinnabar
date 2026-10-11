@@ -1,7 +1,7 @@
 //! Item sprites packed into shared atlas layers so equipment costs few texture pages.
 
 use assets::IconSprite;
-use render::EquipmentRaster;
+use render_model::EquipmentRaster;
 
 pub(super) const ATLAS_SIDE: u16 = 512;
 

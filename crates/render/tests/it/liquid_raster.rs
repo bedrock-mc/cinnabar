@@ -56,7 +56,7 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    let frame = render::AtmosphereFrame::default();
+    let frame = render_scene::AtmosphereFrame::default();
     assert!(
         frame.fog_start() > 3.0,
         "fixture must remain outside distance fog"
@@ -65,7 +65,7 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
         bytemuck::cast_slice(std::slice::from_ref(&frame)),
         wgpu::BufferUsages::UNIFORM,
     );
-    let table = render::LightmapInputs::default()
+    let table = render_model::LightmapInputs::default()
         .build()
         .map(|_| [1.0_f32; 4]);
     let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);

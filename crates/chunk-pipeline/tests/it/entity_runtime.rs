@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use actor_animation::{
+    ActorAnimationView, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
+    MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
+    MAX_RUNTIME_BONES_PER_RIG,
+};
 use assets::{
     CompiledEntityAssets, CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
@@ -12,11 +17,6 @@ use assets::{
     RuntimeAssets, RuntimeEntityAssets, encode_entity_blob,
 };
 use chunk_pipeline::WorldStream;
-use client_world::{
-    ActorAnimationView, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-    MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
-    MAX_RUNTIME_BONES_PER_RIG,
-};
 use protocol::{
     ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
     ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent,

@@ -780,6 +780,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
         let mut visuals = vec![diagnostic; 26];
         visuals[AIR as usize] = BlockVisual {
@@ -941,6 +942,7 @@ fn liquid_visual(faces: [u32; 6], variant: u32) -> BlockVisual {
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     }
 }
 

@@ -117,13 +117,22 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
     }
     let mut commands = verification_commands(&selection, runner, &packages);
     commands.extend(extra_commands(&extra));
+    let mut baseline = crate::baseline::Comparison::new(&options.base, &metadata)?;
+    let mut failures = Vec::new();
     for command in commands {
         println!("$ {command}");
-        if !options.dry_run {
-            execute(command)?;
+        if !options.dry_run
+            && let Err(error) = baseline.verify(command)
+        {
+            eprintln!("{error}");
+            failures.push(error.to_string());
         }
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(DevtoolError::Usage(failures.join("\n")))
+    }
 }
 
 /// Returns tracked and non-ignored untracked `go.mod` paths under `root`, sorted.
@@ -187,27 +196,6 @@ fn capture(command: CommandSpec) -> Result<String, DevtoolError> {
         });
     }
     String::from_utf8(output.stdout).map_err(|_| DevtoolError::NonUtf8 { command: display })
-}
-
-fn execute(command: CommandSpec) -> Result<(), DevtoolError> {
-    let display = command.to_string();
-    let status = Command::new(&command.program)
-        .args(&command.args)
-        .envs(command.env.iter().map(|(key, value)| (key, value)))
-        .status()
-        .map_err(|source| DevtoolError::Spawn {
-            command: display.clone(),
-            source,
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(DevtoolError::Command {
-            command: display,
-            status: status.to_string(),
-            stderr: "see command output above".into(),
-        })
-    }
 }
 
 #[cfg(test)]

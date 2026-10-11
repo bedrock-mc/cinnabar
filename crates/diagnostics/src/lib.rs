@@ -5,12 +5,6 @@ pub mod markers;
 pub mod metrics;
 mod rotating_log;
 
-/// Build identity recorded alongside runtime measurements.
-#[derive(bevy::prelude::Resource, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AcceptanceRuntimeConfig {
-    pub build_profile: &'static str,
-}
-
 /// Writes one diagnostic marker and flushes it immediately.
 pub fn write_stdout_marker(stdout: &mut impl std::io::Write, marker: &str) {
     let _ = writeln!(stdout, "{marker}");

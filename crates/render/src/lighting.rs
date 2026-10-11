@@ -1,14 +1,14 @@
-use crate::lightmap::LightmapInputs;
+use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     ecs::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::{App, Commands, Handle, IntoScheduleConfigs, Res, ResMut, Resource, Shader},
+    prelude::{App, Commands, Handle, Res, ResMut, Resource, Shader},
     render::{
         Render, RenderApp, RenderSystems,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
@@ -18,16 +18,8 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-
-/// Shared classic lightmap inputs, published with the current environment frame.
-#[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct WorldLighting(pub LightmapInputs);
-
-/// A transient personal-mod override; the ordinary environment inputs remain intact.
-#[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct WorldFullbright(pub bool);
+use render_model::LightmapInputs;
+use render_scene::{WorldFullbright, WorldLighting};
 
 #[derive(Resource)]
 pub(crate) struct LightmapGpu {
@@ -58,9 +50,9 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(
-                        std::mem::size_of::<crate::AtmosphereFrame>() as u64,
-                    ),
+                    min_binding_size: BufferSize::new(std::mem::size_of::<
+                        render_scene::AtmosphereFrame,
+                    >() as u64),
                 },
                 count: None,
             },
@@ -139,7 +131,7 @@ fn prepare(
     let atmosphere = atmosphere.map(|gpu| gpu.buffer.clone()).unwrap_or_else(|| {
         device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("fallback world atmosphere"),
-            contents: bytemuck::bytes_of(&crate::AtmosphereFrame::default()),
+            contents: bytemuck::bytes_of(&render_scene::AtmosphereFrame::default()),
             usage: BufferUsages::UNIFORM,
         })
     });

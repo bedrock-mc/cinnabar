@@ -39,7 +39,7 @@ fn alpha_coverage_shader_variants_validate() {
     let actor = include_str!("../actor.wesl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
-            &crate::ACTOR_GPU_INSTANCE_WORDS.to_string(),
+            &render_model::ACTOR_GPU_INSTANCE_WORDS.to_string(),
         )
         .replace(
             "ACTOR_RIG_VERTEX_WORDS",
@@ -74,8 +74,8 @@ fn block_entity_source() -> String {
     let shader = crate::shader_safety::from_block_entity_wesl(
         include_str!("../block_entity/block_entity.wesl"),
         "block_entity.wesl",
-        crate::BLOCK_ENTITY_VERTEX_WORDS,
-        crate::BLOCK_SELECTION_VERTICES_PER_EDGE,
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("block entity shader is WGSL");

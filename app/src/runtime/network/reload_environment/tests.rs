@@ -1,5 +1,6 @@
 use super::*;
-use std::io::{Cursor, Write};
+use std::io::Cursor;
+use std::io::Write;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 /// Creates only synthetic pack content for environment subscriber tests.
@@ -158,7 +159,7 @@ fn reloaded_fog_preserves_initial_fields_and_transition_timeline() {
 }
 
 /// Required carrier content for optional pack reload regression coverage.
-fn atmosphere_base() -> render::AtmosphereTextureAssets {
+fn atmosphere_base() -> render_scene::AtmosphereTextureAssets {
     let textures = [
         (
             assets::AtmosphereRole::Sun,
@@ -199,7 +200,7 @@ fn atmosphere_base() -> render::AtmosphereTextureAssets {
         fog_profiles: Box::new([]),
     })
     .unwrap();
-    render::AtmosphereTextureAssets::new(
+    render_scene::AtmosphereTextureAssets::new(
         Arc::new(assets::RuntimeAtmosphereAssets::decode(&bytes).unwrap()),
         [1; 32],
     )
@@ -444,7 +445,7 @@ fn unresolved_custom_fog_routes_keep_valid_atmosphere_overrides() {
         .unwrap()
         .with_resource_pack_overrides(&[], &[plains], &[fog_profile(&fog_json).unwrap()])
         .unwrap();
-    let base = render::AtmosphereTextureAssets::new(Arc::new(runtime), [2; 32]);
+    let base = render_scene::AtmosphereTextureAssets::new(Arc::new(runtime), [2; 32]);
     let sun = skybox_png(2, 2, [12, 34, 56, 255]);
     let mut fog_override = fog_json.clone();
     fog_override["minecraft:fog_settings"]["distance"]["air"]["fog_end"] = 48.into();

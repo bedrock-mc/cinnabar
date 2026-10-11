@@ -50,7 +50,7 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
     let geometry = gpu.words(&geometry_words(), storage);
     let frame = gpu.buffer(&[0.0; 256], uniform);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         uniform,
     );
     let classes = gpu
@@ -183,7 +183,7 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
         if case < 4 {
             assert_eq!(
                 values[case * 3 + 2][0],
-                case as f32 * meshing::bamboo::STEM_UV_STRIDE
+                case as f32 * assets::bamboo::STEM_UV_STRIDE
             );
             let x = block_transform::bamboo::OFFSET_MIN
                 + case as f32 * block_transform::bamboo::OFFSET_SPAN

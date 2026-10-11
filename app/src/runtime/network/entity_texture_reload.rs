@@ -1,7 +1,7 @@
 //! Base entity rasters can be overridden without restating vanilla entity definitions.
 
 use assets::RuntimeEntityAssets;
-use render::{ActorArtworkPages, EquipmentRaster};
+use render_model::{ActorArtworkPages, EquipmentRaster};
 use resource_pack::LayeredPackView;
 use std::sync::{Arc, OnceLock};
 

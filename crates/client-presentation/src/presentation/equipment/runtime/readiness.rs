@@ -3,7 +3,9 @@ use super::*;
 
 impl EquipmentRuntime {
     /// Visits the startup and optional pack layers without allocating a layer list.
-    fn attachable_layers(&mut self) -> impl Iterator<Item = &mut client_world::AttachablesRuntime> {
+    fn attachable_layers(
+        &mut self,
+    ) -> impl Iterator<Item = &mut actor_animation::AttachablesRuntime> {
         std::iter::once(&mut self.attachables)
             .chain(self.pack.as_mut().map(|pack| &mut pack.attachables))
     }

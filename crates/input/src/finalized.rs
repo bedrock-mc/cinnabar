@@ -104,6 +104,7 @@ mod tests {
             input_mode: InputMode::GamePad,
             phases: [ActionPhase::default(); Action::COUNT],
             release_reasons: [None; Action::COUNT],
+            authority_released: false,
         }))
     }
 

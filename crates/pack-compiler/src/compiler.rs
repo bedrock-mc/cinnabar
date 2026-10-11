@@ -35,6 +35,7 @@ use {
 
 mod classification;
 mod descriptors;
+mod destroy_facts;
 mod leaf_mips;
 mod lily_pad_textures;
 mod seasonal_leaves;
@@ -496,6 +497,7 @@ fn compile_pack_inner(
     )?;
     let mut materials = materials.into_vec();
     let mut visuals = visuals.into_vec();
+    destroy_facts::install(records, &mut visuals, registry_protocol)?;
     let lily_pad_textures::Installed {
         pages: texture_pages,
         material_keys: lily_pad_keys,

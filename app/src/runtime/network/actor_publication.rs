@@ -1,6 +1,8 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
 #[cfg(test)]
-use bevy::prelude::{App, IntoScheduleConfigs, Mut, Resource, Update};
+use bevy::prelude::IntoScheduleConfigs;
+#[cfg(test)]
+use bevy::prelude::{App, Mut, Resource, Update};
 use bevy::time::Real;
 use bevy::{
     ecs::system::SystemParam,
@@ -51,7 +53,7 @@ pub(crate) struct ActorObservations<'w> {
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
-    profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
+    profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
 }
 
 /// Predicts remote actors at this frame's tick positions before interaction picks them.
@@ -93,7 +95,7 @@ pub(crate) fn advance_actor_frame(
     } = observations;
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::ActorPublication));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorPublication));
     let stream = world.stream.as_ref();
     let local_equipment = stream.map_or_else(Default::default, |stream| {
         client_presentation::presentation::equipment::local_input(
@@ -142,7 +144,7 @@ pub(crate) fn advance_actor_frame(
         renders_game: {
             let _ui = profiler
                 .as_deref()
-                .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
+                .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
             client_shell::screen_policy::renders_game(
                 &player,
                 ui.as_deref(),
@@ -285,7 +287,7 @@ pub(crate) fn prepare_actor_render_frame(
             .filter_map(|(tick, mut progress)| {
                 let sample = physics.sample_at(tick)?;
                 progress.frame_alpha = Some(alpha);
-                Some(client_world::LocalSwingMotionSample {
+                Some(actor_animation::LocalSwingMotionSample {
                     tick,
                     delta: sample.movement,
                     yaw: sample.yaw,
@@ -340,10 +342,10 @@ pub(crate) fn publish_entity_shadows(
     partial_tick: Res<ActorFramePartialTick>,
     local: Res<client_presentation::local_player::LocalAvatarVisibilityCarrier>,
     camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
-    frame: Res<render::ActorRenderFrame>,
+    frame: Res<render_scene::ActorRenderFrame>,
     drawn: Local<Vec<u64>>,
     staging: Local<Vec<render_model::EntityShadow>>,
-    scene: Option<ResMut<render::EntityShadowScene>>,
+    scene: Option<ResMut<render_scene::EntityShadowScene>>,
 ) {
     client_presentation::entity_shadows::drive_entity_shadows(
         world.stream.as_ref(),

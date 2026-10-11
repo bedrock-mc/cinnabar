@@ -102,3 +102,43 @@ fn first_in_flight_change_invalidates_snapshot_and_later_changes_share_successor
     ));
     assert_eq!(stream.stats.noop_light_jobs, 1);
 }
+
+/// A pending seeded relight falls back to a full solve once a neighbour's relight changes the
+/// light on their shared face.
+#[test]
+fn a_neighbour_relight_drops_pending_changed_cells_across_its_changed_face() {
+    let mut stream = lit_stream(0);
+    let west = SubChunkKey::new(0, 0, 0, 0);
+    let east = SubChunkKey::new(0, 1, 0, 0);
+    for key in [west, east] {
+        stream
+            .authority
+            .commit_sub_chunk(key, uniform_sub_chunk(2))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+    }
+    for (key, cell) in [
+        (west, BlockPos::new(8, 8, 8)),
+        (east, BlockPos::new(24, 8, 8)),
+    ] {
+        stream.mark_light_changed_sources_reaching(
+            [key],
+            true,
+            NeighbourReach::of_cell(8, 8, 8),
+            Some(&[cell]),
+        );
+    }
+    assert!(stream.lighting.changed_cells.contains_key(&west));
+    assert!(stream.lighting.changed_cells.contains_key(&east));
+    let mut changed_faces = [false; 6];
+    changed_faces[LIGHT_NEIGHBOUR_OFFSETS
+        .iter()
+        .position(|&offset| offset_sub_chunk_key(west, offset) == Some(east))
+        .unwrap()] = true;
+    let direct_sky = stream.lighting.direct_sky[&west].clone();
+
+    stream.finish_accepted_light_completion(west, 1, &direct_sky, changed_faces, true);
+
+    assert!(stream.lighting.jobs.pending.contains_key(&east));
+    assert!(!stream.lighting.changed_cells.contains_key(&east));
+}

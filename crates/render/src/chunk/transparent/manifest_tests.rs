@@ -1,6 +1,8 @@
 //! The sort manifest follows resident changes without rebuilding unchanged inputs.
+
 use super::transparent::resident_transparent_allocation;
 use super::*;
+use render_scene::TransparentSortMetrics;
 
 const TINT: ChunkBiomeTintIdentity = ChunkBiomeTintIdentity::new(2, 2);
 

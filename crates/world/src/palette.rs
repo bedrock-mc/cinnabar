@@ -116,6 +116,29 @@ impl PalettedStorage {
         self.palette.get(self.palette_index(linear)?)
     }
 
+    /// Writes every block's palette index into `out`, indexed `x << 8 | z << 4 | y`;
+    /// [`u32::MAX`] marks a block whose packed word is missing from a malformed storage.
+    pub fn palette_indices(&self, out: &mut [u32; BLOCKS_PER_SUB_CHUNK]) {
+        if self.bits_per_index == 0 {
+            out.fill(0);
+            return;
+        }
+        let bits = usize::from(self.bits_per_index);
+        let per_word = 32 / bits;
+        let mask = (1_u32 << self.bits_per_index) - 1;
+        for (word_index, chunk) in out.chunks_mut(per_word).enumerate() {
+            let Some(&word) = self.words.get(word_index) else {
+                for slot in &mut out[word_index * per_word..] {
+                    *slot = u32::MAX;
+                }
+                return;
+            };
+            for (slot, value) in chunk.iter_mut().enumerate() {
+                *value = (word >> (slot * bits)) & mask;
+            }
+        }
+    }
+
     pub(crate) fn palette_index(&self, linear: usize) -> Option<usize> {
         if linear >= BLOCKS_PER_SUB_CHUNK {
             return None;

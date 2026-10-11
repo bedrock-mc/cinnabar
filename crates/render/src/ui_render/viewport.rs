@@ -1,6 +1,6 @@
 //! Retained viewport bytes and the clock used only by visible item glint.
 
-use super::{glint::UiGlintSettings, shader::UiViewportUniform};
+use {super::shader::UiViewportUniform, render_scene::UiGlintSettings};
 
 /// Keeps the last uniform submitted to the renderer's existing viewport buffer.
 #[derive(Default)]

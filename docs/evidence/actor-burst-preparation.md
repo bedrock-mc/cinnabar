@@ -6,7 +6,7 @@ Square skins now retain their native pixels; legacy expansion accounts for both
 retained source keys and results.
 
 Cold custom models are prepared by one worker batch at a time. Pointer admission
-uses [the shared per-pass limit](../../crates/client-world/src/actor_animation/skin/queue.rs);
+uses [the shared per-pass limit](../../crates/actor-animation/src/skin/queue.rs);
 hashing, parsing, rest poses, animated layers and meshes run off-thread. Existing
 actors retain their last complete profile, including body pixels and cape, until
 the replacement model is ready for an animation tick. New appearances remain gated.
@@ -33,7 +33,7 @@ Additional passing contracts:
 - [Native raster tests](../../crates/render-model/src/actor/skin/native.rs) preserve
   texels across supported sizes, retain legacy working sets, and reject malformed
   lengths. Render tests verify warm allocation-free assignments and hand uploads.
-- [Worker queue tests](../../crates/client-world/src/actor_animation/skin/queue_tests.rs)
+- [Worker queue tests](../../crates/actor-animation/src/skin/queue_tests.rs)
   verify bounded non-inline admission, shared mesh accounting, replacement capacity,
   exact-content reuse and stale-owner rejection. Profile tests retain the old complete
   appearance and prevent zero-tick publication of new pixels with an old model.

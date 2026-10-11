@@ -189,7 +189,7 @@ fn dispatch_batch_publishes_independent_jobs_together() {
     let mut batch = pool.batch(Lane::Mesh);
     for index in 0..16 {
         let done = done.clone();
-        batch.spawn(move || done.send(index).unwrap());
+        batch.spawn(false, move || done.send(index).unwrap());
     }
     assert!(pool.shared.lock().mesh.is_empty());
     drop(batch);

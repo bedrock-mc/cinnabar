@@ -17,6 +17,8 @@ mod crafting_tests;
 mod distribute;
 #[cfg(test)]
 mod fixed_window_tests;
+mod fuel;
+mod furnace_inputs;
 #[cfg(test)]
 mod generic_storage_tests;
 mod gesture;
@@ -201,6 +203,9 @@ pub struct PlayerInventoryLedger {
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
+    fuel_catalog: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    fuel_facts: BTreeMap<i32, assets::item::fuel::ItemFuel>,
+    furnace_inputs: furnace_inputs::FurnaceInputs,
     creative: Option<protocol::CreativeContentEvent>,
     /// Enchanting-table options for the current input item.
     enchant_options: Option<std::sync::Arc<[protocol::EnchantOption]>>,
@@ -246,6 +251,9 @@ impl Default for PlayerInventoryLedger {
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
+            fuel_catalog: None,
+            fuel_facts: BTreeMap::new(),
+            furnace_inputs: Default::default(),
             creative: None,
             enchant_options: None,
             bundles: BTreeMap::new(),

@@ -108,19 +108,18 @@ fn snapshots_preserve_unknown_empty_and_present_inventory_and_gear() {
 
 #[test]
 fn durability_corrections_win_and_custom_or_invalid_data_is_not_invented() {
-    let authority = authority();
+    let mut authority = authority();
     let mut player = player_state::PlayerState::new(SESSION);
     let mut helmet = stack("minecraft:diamond_helmet", 1);
     damage(&mut helmet, 7);
-    let item = project_item(&authority, player.inventory.ledger(), &helmet, None).unwrap();
+    let item = project_item(&authority, &helmet, None).unwrap();
     assert_eq!(item.damage, Some(7));
     assert_eq!(
         item.max_durability,
-        client_world::vanilla_max_durability("minecraft:diamond_helmet")
+        assets::item::durability::builtin_item_durability("minecraft:diamond_helmet").maximum()
     );
     let corrected = project_item(
         &authority,
-        player.inventory.ledger(),
         &helmet,
         Some(&StackResponseOverlay {
             durability_correction: Some(11),
@@ -135,6 +134,9 @@ fn durability_corrections_win_and_custom_or_invalid_data_is_not_invented() {
         .unwrap()
         .clone();
     custom.component_based = true;
+    assert!(authority.seed_item_registry(protocol::ItemRegistryEvent {
+        entries: vec![custom.clone()].into()
+    }));
     player
         .inventory
         .ledger_mut()
@@ -142,18 +144,13 @@ fn durability_corrections_win_and_custom_or_invalid_data_is_not_invented() {
             entries: vec![custom].into(),
         });
     assert_eq!(
-        project_item(&authority, player.inventory.ledger(), &helmet, None)
+        project_item(&authority, &helmet, None)
             .unwrap()
             .max_durability,
         None
     );
     helmet.nbt_digest = [0; 32];
-    let invalid = project_slot(
-        &authority,
-        player.inventory.ledger(),
-        PlayerInventorySlot::Present(&helmet),
-        None,
-    );
+    let invalid = project_slot(&authority, PlayerInventorySlot::Present(&helmet), None);
     assert!(!invalid.known);
     assert!(invalid.item.is_none());
 }
@@ -231,16 +228,11 @@ fn effects_count_down_update_remove_and_keep_infinite_durations() {
 #[test]
 fn block_classification_uses_retained_identity_and_unknown_names_preserve_counts() {
     let authority = authority();
-    let player = player_state::PlayerState::new(SESSION);
     let mut block = stack("minecraft:stone", 64);
     block.block_runtime_id = 7;
-    assert!(
-        project_item(&authority, player.inventory.ledger(), &block, None)
-            .unwrap()
-            .block
-    );
+    assert!(project_item(&authority, &block, None).unwrap().block);
     block.network_id = i32::MAX;
-    let unknown = project_item(&authority, player.inventory.ledger(), &block, None).unwrap();
+    let unknown = project_item(&authority, &block, None).unwrap();
     assert_eq!(unknown.identifier, None);
     assert_eq!(unknown.count, 64);
     assert_eq!(unknown.max_durability, None);

@@ -1,5 +1,7 @@
 //! Shared UI GPU resource creation, publication admission and arena accounting.
 
+use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource};
+
 use super::*;
 
 /// Creates the shared viewport uniform and samplers for this render device.

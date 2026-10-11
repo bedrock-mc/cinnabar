@@ -6,20 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
 )
 
 type stubPeople struct {
 	stubServices
-	people []catalog.Person
+	people []Person
 }
 
-func (s *stubPeople) People(context.Context) ([]catalog.Person, error) { return s.people, s.err }
+func (s *stubPeople) People(context.Context) ([]Person, error) { return s.people, s.err }
 
 func TestFriendsPeopleListsTheAccountsFriends(t *testing.T) {
-	stub := &stubPeople{people: []catalog.Person{
-		{XUID: "2535400000000001", Gamertag: "Alex", Online: true, Gamerpic: catalog.Image{URL: "https://a.test/p", Path: "/art/people/p.img"}},
+	stub := &stubPeople{people: []Person{
+		{XUID: "2535400000000001", Gamertag: "Alex", Online: true, Gamerpic: Image{URL: "https://a.test/p", Path: "/art/people/p.img"}},
 	}}
 	dir := startServices(t, NewStore(), stub)
 	var result peopleResultV1
@@ -49,11 +47,11 @@ func TestFriendsPeopleNeedsAPeopleBackend(t *testing.T) {
 
 // A list too large for one frame loses its trailing (offline) friends rather than failing.
 func TestFriendsPeopleFitsOneFrame(t *testing.T) {
-	people := make([]catalog.Person, catalog.MaxPeople+10)
+	people := make([]Person, 110)
 	for index := range people {
-		people[index] = catalog.Person{
+		people[index] = Person{
 			XUID: fmt.Sprint(2535400000000000 + index), Gamertag: fmt.Sprintf("friend%03d", index), Online: index < 3,
-			Gamerpic: catalog.Image{URL: "https://images.example.test/image?url=" + strings.Repeat("u", 400), Path: "/art/people/" + strings.Repeat("p", 200)},
+			Gamerpic: Image{URL: "https://images.example.test/image?url=" + strings.Repeat("u", 400), Path: "/art/people/" + strings.Repeat("p", 200)},
 		}
 	}
 	dir := startServices(t, NewStore(), &stubPeople{people: people})
@@ -65,7 +63,7 @@ func TestFriendsPeopleFitsOneFrame(t *testing.T) {
 		t.Fatalf("reply of %d bytes: %v", len(raw), err)
 	}
 	friends := reply.Result.Friends
-	if len(friends) == 0 || len(friends) >= catalog.MaxPeople || friends[0] != people[0] || friends[len(friends)-1] != people[len(friends)-1] {
+	if len(friends) == 0 || len(friends) >= len(people) || friends[0] != people[0] || friends[len(friends)-1] != people[len(friends)-1] {
 		t.Fatalf("kept %d friends", len(friends))
 	}
 }

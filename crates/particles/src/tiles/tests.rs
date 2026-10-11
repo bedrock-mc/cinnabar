@@ -18,6 +18,7 @@ fn fixture() -> RuntimeAssets {
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
     let mut grass = cube;
     grass.faces = [3, 3, 2, 4, 3, 3];
