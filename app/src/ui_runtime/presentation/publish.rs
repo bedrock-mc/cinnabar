@@ -447,10 +447,9 @@ fn station_triggered(
         stream.current_dimension(),
     );
     let runtime_id = world.primary_runtime_id(position).ok()?;
-    client_ui::ui_runtime::presentation::forms::container_data::state_bit(
-        collisions.block_canonical_state(mode, runtime_id)?,
-        "triggered_bit",
-    )
+    assets::pinned_block_presentation_states()
+        .get(mode, runtime_id)
+        .crafter_triggered
 }
 
 /// Captures nametag picking with gameplay's reach and collision policy before UI projection.
