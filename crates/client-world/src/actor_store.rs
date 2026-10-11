@@ -635,6 +635,8 @@ impl MovementFlagUpdate {
 /// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
+    /// Committed local mode used by authored player render controllers.
+    pub game_mode: Option<protocol::PlayerGameMode>,
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.

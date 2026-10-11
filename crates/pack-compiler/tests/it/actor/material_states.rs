@@ -85,6 +85,21 @@ fn skeleton_alias_uses_double_sided_alpha_test_without_material_definitions() {
 }
 
 #[test]
+fn spectator_material_blends_and_respects_authored_raster_overrides() {
+    assert_eq!(
+        state("player_spectator", None),
+        json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
+    );
+    let definitions = json!({"materials": {
+        "player_spectator:entity": {"+states":["DisableDepthWrite"],"+defines":["ALPHA_TEST"]}
+    }});
+    assert_eq!(
+        state("player_spectator", Some(&definitions)),
+        json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":false})
+    );
+}
+
+#[test]
 fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheritance() {
     assert_eq!(
         state("entity_emissive_alpha", None),

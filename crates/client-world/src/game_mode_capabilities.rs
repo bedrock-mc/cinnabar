@@ -119,7 +119,7 @@ impl GameModeCapabilities {
                 can_open_containers: false,
                 can_use_items: false,
                 can_attack: false,
-                can_fly: true,
+                can_fly: false,
                 flying: true,
                 creative_inventory: false,
                 instant_break: false,
@@ -144,6 +144,10 @@ impl GameModeCapabilities {
     /// ability layer actually defines override a default; the rest stand.
     pub fn resolve(mode: PlayerGameMode, abilities: Option<&AbilitiesUpdate>) -> Self {
         let mut caps = Self::for_mode(mode);
+        // Spectator mode supplies its own permission layer above ordinary grants.
+        if mode == PlayerGameMode::Spectator {
+            return caps;
+        }
         let Some(abilities) = abilities else {
             return caps;
         };

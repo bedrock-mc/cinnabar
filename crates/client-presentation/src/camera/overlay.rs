@@ -89,6 +89,8 @@ pub struct OverlayLayer {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScreenEffectInputs {
     pub first_person: bool,
+    /// No-clip players pass through terrain without the embedded-block overlay.
+    pub noclip: bool,
     pub head: HeadMedium,
     pub carved_pumpkin_worn: bool,
     pub on_fire: bool,
@@ -107,6 +109,7 @@ impl Default for ScreenEffectInputs {
     fn default() -> Self {
         Self {
             first_person: true,
+            noclip: false,
             head: HeadMedium::Air,
             carved_pumpkin_worn: false,
             on_fire: false,
@@ -149,7 +152,7 @@ pub fn portal_alpha(progress: f32) -> f32 {
 pub fn compute_overlays(inputs: &ScreenEffectInputs) -> Vec<OverlayLayer> {
     let mut layers = Vec::new();
     if inputs.first_person {
-        if inputs.head == HeadMedium::Solid {
+        if inputs.head == HeadMedium::Solid && !inputs.noclip {
             layers.push(OverlayLayer {
                 kind: OverlayKind::Suffocation,
                 alpha: 1.0,
@@ -393,6 +396,18 @@ mod tests {
     #[test]
     fn open_first_person_view_has_no_layers() {
         assert!(compute_overlays(&ScreenEffectInputs::default()).is_empty());
+    }
+
+    #[test]
+    fn spectator_inside_solid_keeps_the_view_clear_and_preserves_server_fades() {
+        let layers = compute_overlays(&ScreenEffectInputs {
+            noclip: true,
+            head: HeadMedium::Solid,
+            server_fade: Some(([0.0; 3], 0.5)),
+            ..Default::default()
+        });
+        assert_eq!(layers.len(), 1);
+        assert_eq!(layers[0].kind, OverlayKind::ServerFade);
     }
 
     #[test]
