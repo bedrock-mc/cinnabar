@@ -334,7 +334,8 @@ fn stopped_clock_set_time_replaces_frozen_tick_and_signed_times_use_euclidean_da
         7.0,
     ));
     let frame = derive_atmosphere_frame(clock, weather, 7.0);
-    assert!((frame.day_fraction() - (23_999.0 / 24_000.0)).abs() < 1.0e-6);
+    let day = world::TICKS_PER_DAY as f32;
+    assert!((frame.day_fraction() - ((day - 1.0) / day)).abs() < 1.0e-6);
     assert_eq!(frame.moon_phase(), 7);
 }
 #[test]
@@ -421,7 +422,7 @@ fn cardinal_bedrock_times_drive_exact_sun_quadrants_and_moon_phases() {
             CommittedControlEvent::SetTime {
                 sequence: 30_000 + day as u64,
                 update: SetTimeEvent {
-                    time: day * 24_000 + 6_000,
+                    time: day * world::TICKS_PER_DAY as i32 + 6_000,
                 },
             },
             &mut clock,

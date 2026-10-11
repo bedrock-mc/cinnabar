@@ -13,7 +13,6 @@ use crate::{AtmosphereViewInputs, celestial, native_sunlight};
 #[path = "atmosphere/liquid_distance.rs"]
 mod liquid_distance;
 
-pub const BEDROCK_DAY_TICKS: f64 = celestial::DAY_TICKS;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = meshing::CLOUD_WORLD_PERIOD as f64;
 /// Vanilla samples the cloud texture 0.03 blocks ahead per 1.5 ticks.
 pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03 / 1.5;
@@ -269,11 +268,13 @@ impl AtmosphereFrame {
         let rain = bounded_level(rain_level);
         let thunder = bounded_level(thunder_level);
         let day_fraction =
-            (absolute_ticks.rem_euclid(BEDROCK_DAY_TICKS) / BEDROCK_DAY_TICKS) as f32;
+            (absolute_ticks.rem_euclid(celestial::DAY_TICKS) / celestial::DAY_TICKS) as f32;
         let angle = celestial::celestial_angle(absolute_ticks);
         let sun_direction = celestial::sun_direction(angle);
         let moon_direction = sun_direction.map(|component| -component);
-        let moon_phase = ((absolute_ticks / BEDROCK_DAY_TICKS).floor().rem_euclid(8.0)) as u8;
+        let moon_phase = ((absolute_ticks / celestial::DAY_TICKS)
+            .floor()
+            .rem_euclid(8.0)) as u8;
 
         let zenith = overworld_zenith(angle, DEFAULT_SKY_TEMPERATURE, thunder);
         let fog_color = overworld_fog_colour(

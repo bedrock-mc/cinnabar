@@ -9,7 +9,7 @@ fn hud_world_text_recovers_with_positive_health_below_display_precision() {
     });
     let frame = HudFrame {
         player_block: Some([12, 64, -7]),
-        world_time: Some(24_000.0 * 3.0),
+        world_time: Some(f64::from(world::TICKS_PER_DAY) * 3.0),
         ..Default::default()
     };
     let mut player = player_state::PlayerState::new(1);

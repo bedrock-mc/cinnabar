@@ -256,8 +256,8 @@ fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() 
     let before_period_end = cloud_texture_offset(one_texture_period_ticks - 1.0);
     assert!((before_zero[0] - before_period_end[0]).abs() < 1.0e-5);
 
-    // 24,000 ticks drift 480 blocks toward -X.
-    let next_day = cloud_texture_offset(24_000.0);
+    // One day drifts 480 blocks toward -X.
+    let next_day = cloud_texture_offset(f64::from(world::TICKS_PER_DAY));
     assert!(
         (next_day[0] - (1.0 - 480.0 / 4096.0)).abs() < 1.0e-6,
         "{next_day:?}"

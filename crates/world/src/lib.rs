@@ -59,6 +59,9 @@ pub use sub_chunk::{BlockIds, MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, RawBlockId
 /// Bedrock simulation ticks per second.
 pub const TICKS_PER_SECOND: u32 = 20;
 
+/// Bedrock simulation ticks in one day-night cycle.
+pub const TICKS_PER_DAY: u32 = 24_000;
+
 /// Vanilla's per-frame tick cap; a frame further behind discards the excess whole ticks.
 pub const MAX_TICKS_PER_FRAME: u32 = 10;
 

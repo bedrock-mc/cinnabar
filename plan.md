@@ -144,6 +144,13 @@ dependency. The app owns the build-identity resource and passes its build profil
 into the runtime-metadata and world-publication markers. Marker output is unchanged;
 compilation and test execution of this move remain unverified until CI.
 
+## World day length
+
+`world::TICKS_PER_DAY` is the single day length for sky and moon-phase math, the HUD
+days-played count and their tests. The guest SDK keeps its time-override bound because
+it cannot depend on `world`; a compile-time check in `render` keeps the two equal.
+Values are unchanged; compilation and test execution remain unverified until CI.
+
 ## Login identity
 
 - New core-owned logins pass the full stored ClientRandomId and existing install device

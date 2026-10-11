@@ -5,8 +5,11 @@
 
 use std::f32::consts::{PI, TAU};
 
-/// Ticks in one Bedrock day.
-pub const DAY_TICKS: f64 = mod_api::BEDROCK_DAY_TICKS as f64;
+/// [`world::TICKS_PER_DAY`] for floating-point sky math.
+pub const DAY_TICKS: f64 = world::TICKS_PER_DAY as f64;
+
+// Guest time overrides are validated against one world day.
+const _: () = assert!(mod_api::BEDROCK_DAY_TICKS == world::TICKS_PER_DAY);
 
 /// Sky-light transfer at night: brightness-ramp level 4, i.e. 15 minus the 11-level night reduction.
 pub const NIGHT_SKY_TRANSFER: f32 = 0.083_333_336;
