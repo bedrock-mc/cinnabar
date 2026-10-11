@@ -15,6 +15,7 @@ mod block_names;
 pub mod carriers;
 mod compiled;
 pub mod dye;
+mod effects;
 mod encoding;
 mod entity;
 mod environment_settings;
@@ -113,6 +114,9 @@ pub use compiled::{
     MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
     MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, material_leaf_ao_exponent,
+};
+pub use effects::{
+    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_registry_version,
 };
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,

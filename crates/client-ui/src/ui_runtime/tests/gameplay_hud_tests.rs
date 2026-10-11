@@ -351,13 +351,6 @@ fn absorption_poison_outranks_wither_and_unknown_effect_actions_are_counted() {
     );
 }
 
-/// Every vanilla protocol-1001 effect id the HUD can present. Instant
-/// effects (6, 7, 23) have no HUD surface.
-pub const RENDERABLE_EFFECT_IDS: [i32; 27] = [
-    1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28,
-    29, 30,
-];
-
 #[test]
 fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
     let mut runtime = UiRuntime::new(1);
@@ -367,20 +360,22 @@ fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
         sequence
     };
     // The full renderable catalog stays under the retention cap by design.
-    for id in RENDERABLE_EFFECT_IDS {
+    let ids: Vec<_> = assets::EFFECT_DESCRIPTORS
+        .iter()
+        .filter(|descriptor| descriptor.icon.is_some())
+        .map(|descriptor| descriptor.id)
+        .collect();
+    for &id in &ids {
         runtime
             .apply_local_effect(1, next(), effect(ActorEffectAction::Add, id, -1, 0), 0)
             .unwrap();
     }
-    assert_eq!(
-        runtime.gameplay_hud().effects().len(),
-        RENDERABLE_EFFECT_IDS.len()
-    );
-    assert!(RENDERABLE_EFFECT_IDS.len() <= MAX_HUD_EFFECTS);
+    assert_eq!(runtime.gameplay_hud().effects().len(), ids.len());
+    assert!(ids.len() <= MAX_HUD_EFFECTS);
 
     // Unknown ids are odd remote data: counted, skipped, never stored, and
     // therefore never able to push a renderable effect out of the list.
-    for (offset, unknown_id) in [0, 6, 7, 23, 31, 999, -3].into_iter().enumerate() {
+    for (offset, unknown_id) in [0, 6, 7, 23, 38, 999, -3].into_iter().enumerate() {
         runtime
             .apply_local_effect(
                 1,
@@ -394,10 +389,7 @@ fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
             offset as u64 + 1
         );
     }
-    assert_eq!(
-        runtime.gameplay_hud().effects().len(),
-        RENDERABLE_EFFECT_IDS.len()
-    );
+    assert_eq!(runtime.gameplay_hud().effects().len(), ids.len());
     assert_eq!(runtime.gameplay_hud().diagnostics().evicted_effects, 0);
 }
 
@@ -1189,4 +1181,44 @@ fn empty_offhand_content_preserves_known_equipment() {
         storage_item: NetworkItemStack::empty(),
     }));
     assert_eq!(state.offhand_stack().unwrap().network_id, 77);
+}
+
+#[test]
+fn recent_effects_retain_updates_and_removals() {
+    let mut runtime = UiRuntime::new(1);
+    for (index, id) in (31..=37).enumerate() {
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 1,
+                effect(ActorEffectAction::Add, id, -1, 0),
+                0,
+            )
+            .unwrap();
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 2,
+                effect(ActorEffectAction::Update, id, 600, 0),
+                0,
+            )
+            .unwrap();
+        let retained = runtime
+            .gameplay_hud()
+            .effects()
+            .iter()
+            .find(|effect| effect.effect_id == id)
+            .expect("registered effect retained");
+        assert_eq!(retained.expires_at_tick, Some(600));
+        runtime
+            .apply_local_effect(
+                1,
+                index as u64 * 3 + 3,
+                effect(ActorEffectAction::Remove, id, 0, 0),
+                0,
+            )
+            .unwrap();
+        assert!(runtime.gameplay_hud().effects().is_empty());
+    }
+    assert_eq!(runtime.gameplay_hud().diagnostics().unknown_effect_ids, 0);
 }

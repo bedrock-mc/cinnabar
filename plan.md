@@ -7168,3 +7168,9 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+Status-effect retention and HUD icon/row lookup now share a versioned descriptor
+registry. The pinned pack's effects through ID 37 are covered, including the
+nonpersistent effects without HUD icons. A hash-checked independent effect
+inventory checks descriptor coverage when the named local fixture is available.
+The required HUD carrier includes the added icons; rebuild it with `make assets`.

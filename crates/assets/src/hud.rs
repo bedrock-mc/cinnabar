@@ -2,10 +2,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
-pub const HUD_CARRIER_VERSION: u32 = 4;
+pub const HUD_CARRIER_VERSION: u32 = 5;
 pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
-    0x2f, 0x03, 0x1e, 0x09, 0x1a, 0x24, 0xdf, 0x0d, 0x83, 0xa0, 0x4f, 0xa1, 0xa5, 0x93, 0x45, 0x91,
-    0x34, 0xf9, 0x70, 0xbd, 0xae, 0x7d, 0x74, 0x93, 0xfc, 0x9c, 0x6b, 0x53, 0xe1, 0x4f, 0x46, 0x5e,
+    0x34, 0x58, 0xdc, 0x48, 0x17, 0x93, 0x6f, 0xa7, 0xaa, 0x45, 0x97, 0xee, 0x93, 0xfa, 0xbd, 0xed,
+    0x2f, 0x01, 0x89, 0xf4, 0x50, 0xad, 0x85, 0xa7, 0x96, 0xa1, 0xf1, 0x53, 0x4e, 0x26, 0xdb, 0x24,
 ];
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
@@ -104,10 +104,17 @@ pub enum HudTextureRole {
     EffectIconBadOmen = 79,
     EffectIconVillageHero = 80,
     EffectIconDarkness = 81,
+    EffectIconTrialOmen = 82,
+    EffectIconWindCharged = 83,
+    EffectIconWeaving = 84,
+    EffectIconOozing = 85,
+    EffectIconInfested = 86,
+    EffectIconRaidOmen = 87,
+    EffectIconBreathOfTheNautilus = 88,
 }
 
 impl HudTextureRole {
-    pub const ALL: [Self; 82] = [
+    pub const ALL: [Self; 89] = [
         Self::HeartBackground,
         Self::HeartFull,
         Self::HeartHalf,
@@ -190,10 +197,20 @@ impl HudTextureRole {
         Self::EffectIconBadOmen,
         Self::EffectIconVillageHero,
         Self::EffectIconDarkness,
+        Self::EffectIconTrialOmen,
+        Self::EffectIconWindCharged,
+        Self::EffectIconWeaving,
+        Self::EffectIconOozing,
+        Self::EffectIconInfested,
+        Self::EffectIconRaidOmen,
+        Self::EffectIconBreathOfTheNautilus,
     ];
 
     #[must_use]
     pub const fn source_path(self) -> &'static str {
+        if let Some(path) = crate::effects::effect_icon_path(self) {
+            return path;
+        }
         match self {
             Self::HeartBackground => "textures/ui/heart_background.png",
             Self::HeartFull => "textures/ui/heart.png",
@@ -251,32 +268,7 @@ impl HudTextureRole {
             Self::BubblePop => "textures/ui/bubble_pop.png",
             Self::EffectBackground => "textures/ui/hud_mob_effect_background.png",
             Self::EffectBackgroundAmbient => "textures/ui/hud_mob_ambient_effect_background.png",
-            Self::EffectIconSpeed => "textures/ui/speed_effect.png",
-            Self::EffectIconSlowness => "textures/ui/slowness_effect.png",
-            Self::EffectIconHaste => "textures/ui/haste_effect.png",
-            Self::EffectIconMiningFatigue => "textures/ui/mining_fatigue_effect.png",
-            Self::EffectIconStrength => "textures/ui/strength_effect.png",
-            Self::EffectIconJumpBoost => "textures/ui/jump_boost_effect.png",
-            Self::EffectIconNausea => "textures/ui/nausea_effect.png",
-            Self::EffectIconRegeneration => "textures/ui/regeneration_effect.png",
-            Self::EffectIconResistance => "textures/ui/resistance_effect.png",
-            Self::EffectIconFireResistance => "textures/ui/fire_resistance_effect.png",
-            Self::EffectIconWaterBreathing => "textures/ui/water_breathing_effect.png",
-            Self::EffectIconInvisibility => "textures/ui/invisibility_effect.png",
-            Self::EffectIconBlindness => "textures/ui/blindness_effect.png",
-            Self::EffectIconNightVision => "textures/ui/night_vision_effect.png",
-            Self::EffectIconHunger => "textures/ui/hunger_effect.png",
-            Self::EffectIconWeakness => "textures/ui/weakness_effect.png",
-            Self::EffectIconPoison => "textures/ui/poison_effect.png",
-            Self::EffectIconWither => "textures/ui/wither_effect.png",
-            Self::EffectIconHealthBoost => "textures/ui/health_boost_effect.png",
-            Self::EffectIconAbsorption => "textures/ui/absorption_effect.png",
-            Self::EffectIconLevitation => "textures/ui/levitation_effect.png",
-            Self::EffectIconConduitPower => "textures/ui/conduit_power_effect.png",
-            Self::EffectIconSlowFalling => "textures/ui/slow_falling_effect.png",
-            Self::EffectIconBadOmen => "textures/ui/bad_omen_effect.png",
-            Self::EffectIconVillageHero => "textures/ui/village_hero_effect.png",
-            Self::EffectIconDarkness => "textures/ui/darkness_effect.png",
+            _ => panic!("effect icon has no descriptor"),
         }
     }
 
@@ -378,7 +370,14 @@ impl HudTextureRole {
             | Self::EffectIconSlowFalling
             | Self::EffectIconBadOmen
             | Self::EffectIconVillageHero
-            | Self::EffectIconDarkness => [18, 18],
+            | Self::EffectIconDarkness
+            | Self::EffectIconTrialOmen
+            | Self::EffectIconWindCharged
+            | Self::EffectIconWeaving
+            | Self::EffectIconOozing
+            | Self::EffectIconInfested
+            | Self::EffectIconRaidOmen
+            | Self::EffectIconBreathOfTheNautilus => [18, 18],
         }
     }
 
