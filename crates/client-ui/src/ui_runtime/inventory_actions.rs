@@ -10,7 +10,7 @@ use super::presentation::screens::{
     BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, ReaderButton, Widget,
 };
 use super::screen_recipes::LOOM_PATTERNS;
-use super::screen_state::{ScreenState, creative_entries};
+use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
     CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
@@ -112,7 +112,7 @@ pub fn recipe_book_entries<'a>(
     if player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
         && let Some(catalog) = ledger.creative_catalog()
     {
-        let items = visible_creative_entries(ledger, state);
+        let items = visible_creative_entries(ledger, runtime);
         if state.creative_tab == super::presentation::screens::SEARCH_TAB {
             return items
                 .iter()
@@ -159,7 +159,7 @@ pub fn recipe_book_entries<'a>(
         .creative_catalog()
         .map(|catalog| {
             creative_entries(catalog, state.creative_tab, &state.search, |item| {
-                item_name(ledger, item)
+                item_name(ledger, runtime, item)
             })
             .iter()
             .map(|item| item.stack.network_id)
@@ -176,10 +176,14 @@ pub fn recipe_book_entries<'a>(
         .collect()
 }
 
-fn item_name(ledger: &PlayerInventoryLedger, item: &CreativeItem) -> Option<String> {
+/// Projects the same component and localized display name used by item presentation.
+fn item_name(
+    ledger: &PlayerInventoryLedger,
+    runtime: &UiRuntime,
+    item: &CreativeItem,
+) -> Option<String> {
     let entry = ledger.negotiated_item_entry(item.stack.network_id)?;
-    let name = entry.identifier.strip_prefix("minecraft:")?;
-    Some(name.replace('_', " "))
+    Some(runtime.localized_item_name(&entry.identifier))
 }
 
 /// What a recipe book click lands on, detached from the runtime borrow.
@@ -193,9 +197,13 @@ enum Clicked {
 /// The catalog entries the creative screen currently lists, in grid order.
 pub fn visible_creative_entries<'a>(
     ledger: &'a PlayerInventoryLedger,
-    state: &ScreenState,
+    runtime: &UiRuntime,
 ) -> super::screen_state::CreativeEntries<'a> {
-    state.matching_creative_entries(ledger, |item| item_name(ledger, item))
+    runtime.screen_state().matching_creative_entries(
+        ledger,
+        runtime.item_name_generation(),
+        |item| item_name(ledger, runtime, item),
+    )
 }
 
 impl UiRuntime {
@@ -219,10 +227,7 @@ impl UiRuntime {
     ) -> Option<Outcome> {
         let id = match hit {
             InventoryCellHit::CreativeGrid(index) => {
-                let entries = visible_creative_entries(
-                    self.inventory_ledger(player_runtime),
-                    self.screen_state(),
-                );
+                let entries = visible_creative_entries(self.inventory_ledger(player_runtime), self);
                 let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
                 entries.get(position).map(|item| item.creative_network_id)
             }
@@ -813,8 +818,7 @@ impl UiRuntime {
                 .begin_destroy_cursor();
         }
         let id = {
-            let entries =
-                visible_creative_entries(player_runtime.inventory.ledger(), self.screen_state());
+            let entries = visible_creative_entries(player_runtime.inventory.ledger(), self);
             let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
             if usize::from(index) >= GRID_CELLS {
                 return Err(InventoryGestureError::InvalidRequest);
