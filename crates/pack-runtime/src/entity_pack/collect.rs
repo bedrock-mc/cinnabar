@@ -8,7 +8,7 @@ use assets::VanillaEntityRefs;
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
 
-use super::super::resource_packs::parse_pack_json;
+use crate::pack_textures::parse_pack_json;
 
 const DEFINITION_FAMILIES: [(&str, &str, &str); 3] = [
     ("animations/", "animations", "animations/_pack.json"),
@@ -91,7 +91,7 @@ impl References {
 /// merged into one file per family with the highest layer winning each identifier (a vanilla
 /// client keeps the last definition it loads); definitions the actors reference but the
 /// stack lacks come from `vanilla`. Only rasters the sources name are read.
-pub(super) fn collect_files(
+pub fn collect_files(
     view: &LayeredPackView,
     vanilla: Option<&VanillaEntityRefs>,
     vanilla_pack_dir: Option<&Path>,

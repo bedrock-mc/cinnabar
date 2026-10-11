@@ -107,22 +107,22 @@ fn compile_stop(source: &str, version: i32) -> Option<assets::MolangProgram> {
         ),
         _ => return None,
     };
-    Some(assets::MolangProgram {
-        symbols: vec![assets::MolangSymbol {
+    Some(assets::MolangProgram::new(
+        vec![assets::MolangSymbol {
             kind: assets::MolangSymbolKind::Query,
             identifier: query.into(),
         }]
         .into_boxed_slice(),
-        expressions: vec![assets::CompiledMolangExpression {
+        vec![assets::CompiledMolangExpression {
             first_op: 0,
             op_count: ops.len() as u16,
             max_stack: 2,
         }]
         .into_boxed_slice(),
-        ops: ops.into_boxed_slice(),
-        collections: Box::new([]),
-        collection_items: Box::new([]),
-    })
+        ops.into_boxed_slice(),
+        Box::new([]),
+        Box::new([]),
+    ))
 }
 
 fn play_with_stop(store: &mut ActorStore, expression: &str, blend: f32) {

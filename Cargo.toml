@@ -12,6 +12,7 @@ members = [
     "crates/client-session",
     "crates/chunk-pipeline",
     "crates/pack-compiler",
+    "crates/pack-runtime",
     "crates/experience-sdk",
     "crates/experience-runtime",
     "examples/experiences/probe",

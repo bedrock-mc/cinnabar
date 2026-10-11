@@ -9,7 +9,7 @@ fn variant(actor: &ActorSnapshot, held_metadata: u32) -> f32 {
         main_hand_metadata: held_metadata,
         ..ActorTickContext::default()
     };
-    query(
+    named_query(
         &QueryInputs {
             actor,
             input: &input,

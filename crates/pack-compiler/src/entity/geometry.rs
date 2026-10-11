@@ -110,19 +110,8 @@ pub(super) fn parse_geometry(
         }
         for raw_identifier in identifiers {
             let raw_identifier = raw_identifier.as_str();
-            let (identifier, inherits) = match raw_identifier.split_once(':') {
-                Some((identifier, inherits))
-                    if !identifier.is_empty()
-                        && !inherits.is_empty()
-                        && !inherits.contains(':')
-                        && identifier.starts_with("geometry.")
-                        && inherits.starts_with("geometry.") =>
-                {
-                    (identifier, Some(inherits))
-                }
-                Some(_) => return Err(invalid("invalid legacy entity geometry inheritance key")),
-                None => (raw_identifier, None),
-            };
+            let (identifier, inherits) = crate::geometry_key::legacy_key(raw_identifier)
+                .ok_or_else(|| invalid("invalid legacy entity geometry inheritance key"))?;
             let geometry = root
                 .get(raw_identifier)
                 .ok_or_else(|| invalid("missing legacy entity geometry"))?;

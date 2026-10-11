@@ -360,6 +360,11 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 		stats.additions++
 		writeV2193Fingerprint(additionHash, identity, key)
 	}
+	for index := range projected {
+		if err := applyFamilyRouting(&projected[index]); err != nil {
+			return v2193Projection{}, v2193ProjectionStats{}, err
+		}
+	}
 	stats.deniedFingerprint = fmt.Sprintf("%x", deniedHash.Sum(nil))
 	stats.additionFingerprint = fmt.Sprintf("%x", additionHash.Sum(nil))
 	return projection, stats, nil

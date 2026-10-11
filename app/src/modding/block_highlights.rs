@@ -2,10 +2,6 @@
 use bevy::prelude::*;
 use client_ui::ui_runtime::UiRuntime;
 use render::ModRenderScene;
-use std::sync::{
-    OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
 use {
     crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::world::ClientWorld},
     client_presentation::camera::FlyCamera,
@@ -15,9 +11,6 @@ use {
 pub(crate) struct BlockHighlights;
 
 pub(super) fn configure(app: &mut App) {
-    if std::env::var(super::BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1") {
-        let _ = registry();
-    }
     app.add_systems(
         Update,
         publish
@@ -31,34 +24,31 @@ pub(super) fn configure(app: &mut App) {
 struct Discovery {
     session: u64,
     assets: usize,
+    registry_revision: u64,
     mode: Option<assets::NetworkIdMode>,
     identifiers: Vec<String>,
     ids: Vec<u32>,
     scan: world::BlockHighlightScan,
 }
 
-fn registry() -> Option<&'static [assets::RegistryRecord]> {
-    static RECORDS: OnceLock<Box<[assets::RegistryRecord]>> = OnceLock::new();
-    static STARTED: AtomicBool = AtomicBool::new(false);
-    if !STARTED.swap(true, Ordering::AcqRel)
-        && std::thread::Builder::new()
-            .name("block-highlight-identities".into())
-            .spawn(|| {
-                let records = assets::read_registry_for_protocol(
-                    assets::pinned_block_registry_bytes(),
-                    assets::active_content_registry_protocol(),
-                )
-                .unwrap_or_else(|error| {
-                    bevy::log::warn!(%error, "block highlight identity registry could not be read");
-                    Box::default()
-                });
-                let _ = RECORDS.set(records);
-            })
-            .is_err()
-    {
-        STARTED.store(false, Ordering::Release);
+/// Resolves every requested name from the admitted session and reports names with no states.
+fn resolve_ids(
+    authority: &client_world::WorldAuthority,
+    names: &[String],
+) -> (Vec<u32>, Vec<String>) {
+    let mut ids = Vec::new();
+    let mut unresolved = Vec::new();
+    for name in names {
+        let states = authority.block_ids_for_name(name);
+        if states.is_empty() {
+            unresolved.push(name.clone());
+        } else {
+            ids.extend_from_slice(states);
+        }
     }
-    RECORDS.get().map(|records| records.as_ref())
+    ids.sort_unstable();
+    ids.dedup();
+    (ids, unresolved)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -95,36 +85,31 @@ fn publish(
         return;
     };
     let session = stream.authority().actor_session_id();
-    if discovery.session != session {
+    let session_changed = discovery.session != session;
+    if session_changed {
         discovery.scan.clear();
         discovery.session = session;
     }
     let asset_identity = std::sync::Arc::as_ptr(stream.runtime_assets()) as usize;
     let mode = stream.network_id_mode();
-    if discovery.assets != asset_identity
+    let registry_revision = stream.authority().block_name_revision();
+    if session_changed
+        || discovery.registry_revision != registry_revision
+        || discovery.assets != asset_identity
         || discovery.mode != Some(mode)
         || discovery.identifiers != spec.identifiers
     {
-        let Some(records) = registry() else {
-            scene.set_block_highlights(&[], spec.color);
-            return;
-        };
         discovery.assets = asset_identity;
+        discovery.registry_revision = registry_revision;
         discovery.mode = Some(mode);
         discovery.identifiers.clone_from(&spec.identifiers);
-        discovery.ids.clear();
-        for record in records.iter().filter(|record| {
-            spec.identifiers
-                .iter()
-                .any(|name| name.as_str() == record.name.as_ref())
-        }) {
-            let id = match mode {
-                assets::NetworkIdMode::Sequential => record.sequential_id,
-                assets::NetworkIdMode::Hashed => record.network_hash,
-            };
-            if stream.runtime_assets().is_known(mode, id) {
-                discovery.ids.push(id);
-            }
+        let (ids, unresolved) = resolve_ids(stream.authority(), &spec.identifiers);
+        discovery.ids = ids;
+        if !unresolved.is_empty() {
+            bevy::log::warn!(
+                ?unresolved,
+                "block highlights requested unresolved session identifiers"
+            );
         }
         bevy::log::debug!(
             identifiers = ?spec.identifiers,
@@ -148,6 +133,7 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Encodes a signed runtime palette value for a received-subchunk fixture.
     fn signed_varint(value: u32, out: &mut Vec<u8>) {
         let signed = value as i32;
         let mut zigzag = ((signed << 1) ^ (signed >> 31)) as u32;
@@ -212,6 +198,64 @@ mod tests {
                     record.name
                 );
             }
+        }
+    }
+
+    /// Creates an admitted custom palette independently of rendered block artwork.
+    fn custom_authority(mode: assets::NetworkIdMode) -> client_world::WorldAuthority {
+        let mut authority = client_world::WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: mode == assets::NetworkIdMode::Hashed,
+            },
+            std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        );
+        authority.set_custom_block_ids(1..2);
+        authority.set_custom_block_identities(&protocol::CustomBlocks {
+            blocks: std::sync::Arc::from([protocol::CustomBlock {
+                name: "example:highlighted".into(),
+                state_count: 1,
+                collides: true,
+                collision_boxes: None,
+                selection: protocol::CustomSelection::Default,
+                state_physics: Default::default(),
+                tags: Default::default(),
+                visual: std::sync::Arc::default(),
+            }]),
+            ..Default::default()
+        });
+        authority
+    }
+
+    #[test]
+    fn custom_highlights_resolve_all_session_states_and_report_missing_names() {
+        for mode in [
+            assets::NetworkIdMode::Sequential,
+            assets::NetworkIdMode::Hashed,
+        ] {
+            let mut authority = custom_authority(mode);
+            let requests = [
+                "example:highlighted".into(),
+                "example:missing".into(),
+                "example:highlighted".into(),
+            ];
+            let (ids, unresolved) = resolve_ids(&authority, &requests);
+            assert_eq!(ids, authority.block_ids_for_name("example:highlighted"));
+            assert_eq!(ids.len(), 1);
+            assert_eq!(unresolved, ["example:missing"]);
+            authority.set_custom_block_identities(&protocol::CustomBlocks::default());
+            assert!(resolve_ids(&authority, &requests).0.is_empty());
+            let next = custom_authority(mode);
+            assert_ne!(next.actor_session_id(), authority.actor_session_id());
+            assert_eq!(resolve_ids(&next, &requests).0.len(), 1);
         }
     }
 }

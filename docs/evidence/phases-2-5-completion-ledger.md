@@ -27,7 +27,7 @@
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Numbered raster pack skyboxes and optional native vertical placement in `plan.md`; broader atmosphere work remains open. |
-| Deterministic tests | Pack admission/reload regressions cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
+| Deterministic tests | Pack admission and reload dependency regressions in `pack-runtime`, with publication regressions in `app`, cover priority, malformed and oversized winners, missing faces and removal. GPU tests cover projection, filtering, transparency, depth, visibility and stable colours; texture-cache tests cover reloads and dimension changes. |
 | Review commit | Skybox tranche tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Retained-pack offline GPU views and both Video setting states were inspected. Current-server full-client acceptance remains open. |
 | Performance/resource witness | Existing raster byte, dimension and allocation bounds remain; texture-cache regressions cover stable frames. Live frame and join budgets remain open. |
@@ -206,3 +206,14 @@ The account core publishes menu, world-default, Realm and generic featured/Exper
 Exact heartbeat, platform configuration, server overrides, permission gates and
 friends-visible acceptance remain incomplete. No existing completion entry is
 advanced by this feature; see `docs/reference/xbox-presence.md` and `plan.md`.
+
+## Session block highlight follow-up
+
+Highlight lookup uses admitted custom state identities and the pinned base registry.
+Regression coverage includes both ID modes, palette replacement and session reset.
+The loaded-block highlight capture shows a custom block before and after admission.
+Selection shape parity and displayed-frame performance gates remain open.
+
+## Inherited block overlay geometry
+
+Block overlays use the shared pack compiler to resolve legacy geometry inheritance before projecting faces. Parents may come from other model files or pack layers; missing parents, cycles and chains beyond the depth limit are rejected. Budget-limited reads admit higher-priority definitions first. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.

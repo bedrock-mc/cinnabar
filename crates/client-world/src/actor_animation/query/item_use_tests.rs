@@ -47,7 +47,7 @@ fn remaining_with_off_hand(
             bones: &[],
             bone_names: &[],
         },
-        "query.item_remaining_use_duration",
+        Q::ItemRemainingUseDuration,
         arguments,
     )
     .number()

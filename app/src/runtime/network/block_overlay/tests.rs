@@ -9,6 +9,7 @@ use resource_pack::LayeredPackView;
 
 use super::{OverlayGaps, compile_block_overlay};
 
+mod budget;
 mod builtins;
 mod legacy;
 mod lighting;
@@ -615,7 +616,8 @@ fn bone_visibility_hides_bones_per_state() {
 // Flipbook framing is bounded before copies are cut and each frame is shrunk.
 #[test]
 fn flipbook_frames_are_capped_and_shrunk() {
-    use super::textures::{DecodedTexture, Flipbook, flipbook_frames, shrink_to_max};
+    use super::textures::{Flipbook, flipbook_frames, shrink_to_max};
+    use pack_runtime::pack_textures::DecodedTexture;
     let strip = DecodedTexture {
         width: 64,
         height: 64 * 8,
@@ -1061,7 +1063,7 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let escaped = GEOMETRY.replace("geometry.gen", r"geometry\u002egen");
     let view = view_with_geometry(escaped.as_bytes());
     let wanted = std::collections::HashSet::from(["geometry.gen"]);
-    let catalog = super::geometry::geometry_catalog(&view, &wanted);
+    let catalog = super::geometry_inputs::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
 }
 
@@ -1080,7 +1082,7 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
             ..CustomBlockVisuals::default()
         },
     );
-    let inputs = Arc::new(super::super::pack_reload::PackInputs {
+    let inputs = Arc::new(pack_runtime::PackInputs {
         blocks: CustomBlocks {
             blocks: vec![lucky].into(),
             vanilla_blocks: Default::default(),
@@ -1188,37 +1190,4 @@ fn a_full_texture_array_names_the_routes_it_refused() {
         compiled.gaps.missing_textures, compiled.gaps.saturated_textures,
         "each refused route is its own diagnostic visual"
     );
-}
-
-#[test]
-fn budget_rejected_runs_do_not_materialize_visuals_or_item_indices() {
-    let admitted = block("test:admitted", 1, CustomBlockVisuals::default());
-    let rejected = block(
-        "test:rejected",
-        u32::MAX,
-        CustomBlockVisuals {
-            state_identity_incomplete: true,
-            materialization_disabled: true,
-            ..Default::default()
-        },
-    );
-    let definitions = CustomBlocks {
-        blocks: Arc::from([admitted, rejected]),
-        ..Default::default()
-    };
-    for hashed in [false, true] {
-        let compiled = compile_block_overlay(&view(), &definitions, hashed, None).unwrap();
-        assert_eq!(compiled.overlay.visuals.len(), 1);
-        assert_eq!(compiled.overlay.hashes.len(), 1);
-        assert_eq!(compiled.gaps.incomplete_state_identities, 1);
-        let icons = crate::runtime::network::item_icons::custom_block_icons(
-            &compiled.overlay,
-            &definitions,
-            hashed,
-            &[("test:rejected".into(), "test:rejected".into())],
-        );
-        assert!(icons.icons.is_empty());
-        assert!(icons.block_sheets.is_empty());
-        assert_eq!(icons.misses.len(), 1);
-    }
 }

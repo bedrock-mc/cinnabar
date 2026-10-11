@@ -43,7 +43,7 @@ fn read_tail(actor: &ActorSnapshot, ticks: u64) -> f32 {
         bones: &[],
         bone_names: &[],
     };
-    match super::super::query(&query, "query.tail_angle", &[]) {
+    match super::super::named_query(&query, "query.tail_angle", &[]) {
         MolangValue::Number(value) => value,
         value => panic!("tail angle is not numeric: {value:?}"),
     }

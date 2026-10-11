@@ -128,7 +128,7 @@ impl LauncherCoreSlot {
                     auth_cache.as_deref(),
                     upstream_client_cache,
                     menu.is_launcher(),
-                    &crate::runtime::network::active_language_code(),
+                    &pack_runtime::pack_language::active_language_code(),
                 ) {
                     Ok(core) => {
                         self.core = Some(core);

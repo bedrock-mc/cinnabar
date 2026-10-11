@@ -78,11 +78,9 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
-    let compiled = pack_compiler::compile_actor_pack(super::collect::collect_files(
-        &view,
-        refs.as_ref(),
-        None,
-    ))
+    let compiled = pack_compiler::compile_actor_pack(
+        pack_runtime::entity_pack::collect::collect_files(&view, refs.as_ref(), None),
+    )
     .unwrap()
     .unwrap();
     let artwork =

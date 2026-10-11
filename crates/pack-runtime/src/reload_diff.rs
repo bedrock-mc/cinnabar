@@ -1,12 +1,12 @@
 //! Subscriber fingerprints preserve unchanged compiled resources across stack edits.
 
-use super::{pack_reload::PackInputs, resource_packs::PackApplication};
+use crate::PackInputs;
 use resource_pack::{PackAdmission, PackDependency, ValidatedPackStack};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Subscriber {
+pub enum Subscriber {
     Blocks,
     Atmosphere,
     Particles,
@@ -19,10 +19,10 @@ pub(super) enum Subscriber {
     AimAssist,
 }
 
-pub(super) type Dependencies = BTreeMap<Subscriber, BTreeSet<PackDependency>>;
+pub type Dependencies = BTreeMap<Subscriber, BTreeSet<PackDependency>>;
 
 /// Runs one compiler with an independent record of its successful and missing reads.
-pub(super) fn compile<T>(
+pub fn compile<T>(
     subscriber: Subscriber,
     stack: &std::sync::Arc<ValidatedPackStack>,
     dependencies: &mut Dependencies,
@@ -37,7 +37,7 @@ pub(super) fn compile<T>(
 
 /// One subscriber's output and, when compiled rather than reused, its reads; `None` once
 /// cancelled before it started.
-pub(super) fn compile_part<T>(
+pub fn compile_part<T>(
     stack: &std::sync::Arc<ValidatedPackStack>,
     cancelled: &(dyn Fn() -> bool + Sync),
     changed: bool,
@@ -56,24 +56,24 @@ pub(super) fn compile_part<T>(
     Some((output, inputs.remove(&subscriber)))
 }
 
-pub(super) struct Changes {
+pub struct Changes {
     /// Whether any file may read differently, so whole-stack facts are read again.
-    pub(super) contents: bool,
-    pub(super) blocks: bool,
-    pub(super) atmosphere: bool,
-    pub(super) particles: bool,
-    pub(super) icons: bool,
-    pub(super) glyphs: bool,
-    pub(super) entities: bool,
-    pub(super) ui: bool,
-    pub(super) sounds: bool,
-    pub(super) language: bool,
-    pub(super) aim_assist: bool,
+    pub contents: bool,
+    pub blocks: bool,
+    pub atmosphere: bool,
+    pub particles: bool,
+    pub icons: bool,
+    pub glyphs: bool,
+    pub entities: bool,
+    pub ui: bool,
+    pub sounds: bool,
+    pub language: bool,
+    pub aim_assist: bool,
 }
 
 impl Changes {
     /// Every subscriber compiles from scratch.
-    pub(super) const fn all() -> Self {
+    pub const fn all() -> Self {
         Self {
             contents: true,
             blocks: true,
@@ -91,7 +91,7 @@ impl Changes {
 
     /// For a stack whose every read matches the one `previous` compiled: only the subscribers
     /// that also read StartGame facts compile again, and only when those facts differ.
-    pub(super) fn for_inputs(previous: &PackInputs, next: &PackInputs) -> Self {
+    pub fn for_inputs(previous: &PackInputs, next: &PackInputs) -> Self {
         Self {
             contents: false,
             blocks: !next.same_blocks(previous),
@@ -108,14 +108,17 @@ impl Changes {
     }
 
     /// Compares layer contents, including order, rather than pack names or timestamps.
-    pub(super) fn between(stack: &ValidatedPackStack, previous: Option<&PackApplication>) -> Self {
-        let prior = previous.and_then(|old| match &old.admission {
+    pub fn between(
+        stack: &ValidatedPackStack,
+        previous: Option<(&PackAdmission, &Dependencies)>,
+    ) -> Self {
+        let prior = previous.and_then(|(admission, _)| match admission {
             PackAdmission::Validated(stack) => Some(stack.as_ref()),
             PackAdmission::None => None,
         });
         let changed = |subscriber| {
             prior.is_none_or(|old| {
-                let recorded = previous.and_then(|previous| previous.dependencies.get(&subscriber));
+                let recorded = previous.and_then(|(_, dependencies)| dependencies.get(&subscriber));
                 let fallback;
                 let inputs = if let Some(recorded) = recorded {
                     recorded
@@ -224,5 +227,5 @@ fn hash_part(hash: &mut Sha256, bytes: &[u8]) {
 }
 
 #[cfg(test)]
-#[path = "pack_reload_diff_tests.rs"]
+#[path = "reload_diff/tests.rs"]
 mod tests;

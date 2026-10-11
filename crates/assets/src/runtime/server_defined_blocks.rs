@@ -165,12 +165,12 @@ mod tests {
 
     #[test]
     fn dense_palette_omission_preserves_captured_remote_block_identities() {
-        let records = read_registry_for_protocol(
-            pinned_block_registry_bytes(),
-            active_content_registry_protocol(),
-        )
-        .unwrap();
-        let blocks = server_defined_blocks();
+        let bytes = pinned_block_registry_bytes();
+        let records =
+            read_registry_for_protocol(bytes, active_content_registry_protocol()).unwrap();
+        let hash: [u8; 32] = Sha256::digest(bytes).into();
+        let blocks = server_defined_blocks_for_registry(hash)
+            .expect("active registry must admit server-defined palette omissions");
         let mapping = records
             .iter()
             .filter(|record| {

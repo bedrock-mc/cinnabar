@@ -76,7 +76,7 @@ pub fn load_active_language(
     requested: Option<&str>,
 ) -> Option<Arc<RuntimeLangCatalog>> {
     let code = active_language(requested);
-    crate::runtime::network::set_active_language(&code);
+    pack_runtime::pack_language::set_active_language(&code);
     load_optional_language(
         world_asset_path,
         &code,

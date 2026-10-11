@@ -303,4 +303,46 @@ mod tests {
             );
         }
     }
+    // A presentation that reuses an earlier compile holds its own copy of the archives, so the
+    // session must not also keep the copy this login validated.
+    #[test]
+    fn preparing_a_session_releases_the_archives_it_validated() {
+        let archive = protocol::ResourcePackArchive::unencrypted(
+            "11111111-2222-3333-4444-555555555555".parse().unwrap(),
+            "1.2.3".into(),
+            String::new(),
+            vec![0; 32],
+        );
+        let game_data = protocol::GameData {
+            start_game: Default::default(),
+            item_registry: Default::default(),
+            biome_definitions: None,
+            entity_identifiers: None,
+            creative_content: None,
+        };
+        let mut validated = None;
+        let preparation = prepare_session_packs(
+            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+            &game_data,
+            u64::MAX,
+        );
+        let packs = preparation.prepare_application(
+            |preparation| {
+                let resource_pack::PackAdmission::Validated(stack) = &preparation.admission else {
+                    panic!("the handoff admits a stack");
+                };
+                validated = Some(Arc::downgrade(stack));
+                Some(())
+            },
+            |_| {},
+        );
+        assert!(matches!(packs, Some(Ok(()))));
+        assert!(
+            !preparation.has_applied_packs(),
+            "the only pack was rejected"
+        );
+        assert!(preparation.inputs.blocks.blocks.is_empty());
+        drop(preparation);
+        assert!(validated.unwrap().upgrade().is_none());
+    }
 }

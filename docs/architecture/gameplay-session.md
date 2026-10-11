@@ -2,7 +2,9 @@
 
 `gameplay` owns local prediction, movement modes, correction and retry state,
 mining, combat, block use, and accepted item use. `client-session` owns the network
-worker, bounded transport queues, connection progress, and pack preparation.
+worker, bounded transport queues, connection progress, and join bootstrap.
+`pack-runtime` owns pack admission, compilation, texture and language preparation,
+and reload dependency comparison. The session has no pack-compiler dependency.
 Neither crate depends on Bevy, app, UI, the renderer, or the other new crate.
 The app retains resource wrappers and installs the existing system order.
 
@@ -25,10 +27,10 @@ step 5's actor publication, presentation, camera and audio files remain unchange
 Fast-transfer actions are shared through `protocol`, with the existing client-UI
 re-export retained; pack texture source limits now have one owner in `resource-pack`.
 
-Session preparation owns validated pack admission, generation fencing, StartGame
+Runtime pack preparation owns validated pack admission, generation fencing, StartGame
 block and item inputs, stack fingerprints, language overlays, and texture catalog
-and decode preparation. Renderer, UI, entity and audio subscriber compilation and
-publication remain app adapters, alongside the work owned by step 5. Join polling
+and decode preparation. Entity compilation and caching also live in `pack-runtime`.
+Renderer, UI and audio subscriber compilation and publication remain app adapters, alongside the work owned by step 5. Join polling
 owns generation cancellation, launcher fallback, endpoint readiness and deadlines;
 the app retains process ownership, menu projection and Bevy resource insertion.
 

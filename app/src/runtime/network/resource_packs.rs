@@ -21,11 +21,11 @@ mod capture;
 /// Everything the session applies from its server pack stack.
 #[derive(Clone, Debug)]
 pub struct PackApplication {
-    pub(super) dependencies: super::pack_reload_diff::Dependencies,
+    pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
     /// Inert metadata only; accepting a pack does not authorize execution.
     pub(crate) extension_marker: Option<Arc<[u8]>>,
     pub(crate) admission: PackAdmission,
-    pub(super) inputs: Arc<super::pack_reload::PackInputs>,
+    pub(super) inputs: Arc<pack_runtime::PackInputs>,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
@@ -91,7 +91,7 @@ impl PackApplication {
 }
 
 #[cfg(test)]
-use client_session::required_packs_applied;
+use pack_runtime::required_packs_applied;
 
 /// The carrier snapshots a join's presentation is prepared over on the session worker.
 #[derive(Clone, Copy, Default)]
@@ -103,11 +103,11 @@ pub(super) struct JoinBases<'a> {
 /// Prepares a validated join on idle world cores, reusing an equivalent recent stack.
 /// Keeps the compiled result for the next join; returns None after cancellation.
 pub(super) fn prepare_join(
-    preparation: &client_session::PackPreparation,
+    preparation: &pack_runtime::PackPreparation,
     game_data: &protocol::GameData,
     cancelled: &(dyn Fn() -> bool + Sync),
     bases: JoinBases<'_>,
-) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
+) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
     let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
     if preparation.has_applied_packs() {
         chunk_pipeline::on_idle_world_cores(prepare)
@@ -119,11 +119,11 @@ pub(super) fn prepare_join(
 /// [`prepare_join`] against an explicit set of kept stacks.
 fn prepare_join_with(
     kept: &reuse::CompiledStacks,
-    preparation: &client_session::PackPreparation,
+    preparation: &pack_runtime::PackPreparation,
     game_data: &protocol::GameData,
     cancelled: &(dyn Fn() -> bool + Sync),
     bases: JoinBases<'_>,
-) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
+) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
     let environment = reuse::CompileEnvironment::current();
     let packs = preparation.prepare_application(
         |preparation| match &preparation.admission {
@@ -169,7 +169,7 @@ pub(super) fn prepare_pack_application(
     hashed_block_ids: bool,
 ) -> PackApplication {
     let stack = resource_pack::validate_handoff(handoff);
-    let inputs = Arc::new(super::pack_reload::PackInputs {
+    let inputs = Arc::new(pack_runtime::PackInputs {
         blocks: custom_blocks.clone(),
         icons: icon_keys.to_vec(),
         block_items: block_items.to_vec(),
@@ -188,7 +188,7 @@ pub(super) fn prepare_pack_application(
 #[cfg(test)]
 pub(super) fn prepare_validated_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
-    inputs: Arc<super::pack_reload::PackInputs>,
+    inputs: Arc<pack_runtime::PackInputs>,
 ) -> PackApplication {
     prepare_changed_application(&reuse::CompiledStacks::new(), stack, inputs, None)
 }
@@ -198,12 +198,15 @@ pub(super) fn prepare_validated_application(
 pub(super) fn prepare_changed_application(
     kept: &reuse::CompiledStacks,
     stack: Arc<resource_pack::ValidatedPackStack>,
-    inputs: Arc<super::pack_reload::PackInputs>,
+    inputs: Arc<pack_runtime::PackInputs>,
     previous: Option<&PackApplication>,
 ) -> PackApplication {
     let compiled = match previous {
         Some(previous) => {
-            let changes = super::pack_reload_diff::Changes::between(&stack, Some(previous));
+            let changes = pack_runtime::reload_diff::Changes::between(
+                &stack,
+                Some((&previous.admission, &previous.dependencies)),
+            );
             compile_application(stack, inputs, Some(previous), changes, &|| false)
         }
         None => reuse::compile_reusing(
@@ -221,12 +224,12 @@ pub(super) fn prepare_changed_application(
 /// Cancellation skips unstarted work and returns None.
 fn compile_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
-    inputs: Arc<super::pack_reload::PackInputs>,
+    inputs: Arc<pack_runtime::PackInputs>,
     previous: Option<&PackApplication>,
-    changes: super::pack_reload_diff::Changes,
+    changes: pack_runtime::reload_diff::Changes,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<PackApplication> {
-    use super::pack_reload_diff::{Subscriber, compile_part};
+    use pack_runtime::reload_diff::{Subscriber, compile_part};
     let mut dependencies = previous
         .map(|old| old.dependencies.clone())
         .unwrap_or_default();
@@ -341,7 +344,7 @@ fn compile_application(
                 Subscriber::Entities,
                 previous.and_then(|old| old.entities.clone()),
                 |view| {
-                    let compiled = super::entity_pack::compile_session_entities(
+                    let compiled = pack_runtime::entity_pack::compile_session_entities(
                         fingerprint(),
                         view,
                         cancelled,
@@ -383,7 +386,7 @@ fn compile_application(
         });
     });
     fn record<T>(
-        dependencies: &mut super::pack_reload_diff::Dependencies,
+        dependencies: &mut pack_runtime::reload_diff::Dependencies,
         subscriber: Subscriber,
         (output, inputs): (
             T,
@@ -451,24 +454,6 @@ fn compile_application(
     })
 }
 
-/// Server-pack archives and compiled join results persist here; unset, nothing is written.
-static COMPILE_CACHE: std::sync::OnceLock<client_session::compile_cache::CompileCache> =
-    std::sync::OnceLock::new();
-
-/// Bounds the persisted results; Zeqa's compiled entity pack is about 150 MB.
-const COMPILE_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
-
-pub(crate) fn set_compile_cache_dir(dir: std::path::PathBuf) {
-    let _ = COMPILE_CACHE.set(client_session::compile_cache::CompileCache::new(
-        dir,
-        COMPILE_CACHE_BYTES,
-    ));
-}
-
-pub(super) fn compile_cache() -> Option<&'static client_session::compile_cache::CompileCache> {
-    COMPILE_CACHE.get()
-}
-
 pub(super) fn install_server_ui(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
@@ -487,10 +472,9 @@ pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
     let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
-use client_session::pack_language::merged_server_lang;
-pub(crate) use client_session::pack_language::{active_language_code, set_active_language};
+use pack_runtime::pack_language::merged_server_lang;
 
-pub(super) use client_session::{StackFingerprint, stack_fingerprint};
+use pack_runtime::{StackFingerprint, stack_fingerprint};
 
 struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
@@ -629,12 +613,6 @@ pub(super) fn install_chunk_textures(
     }
 }
 
-pub(crate) use client_session::pack_textures::set_base_terrain_catalog;
-pub(super) use client_session::pack_textures::{
-    DecodedTexture, MAX_CATALOG_ENTRIES, base_terrain_catalog, decode_pack_texture,
-    parse_pack_json, texture_key_paths,
-};
-
 pub(super) fn install_session_icons(
     runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
@@ -670,11 +648,9 @@ pub(super) fn install_server_language(
     }
 }
 
-pub(crate) use client_session::{BootstrapGenerationDisposition, classify_bootstrap_generation};
-
 /// Bevy adapter for the generation-bound admitted server stack.
 #[derive(Debug, Default, Resource, bevy::prelude::Deref, bevy::prelude::DerefMut)]
-pub(crate) struct ResourcePackAdmissionState(client_session::ResourcePackAdmissionState);
+pub(crate) struct ResourcePackAdmissionState(pack_runtime::ResourcePackAdmissionState);
 
 #[cfg(test)]
 mod tests;

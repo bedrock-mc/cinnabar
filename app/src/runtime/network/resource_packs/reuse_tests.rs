@@ -4,13 +4,11 @@ use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 
 use super::{CompileEnvironment, CompiledStacks, compile_reusing};
-use crate::runtime::network::{
-    pack_reload::PackInputs,
-    resource_packs::{
-        JoinBases, PackApplication, prepare_join_with,
-        tests::{every_input, every_subscriber_archive, overlay_cache, summary},
-    },
+use crate::runtime::network::resource_packs::{
+    JoinBases, PackApplication, prepare_join_with,
+    tests::{every_input, every_subscriber_archive, overlay_cache, summary},
 };
+use pack_runtime::PackInputs;
 
 /// A copy of `archive`, as a later join receives its own bytes for the same pack.
 fn copy(archive: &ResourcePackArchive) -> ResourcePackArchive {
@@ -42,8 +40,8 @@ fn game_data() -> protocol::GameData {
 fn preparation(
     archive: &ResourcePackArchive,
     game_data: &protocol::GameData,
-) -> client_session::PackPreparation {
-    client_session::prepare_session_packs(
+) -> pack_runtime::PackPreparation {
+    pack_runtime::prepare_session_packs(
         ResourcePackHandoff::from_archives(vec![copy(archive)]),
         game_data,
         u64::MAX,

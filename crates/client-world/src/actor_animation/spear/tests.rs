@@ -131,7 +131,7 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
         ..Default::default()
     };
     let query = |context: &ActorTickContext, slot: &str, tag: &str| {
-        query::query(
+        query::named_query(
             &query::QueryInputs {
                 actor: &actor,
                 input: &input,

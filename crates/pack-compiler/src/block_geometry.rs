@@ -4,50 +4,51 @@
 //! face names are world directions. Faces map `u` to the viewer's right and
 //! `v` downward, with up textures top-north and down textures top-south.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use resource_pack::{LayeredPackView, normalize_jsonc};
 use serde_json::Value;
 
-const MAX_GEOMETRY_FILES: usize = 4096;
-const MAX_GEOMETRY_FILE_BYTES: usize = 1024 * 1024;
+/// Maximum geometry documents admitted from a layered pack stack.
+pub const MAX_GEOMETRY_FILES: usize = 4096;
+/// Maximum bytes read from one geometry document.
+pub const MAX_GEOMETRY_FILE_BYTES: usize = 1024 * 1024;
 const MAX_CUBES: usize = 256;
 const MAX_BONES: usize = 256;
 
 /// Face order matches `assets::BlockFace`: west, east, down, up, north, south.
-pub(super) const FACE_NAMES: [&str; 6] = ["west", "east", "down", "up", "north", "south"];
+pub const FACE_NAMES: [&str; 6] = ["west", "east", "down", "up", "north", "south"];
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct FaceUv {
-    pub(super) uv: [f32; 2],
-    pub(super) size: [f32; 2],
-    pub(super) material_instance: Option<String>,
+pub struct FaceUv {
+    pub uv: [f32; 2],
+    pub size: [f32; 2],
+    pub material_instance: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Cube {
+pub struct Cube {
     /// The bone that owns the cube, which bone visibility hides by name.
-    pub(super) bone: String,
+    pub bone: String,
     /// Block-local pixel bounds in world orientation (0..16 spans the block).
-    pub(super) min: [f32; 3],
-    pub(super) max: [f32; 3],
-    pub(super) faces: [Option<FaceUv>; 6],
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+    pub faces: [Option<FaceUv>; 6],
     /// Rotations to apply in order (cube, then each ancestor bone), in block-local pixels:
     /// a pivot and X/Y/Z angles in the world frame's authored convention.
-    pub(super) rotations: Vec<([f32; 3], [f32; 3])>,
+    pub rotations: Vec<([f32; 3], [f32; 3])>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct Geometry {
-    pub(super) texture_size: [f32; 2],
-    pub(super) cubes: Vec<Cube>,
+pub struct Geometry {
+    pub texture_size: [f32; 2],
+    pub cubes: Vec<Cube>,
     /// Cubes dropped for non-finite or malformed values.
-    pub(super) skipped_cubes: u32,
+    pub skipped_cubes: u32,
 }
 
 impl Geometry {
     /// Full-block faces for a component that needs position-dependent model displacement.
-    pub(super) fn full_block() -> Self {
+    pub fn full_block() -> Self {
         Self {
             texture_size: [16.0; 2],
             cubes: vec![Cube {
@@ -70,97 +71,15 @@ impl Geometry {
 
 /// One face ready for quantization: corners in block-local pixels and texture
 /// pixel UVs, in the carrier's counter-clockwise corner order.
-pub(super) struct FaceQuad {
-    pub(super) face: usize,
-    pub(super) positions: [[f32; 3]; 4],
-    pub(super) uvs: [[f32; 2]; 4],
+pub struct FaceQuad {
+    pub face: usize,
+    pub positions: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
     /// Turned off the block axes, so it has no cull face.
-    pub(super) rotated: bool,
+    pub rotated: bool,
 }
 
-/// Finds the wanted identifiers under `models/`; a higher pack replaces one.
-pub(super) fn geometry_catalog(
-    view: &LayeredPackView,
-    wanted: &HashSet<&str>,
-) -> HashMap<String, Geometry> {
-    let mut catalog = HashMap::new();
-    if wanted.is_empty() {
-        return catalog;
-    }
-    let files = view
-        .list("models/")
-        .into_iter()
-        .filter(|path| path.ends_with(".json"))
-        .take(MAX_GEOMETRY_FILES)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    for layer in view.layers() {
-        for path in &files {
-            let Ok(Some(bytes)) = layer.read_file(path) else {
-                continue;
-            };
-            if bytes.len() > MAX_GEOMETRY_FILE_BYTES
-                || (!bytes.contains(&b'\\')
-                    && !wanted.iter().any(|id| contains(&bytes, id.as_bytes())))
-            {
-                continue;
-            }
-            for (identifier, geometry) in parse_geometry_file(&bytes) {
-                if wanted.contains(identifier.as_str()) {
-                    catalog.insert(identifier, geometry);
-                }
-            }
-        }
-    }
-    catalog
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty()
-        && haystack
-            .windows(needle.len())
-            .any(|window| window == needle)
-}
-
-/// Parses both the `minecraft:geometry` array form and the legacy form keyed by
-/// identifier (`"geometry.x"` or `"geometry.x:parent"`).
-pub(super) fn parse_geometry_file(bytes: &[u8]) -> Vec<(String, Geometry)> {
-    let Some(root) =
-        normalize_jsonc(bytes).and_then(|json| serde_json::from_slice::<Value>(&json).ok())
-    else {
-        return Vec::new();
-    };
-    if let Some(entries) = root["minecraft:geometry"].as_array() {
-        return entries
-            .iter()
-            .filter_map(|entry| {
-                let description = &entry["description"];
-                let identifier = description["identifier"].as_str()?.to_owned();
-                let size = [
-                    number(&description["texture_width"]).unwrap_or(16.0),
-                    number(&description["texture_height"]).unwrap_or(16.0),
-                ];
-                Some((identifier, parse_bones(&entry["bones"], size)))
-            })
-            .collect();
-    }
-    let Some(object) = root.as_object() else {
-        return Vec::new();
-    };
-    object
-        .iter()
-        .filter(|(key, _)| key.starts_with("geometry."))
-        .map(|(key, entry)| {
-            let identifier = key.split(':').next().unwrap_or(key).to_owned();
-            let size = [
-                number(&entry["texturewidth"]).unwrap_or(16.0),
-                number(&entry["textureheight"]).unwrap_or(16.0),
-            ];
-            (identifier, parse_bones(&entry["bones"], size))
-        })
-        .collect()
-}
-
+/// Reads one finite authored scalar.
 fn number(value: &Value) -> Option<f32> {
     value
         .as_f64()
@@ -168,6 +87,7 @@ fn number(value: &Value) -> Option<f32> {
         .filter(|value| value.is_finite())
 }
 
+/// Reads exactly three finite authored coordinates.
 fn vector(value: &Value) -> Option<[f32; 3]> {
     let parts = value.as_array()?;
     if parts.len() != 3 {
@@ -176,6 +96,7 @@ fn vector(value: &Value) -> Option<[f32; 3]> {
     Some([number(&parts[0])?, number(&parts[1])?, number(&parts[2])?])
 }
 
+/// Reports whether an authored rotation changes the model frame.
 fn is_rotated(value: &Value) -> bool {
     vector(value).is_some_and(|rotation| rotation.iter().any(|angle| angle.abs() > f32::EPSILON))
 }
@@ -190,6 +111,7 @@ fn world_angles(rotation: [f32; 3]) -> [f32; 3] {
     [-rotation[0], rotation[1], -rotation[2]]
 }
 
+/// Projects resolved bone cubes into the block coordinate frame.
 fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
     let mut geometry = Geometry {
         texture_size,
@@ -265,6 +187,7 @@ fn rotate_around(point: [f32; 3], pivot: [f32; 3], degrees: [f32; 3]) -> [f32; 3
     [v[0] + pivot[0], v[1] + pivot[1], v[2] + pivot[2]]
 }
 
+/// Admits a finite cube and its per-face or box UV mapping.
 fn parse_cube(cube: &Value) -> Option<Cube> {
     let origin = vector(&cube["origin"])?;
     let size = vector(&cube["size"])?;
@@ -337,7 +260,7 @@ fn box_uv(offset: [f32; 2], size: [f32; 3]) -> [Option<FaceUv>; 6] {
 
 impl Cube {
     /// Emits every face that has a UV entry and non-zero area.
-    pub(super) fn quads(&self) -> Vec<(FaceQuad, Option<&str>)> {
+    pub fn quads(&self) -> Vec<(FaceQuad, Option<&str>)> {
         let ([x0, y0, z0], [x1, y1, z1]) = (self.min, self.max);
         let mut quads = Vec::with_capacity(6);
         for (face, uv) in self.faces.iter().enumerate() {
@@ -389,3 +312,6 @@ impl Cube {
         quads
     }
 }
+
+mod catalog;
+pub use catalog::{BlockGeometryCatalog, parse_geometry_file};

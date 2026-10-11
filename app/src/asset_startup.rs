@@ -726,11 +726,11 @@ fn load_world_carrier(
         })?;
     let runtime = Arc::new(runtime);
     if let Some(keys) = load_material_keys(path, runtime.material_count()) {
-        crate::runtime::network::set_base_terrain_catalog(keys.aliases());
+        pack_runtime::pack_textures::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys);
     }
     if let Some(refs) = load_vanilla_entity_refs(path) {
-        crate::runtime::network::entity_pack::set_vanilla_refs(refs);
+        pack_runtime::entity_pack::set_vanilla_refs(refs);
     }
     world_provenance::verify_world_carrier(path, &runtime)?;
     Ok(Some((runtime, format_sha256(identity))))

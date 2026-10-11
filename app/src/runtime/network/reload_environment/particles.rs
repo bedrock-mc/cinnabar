@@ -1,6 +1,6 @@
 use super::{decode_pack_texture, parse_pack_json};
-use crate::runtime::network::resource_packs::DecodedTexture;
 use assets::{ParticleEffectFile, ParticleTexture, RuntimeParticleAssets};
+use pack_runtime::pack_textures::DecodedTexture;
 use resource_pack::LayeredPackView;
 use sha2::{Digest, Sha256};
 use std::{

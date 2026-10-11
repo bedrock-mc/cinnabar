@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::BTreeMap};
 
 use resource_pack::LayeredPackView;
 
-use super::super::super::resource_packs::parse_pack_json;
+use pack_runtime::pack_textures::parse_pack_json;
 
 /// Distinct routes kept as evidence for each failure reason.
 const MAX_ROUTES_PER_REASON: usize = 8;

@@ -9,6 +9,22 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+/// Server-pack archives and compiled join results persist here; unset, nothing is written.
+static COMPILE_CACHE: std::sync::OnceLock<CompileCache> = std::sync::OnceLock::new();
+
+/// Bounds the persisted results; Zeqa's compiled entity pack is about 150 MB.
+const COMPILE_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Selects the persistent cache directory once for the current process.
+pub fn set_compile_cache_dir(dir: std::path::PathBuf) {
+    let _ = COMPILE_CACHE.set(CompileCache::new(dir, COMPILE_CACHE_BYTES));
+}
+
+/// Returns the configured cache, or None when persistent caching is disabled.
+pub fn current() -> Option<&'static CompileCache> {
+    COMPILE_CACHE.get()
+}
+
 const MAGIC: [u8; 8] = *b"CNBRCMP1";
 const HEADER: usize = MAGIC.len() + 32 + 8;
 const HASH: usize = 32;

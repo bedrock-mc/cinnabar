@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use resource_pack::LayeredPackView;
 
-use super::super::resource_packs::{MAX_CATALOG_ENTRIES, parse_pack_json};
+use pack_runtime::pack_textures::{MAX_CATALOG_ENTRIES, parse_pack_json};
 
 /// Retains array positions so a missing image never renumbers later metadata variants.
 pub(super) fn paths(view: &LayeredPackView) -> HashMap<String, Vec<String>> {
