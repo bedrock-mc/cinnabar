@@ -5846,7 +5846,7 @@ Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the 
 sounds from loaded warm precipitation columns. Sample density follows rain
 strength and the graphics setting; sheltered rain uses reduced volume and pitch.
 Clear weather stops admissions and lets existing samples finish. Precipitation
-height/material parity, native voice limits and retail audio acceptance remain
+height/material parity, native voice limits and retail timing/audio acceptance remain
 incomplete.
 
 **World-drop audio:** successful world-input single and whole-stack drops now

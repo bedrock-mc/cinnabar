@@ -648,8 +648,7 @@ pub fn pump_audio(
         camera.single().ok(),
         server_camera
             .as_deref()
-            .and_then(|camera| camera.active_listener())
-            == Some(1),
+            .and_then(|camera| camera.active_listener()),
     );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {

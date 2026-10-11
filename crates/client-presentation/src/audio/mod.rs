@@ -5,7 +5,7 @@ mod bank;
 pub mod echo;
 pub mod engine;
 pub mod inventory;
-mod listener;
+pub mod listener;
 pub mod local;
 pub mod media;
 mod music;
