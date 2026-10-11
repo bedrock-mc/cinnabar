@@ -110,10 +110,13 @@ impl UiPresentationRuntime {
         self.player_preview_gear.hands = [held, off_hand].map(|item| {
             let (identifier, stack) = item?;
             let facts = runtime.stack_facts(&stack, Some(&identifier));
+            let charged_projectile = (identifier.as_ref() == "minecraft:crossbow")
+                .then(|| facts.charged_projectile())
+                .flatten();
             Some(PreviewHandItem {
                 identifier,
                 metadata: stack.metadata,
-                charged_projectile: facts.charged_projectile.clone(),
+                charged_projectile,
             })
         });
     }

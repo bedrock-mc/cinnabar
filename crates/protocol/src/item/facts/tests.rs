@@ -44,11 +44,19 @@ fn tail_is_borrowed_and_projectile_work_is_limited_to_crossbows() {
     bytes.extend_from_slice(&[0, 0]);
     let extra = Arc::from(bytes);
     let cache = ItemStackFactsCache::default();
-    assert!(cache.get(&extra, false).charged_projectile.is_none());
+    let ordinary = cache.get(&extra, false);
+    assert!(ordinary.charged_projectile().is_none());
+    let charged = cache.get(&extra, true);
+    assert!(Arc::ptr_eq(&ordinary, &charged));
     assert_eq!(
-        cache.get(&extra, true).charged_projectile.as_deref(),
+        charged.charged_projectile().as_deref(),
         Some("minecraft:arrow")
     );
+    let ((ordinary_again, charged_again), allocations) =
+        crate::test_allocations::measure(|| (cache.get(&extra, false), cache.get(&extra, true)));
+    assert!(Arc::ptr_eq(&ordinary_again, &charged_again));
+    assert!(Arc::ptr_eq(&ordinary, &ordinary_again));
+    assert_eq!(allocations, 0);
 }
 
 #[test]
@@ -96,7 +104,7 @@ fn headerless_sources_share_empty_facts_without_spending_cache_entries() {
     let odd = cache.get(&Arc::from([1, 2, 3]), true);
     assert!(Arc::ptr_eq(&empty, &odd));
     assert!(empty.display.name.is_none());
-    assert!(empty.charged_projectile.is_none());
+    assert!(empty.charged_projectile().is_none());
     assert!(empty.damage.is_none());
     assert!(cache.0.lock().unwrap().entries.is_empty());
 }

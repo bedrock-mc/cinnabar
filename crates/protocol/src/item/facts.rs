@@ -20,11 +20,26 @@ pub struct ItemStackFacts {
     pub damage: Option<u32>,
     pub unbreakable: bool,
     pub has_enchantment_list: bool,
-    pub charged_projectile: Option<Arc<str>>,
+    charged_projectile: OnceLock<Option<Arc<str>>>,
     pub custom_color: Option<u32>,
 }
 
-type Key = (usize, usize, bool);
+impl ItemStackFacts {
+    /// Returns a shared projectile after a crossbow consumer has requested its decoding.
+    pub fn charged_projectile(&self) -> Option<Arc<str>> {
+        self.charged_projectile.get().cloned().flatten()
+    }
+
+    /// Decodes the optional projectile once, leaving ordinary stack consumers on the cheap path.
+    fn prepare_projectile(&self, source: &[u8], crossbow: bool) {
+        if crossbow {
+            self.charged_projectile
+                .get_or_init(|| item_charged_projectile(source));
+        }
+    }
+}
+
+type Key = (usize, usize);
 
 #[derive(Debug)]
 struct Entry {
@@ -53,7 +68,7 @@ impl ItemStackFactsCache {
             static EMPTY: OnceLock<Arc<ItemStackFacts>> = OnceLock::new();
             return Arc::clone(EMPTY.get_or_init(Default::default));
         }
-        let key = (source.as_ptr().addr(), source.len(), crossbow);
+        let key = (source.as_ptr().addr(), source.len());
         let mut cache = self
             .0
             .lock()
@@ -62,6 +77,7 @@ impl ItemStackFactsCache {
         let touched = cache.clock;
         if let Some(entry) = cache.entries.get_mut(&key) {
             entry.touched = touched;
+            entry.facts.prepare_projectile(source, crossbow);
             return Arc::clone(&entry.facts);
         }
         let facts = Arc::new(ItemStackFacts {
@@ -69,10 +85,12 @@ impl ItemStackFactsCache {
             damage: item_extra_damage(source),
             unbreakable: item_extra_unbreakable(source),
             has_enchantment_list: item_has_enchantment_list(source),
-            charged_projectile: crossbow.then(|| item_charged_projectile(source)).flatten(),
+            charged_projectile: OnceLock::new(),
             custom_color: item_custom_color(source),
         });
-        let bytes = source.len()
+        facts.prepare_projectile(source, crossbow);
+        // Reserve source-sized credit for a projectile that a later crossbow lookup may decode.
+        let bytes = source.len() * 2
             + facts.display.name.as_ref().map_or(0, |name| name.len())
             + facts
                 .display
@@ -80,11 +98,7 @@ impl ItemStackFactsCache {
                 .iter()
                 .map(|line| line.len())
                 .sum::<usize>()
-            + facts.display.enchantments.len() * std::mem::size_of::<(i16, u8)>()
-            + facts
-                .charged_projectile
-                .as_ref()
-                .map_or(0, |name| name.len());
+            + facts.display.enchantments.len() * std::mem::size_of::<(i16, u8)>();
         if bytes > MAX_FACT_BYTES {
             return facts;
         }
