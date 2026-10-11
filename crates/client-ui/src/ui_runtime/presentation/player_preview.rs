@@ -102,17 +102,21 @@ impl UiPresentationRuntime {
         self.set_player_preview_gear(
             armor.each_ref().map(|worn| {
                 worn.as_ref()
-                    .map(|(id, stack)| (&**id, protocol::item_custom_color(&stack.extra_data)))
+                    .map(|(id, stack)| (&**id, runtime.stack_facts(stack, Some(id)).custom_color))
             }),
             held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
         );
         let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
         self.player_preview_gear.hands = [held, off_hand].map(|item| {
             let (identifier, stack) = item?;
+            let facts = runtime.stack_facts(&stack, Some(&identifier));
+            let charged_projectile = (identifier.as_ref() == "minecraft:crossbow")
+                .then(|| facts.charged_projectile())
+                .flatten();
             Some(PreviewHandItem {
                 identifier,
                 metadata: stack.metadata,
-                charged_projectile: protocol::item_charged_projectile(&stack.extra_data),
+                charged_projectile,
             })
         });
     }

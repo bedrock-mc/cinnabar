@@ -205,6 +205,7 @@ pub struct UiRuntime {
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
     session_items: Option<Arc<item_facts::SessionItemComponents>>,
+    stack_facts: protocol::ItemStackFactsCache,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
     session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
     /// Authoritative display names of real player/entity score owners,
@@ -294,6 +295,7 @@ impl UiRuntime {
             server_lang: None,
             session_icons: None,
             session_items: None,
+            stack_facts: Default::default(),
             server_ui: None,
             session_glyphs: None,
         }
