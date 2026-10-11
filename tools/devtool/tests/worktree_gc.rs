@@ -1,4 +1,4 @@
-//! Cleanup tests use local remotes and fake GitHub/process inventories.
+//! Report tests use local remotes and fake GitHub/process inventories.
 #[cfg(unix)]
 mod unix {
     use std::os::unix::fs::PermissionsExt;
@@ -112,6 +112,21 @@ mod unix {
                 .output()
                 .unwrap()
         }
+        /// Runs the report and returns the verdict and reason printed for `branch`.
+        fn verdict(&self, branch: &str) -> String {
+            let output = self.gc(&[]);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let report = String::from_utf8(output.stdout).unwrap();
+            let line = report
+                .lines()
+                .find(|line| line.contains(&format!(" branch={branch} ")))
+                .unwrap_or_else(|| panic!("no line for {branch}: {report}"));
+            line[line.find("verdict=").unwrap()..].to_owned()
+        }
     }
     /// Runs Git in `path`, dating commits and reflog entries `days_ago` when given.
     fn git_at(path: &Path, args: &[&str], days_ago: Option<u64>) {
@@ -162,221 +177,97 @@ mod unix {
         let repo = Repo::new();
         let published = repo.worktree("squashed");
         fs::write(published.join("topic"), "published change").unwrap();
-        let commit = |path: &Path, message: &str| {
-            assert!(
-                Command::new("git")
-                    .current_dir(path)
-                    .args(["add", "."])
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            assert!(
-                Command::new("git")
-                    .current_dir(path)
-                    .args([
-                        "-c",
-                        "user.name=Fixture",
-                        "-c",
-                        "user.email=fixture@example.invalid",
-                        "commit",
-                        "--quiet",
-                        "-m",
-                        message
-                    ])
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        };
-        commit(&published, "published topic");
+        git_at(&published, &["add", "."], None);
+        git_at(
+            &published,
+            &["commit", "--quiet", "-m", "published topic"],
+            None,
+        );
         repo.git(&["push", "--quiet", "origin", "squashed"]);
-        let head = Command::new("git")
-            .current_dir(&published)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap();
-        let head = String::from_utf8(head.stdout).unwrap();
-        let head = head.trim();
+        let head = repo.head(&published);
         repo.git(&["merge", "--squash", "squashed"]);
-        commit(&repo.root, "squash merge");
+        git_at(
+            &repo.root,
+            &["commit", "--quiet", "-m", "squash merge"],
+            None,
+        );
         repo.git(&["push", "--quiet", "origin", "HEAD"]);
         repo.git(&["push", "--quiet", "origin", ":squashed"]);
         let followup = repo.worktree("followup");
-        assert!(
-            Command::new("git")
-                .current_dir(&followup)
-                .args(["reset", "--hard", head])
-                .status()
-                .unwrap()
-                .success()
+        git_at(&followup, &["reset", "--quiet", "--hard", &head], None);
+        git_at(
+            &followup,
+            &[
+                "commit",
+                "--allow-empty",
+                "--quiet",
+                "-m",
+                "unpublished followup",
+            ],
+            None,
         );
-        fs::write(followup.join("new"), "unpublished change").unwrap();
-        commit(&followup, "unpublished followup");
-        repo.script("gh", &merged_pr(head));
-        let dry = repo.gc(&[]);
-        assert!(dry.status.success());
-        let lines = String::from_utf8_lossy(&dry.stdout);
-        assert!(
-            lines
-                .lines()
-                .any(|line| line.contains("branch=squashed ") && line.contains("unpushed=false")),
-            "{lines}"
+        repo.script("gh", &merged_pr(&head));
+        assert!(repo.verdict("squashed").starts_with("verdict=candidate"));
+        assert_eq!(
+            repo.verdict("followup"),
+            "verdict=keep reason=\"unpushed commits\""
         );
-        assert!(
-            lines
-                .lines()
-                .any(|line| line.contains("branch=followup ") && line.contains("unpushed=true")),
-            "{lines}"
-        );
-        let apply = repo.gc(&["--apply"]);
-        assert!(
-            apply.status.success(),
-            "{}",
-            String::from_utf8_lossy(&apply.stderr)
-        );
-        assert!(!published.exists());
-        assert!(followup.exists());
-        repo.git(&["show-ref", "--verify", "refs/heads/squashed"]);
     }
 
     #[test]
-    fn deleted_worktrees_do_not_block_inventory_or_cleanup() {
-        let repo = Repo::new();
-        let deleted = repo.worktree("deleted");
-        let merged = repo.worktree("remaining");
-        fs::remove_dir_all(&deleted).unwrap();
-        let dry = repo.gc(&[]);
-        assert!(
-            dry.status.success(),
-            "{}",
-            String::from_utf8_lossy(&dry.stderr)
-        );
-        assert!(String::from_utf8_lossy(&dry.stdout).contains("deleted"));
-        assert!(merged.exists());
-        let apply = repo.gc(&["--apply"]);
-        assert!(
-            apply.status.success(),
-            "{}",
-            String::from_utf8_lossy(&apply.stderr)
-        );
-        assert!(!merged.exists());
-        repo.git(&["show-ref", "--verify", "refs/heads/deleted"]);
-    }
-
-    #[test]
-    fn dry_run_and_apply_protect_changes_unpublished_commits_and_busy_trees() {
+    fn report_never_removes_anything_and_rejects_cleanup_flags() {
         let repo = Repo::new();
         let merged = repo.worktree("merged");
-        let dirty = repo.worktree("dirty");
-        let busy = repo.worktree("busy");
-        let unpublished = repo.worktree("unpublished");
-        fs::write(dirty.join("new"), "changes").unwrap();
-        assert!(
-            Command::new("git")
-                .current_dir(&unpublished)
-                .args([
-                    "-c",
-                    "user.name=Fixture",
-                    "-c",
-                    "user.email=fixture@example.invalid",
-                    "commit",
-                    "--allow-empty",
-                    "--quiet",
-                    "-m",
-                    "unpublished"
-                ])
-                .status()
-                .unwrap()
-                .success()
-        );
-        let dry = repo.gc(&[]);
-        assert!(dry.status.success());
-        assert!(merged.exists());
-        let apply = repo.gc(&["--apply"]);
-        assert!(
-            apply.status.success(),
-            "{}",
-            String::from_utf8_lossy(&apply.stderr)
-        );
-        assert!(!merged.exists());
-        for path in [&repo.root, &dirty, &busy, &unpublished] {
-            assert!(path.exists());
+        fs::create_dir(merged.join("target")).unwrap();
+        assert!(repo.verdict("merged").starts_with("verdict=candidate"));
+        assert!(merged.join("target").exists(), "the report deleted files");
+        for flag in ["--apply", "--force"] {
+            assert!(!repo.gc(&[flag]).status.success(), "accepted {flag}");
         }
-        repo.git(&["show-ref", "--verify", "refs/heads/merged"]);
-        let force = repo.gc(&["--apply", "--force", dirty.to_str().unwrap()]);
-        assert!(force.status.success());
-        assert!(!dirty.exists());
-        let force_busy = repo.gc(&["--apply", "--force", busy.to_str().unwrap()]);
-        assert!(force_busy.status.success());
-        assert!(busy.exists());
-    }
-    #[test]
-    fn branch_switch_after_inventory_keeps_unpublished_worktree_and_target() {
-        let repo = Repo::new();
-        let path = repo.worktree("switched");
-        let run = |args: &[&str]| {
-            let result = Command::new("git")
-                .current_dir(&path)
-                .args(args)
-                .output()
-                .unwrap();
-            assert!(
-                result.status.success(),
-                "{}",
-                String::from_utf8_lossy(&result.stderr)
-            );
-        };
-        run(&["switch", "--quiet", "-c", "unpublished"]);
-        run(&[
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "commit",
-            "--allow-empty",
-            "--quiet",
-            "-m",
-            "unpublished",
-        ]);
-        run(&["switch", "--quiet", "switched"]);
-        fs::create_dir(path.join("target")).unwrap();
-        fs::write(path.join("target/keep"), "artifact").unwrap();
-        let merged = repo.head(&path);
-        repo.script(
-            "gh",
-            &format!(
-                "#!/bin/sh\ncase \"$6\" in unpublished) printf '[]';; *) printf '[%s]' '{}';; esac\n",
-                pr_json("MERGED", &merged, "fixture-owner")
-            ),
-        );
-        repo.script("lsof", &format!(
-            "#!/bin/sh\ncase \"$3\" in *switched) if [ ! -e '{}' ]; then git -C \"$3\" switch --quiet unpublished; touch '{}'; fi;; esac\nexit 1\n",
-            repo.bin.join("switched-once").display(), repo.bin.join("switched-once").display()));
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            path.exists(),
-            "removed a newly checked-out unpublished branch"
-        );
-        assert!(path.join("target/keep").exists(), "removed its artifacts");
-        run(&["show-ref", "--verify", "refs/heads/unpublished"]);
+        assert!(merged.exists());
     }
 
     #[test]
-    fn process_recheck_prevents_removal_when_a_process_appears() {
+    fn deleted_worktrees_are_reported_without_blocking_the_inventory() {
         let repo = Repo::new();
-        let path = repo.worktree("late-process");
-        let counter = repo.bin.join("calls");
-        repo.script("lsof", &format!("#!/bin/sh\ncase \"$3\" in *late-process*) n=$(cat '{}' 2>/dev/null || printf 0); n=$((n+1)); printf '%s' \"$n\" > '{}'; if [ \"$n\" -gt 1 ]; then printf '999\\n'; exit 0; fi;; esac\nexit 1\n", counter.display(), counter.display()));
-        let output = repo.gc(&["--apply"]);
-        assert!(output.status.success());
-        assert!(path.exists());
+        let deleted = repo.worktree("deleted");
+        repo.worktree("remaining");
+        fs::remove_dir_all(&deleted).unwrap();
+        assert!(repo.verdict("remaining").starts_with("verdict=candidate"));
+        let report = String::from_utf8(repo.gc(&[]).stdout).unwrap();
+        let line = report
+            .lines()
+            .find(|line| line.contains("deleted"))
+            .unwrap();
+        assert!(line.contains("verdict=keep"), "{line}");
     }
+
+    #[test]
+    fn changes_unpublished_commits_and_busy_trees_are_kept() {
+        let repo = Repo::new();
+        let dirty = repo.worktree("dirty");
+        repo.worktree("busy");
+        let unpublished = repo.worktree("unpublished");
+        fs::write(dirty.join("new"), "changes").unwrap();
+        git_at(
+            &unpublished,
+            &["commit", "--allow-empty", "--quiet", "-m", "unpublished"],
+            None,
+        );
+        assert_eq!(
+            repo.verdict("dirty"),
+            "verdict=keep reason=\"uncommitted changes\""
+        );
+        assert_eq!(
+            repo.verdict("busy"),
+            "verdict=keep reason=\"processes are using it\""
+        );
+        assert_eq!(
+            repo.verdict("unpublished"),
+            "verdict=keep reason=\"unpushed commits\""
+        );
+    }
+
     #[test]
     fn merged_parent_of_a_nested_registered_worktree_is_kept() {
         let repo = Repo::new();
@@ -390,17 +281,9 @@ mod unix {
             "child",
             child.to_str().unwrap(),
         ]);
-        fs::write(child.join("work"), "uncommitted").unwrap();
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(parent.exists(), "removed a worktree containing another");
-        assert!(
-            child.join("work").exists(),
-            "lost the nested worktree's changes"
+        assert_eq!(
+            repo.verdict("parent"),
+            "verdict=keep reason=\"contains another worktree\""
         );
     }
 
@@ -408,54 +291,16 @@ mod unix {
     fn reused_branch_with_commits_after_its_merged_pr_is_kept() {
         let repo = Repo::new();
         let path = repo.worktree("reused");
-        assert!(
-            Command::new("git")
-                .current_dir(&path)
-                .args([
-                    "-c",
-                    "user.name=Fixture",
-                    "-c",
-                    "user.email=fixture@example.invalid",
-                    "commit",
-                    "--allow-empty",
-                    "--quiet",
-                    "-m",
-                    "new work on a reused branch"
-                ])
-                .status()
-                .unwrap()
-                .success()
+        git_at(
+            &path,
+            &["commit", "--allow-empty", "--quiet", "-m", "new work"],
+            None,
         );
         repo.git(&["push", "--quiet", "origin", "reused"]);
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            repo.verdict("reused"),
+            "verdict=keep reason=\"recent work\""
         );
-        assert!(path.exists(), "an older merged PR retired newer commits");
-    }
-
-    #[test]
-    fn checkout_change_during_the_final_process_check_keeps_the_worktree() {
-        for change in [
-            "-c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m late",
-            "switch --quiet -c late-branch",
-        ] {
-            let repo = Repo::new();
-            let path = repo.worktree("late-checkout");
-            let counter = repo.bin.join("calls");
-            // Inventory, recheck, then the final activity check: change the checkout on the third.
-            repo.script("lsof", &format!("#!/bin/sh\ncase \"$3\" in *late-checkout*) n=$(cat '{}' 2>/dev/null || printf 0); n=$((n+1)); printf '%s' \"$n\" > '{}'; if [ \"$n\" -eq 3 ]; then git -C \"$3\" {change}; fi;; esac\nexit 1\n", counter.display(), counter.display()));
-            let output = repo.gc(&["--apply"]);
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert!(path.exists(), "removed after `git {change}`");
-            assert_eq!(fs::read_to_string(&counter).unwrap(), "3");
-        }
     }
 
     #[test]
@@ -473,19 +318,15 @@ mod unix {
             Some(30),
         );
         repo.script("gh", "#!/bin/sh\necho 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4\n");
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            path.exists(),
-            "removed without knowing whether a PR is open"
+        assert_eq!(
+            repo.verdict("stale"),
+            "verdict=keep reason=\"PR status unknown\""
         );
         repo.script("gh", "#!/bin/sh\nprintf '[]'\n");
-        assert!(repo.gc(&["--apply"]).status.success());
-        assert!(!path.exists(), "kept a stale worktree with no PR");
+        assert_eq!(
+            repo.verdict("stale"),
+            "verdict=candidate reason=\"no push for over 7 days\""
+        );
     }
 
     #[test]
@@ -521,13 +362,7 @@ mod unix {
         );
         git_at(&path, &["push", "--quiet", "origin", "topic"], None);
         repo.script("gh", "#!/bin/sh\nprintf '[]'\n");
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(path.exists(), "a fresh push inherited its upstream's age");
+        assert_eq!(repo.verdict("topic"), "verdict=keep reason=\"recent work\"");
     }
 
     #[test]
@@ -544,13 +379,7 @@ mod unix {
                 pr_json("MERGED", &head, "fixture-owner")
             ),
         );
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(path.exists(), "removed a worktree whose PR is open");
+        assert_eq!(repo.verdict("reopened"), "verdict=keep reason=\"open PR\"");
     }
 
     #[test]
@@ -564,26 +393,20 @@ mod unix {
                 pr_json("MERGED", &repo.head(&path), "someone-else")
             ),
         );
-        let output = repo.gc(&["--apply"]);
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            repo.verdict("shared-name"),
+            "verdict=keep reason=\"recent work\""
         );
-        assert!(path.exists(), "a fork's merged PR retired this branch");
     }
 
     #[test]
-    fn unavailable_process_checks_keep_worktrees_and_symlink_targets() {
+    fn unavailable_process_checks_keep_worktrees() {
         let repo = Repo::new();
-        let path = repo.worktree("unknown-process");
+        repo.worktree("unknown-process");
         repo.script("lsof", "#!/bin/sh\nexit 127\n");
-        assert!(repo.gc(&["--apply"]).status.success());
-        assert!(path.exists());
-        let outside = repo.root.parent().unwrap().join("shared-target");
-        fs::create_dir(&outside).unwrap();
-        fs::write(outside.join("keep"), "artifact").unwrap();
-        std::os::unix::fs::symlink(&outside, path.join("target")).unwrap();
-        assert!(Path::new(&outside).join("keep").exists());
+        assert_eq!(
+            repo.verdict("unknown-process"),
+            "verdict=keep reason=\"process check unavailable\""
+        );
     }
 }

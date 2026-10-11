@@ -1,4 +1,5 @@
-//! Conservative worktree inventory and cleanup; branch refs are never deleted.
+//! Read-only worktree report: each worktree is a cleanup candidate or kept, with the reason.
+//! Nothing is deleted; the user removes candidates with `git worktree remove`.
 use crate::DevtoolError;
 use serde::Deserialize;
 use std::{
@@ -8,12 +9,6 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Options {
-    pub apply: bool,
-    pub force: Option<PathBuf>,
-}
 
 #[derive(Debug)]
 struct Worktree {
@@ -48,7 +43,6 @@ enum Processes {
 #[derive(Debug)]
 struct State {
     branch: Option<String>,
-    head: String,
     dirty: bool,
     unpushed: bool,
     pr: Option<String>,
@@ -60,71 +54,32 @@ struct State {
     processes: Processes,
 }
 
-/// Accepts only explicit cleanup flags; a forced path still requires --apply.
-pub(crate) fn parse(args: &[String]) -> Result<Options, DevtoolError> {
-    let mut options = Options::default();
-    let mut args = args.iter();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--apply" => options.apply = true,
-            "--force" => {
-                options.force = Some(
-                    args.next()
-                        .ok_or_else(|| {
-                            DevtoolError::Usage("--force requires a worktree path".into())
-                        })?
-                        .into(),
-                )
-            }
-            _ => {
-                return Err(DevtoolError::Usage(format!(
-                    "unknown wt-gc argument: {arg}"
-                )));
-            }
-        }
+/// Prints one line per registered worktree with its verdict; takes no arguments.
+pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
+    if let Some(arg) = args.first() {
+        return Err(DevtoolError::Usage(format!(
+            "unknown wt-gc argument: {arg}"
+        )));
     }
-    Ok(options)
-}
-
-/// Inventories every worktree, then independently rechecks each candidate before removal.
-pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
-    let root = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"])?.trim());
+    // Only Git's line ending is stripped; a path may itself end in whitespace.
+    let root = PathBuf::from(
+        git(Path::new("."), &["rev-parse", "--show-toplevel"])?.trim_end_matches(['\n', '\r']),
+    );
     let worktrees = parse_worktrees(&git(&root, &["worktree", "list", "--porcelain", "-z"])?);
-    let forced = options
-        .force
-        .as_ref()
-        .map(fs::canonicalize)
-        .transpose()
-        .map_err(|source| DevtoolError::Spawn {
-            command: "resolve forced worktree".into(),
-            source,
-        })?;
-    if forced.as_ref().is_some_and(|path| {
-        !worktrees
-            .iter()
-            .any(|wt| fs::canonicalize(&wt.path).is_ok_and(|candidate| candidate == *path))
-    }) {
-        return Err(DevtoolError::Usage(
-            "--force must name a registered worktree".into(),
-        ));
-    }
-    let nested: Vec<_> = worktrees
-        .iter()
-        .map(|wt| contains_worktree(&wt.path, &worktrees))
-        .collect();
-    let mut plans = Vec::new();
-    for (index, (wt, nested)) in worktrees.into_iter().zip(nested).enumerate() {
-        let state = inspect(&wt)?;
-        let force = forced.as_ref().is_some_and(|path| {
-            fs::canonicalize(&wt.path).is_ok_and(|candidate| candidate == *path)
-        });
-        let protected = index == 0
-            || wt.protected
-            || nested
-            || fs::canonicalize(&wt.path).ok() == fs::canonicalize(&root).ok();
-        let remove = !protected && eligible(&state, force);
+    for (index, wt) in worktrees.iter().enumerate() {
+        let state = inspect(wt)?;
+        let (candidate, reason) =
+            if index == 0 || fs::canonicalize(&wt.path).ok() == fs::canonicalize(&root).ok() {
+                (false, "main checkout")
+            } else if wt.protected {
+                (false, "locked, bare, or prunable")
+            } else if contains_worktree(&wt.path, &worktrees) {
+                (false, "contains another worktree")
+            } else {
+                verdict(&state)
+            };
         println!(
-            "{} branch={} PR={} availability={} changes={} unpushed={} processes={:?} age_days={} pushed_days={} action={}",
+            "{} branch={} PR={} availability={} changes={} unpushed={} processes={:?} age_days={} pushed_days={} verdict={} reason=\"{reason}\"",
             wt.path.display(),
             state.branch.as_deref().unwrap_or("detached"),
             if state.pr_unknown {
@@ -142,83 +97,36 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
             state.processes,
             days(state.age),
             days(state.pushed_age),
-            if remove { "remove" } else { "keep" }
+            if candidate { "candidate" } else { "keep" },
         );
-        plans.push((wt, remove, force, protected));
     }
-    if !options.apply {
-        println!("dry run; use --apply to clean eligible worktrees");
-        return Ok(());
-    }
-    for (wt, remove, force, protected) in plans {
-        if protected {
-            continue;
-        }
-        let state = inspect(&wt)?;
-        let remove = remove && eligible(&state, force);
-        let clean_target = !remove
-            && state.retired
-            && state.pr.as_deref() == Some("MERGED")
-            && !state.dirty
-            && !state.unpushed;
-        // The final process check is separate from inventory and deletion; skip the tree if its
-        // checkout moved or another worktree was nested inside it meanwhile.
-        if !(remove || clean_target)
-            || processes(&wt.path) != Processes::Idle
-            || checkout(&wt.path).ok() != Some((state.branch.clone(), state.head.clone()))
-            || contains_worktree(
-                &wt.path,
-                &parse_worktrees(&git(&root, &["worktree", "list", "--porcelain", "-z"])?),
-            )
-        {
-            continue;
-        }
-        if remove {
-            let mut command = Command::new("git");
-            command.current_dir(&root).args(["worktree", "remove"]);
-            if force {
-                command.arg("--force");
-            }
-            let status = command
-                .arg(&wt.path)
-                .status()
-                .map_err(|source| DevtoolError::Spawn {
-                    command: "git worktree remove".into(),
-                    source,
-                })?;
-            if !status.success() {
-                return Err(DevtoolError::Usage(format!(
-                    "worktree removal failed: {}",
-                    wt.path.display()
-                )));
-            }
-        } else {
-            let target = wt.path.join("target");
-            // Never follow a target symlink into another worktree or a shared cache.
-            if fs::symlink_metadata(&target)
-                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
-            {
-                fs::remove_dir_all(&target).map_err(|source| DevtoolError::Spawn {
-                    command: "remove merged worktree target".into(),
-                    source,
-                })?;
-                println!("removed {}", target.display());
-            }
-        }
-    }
+    println!("report only; remove candidates yourself with `git worktree remove <path>`");
     Ok(())
 }
 
-/// Allows force to override changes, unpublished commits, and open or unknown PRs, never process
-/// or protection checks.
-fn eligible(state: &State, force: bool) -> bool {
-    state.processes == Processes::Idle
-        && (force
-            || (!state.dirty
-                && !state.unpushed
-                && !state.pr_unknown
-                && state.pr.as_deref() != Some("OPEN")
-                && (state.retired || state.pushed_age.is_some_and(|age| age > 7 * 86400))))
+/// Returns whether a worktree is a cleanup candidate and why; any doubt keeps it.
+fn verdict(state: &State) -> (bool, &'static str) {
+    match state {
+        State {
+            processes: Processes::Busy,
+            ..
+        } => (false, "processes are using it"),
+        State {
+            processes: Processes::Unknown,
+            ..
+        } => (false, "process check unavailable"),
+        State { dirty: true, .. } => (false, "uncommitted changes"),
+        State { unpushed: true, .. } => (false, "unpushed commits"),
+        State {
+            pr_unknown: true, ..
+        } => (false, "PR status unknown"),
+        _ if state.pr.as_deref() == Some("OPEN") => (false, "open PR"),
+        State { retired: true, .. } => (true, "PR completed at this HEAD"),
+        _ if state.pushed_age.is_some_and(|age| age > 7 * 86400) => {
+            (true, "no push for over 7 days")
+        }
+        _ => (false, "recent work"),
+    }
 }
 
 /// Reports an unavailable timestamp distinctly from a new worktree.
@@ -277,7 +185,6 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     if wt.unavailable || !wt.path.is_dir() {
         return Ok(State {
             branch: None,
-            head: String::new(),
             dirty: true,
             unpushed: true,
             pr: None,
@@ -354,7 +261,6 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     });
     Ok(State {
         branch,
-        head,
         dirty,
         unpushed,
         pr,
@@ -572,10 +478,9 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_requires_all_safety_conditions() {
+    fn candidates_require_every_safety_condition() {
         let mut state = State {
             branch: None,
-            head: String::new(),
             dirty: false,
             unpushed: false,
             pr: Some("MERGED".into()),
@@ -585,33 +490,30 @@ mod tests {
             age: None,
             processes: Processes::Idle,
         };
-        assert!(eligible(&state, false));
+        assert!(verdict(&state).0);
         state.dirty = true;
-        assert!(!eligible(&state, false));
-        assert!(eligible(&state, true));
-        state.unpushed = true;
-        assert!(!eligible(&state, false));
-        state.processes = Processes::Unknown;
-        assert!(!eligible(&state, true));
-        state.processes = Processes::Busy;
-        assert!(!eligible(&state, true));
-        state.processes = Processes::Idle;
+        assert_eq!(verdict(&state), (false, "uncommitted changes"));
         state.dirty = false;
+        state.unpushed = true;
+        assert_eq!(verdict(&state), (false, "unpushed commits"));
         state.unpushed = false;
+        state.processes = Processes::Unknown;
+        assert_eq!(verdict(&state), (false, "process check unavailable"));
+        state.processes = Processes::Busy;
+        assert_eq!(verdict(&state), (false, "processes are using it"));
+        state.processes = Processes::Idle;
         state.retired = false;
-        assert!(!eligible(&state, false));
+        assert_eq!(verdict(&state), (false, "recent work"));
         state.pushed_age = Some(8 * 86400);
-        assert!(eligible(&state, false));
+        assert!(verdict(&state).0);
         state.pr_unknown = true;
-        assert!(!eligible(&state, false));
-        assert!(eligible(&state, true));
+        assert_eq!(verdict(&state), (false, "PR status unknown"));
     }
 
     #[test]
-    fn aged_open_pr_is_kept_without_force() {
+    fn aged_open_pr_is_kept() {
         let state = State {
             branch: Some("topic".into()),
-            head: "0".repeat(40),
             dirty: false,
             unpushed: false,
             pr: Some("OPEN".into()),
@@ -621,8 +523,7 @@ mod tests {
             age: Some(30 * 86400),
             processes: Processes::Idle,
         };
-        assert!(!eligible(&state, false));
-        assert!(eligible(&state, true));
+        assert_eq!(verdict(&state), (false, "open PR"));
     }
     #[test]
     fn temp_repo_inventory_preserves_paths_and_locked_worktrees() {
