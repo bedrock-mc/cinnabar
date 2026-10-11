@@ -1,3 +1,10 @@
+## Login identity
+
+- New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
+  existing install device ID. Unchanged inputs produce the same identifier across joins.
+- Authentication-state reuse transitions and full platform device lifecycle parity remain
+  incomplete. Skin, account and device claims retain their existing owners.
+
 ## Totem activation
 
 - Local totem activation retains the equipped item before later inventory or equipment updates
