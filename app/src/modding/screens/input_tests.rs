@@ -645,7 +645,7 @@ fn a_departing_screen_owner_closes_its_view_and_forgets_the_container() {
     app.add_systems(Update, exercise_runtime);
     app.update();
     let runtime = app.world().resource::<ModRuntime>();
-    let previous = runtime.host(1);
+    let previous = runtime.hosts.host(1);
     assert!(
         previous.screens().view.is_none(),
         "departing owner retained its view"
@@ -712,7 +712,7 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
         app.insert_resource(runtime);
         app.add_systems(Update, exercise_runtime);
         app.update();
-        let host = app.world().resource::<ModRuntime>().host(0);
+        let host = app.world().resource::<ModRuntime>().hosts.host(0);
         assert_eq!(
             host.screens().data.values.get("#data_layout_open"),
             Some(&server_experience::screen::Value::Bool(open)),
@@ -945,7 +945,7 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     );
     send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
     assert!(matches!(
-        app.world().resource::<ModRuntime>().host.screens().data.values.get("#key"),
+        app.world().resource::<ModRuntime>().hosts.host.screens().data.values.get("#key"),
         Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
     ));
     send(
@@ -956,9 +956,9 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
         None,
     );
     let runtime = app.world().resource::<ModRuntime>();
-    assert!(runtime.host.screens().view.is_none());
+    assert!(runtime.hosts.host.screens().view.is_none());
     assert_eq!(
-        runtime.host.screens().data.values.get("#view_closed"),
+        runtime.hosts.host.screens().data.values.get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }
@@ -1050,14 +1050,16 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
         None,
     );
     let runtime = app.world().resource::<ModRuntime>();
-    assert!(matches!(runtime.host.screens().data.values.get("#action"),
-        Some(server_experience::screen::Value::Text(action)) if action == "probe.view:None:Ok(())"));
     assert!(
-        runtime.host.screens().view.is_none(),
+        matches!(runtime.hosts.host.screens().data.values.get("#action"),
+        Some(server_experience::screen::Value::Text(action)) if action == "probe.view:None:Ok(())")
+    );
+    assert!(
+        runtime.hosts.host.screens().view.is_none(),
         "a queued pointer action reopened the escaped view"
     );
     assert_eq!(
-        runtime.host.screens().data.values.get("#view_closed"),
+        runtime.hosts.host.screens().data.values.get("#view_closed"),
         Some(&server_experience::screen::Value::Integer(1))
     );
 }

@@ -21,7 +21,8 @@ fn publish(
         .is_some_and(|world| world.stream.is_some() && world.fatal_error.is_none())
         && runtime.as_deref().is_some_and(|runtime| {
             !runtime.suspended
-                && (0..runtime.host_count()).any(|index| runtime.host(index).fullbright())
+                && (0..runtime.hosts.host_count())
+                    .any(|index| runtime.hosts.host(index).fullbright())
         });
     if lighting.0 != enabled {
         lighting.0 = enabled;

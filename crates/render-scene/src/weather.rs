@@ -13,13 +13,16 @@ pub struct PrecipitationMixResource(pub render_model::PrecipitationMix);
 #[derive(Resource, ExtractResource, Clone, Default)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct WeatherTextureAssets {
-    textures: Option<Arc<assets::WeatherTextures>>,
+    textures: Option<Arc<assets::weather_textures::WeatherTextures>>,
     identity: [u8; 32],
 }
 
 impl WeatherTextureAssets {
     #[must_use]
-    pub fn new(textures: Arc<assets::WeatherTextures>, identity: [u8; 32]) -> Self {
+    pub fn new(
+        textures: Arc<assets::weather_textures::WeatherTextures>,
+        identity: [u8; 32],
+    ) -> Self {
         Self {
             textures: Some(textures),
             identity,
@@ -27,7 +30,7 @@ impl WeatherTextureAssets {
     }
 
     #[must_use]
-    pub fn textures(&self) -> Option<&Arc<assets::WeatherTextures>> {
+    pub fn textures(&self) -> Option<&Arc<assets::weather_textures::WeatherTextures>> {
         self.textures.as_ref()
     }
 

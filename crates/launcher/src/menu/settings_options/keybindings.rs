@@ -303,8 +303,76 @@ pub fn key_name(control: PhysicalControl) -> String {
         PhysicalControl::KeyboardUsage(0xe0) => "Left Control".to_owned(),
         PhysicalControl::KeyboardUsage(0xe1) => "Left Shift".to_owned(),
         PhysicalControl::KeyboardUsage(code @ 0x3a..=0x45) => format!("F{}", code - 0x39),
+        PhysicalControl::KeyboardUsage(0x39) => "Caps Lock".to_owned(),
+        PhysicalControl::KeyboardUsage(0x46) => "Print Screen".to_owned(),
+        PhysicalControl::KeyboardUsage(0x47) => "Scroll Lock".to_owned(),
+        PhysicalControl::KeyboardUsage(0x48) => "Pause".to_owned(),
+        PhysicalControl::KeyboardUsage(0x53) => "Num Lock".to_owned(),
+        PhysicalControl::KeyboardUsage(0x54) => "Numpad /".to_owned(),
+        PhysicalControl::KeyboardUsage(0x55) => "Numpad *".to_owned(),
+        PhysicalControl::KeyboardUsage(0x56) => "Numpad -".to_owned(),
+        PhysicalControl::KeyboardUsage(0x57) => "Numpad +".to_owned(),
+        PhysicalControl::KeyboardUsage(0x58) => "Numpad Enter".to_owned(),
+        PhysicalControl::KeyboardUsage(0x62) => "Numpad 0".to_owned(),
+        PhysicalControl::KeyboardUsage(0x63) => "Numpad .".to_owned(),
+        PhysicalControl::KeyboardUsage(0x64) => "Intl Backslash".to_owned(),
+        PhysicalControl::KeyboardUsage(0x65) => "Context Menu".to_owned(),
+        PhysicalControl::KeyboardUsage(0x67) => "Numpad =".to_owned(),
+        PhysicalControl::KeyboardUsage(0x85) => "Numpad ,".to_owned(),
+        PhysicalControl::KeyboardUsage(code @ 0x59..=0x61) => format!("Numpad {}", code - 0x58),
+        PhysicalControl::KeyboardUsage(code @ 0x68..=0x73) => format!("F{}", code - 0x5b),
         PhysicalControl::MouseButton(button) => format!("Mouse {button}"),
         PhysicalControl::KeyboardUsage(code) => format!("Key {code:02X}"),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn additional_keyboard_usages_have_readable_names() {
+        for (usage, expected) in [
+            (0x39, "Caps Lock"),
+            (0x46, "Print Screen"),
+            (0x47, "Scroll Lock"),
+            (0x48, "Pause"),
+            (0x53, "Num Lock"),
+            (0x54, "Numpad /"),
+            (0x55, "Numpad *"),
+            (0x56, "Numpad -"),
+            (0x57, "Numpad +"),
+            (0x58, "Numpad Enter"),
+            (0x59, "Numpad 1"),
+            (0x5a, "Numpad 2"),
+            (0x5b, "Numpad 3"),
+            (0x5c, "Numpad 4"),
+            (0x5d, "Numpad 5"),
+            (0x5e, "Numpad 6"),
+            (0x5f, "Numpad 7"),
+            (0x60, "Numpad 8"),
+            (0x61, "Numpad 9"),
+            (0x62, "Numpad 0"),
+            (0x63, "Numpad ."),
+            (0x64, "Intl Backslash"),
+            (0x65, "Context Menu"),
+            (0x67, "Numpad ="),
+            (0x68, "F13"),
+            (0x69, "F14"),
+            (0x6a, "F15"),
+            (0x6b, "F16"),
+            (0x6c, "F17"),
+            (0x6d, "F18"),
+            (0x6e, "F19"),
+            (0x6f, "F20"),
+            (0x70, "F21"),
+            (0x71, "F22"),
+            (0x72, "F23"),
+            (0x73, "F24"),
+            (0x85, "Numpad ,"),
+        ] {
+            assert_eq!(key_name(PhysicalControl::KeyboardUsage(usage)), expected);
+        }
     }
 }

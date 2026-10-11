@@ -245,9 +245,12 @@ fn actual_install_acknowledges_only_after_host_and_panel_are_published() {
             result: Ok(Action::Replace(candidate(&directory, false, "Hello"))),
         },
     );
-    assert!(world.resource::<ModRuntime>().host.is_active());
-    assert_eq!(world.resource::<ModRuntime>().host.label(), Some("Hello"));
-    assert!(world.resource::<ModRuntime>().host.panel().is_some());
+    assert!(world.resource::<ModRuntime>().hosts.host.is_active());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host.label(),
+        Some("Hello")
+    );
+    assert!(world.resource::<ModRuntime>().hosts.host.panel().is_some());
     let Message::Acknowledge {
         generation,
         status,
@@ -278,8 +281,17 @@ fn id_only_reattachment_preserves_guest_state_panel_input_and_interaction() {
         },
     );
     messages.try_recv().unwrap();
-    world.resource_mut::<ModRuntime>().host.frame(true).unwrap();
-    world.resource_mut::<ModRuntime>().host.set_panel_open(true);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host
+        .frame(true)
+        .unwrap();
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host
+        .set_panel_open(true);
     world
         .resource_mut::<UiPresentationRuntime>()
         .set_mod_panel_open(true);
@@ -300,10 +312,10 @@ fn id_only_reattachment_preserves_guest_state_panel_input_and_interaction() {
         },
     );
     let runtime = world.resource::<ModRuntime>();
-    assert_eq!(runtime.host.label(), Some("ello"));
-    assert!(runtime.host.panel_open());
+    assert_eq!(runtime.hosts.host.label(), Some("ello"));
+    assert!(runtime.hosts.host.panel_open());
     assert!(matches!(
-        &runtime.host.panel().unwrap().controls[0],
+        &runtime.hosts.host.panel().unwrap().controls[0],
         ui::mod_panel::Control::Toggle { value: true, .. }
     ));
     assert!(world.resource::<UiPresentationRuntime>().mod_panel_open());
@@ -328,7 +340,11 @@ fn new_component_resets_state_and_retires_old_host_outside_world() {
         },
     );
     messages.try_recv().unwrap();
-    world.resource_mut::<ModRuntime>().host.set_panel_open(true);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host
+        .set_panel_open(true);
     world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
         name: "stale".into(),
         values: Vec::new(),
@@ -342,11 +358,15 @@ fn new_component_resets_state_and_retires_old_host_outside_world() {
         },
     );
     assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
-    assert_eq!(world.resource::<ModRuntime>().host.label(), Some("Other"));
-    assert!(!world.resource::<ModRuntime>().host.panel_open());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host.label(),
+        Some("Other")
+    );
+    assert!(!world.resource::<ModRuntime>().hosts.host.panel_open());
     assert!(matches!(
         &world
             .resource::<ModRuntime>()
+            .hosts
             .host
             .panel()
             .unwrap()
@@ -508,6 +528,7 @@ fn inactive_guest_is_reinitialized_instead_of_falsely_acknowledged_as_loaded() {
     assert!(
         world
             .resource_mut::<ModRuntime>()
+            .hosts
             .host
             .frame(false)
             .is_err()
@@ -542,7 +563,11 @@ fn saturated_retirement_queue_releases_authority_before_waiting_for_disposal() {
         },
     );
     messages.try_recv().unwrap();
-    world.resource_mut::<ModRuntime>().host.set_panel_open(true);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host
+        .set_panel_open(true);
     world
         .resource_mut::<UiPresentationRuntime>()
         .set_mod_panel_open(true);
@@ -573,7 +598,7 @@ fn saturated_retirement_queue_releases_authority_before_waiting_for_disposal() {
     );
     let runtime = world.resource::<ModRuntime>();
     assert!(runtime.suspended);
-    assert!(!runtime.host.panel_open());
+    assert!(!runtime.hosts.host.panel_open());
     assert!(!runtime.controls.focused);
     assert!(!world.resource::<UiPresentationRuntime>().mod_panel_open());
     assert_eq!(world.resource::<ModInteraction>().attack_reach, None);

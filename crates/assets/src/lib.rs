@@ -62,7 +62,7 @@ mod texture;
 mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
-mod weather_textures;
+pub mod weather_textures;
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
     MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
@@ -298,8 +298,3 @@ pub use ui::{
     UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
-pub use weather_textures::{
-    END_SKY_SIDE, MAX_WEATHER_TEXTURES_BYTES, WEATHER_SHEET_SIDE, WEATHER_TEXTURES_MAGIC,
-    WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
-    decode_weather_textures, encode_weather_textures,
-};

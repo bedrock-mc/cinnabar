@@ -36,7 +36,9 @@ pub(crate) fn fog_precipitation_count(stream: &WorldStream, position: [f32; 3]) 
     let registry = stream.authority().resolved_biome_tints();
     count_precipitation_samples(sample_positions(position).map(|position| {
         let id = stream.camera_biome_id(position)?;
-        Some(registry.biome(id)?.precipitation_eligible())
+        Some(world::weather::precipitation_eligible(
+            registry.biome(id)?.downfall,
+        ))
     }))
 }
 

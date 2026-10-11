@@ -41,7 +41,8 @@ pub(crate) fn load_optional_weather_textures(
     let decoded = std::fs::read(&path)
         .map_err(|error| error.to_string())
         .and_then(|bytes| {
-            assets::decode_weather_textures(&bytes).map_err(|error| error.to_string())
+            assets::weather_textures::decode_weather_textures(&bytes)
+                .map_err(|error| error.to_string())
         });
     match decoded {
         Ok((textures, identity)) => {

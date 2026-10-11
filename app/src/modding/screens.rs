@@ -113,11 +113,11 @@ pub(super) fn drive(
     focused: bool,
     input: &mut ScreenInput,
 ) {
-    let owner = runtime.screen_owner();
+    let owner = runtime.hosts.screen_owner();
     let mut changes = Vec::new();
-    let readers: Vec<usize> = (0..runtime.host_count())
+    let readers: Vec<usize> = (0..runtime.hosts.host_count())
         .filter(|&index| {
-            let host = runtime.host(index);
+            let host = runtime.hosts.host(index);
             let grants = host.grants();
             host.package().is_some() && host.is_active() && (grants.items || grants.recipes)
         })
@@ -125,7 +125,11 @@ pub(super) fn drive(
     if !readers.is_empty() {
         let session = session_data(&mut runtime.screens.session, player_runtime, ui);
         for index in readers {
-            if let Some(event) = runtime.host_mut(index).update_session(Arc::clone(&session)) {
+            if let Some(event) = runtime
+                .hosts
+                .host_mut(index)
+                .update_session(Arc::clone(&session))
+            {
                 changes.push((index, event));
             }
         }
@@ -134,11 +138,11 @@ pub(super) fn drive(
     for (index, event) in changes {
         if Some(index) == owner {
             runtime.screens.data_change = Some(event);
-        } else if let Err(error) = runtime.host_mut(index).dispatch(vec![event]) {
+        } else if let Err(error) = runtime.hosts.host_mut(index).dispatch(vec![event]) {
             eprintln!("Cinnabar mod data-changed failed: {error:#}");
         }
     }
-    let owner = runtime.screen_owner();
+    let owner = runtime.hosts.screen_owner();
     set_owner(runtime, owner);
     let Some(owner) = owner else {
         presentation.set_mod_screens(None);
@@ -149,7 +153,7 @@ pub(super) fn drive(
     };
     let mut state = std::mem::take(&mut runtime.screens);
     drive_owner(
-        runtime.host_mut(owner),
+        runtime.hosts.host_mut(owner),
         &mut state,
         player_runtime,
         ui,
@@ -170,7 +174,7 @@ fn set_owner(runtime: &mut ModRuntime, owner: Option<usize>) {
     if let Some(previous) = runtime.screens.owner {
         let mut events = vec![ModEvent::ScreenChanged(None)];
         events.extend(runtime.screens.data_change.take());
-        if let Err(error) = runtime.host_mut(previous).dispatch(events) {
+        if let Err(error) = runtime.hosts.host_mut(previous).dispatch(events) {
             eprintln!("Cinnabar departing mod screen closure failed: {error:#}");
         }
     }

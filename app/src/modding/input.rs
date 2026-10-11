@@ -456,8 +456,8 @@ pub(super) fn prepare_mod_input(
         absorbed,
     );
     let was_open = physical.panel_owned;
-    let owner = extension.panel_owner();
-    let mut open = extension.host(owner).panel_open() && presentation.mod_panel_open();
+    let owner = extension.hosts.panel_owner();
+    let mut open = extension.hosts.host(owner).panel_open() && presentation.mod_panel_open();
     let had_panel = open;
     let editing = open && presentation.mod_panel_editing();
     let interrupt = editing
@@ -495,19 +495,21 @@ pub(super) fn prepare_mod_input(
     let close_requested = pressed.iter().any(|key| key == "Escape")
         && open
         && !extension
+            .hosts
             .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
     let toggle_requested = extension
+        .hosts
         .host(owner)
         .panel()
         .is_some_and(|panel| pressed.contains(&panel.toggle_key));
-    if !extension.host(owner).is_active() || (focused && (absorbed || close_requested)) {
+    if !extension.hosts.host(owner).is_active() || (focused && (absorbed || close_requested)) {
         open = false;
     } else if toggle_requested {
         open = !open;
     }
-    extension.host_mut(owner).set_panel_open(open);
+    extension.hosts.host_mut(owner).set_panel_open(open);
     presentation.set_mod_panel_open(open);
     let before_pointer_open = open;
     let was_held = mouse
@@ -533,7 +535,7 @@ pub(super) fn prepare_mod_input(
         }
     }
     super::hud_editor::collect(&mut extension, &mut presentation);
-    if extension.hud_owner() == Some(owner) {
+    if extension.hosts.hud_owner() == Some(owner) {
         events.extend(
             presentation
                 .take_chat_extension_actions()
@@ -554,7 +556,7 @@ pub(super) fn prepare_mod_input(
     if !open
         && focused
         && !absorbed
-        && extension.host(owner).is_active()
+        && extension.hosts.host(owner).is_active()
         && ((had_panel && (close_requested || toggle_requested))
             || pointer_closed
             || editor_closed_panel)
@@ -562,7 +564,7 @@ pub(super) fn prepare_mod_input(
     {
         focus.authorize_screen_return();
     }
-    extension.host_mut(owner).set_panel_open(open);
+    extension.hosts.host_mut(owner).set_panel_open(open);
     let restore = physical.finish_panel(
         open,
         focused,
@@ -621,8 +623,9 @@ pub(super) fn prepare_mod_input(
             // A close edge belongs to the panel, not the underlying pause menu.
             keys.reset(KeyCode::Escape);
         }
-        let reserved = extension.reserved_keys();
+        let reserved = extension.hosts.reserved_keys();
         let toggle = extension
+            .hosts
             .host(owner)
             .panel()
             .map(|panel| panel.toggle_key.as_str());

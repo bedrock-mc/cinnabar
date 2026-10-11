@@ -7,27 +7,27 @@ use render_scene::ModRenderScene;
 /// Republishes only when some mod's generation changed, so steady frames extract nothing.
 pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super::ModRuntime) {
     let Some(mut scene) = scene else { return };
-    if runtime.host_count() == 1 {
-        let (output, generation) = runtime.host.render();
+    if runtime.hosts.host_count() == 1 {
+        let (output, generation) = runtime.hosts.host.render();
         if scene.generation() != generation {
             scene.apply(output, generation);
         }
         return;
     }
-    let unchanged = runtime
-        .render_sources
-        .iter()
-        .copied()
-        .eq(runtime.render_outputs().map(|(_, generation)| generation));
+    let unchanged = runtime.render_sources.iter().copied().eq(runtime
+        .hosts
+        .render_outputs()
+        .map(|(_, generation)| generation));
     if unchanged {
         return;
     }
     let mut cache = std::mem::take(&mut runtime.render_merge);
-    let merged = cache.merge(runtime.render_outputs().map(|(output, _)| output));
+    let merged = cache.merge(runtime.hosts.render_outputs().map(|(output, _)| output));
     runtime.render_merge = cache;
     let generation = scene.generation().wrapping_add(1);
     scene.apply(&merged, generation);
     runtime.render_sources = runtime
+        .hosts
         .render_outputs()
         .map(|(_, generation)| generation)
         .collect();
@@ -39,8 +39,8 @@ pub(super) fn grant_depth_sampling(
     mut cameras: Query<&mut Camera3d, With<FlyCamera>>,
 ) {
     if !runtime.is_some_and(|runtime| {
-        (0..runtime.host_count()).any(|index| {
-            let grants = runtime.host(index).grants();
+        (0..runtime.hosts.host_count()).any(|index| {
+            let grants = runtime.hosts.host(index).grants();
             grants.render && grants.render_depth
         })
     }) {

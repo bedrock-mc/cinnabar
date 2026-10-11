@@ -103,7 +103,7 @@ pub(crate) fn update_cursor_capture(
     mouse_motion: ResMut<AccumulatedMouseMotion>,
     auto_fly: ResMut<AutoFly>,
     screen_focus: Res<client_state::ScreenFocus>,
-    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
+    consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,

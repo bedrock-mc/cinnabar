@@ -21,6 +21,20 @@
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## Extension crate ownership
+
+`client-extensions` owns local component loading and load-order merging, environment
+permission grants, bounded player snapshots, optional panel fonts, and trusted server
+experience consent text and input consumption. Its Bevy plugin uses the consent
+observation and input boundary in `client-state`, with no sibling plugin dependencies.
+The moved behavioral tests remain with their owners.
+
+The extraction is incomplete. Local mod registration and frame adapters still use
+app-owned network, world, movement, menu, and camera resources. Server experience
+session driving, helper supervision, and media playback also remain in `app` until
+shared session and presentation contracts are available. This ownership change has
+not been compiled or executed and closes no behavior or performance acceptance gate.
+
 ## Lightning rod terrain geometry
 
 Lightning rods compile their complete shaft and tip for all six facings, eight

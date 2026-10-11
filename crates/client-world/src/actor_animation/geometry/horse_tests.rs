@@ -217,9 +217,10 @@ fn pinned_horse_rears_and_grazes_from_its_synced_state() {
     let mut store = ActorAnimationStore::with_assets(assets);
     store.insert(1, 0, &actor);
     tick(&mut store, &actor, false);
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(query_flag("query.is_standing")));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(query_flag("query.is_standing")),
+    );
     for _ in 0..12 {
         tick(&mut store, &actor, false);
     }
