@@ -3,7 +3,7 @@ use player_state::PlayerState;
 #[test]
 fn pre_send_publication_shares_cells_without_cloning_pending_ingress() {
     let mut live = PlayerState::new(1);
-    let mut ui = client_ui::UiRuntime::new(1);
+    let mut ui = client_ui::ui_runtime::UiRuntime::new(1);
     live.inventory
         .enqueue_inventory_event(
             1,
