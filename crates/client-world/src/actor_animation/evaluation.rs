@@ -458,7 +458,7 @@ impl MolangVariables {
             .map(MolangValue::number)
     }
 
-    /// Compares an authored variable or temporary, including assignment presence and value type.
+    /// Compares persistent authored inputs, including assignment presence and value type.
     pub(super) fn read_changed(
         &self,
         completed: &Self,
@@ -467,8 +467,7 @@ impl MolangVariables {
     ) -> bool {
         match layout.place(symbol) {
             Some(Place::Variable(slot)) => self.values.get(slot) != completed.values.get(slot),
-            Some(Place::Temporary(slot)) => self.temps.get(slot) != completed.temps.get(slot),
-            None => false,
+            Some(Place::Temporary(_)) | None => false,
         }
     }
 

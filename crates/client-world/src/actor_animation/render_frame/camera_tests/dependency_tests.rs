@@ -1,6 +1,65 @@
 use super::*;
 
 #[test]
+fn expression_local_temporaries_preserve_walking_layer_interpolation() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.frame_alpha".into(),
+        },
+    );
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::Temporary,
+        identifier: "temp.x".into(),
+    });
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        match op {
+            MolangOp::LoadQuery(symbol) => *symbol += 1,
+            MolangOp::CallQuery(call) => call.symbol += 1,
+            _ => {}
+        }
+    }
+    ops.extend([
+        MolangOp::LoadQuery(2),
+        MolangOp::StoreVariable(4),
+        MolangOp::LoadVariable(4),
+        MolangOp::LoadQuery(1),
+        MolangOp::StoreVariable(4),
+        MolangOp::LoadVariable(4),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.extend([6, 9].map(|first_op| CompiledMolangExpression {
+        first_op,
+        op_count: 3,
+        max_stack: 1,
+    }));
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    let channel = &compiled.animation_channels[1];
+    compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
+        [Some(4), None, None];
+    for layer in &mut compiled.render.layers[1..] {
+        layer.color = Some([5; 4]);
+    }
+    let store = walking_fixture(compiled);
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        for (layer, completed) in layers.iter().zip(&completed).skip(1) {
+            assert_eq!(layer.color, [alpha; 4]);
+            assert_ne!(completed.previous_pose, completed.pose);
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
+
+#[test]
 fn render_controller_camera_write_updates_only_a_layer_that_reads_it() {
     for reads_camera_write in [false, true] {
         let mut compiled = inactive_camera_compiled();

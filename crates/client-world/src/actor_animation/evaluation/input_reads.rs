@@ -30,7 +30,11 @@ impl VariableLayout {
                                     MolangOp::Coalesce(branch) => branch.symbol,
                                     _ => continue,
                                 };
-                                reads.insert(symbol);
+                                if assets.molang_symbols()[symbol as usize].kind
+                                    != MolangSymbolKind::Temporary
+                                {
+                                    reads.insert(symbol);
+                                }
                             }
                         }
                     }
@@ -69,7 +73,7 @@ impl VariableLayout {
             .collect();
     }
 
-    /// Unique authored variable and query reads, independent of stored keyframe count.
+    /// Shared authored variable and query reads; expression-local temporaries are excluded.
     pub(in crate::actor_animation) fn clip_reads(&self, clip: usize) -> &[u32] {
         self.clip_reads.get(clip).map_or(&[], Box::as_ref)
     }
