@@ -512,6 +512,17 @@ fn nearby_mobs_are_non_players_in_range_nearest_first_with_health() {
 }
 
 #[test]
+fn unordered_eye_distance_preserves_mob_eligibility() {
+    let mut stream = stream();
+    stream
+        .submit(1, mob(3, "minecraft:zombie", [2.0, 0.0, 0.0]))
+        .unwrap();
+    let mobs = nearest_mobs(stream.authority().remote_actors(), Vec3::NAN);
+    assert_eq!(mobs.len(), 1);
+    assert_eq!(mobs[0].runtime_id, 3);
+}
+
+#[test]
 fn mobs_need_the_entities_grant_and_a_current_snapshot() {
     #[derive(Resource, Default)]
     struct Mobs(usize);

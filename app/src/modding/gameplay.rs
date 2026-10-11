@@ -293,11 +293,15 @@ fn nearest_mobs<'a>(
             return false;
         };
         let position = Vec3::from_array(actor.position);
-        actor.runtime_id != 0
-            && position.is_finite()
-            && position.distance_squared(eye) <= range
-            && !identifier.is_empty()
-            && identifier.len() <= mod_api::MAX_MOB_TYPE_BYTES
+        if actor.runtime_id == 0
+            || !position.is_finite()
+            || position.distance_squared(eye) > range
+            || identifier.is_empty()
+            || identifier.len() > mod_api::MAX_MOB_TYPE_BYTES
+        {
+            return false;
+        }
+        true
     });
     nearest_actors(eligible, eye, mod_api::MAX_GAMEPLAY_MOBS)
         .into_iter()
