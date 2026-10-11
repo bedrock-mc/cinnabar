@@ -137,6 +137,13 @@ subscriber orchestration. Block visuals still use renderer-owned material flags,
 and item, glyph, audio, and artwork payloads retain their existing owners. These
 moves do not change the open behavior or performance acceptance gates.
 
+## Diagnostics ownership
+
+`diagnostics` holds Bevy-free metrics and marker contracts, with no `protocol`
+dependency. The app owns the build-identity resource and passes its build profile
+into the runtime-metadata and world-publication markers. Marker output is unchanged;
+compilation and test execution of this move remain unverified until CI.
+
 ## Login identity
 
 - New core-owned logins pass the full stored ClientRandomId and existing install device

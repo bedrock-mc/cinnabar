@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use render_model::{VisibilityKeyDelta, VisibilityKeyDigest};
 
-use crate::AcceptanceRuntimeConfig;
-
 pub const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
 pub const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
 pub const AUDIO_WIRE_EVIDENCE: &str = "RUST_MCBE_AUDIO_WIRE_EVIDENCE";
@@ -160,13 +158,13 @@ pub fn visibility_digest_marker_fields(
 }
 
 pub fn acceptance_runtime_metadata_marker(
-    config: AcceptanceRuntimeConfig,
+    build_profile: &str,
     graphics: &render_model::GraphicsAdapterMetadata,
 ) -> String {
     format!(
         "{ACCEPTANCE_RUNTIME_METADATA}={}",
         serde_json::json!({
-            "build_profile": config.build_profile,
+            "build_profile": build_profile,
             "requested_present_mode": graphics.requested_present_mode.as_str(),
             "effective_present_mode": graphics.effective_present_mode.as_str(),
             "present_mode_proven": graphics.present_mode_proven,
@@ -184,7 +182,7 @@ pub fn world_publication_snapshot_marker(
     upload_queue_bytes: u64,
     gpu_upload_bytes: u64,
     visibility: render_model::VisibilityDiagnosticSnapshot,
-    config: AcceptanceRuntimeConfig,
+    build_profile: &str,
     graphics: &render_model::GraphicsAdapterMetadata,
 ) -> String {
     let milliseconds = |duration: Duration| duration.as_secs_f64() * 1_000.0;
@@ -216,7 +214,7 @@ pub fn world_publication_snapshot_marker(
         "pose_generation": visibility_valid.then_some(visibility.pose_generation),
         "view_generation": visibility_valid.then_some(visibility.view_generation),
         "draw_mode": visibility_valid.then(|| format!("{:?}", visibility.draw_mode)),
-        "build_profile": config.build_profile,
+        "build_profile": build_profile,
         "requested_present_mode": graphics.requested_present_mode,
         "effective_present_mode": graphics.effective_present_mode,
         "present_mode_proven": graphics.present_mode_proven,

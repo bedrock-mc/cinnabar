@@ -19,7 +19,9 @@ feature; it is compiled and run in that configuration.
 The always-on `diagnostics` crate owns frame/asset/pipeline metrics, shared marker
 identifiers and bounded file reads. Production telemetry and startup still need
 these services when acceptance is disabled. This is the original metrics schema
-and marker vocabulary, with no additional authority or acceptance state.
+and marker vocabulary, with no additional authority or acceptance state. It has no
+Bevy or `protocol` dependency; the app owns the build-identity resource that
+telemetry passes into its markers.
 
 ## Observations and commands
 
