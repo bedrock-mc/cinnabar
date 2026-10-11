@@ -17,30 +17,31 @@ const RENDER_QUEUE_PRESSURE_ITEMS: usize = 512;
 const MINIMUM_PRESSURE_OPERATIONS_PER_FRAME: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PublicationFrameWork {
-    pub(crate) mesh_jobs_dispatched: usize,
-    pub(crate) mesh_changes_published: usize,
-    pub(crate) mesh_payloads_published: usize,
-    pub(crate) mesh_bytes_published: u64,
-    pub(crate) pending_mesh_jobs: usize,
-    pub(crate) in_flight_mesh_jobs: usize,
-    pub(crate) upload_queue_items: usize,
-    pub(crate) upload_queue_bytes: u64,
-    pub(crate) allowance_live_permits: usize,
-    pub(crate) allowance_live_payload_bytes: u64,
-    pub(crate) stream_pending_mesh_changes: usize,
-    pub(crate) cohort_expected: usize,
-    pub(crate) cohort_loaded: usize,
-    pub(crate) resident_meshes: usize,
-    pub(crate) cave_visible_meshes: usize,
-    pub(crate) frustum_visible_meshes: usize,
-    pub(crate) submitted_meshes: usize,
-    pub(crate) gpu_completed_meshes: usize,
+pub struct PublicationFrameWork {
+    pub mesh_jobs_dispatched: usize,
+    pub mesh_changes_published: usize,
+    pub mesh_payloads_published: usize,
+    pub mesh_bytes_published: u64,
+    pub pending_mesh_jobs: usize,
+    pub in_flight_mesh_jobs: usize,
+    pub upload_queue_items: usize,
+    pub upload_queue_bytes: u64,
+    pub allowance_live_permits: usize,
+    pub allowance_live_payload_bytes: u64,
+    pub stream_pending_mesh_changes: usize,
+    pub cohort_expected: usize,
+    pub cohort_loaded: usize,
+    pub resident_meshes: usize,
+    pub cave_visible_meshes: usize,
+    pub frustum_visible_meshes: usize,
+    pub submitted_meshes: usize,
+    pub gpu_completed_meshes: usize,
 }
 
 impl PublicationFrameWork {
     #[must_use]
-    pub(crate) const fn healthy() -> Self {
+    /// Returns an empty frame observation with no publication pressure.
+    pub const fn healthy() -> Self {
         Self {
             mesh_jobs_dispatched: 0,
             mesh_changes_published: 0,
@@ -71,18 +72,18 @@ impl Default for PublicationFrameWork {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct PublicationDiagnostics {
-    pub(crate) frame_sequence: u64,
-    pub(crate) observed_frame_time: Duration,
-    pub(crate) budget: ChunkUploadBudget,
-    pub(crate) under_target_streak: u32,
-    pub(crate) multiplicative_decreases: u64,
-    pub(crate) additive_increases: u64,
-    pub(crate) last_work: PublicationFrameWork,
+pub struct PublicationDiagnostics {
+    pub frame_sequence: u64,
+    pub observed_frame_time: Duration,
+    pub budget: ChunkUploadBudget,
+    pub under_target_streak: u32,
+    pub multiplicative_decreases: u64,
+    pub additive_increases: u64,
+    pub last_work: PublicationFrameWork,
 }
 
 #[derive(Resource, Debug, Clone)]
-pub(crate) struct PublicationController {
+pub struct PublicationController {
     config: PublicationServiceConfig,
     item_rate_per_second: u32,
     byte_rate_per_second: u64,
@@ -104,7 +105,8 @@ impl Default for PublicationController {
 
 impl PublicationController {
     #[must_use]
-    pub(crate) fn new(config: PublicationServiceConfig) -> Self {
+    /// Creates the shared publication allowance from validated service limits.
+    pub fn new(config: PublicationServiceConfig) -> Self {
         assert!(config.minimum_items_per_second > 0);
         assert!(config.minimum_bytes_per_second > 0);
         assert!(config.minimum_items_per_second <= config.target_items_per_second);
@@ -138,7 +140,8 @@ impl PublicationController {
         }
     }
 
-    pub(crate) fn begin_frame(&mut self, elapsed: Duration) {
+    /// Refills the frame allowance using elapsed time and the previous frame's pressure.
+    pub fn begin_frame(&mut self, elapsed: Duration) {
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
         self.update_pressure_state();
@@ -183,37 +186,44 @@ impl PublicationController {
         );
     }
 
-    pub(crate) fn finish_frame(&mut self, work: PublicationFrameWork) {
+    /// Retains this frame's work for diagnostics and the next pressure decision.
+    pub fn finish_frame(&mut self, work: PublicationFrameWork) {
         self.diagnostics.last_work = work;
     }
 
     #[must_use]
-    pub(crate) const fn budget(&self) -> ChunkUploadBudget {
+    /// Returns the current frame's upload and zero-byte operation caps.
+    pub const fn budget(&self) -> ChunkUploadBudget {
         self.diagnostics.budget
     }
 
     #[must_use]
-    pub(crate) fn allowance(&self) -> PublicationAllowance {
+    /// Returns a shared handle to the publication permits.
+    pub fn allowance(&self) -> PublicationAllowance {
         self.allowance.clone()
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(crate) fn accrued_items(&self) -> usize {
+    #[cfg(any(test, feature = "test-support"))]
+    /// Returns unused item permits for publication regression fixtures.
+    pub fn accrued_items(&self) -> usize {
         self.allowance.remaining_items()
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(crate) fn accrued_bytes(&self) -> u64 {
+    #[cfg(any(test, feature = "test-support"))]
+    /// Returns unused byte permits for publication regression fixtures.
+    pub fn accrued_bytes(&self) -> u64 {
         self.allowance.remaining_bytes()
     }
 
     #[must_use]
-    pub(crate) const fn diagnostics(&self) -> PublicationDiagnostics {
+    /// Returns the latest budget and pressure observations.
+    pub const fn diagnostics(&self) -> PublicationDiagnostics {
         self.diagnostics
     }
 
+    /// Reduces stalled backlog caps and gradually restores them after recovery.
     fn update_pressure_state(&mut self) {
         let work = self.diagnostics.last_work;
         if work.upload_queue_items >= RENDER_QUEUE_PRESSURE_ITEMS
@@ -306,7 +316,8 @@ impl PublicationController {
     }
 }
 
-pub(crate) fn begin_publication_frame(
+/// Refills the runtime allowance and publishes the matching renderer budget.
+pub fn begin_publication_frame(
     time: Res<Time<Real>>,
     mut controller: ResMut<PublicationController>,
     mut budget: ResMut<ChunkUploadBudget>,
@@ -316,7 +327,8 @@ pub(crate) fn begin_publication_frame(
 }
 
 #[must_use]
-pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagnostics) -> String {
+/// Formats the latest budget and backlog counters for diagnostics.
+pub fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagnostics) -> String {
     let work = diagnostics.last_work;
     let published_zero_items = work
         .mesh_changes_published
@@ -353,6 +365,7 @@ pub(crate) fn adaptive_publication_diagnostic_line(diagnostics: PublicationDiagn
     )
 }
 
+/// Bounds renderer work by both available permits and per-frame caps.
 fn frame_budget(
     config: PublicationServiceConfig,
     item_operations_per_frame: usize,
@@ -369,6 +382,7 @@ fn frame_budget(
     .with_zero_byte_operations_per_frame(zero_byte_operations_per_frame)
 }
 
+/// Restores a reduced item cap without exceeding its configured maximum.
 fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usize {
     if current == 0 || current >= configured_maximum {
         return configured_maximum;
@@ -379,6 +393,7 @@ fn geometric_item_cap_recovery(current: usize, configured_maximum: usize) -> usi
         .min(configured_maximum)
 }
 
+/// Converts elapsed time to bounded permits while retaining fractional progress.
 fn accrue_tokens(
     rate_per_second: u128,
     elapsed: Duration,
@@ -397,3 +412,7 @@ fn accrue_tokens(
     let total = accrued.checked_add(earned).unwrap_or(ceiling).min(ceiling);
     (total, if total == ceiling { 0 } else { remainder })
 }
+
+#[cfg(test)]
+#[path = "publication/pressure_tests.rs"]
+mod pressure_tests;

@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 mod chat;
 mod chat_coordinates;
 pub(crate) mod chat_modifiers;
@@ -63,25 +65,25 @@ pub(crate) fn flush_inventory_network(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
     mut runtime: ResMut<UiRuntime>,
-    network: Res<crate::runtime::network::NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     match flush_inventory_send(&mut player_runtime, &mut runtime, now_millis, |packet| {
         network.send_inventory_packet(packet)
     }) {
-        Ok(_) | Err(crate::runtime::network::PacketSendError::Full(_)) => {}
-        Err(crate::runtime::network::PacketSendError::Closed(_)) => {
+        Ok(_) | Err(client_session::PacketSendError::Full(_)) => {}
+        Err(client_session::PacketSendError::Closed(_)) => {
             runtime.inventory_transport_closed(&mut player_runtime);
         }
     }
     while let Some(packet) = runtime.take_client_packet() {
         match network.send_inventory_packet(packet) {
             Ok(()) => {}
-            Err(crate::runtime::network::PacketSendError::Full(packet)) => {
+            Err(client_session::PacketSendError::Full(packet)) => {
                 runtime.requeue_client_packet(packet);
                 break;
             }
-            Err(crate::runtime::network::PacketSendError::Closed(_)) => break,
+            Err(client_session::PacketSendError::Closed(_)) => break,
         }
     }
 }
@@ -89,7 +91,7 @@ pub(crate) fn flush_inventory_network(
 pub(crate) fn flush_chat_network(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
-    network: Res<crate::runtime::network::NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
     runtime.service_pending_chat_autocomplete(&player_runtime);
@@ -104,17 +106,16 @@ pub(crate) fn flush_chat_network(
         |session, sequence, action, packet| match network
             .send_chat_packet(session, sequence, action, packet)
         {
-            Err(crate::runtime::network::PacketSendError::Closed(packet))
+            Err(client_session::PacketSendError::Closed(packet))
                 if network.closed_command_has_pending_control() =>
             {
-                Err(crate::runtime::network::PacketSendError::Full(packet))
+                Err(client_session::PacketSendError::Full(packet))
             }
             result => result,
         },
     ) {
-        Ok(_)
-        | Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Full(_))) => {}
-        Err(ChatFlushError::Transport(crate::runtime::network::PacketSendError::Closed(_))) => {
+        Ok(_) | Err(ChatFlushError::Transport(client_session::PacketSendError::Full(_))) => {}
+        Err(ChatFlushError::Transport(client_session::PacketSendError::Closed(_))) => {
             crate::runtime::shutdown::record_fatal_error(
                 &mut client_world.fatal_error,
                 "chat send failed because the network command channel closed".to_owned(),

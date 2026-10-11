@@ -155,6 +155,13 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "clie
 max_rust_lines = 4000
 contract_only = true
 
+# Runtime owns transport and worker schedules, never a sibling plugin.
+[[crates]]
+name = "client-runtime"
+path = "crates/client-runtime"
+allowed_dependencies = ["bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher", "launcher-host", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "rich-presence"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
+test_support_features = ["test-support"]
 # Extensions consume the shared frame contract without reaching sibling plugins.
 [[crates]]
 name = "client-extensions"
@@ -266,7 +273,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["render-scene", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["render-scene", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -597,7 +604,7 @@ consumer = "app/src/app.rs"
 literal = "RUST_MCBE_WORLD_SERVICE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
-consumer = "app/src/runtime/world/service.rs"
+consumer = "crates/client-runtime/src/world_service.rs"
 
 [[markers]]
 literal = "RUST_MCBE_MOVEMENT_TRACE"
@@ -921,29 +928,6 @@ path = "app/src/movement.rs"
 exports = [
     "gameplay::movement::InteractionPacketGuard",
     "gameplay::movement::PhysicsSendIdentity",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/network.rs"
-exports = [
-    "client_session::WORLD_EVENT_CAPACITY",
-    "session::BatchSendError",
-    "session::NetworkFailureOrigin",
-    "session::PacketSendError",
-    "session::SessionTransferTarget",
-    "session::session_failure_display",
-]
-
-[[reexport_allowances]]
-path = "app/src/runtime/network/session.rs"
-exports = [
-    "client_session::BatchSendError",
-    "client_session::NetworkFailureOrigin",
-    "client_session::PacketSendError",
-    "client_session::SequencedWorldEvent",
-    "client_session::SessionTransferTarget",
-    "client_session::WorldIngress",
-    "client_session::session_failure_display",
 ]
 
 [[reexport_allowances]]

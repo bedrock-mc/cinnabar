@@ -303,7 +303,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
         if phase != 0 {
             presentation.set_menu_view(None);
             presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
-            crate::session::begin_session(&mut runtime, &mut player_runtime, phase + 1);
+            client_runtime::session::begin_session(&mut runtime, &mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),
             ))));

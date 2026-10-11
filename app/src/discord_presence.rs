@@ -107,7 +107,7 @@ fn update(
     // A direct `--address` session has no launcher to join through.
     if let Some(address) = presence.take_join()
         && menu.is_launcher()
-        && crate::session::invite_joinable(&address)
+        && client_runtime::session::invite_joinable(&address)
         && !already_there(session.presence_target(), &address)
     {
         info!("joining {address} from a Discord invite");

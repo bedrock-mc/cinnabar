@@ -1,4 +1,5 @@
 //! Observations gathered from app resources for the acceptance plugin.
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use ::acceptance::world_observation::{WorldReadyCommands, WorldReadyObservation};
@@ -6,13 +7,15 @@ use ::acceptance::world_ready::observe_world_ready;
 use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use bevy::prelude::*;
 use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
+use client_runtime::network::NetworkHandle;
 use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;
 use {
-    crate::runtime::network::NetworkHandle,
-    crate::runtime::visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-    crate::runtime::world::{ClientWorld, WorldStreamFramePoll},
+    crate::runtime::{
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::{ClientWorld, WorldStreamFramePoll},
+    },
     acceptance::model_witness::ModelWitnessFileSource,
 };
 
@@ -43,7 +46,7 @@ impl WorldReadyCommands for Commands<'_> {
 /// Publishes transport, world and visibility facts without transferring their ownership.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_world_ready(
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     frame_poll: Res<WorldStreamFramePoll>,
     mut client_world: ResMut<ClientWorld>,
     cache: Res<CaveVisibilityCache>,

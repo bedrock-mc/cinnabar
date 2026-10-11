@@ -2,6 +2,7 @@
 use super::*;
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::{
@@ -14,6 +15,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use client_presentation::server_camera::ServerCameraInstructions;
+use client_runtime::network::NetworkHandle;
 use client_state::PlayerRuntime;
 use client_ui::ui_runtime::{
     LocalFormAction, flush_form_response, presentation::UiPresentationRuntime,
@@ -25,24 +27,26 @@ use render_scene::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
 use {
-    crate::app::{
-        ClientBlobCacheOwner, configure_client_authority_systems, configure_client_frame_schedule,
-    },
-    crate::environment::{WeatherState, bind_session_generation},
-    crate::menu::{MenuClipboard, MenuRuntime},
-    crate::movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    crate::runtime::network::{NetworkHandle, ResourcePackAdmissionState},
-    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
-    crate::semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+    crate::{
+        app::{configure_client_authority_systems, configure_client_frame_schedule},
+        environment::{WeatherState, bind_session_generation},
+        menu::{MenuClipboard, MenuRuntime},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            MovementTicker, PhysicsCollisionRegistries,
+        },
+        runtime::phase3_evidence::Phase3EvidenceEmitter,
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+        },
     },
     acceptance::model_witness::ModelWitnessFileSource,
-    client_presentation::camera::CameraSettingsAuthority,
-    client_presentation::local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+    client_presentation::{
+        camera::CameraSettingsAuthority,
+        local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
+    },
+    client_runtime::{
+        blob_cache::ClientBlobCacheOwner, pack_admission::ResourcePackAdmissionState,
     },
     client_state::{RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
@@ -228,7 +232,7 @@ fn bind_ability_fixture(app: &mut App) {
 }
 
 fn prepare_ability_control_fixture(app: &mut App) {
-    app.init_resource::<crate::runtime::publication::PublicationController>()
+    app.init_resource::<client_runtime::publication::PublicationController>()
         .init_resource::<render_scene::ChunkUploadAcknowledgements>()
         .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
         .init_resource::<crate::movement::PhysicsAuthorityGate>()
@@ -436,8 +440,9 @@ fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old
 
 #[test]
 fn actual_terminal_control_then_drain_retires_queued_abilities_without_rearming() {
-    use crate::runtime::network::{
-        NetworkControlEvent, NetworkFailureOrigin, SessionTransferTarget, receive_network_events,
+    use {
+        crate::runtime::network::{receive_network_events, session::NetworkControlEvent},
+        client_session::{NetworkFailureOrigin, SessionTransferTarget},
     };
     let terminals = [
         NetworkControlEvent::Stopped {
@@ -483,7 +488,7 @@ fn actual_terminal_control_then_drain_retires_queued_abilities_without_rearming(
             .unwrap()
             .submit(2, WorldEvent::Abilities(ability_update(1, 33)))
             .unwrap();
-        let (handle, sender) = NetworkHandle::stub_with_control_sender();
+        let (handle, sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
         sender.try_send(terminal).unwrap();
         app.insert_resource(handle);
         // Use real control-before-drain functions; do not run the external transfer follower.
@@ -530,15 +535,17 @@ fn prebinding_queue_waits_for_identity_and_old_terminal_receiver_cannot_clear_ne
             .local_abilities(),
         Some(&ability_update(1, 0))
     );
-    let (old_handle, sender) = NetworkHandle::stub_with_control_sender();
+    let (old_handle, sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
     sender
-        .try_send(crate::runtime::network::NetworkControlEvent::Stopped {
-            decode_error_count: 0,
-        })
+        .try_send(
+            crate::runtime::network::session::NetworkControlEvent::Stopped {
+                decode_error_count: 0,
+            },
+        )
         .unwrap();
     drop(old_handle);
     assert!(sender.is_closed());
-    app.insert_resource(NetworkHandle::disconnected());
+    app.insert_resource(NetworkHandle::<PackApplication>::disconnected());
     app.update();
     assert_eq!(
         app.world()
@@ -551,7 +558,7 @@ fn prebinding_queue_waits_for_identity_and_old_terminal_receiver_cannot_clear_ne
 
 #[test]
 fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evidence() {
-    use crate::runtime::network::{NetworkControlEvent, receive_network_events};
+    use crate::runtime::network::{receive_network_events, session::NetworkControlEvent};
     for generation in [0, 1, 2] {
         let (mut app, _) = fixture_app();
         prepare_ability_control_fixture(&mut app);
@@ -564,7 +571,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
             .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
             .unwrap();
         app.update();
-        let (handle, sender) = NetworkHandle::stub_with_control_sender();
+        let (handle, sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
         sender
             .try_send(NetworkControlEvent::Bootstrap {
                 session_generation: generation,
@@ -602,7 +609,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 hardcore: false,
                 hud_rules: protocol::HudRules::default(),
                 death_rules: protocol::DeathRules::default(),
-                packs: crate::runtime::network::PackApplication::default(),
+                packs: crate::runtime::network::resource_packs::PackApplication::default(),
                 terrain_before_spawn: true,
             })
             .unwrap();
@@ -661,7 +668,7 @@ fn fixture_app() -> (App, Entity) {
         .unwrap();
     configure_client_frame_schedule(&mut app);
     configure_client_authority_systems(&mut app);
-    let (network, command_receiver) = NetworkHandle::with_command_capacity(64);
+    let (network, command_receiver) = NetworkHandle::<PackApplication>::with_command_capacity(64);
     app.insert_non_send(command_receiver);
     app.add_message::<KeyboardInput>()
         .add_message::<AppExit>()
@@ -882,7 +889,11 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     app.insert_resource(clock).insert_resource(weather);
     app.world_mut()
         .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
-            crate::session::begin_session(&mut world.resource_mut::<UiRuntime>(), &mut player, 2);
+            client_runtime::session::begin_session(
+                &mut world.resource_mut::<UiRuntime>(),
+                &mut player,
+                2,
+            );
         });
     submit_form(&mut app, 1);
     app.update();

@@ -4,12 +4,14 @@
 //! Follows vanilla's build action, air use, release and use completion; projectiles,
 //! food effects and ammunition stay server-owned.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use chunk_pipeline::WorldStream;
+use client_runtime::network::NetworkHandle;
 use client_world::LocalItemUse;
 use protocol::PlayerGameMode;
 use semantic_input::Action;
@@ -20,7 +22,7 @@ use {
         block_use::{BlockUseRuntime, verified_use_selection},
         melee::{MeleeRuntime, SwingTracker},
         movement::{LocalMovementEffectTimeline, MovementTicker},
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        runtime::world::ClientWorld,
     },
     client_state::SemanticInputSnapshot,
     gameplay::melee::swing_duration,
@@ -308,7 +310,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
     effects: Res<'w, LocalMovementEffectTimeline>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
@@ -469,7 +471,7 @@ fn admit_with_action_aim(
     local_runtime_id: u64,
     swing_duration: i32,
     aim_rotation: Option<bevy::prelude::Quat>,
-    network: &NetworkHandle,
+    network: &NetworkHandle<PackApplication>,
 ) {
     let mut assisted = None;
     admit_on_tick(

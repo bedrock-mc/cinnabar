@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use {
     super::*,
     client_presentation::actor_clock::ActorFrameClock,
@@ -113,7 +115,7 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
     let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
         terminated.send(code).unwrap();
     });
-    let (network, _reanchor) = NetworkHandle::stub();
+    let (network, _reanchor) = NetworkHandle::<PackApplication>::stub();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<WindowCloseRequested>()
@@ -129,7 +131,9 @@ fn native_window_close_arms_watchdog_in_the_close_system() {
 
     assert_eq!(app.should_exit(), Some(AppExit::Success));
     assert!(
-        !app.world().resource::<NetworkHandle>().shutdown_requested(),
+        !app.world()
+            .resource::<NetworkHandle<PackApplication>>()
+            .shutdown_requested(),
         "window-close handling must leave the network alive until Bevy returns"
     );
     let acceptance = app.world().resource::<AcceptanceRun>();

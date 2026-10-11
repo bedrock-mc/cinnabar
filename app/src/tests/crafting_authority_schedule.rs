@@ -16,26 +16,30 @@ use protocol::{
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,
 };
 use {
-    crate::environment::{WeatherState, WorldClock, bind_session_generation},
-    crate::movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
+    crate::{
+        environment::{WeatherState, WorldClock, bind_session_generation},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            MovementTicker, PhysicsCollisionRegistries,
+        },
+        runtime::{
+            phase3_evidence::Phase3EvidenceEmitter,
+            world::{
+                ClientWorld, WorldStreamFramePoll, drain_committed_ui_before_authority,
+                reconcile_world_stream_before_physics,
+            },
+        },
+        ui_runtime::drain_inventory_authority,
     },
-    crate::runtime::network::session::SequencedWorldEvent,
-    crate::runtime::network::{
+    acceptance::model_witness::ModelWitnessFileSource,
+    client_presentation::{
+        camera::CameraSettingsAuthority,
+        local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
+    },
+    client_runtime::inventory::{
         publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
     },
-    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
-    crate::runtime::world::{
-        ClientWorld, WorldStreamFramePoll, drain_committed_ui_before_authority,
-        reconcile_world_stream_before_physics,
-    },
-    crate::ui_runtime::drain_inventory_authority,
-    acceptance::model_witness::ModelWitnessFileSource,
-    client_presentation::camera::CameraSettingsAuthority,
-    client_presentation::local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
-    },
+    client_session::SequencedWorldEvent,
 };
 use {
     client_ui::ui_runtime::UiRuntime,

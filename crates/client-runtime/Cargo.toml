@@ -1,0 +1,37 @@
+[package]
+name = "client-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+local-mods = []
+test-support = ["client-session/test-support"]
+
+[dependencies]
+anyhow.workspace = true
+bevy.workspace = true
+bridge = { path = "../bridge" }
+chunk-pipeline = { path = "../chunk-pipeline" }
+client-session = { path = "../client-session" }
+client-state = { path = "../client-state" }
+client-ui = { path = "../client-ui" }
+client-world = { path = "../client-world" }
+diagnostics = { path = "../diagnostics" }
+launcher-host = { path = "../launcher-host" }
+meshing = { path = "../meshing" }
+pack-runtime = { path = "../pack-runtime" }
+protocol = { path = "../protocol" }
+render = { path = "../render" }
+render-scene = { path = "../render-scene" }
+render-api = { path = "../render-api" }
+rich-presence = { path = "../rich-presence" }
+tokio.workspace = true
+
+[dev-dependencies]
+client-session = { path = "../client-session", features = ["test-support"] }
+launcher = { path = "../launcher" }
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{
     Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
@@ -9,15 +10,18 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
-use bevy::prelude::IntoScheduleConfigs;
-use bevy::prelude::PluginGroup;
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
-    prelude::{App, ClearColor, Color, DefaultPlugins, First, Last, Resource, Update, default},
+    prelude::{
+        App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
+        Update, default,
+    },
     render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
+use client_runtime::blob_cache::ClientBlobCacheOwner;
+use client_runtime::network::NetworkHandle;
 use client_state::ClientFrameSet;
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
@@ -43,64 +47,6 @@ mod logging;
 mod startup;
 use startup::bind_direct_session_directory;
 
-use crate::{
-    args,
-    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
-    block_use::{BlockUseRuntime, produce_block_use},
-    camera::FlyCameraPlugin,
-    environment::{
-        self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-        update_atmosphere_frame, update_lightning, update_precipitation_scene,
-        update_seasonal_foliage,
-    },
-    local_player::{publish_local_player_frame, resolve_camera_pose},
-    melee::{MeleeRuntime, SwingTracker, produce_melee},
-    menu::{MenuRuntime, drive_menu_input, drive_menu_services},
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
-    },
-    present_mode::{PresentModeRuntime, apply_present_mode},
-    runtime::{
-        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
-        network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
-            prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
-            spawn_network,
-        },
-        publication::{PublicationController, begin_publication_frame},
-        shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
-        telemetry::{
-            publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
-            update_visibility_diagnostics,
-        },
-        visibility::{
-            AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
-            refresh_cave_visibility, remove_chunk_visibility,
-        },
-        world::{
-            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
-            WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
-            reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
-        },
-    },
-    semantic_controls::{
-        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
-        synchronize_semantic_input_authority,
-    },
-    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-        drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
-        flush_server_form_network,
-        gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{
-            drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
-        },
-    },
-};
 use client_presentation::{
     actor_publication::publish_actor_render_frame,
     camera::FlyCameraUpdateSet,
@@ -111,6 +57,75 @@ use diagnostics::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
+use {
+    crate::{
+        args,
+        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
+        block_use::{BlockUseRuntime, produce_block_use},
+        camera::FlyCameraPlugin,
+        environment::{
+            self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+            update_atmosphere_frame, update_lightning, update_precipitation_scene,
+            update_seasonal_foliage,
+        },
+        local_player::{publish_local_player_frame, resolve_camera_pose},
+        melee::{MeleeRuntime, SwingTracker, produce_melee},
+        menu::{MenuRuntime, drive_menu_input, drive_menu_services},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
+        },
+        present_mode::{PresentModeRuntime, apply_present_mode},
+        runtime::{
+            network::{
+                advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
+                receive_network_events,
+                session::{NetworkConfig, spawn_network},
+            },
+            shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
+            telemetry::{
+                publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
+                update_visibility_diagnostics,
+            },
+            visibility::{
+                AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
+                refresh_cave_visibility, remove_chunk_visibility,
+            },
+            world::{
+                ClientWorld, WorldStreamFramePoll, drive_world_stream,
+                reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
+            },
+        },
+        semantic_controls::{
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
+        },
+        session::{
+            SessionController, drive_session, follow_server_transfer, recover_session_failure,
+        },
+        survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+            drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+            flush_server_form_network,
+            gameplay_touch::drive_gameplay_touch_targets,
+            presentation::{
+                drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime,
+                publish_ui_runtime,
+            },
+        },
+    },
+    client_runtime::{
+        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
+        pack_admission::ResourcePackAdmissionState,
+        publication::PublicationController,
+        shutdown::{
+            SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
+            arm_shutdown_watchdog,
+        },
+    },
+};
 
 mod render_setup;
 use render_setup::render_plugin;
@@ -119,26 +134,6 @@ const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
-
-#[derive(Debug, Clone, Default, Resource)]
-pub(crate) struct ClientBlobCacheOwner(protocol::ClientBlobCache);
-
-impl ClientBlobCacheOwner {
-    /// Returns a shared handle to the process-lifetime verified blob cache.
-    pub(crate) fn cache(&self) -> protocol::ClientBlobCache {
-        self.0.clone()
-    }
-
-    /// Whether cores spawned for sessions backed by this owner may advertise
-    /// upstream client-cache capability (`-upstream-client-cache`). True
-    /// because every session receives [`Self::cache`] and answers
-    /// LoginSuccess with cache-enabled status downstream, and the two
-    /// advertisements must stay coupled; a future cache-less flow must report
-    /// `false` here so the core keeps its default-disabled wire bytes.
-    pub(crate) fn enables_upstream_client_cache(&self) -> bool {
-        true
-    }
-}
 
 mod authority;
 mod executor;
@@ -339,11 +334,8 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
-    crate::runtime::network::session::configure_network_frame_flush(app);
-    crate::runtime::world::configure_world_service(
-        app,
-        crate::runtime::network::session::NetworkFrameFlush,
-    );
+    app.add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
+    crate::runtime::world::configure_world_service(app);
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
         .configure_sets(
@@ -356,12 +348,11 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
-        .add_systems(
+        .configure_sets(
             Update,
-            begin_publication_frame
+            client_state::RuntimeFrameSet::PublicationBudget
                 .before(receive_network_events)
-                .before(drive_world_stream)
-                .before(ChunkRenderApplySet),
+                .before(drive_world_stream),
         )
         .add_systems(
             Update,
@@ -392,8 +383,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
-        )
-        .add_systems(Last, arm_shutdown_watchdog);
+        );
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
@@ -661,9 +651,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             }
         }
     } else {
-        NetworkHandle::disconnected()
+        NetworkHandle::<PackApplication>::disconnected()
     };
-    let movement_ticker = network.movement_ticker();
+    let movement_ticker =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let stage_profile_enabled =
         std::env::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));
@@ -929,7 +920,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
-    if let Some(service) = crate::runtime::world::WorldServiceSlot::from_environment()? {
+    if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
     crate::modding::configure_from_environment(&mut app);
@@ -945,7 +936,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     executor::configure_frame_schedule_executors(&mut app);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
-    if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
+    if let Some(mut network) = app
+        .world_mut()
+        .remove_resource::<NetworkHandle<PackApplication>>()
+    {
         network.shutdown();
     }
     drop(app);

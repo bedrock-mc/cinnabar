@@ -1,5 +1,7 @@
 //! Leaving for the menu releases the server packs recent joins keep for a following join.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::path::Path;
 
 use bevy::{
@@ -12,14 +14,16 @@ use client_ui::ui_runtime::UiRuntime;
 use {super::MenuRuntime, launcher::menu::MenuAction};
 use {
     crate::{
-        app::ClientBlobCacheOwner,
         runtime::{
-            network::{CompiledStacks, NetworkHandle, ResourcePackAdmissionState},
+            network::CompiledStacks,
             world::{ClientWorld, TransferNotice},
         },
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
+    },
+    client_runtime::{
+        blob_cache::ClientBlobCacheOwner, pack_admission::ResourcePackAdmissionState,
     },
     launcher::install_layout::{InstallEnvironment, InstallLayout, Platform},
 };
@@ -79,7 +83,7 @@ fn run_session<M>(
     app.add_message::<AppExit>()
         .insert_resource(menu)
         .insert_resource(SessionController::default().with_kept_packs(kept))
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))

@@ -1,5 +1,7 @@
 //! The session FIFO must admit attack packets before their associated movement tick.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use gameplay::melee::{
     ActorHit, Crosshair, MeleeRuntime, PressContext, SwingTracker, resolve_and_send,
 };
@@ -40,7 +42,7 @@ const ZOMBIE: Crosshair = Crosshair::Actor(ActorHit {
 
 #[test]
 fn standalone_attack_packets_precede_their_tick_player_auth_input() {
-    let (network, mut captured) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     let mut ticker = gameplay::test_support::survival_mining::ticker_with_ticks(1);
     for (crosshair, expected) in [
         (
@@ -94,8 +96,8 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
 
 #[test]
 fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
-    use crate::runtime::network::{BatchSendError, NetworkHandle};
-    let (network, _open) = NetworkHandle::with_command_capacity(1);
+    use client_session::BatchSendError;
+    let (network, _open) = NetworkHandle::<PackApplication>::with_command_capacity(1);
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     runtime.observe_input(true, true);

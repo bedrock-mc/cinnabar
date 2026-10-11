@@ -1,5 +1,5 @@
 use bevy::prelude::{App, First, Last, MinimalPlugins, ResMut, Resource};
-use chunk_pipeline::WorldStream;
+use chunk_pipeline::{WorldStream, WorldStreamService};
 use protocol::WorldBootstrap;
 
 use {super::*, client_presentation::local_player::LocalViewPose};
@@ -33,7 +33,8 @@ fn serviced_app(slot: Option<WorldServiceSlot>) -> App {
     if let Some(slot) = slot {
         app.insert_resource(slot);
     }
-    configure_world_service(&mut app, Last);
+    client_runtime::world_service::configure_world_service(&mut app, Last);
+    configure_world_service(&mut app);
     app.add_systems(First, observe).add_systems(Last, observe);
     app
 }

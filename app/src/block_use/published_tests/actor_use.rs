@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use protocol::wire::valentine::bedrock::version::v1_26_51::{
     EnumsItemUseOnActorInventoryTransactionActionType as ActorAction,
     InventoryTransactionPacketTransaction, McpePacketData,
@@ -94,7 +96,7 @@ fn a_block_occludes_actor_use() {
 fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     let (mut world, _) = fixture();
     spawn(&mut world, 7.5);
-    let (network, _guard) = NetworkHandle::with_command_capacity(1);
+    let (network, _guard) = NetworkHandle::<PackApplication>::with_command_capacity(1);
     network
         .send_inventory_packet(protocol::swing_arm_packet(42, protocol::SwingSource::Build))
         .unwrap();
@@ -116,7 +118,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
             )
             .is_some()
     );
-    let (network, mut captured) = NetworkHandle::stub_capturing_packets();
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     world.insert_resource(network);
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();

@@ -1,5 +1,7 @@
 //! Skin selection work stays outside the frame loop; results publish atomically.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuAction};
@@ -280,7 +282,7 @@ impl MenuRuntime {
         &mut self,
         local: Option<&mut crate::player_skin::LocalPlayerSkin>,
         world: &mut ClientWorld,
-        network: Option<&crate::runtime::network::NetworkHandle>,
+        network: Option<&NetworkHandle<PackApplication>>,
         session: u64,
     ) {
         if let Some(worker) = self.dressing_room_worker.as_mut() {
@@ -355,14 +357,14 @@ impl MenuRuntime {
         self.flush_skin_packet(network);
     }
 
-    fn flush_skin_packet(&mut self, network: Option<&crate::runtime::network::NetworkHandle>) {
+    fn flush_skin_packet(&mut self, network: Option<&NetworkHandle<PackApplication>>) {
         let Some(network) = network else { return };
         let Some((session, packet)) = self.skin_outbound.take() else {
             return;
         };
         match network.send_settings_packet(session, packet) {
-            Ok(()) | Err(crate::runtime::network::PacketSendError::Closed(_)) => {}
-            Err(crate::runtime::network::PacketSendError::Full(packet)) => {
+            Ok(()) | Err(client_session::PacketSendError::Closed(_)) => {}
+            Err(client_session::PacketSendError::Full(packet)) => {
                 self.skin_outbound = Some((session, packet))
             }
         }

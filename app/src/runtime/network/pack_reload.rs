@@ -33,7 +33,7 @@ struct Pending {
 /// A bounded worker transaction; only the newest requested stack may be published.
 #[derive(Resource)]
 pub(crate) struct PackReload {
-    geometry: super::pack_reload_geometry::GeometryPreparation,
+    geometry: client_runtime::pack_geometry::GeometryPreparation,
     globals: Arc<ValidatedPackStack>,
     server: Arc<ValidatedPackStack>,
     inputs: Arc<PackInputs>,

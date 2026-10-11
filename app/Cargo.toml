@@ -22,7 +22,7 @@ acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
-local-mods = ["client-extensions/local-mods", "mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
+local-mods = ["client-runtime/local-mods", "client-extensions/local-mods", "mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
@@ -35,6 +35,7 @@ reports = []
 
 [dependencies]
 render-scene = { path = "../crates/render-scene" }
+client-runtime = { path = "../crates/client-runtime" }
 client-extensions = { path = "../crates/client-extensions" }
 client-state = { path = "../crates/client-state" }
 client-audio = { path = "../crates/client-audio" }
@@ -113,6 +114,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }
 client-audio = { path = "../crates/client-audio", features = ["test-support"] }
 pack-runtime = { path = "../crates/pack-runtime", features = ["test-support"] }
 launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }

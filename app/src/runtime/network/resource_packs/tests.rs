@@ -1,6 +1,6 @@
 use resource_pack::{AdmissionError, PackAdmission};
 
-use super::ResourcePackAdmissionState;
+use client_runtime::pack_admission::ResourcePackAdmissionState;
 
 /// Serializes tests that go through the process-wide block overlay cache.
 static OVERLAY_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -74,8 +74,7 @@ fn a_rejected_required_pack_refuses_the_join() {
         let outcome = super::required_packs_applied(required, &application.admission);
         assert_eq!(outcome.is_err(), required);
         if let Err(error) = outcome {
-            let failure =
-                crate::runtime::network::session_failure_display(&error.to_string(), None);
+            let failure = client_session::session_failure_display(&error.to_string(), None);
             assert_eq!(
                 launcher::menu::disconnect::describe(&failure).body,
                 launcher::menu::disconnect::DisconnectBody::Key("disconnectionScreen.resourcePack")

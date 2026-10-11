@@ -52,6 +52,12 @@ platform, and performance gates remain open.
 | Performance/resource witness | Current tranche not run; bounded live JSON records remain required. |
 | Final status | Open -- deterministic integration advanced; normal Physics enable and binding live evidence remain gated. |
 
+Runtime queue ownership, publication budgeting, world-service schedules, shutdown,
+session helpers and pack geometry preparation now belong to `client-runtime`.
+App adapters retain menu, movement, presentation and audio integration. Existing
+regressions follow the moved owners or continue exercising app composition; this
+extraction is incomplete and adds no compiled, executed or live parity evidence.
+
 ## P3.4-INPUT-CAMERA
 
 Frame sets and shared player, settings and finalized-input resources now live in

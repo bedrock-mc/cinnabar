@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex, mpsc};
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
 
 #[derive(Default)]
-pub(super) struct GeometryPreparation {
+pub struct GeometryPreparation {
     pending: Option<(render_scene::ChunkTextureAssetIdentity, MeshReceiver)>,
     source_tint: Option<meshing::ChunkBiomeTintIdentity>,
 }
 
 impl GeometryPreparation {
     /// Prepares all dependent meshes before asking the renderer to stage the replacement.
-    pub(super) fn request(
+    pub fn request(
         &mut self,
         candidate: &ChunkTextureAssets,
         current: &ChunkTextureAssets,
@@ -110,7 +110,7 @@ impl GeometryPreparation {
     }
 
     /// Replaces the complete CPU set in the same frame that selects its staged GPU resources.
-    pub(super) fn publish(
+    pub fn publish(
         &mut self,
         chunks: &mut Query<&mut ChunkRenderInstance>,
         gpu: &ChunkTextureReload,
