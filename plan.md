@@ -10,6 +10,20 @@
 - Existing behavior tests are retained. Compilation and execution of these moves
   remain unverified; behavior and performance acceptance gates stay open.
 
+## Player interaction ownership
+
+`client-interaction` owns the movement and interaction resource wrappers, item-use
+presentation and selection queries, placement observations, camera input adapters,
+and hotbar input. Its plugins register camera input, hotbar sampling and retained
+block picks against the shared `client-state` frame contract. Callers import the
+owning crate directly.
+
+The extraction remains incomplete: world and transport systems for movement,
+use/place/mine/melee/pick, block selection, world-dependent camera publication and
+cursor focus remain in `app`. They still combine world, transport, menu and
+extension state at the app boundary. Existing tests remain with their owning code;
+compilation, test execution and the behavior/performance acceptance gates remain unverified.
+
 ## Client runtime ownership
 
 `client-runtime` owns the Bevy transport handle and frame flush, bounded ingress,
@@ -19,7 +33,7 @@ preparation. `app` installs `ClientRuntimePlugin`; its frame adapters keep their
 existing order through `client-state`.
 
 The extraction remains incomplete: network bootstrap and world publication still
-borrow app-owned movement and presentation resources; join, transfer and teardown
+borrow interaction and presentation resources; join, transfer and teardown
 still borrow the menu; pack reload publication still applies presentation and audio
 state. These adapters remain in `app` until their shared contracts exist. The runtime
 crate has no presentation, audio or other sibling-plugin dependency. Compilation and
@@ -87,7 +101,11 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   `app` supplies the Bevy resources and systems that drive those services.
 - `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
-- Startup carrier selection remains in `app/src/asset_startup`.
+- `assets::carriers::startup` owns carrier path selection, bounded loading, validation, fallbacks,
+  decoded sidecars and startup measurements. It remains Bevy-free. `app` binds the returned
+  data to renderer, pack and Bevy state, records load timings and exits from `main` on failure.
+  Carrier regressions follow their owner; app composition regressions remain in `app`.
+  This ownership move has not been compiled or executed and closes no parity gate.
 
 ## Runtime pack ownership
 
@@ -2629,8 +2647,13 @@ diagnostics: rejected terrain routes are counted per reason and reported by key 
 of the former eight-line budget, and routes the overlay refused because its texture array was full
 are counted separately (`OverlayGaps::saturated_textures`) so a full array is no longer
 indistinguishable from unusable pack data. Which reason dominates a real session is still unproven
-without a capture: the pack layer bound is `MAX_OVERLAY_LAYERS`, an index-space limit, while a
-served stack may ship thousands of distinct textures. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
+without a capture. Overlay admission is bounded by the active device's array-layer limit and
+`assets::MAX_TEXTURE_LAYERS`, including the diagnostic layer and flipbook frames. Excess routes
+retain diagnostic visuals while supported textures remain in the replacement atlas. Carrier and
+GPU references share the layer mask. Offline carriers retain their separate
+`assets::MAX_CARRIER_TEXTURE_LAYERS` page budget, including leaf and lily-pad copies.
+Cube, model and liquid sampling preserve the layer mask alongside
+source dimensions and UV grids. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
 labeled incomplete: neutral material profile only (custom materials fall back; a controller's
@@ -7406,6 +7429,33 @@ engine versions remain separate from geometry schema versions. Full native skin-
 import parity, animated imports, persona and Marketplace trust remain incomplete.
 No visual parity or hardware performance gate closes with this extension.
 
+## Keyboard & Mouse command macros
+
+- Keyboard & Mouse settings hold ten command macro slots below every other
+  keybind, each with a "Command Macro N" label, an Unassigned binding button and
+  a command box. The section header matches the shipped wording. A press on a
+  binding button captures one desktop key or mouse button; Alt supplies the
+  modifier when the macro runs, so macro rows are keyboard and mouse only and
+  never join the gamepad layout.
+- Commands persist in settings alongside the bindings, bounded to one outbound
+  chat packet, including the command slash, and free of control characters.
+  Oversized drafts remain editable with an inline error and do not replace the
+  saved command. A slot with a binding but no command stays silent, and an empty
+  command box returns that slot to untouched.
+  A keyboard layout reset clears macro rows while retaining their commands.
+- Alt plus a bound key while playing queues the command as Enter would, consuming
+  that control even if the queue refuses the send, without resetting other held
+  controls or pointer motion. Mouse buttons use the same macro dispatch. A leading
+  slash is added for commands typed without one; macros do nothing while a menu,
+  chat box, inventory, sign editor or emote wheel owns input. Keyboard macros
+  fire once per physical press; consumed controls stay suppressed until release.
+  Clicking or tapping a native command box places its caret at the selected
+  character.
+- Incomplete parity: Bedrock's exact per-slot key names, default bindings and
+  command-box editing affordances are unverified, as is macro behaviour over the
+  JSON-UI settings fallback. Macros run client-side, so a server rejecting the
+  command is indistinguishable from the client's own feedback. No native parity
+  gate closes from these changes.
 
 ### Shipped font grid and coverage (incomplete text parity)
 

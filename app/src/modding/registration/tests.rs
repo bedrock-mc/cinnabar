@@ -399,7 +399,7 @@ fn replacing_a_registered_component_discards_its_pending_jump() {
         },
     );
     messages.try_recv().unwrap();
-    let mut physics = crate::movement::LocalPhysicsController::default();
+    let mut physics = client_interaction::movement::LocalPhysicsController::default();
     physics.reanchor_network_position([0.0; 3], 1, true);
     physics.set_jump_pulse_scope(Some((1, 0)));
     physics.request_jump_pulse();
@@ -422,7 +422,7 @@ fn replacing_a_registered_component_discards_its_pending_jump() {
             result: Ok(Action::Replace(candidate(&directory, false, "Other"))),
         },
     );
-    let mut physics = world.resource_mut::<crate::movement::LocalPhysicsController>();
+    let mut physics = world.resource_mut::<client_interaction::movement::LocalPhysicsController>();
     physics.set_jump_pulse_scope(Some((1, 0)));
     let frame = physics.advance(
         std::time::Duration::from_secs_f64(1.0 / world::TICKS_PER_SECOND as f64),

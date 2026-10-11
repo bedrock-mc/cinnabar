@@ -242,6 +242,7 @@ fn compile_application(
             "server resource pack dropped"
         );
     }
+    let max_layers = overlay_texture_layer_limit();
     let view = LayeredPackView::new(Arc::clone(&stack));
     // Hashing every archive is needed only by the block and entity caches, so only when one of
     // those subscribers compiles; whichever needs it first computes it.
@@ -278,12 +279,14 @@ fn compile_application(
                         view,
                         custom_blocks,
                         hashed_block_ids,
+                        max_layers,
                         || {
                             compile_block_overlay(
                                 view,
                                 custom_blocks,
                                 hashed_block_ids,
                                 BASE_MATERIAL_KEYS.get(),
+                                max_layers,
                             )
                             .map(Arc::new)
                         },
@@ -464,6 +467,37 @@ pub(super) fn install_server_ui(
     }
 }
 
+/// The renderer's requested device limit, installed before a session can compile packs.
+static OVERLAY_TEXTURE_LAYER_LIMIT: std::sync::OnceLock<std::sync::OnceLock<u32>> =
+    std::sync::OnceLock::new();
+
+/// Makes direct-connect pack workers wait until startup publishes the actual device limit.
+pub(crate) fn await_overlay_texture_device() {
+    OVERLAY_TEXTURE_LAYER_LIMIT.get_or_init(std::sync::OnceLock::new);
+}
+
+/// Publishes the active device's array limit to pack preparation workers at startup.
+pub(crate) fn initialize_overlay_texture_limit(
+    device: Option<bevy::prelude::Res<bevy::render::renderer::RenderDevice>>,
+) {
+    let limit = device.map_or_else(
+        || wgpu::Limits::default().max_texture_array_layers,
+        |device| device.limits().max_texture_array_layers,
+    );
+    let _ = OVERLAY_TEXTURE_LAYER_LIMIT
+        .get_or_init(std::sync::OnceLock::new)
+        .set(limit);
+}
+
+/// Waits for a requested device; fixtures without renderer setup use conservative limits.
+pub(super) fn overlay_texture_layer_limit() -> u32 {
+    let limit = OVERLAY_TEXTURE_LAYER_LIMIT.get().map_or_else(
+        || wgpu::Limits::default().max_texture_array_layers,
+        |limit| *limit.wait(),
+    );
+    limit.min(assets::MAX_TEXTURE_LAYERS as u32)
+}
+
 /// Texture keys of the vanilla carrier's materials, set once at startup when the sidecar loads.
 static BASE_MATERIAL_KEYS: std::sync::OnceLock<assets::MaterialKeys> = std::sync::OnceLock::new();
 
@@ -479,6 +513,7 @@ struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
     stack: StackFingerprint,
     hashed: bool,
+    max_layers: u32,
     blocks: protocol::CustomBlocks,
     overlay: Option<Arc<CompiledBlockOverlay>>,
 }
@@ -493,6 +528,7 @@ fn cached_block_overlay(
     view: &LayeredPackView,
     blocks: &protocol::CustomBlocks,
     hashed: bool,
+    max_layers: u32,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
     let mut cache = OVERLAY_CACHE
@@ -500,6 +536,7 @@ fn cached_block_overlay(
         .unwrap_or_else(|poison| poison.into_inner());
     if let Some(cached) = cache.as_ref()
         && cached.hashed == hashed
+        && cached.max_layers == max_layers
         && cached.stack == *fingerprint
         && cached.blocks == *blocks
         && (view.dependencies().is_none() || cached.dependencies.is_some())
@@ -516,6 +553,7 @@ fn cached_block_overlay(
             .map(|dependencies| dependencies.snapshot()),
         stack: fingerprint.clone(),
         hashed,
+        max_layers,
         blocks: blocks.clone(),
         overlay: overlay.clone(),
     });

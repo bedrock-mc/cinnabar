@@ -23,9 +23,9 @@ use render_scene::{
 use super::actors::{ActorParticleCommand, queue_actor_particles, route_actor_particles};
 use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
 use {
-    crate::{
-        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
-        survival_mining::SurvivalMiningRuntime,
+    crate::runtime::world::ClientWorld,
+    client_interaction::{
+        movement::PhysicsCollisionRegistries, survival_mining::SurvivalMiningRuntime,
     },
     client_presentation::camera::FlyCamera,
 };

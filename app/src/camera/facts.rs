@@ -4,10 +4,10 @@ use client_presentation::camera::facts::ItemUseClock;
 use client_presentation::camera::{CameraFovInputs, ScreenEffectFacts};
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
+    crate::runtime::world::ClientWorld,
+    client_interaction::{
         item_use::ItemUseRuntime,
         movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        runtime::world::ClientWorld,
     },
     client_presentation::local_player::LocalViewPose,
 };

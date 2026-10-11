@@ -10,6 +10,7 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
+use assets::carriers::startup::{LoadedAssetKind, select_asset_path_from_environment};
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
@@ -32,8 +33,7 @@ use std::io::Write;
 use std::{ffi::OsStr, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
-    crate::acceptance::model_witness::drive_model_witness,
-    crate::acceptance::world_ready::emit_world_ready,
+    crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
     acceptance::transparent_witness::poll_transparent_witness_request,
 };
 use {
@@ -60,8 +60,7 @@ use launcher::install_layout::InstallLayout;
 use {
     crate::{
         args,
-        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
-        block_use::{BlockUseRuntime, produce_block_use},
+        block_use::produce_block_use,
         camera::FlyCameraPlugin,
         environment::{
             self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
@@ -69,12 +68,9 @@ use {
             update_seasonal_foliage,
         },
         local_player::{publish_local_player_frame, resolve_camera_pose},
-        melee::{MeleeRuntime, SwingTracker, produce_melee},
+        melee::produce_melee,
         menu::{MenuRuntime, drive_menu_input, drive_menu_services},
-        movement::{
-            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-            PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
-        },
+        movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
             network::{
@@ -103,7 +99,7 @@ use {
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
-        survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
+        survival_mining::produce_survival_mining,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
@@ -115,6 +111,10 @@ use {
                 publish_ui_runtime,
             },
         },
+    },
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        PhysicsAuthorityGate,
     },
     client_runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
@@ -179,11 +179,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     configure_actor_render_systems(app);
     crate::audio::configure(app);
-    app.init_resource::<BlockUseRuntime>()
-        .init_resource::<crate::item_use::ItemUseRuntime>()
-        .init_resource::<SurvivalMiningRuntime>()
-        .init_resource::<MeleeRuntime>()
-        .init_resource::<SwingTracker>()
+    app.add_plugins(client_interaction::ClientInteractionPlugin)
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
@@ -229,8 +225,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
+                .before(client_state::ClientInteractionSet::RetainPick)
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
         )
@@ -253,7 +250,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            crate::hotbar::select_hotbar_slot
+            crate::hotbar::flush_hotbar_selection
+                .in_set(client_state::ClientInteractionSet::HotbarSend)
                 .after(ClientFrameSet::SemanticFinalize)
                 .before(ClientFrameSet::ActorPreparation),
         )
@@ -262,7 +260,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)
-                .after(crate::hotbar::select_hotbar_slot)
+                .after(crate::hotbar::flush_hotbar_selection)
                 .after(reconcile_world_stream_before_physics)
                 .before(ClientFrameSet::Physics),
         )
@@ -447,7 +445,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         "loaded required atmosphere assets from {}",
         loaded_assets.atmosphere.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.atmosphere.startup_summary());
+    eprintln!(
+        "{}",
+        crate::asset_bindings::AtmosphereEvidence::startup_summary(&loaded_assets.atmosphere)
+    );
     eprintln!(
         "loaded required entity assets from {}",
         loaded_assets.entities.selected_path().display()
@@ -457,7 +458,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
-    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
+    let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry =
         render_model::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = carriers
@@ -487,9 +488,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .server_file()
             .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
-    let active_lang = crate::asset_startup::load_active_language(
-        &loaded_assets.selected_path,
+    let language = assets::carriers::startup::active_language(
         args.language.as_deref().or(saved_settings.language()),
+    );
+    pack_runtime::pack_language::set_active_language(&language);
+    let active_lang = assets::carriers::startup::load_optional_language(
+        &loaded_assets.selected_path,
+        &language,
+        assets::carriers::startup::vanilla_source_manifest_json(),
     );
     let startup::AudioCarriers {
         catalog: audio_catalog,
@@ -555,7 +561,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
-    let asset_metrics = loaded_assets.metrics;
+    let asset_metrics = loaded_assets.metrics.into();
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
         &entity_runtime,
         &equipment_geometries,
@@ -630,6 +636,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.selected_path.clone(),
         args.language.as_deref(),
     );
+    crate::runtime::network::await_overlay_texture_device();
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
             session_generation: 1,
@@ -653,8 +660,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         NetworkHandle::<PackApplication>::disconnected()
     };
-    let movement_ticker =
-        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
+    let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
+        network.physics_epoch_publisher(),
+    );
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let stage_profile_enabled =
         std::env::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));

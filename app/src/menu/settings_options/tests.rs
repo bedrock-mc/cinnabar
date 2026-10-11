@@ -1,7 +1,8 @@
 use semantic_input::{InputContext, PhysicalControl};
 use {
     crate::menu::settings_options::control_bindings::{
-        binding_key, binding_mouse, binding_pressed, gamepad_button, hotbar_control_slots,
+        binding_key, binding_macro_command, binding_mouse, binding_pressed, gamepad_button,
+        hotbar_control_slots,
     },
     launcher::menu::settings_options::{
         EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SETTINGS_FILE,
@@ -129,6 +130,41 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
     mouse.press(MouseButton::Back);
     assert!(binding_mouse(Some(&menu), "key.inventory", &mouse));
     assert!(binding_pressed(Some(&menu), "key.inventory", &keys, &mouse));
+}
+
+/// An Alt+key macro resolves its stored command, and only while it is armed.
+#[test]
+fn a_bound_macro_runs_its_command_only_while_a_command_is_stored() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Macros".to_owned());
+    let slot = 1;
+    let key = PhysicalControl::KeyboardUsage(0x1e);
+    // A binding without a stored command stays silent.
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap_macro(slot, key));
+    assert_eq!(binding_macro_command(Some(&menu), key), None);
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .set_macro_command(slot, "time set day")
+    );
+    assert_eq!(
+        binding_macro_command(Some(&menu), key).as_deref(),
+        Some("/time set day")
+    );
+    // Other keys, and the macro key after its binding is cleared, stay silent.
+    assert_eq!(
+        binding_macro_command(Some(&menu), PhysicalControl::KeyboardUsage(0x1f)),
+        None
+    );
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).reset_macro(slot));
+    assert_eq!(binding_macro_command(Some(&menu), key), None);
+    // A stored slash is preserved rather than doubled.
+    assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap_macro(slot, key));
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options).set_macro_command(slot, "/say hello")
+    );
+    assert_eq!(
+        binding_macro_command(Some(&menu), key).as_deref(),
+        Some("/say hello")
+    );
 }
 
 #[test]

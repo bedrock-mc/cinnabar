@@ -8,3 +8,6 @@ mod reset;
 mod runtime;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod macro_tests;

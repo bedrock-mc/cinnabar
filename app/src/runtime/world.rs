@@ -64,14 +64,14 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
         environment::{self, WeatherState, WorldClock, apply_environment_control},
-        movement::{
-            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-            MovementTicker, PhysicsCollisionRegistries,
-        },
         runtime::{
             shutdown::record_fatal_error,
             visibility::{CaveVisibilityCache, DiagnosticQuads},
         },
+    },
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
     },
     client_presentation::{
         camera::{CameraSettingsAuthority, FlyCamera},
@@ -594,7 +594,7 @@ pub(crate) fn drive_world_stream(
     profiler: Option<Res<RuntimeStageProfiler>>,
     (frame, mut block_use, simulation_time): (
         Res<bevy::diagnostic::FrameCount>,
-        ResMut<crate::block_use::BlockUseRuntime>,
+        ResMut<client_interaction::block_use::BlockUseRuntime>,
         Res<Time<Virtual>>,
     ),
 ) {

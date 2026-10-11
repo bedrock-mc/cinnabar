@@ -140,12 +140,12 @@ fn world_leaf_animation_copies_keep_original_timeline_and_dedupe_repeated_frames
 }
 
 #[test]
-fn world_leaf_mip_copies_roll_over_to_the_second_page_and_fail_at_total_capacity() {
+fn world_leaf_mip_copies_keep_pages_device_compatible_and_fail_at_total_capacity() {
     let mut full = page(&[base(60)]);
-    full.texture.layers = MAX_TEXTURE_LAYERS as u32;
+    full.texture.layers = MAX_CARRIER_TEXTURE_LAYERS as u32;
     for mip in &mut full.texture.mips {
         let one = mip.rgba8.clone();
-        mip.rgba8 = (0..MAX_TEXTURE_LAYERS)
+        mip.rgba8 = (0..MAX_CARRIER_TEXTURE_LAYERS)
             .flat_map(|_| one.iter().copied())
             .collect();
     }

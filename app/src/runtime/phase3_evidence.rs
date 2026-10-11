@@ -9,7 +9,9 @@ use bevy::prelude::{Res, ResMut, Resource};
 use gameplay::movement::{MovementOutboxReconciliation, MovementSource};
 use semantic_input::InputMode;
 use {
-    crate::movement::{MovementTicker, PhysicsAuthorityFaultRecord, PhysicsCollisionRegistries},
+    client_interaction::movement::{
+        MovementTicker, PhysicsCollisionRegistries, fault_observation::PhysicsAuthorityFaultRecord,
+    },
     diagnostics::write_stdout_marker,
     gameplay::movement::{
         OUTBOX_CAPACITY, PhysicsAuthorityFault, PhysicsCorrectionOutcome, PhysicsTickEvidence,

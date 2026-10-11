@@ -18,10 +18,6 @@ use protocol::{
 use {
     crate::{
         environment::{WeatherState, WorldClock, bind_session_generation},
-        movement::{
-            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-            MovementTicker, PhysicsCollisionRegistries,
-        },
         runtime::{
             phase3_evidence::Phase3EvidenceEmitter,
             world::{
@@ -32,6 +28,10 @@ use {
         ui_runtime::drain_inventory_authority,
     },
     acceptance::model_witness::ModelWitnessFileSource,
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
+    },
     client_presentation::{
         camera::CameraSettingsAuthority,
         local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},

@@ -39,7 +39,7 @@ const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
 const MIN_TILE: u32 = assets::TILE_SIZE;
 const MAX_TILE: u32 = 128;
-const MAX_OVERLAY_LAYERS: usize = 2048;
+const MAX_OVERLAY_LAYERS: usize = assets::MAX_TEXTURE_LAYERS;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 // Held decoded sources are already shrunk to MAX_TILE; bound their total too.
 const MAX_OVERLAY_SOURCE_BYTES: usize = 64 * 1024 * 1024;
@@ -73,7 +73,11 @@ pub(super) fn compile_block_overlay(
     blocks: &CustomBlocks,
     hashed: bool,
     vanilla_keys: Option<&MaterialKeys>,
+    max_texture_array_layers: u32,
 ) -> Option<CompiledBlockOverlay> {
+    if max_texture_array_layers == 0 {
+        return None;
+    }
     let legacy = legacy::TextureBindings::new(view);
     let wanted = blocks
         .blocks
@@ -96,6 +100,7 @@ pub(super) fn compile_block_overlay(
         overlay: BlockOverlay::default(),
         sources: Vec::new(),
         source_bytes: 0,
+        max_layers: (max_texture_array_layers as usize).min(MAX_OVERLAY_LAYERS),
         textures: HashMap::new(),
         materials: HashMap::new(),
         visuals: HashMap::new(),
@@ -180,6 +185,7 @@ struct Builder<'a> {
     overlay: BlockOverlay,
     sources: Vec<Source>,
     source_bytes: usize,
+    max_layers: usize,
     textures: HashMap<String, Option<TextureSlot>>,
     materials: HashMap<(String, u32), u32>,
     visuals: HashMap<String, BlockVisual>,
@@ -473,7 +479,7 @@ impl Builder<'_> {
     }
 
     fn load_texture(&mut self, key: &str) -> Option<TextureSlot> {
-        let available = MAX_OVERLAY_LAYERS.saturating_sub(self.sources.len());
+        let available = self.max_layers.saturating_sub(self.sources.len());
         if available == 0 {
             // A full array rejects every later route, so name it rather than
             // leaving those textures indistinguishable from unusable pack data.

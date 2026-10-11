@@ -176,8 +176,8 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
             1,
         )))
         .insert_resource(ClientWorld::default())
-        .insert_resource(crate::movement::MovementTicker::default())
-        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(client_interaction::movement::MovementTicker::default())
+        .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
@@ -230,8 +230,8 @@ fn app_with_core(root: &Path, script: &str) -> App {
             1,
         )))
         .insert_resource(ClientWorld::default())
-        .insert_resource(crate::movement::MovementTicker::default())
-        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(client_interaction::movement::MovementTicker::default())
+        .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
@@ -411,8 +411,8 @@ fn failed_automatic_replacement(
         .insert_resource(runtime)
         .insert_resource(player_runtime.clone())
         .insert_resource(client_world)
-        .insert_resource(crate::movement::MovementTicker::default())
-        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(client_interaction::movement::MovementTicker::default())
+        .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, follow_server_transfer);

@@ -73,7 +73,7 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
             now_millis: tick * 50,
             position: [0.0; 3],
             held: true,
-            selection: crate::block_use::verified_use_selection(&player, &ui),
+            selection: client_interaction::block_use::verified_use_selection(&player, &ui),
             air_use: Some(air_use),
             ready: true,
             creative: false,

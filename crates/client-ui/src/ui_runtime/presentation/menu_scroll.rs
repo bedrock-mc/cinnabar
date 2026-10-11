@@ -67,6 +67,7 @@ pub struct MenuScrolls {
     drag: Option<(String, f32)>,
     screen: Option<String>,
     focused: Option<launcher::menu::MenuAction>,
+    focused_bounds: Option<UiRect>,
     smooth: bool,
     seconds: f64,
     motion: HashMap<String, ScrollTween>,
@@ -106,10 +107,11 @@ impl MenuScrolls {
             self.drag = None;
             self.screen = Some(screen);
             self.focused = None;
+            self.focused_bounds = None;
         }
     }
 
-    /// Reveals a newly focused fallback control without overriding later wheel movement.
+    /// Reveals newly focused or growing controls without overriding later wheel movement.
     pub fn reveal_focus(
         &mut self,
         key: &str,
@@ -124,7 +126,11 @@ impl MenuScrolls {
             .copied()
             .unwrap_or(0.0)
             .clamp(0.0, max);
-        if self.focused != action {
+        let grew = bounds
+            .zip(self.focused_bounds)
+            .is_some_and(|(current, previous)| current.height() > previous.height() + 0.5);
+        self.focused_bounds = bounds;
+        if self.focused != action || grew {
             self.focused = action;
             if let Some(bounds) = bounds {
                 let top = bounds.min().y() - offset;
@@ -153,6 +159,7 @@ impl MenuScrolls {
             return;
         }
         self.focused = action;
+        self.focused_bounds = None;
         let Some(region) = frame
             .hits
             .iter()
@@ -191,6 +198,9 @@ impl MenuScrolls {
 
     /// Records focus outside scroll views so returning to a view can reveal its control.
     pub fn observe_focus(&mut self, action: Option<launcher::menu::MenuAction>) {
+        if self.focused != action {
+            self.focused_bounds = None;
+        }
         self.focused = action;
     }
 

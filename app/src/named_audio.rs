@@ -19,7 +19,7 @@ pub(crate) fn drain_live_named_audio(
     receipt: Res<CameraPublicationAttempt>,
     frame: Res<LocalPlayerFrameCarrier>,
     camera_pose: Res<CameraPose>,
-    physics: Res<crate::movement::LocalPhysicsController>,
+    physics: Res<client_interaction::movement::LocalPhysicsController>,
     cameras: Query<&Transform, With<FlyCamera>>,
     state: ResMut<NamedAudio>,
     device: Option<NonSendMut<AudioDevice>>,

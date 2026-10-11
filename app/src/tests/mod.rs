@@ -318,7 +318,7 @@ mod crafting_authority_schedule;
 mod finish;
 #[cfg(feature = "reports")]
 mod frame_cost_bench;
-mod gameplay_click;
+pub(crate) mod gameplay_click;
 mod input_publication;
 mod inventory;
 mod inventory_close_order;

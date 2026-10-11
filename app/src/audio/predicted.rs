@@ -4,9 +4,9 @@ use client_audio::audio::AudioEngine;
 use client_audio::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{
-        movement::PhysicsCollisionRegistries, particles::ParticleInbox,
-        runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime,
+    crate::{particles::ParticleInbox, runtime::world::ClientWorld},
+    client_interaction::{
+        movement::PhysicsCollisionRegistries, survival_mining::SurvivalMiningRuntime,
     },
     client_presentation::local_player::LocalViewPose,
 };

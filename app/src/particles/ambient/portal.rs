@@ -4,7 +4,10 @@ use chunk_pipeline::WorldStream;
 use particles::{ParticleSystem, SpawnRequest};
 
 use super::AmbientParticles;
-use crate::{movement::PhysicsCollisionRegistries, particles::world_adapter::StreamParticleWorld};
+use {
+    crate::particles::world_adapter::StreamParticleWorld,
+    client_interaction::movement::PhysicsCollisionRegistries,
+};
 
 const NORTH_SOUTH: &str = "minecraft:portal_north_south";
 const EAST_WEST: &str = "minecraft:portal_east_west";

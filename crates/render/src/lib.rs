@@ -45,6 +45,12 @@ pub use media::MediaTexture;
 mod media_screen;
 
 mod material_shader;
+#[cfg(test)]
+#[path = "material_shader/shader_tests.rs"]
+mod material_shader_shader_tests;
+#[cfg(test)]
+#[path = "material_shader/tests.rs"]
+mod material_shader_tests;
 mod mod_render;
 
 pub use mod_render::{ModPassLabel, ModRenderPlugin};

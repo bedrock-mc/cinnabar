@@ -223,8 +223,8 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
             1,
         )))
         .insert_resource(ClientWorld::default())
-        .insert_resource(crate::movement::MovementTicker::default())
-        .insert_resource(crate::movement::LocalPhysicsController::default())
+        .insert_resource(client_interaction::movement::MovementTicker::default())
+        .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);

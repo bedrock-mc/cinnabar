@@ -7,7 +7,7 @@ use render_model::{
 };
 
 use crate::{
-    gpu_snapshot::{Draw, Gpu},
+    gpu_snapshot::{self, Draw, Gpu},
     shader_source,
 };
 

@@ -32,7 +32,7 @@ use client_presentation::presentation::actors::{
     local_actor_presentation_for_visibility, local_diagnostic_presentation,
     select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
-use {crate::movement::PhysicsAuthorityGate, gameplay::movement::MovementSource};
+use {client_interaction::movement::PhysicsAuthorityGate, gameplay::movement::MovementSource};
 
 fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {

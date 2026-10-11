@@ -17,13 +17,6 @@ use semantic_input::{
     ReleaseReason, TouchContact,
 };
 use {
-    crate::movement::PhysicsAuthorityFaultRecord,
-    gameplay::movement::{
-        MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
-        PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
-    },
-};
-use {
     crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
     acceptance::phase3_evidence::{
         MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
@@ -32,6 +25,11 @@ use {
     },
 };
 use {
+    client_interaction::movement::fault_observation::PhysicsAuthorityFaultRecord,
+    gameplay::movement::{
+        MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
+        PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
+    },
     render_model::ActorCullView,
     render_scene::{ActorRenderScene, ActorRenderSource},
 };

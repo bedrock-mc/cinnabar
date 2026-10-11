@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+test-support = []
+
 [dependencies]
 block-transform = { path = "../block-transform" }
 bitflags = "2"
@@ -15,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(unix)'.dependencies]

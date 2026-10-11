@@ -31,16 +31,16 @@ use {
         app::{configure_client_authority_systems, configure_client_frame_schedule},
         environment::{WeatherState, bind_session_generation},
         menu::{MenuClipboard, MenuRuntime},
-        movement::{
-            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-            MovementTicker, PhysicsCollisionRegistries,
-        },
         runtime::phase3_evidence::Phase3EvidenceEmitter,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
         },
     },
     acceptance::model_witness::ModelWitnessFileSource,
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
+    },
     client_presentation::{
         camera::CameraSettingsAuthority,
         local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
@@ -235,7 +235,7 @@ fn prepare_ability_control_fixture(app: &mut App) {
     app.init_resource::<client_runtime::publication::PublicationController>()
         .init_resource::<render_scene::ChunkUploadAcknowledgements>()
         .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
-        .init_resource::<crate::movement::PhysicsAuthorityGate>()
+        .init_resource::<client_interaction::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(
             diagnostics::metrics::MetricsCollector::new(),
         ))

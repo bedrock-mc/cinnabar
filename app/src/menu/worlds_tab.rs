@@ -49,8 +49,8 @@ impl Default for LocalWorldsUi {
         Self {
             view: WorldsView::default(),
             actions: Vec::new(),
-            name: super::input::field_editor(MenuField::WorldName),
-            seed: super::input::field_editor(MenuField::WorldSeed),
+            name: super::input::fields::field_editor(MenuField::WorldName),
+            seed: super::input::fields::field_editor(MenuField::WorldSeed),
             joining: None,
             world_id: None,
             hosted: false,

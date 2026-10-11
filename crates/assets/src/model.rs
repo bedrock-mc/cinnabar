@@ -1,4 +1,4 @@
-use crate::{AssetError, TextureArray};
+use crate::{AssetError, TEXTURE_LAYER_MASK, TextureArray};
 
 pub const MAX_TEXTURE_PAGES: usize = 2;
 pub const MAX_MODEL_TEMPLATES: usize = 65_536;
@@ -152,7 +152,6 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
 }
 
 const TEXTURE_PAGE_BIT: u32 = 1 << 31;
-const TEXTURE_LAYER_MASK: u32 = 0x7ff;
 const TEXTURE_RESERVED_MASK: u32 = !(TEXTURE_PAGE_BIT | TEXTURE_LAYER_MASK);
 
 /// Canonical reference to a layer in one of at most two texture-array pages.

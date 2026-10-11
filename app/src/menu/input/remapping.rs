@@ -18,7 +18,7 @@ use {
             physical::{TRANSLATED_GAMEPAD_BUTTONS, mouse_button_code},
         },
     },
-    launcher::menu::settings_options::GAMEPAD_OFFSET,
+    launcher::menu::settings_options::{GAMEPAD_OFFSET, macro_row},
 };
 
 /// Captures only the selected device family and allows Escape to cancel either family.
@@ -29,9 +29,10 @@ pub(super) fn capture(
     mouse: &mut ButtonInput<MouseButton>,
     gamepads: &Query<&Gamepad>,
 ) {
-    let gamepad = menu
-        .key_remap
-        .is_some_and(|index| usize::from(index) >= GAMEPAD_OFFSET);
+    let pending = menu.key_remap.map(usize::from);
+    let macro_slot = pending.and_then(macro_row);
+    // Macro slots bind only desktop controls; Alt is applied when the macro runs.
+    let gamepad = pending.is_some_and(|index| index >= GAMEPAD_OFFSET) && macro_slot.is_none();
     for input in messages.read() {
         if input.state != ButtonState::Pressed {
             continue;

@@ -81,6 +81,8 @@ pub enum MenuField {
     WorldSeed,
     SkinName,
     RealmCode,
+    /// One command macro slot's command box.
+    MacroCommand(usize),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,6 +134,8 @@ pub enum MenuAction {
     SettingsKey(u16),
     SettingsResetKey(u16),
     SettingsResetBindings(bool),
+    /// Presses a command macro's command text box.
+    SettingsMacroCommand(usize),
     SettingsResetGroup(settings_options::SettingsGroup),
     SettingsConfirmResetBindings(bool),
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
@@ -180,6 +184,7 @@ impl MenuAction {
     /// The text field a press on this control focuses.
     pub fn text_field(self) -> Option<MenuField> {
         match self {
+            Self::SettingsMacroCommand(slot) => Some(MenuField::MacroCommand(slot)),
             Self::RealmMembership(realm_membership::Action::EditCode) => Some(MenuField::RealmCode),
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),

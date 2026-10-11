@@ -3,9 +3,9 @@ use super::*;
 
 /// Admits one attack after early actor preparation and leaves later ticks to complete it.
 fn admit_once(
-    movement: Res<crate::movement::MovementTicker>,
-    effects: Res<crate::movement::LocalMovementEffectTimeline>,
-    mut swings: ResMut<crate::melee::SwingTracker>,
+    movement: Res<client_interaction::movement::MovementTicker>,
+    effects: Res<client_interaction::movement::LocalMovementEffectTimeline>,
+    mut swings: ResMut<client_interaction::melee::SwingTracker>,
 ) {
     swings.sync_ticks(
         movement.interaction_authority_identity(),
@@ -38,10 +38,10 @@ fn physics(world: &mut World, millis: u64, yaw: f32) {
         unloaded: false,
     };
     let frame = world.resource_scope(
-        |world, mut effects: Mut<crate::movement::LocalMovementEffectTimeline>| {
+        |world, mut effects: Mut<client_interaction::movement::LocalMovementEffectTimeline>| {
             effects.begin_frame();
             world
-                .resource_mut::<crate::movement::LocalPhysicsController>()
+                .resource_mut::<client_interaction::movement::LocalPhysicsController>()
                 .advance_with_context_and_effects(
                     Duration::from_millis(millis),
                     sim::MovementInput {
@@ -63,7 +63,7 @@ fn physics(world: &mut World, millis: u64, yaw: f32) {
         assert_eq!(sample.movement, [0.0; 3]);
         assert_eq!(sample.yaw, yaw);
         world
-            .resource_mut::<crate::movement::MovementTicker>()
+            .resource_mut::<client_interaction::movement::MovementTicker>()
             .enqueue_completed_physics(sample)
             .unwrap();
     }
@@ -92,22 +92,23 @@ fn production_java_torso_joins_physics_history_after_same_frame_admission() {
         perspective(&mut world, PerspectiveMode::ThirdPersonBack, 1);
         prepare(&mut world, 100);
         let anchor = world
-            .resource::<crate::movement::LocalPhysicsController>()
+            .resource::<client_interaction::movement::LocalPhysicsController>()
             .network_position()
             .unwrap();
         world
-            .resource_mut::<crate::movement::LocalPhysicsController>()
+            .resource_mut::<client_interaction::movement::LocalPhysicsController>()
             .reanchor_network_position(anchor, 100, true);
-        let mut movement = crate::movement::MovementTicker::default();
+        let mut movement = client_interaction::movement::MovementTicker::default();
         movement.reset(1, 100, anchor);
         movement.set_source(gameplay::movement::MovementSource::Physics);
         world.insert_resource(movement);
-        world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
-        world.init_resource::<crate::melee::SwingTracker>();
+        world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+        world.init_resource::<client_interaction::melee::SwingTracker>();
         world.init_resource::<render_scene::ActorRenderFrame>();
         world.init_resource::<render_scene::ActorRuntimeWitness>();
         {
-            let mut effects = world.resource_mut::<crate::movement::LocalMovementEffectTimeline>();
+            let mut effects =
+                world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
             effects.begin_session(1);
             if let Some((effect_id, amplifier)) = effect {
                 effects.apply(

@@ -1,17 +1,19 @@
 //! Startup carrier loading and required registry verification.
+mod timing;
+use timing::{LoadTimes, join};
+
 use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
 use crate::args;
-use crate::asset_startup::{
-    self, AssetSelection, AssetStartupError, LoadTimes, LoadedAssets, LoadedHudAssets,
-    LoadedIconAssets, LoadedLangAssets, join,
+use anyhow::{Context, Result, bail};
+use assets::carriers::startup::{
+    self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
+    LoadedIconAssets, LoadedLangAssets,
 };
-use crate::movement::PhysicsCollisionRegistries;
-use anyhow::Context;
-use anyhow::{Result, bail};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
     RuntimeEquipmentCatalog, RuntimeParticleAssets, RuntimeUiAssets,
 };
+use client_interaction::movement::PhysicsCollisionRegistries;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::Digest;
 use sha2::Sha256;
@@ -124,7 +126,8 @@ fn load_core(
     selection: AssetSelection,
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
-    let assets = asset_startup::load_runtime_assets_timed(selection, times)?;
+    let mut assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
         let equipment = scope.spawn(|| {
@@ -254,7 +257,7 @@ pub(super) fn read_verified_physics_registry(
 #[cfg(test)]
 mod carrier_tests {
     use super::*;
-    use crate::asset_startup::{
+    use assets::carriers::startup::{
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
         test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob},
     };

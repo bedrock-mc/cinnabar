@@ -6,12 +6,12 @@ use client_presentation::local_player::{
     LocalPlayerFrameCarrier, LocalPlayerFrameSample, LocalViewPose,
 };
 use {
-    super::*, client_presentation::local_player::InteractionOriginSnapshot,
-    gameplay::interaction_authority::FrozenBlockObservation,
-    gameplay::mining::FrozenMiningSelection,
+    super::*,
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::{interaction_authority::FrozenBlockObservation, mining::FrozenMiningSelection},
 };
 use {
-    crate::movement::{LocalPhysicsController, MovementTicker},
+    client_interaction::movement::{LocalPhysicsController, MovementTicker},
     gameplay::movement::{
         MovementSource, PhysicsCorrectionMode, reconcile_candidate_physics_correction,
     },

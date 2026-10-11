@@ -15,9 +15,9 @@ use bevy::{
 use render_scene::TransparentSortMetrics;
 
 #[cfg(feature = "acceptance")]
-use crate::{movement::MovementTicker, runtime::visibility::AppMetrics};
-#[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;
+#[cfg(feature = "acceptance")]
+use {crate::runtime::visibility::AppMetrics, client_interaction::movement::MovementTicker};
 use {
     crate::runtime::world::ClientWorld,
     client_runtime::shutdown::{ShutdownWatchdog, begin_bounded_shutdown},

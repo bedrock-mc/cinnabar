@@ -10,11 +10,10 @@ use {
 use {
     crate::{
         environment::{WeatherState, WorldClock},
-        item_use::ItemUseRuntime,
-        movement::MovementTicker,
         runtime::{visibility::CaveVisibilityCache, world::WorldStreamFramePoll},
         ui_runtime::presentation::prepare_ui_runtime,
     },
+    client_interaction::{item_use::ItemUseRuntime, movement::MovementTicker},
     client_presentation::{
         camera::{CameraSettingsAuthority, FlyCamera, perspective_pose},
         local_player::{LocalPlayerFrameCarrier, LocalPlayerFrameSample},

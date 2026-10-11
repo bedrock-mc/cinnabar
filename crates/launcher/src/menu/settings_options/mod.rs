@@ -2,6 +2,7 @@
 
 pub mod antialiasing;
 pub mod chat;
+pub mod command_macros;
 pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
@@ -20,6 +21,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use command_macros::{
+    COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
+    macro_title,
+};
 pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
@@ -50,6 +55,8 @@ pub struct SettingsOptions {
     render_distance_defaults: ui::RenderDistanceDefaults,
     keys: BTreeMap<String, u16>,
     language: Option<String>,
+    /// None means no macro command has been stored yet.
+    command_macros: Option<[Option<String>; COMMAND_MACRO_COUNT]>,
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
@@ -64,6 +71,7 @@ impl Default for SettingsOptions {
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
             language: None,
+            command_macros: None,
             emote_slots: None,
             server_list: super::server_list::ServerListPreferences::default(),
         }
