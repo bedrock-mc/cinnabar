@@ -313,8 +313,6 @@ pub(crate) fn synchronize_semantic_input_authority(
 
 #[cfg(test)]
 mod tests {
-    use core::num::NonZeroU64;
-
     use super::SemanticInputRuntime;
     use semantic_input::{Action, ControllerFrame, DeviceFrame, InputMode, ReleaseReason};
 
