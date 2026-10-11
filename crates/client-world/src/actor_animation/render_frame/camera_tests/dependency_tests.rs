@@ -1,6 +1,123 @@
 use super::*;
 
 #[test]
+fn camera_derived_selection_writes_follow_live_presentation_inputs() {
+    for clock_write in [false, true] {
+        let mut compiled = camera_compiled();
+        compiled.molang_symbols[1].identifier = "query.camera_rotation".into();
+        let mut symbols = compiled.molang_symbols.into_vec();
+        symbols.push(MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: "variable.angle".into(),
+        });
+        compiled.molang_symbols = symbols.into_boxed_slice();
+        let scalar = |value| EntityGeometryScalar::new(value).unwrap();
+        compiled.molang_ops = vec![
+            MolangOp::Push(scalar(0.0)),
+            MolangOp::CallQuery(MolangCall {
+                symbol: 1,
+                arguments: 1,
+            }),
+            MolangOp::StoreVariable(2),
+            MolangOp::Push(scalar(0.0)),
+            MolangOp::LoadVariable(2),
+            MolangOp::Push(scalar(10.0)),
+            MolangOp::Add,
+            MolangOp::StoreVariable(2),
+            MolangOp::Push(scalar(1.0)),
+            MolangOp::LoadVariable(2),
+        ]
+        .into_boxed_slice();
+        compiled.molang_expressions = [(0, 4, 1), (4, 5, 2), (9, 1, 1)]
+            .map(|(first_op, op_count, max_stack)| CompiledMolangExpression {
+                first_op,
+                op_count,
+                max_stack,
+            })
+            .into();
+        compiled.rig_bindings[0].pre_animation = Some(0);
+        if clock_write {
+            compiled.animation_clips[0].anim_time_update = Some(1);
+        } else {
+            compiled.rig_animations[0].weight = Some(1);
+        }
+        for key in &mut compiled.animation_keyframes {
+            key.expressions = [Some(2), None, None];
+        }
+        let mut store = fixture_with_assets(Arc::new(
+            RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        ));
+        let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+        store.set_camera_rotation([30.0, 0.0]);
+        for alpha in [0.25, 0.75] {
+            let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+            let expected = pose::quat_from_euler([-40.0, 0.0, 0.0]);
+            assert_rotation(layers[0].pose[0].rotation, expected);
+            assert_rotation(layers[1].pose[1].rotation, expected);
+        }
+        assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+    }
+}
+
+#[test]
+fn layer_only_swing_sampling_preserves_body_walking_interpolation() {
+    for selected in [false, true] {
+        let mut compiled = inactive_camera_compiled();
+        let mut symbols = compiled.molang_symbols.into_vec();
+        symbols.push(MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: "variable.attack_time".into(),
+        });
+        compiled.molang_symbols = symbols.into_boxed_slice();
+        let mut ops = compiled.molang_ops.into_vec();
+        ops.push(MolangOp::LoadVariable(3));
+        compiled.molang_ops = ops.into_boxed_slice();
+        let mut expressions = compiled.molang_expressions.into_vec();
+        expressions.push(CompiledMolangExpression {
+            first_op: 6,
+            op_count: 1,
+            max_stack: 1,
+        });
+        compiled.molang_expressions = expressions.into_boxed_slice();
+        let channel = &compiled.animation_channels[1];
+        compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
+            [Some(4), None, None];
+        if !selected {
+            for layer in &mut compiled.render.layers[1..] {
+                layer.condition = Some(3);
+            }
+        }
+        let mut store = walking_fixture(compiled);
+        store.exclude_remote_state_for(1);
+        let progress = crate::LocalSwingProgress {
+            bedrock: [0.25, 0.5],
+            java: [0.25, 0.5],
+            frame_alpha: Some(0.75),
+        };
+        store.sync_local_swing(1, progress);
+        store.advance_interpolation_frame(0);
+        let rig = store.actor_rig(1).unwrap();
+        let previous = rig.previous[0];
+        let current = rig.current[0];
+        assert_ne!(previous, current);
+        let layers = store.render_frame(0.25).layers(1).unwrap().into_owned();
+        assert_eq!(
+            *layers[0].previous_pose.first().unwrap_or(&previous),
+            previous
+        );
+        assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
+        if selected {
+            assert_rotation(
+                layers[1].pose[1].rotation,
+                pose::quat_from_euler([-progress.bedrock_progress(0.25), 0.0, 0.0]),
+            );
+        } else {
+            assert_eq!(layers.len(), 1);
+        }
+    }
+}
+
+#[test]
 fn expression_local_temporaries_preserve_walking_layer_interpolation() {
     let mut compiled = inactive_camera_compiled();
     let mut symbols = compiled.molang_symbols.into_vec();

@@ -42,33 +42,41 @@ impl VariableLayout {
                 reads.into_iter().collect::<Vec<_>>().into_boxed_slice()
             })
             .collect();
-        self.clip_camera = self
+        self.clip_inputs = self
             .clip_reads
             .iter()
-            .map(|reads| {
-                reads
+            .map(|reads| PresentationReads {
+                camera: reads
                     .iter()
-                    .any(|&symbol| camera::camera_symbol(assets, symbol, false))
+                    .any(|&symbol| camera::camera_symbol(assets, symbol, false)),
+                swing: reads
+                    .iter()
+                    .any(|&symbol| camera::camera_symbol(assets, symbol, true)),
             })
             .collect();
-        self.controller_camera = assets
+        self.controller_inputs = assets
             .controllers()
             .iter()
             .map(|controller| {
                 let first = controller.first_state as usize;
-                assets.controller_states()[first..first + usize::from(controller.state_count)]
+                let mut inputs = PresentationReads::default();
+                for state in assets.controller_states()
+                    [first..first + usize::from(controller.state_count)]
                     .iter()
-                    .any(|state| {
-                        let first = state.first_animation as usize;
-                        assets.controller_animations()
-                            [first..first + usize::from(state.animation_count)]
-                            .iter()
-                            .any(|animation| {
-                                animation.weight.is_some_and(|expression| {
-                                    camera::camera_expression(assets, expression as usize, false)
-                                })
-                            })
-                    })
+                {
+                    let first = state.first_animation as usize;
+                    for animation in &assets.controller_animations()
+                        [first..first + usize::from(state.animation_count)]
+                    {
+                        if let Some(expression) = animation.weight {
+                            inputs.camera |=
+                                camera::camera_expression(assets, expression as usize, false);
+                            inputs.swing |=
+                                camera::camera_expression(assets, expression as usize, true);
+                        }
+                    }
+                }
+                inputs
             })
             .collect();
     }
@@ -79,15 +87,18 @@ impl VariableLayout {
     }
 
     /// Constant-time classification of one contributing clip's presentation inputs.
-    pub(in crate::actor_animation) fn clip_samples_camera(&self, clip: usize) -> bool {
-        self.clip_camera.get(clip).copied().unwrap_or(false)
+    pub(in crate::actor_animation) fn clip_inputs(&self, clip: usize) -> PresentationReads {
+        self.clip_inputs.get(clip).copied().unwrap_or_default()
     }
 
-    /// Cached camera dependencies in a controller's authored animation weights.
-    pub(in crate::actor_animation) fn controller_samples_camera(&self, controller: usize) -> bool {
-        self.controller_camera
+    /// Cached presentation dependencies in a controller's authored animation weights.
+    pub(in crate::actor_animation) fn controller_inputs(
+        &self,
+        controller: usize,
+    ) -> PresentationReads {
+        self.controller_inputs
             .get(controller)
             .copied()
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 }

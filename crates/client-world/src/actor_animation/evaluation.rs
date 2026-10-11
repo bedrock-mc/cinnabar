@@ -39,9 +39,16 @@ pub(super) struct VariableLayout {
     temp_base: usize,
     temp_count: usize,
     clip_reads: Vec<Box<[u32]>>,
-    clip_camera: Vec<bool>,
-    controller_camera: Vec<bool>,
+    clip_inputs: Vec<PresentationReads>,
+    controller_inputs: Vec<PresentationReads>,
     pub(super) engine: EngineSlots,
+}
+
+/// Immutable camera and attack inputs used to admit scratch presentation evaluation.
+#[derive(Clone, Copy, Default, Debug)]
+pub(super) struct PresentationReads {
+    pub camera: bool,
+    pub swing: bool,
 }
 
 /// Slots of variables the client, not the pack, assigns.
@@ -148,8 +155,8 @@ impl VariableLayout {
             temp_base,
             temp_count,
             clip_reads: Vec::new(),
-            clip_camera: Vec::new(),
-            controller_camera: Vec::new(),
+            clip_inputs: Vec::new(),
+            controller_inputs: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()

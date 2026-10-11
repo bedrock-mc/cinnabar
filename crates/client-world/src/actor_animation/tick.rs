@@ -397,6 +397,7 @@ pub(super) fn evaluate_state(
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
         samples_camera_poses: false,
+        samples_swing_poses: false,
         selection_effects: evaluation::MolangEffects::default(),
         retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::swell_endpoint::SwellMotion {
@@ -483,13 +484,8 @@ pub(super) fn evaluate_state(
     } else {
         replay.map_or(&state.clip_clocks, |replay| &replay.clocks)
     };
-    let mut journal = controller::ControllerJournal::new(
-        samples_swell
-            && state
-                .swell_sampling
-                .as_ref()
-                .is_some_and(|s| s.samples_clips()),
-    );
+    let retain_selection = render_frame.is_some();
+    let mut journal = controller::ControllerJournal::new(retain_selection);
     let selection_capture = render_frame.as_ref().map(|_| variables.begin_effects());
     let mut weighted_clips = selection::select(
         &evaluator,
@@ -501,18 +497,14 @@ pub(super) fn evaluate_state(
             blink: blink_controller,
             journal: &mut journal,
             replay: false,
-            record: samples_swell
-                && state
-                    .swell_sampling
-                    .as_ref()
-                    .is_some_and(|s| s.samples_clips()),
+            record: retain_selection,
         },
         budget,
     )?;
     let mut server_animations = replay
         .map_or(&state.server_animations, |replay| &replay.server_animations)
         .clone();
-    let server_capture = samples_swell.then(|| variables.begin_effects());
+    let server_capture = retain_selection.then(|| variables.begin_effects());
     super::server_animation::select(
         &evaluator,
         &mut variables,
@@ -545,13 +537,14 @@ pub(super) fn evaluate_state(
         render_frame.as_mut().unwrap().selection_effects = variables.finish_effects(capture);
     }
     if let Some(frame) = render_frame.as_mut() {
-        frame.samples_camera_poses = state.samples_camera_poses
-            && super::render_frame::camera::needs_active_camera_sampling(
-                layout,
-                state.samples_camera_expressions,
-                &controllers,
-                &weighted_clips,
-            );
+        let inputs = super::render_frame::camera::active_pose_inputs(
+            layout,
+            state.presentation_expressions,
+            &controllers,
+            &weighted_clips,
+        );
+        frame.samples_camera_poses = state.samples_camera_poses && inputs.camera;
+        frame.samples_swing_poses = state.samples_swing_poses && inputs.swing;
         frame.motion.clips.clone_from(&weighted_clips);
         frame.motion.journal = journal;
         frame.motion.server_effects = server_effects;

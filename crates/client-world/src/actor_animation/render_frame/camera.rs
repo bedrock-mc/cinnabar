@@ -17,29 +17,34 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
     )
 }
 
-/// Contributing body clips sample presentation input; layer variants follow render selection.
-pub(in crate::actor_animation) fn needs_active_camera_sampling(
+/// Contributing body inputs admit sampling independently of selected layer variants.
+pub(in crate::actor_animation) fn active_pose_inputs(
     layout: &VariableLayout,
-    expressions: bool,
+    mut expressions: evaluation::PresentationReads,
     controllers: &[ControllerState],
     clips: &[tick::WeightedClip],
-) -> bool {
+) -> evaluation::PresentationReads {
+    for inputs in controllers
+        .iter()
+        .map(|c| layout.controller_inputs(c.controller))
+        .chain(clips.iter().map(|c| layout.clip_inputs(c.clip)))
+    {
+        expressions.camera |= inputs.camera;
+        expressions.swing |= inputs.swing;
+    }
     expressions
-        || controllers
-            .iter()
-            .any(|controller| layout.controller_samples_camera(controller.controller))
-        || clips
-            .iter()
-            .any(|active| layout.clip_samples_camera(active.clip))
 }
 
-/// Binds rig-level camera inputs without traversing animation channels each actor tick.
-pub(in crate::actor_animation) fn needs_camera_expressions(
+/// Binds rig-level presentation inputs without animation-channel scans during actor ticks.
+pub(in crate::actor_animation) fn presentation_expressions(
     assets: &RuntimeEntityAssets,
     rig_binding: usize,
     geometry_binding: usize,
-) -> bool {
-    needs_pose_sampling(assets, rig_binding, geometry_binding, &[], false, false)
+) -> evaluation::PresentationReads {
+    evaluation::PresentationReads {
+        camera: needs_pose_sampling(assets, rig_binding, geometry_binding, &[], false, false),
+        swing: needs_pose_sampling(assets, rig_binding, geometry_binding, &[], true, false),
+    }
 }
 
 /// Attack-time expressions sample the local swing at the physical frame fraction.
@@ -71,6 +76,7 @@ fn needs_pose_sampling(
     let samples_clip =
         |clip: usize| include_clips && camera_clip_with_layers(assets, rig_binding, clip, swing);
     if swing
+        && include_clips
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
             .any(|expression| camera_expression(assets, expression as usize, true))
