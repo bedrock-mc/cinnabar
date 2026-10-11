@@ -237,6 +237,13 @@ fn eviction_leaves_files_this_cache_did_not_name() {
         .block_on(cache.fetch(&format!("{}/a", server.base)))
         .unwrap();
     assert!(first.exists(), "foreign files counted toward the bound");
+    // Keep eviction order independent of the filesystem's timestamp resolution.
+    fs::File::options()
+        .write(true)
+        .open(&first)
+        .unwrap()
+        .set_modified(old + Duration::from_secs(60))
+        .unwrap();
     let second = runtime
         .block_on(cache.fetch(&format!("{}/b", server.base)))
         .unwrap();
