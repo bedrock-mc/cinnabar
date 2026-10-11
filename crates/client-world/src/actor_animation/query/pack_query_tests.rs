@@ -17,7 +17,7 @@ fn read_actor(
         position: [1.0, 2.0, 3.0],
         ..ActorTickInput::default()
     };
-    query(
+    named_query(
         &QueryInputs {
             actor,
             input: &input,
@@ -196,8 +196,11 @@ fn trade_tier_queries_read_their_own_metadata_keys() {
         bones: &[],
         bone_names: &[],
     };
-    assert_eq!(query(&inputs, "query.trade_tier", &[]).number(), 3.0);
-    assert_eq!(query(&inputs, "query.max_trade_tier", &[]).number(), 7.0);
+    assert_eq!(named_query(&inputs, "query.trade_tier", &[]).number(), 3.0);
+    assert_eq!(
+        named_query(&inputs, "query.max_trade_tier", &[]).number(),
+        7.0
+    );
 }
 
 #[test]

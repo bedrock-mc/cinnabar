@@ -8,7 +8,7 @@ fn read(
     args: &[MolangValue],
 ) -> f32 {
     let input = ActorTickInput::default();
-    query(
+    named_query(
         &QueryInputs {
             actor,
             context,

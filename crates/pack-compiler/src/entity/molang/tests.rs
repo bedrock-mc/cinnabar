@@ -38,7 +38,7 @@ fn server_pre_animation_retains_visibility_after_optional_item_and_property_bran
     let payload = compiler.finish().unwrap();
     let expression = &payload.expressions[expression.expect("complete script retained") as usize];
     let visible = payload
-        .symbols
+        .symbols()
         .iter()
         .position(|symbol| symbol.identifier.as_ref() == "variable.visible")
         .unwrap() as u32;
@@ -111,7 +111,7 @@ fn string_literals_keep_their_case_and_compare_by_value() {
         .compile("query.get_equipped_item_name('off_hand') == 'Filled_Map'")
         .unwrap();
     let payload = compiler.finish().unwrap();
-    assert!(payload.symbols.iter().any(|symbol| {
+    assert!(payload.symbols().iter().any(|symbol| {
         symbol.kind == MolangSymbolKind::String && symbol.identifier.as_ref() == "Filled_Map"
     }));
     assert!(payload.ops.contains(&MolangOp::Equal));
