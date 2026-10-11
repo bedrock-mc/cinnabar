@@ -36,9 +36,12 @@ enum Processes {
 #[derive(Debug)]
 struct State {
     branch: Option<String>,
+    head: String,
     dirty: bool,
     unpushed: bool,
     pr: Option<String>,
+    /// A merged or closed PR's head contains HEAD; a reused branch with newer commits is not retired.
+    retired: bool,
     pushed_age: Option<u64>,
     age: Option<u64>,
     processes: Processes,
@@ -92,14 +95,19 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
             "--force must name a registered worktree".into(),
         ));
     }
+    let nested: Vec<_> = worktrees
+        .iter()
+        .map(|wt| contains_worktree(&wt.path, &worktrees))
+        .collect();
     let mut plans = Vec::new();
-    for (index, wt) in worktrees.into_iter().enumerate() {
+    for (index, (wt, nested)) in worktrees.into_iter().zip(nested).enumerate() {
         let state = inspect(&wt)?;
         let force = forced.as_ref().is_some_and(|path| {
             fs::canonicalize(&wt.path).is_ok_and(|candidate| candidate == *path)
         });
         let protected = index == 0
             || wt.protected
+            || nested
             || fs::canonicalize(&wt.path).ok() == fs::canonicalize(&root).ok();
         let remove = !protected && eligible(&state, force);
         println!(
@@ -126,15 +134,29 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
         return Ok(());
     }
     for (wt, remove, force, protected) in plans {
-        let state = inspect(&wt)?;
         if protected {
             continue;
         }
-        if remove && eligible(&state, force) {
-            // The final process check is separate from both inventory and deletion.
-            if processes(&wt.path) != Processes::Idle {
-                continue;
-            }
+        let state = inspect(&wt)?;
+        let remove = remove && eligible(&state, force);
+        let clean_target = !remove
+            && state.retired
+            && state.pr.as_deref() == Some("MERGED")
+            && !state.dirty
+            && !state.unpushed;
+        // The final process check is separate from inventory and deletion; skip the tree if its
+        // checkout moved or another worktree was nested inside it meanwhile.
+        if !(remove || clean_target)
+            || processes(&wt.path) != Processes::Idle
+            || checkout(&wt.path).ok() != Some((state.branch.clone(), state.head.clone()))
+            || contains_worktree(
+                &wt.path,
+                &parse_worktrees(&git(&root, &["worktree", "list", "--porcelain", "-z"])?),
+            )
+        {
+            continue;
+        }
+        if remove {
             let mut command = Command::new("git");
             command.current_dir(&root).args(["worktree", "remove"]);
             if force {
@@ -153,11 +175,7 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
                     wt.path.display()
                 )));
             }
-        } else if state.pr.as_deref() == Some("MERGED")
-            && !state.dirty
-            && !state.unpushed
-            && processes(&wt.path) == Processes::Idle
-        {
+        } else {
             let target = wt.path.join("target");
             // Never follow a target symlink into another worktree or a shared cache.
             if fs::symlink_metadata(&target)
@@ -180,13 +198,29 @@ fn eligible(state: &State, force: bool) -> bool {
         && (force
             || (!state.dirty
                 && !state.unpushed
-                && (matches!(state.pr.as_deref(), Some("MERGED" | "CLOSED"))
-                    || state.pushed_age.is_some_and(|age| age > 7 * 86400))))
+                && (state.retired || state.pushed_age.is_some_and(|age| age > 7 * 86400))))
 }
 
 /// Reports an unavailable timestamp distinctly from a new worktree.
 fn days(age: Option<u64>) -> String {
     age.map_or_else(|| "unknown".into(), |age| (age / 86400).to_string())
+}
+
+/// Whether another registered worktree lives inside `path`, so removing it would delete that tree.
+fn contains_worktree(path: &Path, worktrees: &[Worktree]) -> bool {
+    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let parent = canonical(path);
+    worktrees.iter().any(|other| {
+        let child = canonical(&other.path);
+        child != parent && child.starts_with(&parent)
+    })
+}
+
+/// Reads the checked-out branch, `None` when detached, and the HEAD commit.
+fn checkout(path: &Path) -> Result<(Option<String>, String), DevtoolError> {
+    let current = git(path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let branch = (current.trim() != "HEAD").then(|| current.trim().to_owned());
+    Ok((branch, git(path, &["rev-parse", "HEAD"])?.trim().to_owned()))
 }
 
 /// Parses NUL-delimited porcelain records, including paths containing spaces or newlines.
@@ -223,9 +257,11 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     if wt.unavailable || !wt.path.is_dir() {
         return Ok(State {
             branch: None,
+            head: String::new(),
             dirty: true,
             unpushed: true,
             pr: None,
+            retired: false,
             pushed_age: None,
             age: None,
             processes: Processes::Unknown,
@@ -236,14 +272,10 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
         &["status", "--porcelain", "--untracked-files=all"],
     )?
     .is_empty();
-    let current = git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
-    let branch = (current.trim() != "HEAD").then(|| current.trim().to_owned());
-    let head = git(&wt.path, &["rev-parse", "HEAD"])?;
+    let (branch, head) = checkout(&wt.path)?;
     let request = pull_request(&wt.path, branch.as_deref());
-    let mut revisions = vec!["log", head.trim(), "--not", "--remotes"];
-    if let Some(head) = request
+    let pr_head = request
         .as_ref()
-        .filter(|pr| pr.state == "MERGED")
         .and_then(|pr| pr.head.as_deref())
         .filter(|head| head.len() == 40 && head.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .filter(|head| {
@@ -252,12 +284,18 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
                 &["rev-parse", "--verify", &format!("{head}^{{commit}}")],
             )
             .is_ok()
-        })
-    {
-        revisions.push(head);
+        });
+    let state = request.as_ref().map(|pr| pr.state.as_str());
+    let mut revisions = vec!["log", head.as_str(), "--not", "--remotes"];
+    if let Some(pr_head) = pr_head.filter(|_| state == Some("MERGED")) {
+        revisions.push(pr_head);
     }
     revisions.push("--format=%H");
     let unpushed = !git(&wt.path, &revisions)?.is_empty();
+    let retired = matches!(state, Some("MERGED" | "CLOSED"))
+        && pr_head.is_some_and(|pr_head| {
+            git(&wt.path, &["merge-base", "--is-ancestor", &head, pr_head]).is_ok()
+        });
     let pr = request.map(|pr| pr.state);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -295,9 +333,11 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     });
     Ok(State {
         branch,
+        head,
         dirty,
         unpushed,
         pr,
+        retired,
         pushed_age,
         age,
         processes: processes(&wt.path),
@@ -441,9 +481,11 @@ mod tests {
     fn cleanup_requires_all_safety_conditions() {
         let mut state = State {
             branch: None,
+            head: String::new(),
             dirty: false,
             unpushed: false,
             pr: Some("MERGED".into()),
+            retired: true,
             pushed_age: None,
             age: None,
             processes: Processes::Idle,
@@ -461,7 +503,7 @@ mod tests {
         state.processes = Processes::Idle;
         state.dirty = false;
         state.unpushed = false;
-        state.pr = Some("OPEN".into());
+        state.retired = false;
         assert!(!eligible(&state, false));
         state.pushed_age = Some(8 * 86400);
         assert!(eligible(&state, false));

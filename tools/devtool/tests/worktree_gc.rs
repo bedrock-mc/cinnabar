@@ -28,7 +28,11 @@ mod unix {
                 bin,
             };
             repo.git(&["init", "--quiet"]);
-            fs::write(repo.root.join(".gitignore"), "target/\n").unwrap();
+            fs::write(
+                repo.root.join(".gitignore"),
+                "target/\n/.claude/worktrees/\n",
+            )
+            .unwrap();
             repo.git(&["add", ".gitignore"]);
             repo.git(&[
                 "-c",
@@ -43,12 +47,21 @@ mod unix {
             repo.git(&["init", "--quiet", "--bare", remote.to_str().unwrap()]);
             repo.git(&["remote", "add", "origin", remote.to_str().unwrap()]);
             repo.git(&["push", "--quiet", "origin", "HEAD"]);
-            repo.script("gh", "#!/bin/sh\nprintf '[{\"state\":\"MERGED\"}]'\n");
+            repo.script("gh", &merged_pr(&repo.head(&repo.root)));
             repo.script(
                 "lsof",
                 "#!/bin/sh\ncase \"$3\" in *busy*) printf '999\\n'; exit 0;; esac\nexit 1\n",
             );
             repo
+        }
+        /// Reads a worktree's HEAD commit.
+        fn head(&self, path: &Path) -> String {
+            let output = Command::new("git")
+                .current_dir(path)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .unwrap();
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
         }
         /// Runs fixture Git operations with explicit identity where commits are needed.
         fn git(&self, args: &[&str]) {
@@ -94,6 +107,11 @@ mod unix {
                 .unwrap()
         }
     }
+    /// A fake `gh pr list` reporting one merged PR whose head is `head`.
+    fn merged_pr(head: &str) -> String {
+        format!("#!/bin/sh\nprintf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]'\n")
+    }
+
     #[test]
     fn squash_merge_publishes_only_commits_through_the_pr_head() {
         let repo = Repo::new();
@@ -150,10 +168,7 @@ mod unix {
         );
         fs::write(followup.join("new"), "unpublished change").unwrap();
         commit(&followup, "unpublished followup");
-        repo.script(
-            "gh",
-            &format!("#!/bin/sh\nprintf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]'\n"),
-        );
+        repo.script("gh", &merged_pr(head));
         let dry = repo.gc(&[]);
         assert!(dry.status.success());
         let lines = String::from_utf8_lossy(&dry.stdout);
@@ -282,7 +297,8 @@ mod unix {
         run(&["switch", "--quiet", "switched"]);
         fs::create_dir(path.join("target")).unwrap();
         fs::write(path.join("target/keep"), "artifact").unwrap();
-        repo.script("gh", "#!/bin/sh\ncase \"$6\" in unpublished) printf '[]';; *) printf '[{\"state\":\"MERGED\"}]';; esac\n");
+        let merged = repo.head(&path);
+        repo.script("gh", &format!("#!/bin/sh\ncase \"$6\" in unpublished) printf '[]';; *) printf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{merged}\"}}]';; esac\n"));
         repo.script("lsof", &format!(
             "#!/bin/sh\ncase \"$3\" in *switched) if [ ! -e '{}' ]; then git -C \"$3\" switch --quiet unpublished; touch '{}'; fi;; esac\nexit 1\n",
             repo.bin.join("switched-once").display(), repo.bin.join("switched-once").display()));
@@ -310,6 +326,87 @@ mod unix {
         assert!(output.status.success());
         assert!(path.exists());
     }
+    #[test]
+    fn merged_parent_of_a_nested_registered_worktree_is_kept() {
+        let repo = Repo::new();
+        let parent = repo.worktree("parent");
+        let child = parent.join(".claude/worktrees/child");
+        repo.git(&[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "child",
+            child.to_str().unwrap(),
+        ]);
+        fs::write(child.join("work"), "uncommitted").unwrap();
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(parent.exists(), "removed a worktree containing another");
+        assert!(
+            child.join("work").exists(),
+            "lost the nested worktree's changes"
+        );
+    }
+
+    #[test]
+    fn reused_branch_with_commits_after_its_merged_pr_is_kept() {
+        let repo = Repo::new();
+        let path = repo.worktree("reused");
+        assert!(
+            Command::new("git")
+                .current_dir(&path)
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "commit",
+                    "--allow-empty",
+                    "--quiet",
+                    "-m",
+                    "new work on a reused branch"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        repo.git(&["push", "--quiet", "origin", "reused"]);
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(path.exists(), "an older merged PR retired newer commits");
+    }
+
+    #[test]
+    fn checkout_change_during_the_final_process_check_keeps_the_worktree() {
+        for change in [
+            "-c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m late",
+            "switch --quiet -c late-branch",
+        ] {
+            let repo = Repo::new();
+            let path = repo.worktree("late-checkout");
+            let counter = repo.bin.join("calls");
+            // Inventory, recheck, then the final activity check: change the checkout on the third.
+            repo.script("lsof", &format!("#!/bin/sh\ncase \"$3\" in *late-checkout*) n=$(cat '{}' 2>/dev/null || printf 0); n=$((n+1)); printf '%s' \"$n\" > '{}'; if [ \"$n\" -eq 3 ]; then git -C \"$3\" {change}; fi;; esac\nexit 1\n", counter.display(), counter.display()));
+            let output = repo.gc(&["--apply"]);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(path.exists(), "removed after `git {change}`");
+            assert_eq!(fs::read_to_string(&counter).unwrap(), "3");
+        }
+    }
+
     #[test]
     fn unavailable_process_checks_keep_worktrees_and_symlink_targets() {
         let repo = Repo::new();
