@@ -3,7 +3,7 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::BytesMut;
-use jolyne::auth::client::SUPER_HIGH_MEMORY_TIER;
+use jolyne::auth::client::{NON_EDITOR_CONNECTION_INTENT, SUPER_HIGH_MEMORY_TIER};
 use serde_json::{Value, json};
 use uuid::Uuid;
 use valentine::bedrock::codec::{BedrockCodec, VarUInt};
@@ -70,12 +70,13 @@ pub(crate) fn login_client_data(
     // Two halves keep each `json!` expansion within the default recursion limit.
     let mut claims = json!({
         "ClientRandomId": (Uuid::new_v4().as_u64_pair().0 & 0x7fff_ffff_ffff_ffff) as i64,
+        "ClientEditorConnectionIntent": NON_EDITOR_CONNECTION_INTENT,
+        "ClientIsEditorCapable": false,
         "CompatibleWithClientSideChunkGen": true,
         "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
         "GraphicsMode": 0,
         "GuiScale": settings.gui_scale_offset,
-        "IsEditorMode": false,
         "LanguageCode": settings.language_code,
         "MaxViewDistance": 32,
         "MemoryTier": SUPER_HIGH_MEMORY_TIER,
@@ -201,9 +202,9 @@ mod tests {
         assert_eq!(claims["CapeOnClassicSkin"], false);
     }
 
-    /// Servers decode the memory tier as a bounded enum before accepting the skin claims.
+    /// Login validation requires a supported memory tier and explicit gameplay editor claims.
     #[test]
-    fn session_and_self_signed_logins_report_a_supported_memory_tier() {
+    fn session_and_self_signed_logins_report_supported_client_capabilities() {
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use jolyne::auth::client::generate_self_signed_chain;
 
@@ -234,6 +235,11 @@ mod tests {
                 assert!(
                     tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
                     "unsupported memory tier {tier} rejects otherwise valid login claims"
+                );
+                assert_eq!(claims["ClientIsEditorCapable"], false);
+                assert_eq!(
+                    claims["ClientEditorConnectionIntent"],
+                    NON_EDITOR_CONNECTION_INTENT
                 );
             }
         }

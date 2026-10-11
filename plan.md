@@ -6416,8 +6416,9 @@ frontend comparison and the broader UI visual parity gate remain incomplete.
 
 ## Go core simplification (2026-10-02)
 
-Client login claims use a supported memory tier so PowerNukkitX accepts valid skins.
-The core-session and JWT login builders share the same desktop-tier value.
+Client login claims use a supported memory tier and explicitly report editor capability
+and connection intent for normal gameplay, so PowerNukkitX accepts valid skins.
+The core-session and JWT login builders share the desktop-tier and editor-intent values.
 
 The core's packet-decoding diagnostic observers for cache boundaries, loading order,
 and form schemas are removed. The proxy still forwards packet batches and retains

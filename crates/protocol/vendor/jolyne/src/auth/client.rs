@@ -11,6 +11,9 @@ use uuid::Uuid;
 /// The highest Bedrock memory tier, used by desktop client-data claims.
 pub const SUPER_HIGH_MEMORY_TIER: u32 = 4;
 
+/// A normal gameplay connection has no editor role.
+pub const NON_EDITOR_CONNECTION_INTENT: u32 = 0;
+
 /// Minecraft authentication endpoint for getting Mojang-signed chains
 const MINECRAFT_AUTH_URL: &str = "https://multiplayer.minecraft.net/authentication";
 
@@ -132,6 +135,10 @@ struct ClientDataPayload {
     cape_image_width: u32,
     #[serde(rename = "CapeOnClassicSkin")]
     cape_on_classic_skin: bool,
+    #[serde(rename = "ClientEditorConnectionIntent")]
+    client_editor_connection_intent: u32,
+    #[serde(rename = "ClientIsEditorCapable")]
+    client_is_editor_capable: bool,
     #[serde(rename = "ClientRandomId")]
     client_random_id: i64,
     #[serde(rename = "CompatibleWithClientSideChunkGen")]
@@ -152,8 +159,6 @@ struct ClientDataPayload {
     graphics_mode: u32,
     #[serde(rename = "GuiScale")]
     gui_scale: i32,
-    #[serde(rename = "IsEditorMode")]
-    is_editor_mode: bool,
     #[serde(rename = "LanguageCode")]
     language_code: String,
     #[serde(rename = "MaxViewDistance")]
@@ -492,6 +497,8 @@ fn generate_chain_internal(
         cape_image_height,
         cape_image_width,
         cape_on_classic_skin,
+        client_editor_connection_intent: NON_EDITOR_CONNECTION_INTENT,
+        client_is_editor_capable: false,
         client_random_id: (rand::random::<u64>() & 0x7FFFFFFFFFFFFFFF) as i64,
         compatible_with_client_side_chunk_gen: true,
         current_input_mode: 1, // Mouse/Keyboard
@@ -502,7 +509,6 @@ fn generate_chain_internal(
         game_version: crate::valentine::GAME_VERSION.into(),
         graphics_mode: 0,
         gui_scale: 0,
-        is_editor_mode: false,
         language_code: "en_US".into(),
         max_view_distance: 32,
         memory_tier: SUPER_HIGH_MEMORY_TIER,
@@ -594,6 +600,8 @@ fn generate_client_data_token(
         cape_image_height,
         cape_image_width,
         cape_on_classic_skin,
+        client_editor_connection_intent: NON_EDITOR_CONNECTION_INTENT,
+        client_is_editor_capable: false,
         client_random_id: (rand::random::<u64>() & 0x7FFFFFFFFFFFFFFF) as i64,
         compatible_with_client_side_chunk_gen: true,
         current_input_mode: 1,
@@ -604,7 +612,6 @@ fn generate_client_data_token(
         game_version: crate::valentine::GAME_VERSION.into(),
         graphics_mode: 0,
         gui_scale: 0,
-        is_editor_mode: false,
         language_code: "en_US".into(),
         max_view_distance: 32,
         memory_tier: SUPER_HIGH_MEMORY_TIER,
@@ -660,9 +667,9 @@ mod skin_upload_tests {
     use crate::stream::client::ClientSkin;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
-    /// Authenticated client-data tokens use the same supported memory-tier range.
+    /// Authenticated tokens report supported memory and normal gameplay editor capabilities.
     #[test]
-    fn authenticated_login_reports_a_supported_memory_tier() {
+    fn authenticated_login_reports_supported_client_capabilities() {
         let key = SecretKey::random(&mut rand::thread_rng());
         let jwt = generate_client_data_token(&key, "Fixture", Uuid::new_v4(), None).unwrap();
         let claims = client_data_claims(&jwt);
@@ -670,7 +677,13 @@ mod skin_upload_tests {
             claims["MemoryTier"].as_u64().unwrap() <= u64::from(SUPER_HIGH_MEMORY_TIER),
             "unsupported memory tier rejects otherwise valid login claims"
         );
+        assert_eq!(claims["ClientIsEditorCapable"], false);
+        assert_eq!(
+            claims["ClientEditorConnectionIntent"],
+            NON_EDITOR_CONNECTION_INTENT
+        );
     }
+
     /// Decodes the serialized client-data claims without verifying their fixture signature.
     fn client_data_claims(client_jwt: &str) -> serde_json::Value {
         let payload = client_jwt
