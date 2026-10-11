@@ -1,3 +1,14 @@
+## Client frame contract
+
+- `client-state` owns the shared frame sets, player authority wrapper, settings revision
+  wrapper, finalized input wrapper, and shell-published focus and control observations.
+  It contains no systems or state transitions and has a 4,000-line source ceiling.
+- `ui` owns retained settings revisions; `semantic-input` owns finalized input queries.
+  The shell publishes screen ownership before semantic authority and refreshes it before
+  gameplay. Interaction and camera input consume these observations directly.
+- Focus and existing input/cursor regression coverage are retained. Compilation and execution
+  of this ownership change remain unverified; movement and presentation parity gates stay open.
+
 ## RakNet transport compatibility
 
 The Go core, local server, and fixture generator share a reviewed transport revision with
