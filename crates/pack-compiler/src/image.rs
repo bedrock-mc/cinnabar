@@ -19,6 +19,29 @@ pub(crate) struct DecodedTexture {
     pub rgba8: Box<[u8]>,
 }
 
+/// Retains the first square frame of a valid horizontal or vertical strip.
+/// Unsupported dimensions remain unchanged for the caller's validation.
+pub(crate) fn retain_first_strip_frame(image: &mut DecodedTexture) {
+    let side = image.width.min(image.height);
+    let long_side = image.width.max(image.height);
+    if side < TILE_SIZE
+        || !side.is_power_of_two()
+        || !long_side.is_multiple_of(side)
+        || long_side / side > crate::MAX_FLIPBOOK_FRAMES as u32
+        || image.width == image.height
+    {
+        return;
+    }
+    image.rgba8 = image
+        .rgba8
+        .chunks_exact(image.width as usize * 4)
+        .take(side as usize)
+        .flat_map(|row| row[..side as usize * 4].iter().copied())
+        .collect();
+    image.width = side;
+    image.height = side;
+}
+
 pub(crate) fn diagnostic_pixels() -> Box<[u8]> {
     let mut pixels = Vec::with_capacity((TILE_SIZE * TILE_SIZE * 4) as usize);
     for y in 0..TILE_SIZE {

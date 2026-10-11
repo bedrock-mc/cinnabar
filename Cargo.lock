@@ -30,8 +30,8 @@ dependencies = [
  "client-world",
  "diagnostics",
  "protocol",
- "render",
  "render-model",
+ "render-scene",
  "semantic-input",
  "serde",
  "serde_json",
@@ -721,6 +721,7 @@ dependencies = [
  "render",
  "render-api",
  "render-model",
+ "render-scene",
  "reqwest",
  "resource-pack",
  "rich-presence",
@@ -2349,9 +2350,9 @@ dependencies = [
  "pack-compiler",
  "player-state",
  "protocol",
- "render",
  "render-api",
  "render-model",
+ "render-scene",
  "resource-pack",
  "semantic-input",
  "serde",
@@ -2383,6 +2384,7 @@ dependencies = [
  "protocol",
  "render",
  "render-api",
+ "render-scene",
  "tokio",
 ]
 
@@ -2427,9 +2429,9 @@ dependencies = [
  "pack-runtime",
  "player-state",
  "protocol",
- "render",
  "render-api",
  "render-model",
+ "render-scene",
  "reqwest",
  "resource-pack",
  "rich-presence",
@@ -6516,6 +6518,7 @@ dependencies = [
  "rayon",
  "render-api",
  "render-model",
+ "render-scene",
  "serde_json",
  "sha2",
  "tempfile",
@@ -6536,9 +6539,13 @@ name = "render-model"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "block-transform",
  "bytemuck",
+ "foldhash 0.2.0",
  "glam",
+ "hashbrown 0.16.1",
  "image",
+ "mod-api",
  "pack-compiler",
  "render-api",
  "serde_json",
@@ -6553,6 +6560,29 @@ name = "render-sample-mod"
 version = "0.1.12"
 dependencies = [
  "mod-api",
+]
+
+[[package]]
+name = "render-scene"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "bevy",
+ "bytemuck",
+ "glam",
+ "meshing",
+ "mod-api",
+ "mod-render",
+ "pack-compiler",
+ "particles",
+ "render-api",
+ "render-model",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "tracy-client",
+ "world",
 ]
 
 [[package]]

@@ -1,12 +1,13 @@
 //! Composed offscreen frames keep the HUD sharp while filtering the world beneath it.
 
 use super::*;
-use crate::{
-    motion_blur::{CameraMotionBlur, CameraMotionBlurPlugin},
-    ui_render::{UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource},
-};
 use render_model::{
     UiRenderBatch, UiRenderInput, UiRenderTextureArray, UiRenderVertex, UiScissor, UiTexturePage,
+};
+use std::sync::Arc;
+use {
+    crate::{motion_blur::CameraMotionBlurPlugin, ui_render::UiRenderPlugin},
+    render_scene::{CameraMotionBlur, UiRenderSceneResource, UiRenderStatsResource},
 };
 
 /// Publishes an opaque blue HUD rectangle over the red and green world fixture.
@@ -75,7 +76,7 @@ fn hud_stays_sharp_over_spatial_filters_and_camera_exposure_in_either_toggle_ord
         return;
     };
     let (mut app, camera, image) = app_with_effects(render, |app| {
-        app.insert_resource(crate::RuntimeStageProfiler::new(false));
+        app.insert_resource(render_scene::RuntimeStageProfiler::new(false));
         app.add_plugins((
             UiRenderPlugin,
             CameraMotionBlurPlugin,

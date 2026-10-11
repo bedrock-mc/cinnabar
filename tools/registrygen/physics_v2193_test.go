@@ -63,7 +63,7 @@ type v2193PhysicsEntry struct {
 // contiguous identities, bounded payload accounting, and trailer digest.
 func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) []v2193PhysicsEntry {
 	t.Helper()
-	if len(artifact) < 48+32 {
+	if len(artifact) < physicsRegistryHeaderBytes+32 {
 		t.Fatal("physics artifact is truncated")
 	}
 	if string(artifact[:8]) != physicsRegistryHeader {
@@ -79,14 +79,14 @@ func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 	if !bytes.Equal(artifact[16:48], bregDigest[:]) {
 		t.Fatal("physics artifact does not bind the exact pinned v2193 BREG digest")
 	}
-	cursor := 48
+	cursor := physicsRegistryHeaderBytes
 	entries := make([]v2193PhysicsEntry, 0, count)
 	end := len(artifact) - 32
 	for index := 0; index < count; index++ {
-		if cursor+28 > end {
+		if cursor+physicsRecordHeaderBytes > end {
 			t.Fatalf("physics record %d is truncated", index)
 		}
-		prefix := artifact[cursor : cursor+28]
+		prefix := artifact[cursor : cursor+physicsRecordHeaderBytes]
 		entry := v2193PhysicsEntry{
 			SequentialID:    binary.LittleEndian.Uint32(prefix[0:4]),
 			NetworkHash:     binary.LittleEndian.Uint32(prefix[4:8]),
@@ -97,14 +97,17 @@ func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 			VerticalSpeed:   binary.LittleEndian.Uint32(prefix[20:24]),
 			FluidHeight:     binary.LittleEndian.Uint32(prefix[24:28]),
 		}
-		if prefix[11] != 0 {
-			t.Fatalf("physics record %d has a nonzero reserved byte", index)
+		if MovementSemantics(prefix[physicsMovementSemanticsOffset]) > maxMovementSemantics {
+			t.Fatalf("physics record %d has unknown movement support", index)
+		}
+		if support := MovementSemantics(prefix[physicsMovementSemanticsOffset]); support == MovementSemanticsOrdinary {
+			t.Fatalf("unreviewed ordinary movement emitted for record %d", index)
 		}
 		boxCount := int(int8(prefix[8]))
 		if boxCount < 0 || boxCount > maxPhysicsBoxes {
 			t.Fatalf("physics record %d declares %d boxes", index, boxCount)
 		}
-		boxStart := cursor + 28
+		boxStart := cursor + physicsRecordHeaderBytes
 		if boxStart+boxCount*24 > end {
 			t.Fatalf("physics record %d boxes are truncated", index)
 		}

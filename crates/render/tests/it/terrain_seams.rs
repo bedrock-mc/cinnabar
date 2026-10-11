@@ -244,7 +244,7 @@ impl Fixture {
         atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
         atmosphere[19] = 1.0e6;
         atmosphere[20] = 2.0e6;
-        let table = render::LightmapInputs::default().build();
+        let table = render_model::LightmapInputs::default().build();
         let source = format!(
             "{}\n{}",
             shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]),

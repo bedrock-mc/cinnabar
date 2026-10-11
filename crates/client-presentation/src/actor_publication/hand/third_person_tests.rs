@@ -57,9 +57,9 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             time.advance_by(std::time::Duration::from_millis(50));
             world.insert_resource(time);
             world.insert_resource(equipment);
-            world.insert_resource(artwork);
+            world.insert_resource(render_scene::ActorArtworkResource(artwork));
             world.insert_resource(
-                render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
+                render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
             );
             world.insert_resource(
                 super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap(),
@@ -67,7 +67,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             world.init_resource::<super::super::ActorFrameState>();
             world.init_resource::<super::super::PreparedActorPublication>();
             world.init_resource::<super::super::ActorFramePartialTick>();
-            world.init_resource::<render::HandRigScene>();
+            world.init_resource::<render_scene::HandRigScene>();
             let mut avatar = crate::local_player::LocalAvatarPresentation::default();
             avatar.begin_session(stream.authority().actor_session_id(), 1);
             world.insert_resource(avatar);
@@ -150,7 +150,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .submissions()
                 .unwrap()
                 .iter()
-                .find(|draw| draw.input.identity.layer == render::ACTOR_LAYER_BODY)
+                .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
             if case == BodyCase::Emote {
@@ -219,7 +219,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     .submissions()
                     .unwrap()
                     .iter()
-                    .filter(|draw| draw.input.identity.layer != render::ACTOR_LAYER_BODY);
+                    .filter(|draw| draw.input.identity.layer != render_model::ACTOR_LAYER_BODY);
                 let actual = equipment.next().expect("native held equipment");
                 assert!(equipment.next().is_none(), "one identity-pose held model");
                 for bones in [&actual.input.previous_bones, &actual.input.current_bones] {

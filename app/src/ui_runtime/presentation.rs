@@ -10,7 +10,7 @@ use bevy::{
     time::Real,
     window::{PrimaryWindow, Window},
 };
-use render::{
+use render_scene::{
     ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };

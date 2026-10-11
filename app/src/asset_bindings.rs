@@ -12,11 +12,11 @@ const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud
 pub(crate) fn actor_artwork(
     catalog: &RuntimeActorCatalog,
     entities: &assets::RuntimeEntityAssets,
-) -> render::ActorArtworkPages {
+) -> render_model::ActorArtworkPages {
     if let Some(skin) = default_player_skin(catalog, entities) {
         render_model::install_default_player_skin(skin);
     }
-    let artwork = render::ActorArtworkPages::new(catalog);
+    let artwork = render_model::ActorArtworkPages::new(catalog);
     diagnostics::log_stderr!(
         "loaded neutral unlit actor artwork: bindings={}, textures={}, page budget rejections={}, rest pose fallbacks={} (pose_expression_unverified); lighting/tint/overlay parity incomplete",
         catalog.bindings().len(),

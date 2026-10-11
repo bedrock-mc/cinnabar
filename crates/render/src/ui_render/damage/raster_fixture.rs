@@ -2,11 +2,9 @@
 
 use super::super::*;
 use crate::gpu_snapshot::Gpu;
-use crate::ui_render::{
-    self as ui,
-    pipeline::{
-        UiPipelineKey, UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
-    },
+use crate::ui_render as ui;
+use crate::ui_render::pipeline::{
+    UiPipelineKey, UiPipelineSpecializer, ui_bind_group_layout, ui_pipeline_descriptor,
 };
 use bevy::render::render_resource::Specializer;
 use wgpu::util::DeviceExt;

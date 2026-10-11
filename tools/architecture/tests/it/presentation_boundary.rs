@@ -68,13 +68,13 @@ fn presentation_accepts_borrowed_observations_and_shared_asset_contracts() {
     set_dependencies(
         temp.path(),
         "client-presentation",
-        "[dependencies]\nassets={path='../assets'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\nrender={path='../render'}",
+        "[dependencies]\nassets={path='../assets'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\nrender-model={path='../render-model'}\nrender-scene={path='../render-scene'}",
     );
     write(
         &temp
             .path()
             .join("crates/client-presentation/src/adapter.rs"),
-        "struct Observation<'a> { stream: Option<&'a mut client_world::WorldStream>, state: &'a sim::PlayerState }\nfn observe(_: render::ActorRenderScene) {}",
+        "struct Observation<'a> { stream: Option<&'a mut client_world::WorldStream>, state: &'a sim::PlayerState }\nfn observe(_: render_scene::ActorRenderScene, _: &render_model::ActorRigGeometry) {}",
     );
     assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
 }

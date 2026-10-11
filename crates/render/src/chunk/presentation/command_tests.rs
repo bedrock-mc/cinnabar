@@ -27,7 +27,7 @@ fn active_visibility_probe_for_view(
             pose_hash: 2,
             frustum_hash: 3,
         },
-        crate::ExtractedViewGenerations::new(1, 1),
+        render_scene::ExtractedViewGenerations::new(1, 1),
         draw_mode,
         keys,
         8,

@@ -2,6 +2,7 @@ use super::*;
 use crate::render_test_support::record;
 use bevy::prelude::Component;
 use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
+use render_scene::RuntimeStage;
 
 /// Creates a validation device with the requested timestamp capabilities.
 pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {

@@ -1,8 +1,11 @@
 //! Retained UI preparation regression and timing fixture.
+
 use super::resources::prepare_ui_resources;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+
 use render_model::UiScissor;
+use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource};
 
 /// Builds a large immutable HUD in the no-op renderer.
 fn retained_world() -> World {
@@ -183,7 +186,7 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
                 clip_from_view: Mat4::IDENTITY,
                 world_from_view: GlobalTransform::default(),
                 clip_from_world: None,
-                target_format: crate::SCENE_COLOR_FORMAT,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
                 viewport: bevy::math::UVec4::new(0, 0, 254, 124),
                 color_grading: Default::default(),
                 invert_culling: false,

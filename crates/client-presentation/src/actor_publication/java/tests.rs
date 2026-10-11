@@ -432,7 +432,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
             Arc::clone(&icons),
             None,
             None,
-            render::ActorArtworkPages::default(),
+            render_model::ActorArtworkPages::default(),
         );
         let rig = stream.authority().actor_rig(1).unwrap();
         equipment.register_skin_rig(

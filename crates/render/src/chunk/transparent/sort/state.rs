@@ -9,6 +9,7 @@ use super::{
 };
 use crate::chunk::transparent::face_metric::{FaceOrderCamera, TransparentFaceMetric};
 use crate::chunk::*;
+use render_scene::ChunkTextureAssetIdentity;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

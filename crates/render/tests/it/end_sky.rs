@@ -1,10 +1,10 @@
 use crate::{gpu_snapshot, shader_source};
+use wgpu::util::DeviceExt;
 
 use assets::ResolvedFog;
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
-use render::{AtmosphereFrame, SkyKind};
-use wgpu::util::DeviceExt;
+use render_scene::{AtmosphereFrame, SkyKind};
 
 fn texture(gpu: &Gpu, size: [u32; 2], pixels: &[u8]) -> wgpu::TextureView {
     gpu.device

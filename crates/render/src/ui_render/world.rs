@@ -1,5 +1,6 @@
 //! Direct world-projected UI pass with the native text depth modes.
 use super::*;
+use bevy::{ecs::query::QueryItem, render::render_resource::RenderPassDepthStencilAttachment};
 
 type UiViewQuery = (
     &'static ViewTarget,
@@ -108,7 +109,7 @@ fn draw_ui_view(
             },
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuUi,
+                render_scene::RuntimeStage::GpuUi,
             ),
             occlusion_query_set: None,
             multiview_mask: None,

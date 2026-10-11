@@ -35,7 +35,7 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
             Update,
             publication::begin_publication_frame
                 .in_set(RuntimeFrameSet::PublicationBudget)
-                .before(render::ChunkRenderApplySet),
+                .before(render_scene::ChunkRenderApplySet),
         )
         .add_systems(Last, shutdown::arm_shutdown_watchdog);
     }

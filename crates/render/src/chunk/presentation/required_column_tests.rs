@@ -1,4 +1,7 @@
 use super::*;
+use render_scene::{
+    ChunkRenderQueue, PresentedFrameAck, RenderViewCohort, TargetRenderExpectation,
+};
 
 fn required_expectation(
     queue: &ChunkRenderQueue,

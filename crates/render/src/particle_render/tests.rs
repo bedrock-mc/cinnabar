@@ -3,14 +3,12 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::render::render_phase::DrawFunctionId;
 
 /// Uploads and queues all material lists through the production systems.
-fn queue_lists(app: &mut App, lists: DrawLists, camera: [f32; 3]) {
+fn queue_lists(app: &mut App, frame: ParticleGpuFrame) {
     app.init_resource::<ParticlePipeline>()
         .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Opaque as u8 }>>()
         .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Blend as u8 }>>()
         .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Add as u8 }>>();
     app.world_mut().run_system_once(init_particle_gpu).unwrap();
-    let mut frame = ParticleGpuFrame::default();
-    frame.set_lists(lists, camera);
     app.insert_resource(frame);
     app.world_mut()
         .run_system_once(prepare_particle_resources)
@@ -22,11 +20,10 @@ fn queue_lists(app: &mut App, lists: DrawLists, camera: [f32; 3]) {
 pub(crate) fn queue_opaque(app: &mut App) -> (DrawFunctionId, RenderPipelineDescriptor) {
     queue_lists(
         app,
-        DrawLists {
-            opaque: vec![ParticleInstance::default()],
+        ParticleGpuFrame {
+            opaque: vec![ParticleInstance::default()].into(),
             ..Default::default()
         },
-        [0.0; 3],
     );
     let draw = app
         .world()
@@ -54,18 +51,20 @@ fn additive_particles_compose_at_their_depth_with_only_cutout_particles_present(
         let (mut app, view) = crate::queue_review_support::app();
         queue_lists(
             &mut app,
-            DrawLists {
+            ParticleGpuFrame {
                 opaque: vec![ParticleInstance {
                     center_light: [100.0, 0.0, -1.0, 0.0],
                     ..Default::default()
-                }],
+                }]
+                .into(),
                 add: vec![ParticleInstance {
                     center_light: [0.0, 0.0, distance, 0.0],
                     ..Default::default()
-                }],
+                }]
+                .into(),
+                add_centroid: [0.0, 0.0, distance],
                 ..Default::default()
             },
-            [0.0; 3],
         );
         let functions = app
             .world()

@@ -26,6 +26,8 @@ mod isotropic;
 mod lantern;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
+#[path = "tests/sea_pickle.rs"]
+mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
 

@@ -251,7 +251,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    /// Every app or UI marker has one expectation, including environment inputs.
+    /// Every owned marker has one expectation, including startup environment inputs.
     fn expectation_table_is_unique_and_covers_every_owned_marker() {
         let names = EXPECTATIONS
             .iter()
@@ -262,6 +262,7 @@ mod tests {
         let declarations = [
             include_str!("markers.rs"),
             include_str!("../../../crates/client-ui/src/diagnostic_markers.rs"),
+            include_str!("../../../crates/assets/src/carriers/startup/markers.rs"),
         ]
         .into_iter()
         .flat_map(|source| source.split("#[cfg(test)]").next().unwrap().split('"'))

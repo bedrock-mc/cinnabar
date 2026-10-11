@@ -1,4 +1,5 @@
 use crate::shader_source;
+use image::ImageEncoder;
 
 use std::{
     fs,
@@ -32,22 +33,26 @@ use bevy::{
     camera::primitives::Aabb,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
-use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+use image::{ExtendedColorType, codecs::png::PngEncoder};
 use meshing::{
     BlockClassifier, Face, Neighbourhood, PackedBiomeRecord, PackedQuad, mesh_sub_chunk,
 };
-use render::{
-    AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderPlugin,
-    ChunkRenderQueue, ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    ChunkUploadPriority, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
-    MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, MAX_TRANSPARENT_DRAW_REFS,
-    MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, PresentedFrameAck, RenderViewCohort,
-    TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES, TextureArrayLimits,
-    TextureLimitError, TexturePageBinding, TransparentAllocationIdentity,
-    TransparentOrderedSnapshot, TransparentSortError, TransparentSortResult, TransparentSortState,
-    ViewSortGeneration, ViewSortKey, diagnostic_texture_page, greedy_texture_uv,
-    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
-    texture_asset_needs_rebuild,
+use {
+    render::{
+        ChunkRenderPlugin, MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS,
+        PackedTransparentDrawRef, TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES,
+        TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
+        TransparentSortResult, TransparentSortState, ViewSortGeneration, ViewSortKey,
+    },
+    render_scene::{
+        AnimationFrameSample, ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue,
+        ChunkRenderQueueLimits, ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkUploadPriority,
+        MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
+        MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270, PresentedFrameAck, RenderViewCohort,
+        TextureArrayLimits, TextureLimitError, TexturePageBinding, diagnostic_texture_page,
+        greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
+        select_animation_frames, texture_asset_needs_rebuild,
+    },
 };
 
 const CHUNK_RENDERER_SOURCE: &str = concat!(
@@ -55,11 +60,12 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../../src/chunk/transparent/sort/state.rs"),
     include_str!("../../src/chunk/transparent/retirement.rs"),
     include_str!("../../src/chunk/transparent/model.rs"),
-    include_str!("../../src/chunk/biome_tints.rs"),
-    include_str!("../../src/chunk/textures.rs"),
-    include_str!("../../src/chunk/api.rs"),
-    include_str!("../../src/chunk/instance.rs"),
+    include_str!("../../../render-scene/src/chunk/biome_tints.rs"),
+    include_str!("../../../render-scene/src/chunk/textures.rs"),
+    include_str!("../../../render-scene/src/chunk/api.rs"),
+    include_str!("../../../render-scene/src/chunk/instance.rs"),
     include_str!("../../src/chunk/presentation/frame_probe.rs"),
+    include_str!("../../../render-scene/src/chunk/queue.rs"),
     include_str!("../../src/chunk/queue.rs"),
     include_str!("../../src/chunk/plugin.rs"),
     include_str!("../../src/chunk/extract.rs"),

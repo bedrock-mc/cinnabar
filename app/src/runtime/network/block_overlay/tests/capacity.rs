@@ -92,7 +92,7 @@ fn larger_overlays_keep_every_texture_that_fits_the_device() {
         assert_eq!(compiled.gaps.missing_textures, refused);
         let texture = compiled.overlay.texture.as_ref().expect("array");
         assert_eq!(texture.layers, admitted);
-        render::TextureArrayLimits {
+        render_scene::TextureArrayLimits {
             max_layers: limit,
             max_dimension_2d: assets::MAX_TILE_SIZE,
         }

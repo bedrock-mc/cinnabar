@@ -9,6 +9,7 @@ use bevy::{
         renderer::RenderDevice,
     },
 };
+use render_scene::PipelineWarmupReadiness;
 
 const UNLOADED_SHADER: Handle<Shader> = uuid_handle!("5b0e7c3d-8a41-4f2e-9d6b-1c7a2e9f4b80");
 

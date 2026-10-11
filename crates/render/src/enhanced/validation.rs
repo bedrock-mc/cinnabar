@@ -1,6 +1,6 @@
 //! Validate every Enhanced shader and create its pipeline on an available real adapter.
-use crate::shader_source;
 
+use crate::shader_source;
 type Variant = (&'static str, String, &'static str, &'static str, bool);
 
 /// All forward, shadow-caster and fullscreen variants used by the extension.

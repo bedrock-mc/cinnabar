@@ -1,5 +1,8 @@
 //! Per-user extension registration; polling, compilation and status I/O stay off the frame thread.
 
+use sha2::Digest;
+use std::io::Read;
+use std::io::Write;
 mod presentation;
 #[cfg(test)]
 mod tests;
@@ -8,7 +11,6 @@ use presentation::{clear_owned_state, clear_presentation, refresh_presentation};
 
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -24,7 +26,7 @@ use client_extensions::modding::{font, multi::ModHosts};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModGrants, ModHost};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;

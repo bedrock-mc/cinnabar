@@ -1,15 +1,18 @@
 use std::{mem::size_of, sync::Arc};
 
 use bevy::math::{Mat4, Vec3};
-use render::{
-    ActorCullView, ActorGpuInstance, ActorRenderIdentity, ActorRenderScene, ActorRigFrameBuilder,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, MAX_ACTOR_BONE_ARENA_BYTES,
-    MAX_ACTOR_RENDER_INSTANCES, pack_overlay_rgba8,
-};
 use render_api::SkinRgba8;
 use render_model::{
     ActorRigGeometry, EntityRigId, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS,
     RenderBoneTransform, STANDARD_SKIN_BYTES,
+};
+use {
+    render_model::{
+        ActorCullView, ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder,
+        ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, MAX_ACTOR_BONE_ARENA_BYTES,
+        MAX_ACTOR_RENDER_INSTANCES, pack_overlay_rgba8,
+    },
+    render_scene::ActorRenderScene,
 };
 
 fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
@@ -62,7 +65,7 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
-        uv_anim: render::IDENTITY_UV_ANIM,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
         culling_bounds: Default::default(),
@@ -87,7 +90,7 @@ fn evaluated_zero_tick_pose_is_admitted_and_has_an_exact_draw_manifest() {
     assert_eq!(frame.instances.len(), 1);
     assert_eq!(frame.manifest[0].completed_tick, 0);
     assert!(
-        render::ActorDrawFrame {
+        render_scene::ActorDrawFrame {
             artwork_identity: [1; 32],
             skin_revision: 1,
             geometry_revision: frame.geometry_revision,
@@ -105,7 +108,7 @@ fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     assert_eq!(size_of::<RenderBoneTransform>(), 48);
     assert_eq!(
         size_of::<ActorGpuInstance>(),
-        render::ACTOR_GPU_INSTANCE_WORDS * 4
+        render_model::ACTOR_GPU_INSTANCE_WORDS * 4
     );
     assert_eq!(
         MAX_RENDER_BONES_PER_ACTOR,
@@ -462,9 +465,9 @@ fn uv_anim_submission_reaches_the_gpu_instance() {
 // World light reaches the instance packed as block, sky and daylight with the lit bit set.
 #[test]
 fn packed_actor_light_reaches_the_gpu_instance() {
-    let light = render::pack_actor_light(3, 12);
+    let light = render_model::pack_actor_light(3, 12);
     assert_eq!(light, 0x8000_0000 | (12 << 4) | 3);
-    assert_eq!(render::pack_actor_light(99, 99), 0x8000_0000 | 0xff);
+    assert_eq!(render_model::pack_actor_light(99, 99), 0x8000_0000 | 0xff);
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let frame = builder.build(
         0.0,

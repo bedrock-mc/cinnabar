@@ -178,7 +178,7 @@ impl SceneTarget {
                 depth_stencil_attachment: None,
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuBlit,
+                    render_scene::RuntimeStage::GpuBlit,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -241,9 +241,9 @@ fn prepare_scene_formats(
 ) {
     for (entity, camera, mut view) in &mut views {
         let format = if camera.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         view.target_format = format;
         formats.insert(entity, format);
@@ -359,13 +359,13 @@ pub(crate) fn install_graph(world: &mut World) {
             schedule.add_systems((
                 crate::gpu_timing::profiled(
                     nodes::scene_opaque,
-                    Some(crate::RuntimeStage::GpuOpaque),
+                    Some(render_scene::RuntimeStage::GpuOpaque),
                     "MainOpaquePass",
                 )
                 .in_set(ScenePass::Opaque),
                 crate::gpu_timing::profiled(
                     nodes::scene_finish,
-                    Some(crate::RuntimeStage::GpuBlit),
+                    Some(render_scene::RuntimeStage::GpuBlit),
                     "EndMainPass",
                 )
                 .in_set(ScenePass::Finish),

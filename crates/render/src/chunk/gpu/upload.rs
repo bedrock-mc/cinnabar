@@ -1,5 +1,9 @@
 use crate::chunk::*;
 use meshing::liquid::LIQUID_FACE_INSET;
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
+    ChunkUploadBudget, RuntimeStageProfiler,
+};
 mod arena_writes;
 mod lighting;
 #[cfg(test)]

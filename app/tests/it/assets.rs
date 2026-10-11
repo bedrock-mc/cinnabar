@@ -818,8 +818,12 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     let (runtime, identity) = loaded.atmosphere.into_parts();
     let decoded = Arc::downgrade(&runtime);
     let mut app = bevy::prelude::App::new();
-    app.insert_resource(render::AtmosphereTextureAssets::new(runtime, identity));
-    let renderer = app.world().resource::<render::AtmosphereTextureAssets>();
+    app.insert_resource(render_scene::AtmosphereTextureAssets::new(
+        runtime, identity,
+    ));
+    let renderer = app
+        .world()
+        .resource::<render_scene::AtmosphereTextureAssets>();
     assert_eq!(
         renderer.identity(),
         <[u8; 32]>::from(Sha256::digest(&bytes))

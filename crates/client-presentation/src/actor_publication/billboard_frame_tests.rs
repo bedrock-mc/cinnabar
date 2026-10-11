@@ -4,7 +4,7 @@ use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets};
 use bevy::math::{EulerRot, Quat, Vec3};
 use client_world::WorldAuthority;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
-use render::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
+use render_model::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
 use render_model::{EntityRigId, entity_geometry};
 
 use crate::presentation::{

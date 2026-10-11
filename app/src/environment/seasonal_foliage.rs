@@ -1,7 +1,7 @@
 //! Shared native weather tick samples feed both atmosphere and seasonal foliage.
 
 use bevy::prelude::{Res, ResMut, Resource};
-use render::ChunkBiomeTints;
+use render_scene::ChunkBiomeTints;
 
 use crate::runtime::world::ClientWorld;
 

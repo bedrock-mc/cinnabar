@@ -114,7 +114,7 @@ fn native_cloud_vertices_preserve_negative_cells_subpixel_scroll_rgba_and_fade_o
             1.0,
             1.0,
             1.0,
-            render::CLOUD_ALPHA,
+            render_scene::CLOUD_ALPHA,
             meshing::CLOUD_CELL_BLOCKS,
             meshing::CLOUD_UNDERSIDE_Y,
             meshing::CLOUD_TOP_Y,
@@ -146,7 +146,8 @@ fn native_cloud_vertices_preserve_negative_cells_subpixel_scroll_rgba_and_fade_o
             write_depth: false,
         }],
     );
-    let expected_alpha = (render::CLOUD_ALPHA * (1.0 - (1.4 - CLOUD_FADE_START)) * 255.0) as u8;
+    let expected_alpha =
+        (render_scene::CLOUD_ALPHA * (1.0 - (1.4 - CLOUD_FADE_START)) * 255.0) as u8;
     for (column, expected) in [
         [126, 128, 0, 255],
         [16, 32, 64, 90],

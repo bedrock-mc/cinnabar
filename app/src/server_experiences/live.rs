@@ -80,7 +80,7 @@ const STOPPED_AT_START: &str = "because it failed to start";
 pub(super) struct Live<H = Helper> {
     grant: Grant,
     media: super::media::Media,
-    screens: Vec<render::MediaScreen>,
+    screens: Vec<render_scene::MediaScreen>,
     /// Scene and frame revisions `screens` was built from.
     screens_built: Option<(u64, u64)>,
     scene_revision: u64,
@@ -434,7 +434,7 @@ impl<H: Worker> Live<H> {
 
     /// Media screens (each bundle's own scene quads whose texture names a playing descriptor),
     /// rebuilt only when the scene or a frame changed; None when unchanged since the last call.
-    pub(super) fn changed_screens(&mut self) -> Option<&[render::MediaScreen]> {
+    pub(super) fn changed_screens(&mut self) -> Option<&[render_scene::MediaScreen]> {
         let built = (self.scene_revision, self.media.frames_revision());
         if self.screens_built == Some(built) {
             return None;
@@ -443,7 +443,7 @@ impl<H: Worker> Live<H> {
         self.screens.clear();
         'instances: for (index, instance) in self.instances.values().enumerate() {
             for (id, object) in &instance.contributions.scene {
-                if self.screens.len() == render::MAX_MEDIA_SCREENS {
+                if self.screens.len() == render_scene::MAX_MEDIA_SCREENS {
                     break 'instances;
                 }
                 let Some((texture, mut screen)) =

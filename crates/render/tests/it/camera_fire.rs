@@ -63,12 +63,15 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
             1.0,
             1.0,
             0.9,
-            render::ScreenOverlayKind::Fire as u32 as f32,
+            render_scene::ScreenOverlayKind::Fire as u32 as f32,
             0.0,
             0.0,
             0.0,
         ]);
-        words.resize(layer_start + render::MAX_SCREEN_OVERLAY_LAYERS * 8, 0.0);
+        words.resize(
+            layer_start + render_scene::MAX_SCREEN_OVERLAY_LAYERS * 8,
+            0.0,
+        );
         let uniform = gpu.buffer(&words, wgpu::BufferUsages::UNIFORM);
         let bindings = [
             wgpu::BindGroupEntry {

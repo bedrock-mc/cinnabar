@@ -28,7 +28,7 @@ pub(crate) fn entity_shadows(
     };
     if gpu.count == 0
         || world
-            .get_resource::<crate::PanoramaScene>()
+            .get_resource::<render_scene::PanoramaScene>()
             .is_some_and(|panorama| !panorama.game_visible())
     {
         return Ok(());
@@ -54,7 +54,7 @@ pub(crate) fn entity_shadows(
         }),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuShadows,
+            render_scene::RuntimeStage::GpuShadows,
         ),
         occlusion_query_set: None,
         multiview_mask: None,

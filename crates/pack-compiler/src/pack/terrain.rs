@@ -166,6 +166,9 @@ impl TerrainTextureMap {
         key: &str,
         record: &RegistryRecord,
     ) -> Option<(&str, u32)> {
+        if crate::respawn_anchor::is_record(record) {
+            return self.get_for_model_record(key, record);
+        }
         let paths = self.entries.get(key)?;
         if !is_mushroom_face_key(key, &record.name) {
             return Some((paths.first(), 0));

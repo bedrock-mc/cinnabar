@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {

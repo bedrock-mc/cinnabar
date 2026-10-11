@@ -3,7 +3,8 @@
 //!
 //! It is opaque and draws in the main opaque pass: world passes queue nothing
 //! while it shows, so the menu's scene uses one pass.
-use crate::panorama::PanoramaScene;
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
@@ -12,16 +13,15 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::SRes},
     },
     prelude::{
-        App, AssetId, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Mesh,
-        Msaa, Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, AssetId, BevyError, Commands, Entity, FromWorld, Handle, Mesh, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -39,6 +39,7 @@ use bevy::{
         view::ExtractedView,
     },
 };
+use render_scene::PanoramaScene;
 
 const PANORAMA_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7b1e9c42-5d3a-4f60-9e8b-2a4c6d1f0e93");
 const UNIFORM_BYTES: usize = std::mem::size_of::<PanoramaUniform>();
@@ -253,7 +254,7 @@ impl FromWorld for PanoramaPipeline {
                 entry_point: Some("panorama_fragment".into()),
                 // Every fragment writes alpha 1, so blending would only cost bandwidth.
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -294,9 +295,9 @@ impl Specializer<RenderPipeline> for PanoramaPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -401,7 +402,7 @@ fn queue_panorama(
 }
 
 type DrawPanoramaCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuPanorama as usize },
+    { render_scene::RuntimeStage::GpuPanorama as usize },
     (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama),
 >;
 

@@ -1,6 +1,8 @@
 use super::*;
 use crate::chunk::gpu::graphics_metadata::adapter_metadata_field;
 use crate::chunk::gpu::types::build_indexed_indirect_commands;
+use render_scene::ChunkUploadToken;
+use render_scene::PresentedFrameGate;
 
 #[test]
 fn gpu_write_does_not_complete_a_frame_probe() {

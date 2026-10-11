@@ -1,6 +1,6 @@
 use client_presentation::camera::{CameraSettingsAuthority, ServerCameraView, motion_blur};
 use developer_control::camera::{Easing, Keyframe};
-use render::motion_blur::CameraMotionBlur;
+use render_scene::CameraMotionBlur;
 use std::time::Duration;
 use {super::*, client_presentation::camera::FlyCamera};
 

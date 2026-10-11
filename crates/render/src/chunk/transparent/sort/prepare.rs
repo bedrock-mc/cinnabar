@@ -10,6 +10,11 @@ use super::{
 };
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::*;
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssetIdentity, ChunkTextureAssets,
+    RuntimeStageProfiler, TransparentSortMetrics, TransparentWitnessEvidence,
+    TransparentWitnessRequest, TransparentWitnessStageRecord,
+};
 use std::cell::RefCell;
 
 /// Whether every allocation `key` sorts is still readable from `resident_allocations`
@@ -122,7 +127,7 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             Entity,
             &ExtractedView,
             &RenderVisibleEntities,
-            Has<crate::EnhancedRendering>,
+            Has<render_scene::EnhancedRendering>,
         ),
         With<ExtractedCamera>,
     >,

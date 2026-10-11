@@ -1,3 +1,6 @@
+use bevy::prelude::DetectChanges;
+use bevy::prelude::IntoScheduleConfigs;
+use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource};
 use std::{
     mem::size_of,
     sync::{Arc, Weak},
@@ -11,13 +14,12 @@ use bevy::{
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
     prelude::{
-        App, BevyError, Commands, Component, Deref, DerefMut, DetectChanges, Entity, FromWorld,
-        Handle, Has, IntoScheduleConfigs, Msaa, Plugin, Query, Res, ResMut, Resource, Result,
-        Shader, World, default,
+        App, BevyError, Commands, Component, Entity, FromWorld, Handle, Has, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         render_resource::{
             AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
             BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
@@ -48,8 +50,6 @@ mod batches;
 pub(crate) mod composite;
 #[path = "ui_render/damage.rs"]
 mod damage;
-#[path = "ui_render/glint.rs"]
-mod glint;
 #[cfg(test)]
 #[path = "ui_render/harness.rs"]
 pub(crate) mod harness;
@@ -72,24 +72,18 @@ mod uploads;
 #[path = "ui_render/viewport.rs"]
 mod viewport;
 use batches::resolved_batches;
-pub use glint::UiGlintSettings;
+
 use overlay::queue_ui_overlay;
 pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_overlay_graph};
 use shader::UiViewportUniform;
 
 use render_model::{
     FontAtlasVertex, MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch,
-    UiRenderInput, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
+    UiRenderInput, UiRenderRejectReason, UiRenderStats, UiRenderVertex,
 };
 
-/// Main-world holder of the published [`UiRenderScene`], cloned into the render world.
-#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct UiRenderSceneResource(pub UiRenderScene);
-
-/// The [`UiRenderStats`] handle both worlds share.
-#[derive(Resource, Clone, Debug, Default, Deref, DerefMut)]
-pub struct UiRenderStatsResource(pub UiRenderStats);
+#[cfg(test)]
+use render_model::UiRenderScene;
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 

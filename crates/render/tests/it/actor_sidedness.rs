@@ -1,9 +1,9 @@
 //! Material sidedness through emitted cube geometry and the production actor shader.
-use crate::{gpu_snapshot, shader_source};
-use render as render_api;
 
+use crate::{gpu_snapshot, shader_source};
 use assets::EntityRenderMaterial;
 use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
+use render as render_api;
 
 #[path = "support/actor_raster.rs"]
 mod actor_raster;
@@ -21,7 +21,7 @@ fn actor_material_states_keep_authored_one_sided_border_hidden_from_behind() {
         return;
     };
     let plane = cube([16, 0, 16], true, false);
-    let mut material = render::ActorMaterial {
+    let mut material = render_model::ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
             ..Default::default()
@@ -53,7 +53,7 @@ fn actor_material_states_alpha_test_discards_below_threshold_and_blends_retained
         return;
     };
     let plane = cube([16, 0, 16], true, false);
-    let mut material = render::ActorMaterial {
+    let mut material = render_model::ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
             cull: false,
@@ -98,9 +98,9 @@ fn controller_light_multiplier_scales_lit_and_unlit_rgb_without_changing_alpha()
         return;
     };
     let plane = cube([16, 0, 16], true, false);
-    for light in [0, render::pack_actor_light(15, 15)] {
+    for light in [0, render_model::pack_actor_light(15, 15)] {
         for multiplier in [0.0, 0.5, 1.0] {
-            let material = render::ActorMaterial {
+            let material = render_model::ActorMaterial {
                 light_color_multiplier: multiplier,
                 ..Default::default()
             };

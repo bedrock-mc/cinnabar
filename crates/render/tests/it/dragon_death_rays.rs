@@ -3,14 +3,14 @@ use crate::{gpu_snapshot, shader_safety, shader_source};
 
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
-use render::BlockEntityVertex;
+use render_model::BlockEntityVertex;
 
 fn source() -> String {
     let shader = shader_safety::from_block_entity_wesl(
         include_str!("../../src/block_entity/block_entity.wesl"),
         "dragon-death-rays.wesl",
-        render::BLOCK_ENTITY_VERTEX_WORDS,
-        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
         unreachable!()

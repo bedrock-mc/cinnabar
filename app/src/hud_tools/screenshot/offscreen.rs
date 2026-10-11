@@ -41,7 +41,7 @@ pub(super) fn prepare(
         images.add(Image::new_target_texture(
             size.x,
             size.y,
-            render::SCENE_COLOR_FORMAT,
+            render_scene::SCENE_COLOR_FORMAT,
             None,
         ))
     });

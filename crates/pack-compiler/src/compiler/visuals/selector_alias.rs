@@ -174,6 +174,7 @@ pub(in crate::compiler) fn selector_alias_cube_material_descriptors(
         descriptors.push((
             Descriptor {
                 state_variant: 0,
+                flipbook_selector: None,
                 path: path.into(),
                 texture_key: key.clone(),
                 flags: u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV,

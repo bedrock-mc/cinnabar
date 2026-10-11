@@ -1,5 +1,7 @@
 //! Real render apps on a validating NOOP device and native fallback backends.
 
+use render_scene::{ChunkRenderInstance, ChunkRenderQueue};
+
 use bevy::{
     asset::{AssetPlugin, Assets},
     camera::{CameraPlugin, RenderTarget},
@@ -16,6 +18,7 @@ use bevy::{
 
 use super::model::CullRecord;
 use super::*;
+use render_scene::ChunkUploadPriority;
 
 /// A render plugin on the first adapter of `backends`; `None` when none is present.
 pub(super) fn render_plugin(
@@ -249,7 +252,7 @@ fn native_devices_compile_opaque_and_transparent_terrain_variants() {
         }
         assert!(
             app.world()
-                .resource::<crate::PipelineWarmupReadiness>()
+                .resource::<render_scene::PipelineWarmupReadiness>()
                 .is_ready()
         );
     }

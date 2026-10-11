@@ -1,10 +1,12 @@
 //! Device-bounded immutable artwork; publications retain textures with unchanged pixels.
 use super::*;
-use crate::actor::{
-    ActorArtworkPageId, ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
-    gpu::ActorDrawSpan,
-};
 use std::{collections::hash_map::RandomState, sync::Arc};
+use {
+    crate::actor::gpu::ActorDrawSpan,
+    render_model::{
+        ActorArtworkPageId, ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    },
+};
 
 #[path = "artwork_cache.rs"]
 mod cache;
@@ -46,13 +48,13 @@ impl GpuArtwork {
         self.identity = Some(identity);
         self.rejected = false;
         let limits = device.limits();
-        let fallback = crate::EquipmentRaster {
+        let fallback = render_model::EquipmentRaster {
             width: 1,
             height: 1,
             rgba8: Arc::from([0u8; 4]),
         };
         let source = pages.actor_glint.as_ref().unwrap_or(&fallback);
-        let glint_page = crate::ActorTexturePage {
+        let glint_page = render_model::ActorTexturePage {
             width: source.width,
             height: source.height,
             layers: 1,
@@ -141,7 +143,7 @@ impl GpuArtwork {
 fn upload_page(
     device: &RenderDevice,
     queue: &RenderQueue,
-    page: &crate::ActorTexturePage,
+    page: &render_model::ActorTexturePage,
     label: &'static str,
 ) -> Texture {
     #[cfg(feature = "tracy")]
@@ -178,8 +180,8 @@ fn upload_page(
 /// Opaque instances share runs; sorted-pass instances retain individual sort positions.
 pub(super) fn draw_spans(
     pages: &[ActorArtworkPageId],
-    instances: &[crate::actor::ActorGpuInstance],
-    geometry: &[crate::actor::ActorRigGeometrySpan],
+    instances: &[render_model::ActorGpuInstance],
+    geometry: &[render_model::ActorRigGeometrySpan],
 ) -> Vec<ActorDrawSpan> {
     let mut spans: Vec<ActorDrawSpan> = Vec::new();
     let mut last_geometry = None;
@@ -218,14 +220,14 @@ mod tests {
                 depth_always: true,
                 ..Default::default()
             }));
-        let instances = [crate::actor::ActorGpuInstance {
+        let instances = [render_model::ActorGpuInstance {
             material,
             ..Default::default()
         }; 2];
         let spans = draw_spans(
             &[1; 2],
             &instances,
-            &[crate::actor::ActorRigGeometrySpan {
+            &[render_model::ActorRigGeometrySpan {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
@@ -247,14 +249,14 @@ mod tests {
                 ..Default::default()
             }))
         };
-        let instances = [false, false, true, true].map(|blend| crate::actor::ActorGpuInstance {
+        let instances = [false, false, true, true].map(|blend| render_model::ActorGpuInstance {
             material: material(blend),
             ..Default::default()
         });
         let spans = draw_spans(
             &[1; 4],
             &instances,
-            &[crate::actor::ActorRigGeometrySpan {
+            &[render_model::ActorRigGeometrySpan {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
@@ -271,7 +273,7 @@ mod tests {
 
     #[test]
     fn high_artwork_page_ids_survive_paged_build_and_draw_spans() {
-        use crate::actor::{
+        use render_model::{
             ActorRenderIdentity, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute,
             ActorRigSubmission,
         };
@@ -317,7 +319,7 @@ mod tests {
                     source_tick: Some(1),
                     movement_revision: 1,
                     pose_generation: 1,
-                    layer: crate::ACTOR_LAYER_BODY,
+                    layer: render_model::ACTOR_LAYER_BODY,
                 },
                 rig,
                 previous_bones: std::sync::Arc::from([render_model::RenderBoneTransform {
@@ -341,7 +343,7 @@ mod tests {
             texture_layer: 0,
             route: ActorRigRoute::Compiled,
             tint: 0,
-            uv_anim: crate::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             light: 0,
             overlay_rgba8: 0,
         };
@@ -371,14 +373,14 @@ mod tests {
             assets::EntityRenderMaterial::DissolveDepth,
             assets::EntityRenderMaterial::DissolveColor,
         ]
-        .map(|material| crate::actor::ActorGpuInstance {
+        .map(|material| render_model::ActorGpuInstance {
             material: material as u32,
             ..Default::default()
         });
         let spans = draw_spans(
             &[1, 1],
             &instances,
-            &[crate::actor::ActorRigGeometrySpan {
+            &[render_model::ActorRigGeometrySpan {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
@@ -395,16 +397,16 @@ mod tests {
     }
     #[test]
     fn spans_split_on_page_and_geometry_and_carry_exact_vertex_counts() {
-        let instance = |geometry_id| crate::actor::ActorGpuInstance {
+        let instance = |geometry_id| render_model::ActorGpuInstance {
             geometry_id,
             ..Default::default()
         };
         let geometry = [
-            crate::actor::ActorRigGeometrySpan {
+            render_model::ActorRigGeometrySpan {
                 first_vertex: 0,
                 vertex_count: 36,
             },
-            crate::actor::ActorRigGeometrySpan {
+            render_model::ActorRigGeometrySpan {
                 first_vertex: 36,
                 vertex_count: 3024,
             },
@@ -448,7 +450,7 @@ mod tests {
         let height = u16::try_from(side * 2).unwrap();
         let mut pages = ActorArtworkPages::default();
         pages.identity = [1; 32];
-        pages.pages = Arc::from([crate::actor::ActorTexturePage {
+        pages.pages = Arc::from([render_model::ActorTexturePage {
             width: 2,
             height,
             layers: 1,
@@ -470,7 +472,7 @@ mod tests {
         let mut pages = ActorArtworkPages::default();
         pages.identity = [1; 32];
         pages.entity_identity = [2; 32];
-        pages.pages = Arc::from([crate::actor::ActorTexturePage {
+        pages.pages = Arc::from([render_model::ActorTexturePage {
             width: 16,
             height: 16,
             layers: 1,

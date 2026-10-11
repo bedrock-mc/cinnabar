@@ -262,7 +262,7 @@ fn category_profiling_disables_overlapping_in_pass_draw_spans() {
     let mut world = World::new();
     world.insert_resource(device);
     world.insert_resource(queue);
-    world.insert_resource(crate::RuntimeStageProfiler::new(true));
+    world.insert_resource(render_scene::RuntimeStageProfiler::new(true));
     world.insert_resource(CategoryProfiling);
     world
         .run_system_once(super::super::init_gpu_timestamps)

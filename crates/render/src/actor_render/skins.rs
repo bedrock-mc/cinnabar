@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::actor::ActorSkinResidency;
+use render_model::ActorSkinResidency;
 use render_model::SKIN_CLASS_SIDES;
 
 struct GpuSkinClass {

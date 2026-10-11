@@ -170,7 +170,7 @@ fn bind_ability_fixture(app: &mut App) {
 
 fn prepare_ability_control_fixture(app: &mut App) {
     app.init_resource::<client_runtime::publication::PublicationController>()
-        .init_resource::<render::ChunkUploadAcknowledgements>()
+        .init_resource::<render_scene::ChunkUploadAcknowledgements>()
         .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
         .init_resource::<client_interaction::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(

@@ -32,13 +32,13 @@ use bevy::{
 use chunk_pipeline::PresentationSnapshot;
 #[cfg(feature = "acceptance")]
 use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
-use render::{
+use render_scene::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWorkloadMetrics, RuntimeStage,
     RuntimeStageProfiler, TransparentSortMetrics, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
 #[cfg(feature = "acceptance")]
-use render::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
+use render_scene::{ModelWitnessEvidence, RenderViewCohort, TransparentWitnessEvidence};
 use world::SubChunkKey;
 
 mod visibility_snapshot;

@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{AtmosphereFrame, AtmosphereTextureAssets, WeatherTextureAssets};
 
 /// Numbered sky images filter their encoded channels before the fragment transfer.
 pub(crate) const SKYBOX_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;

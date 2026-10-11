@@ -1,6 +1,5 @@
 //! Pure CPU geometry construction for chunks, liquids, biomes, and clouds.
 
-pub mod bamboo;
 pub mod biome;
 pub mod biome_lattice;
 mod chunk;

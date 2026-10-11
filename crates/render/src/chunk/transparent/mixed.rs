@@ -2,8 +2,10 @@
 //!
 //! Separate GPU encodings remain,
 //! but one phase item emits their combined order with existing pipelines.
+
 use crate::chunk::*;
 use bevy::render::render_resource::CachedRenderPipelineId;
+use render_scene::{ChunkRenderInstance, ChunkTextureAssetIdentity, ChunkTextureAssets};
 
 mod command;
 mod plan;

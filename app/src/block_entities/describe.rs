@@ -5,7 +5,7 @@ use assets::{
 };
 use std::sync::Arc;
 
-use render::{
+use render_model::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
     ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing,
     ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, MAX_BANNER_LAYERS, Oxidation, ShulkerModel,

@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use render::{ActorArtworkLocation, ActorRigSubmission};
 use render_model::EntityRigId;
+use render_model::{ActorArtworkLocation, ActorRigSubmission};
 
 /// Source catalog, geometry, and selected image identify one attachable raster.
 pub(super) type AttachableMeshKey = (bool, u32, u32);
@@ -81,7 +81,7 @@ pub struct EquipmentPresentation {
 pub struct FirstPersonItem {
     pub presentation: EquipmentPresentation,
     pub camera_space: bool,
-    pub alpha_mode: render::HandItemAlphaMode,
+    pub alpha_mode: render_model::HandItemAlphaMode,
     /// Camera from item space under Java's hand stack; the item's bones then sit at rest.
     pub java_camera: Option<bevy::math::Mat4>,
     /// Java's sprite-depth normal in this rig frame, used for legacy normal rescaling.

@@ -1,6 +1,8 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+
 use std::sync::Arc;
+use {render_model::ItemMeshVertex, render_scene::DroppedItemScene};
 
 /// Initializes item resources on the CPU-only backend for deterministic preparation tests.
 fn item_world() -> World {
@@ -25,10 +27,10 @@ fn hidden_item_catalog_is_prepared_before_visibility() {
         height: 1,
         rgba8: Arc::from([255; 4]),
     });
-    let hidden = crate::dropped_item::TerrainItemInstance {
-        instance: crate::dropped_item::DroppedItemInstance {
+    let hidden = render_model::TerrainItemInstance {
+        instance: render_model::DroppedItemInstance {
             model: 0,
-            world_from_item: crate::dropped_item::dropped_item_transform([0.0; 3], 0.0, 1.0),
+            world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
             block_level: 15,
             sky_level: 15,
             overlay_rgba8: 0,

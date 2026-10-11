@@ -1,5 +1,6 @@
 use super::*;
 use bevy::render::{renderer::RenderContext, view::ViewTarget};
+use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
 type HandViewQuery = (
     &'static MainEntity,
     &'static ExtractedView,
@@ -74,7 +75,7 @@ pub(crate) fn hand_view(
         }),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuHand,
+            render_scene::RuntimeStage::GpuHand,
         ),
         occlusion_query_set: None,
         multiview_mask: None,
