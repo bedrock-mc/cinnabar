@@ -189,44 +189,21 @@ pub(super) fn layer_needs_pose_sampling(
     Ok(false)
 }
 
-/// Checks channel reads within the frame work budget after render-controller writes.
+/// Compares cached authored inputs within the frame work budget, independent of keyframe count.
 fn clip_inputs_changed(
     evaluator: &evaluation::Evaluator<'_>,
     clip: usize,
     inputs: &LayerInputs<'_>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<bool, EvalError> {
-    let assets = evaluator.assets;
-    let clip = &assets.animation_clips()[clip];
-    let first = clip.first_channel as usize;
-    for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
+    for &symbol in evaluator.layout.clip_reads(clip) {
         budget.charge_work()?;
-        let first = channel.first_keyframe as usize;
-        for keyframe in
-            &assets.animation_keyframes()[first..first + channel.keyframe_count as usize]
+        if (inputs.presentation_changed && camera_symbol(evaluator.assets, symbol, false))
+            || inputs
+                .variables
+                .read_changed(inputs.completed, evaluator.layout, symbol)
         {
-            budget.charge_work()?;
-            for &expression in keyframe.expressions.iter().flatten() {
-                let expression = &assets.molang_expressions()[expression as usize];
-                let first = expression.first_op as usize;
-                for op in &assets.molang_ops()[first..first + usize::from(expression.op_count)] {
-                    budget.charge_work()?;
-                    if inputs.presentation_changed && camera_op(assets, op, false) {
-                        return Ok(true);
-                    }
-                    let symbol = match op {
-                        MolangOp::LoadVariable(symbol) => *symbol,
-                        MolangOp::Coalesce(branch) => branch.symbol,
-                        _ => continue,
-                    };
-                    if inputs
-                        .variables
-                        .read_changed(inputs.completed, evaluator.layout, symbol)
-                    {
-                        return Ok(true);
-                    }
-                }
-            }
+            return Ok(true);
         }
     }
     Ok(false)
@@ -307,6 +284,11 @@ fn camera_op(assets: &RuntimeEntityAssets, op: &MolangOp, swing: bool) -> bool {
         MolangOp::CallQuery(call) if !swing => call.symbol,
         _ => return false,
     };
+    camera_symbol(assets, symbol, swing)
+}
+
+/// Identifies a cached presentation read without revisiting its instruction stream.
+fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bool) -> bool {
     assets
         .molang_symbols()
         .get(symbol as usize)
