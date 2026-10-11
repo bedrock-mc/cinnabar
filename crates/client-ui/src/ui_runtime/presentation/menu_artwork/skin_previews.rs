@@ -1,12 +1,12 @@
 //! Immutable gallery thumbnails prepared on the artwork worker.
 
 use super::{ArtworkSet, UiPresentationRuntime};
-use crate::menu::{MenuScreen, MenuView};
+use launcher::menu::{MenuScreen, MenuView};
 
 #[derive(Clone)]
 pub(in super::super) struct SkinArtwork {
     pub(super) key: String,
-    pub(super) skin: protocol::StandardSkin,
+    pub(super) skin: render_api::StandardSkin,
 }
 
 impl SkinArtwork {
@@ -155,8 +155,11 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 mod tests {
     use super::super::{DecodeCache, Source, sources};
-    use super::*;
     use launcher::dressing_room::{DressingRoomSkin, DressingRoomView};
+    use {
+        super::*,
+        launcher::menu::{MenuScreen, MenuView},
+    };
 
     #[test]
     fn unchanged_gallery_artwork_sync_allocates_nothing() {
@@ -164,17 +167,17 @@ mod tests {
         let mut presentation =
             UiPresentationRuntime::new(super::super::super::tests::fixture_font())
                 .expect("diagnostic presentation");
-        let cape = protocol::CapeImage {
-            width: protocol::CAPE_DIMENSIONS[0].0,
-            height: protocol::CAPE_DIMENSIONS[0].1,
+        let cape = render_api::CapeImage {
+            width: render_api::CAPE_DIMENSIONS[0].0,
+            height: render_api::CAPE_DIMENSIONS[0].1,
             rgba8: vec![
                 255;
-                (protocol::CAPE_DIMENSIONS[0].0 * protocol::CAPE_DIMENSIONS[0].1 * 4)
+                (render_api::CAPE_DIMENSIONS[0].0 * render_api::CAPE_DIMENSIONS[0].1 * 4)
                     as usize
             ]
             .into(),
         };
-        let skin = protocol::StandardSkin {
+        let skin = render_api::StandardSkin {
             width: 64,
             height: 64,
             rgba8: vec![255; 64 * 64 * 4].into(),
@@ -186,7 +189,7 @@ mod tests {
         view.player_skin = Some(skin.clone());
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: vec![DressingRoomSkin {
-                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+                engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: "skin".into(),
                 name: "Skin".into(),
                 path: String::new(),
@@ -227,7 +230,7 @@ mod tests {
         let mut presentation =
             UiPresentationRuntime::new(super::super::super::tests::fixture_font())
                 .expect("diagnostic presentation");
-        let source = protocol::StandardSkin {
+        let source = render_api::StandardSkin {
             width: 64,
             height: 64,
             rgba8: vec![255; 64 * 64 * 4].into(),
@@ -239,7 +242,7 @@ mod tests {
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: (0..100)
                 .map(|index| DressingRoomSkin {
-                    engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+                    engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                     id: format!("skin-{index}"),
                     name: format!("Skin {index}"),
                     skin: source.clone(),
@@ -269,7 +272,7 @@ mod tests {
     fn unchanged_skin_gallery_reuses_decoded_thumbnails() {
         let source = SkinArtwork {
             key: thumbnail_key("fixture"),
-            skin: protocol::StandardSkin {
+            skin: render_api::StandardSkin {
                 width: 64,
                 height: 64,
                 rgba8: vec![255; 64 * 64 * 4].into(),
@@ -291,7 +294,14 @@ mod tests {
             .values()
             .next()
             .expect("skin raster is cached");
-        assert!(artwork.pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(
+            artwork
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] > 0)
+        );
         let mut changed = set.clone();
         changed.skins[0].skin.rgba8 = vec![100; 64 * 64 * 4].into();
         assert!(!set.same(&changed));
@@ -307,13 +317,13 @@ mod tests {
         view.screen = MenuScreen::DressingRoom;
         view.dressing_room = std::sync::Arc::new(DressingRoomView {
             skins: vec![DressingRoomSkin {
-                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+                engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: "restored".into(),
                 name: "Skin".into(),
                 path: String::new(),
                 imported: true,
                 model: launcher::dressing_room::SkinModel::Classic,
-                skin: protocol::StandardSkin {
+                skin: render_api::StandardSkin {
                     width: 64,
                     height: 64,
                     rgba8: vec![255; 64 * 64 * 4].into(),
@@ -340,7 +350,7 @@ mod tests {
 
     #[test]
     fn replacing_a_skin_thumbnail_cape_invalidates_its_cached_artwork() {
-        let skin = protocol::StandardSkin {
+        let skin = render_api::StandardSkin {
             width: 64,
             height: 64,
             rgba8: vec![255; 64 * 64 * 4].into(),
@@ -352,8 +362,8 @@ mod tests {
             skin,
         };
         let mut caped = bare.clone();
-        let (width, height) = protocol::CAPE_DIMENSIONS[0];
-        caped.skin.cape = Some(protocol::CapeImage {
+        let (width, height) = render_api::CAPE_DIMENSIONS[0];
+        caped.skin.cape = Some(render_api::CapeImage {
             width,
             height,
             rgba8: [17, 229, 61, 255].repeat((width * height) as usize).into(),

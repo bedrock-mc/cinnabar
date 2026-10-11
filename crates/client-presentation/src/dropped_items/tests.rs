@@ -21,6 +21,8 @@ fn falling_blocks_keep_non_cube_world_geometry_and_cube_controls() {
     )
     .unwrap();
     let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
     for name in ["minecraft:dragon_egg", "minecraft:sand", "minecraft:gravel"] {
         let id = records
             .iter()

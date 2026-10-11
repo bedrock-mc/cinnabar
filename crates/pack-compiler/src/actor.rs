@@ -256,7 +256,7 @@ fn decode_raster(
     // discards alpha below 0.5. Baking coverage keeps the binary carrier contract without
     // rejecting the whole model over the crystal raster's eight alpha-127 texels.
     if crystal {
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel[3] = if pixel[3] >= 128 { 255 } else { 0 };
         }
     }
@@ -264,11 +264,13 @@ fn decode_raster(
     // or a lenient server-pack build, retains every alpha byte instead of quantizing it.
     if let Some(sampled) = binary_alpha
         && !pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|pixel| matches!(pixel[3], 0 | 255))
     {
         let sampled = sampled(width, height)?;
-        for (pixel, sampled) in pixels.chunks_exact_mut(4).zip(sampled) {
+        for (pixel, sampled) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(sampled) {
             if !matches!(pixel[3], 0 | 255) {
                 if sampled {
                     return None;

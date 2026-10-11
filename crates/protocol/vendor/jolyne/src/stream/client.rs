@@ -2787,6 +2787,19 @@ fn select_resource_pack_stack(
 // --- State: StartGame ---
 
 impl<T: Transport> BedrockStream<StartGame, Client, T> {
+    /// Resumes at StartGame for a session whose login and pack negotiation the core completed.
+    /// The transport carries neither compression nor encryption.
+    pub fn from_session_handoff(
+        transport: BedrockTransport<T>,
+        handoff: ResourcePackHandoff,
+    ) -> Self {
+        Self {
+            transport,
+            state: StartGame::with_resource_pack_handoff(handoff),
+            _role: PhantomData,
+        }
+    }
+
     /// Awaits the start game sequence and captures all game data packets.
     ///
     /// Once ResourcePacksInfo has arrived the connection sequence does not time out;

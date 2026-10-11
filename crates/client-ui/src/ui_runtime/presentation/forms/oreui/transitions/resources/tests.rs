@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::global_resources::Snapshot};
 
 fn pack() -> InstalledPack {
     InstalledPack {

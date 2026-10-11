@@ -37,7 +37,9 @@ pub fn cube_mesh(
     // Six vertices per face, in face order.
     Some(
         vertices
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .zip(layers.into_iter().zip(colors))
             .flat_map(|(face, (layer, color))| {
                 face.iter().map(move |vertex| paint(vertex, layer, color))
@@ -99,7 +101,7 @@ pub fn native_dropped_sprite_mesh(
     let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
     // Native tessellation excludes alpha 0 and 1; retain the original texture for sampling.
     let mut mask = rgba8.to_vec();
-    for pixel in mask.chunks_exact_mut(4) {
+    for pixel in mask.as_chunks_mut::<4>().0 {
         if pixel[3] < 2 {
             pixel[3] = 0;
         }

@@ -44,7 +44,7 @@ mod settings;
 #[cfg(test)]
 mod settings_tests;
 mod sidebar;
-use crate::oreui_theme as theme;
+use ui::oreui_theme as theme;
 mod transitions;
 mod widgets;
 mod world_settings;
@@ -69,8 +69,6 @@ pub(super) struct CharacterPreview {
 
 #[cfg(test)]
 use super::super::{TextMetrics, UiPresentationRuntime};
-#[cfg(test)]
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// Which look OreUI screens draw with.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

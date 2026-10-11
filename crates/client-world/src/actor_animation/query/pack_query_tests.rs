@@ -1,5 +1,5 @@
-use super::*;
 use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f32 {
     let actor = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
@@ -17,7 +17,7 @@ fn read_actor(
         position: [1.0, 2.0, 3.0],
         ..ActorTickInput::default()
     };
-    query(
+    named_query(
         &QueryInputs {
             actor,
             input: &input,
@@ -196,8 +196,11 @@ fn trade_tier_queries_read_their_own_metadata_keys() {
         bones: &[],
         bone_names: &[],
     };
-    assert_eq!(query(&inputs, "query.trade_tier", &[]).number(), 3.0);
-    assert_eq!(query(&inputs, "query.max_trade_tier", &[]).number(), 7.0);
+    assert_eq!(named_query(&inputs, "query.trade_tier", &[]).number(), 3.0);
+    assert_eq!(
+        named_query(&inputs, "query.max_trade_tier", &[]).number(),
+        7.0
+    );
 }
 
 #[test]

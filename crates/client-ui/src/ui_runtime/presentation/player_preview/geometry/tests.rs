@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn skin(side: u16) -> IconRef {
     IconRef {
@@ -389,7 +389,9 @@ fn fancy_entity_material_keeps_float_directional_lighting_separate_from_tint() {
     .expect("fancy player model");
     // Each source cuboid has six faces, in east/front/west/back/top/bottom order.
     for (face, expected) in model.vertices()[..36]
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .zip([0.625, 0.825, 0.625, 0.825, 1.0, 0.45])
     {
         for vertex in face {

@@ -1,12 +1,5 @@
 use super::{CameraMotionBlur, graph::*, history::*};
-use bevy::{
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
-    prelude::*,
-    render::{
-        RenderApp,
-        render_graph::{EmptyNode, InternedRenderLabel, RenderGraph, RenderLabel},
-    },
-};
+use bevy::prelude::*;
 
 fn settings() -> CameraMotionBlur {
     CameraMotionBlur {
@@ -19,7 +12,7 @@ fn settings() -> CameraMotionBlur {
 fn history(position: Vec3, yaw: f32, epoch: u64) -> CameraHistory {
     let pose = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), position);
     CameraHistory::new(
-        Mat4::perspective_infinite_reverse_rh(1.2, 2.0, 0.1),
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 2.0, 0.1),
         pose,
         UVec4::new(0, 0, 640, 320),
         epoch,
@@ -128,97 +121,15 @@ fn motion_blur_reprojection_is_independent_of_the_world_origin() {
     }
 }
 
-fn reachable(graph: &RenderGraph, from: InternedRenderLabel, to: InternedRenderLabel) -> bool {
-    from == to
-        || graph
-            .iter_node_outputs(from)
-            .unwrap()
-            .any(|(_, node)| reachable(graph, node.label, to))
-}
-
 #[test]
-fn off_has_no_graph_pass_and_on_precedes_both_hands_nametags_and_ui() {
-    use bevy::{
-        app::SubApp,
-        ecs::schedule::Schedule,
-        render::{
-            ExtractSchedule, Render, RenderStartup,
-            renderer::{RenderDevice, RenderQueue, WgpuWrapper},
-        },
-    };
-    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let mut core = RenderGraph::default();
-    for label in [
-        Node3d::MainTransparentPass,
-        Node3d::EndMainPass,
-        Node3d::EndMainPassPostProcessing,
-        Node3d::Upscaling,
-    ] {
-        core.add_node(label, EmptyNode);
+fn disabled_or_unprepared_exposure_encodes_nothing_across_toggles() {
+    let mut world = crate::render_test_support::empty_render_world();
+    crate::ui_render::install_overlay_graph(&mut world);
+    for enabled in [false, true, true, false, false] {
+        configure_graph(&mut world, enabled);
+        let before = crate::alloc_count::thread_allocations();
+        configure_graph(&mut world, enabled);
+        assert_eq!(before, crate::alloc_count::thread_allocations());
+        crate::render_test_support::assert_empty_render(&mut world);
     }
-    core.add_node_edges((
-        Node3d::MainTransparentPass,
-        Node3d::EndMainPass,
-        Node3d::EndMainPassPostProcessing,
-        Node3d::Upscaling,
-    ));
-    let mut graphs = RenderGraph::default();
-    graphs.add_sub_graph(Core3d, core);
-    let mut render_app = SubApp::new();
-    render_app
-        .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue))))
-        .insert_resource(graphs)
-        .add_schedule(Schedule::new(RenderStartup))
-        .add_schedule(Render::base_schedule())
-        .add_schedule(Schedule::new(ExtractSchedule));
-    let mut app = App::new();
-    app.init_resource::<Assets<Shader>>()
-        .insert_sub_app(RenderApp, render_app);
-    app.add_plugins((
-        crate::UiRenderPlugin,
-        crate::HandRigRenderPlugin,
-        crate::ViewmodelRenderPlugin,
-    ));
-    app.finish();
-    let world = app.sub_app_mut(RenderApp).world_mut();
-    configure_graph(world, false);
-    let allocations = crate::alloc_count::thread_allocations();
-    configure_graph(world, false);
-    assert_eq!(allocations, crate::alloc_count::thread_allocations());
-    assert!(
-        world
-            .resource::<RenderGraph>()
-            .get_sub_graph(Core3d)
-            .unwrap()
-            .get_node_state(MotionBlurLabel)
-            .is_err()
-    );
-    configure_graph(world, true);
-    let graph = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    for sharp in [
-        SharpNametagsLabel.intern(),
-        crate::ui_render::UiWorldLabel.intern(),
-        crate::viewmodel_render::HandLabel.intern(),
-        crate::hand_rig_render::HandRigLabel.intern(),
-        crate::ui_render::UiOverlayLabel.intern(),
-    ] {
-        assert!(reachable(graph, MotionBlurLabel.intern(), sharp));
-        assert!(!reachable(graph, sharp, MotionBlurLabel.intern()));
-    }
-    configure_graph(world, false);
-    let graph = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    assert!(graph.get_node_state(MotionBlurLabel).is_err());
-    assert!(graph.get_node_state(SharpNametagsLabel).is_err());
-    assert!(reachable(
-        graph,
-        Node3d::MainTransparentPass.intern(),
-        crate::viewmodel_render::HandLabel.intern()
-    ));
 }

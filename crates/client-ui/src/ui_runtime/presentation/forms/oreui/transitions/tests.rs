@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::menu::MenuAction};
 
 #[test]
 fn server_glimmer_changes_only_with_selection_and_obeys_the_motion_setting() {

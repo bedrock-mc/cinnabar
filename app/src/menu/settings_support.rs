@@ -1,6 +1,6 @@
 //! Host support-link actions.
-use super::{MenuDialog, MenuRuntime};
-pub(crate) use launcher::menu::settings_support::*;
+use launcher::menu::settings_support::*;
+use {super::MenuRuntime, launcher::menu::MenuDialog};
 
 impl MenuRuntime {
     /// Opens the authored confirmation or launches its fixed browser destination.
@@ -11,7 +11,7 @@ impl MenuRuntime {
             }
             SupportAction::Open(link) => {
                 self.dialog = None;
-                crate::desktop::open_url(link.url());
+                launcher_host::desktop::open_url(link.url());
             }
         }
     }

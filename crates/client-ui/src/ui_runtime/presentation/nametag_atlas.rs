@@ -519,7 +519,13 @@ mod tests {
                 } else {
                     [0; 4]
                 };
-                assert!(pixels.chunks_exact(4).all(|pixel| pixel == expected));
+                assert!(
+                    pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .all(|pixel| *pixel == expected)
+                );
             }
         }
     }
@@ -553,8 +559,9 @@ mod tests {
         assert!(
             first[0]
                 .rgba8
-                .chunks_exact(4)
-                .any(|pixel| pixel == [0, 170, 0, 255])
+                .as_chunks::<4>()
+                .0
+                .contains(&[0, 170, 0, 255])
         );
         atlas.set_palette(ui::FormattingPalette::from_globals(|name| {
             (name == "$2_color_format").then_some([0.976, 0.859, 0.427])
@@ -564,8 +571,9 @@ mod tests {
         assert!(
             changed[0]
                 .rgba8
-                .chunks_exact(4)
-                .any(|pixel| pixel == [249, 219, 109, 255])
+                .as_chunks::<4>()
+                .0
+                .contains(&[249, 219, 109, 255])
         );
         assert_ne!(first[0].rgba8, changed[0].rgba8);
     }

@@ -8,7 +8,20 @@ use crate::{
     server_position::resolve_server_position,
 };
 use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets};
-use protocol::*;
+use protocol::{
+    ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
+    ChangeDimensionEvent, CustomBlocks, DaylightCycleUpdateEvent, DimensionHeightDiagnostic,
+    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, PlayerMovementCorrectionEvent,
+    PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, vanilla_dimension_range,
+};
+#[cfg(test)]
+use protocol::{
+    ActorAttributesUpdateEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorSpawnEvent, CustomBlock, CustomBlockVisuals, CustomSelection,
+    CustomStateAxis, CustomStateValue, HASHED_AIR_NETWORK_ID, PrimitiveShapeChange,
+    SEQUENTIAL_AIR_NETWORK_ID,
+};
 use std::{
     collections::BTreeSet,
     collections::VecDeque,
@@ -52,7 +65,9 @@ pub use contracts::{
     CommittedUiEvent, PublisherViewGeometry, ViewCohort,
 };
 pub use map_data::MapImage;
-pub use movement_attribute::AIR_DRAG_MODIFIER_ATTRIBUTE;
+pub use movement_attribute::{
+    AIR_DRAG_MODIFIER_ATTRIBUTE, MovementSpeedAttribute, SPRINT_SPEED_MODIFIER_ID,
+};
 pub use sign_edit::SignEditRequest;
 
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
@@ -77,6 +92,7 @@ pub struct WorldAuthority {
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
     custom_block_identities: Arc<std::collections::HashMap<u32, u32>>,
+    block_names: block_identities::BlockNames,
     id_remap: Arc<assets::SequentialIdRemap>,
     decode_diagnostics: Arc<crate::ingestion::DecodeDiagnostics>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
@@ -120,12 +136,12 @@ impl WorldAuthority {
                 .expect("validated runtime biome assets resolve without live definitions"),
         );
         let biome_tint_stream_id = NEXT_BIOME_TINT_STREAM_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .expect("biome tint stream identity space exhausted");
         let actor_session_id = NEXT_ACTOR_SESSION_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .expect("actor session identity space exhausted");
@@ -156,6 +172,7 @@ impl WorldAuthority {
             runtime_assets,
             custom_block_ids: 0..0,
             custom_block_identities: Arc::default(),
+            block_names: block_identities::BlockNames::new(network_id_mode),
             id_remap: Arc::default(),
             decode_diagnostics: Arc::default(),
             biome_definitions: Arc::from([]),

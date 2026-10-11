@@ -10,11 +10,12 @@ permissions:
 
 jobs:
   label:
+    if: github.event.action != 'edited' || github.event.changes.title != null
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       # Base-branch code only; the PR's own code is never checked out or run.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: packaging/changelog.py
           sparse-checkout-cone-mode: false

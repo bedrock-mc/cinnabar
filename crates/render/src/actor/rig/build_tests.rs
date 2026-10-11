@@ -414,8 +414,8 @@ fn paged_builds_ask_each_page_once() {
     assert_eq!(asked.get(), keys.len());
 }
 
-/// Steady frames of fresh poses, each posing both endpoints with one allocation, allocate the
-/// same small count however many actors draw: cached matrices reuse released buffers.
+/// Steady frames of fresh poses, each posing both endpoints with one allocation, allocate
+/// within a fixed budget however many actors draw: cached matrices reuse released buffers.
 #[test]
 fn steady_frames_of_fresh_poses_allocate_independently_of_actor_count() {
     let allocations = |actors: u64| {
@@ -438,5 +438,13 @@ fn steady_frames_of_fresh_poses_allocate_independently_of_actor_count() {
         }
         worst
     };
-    assert_eq!(allocations(4), allocations(40));
+    // Four published arrays allocate each frame. The pose map may also rebuild its
+    // table after removals, depending on its randomized buckets and allocator reuse.
+    for actors in [4, 40, 400] {
+        let allocated = allocations(actors);
+        assert!(
+            allocated <= 5,
+            "{allocated} allocations for {actors} actors"
+        );
+    }
 }

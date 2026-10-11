@@ -8,7 +8,7 @@ use crate::ui_runtime::{
 /// Builds an original tiny frame whose source slices overlap across its face.
 fn disabled_frame_pack(inset: u8) -> ServerUiPack {
     let mut pixels = vec![24; 3 * 3 * 4];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
     pixels[4 * 4..5 * 4].copy_from_slice(&[120, 120, 120, 255]);

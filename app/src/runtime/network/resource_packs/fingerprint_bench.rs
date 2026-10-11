@@ -1,4 +1,5 @@
 use super::*;
+use pack_runtime::{compile_cache::set_compile_cache_dir, pack_textures::parse_pack_json};
 use std::io::Cursor;
 
 /// Admits a stored archive with one inert payload for cache-key fixtures.
@@ -47,7 +48,7 @@ fn shared_stack_fingerprint_timing() {
             false,
             || None,
         ));
-        black_box(super::super::entity_pack::compile_session_entities(
+        black_box(pack_runtime::entity_pack::compile_session_entities(
             &fingerprint,
             &view,
             &|| false,
@@ -148,7 +149,7 @@ fn install_join_carriers() {
         super::super::set_base_actor_artwork(artwork, Arc::clone(loaded.entities.runtime()));
     }
     if let Some(dir) = std::env::var_os("CINNABAR_JOIN_VANILLA_PACK") {
-        super::super::entity_pack::set_vanilla_pack_dir(dir.into());
+        pack_runtime::entity_pack::set_vanilla_pack_dir(dir.into());
     }
     if let Some(dir) = std::env::var_os("CINNABAR_JOIN_CACHE") {
         set_compile_cache_dir(dir.into());
@@ -186,7 +187,7 @@ fn join_preparation_timing() {
             kept = reuse::CompiledStacks::new();
         }
         let stack = join_stack(&paths);
-        let inputs = Arc::new(super::super::pack_reload::PackInputs {
+        let inputs = Arc::new(pack_runtime::PackInputs {
             icons: join_icon_keys(&LayeredPackView::new(Arc::clone(&stack))),
             ..Default::default()
         });
@@ -263,7 +264,7 @@ fn join_part_timing() {
         compile_session_glyphs(view);
     });
     time("entities", &|view| {
-        super::super::entity_pack::compile_session_entities(
+        pack_runtime::entity_pack::compile_session_entities(
             &stack_fingerprint(&stack),
             view,
             &|| false,
@@ -276,7 +277,7 @@ fn join_part_timing() {
         collect_server_ui(view);
     });
     time("sounds", &|view| {
-        crate::audio::ServerSoundPack::from_view(view);
+        client_audio::audio::ServerSoundPack::from_view(view);
     });
     time("property_defaults", &|view| {
         super::super::entity_pack::pack_property_defaults(view);

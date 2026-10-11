@@ -33,11 +33,7 @@ pub(crate) fn resolve_socket_dir_from(
     current_candidate
 }
 
-pub(crate) use client_session::connection::bridge_endpoint_exists;
-
-pub(crate) fn bridge_endpoint_path(directory: &Path) -> PathBuf {
-    protocol::bridge_endpoint_path(directory)
-}
+use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
 
 pub(crate) fn preflight_bridge_endpoint(socket_dir: &Path) -> Result<()> {
     if bridge_endpoint_exists(socket_dir) {

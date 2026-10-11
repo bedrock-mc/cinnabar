@@ -38,7 +38,6 @@ pub(in crate::compiler) fn cake_collision_is_exact(record: &RegistryRecord, bite
         6_250_000, 18_750_000, 31_250_000, 43_750_000, 56_250_000, 68_750_000, 81_250_000,
     ];
     bite <= 6
-        && record.collision_seed.shape_id == 89 + bite as u16
         && record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
         && record.collision_seed.boxes.as_ref()
             == [assets::CollisionBox {
@@ -158,11 +157,16 @@ pub(in crate::compiler) fn cake_source_alpha_is_exact(root: &Path, pack: &PackSo
         let Ok(rgba8) = decode_static_texture(&path, key) else {
             return false;
         };
-        rgba8.chunks_exact(4).enumerate().all(|(index, pixel)| {
-            let x = index % assets::TILE_SIZE as usize;
-            let y = index / assets::TILE_SIZE as usize;
-            let inside = x >= bounds[0] && x <= bounds[2] && y >= bounds[1] && y <= bounds[3];
-            pixel[3] == if inside { u8::MAX } else { 0 }
-        })
+        rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+            .all(|(index, pixel)| {
+                let x = index % assets::TILE_SIZE as usize;
+                let y = index / assets::TILE_SIZE as usize;
+                let inside = x >= bounds[0] && x <= bounds[2] && y >= bounds[1] && y <= bounds[3];
+                pixel[3] == if inside { u8::MAX } else { 0 }
+            })
     })
 }

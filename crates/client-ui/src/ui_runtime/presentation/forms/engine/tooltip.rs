@@ -8,7 +8,10 @@ use serde_json::Value;
 use ui::{TextShadow, UiVisual};
 
 use super::text_paint::{UNWRAPPED_LOGICAL, width_64};
-use super::{FONT_DESIGN_PIXEL_TEXELS, Painter, UiPresentationError};
+use {
+    super::{Painter, UiPresentationError},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 pub(super) const RENDERER: &str = "hover_text_renderer";
 pub(super) const BACKGROUND_TEXTURE: &str = "textures/ui/purpleBorder";
@@ -19,7 +22,7 @@ const BOX_EXTRA: f32 = 8.0;
 const WIDTH_EXTRA: f32 = 1.0;
 const TEXT_OFFSET: f32 = 5.0;
 // Wrapped line pitch is the default font scale × 10.
-const TEXT_PITCH: u32 = 10;
+pub(super) const TEXT_PITCH: u32 = 10;
 
 /// Current update takes a minimum first-line height, then adds wrap pitch for
 /// each newline. Keep that rule even though the default bitmap metrics choose

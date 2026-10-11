@@ -16,6 +16,8 @@ const MAX_LINES: usize = 256;
 struct State {
     contents: HashSet<(Option<i32>, Option<u8>, usize, usize)>,
     equipment: HashSet<(u64, bool, Option<EquipmentOutcome>)>,
+    recipe_skips: u64,
+    recipe_skip_lines: usize,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -59,8 +61,25 @@ pub(super) fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
     );
 }
 
-/// Logs each distinct inventory content shape: window, slot count, non-empty count.
+/// Logs bounded station recipe skips and distinct inventory content shapes.
 pub(super) fn inventory(event: &InventoryEvent) {
+    if let InventoryEvent::Recipes(update) = event {
+        let skipped = update.skipped_screen_recipes();
+        if skipped > 0 {
+            with_state(|state| {
+                state.recipe_skips = state.recipe_skips.saturating_add(skipped as u64);
+                if state.recipe_skip_lines < MAX_LINES {
+                    info!(
+                        skipped,
+                        total = state.recipe_skips,
+                        "station recipes skipped: unsupported inputs or output"
+                    );
+                    state.recipe_skip_lines += 1;
+                }
+            });
+        }
+        return;
+    }
     let InventoryEvent::Content(content) = event else {
         return;
     };

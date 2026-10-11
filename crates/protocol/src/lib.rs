@@ -16,7 +16,6 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
-pub mod launcher_control;
 mod login;
 mod movement;
 mod nbt_tree;
@@ -29,16 +28,14 @@ mod respawn;
 mod settings;
 mod skin_change;
 pub use skin_change::{
-    DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION, cape_content_id, player_skin_packet,
-    set_skin_packet_engine_version, set_skin_packet_uuid,
+    cape_content_id, player_skin_packet, set_skin_packet_engine_version, set_skin_packet_uuid,
 };
-mod socket_transport;
-pub mod store_control;
+mod session_transport;
+pub mod session_wire;
 mod transfer;
 mod translation_parameter;
 mod ui;
 mod world;
-pub mod world_control;
 
 pub use experience::{
     EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
@@ -56,16 +53,12 @@ pub use actor::{
     ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage,
-    ITEM_ACTOR_NETWORK_OFFSET, MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_IDENTIFIERS, MAX_ACTOR_LINKS_PER_SPAWN,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
-    MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS,
-    MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,
-    MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    PlayerSkinUnavailable, SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8,
-    StandardSkin, expand_legacy_skin_rgba8, normalize_classic_skin_rgba8,
-    normalize_custom_skin_rgba8,
+    ActorStatusKind, ActorTakeItemEvent, ITEM_ACTOR_NETWORK_OFFSET, MAX_ACTOR_ATTRIBUTE_MODIFIERS,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_IDENTIFIERS,
+    MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
+    MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES, PlayerListEntry, PlayerListUpdateEvent,
+    PlayerSkin, PlayerSkinUnavailable, normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -165,20 +158,17 @@ pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming, ItemBook,
     ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
-    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
-    item_charged_projectile, item_components, item_custom_color, item_display,
+    ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, KineticWeaponTiming,
+    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
+    MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book,
+    item_bundle_id, item_charged_projectile, item_components, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
     item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
 pub use jolyne::stream::client::{ClientCape, ClientSkin, ClientSkinGeometry};
-pub use jolyne::stream::{
-    ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
-    ResourcePackStore,
-};
+pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
@@ -189,7 +179,8 @@ pub mod wire {
     pub use valentine;
 }
 pub use login::{
-    LoginSequence, PacketIdTraceSnapshot, PlayOutbound, PlaySession, network_stack_latency_reply,
+    ClientRandomId, LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -217,8 +208,8 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
+pub use session_transport::{SessionTransport, report_pack_application};
 pub use settings::request_chunk_radius_packet;
-pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;
 pub use ui::{
@@ -269,3 +260,6 @@ pub use movement_transport::{BatchSendError, InteractionPacketGuard, PhysicsSend
 
 mod fast_transfer_action;
 pub use fast_transfer_action::FastTransferAction;
+
+#[cfg(test)]
+mod test_allocations;

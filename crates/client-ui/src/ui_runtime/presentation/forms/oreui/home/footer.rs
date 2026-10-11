@@ -1,7 +1,11 @@
 use super::super::icons::{self, Icon};
 use super::super::theme::SECONDARY_BUTTON;
-use super::*;
-use crate::menu::auth::AuthState;
+use launcher::menu::auth::AuthState;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+    ui::IconRef,
+};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

@@ -27,10 +27,10 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `store_balance.v1` | none | `balances: [{currency, amount}]` |
 | `store_entitlements.v1` | `offset?`, `limit?` (<=800), `refresh?` (first window: ask the service to refresh the inventory) | `owned` ids, `total`, `offset`; advance `offset` by `len(owned)` |
 | `store_row_more.v1` | `continuation` (a row's `continuation`) | `offers`, `continuation?` |
-| `store_image.v1` | `url` (https) | `image: {path, content_type}`; the core caches PNG/JPEG/GIF/BMP under `store-images/` beside the auth cache (bounded, public addresses only) |
 | `store_purchase.v1` | `purchase_id`, `offer_id`, `store_id?`, `currency`, `amount`, `unit_duration_seconds?`, `confirmed` | `status`, `http_status`, `marketplace_error_code`, `correlation_id`, `replayed?` |
 
-Artwork fields are `{url, path?}`: an HTTPS URL plus the core's bounded cached copy. Realms also
+Artwork fields are `{url, path?}`: an HTTPS URL the client downloads and caches; `path` is set only
+for persona art the core renders. Realms also
 carry `owner`, `motd`, `world_type`, `online_players`, `max_players`, `days_left`, `expired`, `member`.
 Feed sources: `docs/menus-services.md`.
 

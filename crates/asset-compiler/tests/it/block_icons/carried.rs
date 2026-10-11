@@ -89,7 +89,14 @@ fn carried_overlay_grass_generates_a_visible_inventory_icon() {
     let sprite = catalog
         .lookup("minecraft:grass_block", 0)
         .expect("carried overlay grass must not disappear");
-    assert!(sprite.rgba8.chunks_exact(4).any(|pixel| pixel[3] == 255));
+    assert!(
+        sprite
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] == 255)
+    );
 }
 
 fn sheet_pixel(sheet: &IconSprite, face: BlockFace, x: usize, y: usize) -> &[u8] {
@@ -169,7 +176,14 @@ fn carried_overlay_sheet_masks_tint_without_coloring_or_hiding_soil() {
         &[110, 70, 35, 255]
     );
     assert_eq!(sheet_pixel(sheet, BlockFace::Up, 0, 0), &[30, 140, 20, 255]);
-    assert!(sheet.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
+    assert!(
+        sheet
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255)
+    );
     assert_eq!(
         compiled.bytes,
         encode_icon_catalog_with_block_sheets(
@@ -389,10 +403,18 @@ fn native_cube_sheets_follow_shape_and_preserve_carried_alpha() {
         if pixel[3] < 255 {
             assert!(
                 icon.rgba8
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|pixel| pixel[3] > 0 && pixel[3] < 255)
             );
-            assert!(icon.rgba8.chunks_exact(4).all(|pixel| pixel[3] < 255));
+            assert!(
+                icon.rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[3] < 255)
+            );
         }
     }
 }

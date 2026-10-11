@@ -159,13 +159,15 @@ fn real_block_routes_compile_decode_lookup_preserving_original_sprites_and_alias
         assert_eq!(catalog.lookup_index(name, 99), Some(index));
         let sprite = &catalog.sprites()[index as usize];
         assert_eq!((sprite.width, sprite.height), (16, 16));
-        assert!(sprite.rgba8.chunks_exact(4).any(|p| p[3] == 0));
-        assert!(sprite.rgba8.chunks_exact(4).any(|p| p[3] == 255));
+        assert!(sprite.rgba8.as_chunks::<4>().0.iter().any(|p| p[3] == 0));
+        assert!(sprite.rgba8.as_chunks::<4>().0.iter().any(|p| p[3] == 255));
         for red in [130, 90, 40] {
             assert!(
                 sprite
                     .rgba8
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .any(|pixel| pixel[0] == red && pixel[3] == 255),
                 "top, south, and west must retain their distinct checked face pixels"
             );
@@ -409,7 +411,14 @@ fn pinned_block_items_resolve_icons_when_requested() {
         .unwrap();
     let sprite = &catalog.sprites()[binding.sprite as usize];
     assert_eq!([sprite.width, sprite.height], BLOCK_ITEM_SHEET_SIZE);
-    assert!(sprite.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
+    assert!(
+        sprite
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255)
+    );
     let entity = compile_entity_assets(&pack, MANIFEST).unwrap();
     for name in [
         "black_wool",

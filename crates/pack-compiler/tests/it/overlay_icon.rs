@@ -59,7 +59,12 @@ fn geometry_blocks_without_ambient_occlusion_get_thumbnails() {
         let sprite = pack_compiler::overlay_block_icon(&geometry_block(flags), 0)
             .unwrap_or_else(|| panic!("no thumbnail for material flags {flags:#x}"));
         assert!(
-            sprite.rgba8.chunks_exact(4).any(|pixel| pixel[3] != 0),
+            sprite
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0),
             "flags {flags:#x} drew nothing"
         );
     }

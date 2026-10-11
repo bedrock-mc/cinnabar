@@ -10,3 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 mod-api = { path = "../../../crates/mod-api" }
+
+[lints]
+workspace = true

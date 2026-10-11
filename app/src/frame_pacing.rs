@@ -94,7 +94,7 @@ impl FramePacingRuntime {
 pub(crate) fn update_frame_pacing(
     mut runtime: ResMut<FramePacingRuntime>,
     presentation: Res<PresentModeRuntime>,
-    settings: Res<crate::settings_runtime::RuntimeSettings>,
+    settings: Res<client_state::RuntimeSettings>,
     display: Res<DisplayRefresh>,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut occlusion: MessageReader<WindowOccluded>,

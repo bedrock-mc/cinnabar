@@ -4,13 +4,11 @@ use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 
 use super::{CompileEnvironment, CompiledStacks, compile_reusing};
-use crate::runtime::network::{
-    pack_reload::PackInputs,
-    resource_packs::{
-        JoinBases, PackApplication, prepare_join_with,
-        tests::{every_input, every_subscriber_archive, overlay_cache, summary},
-    },
+use crate::runtime::network::resource_packs::{
+    JoinBases, PackApplication, prepare_join_with,
+    tests::{every_input, every_subscriber_archive, overlay_cache, summary},
 };
+use pack_runtime::PackInputs;
 
 /// A copy of `archive`, as a later join receives its own bytes for the same pack.
 fn copy(archive: &ResourcePackArchive) -> ResourcePackArchive {
@@ -42,8 +40,8 @@ fn game_data() -> protocol::GameData {
 fn preparation(
     archive: &ResourcePackArchive,
     game_data: &protocol::GameData,
-) -> client_session::PackPreparation {
-    client_session::prepare_session_packs(
+) -> pack_runtime::PackPreparation {
+    pack_runtime::prepare_session_packs(
         ResourcePackHandoff::from_archives(vec![copy(archive)]),
         game_data,
         u64::MAX,
@@ -377,7 +375,7 @@ fn the_post_join_reload_publishes_the_join_outputs() {
     use crate::runtime::network::pack_reload::PackReload;
     use crate::runtime::network::pack_reload_tests::{app_with_assets, settle};
     let _cache = overlay_cache();
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_audio::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let kept: &'static CompiledStacks = Box::leak(Box::new(CompiledStacks::new()));

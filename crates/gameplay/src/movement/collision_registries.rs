@@ -321,11 +321,9 @@ impl PhysicsCollisionRegistries {
         let first = u32::try_from(self.sequential_count).ok()?;
         self.sequential.remove_runtime_ids_from(first);
         self.interaction_blocks.split_off(&first);
+        let vanilla_remap = self.admit_server_definitions(custom);
         if custom.blocks.is_empty() {
-            return Some((
-                first..first,
-                self.admit_server_definitions(custom, assets::SequentialIdRemap::default(), first),
-            ));
+            return Some((first..first, vanilla_remap));
         }
         let physics = self.custom_block_physics?;
         let mut next = first;
@@ -342,8 +340,17 @@ impl PhysicsCollisionRegistries {
                 return None;
             }
             let vanilla_before = self.vanilla_runs.get(after).map_or(first, |run| run.2);
+            let vanilla_before = vanilla_remap.wire_boundary(vanilla_before);
             let earlier_customs = next - first;
-            runs.push((vanilla_before + earlier_customs, block.state_count, next));
+            runs.push((
+                vanilla_before.checked_add(earlier_customs)?,
+                block.state_count,
+                next,
+            ));
+            if block.visual.materialization_disabled {
+                next = next.checked_add(block.state_count)?;
+                continue;
+            }
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 self.interaction_blocks.insert(
@@ -376,19 +383,7 @@ impl PhysicsCollisionRegistries {
                 next = next.checked_add(1)?;
             }
         }
-        // Customs sorting after every vanilla name need no remap.
-        let identity = runs
-            .iter()
-            .all(|&(wire_start, _, internal_start)| wire_start == internal_start);
-        let remap = if identity {
-            assets::SequentialIdRemap::default()
-        } else {
-            assets::SequentialIdRemap::new(runs)
-        };
-        Some((
-            first..next,
-            self.admit_server_definitions(custom, remap, next),
-        ))
+        Some((first..next, vanilla_remap.with_insertions(runs)))
     }
 
     /// Registers this session's custom block states under their network hashes

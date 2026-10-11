@@ -14,8 +14,8 @@ fn diagnostic_pipeline_preserves_geometry_and_alpha_entry() {
         }),
         depth_stencil: Some(DepthStencilState {
             format: TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(CompareFunction::GreaterEqual),
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         }),
@@ -29,7 +29,7 @@ fn diagnostic_pipeline_preserves_geometry_and_alpha_entry() {
     assert_eq!(measured.vertex, vertex);
     assert_eq!(measured.primitive, source.primitive);
     assert_eq!(measured.layout, source.layout);
-    assert_eq!(measured.push_constant_ranges, source.push_constant_ranges);
+    assert_eq!(measured.immediate_size, source.immediate_size);
     assert!(measured.depth_stencil.is_none());
     assert_eq!(measured.multisample.count, 1);
     let fragment = measured.fragment.unwrap();
@@ -45,7 +45,10 @@ fn diagnostic_pipeline_preserves_geometry_and_alpha_entry() {
     assert_eq!(blend.color.src_factor, BlendFactor::One);
     assert_eq!(blend.color.dst_factor, BlendFactor::One);
     assert_eq!(blend.color.operation, BlendOperation::Add);
-    assert!(source.depth_stencil.unwrap().depth_write_enabled);
+    assert_eq!(
+        source.depth_stencil.unwrap().depth_write_enabled,
+        Some(true)
+    );
 }
 
 #[test]

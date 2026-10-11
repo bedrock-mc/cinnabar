@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use crate::{
-    menu::{MenuScreen, MenuView},
-    ui_runtime::presentation::UiPresentationRuntime,
-};
 use assets::RuntimeFontCatalog;
+use {
+    crate::ui_runtime::presentation::UiPresentationRuntime,
+    launcher::menu::{MenuScreen, MenuView},
+};
 
 #[test]
 fn compact_font_snapshots() {

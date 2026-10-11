@@ -103,7 +103,7 @@ fn current_dragon_egg_keeps_all_eight_steps_through_the_world_carrier() {
         ([32, 16, 32], [224, 48, 224]),
         ([48, 0, 48], [208, 16, 208]),
     ];
-    for (faces, (min, max)) in quads.chunks_exact(6).zip(bounds) {
+    for (faces, (min, max)) in quads.as_chunks::<6>().0.iter().zip(bounds) {
         for axis in 0..3 {
             let positions = faces
                 .iter()

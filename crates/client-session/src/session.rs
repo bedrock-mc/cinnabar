@@ -18,7 +18,7 @@ use protocol::{
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
-use crate::{PackPreparation, SessionTrace};
+use crate::SessionTrace;
 use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
 
 /// Holds a frame's light burst; terrain admission, not this bound, paces chunk ingress.
@@ -33,14 +33,22 @@ pub struct NetworkConfig {
     pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
+    /// The user storage owner's opaque persisted login identifier.
+    pub client_random_id: protocol::ClientRandomId,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
-    /// Server-pack archives kept across joins; `None` downloads every offered pack.
-    pub resource_pack_store: Option<Arc<dyn protocol::ResourcePackStore>>,
-    /// Physical RAM, used only when choosing device-compatible server subpacks.
-    pub physical_memory_bytes: u64,
+    /// The player's language, input mode and GUI scale, reported at login.
+    pub login_settings: protocol::LoginSettings,
+}
+
+/// Prepared facts returned by the pack owner at the join bootstrap boundary.
+#[derive(Debug)]
+pub struct PreparedSession<P> {
+    pub custom_blocks: CustomBlocks,
+    pub packs_applied: bool,
+    pub packs: P,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.

@@ -2,13 +2,12 @@ use bevy::{prelude::*, window::WindowResolution};
 use ui::{DpiScale, UiRect};
 
 use super::*;
-use crate::{
-    menu::{MenuAction, MenuScreen},
-    ui_runtime::presentation::{
-        apply_gui_scale_setting, tests::engine_hud_tests::engine_presentation,
-    },
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::ui_runtime::presentation::apply_gui_scale_setting,
+    client_ui::test_support::engine_presentation,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
@@ -37,7 +36,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
     menu.activate(MenuAction::SettingsSection(
         settings_section_index("sound_forced_index").unwrap(),
     ));
-    let index = super::super::settings_options::SETTINGS_OPTIONS
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "main_volume")
         .unwrap() as u16;
@@ -50,7 +49,9 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, drive_menu_input);
@@ -67,7 +68,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         ))
         .id();
     let view = app.world().resource::<MenuRuntime>().view();
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let presentation = &mut *app.world_mut().resource_mut::<UiPresentationRuntime>();
     presentation.set_menu_view(Some(view));
     presentation
@@ -88,7 +89,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
             ))
         })
         .expect("rendered volume slider midpoint");
-    let music_index = super::super::settings_options::SETTINGS_OPTIONS
+    let music_index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "music_volume")
         .unwrap() as u16;
@@ -203,7 +204,7 @@ fn frame(app: &mut App, action: MenuAction) -> UiRect {
             for tick in 0..32_u64 {
                 presentation
                     .build(
-                        world.resource::<crate::player_runtime::PlayerRuntime>(),
+                        world.resource::<client_state::PlayerRuntime>(),
                         &UiRuntime::new(1),
                         tick * 250,
                         PHYSICAL,
@@ -267,13 +268,13 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
         return;
     };
     let index = u16::try_from(
-        super::super::settings_options::SETTINGS_OPTIONS
+        launcher::menu::settings_options::SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == "field_of_view")
             .unwrap(),
     )
     .unwrap();
-    let definition = &super::super::settings_options::SETTINGS_OPTIONS[usize::from(index)];
+    let definition = &launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(index)];
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let mut app = App::new();
@@ -284,7 +285,9 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, drive_menu_input);
@@ -308,7 +311,7 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
                 let build = |presentation: &mut UiPresentationRuntime, world: &World| {
                     presentation
                         .build(
-                            world.resource::<crate::player_runtime::PlayerRuntime>(),
+                            world.resource::<client_state::PlayerRuntime>(),
                             &UiRuntime::new(1),
                             0,
                             PHYSICAL,
@@ -388,7 +391,9 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, (drive_menu_input, apply_gui_scale_setting).chain());

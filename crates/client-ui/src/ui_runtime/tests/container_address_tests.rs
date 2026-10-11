@@ -13,7 +13,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::ui_runtime::inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, SMALL_STORAGE_SLOT_COUNT};
+use inventory::inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, SMALL_STORAGE_SLOT_COUNT};
 
 fn stack(network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
@@ -116,7 +116,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
     runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
         player_runtime.selected_stack_snapshot().unwrap().state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty,
+        inventory::inventory_ledger::PlayerInventorySlot::Empty,
         "the complete empty inventory establishes selected slot 0 as known empty"
     );
 
@@ -131,7 +131,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
     runtime.drain_pending_inventory(&mut player_runtime);
     assert!(matches!(
         player_runtime.selected_stack_snapshot().unwrap().state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+        inventory::inventory_ledger::PlayerInventorySlot::Present(_)
     ));
 
     player_runtime.inventory.set_local_selected_slot(4);
@@ -148,7 +148,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
     assert_eq!(selected.slot, 4);
     assert!(matches!(
         selected.state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+        inventory::inventory_ledger::PlayerInventorySlot::Present(_)
     ));
 }
 

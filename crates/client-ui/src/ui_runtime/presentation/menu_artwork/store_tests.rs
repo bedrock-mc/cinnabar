@@ -20,7 +20,7 @@ fn a_full_store_page_packs_every_card_thumbnail() {
             std::fs::write(&path, &jpeg).unwrap();
             let url = format!("https://cdn.example.test/{index}.jpg");
             images.insert(url.clone(), path.to_string_lossy().into_owned());
-            protocol::store_control::StoreOffer {
+            bridge::StoreOffer {
                 id: index.to_string(),
                 title: index.to_string(),
                 creator: None,
@@ -34,14 +34,12 @@ fn a_full_store_page_packs_every_card_thumbnail() {
             }
         })
         .collect();
-    let row = |role: &'static str, offers: &[protocol::store_control::StoreOffer]| {
-        launcher::store::DisplayRow {
-            id: None,
-            title: String::new(),
-            role,
-            offers: offers.to_vec(),
-            continuation: None,
-        }
+    let row = |role: &'static str, offers: &[bridge::StoreOffer]| launcher::store::DisplayRow {
+        id: None,
+        title: String::new(),
+        role,
+        offers: offers.to_vec(),
+        continuation: None,
     };
     // A plain page, and pages whose hero feature tile, decoded larger, leads or follows other rows.
     let layouts = [
@@ -67,12 +65,12 @@ fn assert_store_page_packs(
     rows: Vec<launcher::store::DisplayRow>,
     images: HashMap<String, String>,
 ) {
-    let mut view = crate::menu::MenuView::new(true, "Fixture Player".into());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Fixture Player".into());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(Arc::new(launcher::store::StoreSnapshot {
         rows,
         images,
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let set = ArtworkSet {
         paths: view_paths(&view),

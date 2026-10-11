@@ -1,6 +1,10 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
-use super::*;
 use gameplay::melee::{Crosshair, classify, pick_actor};
+use {
+    super::*,
+    gameplay::block_use::{LocalUse, RepeatClock},
+    gameplay::mining::{FrozenMiningSelection, creative_reach, survival_reach},
+};
 
 /// Resolves an admitted press against the fresh actor/block pick before block use.
 #[allow(clippy::too_many_arguments)]
@@ -79,11 +83,17 @@ pub(super) fn produce(
     let admitted = packet
         .ok()
         .is_some_and(|packet| context.network.send_inventory_packets(vec![packet]).is_ok());
+    let local_use = stream
+        .authority()
+        .actor(hit.runtime_id)
+        .map_or(LocalUse::Interact, |actor| {
+            LocalUse::for_actor(&actor.kind, context.ui.gameplay_hud().has_interact_text())
+        });
     runtime.admit(
         trigger,
         due,
         state.tick.saturating_add(1),
-        LocalUse::Interact,
+        local_use,
         clock,
         admitted,
     );

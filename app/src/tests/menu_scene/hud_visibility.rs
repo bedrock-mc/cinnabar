@@ -1,18 +1,25 @@
 //! HUD visibility through both first-person hand publishers and retained name tags.
-use super::*;
-use crate::{
-    camera::FlyCamera,
-    environment::{WeatherState, WorldClock},
-    item_use::ItemUseRuntime,
-    local_player::LocalPlayerFrameCarrier,
-    movement::MovementTicker,
-    runtime::{
-        network::NetworkHandle, visibility::CaveVisibilityCache, world::WorldStreamFramePoll,
-    },
-    ui_runtime::presentation::prepare_ui_runtime,
-};
 use bevy::window::{PrimaryWindow, Window};
 use client_ui::ui_runtime::presentation::{PreparedUiPublication, UiPresentationRuntime};
+use {
+    super::*, client_presentation::actor_publication::HandRigBuilder,
+    client_ui::test_support::mini_engine_presentation,
+};
+use {
+    crate::{
+        environment::{WeatherState, WorldClock},
+        item_use::ItemUseRuntime,
+        movement::MovementTicker,
+        runtime::{
+            network::NetworkHandle, visibility::CaveVisibilityCache, world::WorldStreamFramePoll,
+        },
+        ui_runtime::presentation::prepare_ui_runtime,
+    },
+    client_presentation::{
+        camera::{CameraSettingsAuthority, FlyCamera, perspective_pose},
+        local_player::{LocalPlayerFrameCarrier, LocalPlayerFrameSample},
+    },
+};
 
 /// Builds a renderer-free world with gameplay overlays available.
 fn fixture_world() -> World {
@@ -25,14 +32,15 @@ fn fixture_world() -> World {
         )
         .unwrap(),
     );
-    let (equipment, artwork, _) = crate::presentation::equipment::EquipmentRuntime::build(
-        entities.clone(),
-        None,
-        icons,
-        None,
-        None,
-        render::ActorArtworkPages::default(),
-    );
+    let (equipment, artwork, _) =
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
+            entities.clone(),
+            None,
+            icons,
+            None,
+            None,
+            render::ActorArtworkPages::default(),
+        );
     let mut client = player_world(entities.clone());
     let stream = client.stream.as_mut().unwrap();
     stream
@@ -137,6 +145,57 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
         hands,
         "animated hand publication"
     );
+}
+
+#[test]
+fn hud_coordinates_floor_player_feet_independently_of_camera_pose() {
+    let mut world = fixture_world();
+    let camera = world
+        .query_filtered::<Entity, With<FlyCamera>>()
+        .single(&world)
+        .unwrap();
+    let feet = Vec3::new(-16.5, 47.0, 2.5);
+    let eye = feet + Vec3::Y * protocol::PLAYER_NETWORK_OFFSET;
+    let rotation = Quat::from_euler(EulerRot::YXZ, 0.8, -0.3, 0.0);
+    for perspective in [
+        semantic_input::PerspectiveMode::FirstPerson,
+        semantic_input::PerspectiveMode::ThirdPersonBack,
+        semantic_input::PerspectiveMode::ThirdPersonFront,
+    ] {
+        assert_eq!(
+            world.resource::<CameraSettingsAuthority>().perspective(),
+            perspective
+        );
+        let pose = perspective_pose(eye, rotation, perspective);
+        world.entity_mut(camera).insert(pose);
+        world
+            .resource_mut::<LocalPlayerFrameCarrier>()
+            .publish(LocalPlayerFrameSample {
+                session_generation: 1,
+                actor_session_id: 1,
+                fifo_sequence: 1,
+                physics_tick: 1,
+                perspective,
+                world_collision_identity: sim::CollisionQuery::synthetic(()).identity,
+                pose,
+                eye,
+                feet,
+                rotation,
+            })
+            .unwrap();
+        world.run_system_cached(prepare_ui_runtime).unwrap();
+        assert_eq!(
+            world
+                .resource::<UiPresentationRuntime>()
+                .hud_frame()
+                .player_block,
+            Some([-17, 47, 2]),
+            "HUD coordinates must follow floored feet in {perspective:?}"
+        );
+        world
+            .resource_mut::<CameraSettingsAuthority>()
+            .cycle_perspective();
+    }
 }
 
 #[test]

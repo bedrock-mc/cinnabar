@@ -172,8 +172,8 @@ impl PlayerInventoryLedger {
                 .collect()
         };
         let Cell::Inventory(slot) = source else {
-            let mut cells = player(9..36);
-            cells.extend(player(0..9));
+            let mut cells = player(protocol::HOTBAR_SLOT_COUNT..protocol::PLAYER_INVENTORY_SLOTS);
+            cells.extend(player(0..protocol::HOTBAR_SLOT_COUNT));
             return cells;
         };
         let window = self.storage.as_ref().and_then(|storage| {
@@ -186,10 +186,10 @@ impl PlayerInventoryLedger {
         if !cells.is_empty() {
             return cells;
         }
-        if slot < 9 {
-            player(9..36)
+        if slot < protocol::HOTBAR_SLOT_COUNT {
+            player(protocol::HOTBAR_SLOT_COUNT..protocol::PLAYER_INVENTORY_SLOTS)
         } else {
-            player(0..9)
+            player(0..protocol::HOTBAR_SLOT_COUNT)
         }
     }
 

@@ -1,5 +1,8 @@
-use super::*;
 use launcher::menu::realm_membership::Stage;
+use {
+    super::*, launcher::menu::MenuScreen, launcher::menu::auth::AuthState,
+    launcher::menu::view::MenuRealmCard,
+};
 
 /// Builds a signed-in launcher on the Realms tab without an account service.
 fn menu() -> MenuRuntime {
@@ -133,13 +136,13 @@ impl AccountControl for ChangingAccount {
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
         None
     }
-    fn friends(&mut self) -> Option<Vec<super::super::MenuFriendCard>> {
+    fn friends(&mut self) -> Option<Vec<launcher::menu::view::MenuFriendCard>> {
         None
     }
     fn sign_out(&mut self) -> bool {
         false
     }
-    fn poll_event(&mut self) -> Option<super::super::account_control::AccountEvent> {
+    fn poll_event(&mut self) -> Option<launcher_host::account_control::AccountEvent> {
         None
     }
     fn request_realm_membership(&mut self, _: u64, _: String, _: bool) -> bool {

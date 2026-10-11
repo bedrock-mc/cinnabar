@@ -131,12 +131,12 @@ fn frame_cost_bench_block_entity_scene_400_static() {
 #[test]
 #[ignore = "benchmark"]
 fn frame_cost_bench_sound_decode() {
-    let path = crate::audio::sound_bank_path(
+    let path = client_audio::audio::sound_bank_path(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(crate::asset_startup::DEFAULT_ASSET_PATH),
     );
-    let mut bank = crate::audio::SoundBank::open(&path, None)
+    let mut bank = client_audio::audio::SoundBank::open(&path, None)
         .expect("offline sound timing requires a valid installed sound bank (make assets)")
         .expect("offline sound timing requires the installed sound bank (make assets)");
     // The largest streamed sound (re-decoded on every start) and common first-play effects.

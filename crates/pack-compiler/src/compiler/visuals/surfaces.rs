@@ -1,7 +1,7 @@
-use super::super::*;
 use super::context::push_model_template;
 use super::fallback::FallbackInventory;
 use super::geometry::vanilla_cuboid_quads;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) struct SurfaceRuleContext<'a> {
     pub(in crate::compiler) pack: &'a PackSources,

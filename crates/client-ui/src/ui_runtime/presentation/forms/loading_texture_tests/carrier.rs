@@ -123,7 +123,7 @@ fn settled(
             std::time::Instant::now() < deadline,
             "carrier images were unresolved"
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        test_time::idle();
     }
     presentation.finish_menu_artwork();
     frame(player, presentation)
@@ -169,7 +169,7 @@ fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
     )
     .scale
     .get()
-        * crate::ui_runtime::presentation::FONT_DESIGN_PIXEL_TEXELS as f32
+        * ui::FONT_DESIGN_PIXEL_TEXELS as f32
 }
 
 #[test]
@@ -249,9 +249,7 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
         logo[0] > 100 && logo[0] > logo[1] && logo[0] > logo[2],
         "{logo:?}"
     );
-    let original =
-        image::load_from_memory(crate::ui_runtime::presentation::menu_artwork::BUILT_IN_TITLE)
-            .unwrap();
+    let original = image::load_from_memory(launcher::branding::TITLE).unwrap();
     let aspect = original.width() as f32 / original.height() as f32;
     assert!((width / height - aspect).abs() < 0.02);
     assert!(

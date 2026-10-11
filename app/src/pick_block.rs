@@ -2,58 +2,45 @@
 
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{ButtonInput, KeyCode, MouseButton, Query, Res, ResMut, Window, With},
+    prelude::{Query, Res, ResMut, Window, With},
     window::PrimaryWindow,
 };
 use protocol::PlayerGameMode;
 
-use crate::{
-    interaction_authority::observe_block,
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{creative_reach, hand_interaction_selection, protocol_input_mode, survival_reach},
-    movement::PhysicsCollisionRegistries,
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        interaction_authority::observe_block,
+        mining::hand_interaction_selection,
+        movement::PhysicsCollisionRegistries,
+        runtime::{network::NetworkHandle, world::ClientWorld},
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    client_state::SemanticInputSnapshot,
+    gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
+};
 
 #[derive(SystemParam)]
 pub(crate) struct PickBlockContext<'w, 's> {
-    gamepads: Query<'w, 's, &'static bevy::input::gamepad::Gamepad>,
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
-    menu: Res<'w, MenuRuntime>,
-    presentation: Option<Res<'w, client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
+    focus: Res<'w, client_state::ScreenFocus>,
+    controls: Res<'w, client_state::GameplayScreenControls>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
-    keys: Res<'w, ButtonInput<KeyCode>>,
-    mouse: Res<'w, ButtonInput<MouseButton>>,
     network: Res<'w, NetworkHandle>,
 }
 
 /// Sends one block-pick request per middle-click on a block in reach.
 pub(crate) fn produce_pick_block(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: PickBlockContext,
     ui: ResMut<UiRuntime>,
 ) {
-    if !(crate::menu::settings_options::binding_gamepad(
-        Some(&context.menu),
-        "key.pickItem",
-        &context.gamepads,
-    ) || crate::menu::settings_options::binding_pressed(
-        Some(&context.menu),
-        "key.pickItem",
-        &context.keys,
-        &context.mouse,
-    )) || crate::screen_policy::absorbs_input(
-        &player_runtime,
-        Some(&ui),
-        Some(&context.menu),
-        context.presentation.as_deref(),
-    ) || !context.windows.single().is_ok_and(|window| window.focused)
+    if !context.controls.pick_block_pressed
+        || context.focus.absorbs_input
+        || !context.windows.single().is_ok_and(|window| window.focused)
         || player_runtime
             .facts
             .player_game_mode()

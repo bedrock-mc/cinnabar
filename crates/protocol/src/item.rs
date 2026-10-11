@@ -22,7 +22,9 @@ mod animation_tests;
 mod attack;
 mod components;
 mod display;
+mod facts;
 mod icons;
+pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
@@ -148,14 +150,14 @@ pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
 /// [`item_stack_damage`] over a stack's raw extra data.
 #[must_use]
 pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
-    root_damage_tag(&decode_extra_nbt(extra_data)?)
+    root_damage_tag(decode_extra_nbt(extra_data)?)
 }
 
 /// Whether a stack's extra data carries a true root `Unbreakable` byte.
 #[must_use]
 pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
     decode_extra_nbt(extra_data).is_some_and(|nbt| {
-        let mut cursor = &nbt[..];
+        let mut cursor = nbt;
         root_tag(&mut cursor, 1, b"Unbreakable")
             .is_some_and(|mut value| read_u8(&mut value).is_some_and(|byte| byte != 0))
     })
@@ -167,7 +169,7 @@ pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
 #[must_use]
 pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
     let nbt = decode_extra_nbt(extra_data)?;
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"ench")?;
     if read_u8(&mut list)? != 10 {
         return None;
@@ -200,7 +202,7 @@ pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<
 #[must_use]
 pub fn item_custom_color(extra_data: &[u8]) -> Option<u32> {
     let nbt = decode_extra_nbt(extra_data)?;
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     let mut payload = root_tag(&mut cursor, 3, b"customColor")?;
     Some(read_i32_le(&mut payload)? as u32 & 0x00ff_ffff)
 }
@@ -210,7 +212,7 @@ pub fn item_custom_color(extra_data: &[u8]) -> Option<u32> {
 #[must_use]
 pub fn item_charged_projectile(extra_data: &[u8]) -> Option<std::sync::Arc<str>> {
     let nbt = decode_extra_nbt(extra_data)?;
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     let mut payload = root_tag(&mut cursor, 10, b"chargedItem")?;
     loop {
         let entry = read_u8(&mut payload)?;
@@ -259,14 +261,14 @@ fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8
 /// `1` follows and then the compound in *fixed* little-endian NBT. The
 /// `canPlaceOn` / `canBreak` lists and the shield blocking tick trail the
 /// compound, which is why only the root level is walked.
-fn decode_extra_nbt(extra: &[u8]) -> Option<Bytes> {
+fn decode_extra_nbt(extra: &[u8]) -> Option<&[u8]> {
     const HEADER_LEN: usize = 3;
     let header = extra.get(..HEADER_LEN)?;
     let marker = i16::from_le_bytes([header[0], header[1]]);
     if marker != -1 || header[2] != 1 {
         return None;
     }
-    Some(Bytes::copy_from_slice(&extra[HEADER_LEN..]))
+    Some(&extra[HEADER_LEN..])
 }
 
 /// Walks one fixed little-endian NBT compound root for an integer `Damage`.

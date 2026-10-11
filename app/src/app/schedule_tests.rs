@@ -9,8 +9,10 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         session_generation: 7,
         socket_dir: std::path::PathBuf::from("first-core.sock"),
         display_name: "cache-owner".to_owned(),
+        client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
     };
@@ -22,8 +24,10 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         session_generation: 8,
         socket_dir: std::path::PathBuf::from("replacement-core.sock"),
         display_name: "cache-owner".to_owned(),
+        client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        login_settings: protocol::LoginSettings::default(),
         actor_artwork: None,
         ui_catalog: None,
     };
@@ -50,5 +54,9 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
         .initialize(app.world_mut());
     app.world_mut().insert_resource(schedules);
 
-    assert!(result.is_ok(), "production Update schedule: {result:?}");
+    assert!(
+        result.is_ok(),
+        "production Update schedule: {:?}",
+        result.err()
+    );
 }

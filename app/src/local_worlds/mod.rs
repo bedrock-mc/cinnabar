@@ -5,7 +5,7 @@
 
 mod client;
 use launcher::local_worlds::form;
-mod launch;
+
 use launcher::local_worlds::model;
 use launcher::local_worlds::progress;
 use launcher::local_worlds::prompt;
@@ -19,15 +19,7 @@ use bevy::{
     window::WindowFocused,
 };
 
-pub(crate) use form::{
-    FLAT_WORLD_LABEL, MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS, NORMAL_WORLD_LABEL,
-    difficulty_description, difficulty_label, game_mode_description, game_mode_label,
-    world_type_label,
-};
-pub(crate) use launch::core_args;
-pub(crate) use model::{Effect, Event, Input, Screen, Tab, WorldsMenu, WorldsView};
-pub(crate) use progress::{Progress, Stage};
-pub(crate) use prompt::{Prompt, PromptButton, PromptFor};
+use model::{Effect, Input, Screen, WorldsMenu};
 
 use client::WorldsClient;
 
@@ -93,7 +85,7 @@ impl LocalWorlds {
         }
     }
 
-    /// Takes the id of a world that finished opening; the caller then joins the game socket.
+    /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub(crate) fn take_ready(&mut self) -> Option<String> {
         self.menu.take_ready()
     }
@@ -135,7 +127,7 @@ impl LocalWorlds {
     fn dispatch(&self, effects: Vec<Effect>) {
         for effect in effects {
             if let Effect::OpenUrl(url) = effect {
-                crate::desktop::open_url(url);
+                launcher_host::desktop::open_url(url);
             } else if let Some(client) = &self.client {
                 client.send(effect);
             }
@@ -181,7 +173,10 @@ impl Plugin for LocalWorldsPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::local_worlds::model::{Input, Screen},
+    };
 
     #[test]
     fn focus_only_pauses_while_playing_and_detached_is_inert() {

@@ -1,8 +1,8 @@
 //! Pointer gesture state for the inventory screens: drag-distribute and
 //! double-click gather. Pure so the click timing is testable.
 
-use super::inventory_ledger::{DragDistribution, MAX_DISTRIBUTION_CELLS};
 use super::presentation::inventory_pointer::InventoryCellHit;
+use inventory::inventory_ledger::{DragDistribution, MAX_DISTRIBUTION_CELLS};
 
 /// Two primary presses this close on one cell gather the held item.
 pub const DOUBLE_CLICK_MILLIS: u64 = 250;

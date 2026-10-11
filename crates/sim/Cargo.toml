@@ -12,3 +12,6 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2.workspace = true
 thiserror.workspace = true
 world = { path = "../world" }
+
+[lints]
+workspace = true

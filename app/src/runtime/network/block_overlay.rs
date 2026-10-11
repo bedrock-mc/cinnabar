@@ -3,7 +3,8 @@
 //! diagnostic look for that block and is counted, never failing the session.
 
 mod condition;
-mod geometry;
+mod geometry_inputs;
+use pack_compiler::block_geometry as geometry;
 mod legacy;
 mod textures;
 
@@ -26,12 +27,13 @@ use resource_pack::LayeredPackView;
 
 use self::{
     condition::StateVisual,
-    geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
+    geometry::{FACE_NAMES, FaceQuad, Geometry},
+    geometry_inputs::geometry_catalog,
     textures::{
-        DecodedTexture, TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max,
-        source_mip_chain,
+        TextureCatalog, admit_static_rectangle, flipbook_frames, shrink_to_max, source_mip_chain,
     },
 };
+use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
@@ -54,6 +56,8 @@ pub(crate) struct OverlayGaps {
     pub(crate) approximated_materials: u32,
     pub(crate) incomplete_state_identities: u32,
     pub(crate) invalid_legacy_bindings: u32,
+    /// Routes refused because the overlay texture array had no layer left.
+    pub(crate) saturated_textures: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -62,8 +66,8 @@ pub(crate) struct CompiledBlockOverlay {
     pub(crate) gaps: OverlayGaps,
 }
 
-/// Returns visuals for every custom block state (palette order, or
-/// `hashed_states` order for hashed ids), or `None` without custom blocks.
+/// Returns visuals for the admitted custom prefix in palette or hashed-state order.
+/// Rejected runs stay unbacked; vanilla overrides may produce an overlay without custom blocks.
 pub(super) fn compile_block_overlay(
     view: &LayeredPackView,
     blocks: &CustomBlocks,
@@ -107,7 +111,11 @@ pub(super) fn compile_block_overlay(
         animation: NO_ANIMATION,
         ..assets::Material::unvaried()
     });
-    for block in blocks.blocks.iter() {
+    for (block_index, block) in blocks.blocks.iter().enumerate() {
+        if block.visual.materialization_disabled {
+            builder.gaps.incomplete_state_identities += (blocks.blocks.len() - block_index) as u32;
+            break;
+        }
         let expressions = condition::BlockExpressions::new(block);
         let states = block.hashed_states();
         let identities_complete = states.len() == block.state_count as usize;
@@ -147,8 +155,10 @@ pub(super) fn compile_block_overlay(
         builder.override_vanilla_materials(keys);
     }
     if blocks.blocks.is_empty() && builder.overlay.material_overrides.is_empty() {
+        builder.catalog.emit_diagnostics();
         return None;
     }
+    builder.catalog.emit_diagnostics();
     builder.finish()
 }
 
@@ -465,6 +475,10 @@ impl Builder<'_> {
     fn load_texture(&mut self, key: &str) -> Option<TextureSlot> {
         let available = MAX_OVERLAY_LAYERS.saturating_sub(self.sources.len());
         if available == 0 {
+            // A full array rejects every later route, so name it rather than
+            // leaving those textures indistinguishable from unusable pack data.
+            self.gaps.saturated_textures += 1;
+            self.catalog.report_full(key);
             return None;
         }
         let mut texture = self.catalog.decode(key)?;

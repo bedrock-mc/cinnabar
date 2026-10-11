@@ -4,7 +4,7 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// A visible absorbing screen owns all gameplay input, including directly read wheel state.
 pub(crate) fn absorbs_input(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     ui: Option<&UiRuntime>,
     menu: Option<&MenuRuntime>,
     presentation: Option<&UiPresentationRuntime>,
@@ -22,7 +22,7 @@ pub(crate) fn absorbs_input(
 
 /// Full-screen backgrounds and pack scene flags suppress every gameplay rendering path.
 pub(crate) fn renders_game(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     ui: Option<&UiRuntime>,
     menu: Option<&MenuRuntime>,
     presentation: Option<&UiPresentationRuntime>,

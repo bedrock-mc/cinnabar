@@ -127,6 +127,7 @@ pub struct ActorRenderInstance {
 }
 
 #[derive(Debug, Clone, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ActorRenderFrame {
     pub instances: Arc<[ActorRenderInstance]>,
     pub skins: Arc<ActorSkinResidency>,

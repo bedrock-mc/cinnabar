@@ -97,7 +97,7 @@ impl<'a> Cube<'a> {
                 .ok_or(Reject::Texture)?;
             let end = start.checked_add(PIXEL_BYTES).ok_or(Reject::Texture)?;
             let tile = mip.rgba8.get(start..end).ok_or(Reject::Texture)?;
-            if !tile.chunks_exact(4).all(|pixel| pixel[3] == 255) {
+            if !tile.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255) {
                 return Err(Reject::Alpha);
             }
             tiles[face as usize] = tile;

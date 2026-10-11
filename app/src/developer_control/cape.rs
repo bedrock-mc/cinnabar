@@ -15,7 +15,7 @@ pub(super) fn apply(world: &mut World, enabled: bool) -> Result<Value, String> {
 }
 
 /// Creates teal cloth with gold diagonals and a red border from original opaque pixels.
-fn test_cape() -> protocol::CapeImage {
+fn test_cape() -> render_api::CapeImage {
     let (width, height) = (64, 32);
     let mut rgba8 = Vec::with_capacity(width * height * 4);
     for y in 0..height {
@@ -30,7 +30,7 @@ fn test_cape() -> protocol::CapeImage {
             rgba8.extend_from_slice(&color);
         }
     }
-    protocol::CapeImage {
+    render_api::CapeImage {
         width: width as u32,
         height: height as u32,
         rgba8: rgba8.into(),
@@ -55,7 +55,13 @@ mod tests {
         let cape = skinned.cape.unwrap();
         assert_eq!((cape.width, cape.height), (64, 32));
         assert_eq!(cape.rgba8.len(), 64 * 32 * 4);
-        assert!(cape.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(
+            cape.rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         assert_ne!(&cape.rgba8[0..4], &cape.rgba8[4 * (64 * 3 + 3)..][..4]);
         apply(&mut world, false).unwrap();
         assert_eq!(world.resource::<LocalPlayerSkin>().player_skin(), original);

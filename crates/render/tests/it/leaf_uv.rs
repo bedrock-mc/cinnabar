@@ -7,7 +7,7 @@ use render::greedy_texture_uv;
 
 /// Compile the actual production functions, not a test-side UV implementation.
 fn shader() -> String {
-    let source = include_str!("../../src/chunk.wgsl");
+    let source = include_str!("../../src/chunk.wesl");
     let corners = source.split_once("fn quad_corner(").unwrap().1;
     let corners = corners.split_once("\nfn face_normal(").unwrap().0;
     let uv = source.split_once("fn greedy_uv(").unwrap().1;
@@ -184,7 +184,9 @@ fn actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes() {
                 ],
             );
             let covered = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[1] == 255)
                 .count();
             assert_eq!(

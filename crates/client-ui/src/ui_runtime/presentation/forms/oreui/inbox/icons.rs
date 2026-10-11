@@ -1,7 +1,10 @@
 //! Inbox glyphs and runtime category artwork.
 use super::super::motion::{Kind, opacity};
 use super::super::theme::{EDGE, NEUTRAL20};
-use super::{Action, Canvas, MenuAction, MenuView, TEXT, UiPresentationError};
+use {
+    super::{Canvas, TEXT, UiPresentationError},
+    launcher::menu::{MenuAction, MenuView, inbox::Action},
+};
 
 /// Pixel outline of the trash glyph in the supplied vanilla capture.
 pub(super) fn trash_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), UiPresentationError> {

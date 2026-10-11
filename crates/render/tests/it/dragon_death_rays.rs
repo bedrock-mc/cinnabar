@@ -6,13 +6,13 @@ use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
 use render::BlockEntityVertex;
 
 fn source() -> String {
-    let shader = shader_safety::from_block_entity_wgsl(
-        include_str!("../../src/block_entity/block_entity.wgsl"),
-        "dragon-death-rays.wgsl",
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "dragon-death-rays.wesl",
         render::BLOCK_ENTITY_VERTEX_WORDS,
         render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         unreachable!()
     };
     shader_source::standalone(&source, &[])

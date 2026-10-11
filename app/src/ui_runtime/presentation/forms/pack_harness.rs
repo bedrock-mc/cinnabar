@@ -1,9 +1,6 @@
 //! Startup fixture that exercises the app's carrier-loading entry points.
 
-pub(crate) use client_ui::test_support::pack_harness::{
-    action_form, carrier, drawn_texts, dump, engine_presentation, env_glyphs, env_pack, font,
-    menu_nodes, menu_runtime, menu_translation, scratch_dir,
-};
+use client_ui::test_support::pack_harness::{carrier, font};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use std::path::Path;
 
@@ -50,7 +47,7 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
     presentation.enable_json_ui(carrier()?).unwrap();
     presentation.set_form_texture_fallbacks(
         &entities,
-        local(&crate::install_layout::vanilla_pack_relative()),
+        local(&launcher::install_layout::vanilla_pack_relative()),
     );
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images() {
         presentation.enable_oreui_originals(images).unwrap();

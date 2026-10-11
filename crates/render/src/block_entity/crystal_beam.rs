@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn sample_uv(vertices: &[super::super::mesh::BlockEntityVertex], point: Vec3) -> [f32; 2] {
-        for triangle in vertices.chunks_exact(3) {
+        for triangle in vertices.as_chunks::<3>().0 {
             let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i].position));
             let ab = b - a;
             let ac = c - a;

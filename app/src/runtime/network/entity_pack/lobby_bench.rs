@@ -18,8 +18,9 @@ use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
-use crate::runtime::network::{
-    HandRigBuilder, advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
+use {
+    crate::runtime::network::{advance_actor_frame, prepare_actor_render_frame},
+    client_presentation::actor_publication::{HandRigBuilder, publish_actor_render_frame},
 };
 
 mod gpu_replay;
@@ -282,7 +283,7 @@ fn build_world(
         &loaded.entities,
     );
     let (equipment, artwork, equipment_geometries) =
-        crate::presentation::equipment::EquipmentRuntime::build(
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog,
             Arc::clone(icons.runtime()),
@@ -301,12 +302,15 @@ fn build_world(
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes))
     {
-        super::set_vanilla_refs(refs);
+        pack_runtime::entity_pack::set_vanilla_refs(refs);
     }
     let pack = pack_path.map(|path| {
         let view = super::super::local_pack::local_pack_view_at(path).unwrap();
-        let pack = super::compile(&view, super::vanilla_refs().as_deref())
-            .expect("the pack defines entities");
+        let pack = pack_runtime::entity_pack::compile(
+            &view,
+            pack_runtime::entity_pack::vanilla_refs().as_deref(),
+        )
+        .expect("the pack defines entities");
         (pack, super::pack_property_defaults(&view))
     });
 

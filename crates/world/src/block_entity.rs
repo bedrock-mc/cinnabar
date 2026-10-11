@@ -60,14 +60,24 @@ impl BlockEntityKey {
 }
 
 /// Exact validated NetworkLittleEndian NBT retained for one block entity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BlockEntityNbt {
     bytes: Arc<[u8]>,
+    pub(crate) parsed: Arc<std::sync::OnceLock<Option<Arc<crate::NbtCompound>>>>,
     id: Option<Arc<str>>,
     embedded_position: Option<[i32; 3]>,
     note_candidate: RootByteCandidate,
     powered_candidate: RootByteCandidate,
 }
+
+impl PartialEq for BlockEntityNbt {
+    /// Compares wire identity; warming a derived cache does not change the source.
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl Eq for BlockEntityNbt {}
 
 /// Bounded root-byte metadata retained for id-less Note discrimination.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -109,6 +119,7 @@ impl BlockEntityNbt {
             return Ok((
                 Self {
                     bytes: Arc::from(&input[..consumed]),
+                    parsed: Arc::default(),
                     id: None,
                     embedded_position: None,
                     note_candidate: RootByteCandidate::Absent,
@@ -216,6 +227,7 @@ impl BlockEntityNbt {
         Ok((
             Self {
                 bytes: Arc::from(&input[..consumed]),
+                parsed: Arc::default(),
                 id,
                 embedded_position,
                 note_candidate,

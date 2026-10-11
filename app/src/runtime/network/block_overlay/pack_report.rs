@@ -2,13 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use super::{
-    super::{
-        local_pack::local_pack_view_at,
-        resource_packs::{decode_pack_texture, texture_key_paths},
-    },
-    geometry::parse_geometry_file,
-};
+use super::{super::local_pack::local_pack_view_at, geometry::parse_geometry_file};
+use pack_runtime::pack_textures::{decode_pack_texture, texture_key_paths};
 
 /// `CINNABAR_PACKCACHE_DIR` names a directory of cached `<uuid>_<version>.zip` packs.
 #[test]
@@ -37,6 +32,9 @@ fn report_local_pack_blocks() {
                 continue;
             }
             let Some(bytes) = view.read(file) else {
+                continue;
+            };
+            let Some(bytes) = resource_pack::normalize_jsonc(&bytes) else {
                 continue;
             };
             for (_, geometry) in parse_geometry_file(&bytes) {

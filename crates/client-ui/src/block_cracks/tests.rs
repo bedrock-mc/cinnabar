@@ -2,7 +2,7 @@ use chunk_pipeline::WorldStream;
 use client_world::CommittedUiEvent;
 use protocol::{BlockCrackAction, WorldBootstrap, WorldEvent};
 
-use super::*;
+use {super::*, chunk_pipeline::BlockCrackStatus};
 
 fn event(position: [i32; 3], action: BlockCrackAction) -> BlockCrackEvent {
     BlockCrackEvent { position, action }

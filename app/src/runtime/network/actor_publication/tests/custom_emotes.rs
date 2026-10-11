@@ -1,13 +1,19 @@
 //! Original geometry through the production frame preparation system, without GPU/assets.
 use std::{sync::Arc, time::Duration};
 
-use bevy::{prelude::*, time::Real};
+use bevy::{
+    prelude::{PerspectiveProjection, World},
+    time::Real,
+};
 use client_presentation::actor_publication::PreparedActorPublication;
 use client_ui::ui_runtime::UiRuntime;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use semantic_input::PerspectiveMode;
 
-use crate::runtime::{network::actor_publication::*, world::ClientWorld};
+use {
+    crate::runtime::{network::actor_publication::*, world::ClientWorld},
+    client_presentation::actor_publication::{ActorFramePartialTick, HandRigBuilder},
+};
 
 pub(super) fn fixture() -> World {
     fixture_with_skin(false)
@@ -87,12 +93,12 @@ fn fixture_with_skin(with_skin: bool) -> World {
                         unique_id: 1,
                         username: "fixture".into(),
                         verified: true,
-                        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+                        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
                             width: 64,
                             height: 64,
                             rgba8: vec![255; 64 * 64 * 4].into(),
                             cape: None,
-                            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+                            geometry: Some(Arc::new(render_api::SkinGeometrySource {
                                 resource_patch:
                                     r#"{"geometry":{"default":"geometry.test_player"}}"#.into(),
                                 geometry_data: std::str::from_utf8(geometry).unwrap().into(),
@@ -110,7 +116,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     client.stream = Some(stream);
     let mut physics = crate::movement::LocalPhysicsController::default();
     physics.reanchor_network_position(anchor, 0, true);
-    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(1, 1);
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
@@ -128,14 +134,16 @@ fn fixture_with_skin(with_skin: bool) -> World {
             render::ActorArtworkPages::default(),
         );
     let mut world = World::new();
-    world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    world.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     world.insert_resource(client);
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
     world.insert_resource(PreparedActorPublication::default());
     world.insert_resource(avatar);
-    world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
-    world.init_resource::<crate::camera::CameraSettingsAuthority>();
+    world.init_resource::<client_presentation::local_player::LocalAvatarVisibilityCarrier>();
+    world.init_resource::<client_presentation::camera::CameraSettingsAuthority>();
     world.insert_resource(physics);
     world.insert_resource(artwork);
     world.insert_resource(equipment);
@@ -152,9 +160,9 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.spawn((
         camera,
         Projection::Perspective(PerspectiveProjection::default()),
-        crate::camera::FlyCamera::default(),
+        client_presentation::camera::FlyCamera::default(),
     ));
-    world.insert_resource(crate::local_player::LocalViewPose::new(
+    world.insert_resource(client_presentation::local_player::LocalViewPose::new(
         Vec3::from_array(anchor),
         camera.rotation,
     ));
@@ -165,7 +173,7 @@ fn perspective(world: &mut World, mode: PerspectiveMode, generation: u64) {
     let mut settings = ui::UserSettings::default();
     settings.gameplay.default_perspective = mode;
     world
-        .resource_mut::<crate::camera::CameraSettingsAuthority>()
+        .resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
         .replace(generation, &settings)
         .unwrap();
 }
@@ -318,7 +326,7 @@ fn emotes_keep_vanilla_bones_with_java_enabled() {
             settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonBack;
             settings.video.java_animations = java;
             world
-                .resource_mut::<crate::camera::CameraSettingsAuthority>()
+                .resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
                 .replace(1, &settings)
                 .unwrap();
             if custom {
@@ -392,7 +400,7 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
     crate::app::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
-        admit_frame_swing.in_set(crate::app::ClientFrameSet::NetworkSend),
+        admit_frame_swing.in_set(client_state::ClientFrameSet::NetworkSend),
     );
     let mut schedule = app
         .world_mut()
@@ -490,7 +498,7 @@ fn production_early_ui_readiness_matches_the_current_hand_source() {
     crate::app::configure_actor_render_systems(&mut app);
     app.add_systems(
         Update,
-        observe_hand_readiness.in_set(crate::app::ClientFrameSet::UiPreparation),
+        observe_hand_readiness.in_set(client_state::ClientFrameSet::UiPreparation),
     );
     let mut schedule = app
         .world_mut()

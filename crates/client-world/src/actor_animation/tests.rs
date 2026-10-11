@@ -102,7 +102,7 @@ fn read_with(
         bones: &[],
         bone_names: &[],
     };
-    query::query(&inputs, name, arguments)
+    query::named_query(&inputs, name, arguments)
 }
 
 #[test]
@@ -791,7 +791,7 @@ fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
 }
 
 #[test]
-fn item_use_duration_counts_seconds_and_water_follows_swimming_or_aquatic_airborne() {
+fn inactive_item_without_a_duration_is_idle_and_water_follows_swimming_or_aquatic_airborne() {
     let actor = actor_with_metadata(HashMap::new());
     let input = ActorTickInput {
         item_use_ticks: 20,
@@ -799,7 +799,7 @@ fn item_use_duration_counts_seconds_and_water_follows_swimming_or_aquatic_airbor
     };
     assert_eq!(
         read(&actor, &input, 0, "query.main_hand_item_use_duration"),
-        1.0
+        0.0
     );
     assert_eq!(read(&actor, &input, 0, "query.is_in_water"), 0.0);
     let swimmer = actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(1 << 57))]));
@@ -846,7 +846,7 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
 }
 
 #[test]
-fn item_duration_queries_report_max_and_remaining_seconds() {
+fn item_duration_queries_report_main_hand_ticks_and_remaining_seconds() {
     let actor = actor_with_metadata(HashMap::new());
     let input = ActorTickInput {
         item_use_ticks: 20,
@@ -857,8 +857,8 @@ fn item_duration_queries_report_max_and_remaining_seconds() {
         ..ActorTickContext::default()
     };
     let number = |name: &str| read_with(&actor, &input, &context, 0, name, &[]).number();
-    assert!((number("query.main_hand_item_use_duration") - 1.0).abs() < 1e-6);
-    assert!((number("query.main_hand_item_max_duration") - 1.6).abs() < 1e-6);
+    assert_eq!(number("query.main_hand_item_use_duration"), 12.0);
+    assert_eq!(number("query.main_hand_item_max_duration"), 32.0);
     assert!((number("query.item_remaining_use_duration") - 0.6).abs() < 1e-6);
     let unknown = ActorTickContext::default();
     assert_eq!(
@@ -1007,7 +1007,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         bone_names: &names,
     };
     let pivot = |name: &str, axis: f32| {
-        query::query(
+        query::named_query(
             &inputs,
             "query.get_default_bone_pivot",
             &[MolangValue::String(name.into()), MolangValue::Number(axis)],

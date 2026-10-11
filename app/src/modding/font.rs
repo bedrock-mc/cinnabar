@@ -63,7 +63,7 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             logical_size.map(|size| size * raster_scale)
         };
         let mut rgba8 = vec![255; size[0] as usize * size[1] as usize * 4];
-        for pixel in rgba8.chunks_exact_mut(4) {
+        for pixel in rgba8.as_chunks_mut::<4>().0 {
             pixel[3] = 0;
         }
         if !empty {
@@ -199,7 +199,9 @@ mod tests {
             font.pages()[0]
                 .pixels
                 .bytes()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| (1..255).contains(&pixel[3]))
         );
     }

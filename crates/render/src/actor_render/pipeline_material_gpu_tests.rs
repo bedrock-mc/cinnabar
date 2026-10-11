@@ -17,6 +17,63 @@ fn center(frame: &[u8]) -> &[u8] {
 }
 
 #[test]
+fn authored_actor_opacity_multiplier_preserves_background() {
+    let Some(gpu) =
+        gpu_snapshot::Gpu::for_fixture("authored_actor_opacity_multiplier_preserves_background")
+    else {
+        return;
+    };
+    let material = crate::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            blend: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let draw = |alpha: u8| {
+        actor_raster::raster_material_with_overlay(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [[120, 160, 200, 255]; 2],
+            false,
+            true,
+            0,
+            0,
+            crate::pack_overlay_rgba8([1.0, 1.0, 1.0, f32::from(alpha) / 255.0]),
+        )
+    };
+    let full = draw(255);
+    let background = actor_raster::raster_material_with_overlay(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[0; 4]; 2],
+        false,
+        true,
+        0,
+        0,
+        0,
+    );
+    for alpha in [0, 77] {
+        let frame = draw(alpha);
+        let opacity = f32::from(alpha) / 255.0;
+        for channel in 0..3 {
+            let expected = f32::from(center(&full)[channel]) * opacity
+                + f32::from(center(&background)[channel]) * (1.0 - opacity);
+            assert!(
+                (f32::from(center(&frame)[channel]) - expected).abs() <= 2.0,
+                "controller alpha {alpha} must weight the source: got {}, expected {expected}",
+                center(&frame)[channel]
+            );
+        }
+    }
+}
+
+#[test]
 fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
         "actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier",
@@ -46,8 +103,9 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
             true,
             crate::pack_actor_light_without_lightmap(),
             crate::pack_overlay_rgba8([1.0; 4]),
+            0,
         );
-        let shade = crate::fancy_actor_shade(normal, 0.0);
+        let shade = ::render_api::fancy_actor_shade(normal, 0.0);
         for (actual, source) in center(&frame)[..3].iter().zip([200, 120, 40]) {
             let expected = (source as f32 * 0.5 * shade).round() as i32;
             assert!(
@@ -94,6 +152,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                 true,
                 light,
                 0,
+                0,
             );
             for overlay in [0, crate::pack_overlay_rgba8([1.0; 4])] {
                 let frame = actor_raster::raster_material_with_overlay(
@@ -106,12 +165,16 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                     true,
                     light,
                     overlay,
+                    0,
                 );
                 let admitted = !disable_overlay && overlay != 0;
                 let shade = if light == 0 {
                     1.0
                 } else {
-                    crate::fancy_actor_shade([0.0, 1.0, 0.0], if admitted { 1.0 } else { 0.0 })
+                    ::render_api::fancy_actor_shade(
+                        [0.0, 1.0, 0.0],
+                        if admitted { 1.0 } else { 0.0 },
+                    )
                 };
                 for ((actual, destination), source) in center(&frame)[..3]
                     .iter()
@@ -309,7 +372,10 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
             &mut descriptor,
         )
         .unwrap();
-    assert!(!descriptor.depth_stencil.unwrap().depth_write_enabled);
+    assert_eq!(
+        descriptor.depth_stencil.unwrap().depth_write_enabled,
+        Some(false)
+    );
     let fragment = descriptor.fragment.unwrap();
     let target = fragment.targets[0].as_ref().unwrap();
     let blend = target.blend.unwrap();
@@ -460,9 +526,9 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
         let srgb = fragment.targets[0].as_ref().unwrap().format.is_srgb();
         assert_eq!((gamma, srgb), (depth_always, !depth_always));
         let depth = descriptor.depth_stencil.unwrap();
-        assert!(depth.depth_write_enabled);
+        assert_eq!(depth.depth_write_enabled, Some(true));
         assert_eq!(
-            depth.depth_compare == bevy::render::render_resource::CompareFunction::Always,
+            depth.depth_compare == Some(bevy::render::render_resource::CompareFunction::Always),
             depth_always
         );
         assert_eq!(
@@ -493,7 +559,7 @@ fn explicit_always_depth_overrides_the_dissolve_color_default() {
         .unwrap();
     assert_eq!(
         descriptor.depth_stencil.unwrap().depth_compare,
-        bevy::render::render_resource::CompareFunction::Always
+        Some(bevy::render::render_resource::CompareFunction::Always)
     );
 }
 

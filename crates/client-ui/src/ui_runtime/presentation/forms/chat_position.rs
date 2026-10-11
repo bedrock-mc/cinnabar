@@ -2,7 +2,7 @@
 
 use json_ui::{Catalog, Context};
 
-use crate::menu::settings_options::{CHAT_POSITION_OPTION, SettingKind, SettingsOptions};
+use launcher::menu::settings_options::{CHAT_POSITION_OPTION, SettingKind, SettingsOptions};
 
 /// Adds a client preference to the vanilla Video section, using one shared option definition.
 pub(super) fn install(catalog: &mut Catalog) {

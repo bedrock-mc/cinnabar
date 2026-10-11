@@ -2,8 +2,8 @@ use std::{collections::HashMap, num::NonZeroU64};
 
 use bevy::prelude::{Res, ResMut, Resource};
 use semantic_input::{
-    Action, ActionPhase, ActionSnapshot, BindingError, ControlSettings, DeviceFrame, InputContext,
-    KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
+    ActionSnapshot, BindingError, ControlSettings, DeviceFrame, InputContext, KeyboardMouseFrame,
+    ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
 pub(crate) mod physical;
@@ -12,81 +12,8 @@ pub(crate) use physical::{
     finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
 };
 
-use crate::{menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings};
 use client_ui::ui_runtime::UiRuntime;
-
-#[derive(Resource, Debug, Default, Clone)]
-pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
-
-impl SemanticInputSnapshot {
-    /// Supplies a real router result to isolated production-system tests.
-    #[cfg(test)]
-    pub(crate) fn from_finalized(snapshot: ActionSnapshot) -> Self {
-        Self(Some(snapshot))
-    }
-
-    #[must_use]
-    pub fn snapshot(&self) -> Option<&ActionSnapshot> {
-        self.0.as_ref()
-    }
-
-    #[must_use]
-    pub fn movement(&self) -> [f32; 2] {
-        self.0
-            .as_ref()
-            .map_or([0.0; 2], |snapshot| snapshot.movement)
-    }
-
-    #[must_use]
-    pub fn raw_movement(&self) -> [f32; 2] {
-        self.0
-            .as_ref()
-            .map_or([0.0; 2], |snapshot| snapshot.raw_movement)
-    }
-
-    #[must_use]
-    pub fn analogue_movement(&self) -> [f32; 2] {
-        self.0
-            .as_ref()
-            .map_or([0.0; 2], |snapshot| snapshot.analogue_movement)
-    }
-
-    #[must_use]
-    pub fn look_delta(&self) -> [f32; 2] {
-        self.0
-            .as_ref()
-            .map_or([0.0; 2], |snapshot| snapshot.look_delta)
-    }
-
-    #[must_use]
-    pub fn phase(&self, action: Action) -> ActionPhase {
-        self.0.as_ref().map_or(ActionPhase::default(), |snapshot| {
-            snapshot.phases[action as usize]
-        })
-    }
-
-    /// Adds one attack edge to an existing held input without changing its authority.
-    #[cfg(feature = "local-mods")]
-    pub fn request_mod_attack_press(&mut self) -> bool {
-        let Some(snapshot) = self.0.as_mut() else {
-            return false;
-        };
-        let attack = &mut snapshot.phases[Action::Attack as usize];
-        if !attack.held || attack.pressed {
-            return false;
-        }
-        attack.pressed = true;
-        true
-    }
-
-    fn replace(&mut self, snapshot: ActionSnapshot) {
-        self.0 = Some(snapshot);
-    }
-
-    fn clear(&mut self) {
-        self.0 = None;
-    }
-}
+use {crate::runtime::world::ClientWorld, client_state::RuntimeSettings};
 
 #[derive(Resource, Default)]
 pub struct SemanticInputRuntime {
@@ -345,11 +272,9 @@ impl SemanticTouchTargets {
     reason = "Player authority is borrowed separately from UI state."
 )]
 pub(crate) fn synchronize_semantic_input_authority(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
-    menu: Option<Res<MenuRuntime>>,
-    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
+    focus: Res<client_state::ScreenFocus>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
     mut touch_targets: ResMut<SemanticTouchTargets>,
@@ -362,12 +287,7 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, chunk_pipeline::WorldStream::current_dimension);
-    let context = if crate::screen_policy::absorbs_input(
-        &player_runtime,
-        Some(&ui),
-        menu.as_deref(),
-        presentation.as_deref(),
-    ) {
+    let context = if focus.absorbs_input {
         InputContext::UiFocused
     } else {
         InputContext::Gameplay
@@ -393,33 +313,8 @@ pub(crate) fn synchronize_semantic_input_authority(
 
 #[cfg(test)]
 mod tests {
-    use core::num::NonZeroU64;
-
     use super::SemanticInputRuntime;
-    use semantic_input::{
-        Action, ActionPhase, ActionSnapshot, ControllerFrame, DeviceFrame, InputMode, ReleaseReason,
-    };
-
-    use crate::semantic_controls::SemanticInputSnapshot;
-
-    fn snapshot_with_carriers(
-        movement: [f32; 2],
-        raw_movement: [f32; 2],
-        analogue_movement: [f32; 2],
-    ) -> SemanticInputSnapshot {
-        SemanticInputSnapshot(Some(ActionSnapshot {
-            frame_sequence: 1,
-            authority_generation: NonZeroU64::MIN,
-            movement,
-            raw_movement,
-            analogue_movement,
-            movement_buttons: Default::default(),
-            look_delta: [0.0; 2],
-            input_mode: InputMode::GamePad,
-            phases: [ActionPhase::default(); Action::COUNT],
-            release_reasons: [None; Action::COUNT],
-        }))
-    }
+    use semantic_input::{Action, ControllerFrame, DeviceFrame, InputMode, ReleaseReason};
 
     #[test]
     fn review_equal_nonzero_mouse_deltas_are_new_activity_each_frame() {
@@ -489,53 +384,6 @@ mod tests {
             runtime.previous.controllers[0].activity_sequence,
             controller_activity
         );
-    }
-
-    #[test]
-    fn absent_snapshots_report_zero_move_carriers() {
-        let snapshot = SemanticInputSnapshot::default();
-        assert_eq!(snapshot.movement(), [0.0; 2]);
-        assert_eq!(snapshot.raw_movement(), [0.0; 2]);
-        assert_eq!(snapshot.analogue_movement(), [0.0; 2]);
-    }
-
-    #[test]
-    fn present_snapshots_expose_each_move_carrier_independently() {
-        let snapshot = snapshot_with_carriers([0.6, 0.8], [1.0, 0.8], [0.6, 0.8]);
-        assert_eq!(snapshot.movement(), [0.6, 0.8]);
-        assert_eq!(snapshot.raw_movement(), [1.0, 0.8]);
-        assert_eq!(snapshot.analogue_movement(), [0.6, 0.8]);
-    }
-
-    #[cfg(feature = "local-mods")]
-    #[test]
-    fn personal_attack_pulse_requires_current_held_input() {
-        let mut missing = SemanticInputSnapshot::default();
-        assert!(!missing.request_mod_attack_press());
-        assert!(missing.snapshot().is_none());
-
-        let mut released = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
-        released.0.as_mut().unwrap().phases[Action::Attack as usize].released = true;
-        let before = released.snapshot().unwrap().clone();
-        assert!(!released.request_mod_attack_press());
-        assert_eq!(released.snapshot(), Some(&before));
-    }
-
-    #[cfg(feature = "local-mods")]
-    #[test]
-    fn personal_attack_pulse_only_adds_one_attack_edge() {
-        let mut input = snapshot_with_carriers([0.6, 0.8], [1.0, 0.8], [0.6, 0.8]);
-        let snapshot = input.0.as_mut().unwrap();
-        snapshot.phases[Action::Attack as usize].held = true;
-        snapshot.phases[Action::Jump as usize].pressed = true;
-        snapshot.look_delta = [1.0, -2.0];
-        let mut expected = snapshot.clone();
-        expected.phases[Action::Attack as usize].pressed = true;
-
-        assert!(input.request_mod_attack_press());
-        assert_eq!(input.snapshot(), Some(&expected));
-        assert!(!input.request_mod_attack_press());
-        assert_eq!(input.snapshot(), Some(&expected));
     }
 
     #[test]

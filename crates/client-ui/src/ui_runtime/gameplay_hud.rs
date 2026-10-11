@@ -8,13 +8,15 @@ use protocol::{
     CanonicalCell, EquipmentEvent, InventoryEvent, NetworkItemStack, project_container_cell,
 };
 
-pub const MAX_HUD_EFFECTS: usize = 32;
+pub const MAX_HUD_EFFECTS: usize = assets::EFFECT_DESCRIPTORS.len();
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
 const METADATA_KEY_AIR_SUPPLY: u32 = 7;
 const METADATA_KEY_MAX_AIR_SUPPLY: u32 = 42;
 const METADATA_KEY_FREEZING_EFFECT_STRENGTH: u32 = 120;
+/// The interact text the server sets on the local player for the entity it can interact with.
+const METADATA_KEY_INTERACT_TEXT: u32 = 100;
 
 /// Pinned vanilla Bedrock effect ids whose hearts recolor (poison family and
 /// wither). Fatal poison shares poison's presentation.
@@ -22,11 +24,12 @@ const EFFECT_ID_POISON: i32 = 19;
 const EFFECT_ID_WITHER: i32 = 20;
 const EFFECT_ID_FATAL_POISON: i32 = 25;
 
-/// Pinned vanilla protocol-1001 effect ids the HUD can present. Instant
-/// effects (6, 7, 23) have no HUD surface; the presentation icon table pins
-/// exactly this set, witnessed for equivalence in the layout tests.
+/// Whether the shared registry admits a persistent HUD icon for this effect.
 pub const fn is_renderable_effect_id(effect_id: i32) -> bool {
-    matches!(effect_id, 1..=5 | 8..=22 | 24..=30)
+    match assets::effect_descriptor(effect_id) {
+        Some(descriptor) => descriptor.icon.is_some(),
+        None => false,
+    }
 }
 
 /// One retained authoritative status effect.
@@ -122,6 +125,7 @@ pub struct GameplayHudState {
     show_coordinates: bool,
     show_days_played: bool,
     mount_unique_id: Option<i64>,
+    interact_text: bool, // the server's interact text is non-empty
     diagnostics: GameplayHudDiagnostics,
 }
 
@@ -173,6 +177,12 @@ impl GameplayHudState {
     #[must_use]
     pub const fn mount_unique_id(&self) -> Option<i64> {
         self.mount_unique_id
+    }
+
+    /// Whether the server currently offers the local player an entity interaction.
+    #[must_use]
+    pub const fn has_interact_text(&self) -> bool {
+        self.interact_text
     }
 
     /// The heart recolor derived from authoritative effects and freezing.
@@ -365,10 +375,14 @@ impl GameplayHudState {
                             self.diagnostics.odd_metadata_values.saturating_add(1);
                     }
                 }
+                (METADATA_KEY_INTERACT_TEXT, ActorMetadataValue::String(text)) => {
+                    self.interact_text = !text.is_empty();
+                }
                 (
                     METADATA_KEY_AIR_SUPPLY
                     | METADATA_KEY_MAX_AIR_SUPPLY
-                    | METADATA_KEY_FREEZING_EFFECT_STRENGTH,
+                    | METADATA_KEY_FREEZING_EFFECT_STRENGTH
+                    | METADATA_KEY_INTERACT_TEXT,
                     _,
                 ) => {
                     // A known key with an unexpected wire type is odd remote

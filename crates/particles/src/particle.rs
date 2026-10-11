@@ -49,6 +49,9 @@ impl Particle {
     }
 }
 
+/// Smaller authored direction vectors do not define a stable orientation.
+const PARAMETRIC_DIRECTION_MIN_LENGTH: f32 = 1e-4;
+
 const CONTACT_EPSILON: f32 = 1e-4;
 
 fn set_var(vars: &mut Vec<f32>, slot: u16, value: f32) {
@@ -231,16 +234,6 @@ fn cell(position: [f32; 3]) -> [i32; 3] {
     position.map(|c| c.floor() as i32)
 }
 
-fn fluid_allows(names: &[Box<str>], fluid: Fluid) -> bool {
-    let wants = |needle: &str| names.iter().any(|name| name.contains(needle));
-    let named_fluid = wants("water") || wants("bubble_column") || wants("lava");
-    if !named_fluid {
-        return true;
-    }
-    (fluid == Fluid::Water && (wants("water") || wants("bubble_column")))
-        || (fluid == Fluid::Lava && wants("lava"))
-}
-
 impl Emitter {
     /// Advances every particle by `dt` seconds, firing events into `output`.
     pub fn update_particles(
@@ -292,19 +285,49 @@ impl Emitter {
                     p.rotation_rate = rate;
                     p.rotation += rate * dt;
                 }
-                Motion::Parametric { position, rotation } => {
-                    let relative = eval3(position, &mut p.vars, rng, &queries);
-                    p.pos = if local {
-                        relative
-                    } else {
-                        let rotated = transform(&basis, relative);
-                        std::array::from_fn(|i| origin[i] + rotated[i])
-                    };
-                    p.rotation = rotation.eval(&mut p.vars, rng, &queries);
+                Motion::Parametric {
+                    position,
+                    direction,
+                    rotation,
+                } => {
+                    if let Some(position) = position {
+                        let relative = eval3(position, &mut p.vars, rng, &queries);
+                        p.pos = if local {
+                            relative
+                        } else {
+                            let rotated = transform(&basis, relative);
+                            std::array::from_fn(|i| origin[i] + rotated[i])
+                        };
+                    }
+                    if let Some(direction) = direction {
+                        let authored = eval3(direction, &mut p.vars, rng, &queries);
+                        let authored = if def.emitter.local_velocity {
+                            authored
+                        } else {
+                            transform(&basis, authored)
+                        };
+                        let speed = p.vel.iter().map(|v| v * v).sum::<f32>().sqrt();
+                        let length = authored.iter().map(|v| v * v).sum::<f32>().sqrt();
+                        p.vel = if speed < f32::EPSILON {
+                            authored
+                        } else if length < PARAMETRIC_DIRECTION_MIN_LENGTH {
+                            [0.0; 3]
+                        } else {
+                            authored.map(|v| v * speed / length)
+                        };
+                    }
+                    if let Some(rotation) = rotation {
+                        p.rotation = rotation.eval(&mut p.vars, rng, &queries);
+                    }
                 }
                 Motion::None => {}
             }
-            let mut alive = p.age < p.lifetime;
+            let expired = def
+                .particle
+                .expiration
+                .as_ref()
+                .is_some_and(|expression| expression.eval(&mut p.vars, rng, &queries) != 0.0);
+            let mut alive = p.age < p.lifetime && !expired;
             if let Some(collision) = def.particle.collision.as_ref().filter(|_| !local)
                 && collision.enabled.eval(&mut p.vars, rng, &queries) != 0.0
                 && !matches!(def.particle.motion, Motion::Parametric { .. })
@@ -349,22 +372,17 @@ impl Emitter {
                 && (!def.particle.expire_if_not_in.is_empty()
                     || !def.particle.expire_if_in.is_empty())
             {
-                let fluid = world.fluid(cell(world_pos));
-                if !fluid_allows(&def.particle.expire_if_not_in, fluid) {
-                    alive = false;
-                }
-                if !def.particle.expire_if_in.is_empty()
-                    && fluid != Fluid::None
-                    && fluid_allows(&def.particle.expire_if_in, fluid)
-                    && def
-                        .particle
-                        .expire_if_in
-                        .iter()
-                        .any(|name| name.contains("water") || name.contains("lava"))
+                let identity = world.block_identity(cell(world_pos));
+                if !def.particle.expire_if_not_in.is_empty()
+                    && !identity.is_some_and(|id| def.particle.expire_if_not_in.contains(id))
                 {
                     alive = false;
                 }
+                if identity.is_some_and(|id| def.particle.expire_if_in.contains(id)) {
+                    alive = false;
+                }
             }
+
             p.travelled += (0..3)
                 .map(|i| (p.pos[i] - p.prev[i]).powi(2))
                 .sum::<f32>()
@@ -568,3 +586,7 @@ mod tests {
         assert_eq!(particle.vel[1], 0.0);
     }
 }
+
+#[cfg(test)]
+#[path = "particle/lifecycle_tests.rs"]
+mod lifecycle_tests;

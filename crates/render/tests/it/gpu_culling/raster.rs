@@ -89,7 +89,11 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
         gpu_snapshot::save(&format!("gpu_cull_cpu_{vertex}_{index}"), &expected);
         let background = &expected[..4];
         assert!(
-            expected.chunks_exact(4).any(|pixel| pixel != background),
+            expected
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel != background),
             "camera {index} sees terrain"
         );
 
@@ -156,8 +160,10 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
                 &actual,
             );
             let mismatched = expected
-                .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<4>().0.iter())
                 .filter(|(a, b)| a != b)
                 .count();
             assert!(

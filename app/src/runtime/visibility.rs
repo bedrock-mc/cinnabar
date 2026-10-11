@@ -7,11 +7,11 @@ use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
 use world::SubChunkKey;
 
-use crate::{
-    camera::FlyCamera,
-    runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
-};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use {
+    crate::runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
+    client_presentation::camera::FlyCamera,
+};
 
 #[cfg(feature = "developer-control")]
 mod telemetry;
@@ -199,7 +199,7 @@ fn refresh_visible(
 }
 
 pub(crate) fn apply_added_chunk_visibility(
-    add: On<Add, ChunkRenderInstance>,
+    add: On<Add<ChunkRenderInstance>>,
     mut cache: ResMut<CaveVisibilityCache>,
     mut chunks: Query<(&ChunkRenderInstance, &mut Visibility)>,
 ) {
@@ -219,7 +219,7 @@ pub(crate) fn apply_added_chunk_visibility(
 }
 
 pub(crate) fn remove_chunk_visibility(
-    remove: On<Remove, ChunkRenderInstance>,
+    remove: On<Remove<ChunkRenderInstance>>,
     mut cache: ResMut<CaveVisibilityCache>,
     chunks: Query<&ChunkRenderInstance>,
 ) {

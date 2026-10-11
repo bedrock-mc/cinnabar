@@ -1,30 +1,30 @@
-use super::*;
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 fn compile_swell_stop(source: &str, version: i32) -> Option<assets::MolangProgram> {
     assert_eq!(source, "variable.factor = 3; return 0;");
     assert_eq!(version, 0);
     let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
-    Some(assets::MolangProgram {
-        symbols: vec![assets::MolangSymbol {
+    Some(assets::MolangProgram::new(
+        vec![assets::MolangSymbol {
             kind: assets::MolangSymbolKind::Variable,
             identifier: "variable.factor".into(),
         }]
         .into(),
-        expressions: vec![assets::CompiledMolangExpression {
+        vec![assets::CompiledMolangExpression {
             first_op: 0,
             op_count: 3,
             max_stack: 1,
         }]
         .into(),
-        ops: vec![
+        vec![
             MolangOp::Push(scalar(3.0)),
             MolangOp::StoreVariable(0),
             MolangOp::Push(scalar(0.0)),
         ]
         .into(),
-        collections: Box::new([]),
-        collection_items: Box::new([]),
-    })
+        Box::new([]),
+        Box::new([]),
+    ))
 }
 
 #[test]

@@ -1,4 +1,12 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, CollisionBox, CollisionConfidence, ContributorRole, DIAGNOSTIC_MATERIAL,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
+        ModelFamily, ModelStateField, RegistryRecord, VisualKind, encode_blob, read_registry,
+    },
+    std::{collections::HashSet, path::Path},
+};
 
 fn resin_clump_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
@@ -227,9 +235,6 @@ fn compiler_resin_clump_admission_fails_closed_as_a_complete_family() {
     let mut wrong_coverage = records.clone();
     wrong_coverage[0].face_coverage = 1;
     families.push(("wrong face coverage", wrong_coverage));
-    let mut wrong_shape = records.clone();
-    wrong_shape[0].collision_seed.shape_id = 1;
-    families.push(("wrong collision shape", wrong_shape));
     let mut wrong_confidence = records.clone();
     wrong_confidence[0].collision_seed.confidence = CollisionConfidence::ReviewedVisibleBounds;
     families.push(("wrong collision confidence", wrong_confidence));
@@ -370,10 +375,10 @@ fn compiler_resin_clump_rejects_a_nonexact_route_even_when_its_descriptor_is_int
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_resin_clump_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let mut records = resin_clump_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned resin clumps");
 

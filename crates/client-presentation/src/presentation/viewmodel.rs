@@ -2,10 +2,9 @@
 //! gaps, not evidence that the player is in a source-qualified idle state.
 use crate::camera::FlyCamera;
 use bevy::{
-    camera::{Camera, RenderTarget},
+    camera::{Camera, Hdr, RenderTarget},
     ecs::system::SystemParam,
     prelude::*,
-    render::view::Hdr,
     window::WindowRef,
 };
 use client_ui::ui_runtime::UiRuntime;
@@ -384,7 +383,7 @@ impl HandAdapter {
         }
         Some((cached.geometry.clone(), cached.pixels.clone()))
     }
-    fn skin(&mut self, raw: &protocol::StandardSkin) -> Option<ViewmodelSkin> {
+    fn skin(&mut self, raw: &render_api::StandardSkin) -> Option<ViewmodelSkin> {
         if raw.width != 64
             || raw.height != 64
             || raw.rgba8.len() != 64 * 64 * 4
@@ -438,8 +437,8 @@ impl ViewmodelPublish<'_, '_> {
     pub fn bind_cpu_fallback(
         &mut self,
         input: &render_model::UiRenderInput,
-        empty: Option<client_ui::ui_runtime::presentation::IconRef>,
-        held: Option<client_ui::ui_runtime::presentation::IconRef>,
+        empty: Option<ui::IconRef>,
+        held: Option<ui::IconRef>,
     ) {
         let cube = self
             .scene
@@ -670,11 +669,9 @@ impl ViewmodelPublish<'_, '_> {
         if let Some(selected) = player_runtime.selected_stack_snapshot() {
             values[7] = i128::from(selected.slot);
             match selected.state {
-                client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {}
-                client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
-                    values[6] = 1
-                }
-                client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                inventory::inventory_ledger::PlayerInventorySlot::Unknown => {}
+                inventory::inventory_ledger::PlayerInventorySlot::Empty => values[6] = 1,
+                inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => {
                     values[6] = 2;
                     values[8..14].copy_from_slice(&[
                         i128::from(stack.network_id),
@@ -800,7 +797,7 @@ impl ViewmodelPublish<'_, '_> {
         }
         let local_owner = if matches!(
             selected.state,
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+            inventory::inventory_ledger::PlayerInventorySlot::Present(_)
         ) {
             let movement = world.movement.ok_or(HandFallback::Ownership)?;
             let visibility = self
@@ -840,7 +837,7 @@ impl ViewmodelPublish<'_, '_> {
             .select_owner(owner_identity)
             .ok_or(HandFallback::Geometry)?;
         let (geometry, skin, lifetime) = match selected.state {
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
+            inventory::inventory_ledger::PlayerInventorySlot::Empty => {
                 let actor = actor.ok_or(HandFallback::Ownership)?;
                 let rig = stream
                     .authority()
@@ -872,7 +869,7 @@ impl ViewmodelPublish<'_, '_> {
                     rig.actor,
                 )
             }
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+            inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => {
                 let Some(HandOwner::Local {
                     actor_session,
                     dimension,
@@ -899,7 +896,7 @@ impl ViewmodelPublish<'_, '_> {
                     },
                 )
             }
-            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {
+            inventory::inventory_ledger::PlayerInventorySlot::Unknown => {
                 return Err(HandFallback::ItemsUnknownOrHeld);
             }
         };

@@ -2,14 +2,15 @@
 //! root controller, expression channels, and actor-state queries drive the pose.
 use assets::{EntityRigFallback, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
+use client_presentation::presentation::actors::rig_world_from_actor;
 use client_world::{BoneTransform, LocalPlayerFeed};
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, CapeImage, ItemActorEvent,
-    MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    SkinGeometrySource, StandardSkin, WorldBootstrap, WorldEvent,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, ItemActorEvent, MovePlayerEvent,
+    MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
 use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
+use render_api::{CapeImage, SkinGeometrySource, StandardSkin};
 use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -299,7 +300,7 @@ fn head_faces_the_reported_head_yaw_and_pitch_in_the_world() {
     world.advance_actor_interpolation_ticks(3);
     let rig = world.authority().actor_rig(42).unwrap();
     assert!(rig.body_yaw.abs() < 40.0, "the body lags the head");
-    let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+    let model = rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
     let forward = rotate(bone(&world, &entities, "head").rotation, [0.0, 0.0, -1.0]);
     let world_forward: [f32; 3] =
         std::array::from_fn(|row| (0..3).map(|axis| model[row][axis] * forward[axis]).sum());
@@ -329,8 +330,7 @@ fn sneaking_keeps_the_heads_entity_relative_look_direction() {
         let standing_head = bone(&world, &entities, "head");
         let world_direction = |world: &WorldStream, rotation, direction| {
             let rig = world.authority().actor_rig(42).unwrap();
-            let model =
-                crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+            let model = rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
             let vector = rotate(rotation, direction);
             std::array::from_fn::<f32, 3, _>(|row| {
                 (0..3).map(|axis| model[row][axis] * vector[axis]).sum()
@@ -383,7 +383,7 @@ fn sneaking_keeps_the_heads_entity_relative_look_direction() {
 #[test]
 fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
     let at = |yaw: f32, vector: [f32; 3]| {
-        let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], yaw, 2.0);
+        let model = rig_world_from_actor([0.0; 3], yaw, 2.0);
         std::array::from_fn::<f32, 3, _>(|row| {
             (0..3)
                 .map(|axis| model[row][axis] * vector[axis])
@@ -447,7 +447,7 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
 // cape samples the layer appended after it.
 #[test]
 fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
-    use crate::presentation::{actors, cape};
+    use client_presentation::presentation::{actors, cape};
     let entities = entities();
     let mut world = stream(Arc::clone(&entities));
     world.submit(1, skinned_player_list(200, 90)).unwrap();
@@ -506,6 +506,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
 
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        game_mode: None,
         uuid: [5; 16],
         prefer_client_skin: false,
         username: "local".into(),
@@ -658,7 +659,7 @@ const NPC_GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{
 // name and the skin's own rig geometry reaches the frame.
 #[test]
 fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
-    use crate::presentation::{actors, skin_rig::SkinRigCache};
+    use client_presentation::presentation::{actors, skin_rig::SkinRigCache};
     let entities = entities();
     let mut world = stream(Arc::clone(&entities));
     world
@@ -890,7 +891,8 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
 // the local vanilla-pack arm.
 #[test]
 fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
-    use crate::melee::{ActorHit, Crosshair, MeleeRuntime, PressContext, SwingTracker};
+    use crate::melee::{MeleeRuntime, SwingTracker};
+    use gameplay::melee::{ActorHit, Crosshair, PressContext};
     let Some(entities) = vanilla_entities() else {
         eprintln!(
             "skipping a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm: fixture unavailable; requires installed local carriers (make assets)"
@@ -903,7 +905,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
         player_position: [0.0, 65.62, 0.0],
         input_mode: protocol::PlayerInputMode::Mouse,
         local_runtime_id: 1,
-        selection: Some(crate::mining::FrozenMiningSelection {
+        selection: Some(gameplay::mining::FrozenMiningSelection {
             slot: 0,
             item: protocol::VerifiedNetworkItemStack::try_new(empty.clone(), empty.nbt_digest)
                 .unwrap(),
@@ -958,7 +960,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
 
 #[test]
 fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
-    use crate::presentation::{actors, skin_layers, skin_rig};
+    use client_presentation::presentation::{actors, skin_layers, skin_rig};
     let patch =
         r#"{"geometry":{"default":"geometry.humanoid.custom","animated_32x32":"geometry.cape"}}"#;
     let WorldEvent::Actor(ActorEvent::PlayerList(mut update)) =
@@ -974,8 +976,8 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         panic!("standard skin fixture");
     };
     Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
-        Arc::from([protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Body32,
+        Arc::from([render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Body32,
             width: 24,
             height: 512,
             rgba8: vec![255; 24 * 512 * 4].into(),
@@ -1032,7 +1034,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
     assert_eq!(frame.rig.manifest.len(), 2);
     assert_eq!(
         frame.rig.manifest[1].identity.layer,
-        skin_layers::SKIN_LAYER_BASE + protocol::SkinAnimationKind::Body32.slot() as u8
+        skin_layers::SKIN_LAYER_BASE + render_api::SkinAnimationKind::Body32.slot() as u8
     );
     assert_eq!(frame.rig.manifest[1].bone_count, 2);
     assert_ne!(frame.instance_pages()[1], 0);
@@ -1083,8 +1085,8 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
         panic!("standard skin fixture");
     };
     Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
-        Arc::from([protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Face,
+        Arc::from([render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
             width: 32,
             height: 64,
             rgba8: vec![255; 32 * 64 * 4].into(),
@@ -1127,9 +1129,9 @@ fn selected_custom_local_model_shares_preparation_in_first_and_third_person() {
     }]}).to_string();
     let geometry = launcher::skin_import::parse_skin_geometry(model.as_bytes(), None).unwrap();
     let skin = StandardSkin {
-        width: protocol::CLASSIC_SKIN_SIDE as u32,
-        height: protocol::CLASSIC_SKIN_SIDE as u32,
-        rgba8: vec![200; protocol::CLASSIC_SKIN_SIDE * protocol::CLASSIC_SKIN_SIDE * 4].into(),
+        width: render_api::CLASSIC_SKIN_SIDE as u32,
+        height: render_api::CLASSIC_SKIN_SIDE as u32,
+        rgba8: vec![200; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4].into(),
         cape: None,
         geometry: Some(geometry.clone()),
     };
@@ -1179,7 +1181,7 @@ fn selected_custom_local_model_shares_preparation_in_first_and_third_person() {
             &local.skin_mesh.unwrap().vertices,
             &remote.skin_mesh.unwrap().vertices
         ));
-        let mut cache = crate::presentation::skin_rig::SkinRigCache::default();
+        let mut cache = client_presentation::presentation::skin_rig::SkinRigCache::default();
         cache.begin_frame();
         let mut registered = Vec::new();
         let local_id = cache

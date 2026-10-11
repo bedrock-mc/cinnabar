@@ -1,18 +1,23 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::{
-    Artwork, ArtworkSet, BUILT_IN_TITLE, DecodeCache, GUTTER, IconRef, Packed, TITLE_KEY,
-    WHOLE_PAGE, decode_bytes, sources,
+use {
+    super::{
+        Artwork, ArtworkSet, DecodeCache, GUTTER, Packed, TITLE_KEY, WHOLE_PAGE, decode_bytes,
+        sources,
+    },
+    ui::IconRef,
 };
 
 fn title() -> Option<&'static Artwork> {
     static TITLE: std::sync::OnceLock<Option<Artwork>> = std::sync::OnceLock::new();
     TITLE
         .get_or_init(|| {
-            decode_bytes(BUILT_IN_TITLE, WHOLE_PAGE).map(|(pixels, width, height)| Artwork {
-                width,
-                height,
-                pixels,
+            decode_bytes(launcher::branding::TITLE, WHOLE_PAGE).map(|(pixels, width, height)| {
+                Artwork {
+                    width,
+                    height,
+                    pixels,
+                }
             })
         })
         .as_ref()

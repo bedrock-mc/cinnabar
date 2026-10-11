@@ -1,11 +1,8 @@
 use super::UiRuntime;
-use crate::{
-    camera::CameraSettingsAuthority,
-    runtime::{
-        shutdown::record_fatal_error,
-        visibility::CaveVisibilityCache,
-        world::{ClientWorld, WorldStreamFramePoll},
-    },
+use crate::runtime::{
+    shutdown::record_fatal_error,
+    visibility::CaveVisibilityCache,
+    world::{ClientWorld, WorldStreamFramePoll},
 };
 use bevy::{
     camera::Camera,

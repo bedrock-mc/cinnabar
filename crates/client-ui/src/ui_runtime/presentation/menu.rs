@@ -9,7 +9,7 @@
 
 use ui::{SafeArea, TextError, TextLayout, TextLayoutCache, TextShadow, UiNode, UiRect};
 
-use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuView};
 
 use super::{TextMetrics, UiPresentationError, bounded_visible_text, rect};
 
@@ -659,7 +659,7 @@ fn append_dialog(
             "Delete Cached Data permanently?",
             "Downloaded packs will be downloaded again when required.",
             MenuAction::SettingsStorage(
-                crate::menu::settings_storage::StorageAction::ConfirmDelete,
+                launcher::menu::settings_storage::StorageAction::ConfirmDelete,
             ),
         ),
         MenuDialog::Exit => (
@@ -771,11 +771,14 @@ const fn nav_items() -> [(MenuScreen, &'static str); 6] {
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
-    use crate::menu::{MenuServerTab, SavedServer};
+    use launcher::menu::{MenuServerTab, SavedServer};
+    use {
+        super::*,
+        launcher::menu::{MenuAction, MenuScreen},
+    };
     #[test]
     fn review_fallback_destinations_can_scroll_to_the_last_saved_server() {
-        let mut view = crate::menu::MenuView::new(true, "Test".into());
+        let mut view = launcher::menu::MenuView::new(true, "Test".into());
         view.screen = MenuScreen::Servers;
         view.server_tab = MenuServerTab::Saved;
         view.servers = (0..40)

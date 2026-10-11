@@ -1,5 +1,5 @@
 use assets::{AtmosphereRole, AtmosphereTexture};
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use meshing::{
     CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,
     CloudFace,
@@ -39,8 +39,8 @@ fn draw(
         (CLOUD_UNDERSIDE_Y + CLOUD_TOP_Y) * 0.5,
         CLOUD_CELL_BLOCKS * 0.5,
     );
-    let matrix = Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.1)
-        * Mat4::look_at_rh(eye, centre, Vec3::Z);
+    let matrix = glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 1.0, 0.1)
+        * glam::camera::rh::view::look_at_mat4(eye, centre, Vec3::Z);
     let view = gpu.buffer(
         &super::gpu_snapshot::view(matrix, eye),
         wgpu::BufferUsages::UNIFORM,
@@ -160,7 +160,13 @@ fn production_cloud_box_culls_hidden_faces_at_each_angle_and_preserves_target_al
         let culled = draw(&gpu, &all, eye, Some(wgpu::Face::Back), false);
         let expected = draw(&gpu, &facing, eye, Some(wgpu::Face::Back), false);
         assert_eq!(culled, expected, "{label}: hidden face contributed pixels");
-        assert!(culled.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(
+            culled
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         let unculled = draw(&gpu, &all, eye, None, false);
         assert_ne!(culled, unculled, "{label}: culling was not exercised");
         // Writing a fixture surface once followed by the identical production

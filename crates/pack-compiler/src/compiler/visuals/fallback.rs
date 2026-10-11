@@ -1,11 +1,11 @@
 use std::sync::OnceLock;
 
-use super::super::*;
 use super::context::{
     CuboidTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, intern_cuboid_template,
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 const ALPHA_CUTOUT: u8 = 1;
 const ALPHA_BLEND: u8 = 2;
 const MAGIC: &[u8; 8] = b"CVFB1001";
@@ -232,6 +232,7 @@ impl<'a> FallbackInventory<'a> {
 /// Families with a dedicated exact compile rule, which supersede their inventory envelope.
 fn has_exact_family_route(record: &RegistryRecord) -> bool {
     super::lily_pad::is_record(record)
+        || super::shelf::is_record(record)
         || super::portal::is_record(record)
         || super::literal::is_literal_cube(record)
         || super::literal::is_default_invisible(&record.name)

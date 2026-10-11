@@ -6,7 +6,10 @@ use render_model::java_animation::{
     self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword, is_java_tool,
 };
 
-use super::*;
+use {
+    super::*,
+    render_model::equipment::{ItemDisplay, attach_to_bone},
+};
 
 const BOW: &str = "minecraft:bow";
 

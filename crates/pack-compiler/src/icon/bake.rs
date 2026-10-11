@@ -390,7 +390,9 @@ mod block_entity_tests {
             let color = assets::banner::color_rgb(i64::from(metadata));
             let colored = sprites[sprite as usize]
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[..3] == color && pixel[3] == 255)
                 .count();
             assert!(
@@ -482,7 +484,9 @@ mod block_entity_tests {
             assert_eq!([icon.width, icon.height], [model::SIDE as u16; 2]);
             let covered = icon
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[3] != 0)
                 .count();
             assert!(
@@ -562,7 +566,14 @@ mod block_entity_tests {
                 .expect("the inventory cube survives an entity-only placed visual");
             // Only template geometry is redrawn at runtime; these faces stay a thumbnail.
             assert_eq!(state, None);
-            assert!(raster.rgba8.chunks_exact(4).any(|pixel| pixel[3] == 255));
+            assert!(
+                raster
+                    .rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[3] == 255)
+            );
             rasters.push(raster);
         }
         assert_ne!(rasters[0], rasters[1]);

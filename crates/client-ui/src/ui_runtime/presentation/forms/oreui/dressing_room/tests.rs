@@ -1,20 +1,23 @@
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::review_tests::paint;
-use super::*;
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font};
 use launcher::dressing_room::{
     DressingRoomCape, DressingRoomSection, DressingRoomSkin, DressingRoomView, STARTER_SKIN_NAMES,
     SkinEditor, SkinEditorMode, SkinEditorTarget, SkinModel,
 };
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn view(count: usize) -> MenuView {
     let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::DressingRoom;
+    view.screen = launcher::menu::MenuScreen::DressingRoom;
     view.dressing_room = Arc::new(DressingRoomView {
         skins: (0..count)
             .map(|index| DressingRoomSkin {
-                engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+                engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
                 id: index.to_string(),
                 name: STARTER_SKIN_NAMES
                     .get(index)
@@ -26,10 +29,10 @@ fn view(count: usize) -> MenuView {
                 } else {
                     SkinModel::Classic
                 },
-                skin: protocol::StandardSkin {
-                    width: protocol::CLASSIC_SKIN_SIDE as u32,
-                    height: protocol::CLASSIC_SKIN_SIDE as u32,
-                    rgba8: vec![255; protocol::CLASSIC_SKIN_SIDE.pow(2) * 4].into(),
+                skin: render_api::StandardSkin {
+                    width: render_api::CLASSIC_SKIN_SIDE as u32,
+                    height: render_api::CLASSIC_SKIN_SIDE as u32,
+                    rgba8: vec![255; render_api::CLASSIC_SKIN_SIDE.pow(2) * 4].into(),
                     cape: None,
                     geometry: None,
                 },
@@ -43,13 +46,13 @@ fn view(count: usize) -> MenuView {
 }
 
 fn add_capes(view: &mut MenuView) {
-    let (width, height) = protocol::CAPE_DIMENSIONS[0];
+    let (width, height) = render_api::CAPE_DIMENSIONS[0];
     Arc::make_mut(&mut view.dressing_room).capes = (0..2)
         .map(|index| DressingRoomCape {
             id: format!("cape-{index}"),
             name: format!("Cape {index}"),
             path: String::new(),
-            cape: protocol::CapeImage {
+            cape: render_api::CapeImage {
                 width,
                 height,
                 rgba8: vec![255; (width * height * 4) as usize].into(),

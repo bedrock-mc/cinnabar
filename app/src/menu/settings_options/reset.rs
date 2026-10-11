@@ -1,8 +1,8 @@
 //! Applies confirmed launcher resets to live menu state.
-use super::SettingsGroup;
+use launcher::menu::settings_options::SettingsGroup;
 #[cfg(test)]
-use super::{SETTINGS_OPTIONS, SettingsOptions};
-use crate::menu::{MenuDialog, MenuRuntime};
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+use {crate::menu::MenuRuntime, launcher::menu::MenuDialog};
 
 impl MenuRuntime {
     /// Applies a section reset only after its matching confirmation remains open.
@@ -16,12 +16,12 @@ impl MenuRuntime {
             self.settings_apply = true;
         }
         if matches!(group, SettingsGroup::Video | SettingsGroup::Accessibility) {
-            let defaults = super::super::video_settings::SavedVideoSettings::default();
+            let defaults = launcher_host::video_settings::SavedVideoSettings::default();
             self.gui_scale_preference = None;
             self.gui_scale_offset = defaults.gui_scale_offset;
             self.gui_scale_display_offset = defaults.gui_scale_offset;
             if group == SettingsGroup::Video {
-                self.activate_settings(crate::menu::MenuAction::SettingsFullscreen(
+                self.activate_settings(launcher::menu::MenuAction::SettingsFullscreen(
                     defaults.fullscreen,
                 ));
             }
@@ -34,7 +34,7 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::MenuAction;
+    use launcher::menu::MenuAction;
     /// Changes a registry option without introducing another copy of its default.
     fn change(options: &mut SettingsOptions, name: &str) -> i32 {
         let index = SETTINGS_OPTIONS

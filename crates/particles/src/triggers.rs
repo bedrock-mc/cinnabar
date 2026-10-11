@@ -17,6 +17,8 @@ pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
 pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
 /// Default item fragment count for icon-crack presentation.
 pub const ITEM_ICON_PARTICLES: u32 = 6;
+/// Basename of the pack-authored Totem activation emitter.
+pub const TOTEM_PARTICLE_EFFECT: &str = "totem_particle";
 /// Vanilla keeps hits this far from the edge and outside the selected face.
 const CRACK_FACE_INSET: f32 = 0.1;
 /// Huge explosions use the finite emitter despite its dragon-specific name.
@@ -65,7 +67,7 @@ pub fn legacy_particle_effect(particle_type: i32) -> Option<&'static str> {
         46 => "endrod",                         // EndRod
         47 => "dragon_breath_fire",             // DragonBreath
         48 => "llama_spit_smoke",               // Spit
-        49 => "totem_particle",                 // Totem
+        49 => TOTEM_PARTICLE_EFFECT,            // Totem
         54 => "balloon_gas_particle",           // BalloonGas
         55 => "colored_flame_particle",         // ColouredFlame
         56 => "sparkler_emitter",               // Sparkler
@@ -314,6 +316,25 @@ fn variables(pairs: &[(&str, f32)]) -> Vec<(String, f32)> {
         .iter()
         .map(|(name, value)| ((*name).to_owned(), *value))
         .collect()
+}
+
+/// Starts the authored Totem emitter at the actor's native origin and follows its feet.
+#[must_use]
+pub fn totem_activation_request(
+    runtime_id: u64,
+    feet: [f32; 3],
+    native_position: [f32; 3],
+) -> SpawnRequest {
+    SpawnRequest {
+        effect: format!("minecraft:{TOTEM_PARTICLE_EFFECT}"),
+        position: native_position,
+        bound: Some((
+            runtime_id,
+            std::array::from_fn(|i| native_position[i] - feet[i]),
+        )),
+        seed: runtime_id,
+        ..SpawnRequest::default()
+    }
 }
 
 /// Spawn request for block break pieces textured from `tile`.

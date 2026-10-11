@@ -1,4 +1,4 @@
-// Package proxy joins a local gophertunnel listener session to an upstream
+// Package proxy joins a local client session to an upstream
 // Bedrock server and relays packets between them, decoding only those it inspects.
 package proxy
 
@@ -6,17 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -55,22 +54,17 @@ type Config struct {
 	PacketDelay *PacketDelay
 	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
 	ServerTrust minecraft.ServerTrust
+	// SessionTarget, when set, maps a session Connect's connect.v1 target to a proxy target for that
+	// session alone and drops any pending transfer, as connect.v1 does; nil rejects targeted Connects.
+	SessionTarget func(ctx context.Context, kind, value string) (string, error)
+	// Device, when set, is the install's device, claimed on every session login in place of the client's.
+	Device *device.Profile
 }
 
 const maxInitialTransferHops = 8
 
-type acceptResult struct {
-	conn net.Conn
-	err  error
-}
-
-type connectionAcceptor interface {
-	Accept() (net.Conn, error)
-}
-
-// Serve listens for local bridge clients until ctx is cancelled. Session
-// setup failures are returned; ordinary peer disconnects leave the listener
-// available for another client.
+// Serve listens for local sessions until ctx is cancelled. Listener setup and cleanup
+// failures are returned; session errors are reported without ending the server.
 func Serve(ctx context.Context, cfg Config) (err error) {
 	logger := cfg.Logger
 	if logger == nil {
@@ -84,7 +78,6 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	sessionErr := make(chan error, 1)
 	prepared := newPreparedConnections(cfg.Upstream, cfg.Account, logger)
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
@@ -104,129 +97,32 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	}
 	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
 	prepared.resolveTarget = withPendingTransfer(transfers, dial, withSelectedTarget(cfg.Selector, dial, withLocalTarget(cfg.LocalTarget, online)))
-	listener, err := localListenConfig(func(ctx context.Context, conn *minecraft.Conn) error {
-		selected, pinned := conn.Proto(), minecraft.DefaultProtocol
-		clientVersion := conn.ClientData().GameVersion
-		if selected.ID() != pinned.ID() || selected.Ver() != pinned.Ver() || clientVersion != pinned.Ver() {
-			logger.Warn("unsupported local protocol", "protocol", selected.ID(), "version", clientVersion)
-			return fmt.Errorf("unsupported local protocol %d/%s; want %d/%s", selected.ID(), clientVersion, pinned.ID(), pinned.Ver())
-		}
-		prepareErr := prepared.prepare(ctx, conn)
-		if prepareErr != nil && serveCtx.Err() == nil {
-			relayPreLoginDisconnect(conn, prepareErr)
-			reportDisconnect(cfg.OnDisconnect, prepareErr)
-		}
-		reportPreparationError(sessionErr, prepareErr, serveCtx)
-		return prepareErr
-	}).ListenNetwork(streamnet.New(cfg.SocketDir), "")
+	sessionListener, err := streamnet.ListenSession(cfg.SocketDir)
 	if err != nil {
-		return errors.Join(fmt.Errorf("proxy: listen: %w", err), prepared.shutdown())
+		return errors.Join(fmt.Errorf("proxy: listen for sessions: %w", err), prepared.shutdown())
 	}
+	sessionEndpoint := &sessionServer{
+		listener:     sessionListener,
+		prepared:     prepared,
+		transfers:    transfers,
+		onDisconnect: cfg.OnDisconnect,
+		selectTarget: cfg.SessionTarget,
+		device:       cfg.Device,
+		dialTarget:   dial,
+		delay:        cfg.PacketDelay,
+		logger:       logger,
+	}
+	sessionEndpoint.start(serveCtx)
 	reportListenerReady(logger, cfg.SocketDir)
 
-	accepted := make(chan acceptResult)
-	acceptDone := make(chan error, 1)
-	go func() {
-		acceptDone <- runAcceptLoop(serveCtx, listener, accepted)
-	}()
-
-	var sessions sync.WaitGroup
-	var stopOnce sync.Once
-	var stopErr error
-	stop := func() error {
-		stopOnce.Do(func() {
-			stopErr = stopServer(cancel, listener, &sessions, acceptDone)
-		})
-		return stopErr
-	}
-	defer func() { err = errors.Join(err, shutdownPreparedServer(prepared, stop)) }()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case result := <-accepted:
-			if result.err != nil {
-				if serveCtx.Err() != nil || errors.Is(result.err, net.ErrClosed) {
-					return nil
-				}
-				return fmt.Errorf("proxy: accept: %w", result.err)
-			}
-			downstream, ok := result.conn.(*minecraft.Conn)
-			if !ok {
-				cleanupErr := cleanupHandoffConnection(result.conn)
-				return errors.Join(fmt.Errorf("proxy: accepted unexpected connection type %T", result.conn), cleanupErr)
-			}
-			upstream, handoffErr := takePreparedAfterAccept(prepared, downstream)
-			if handoffErr != nil {
-				return handoffErr
-			}
-			if upstream == nil {
-				continue
-			}
-			// Wrapped only now: pack-stack capture needs the concrete upstream Conn.
-			upstream.upstream = observeDisconnects(observeTransfers(upstream.upstream, transfers, logger), cfg.OnDisconnect)
-			sessions.Add(1)
-			go func() {
-				defer sessions.Done()
-				err := serveAcceptedConnection(serveCtx, downstream, upstream, cfg.SocketDir, logger, cfg.PacketDelay)
-				if err != nil && !streamnet.IsClosed(err) {
-					select {
-					case sessionErr <- err:
-					default:
-					}
-				}
-			}()
-		case err := <-sessionErr:
-			return err
-		}
-	}
-}
-
-// localListenConfig configures the private same-machine listener the Rust client joins.
-func localListenConfig(prepare func(context.Context, *minecraft.Conn) error) minecraft.ListenConfig {
-	return minecraft.ListenConfig{
-		FlushRate:              -1, // the relay's packet readers own flushing
-		AuthenticationDisabled: true,
-		AcceptedProtocols:      []minecraft.Protocol{minecraft.DefaultProtocol},
-		AllowUnknownPackets:    true,
-		EnableBatchReading:     true,
-		// Same-machine traffic gains nothing from DEFLATE or AES; the upstream leg keeps both.
-		Compression:             packet.NopCompression,
-		DisablePacketEncryption: true,
-		// The client requests one chunk at a time, so larger chunks cut loopback round trips.
-		ResourcePackDelivery:     minecraft.ResourcePackDeliveryConfig{ChunkSize: localResourcePackChunkSize},
-		ErrorLog:                 slog.Default().With("component", "local-listener"),
-		PrepareResourcePackOffer: prepare,
-	}
-}
-
-// localResourcePackChunkSize matches the Rust client's MAX_RESOURCE_PACK_CHUNK_BYTES cap.
-const localResourcePackChunkSize = 1 << 20
-
-type acceptedDownstreamSession interface {
-	downstreamSession
-	ClientCacheEnabled() bool
-}
-
-func serveAcceptedConnection(
-	ctx context.Context,
-	downstream acceptedDownstreamSession,
-	prepared *preparedConnection,
-	socketDir string,
-	logger *slog.Logger,
-	delays ...*PacketDelay,
-) (err error) {
-	prepared.downstream = downstream
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errors.Join(err, panicTypeError("starting prepared downstream session", recovered), prepared.close())
-		}
+		err = errors.Join(err, shutdownPreparedServer(prepared, func() error {
+			cancel()
+			return sessionEndpoint.close()
+		}))
 	}()
-	reportLocalClientAccepted(logger, socketDir, downstream.ClientCacheEnabled())
-	if len(delays) != 0 {
-		prepared.packetDelay = delays[0]
-	}
-	return servePreparedConnection(ctx, downstream, prepared)
+	<-ctx.Done()
+	return nil
 }
 
 func shutdownPreparedServer(prepared *preparedConnections, stop func() error) error {
@@ -249,59 +145,6 @@ func takePreparedAfterAccept(prepared *preparedConnections, downstream *minecraf
 	return nil, errors.Join(errors.New("proxy: accepted connection has no prepared upstream"), cleanupErr)
 }
 
-func shouldSurfacePreparationError(err error, serveCtx context.Context) bool {
-	if err == nil || serveCtx.Err() != nil {
-		return false
-	}
-	var admissionErr *PackAdmissionError
-	if errors.As(err, &admissionErr) || errors.Is(err, minecraft.ErrServerNotTrusted) {
-		return false // the player declined; the join ends but the core stays up
-	}
-	var cancellationErr *preparationCancellationError
-	return !errors.As(err, &cancellationErr)
-}
-
-func reportPreparationError(sessionErr chan<- error, err error, serveCtx context.Context) {
-	if !shouldSurfacePreparationError(err, serveCtx) {
-		return
-	}
-	select {
-	case sessionErr <- fmt.Errorf("proxy: prepare upstream: %w", err):
-	default:
-	}
-}
-
-func runAcceptLoop(ctx context.Context, listener connectionAcceptor, accepted chan<- acceptResult) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic in accept loop: %v", recovered)
-		}
-	}()
-	for {
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil && conn != nil {
-			acceptErr = errors.Join(acceptErr, cleanupHandoffConnection(conn))
-			conn = nil
-		}
-		select {
-		case accepted <- acceptResult{conn: conn, err: acceptErr}:
-		case <-ctx.Done():
-			return cleanupHandoffConnection(conn)
-		}
-		if acceptErr != nil {
-			return nil
-		}
-	}
-}
-
-func stopServer(cancel context.CancelFunc, listener io.Closer, sessions *sync.WaitGroup, acceptDone <-chan error) error {
-	cancel()
-	closeErr := listener.Close()
-	acceptErr := <-acceptDone
-	sessions.Wait()
-	return errors.Join(closeErr, acceptErr)
-}
-
 func cleanupHandoffConnection(conn net.Conn) error {
 	if conn == nil {
 		return nil
@@ -313,17 +156,9 @@ func cleanupHandoffConnection(conn net.Conn) error {
 	return errors.Join(abortErr, callSafely("closing accepted connection", conn.Close))
 }
 
-func reportLocalClientAccepted(logger *slog.Logger, socketDir string, clientCacheEnabled bool) {
-	logger.Info(
-		"local client accepted",
-		"socket_dir", socketDir,
-		"client_blob_cache", clientCacheEnabled,
-	)
-}
-
 func reportListenerReady(logger *slog.Logger, socketDir string) {
 	attributes := []any{"socket_dir", socketDir}
-	if network, endpoint, err := streamnet.Resolve(socketDir); err == nil {
+	if network, endpoint, err := streamnet.ResolveSession(socketDir); err == nil {
 		attributes = append(attributes, "network", network, "endpoint", endpoint)
 	}
 	logger.Info("listener ready; waiting for local Rust client", attributes...)
@@ -428,6 +263,12 @@ type dialerDownstream interface {
 	Proto() minecraft.Protocol
 }
 
+// maxUpstreamDecompressedBatch bounds one decompressed batch from the upstream. A
+// server may batch a whole pack transfer into a single batch, so the default 16 MiB
+// ceiling would reject the join that vanilla accepts; the acquisition budget's own
+// transfer ceiling still bounds what those bytes can amount to.
+const maxUpstreamDecompressedBatch = 256 * 1024 * 1024
+
 func newUpstreamDialerForAdmission(
 	downstream dialerDownstream,
 	tokenSource oauth2.TokenSource,
@@ -440,6 +281,7 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
+		MaxDecompressedLen:   maxUpstreamDecompressedBatch,
 		FlushRate:            -1, // the relay's packet readers own flushing
 		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
 		Handoff: minecraft.HandoffAtStartGame,
@@ -472,9 +314,18 @@ func newUpstreamDialerForAdmission(
 // continues even when the upstream required bit is set.
 func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 
+// resourcePackRequestWindow is how many chunk requests a pack's download may hold
+// outstanding. A pack with more chunks than this window would otherwise defer its
+// overflow to one request per response, so a 123-chunk pack requested through a
+// 100-chunk window tricksles its last 23 chunks one at a time.
+const resourcePackRequestWindow = 1024
+
+// boundedResourcePackDownload keeps every chunk of a pack in flight at once: a pack's
+// chunk count is bounded by the server's own declaration, so the window only has to
+// stay large enough that no pack's requests are serialized behind its data.
 func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 	return minecraft.ResourcePackDownloadConfig{
-		MaxInFlightChunks: minecraft.DefaultResourcePackMaxInFlightChunks,
+		MaxInFlightChunks: max(resourcePackRequestWindow, minecraft.DefaultResourcePackMaxInFlightChunks),
 	}
 }
 

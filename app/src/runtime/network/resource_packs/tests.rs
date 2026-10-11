@@ -77,8 +77,8 @@ fn a_rejected_required_pack_refuses_the_join() {
             let failure =
                 crate::runtime::network::session_failure_display(&error.to_string(), None);
             assert_eq!(
-                crate::menu::disconnect::describe(&failure).body,
-                crate::menu::disconnect::DisconnectBody::Key("disconnectionScreen.resourcePack")
+                launcher::menu::disconnect::describe(&failure).body,
+                launcher::menu::disconnect::DisconnectBody::Key("disconnectionScreen.resourcePack")
             );
         }
     }
@@ -212,7 +212,7 @@ fn ui_custom_definition_overrides_across_layers_without_relisting() {
 
 #[test]
 fn ui_reload_tracks_declared_documents_and_external_art() {
-    use super::super::pack_reload_diff::{Changes, Subscriber, compile};
+    use pack_runtime::reload_diff::{Changes, Subscriber, compile};
     for changed in [
         "custom/inventory.uidx",
         "assets/gui/inventory.png",
@@ -264,7 +264,11 @@ fn ui_reload_tracks_declared_documents_and_external_art() {
             ..Default::default()
         };
         assert!(
-            Changes::between(inputs(b"after").stack(), Some(&previous)).ui,
+            Changes::between(
+                inputs(b"after").stack(),
+                Some((&previous.admission, &previous.dependencies))
+            )
+            .ui,
             "{changed}"
         );
     }
@@ -272,7 +276,7 @@ fn ui_reload_tracks_declared_documents_and_external_art() {
 
 #[test]
 fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
-    use super::super::pack_reload_diff::{Changes, Subscriber, compile};
+    use pack_runtime::reload_diff::{Changes, Subscriber, compile};
     let before = files_pack(&[("assets/gui/inventory.png", b"pixels")]);
     let mut dependencies = Default::default();
     compile(
@@ -289,7 +293,11 @@ fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
     for (added, changed) in [("assets/gui/new.png", true), ("texts/en_US.lang", false)] {
         let after = files_pack(&[("assets/gui/inventory.png", b"pixels"), (added, b"new")]);
         assert_eq!(
-            Changes::between(after.stack(), Some(&previous)).ui,
+            Changes::between(
+                after.stack(),
+                Some((&previous.admission, &previous.dependencies))
+            )
+            .ui,
             changed,
             "{added}"
         );
@@ -300,10 +308,10 @@ fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
 #[test]
 fn preparing_packs_leaves_sound_publication_to_bootstrap() {
     let _cache = overlay_cache();
-    let _mailbox = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _mailbox = client_audio::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let before = crate::audio::server_sounds_generation();
+    let before = client_audio::audio::server_sounds_generation();
     let sounds = br#"{"sound_definitions":{"custom.beep":{"sounds":["sounds/beep"]}}}"#;
     let application = super::prepare_pack_application(
         protocol::ResourcePackHandoff::from_archives(vec![archive(
@@ -315,7 +323,7 @@ fn preparing_packs_leaves_sound_publication_to_bootstrap() {
         &[],
         false,
     );
-    assert_eq!(crate::audio::server_sounds_generation(), before);
+    assert_eq!(client_audio::audio::server_sounds_generation(), before);
     assert!(application.server_sounds.is_some(), "carried to Bootstrap");
 }
 
@@ -338,12 +346,14 @@ fn texture_sets_supply_color_layers() {
             br#"{"minecraft:texture_set":{"color":[10,20,30]}}"#,
         ),
     ]);
-    let image = super::decode_pack_texture(&view, "textures/blocks/a").expect("sibling");
+    let image = pack_runtime::pack_textures::decode_pack_texture(&view, "textures/blocks/a")
+        .expect("sibling");
     assert_eq!(
         (image.width, image.height, image.rgba8[..4].to_vec()),
         (2, 2, vec![1, 2, 3, 255])
     );
-    let solid = super::decode_pack_texture(&view, "textures/blocks/b").expect("solid");
+    let solid = pack_runtime::pack_textures::decode_pack_texture(&view, "textures/blocks/b")
+        .expect("solid");
     assert_eq!(solid.rgba8.to_vec(), vec![10, 20, 30, 255]);
 }
 
@@ -465,8 +475,8 @@ pub(super) fn every_subscriber_archive(id: u128, lang: &[u8]) -> protocol::Resou
 }
 
 /// Creates a fixture supplying inputs to every pack subscriber.
-pub(super) fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
-    std::sync::Arc::new(super::super::pack_reload::PackInputs {
+pub(super) fn every_input() -> std::sync::Arc<pack_runtime::PackInputs> {
+    std::sync::Arc::new(pack_runtime::PackInputs {
         icons: vec![("x:gem".into(), "gem".into())],
         ..Default::default()
     })
@@ -524,7 +534,7 @@ fn parallel_preparation_matches_a_serial_one() {
 // Cancellation that lands while a part compiles stops every later part and yields nothing.
 #[test]
 fn cancellation_mid_compile_skips_the_remaining_parts() {
-    use super::super::pack_reload_diff::Changes;
+    use pack_runtime::reload_diff::Changes;
     let _cache = overlay_cache();
     let polls = std::sync::atomic::AtomicUsize::new(0);
     let cancel_after_first = || polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;

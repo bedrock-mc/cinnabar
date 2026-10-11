@@ -86,7 +86,7 @@ fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
     assert!(original.pixels().any(|pixel| pixel[3] == 127));
     for (original, actual) in original
         .pixels()
-        .zip(catalog.textures()[0].rgba8.chunks_exact(4))
+        .zip(catalog.textures()[0].rgba8.as_chunks::<4>().0.iter())
     {
         assert_eq!(&actual[..3], &original.0[..3]);
         assert_eq!(actual[3], if original[3] >= 128 { 255 } else { 0 });

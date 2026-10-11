@@ -309,6 +309,8 @@ fn walk(block: &naga::Block, callees: &[Cost], total: &mut Cost) -> Result<(), S
             | Statement::MemoryBarrier(_)
             | Statement::WorkGroupUniformLoad { .. }
             | Statement::RayQuery { .. }
+            | Statement::RayPipelineFunction(_)
+            | Statement::CooperativeStore { .. }
             | Statement::SubgroupBallot { .. }
             | Statement::SubgroupGather { .. }
             | Statement::SubgroupCollectiveOperation { .. } => {

@@ -4,26 +4,24 @@ use gameplay::melee::{Crosshair, classify, pick_actor};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 use sim::PaletteWorld;
 
-use crate::{
-    app::ClientFrameSet,
-    interaction_authority::ray_is_current,
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{creative_reach, protocol_input_mode, survival_reach},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-    settings_runtime::RuntimeSettings,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        interaction_authority::ray_is_current, movement::PhysicsCollisionRegistries,
+        runtime::world::ClientWorld,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
+    gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
+};
 
 #[derive(SystemParam)]
 pub(crate) struct SelectionContext<'w> {
-    player: Res<'w, crate::player_runtime::PlayerRuntime>,
+    player: Res<'w, client_state::PlayerRuntime>,
     world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     ui: Res<'w, UiRuntime>,
-    menu: Res<'w, MenuRuntime>,
+    focus: Res<'w, client_state::ScreenFocus>,
     origin: Res<'w, InteractionOriginSnapshot>,
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
@@ -54,12 +52,10 @@ pub(crate) fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectio
 /// unit box: unioning its slab/step/inner collision pieces preserves that native
 /// wire outline. Model highlighting below uses the separate actual surface.
 fn target(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &SelectionContext,
 ) -> Option<BlockSelectionTarget> {
-    if context.menu.is_visible()
-        || context.ui.ui_focused(player_runtime)
-        || context.world.fatal_error.is_some()
+    if context.focus.menu_visible || context.focus.ui_focused || context.world.fatal_error.is_some()
     {
         return None;
     }

@@ -174,7 +174,7 @@ pub fn frame_rate_target(
     display: DisplayTiming,
 ) -> Option<FrameRate> {
     let requested = match limit {
-        FrameRateLimit::Automatic | FrameRateLimit::Unlimited => None,
+        FrameRateLimit::Unlimited => None,
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
     };
     let ceiling = (intent == PresentationIntent::LowLatency && display.vrr == VrrStatus::Active)

@@ -1,4 +1,11 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlobProvenance, BlockFace, BlockFlags, CompiledAssets, MATERIAL_FLAG_ALPHA_BLEND,
+        MATERIAL_FLAG_ALPHA_CUTOUT, RegistryRecord, RuntimeAssets, encode_blob,
+    },
+    tempfile::TempDir,
+};
 
 pub(super) fn assert_agnostic_world_copy(compiled: &CompiledAssets, leaf: usize) {
     let visual = &compiled.visuals[leaf];

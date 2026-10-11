@@ -49,7 +49,7 @@ fn authenticated_commands_reach_the_game_loop_and_get_its_reply() {
                 pending.reply.send(Ok(json!({ "saw": echoed })));
                 return server;
             }
-            std::thread::sleep(Duration::from_millis(2));
+            test_time::idle();
         }
     });
     let mut controller = Controller::connect(&path).unwrap();

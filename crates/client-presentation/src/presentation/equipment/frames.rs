@@ -11,11 +11,13 @@ use protocol::{PlayerSkin, WorldBootstrap};
 use render::ActorRigFrameBuilder;
 use render_model::{ActorRigVertex, RenderBoneTransform};
 
-use super::display::{
-    FirstPersonHand, FirstPersonShape, attach_to_bone, first_person_display, held_block_display,
-    held_sprite_display, is_hand_equipped, is_rod, view_bone,
-};
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
+use {
+    super::display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone},
+    render_model::equipment::{
+        attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
+    },
+};
 
 const WIDTH: usize = 854;
 const REST: FirstPersonHand = FirstPersonHand {
@@ -146,7 +148,7 @@ fn draw_mesh(
     to_view: impl Fn(&ActorRigVertex) -> Vec3,
     texture: &Image,
 ) {
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         let placed = std::array::from_fn(|corner| Placed {
             view: to_view(&triangle[corner]),
             uv: triangle[corner].uv,
@@ -182,6 +184,7 @@ enum Held {
 
 fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
@@ -296,12 +299,15 @@ fn render_first_person_held_item_frames() {
             actor_rig_presentation(&rig, world.authority().actor(1).unwrap(), None, 1.0).unwrap();
         let placement = if third {
             // Looks at the model's right side from ahead of it (it faces +Z at yaw 0).
-            Mat4::look_at_rh(Vec3::new(-3.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Y)
-                * rows_to_mat(rig_world_from_actor(
-                    [0.0; 3],
-                    0.0,
-                    presentation.authored_scale,
-                ))
+            glam::camera::rh::view::look_at_mat4(
+                Vec3::new(-3.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::Y,
+            ) * rows_to_mat(rig_world_from_actor(
+                [0.0; 3],
+                0.0,
+                presentation.authored_scale,
+            ))
         } else {
             rows_to_mat(rig_world_from_actor(
                 [
@@ -384,9 +390,9 @@ fn render_first_person_held_item_frames() {
                     height: 32,
                     rgba8: sheet,
                 };
-                let vertices = render_model::textured_cube_vertices(super::blocks::face_rects([
-                    0.0, 0.0, 1.0, 1.0,
-                ]));
+                let vertices = render_model::textured_cube_vertices(
+                    render_model::equipment::blocks::face_rects([0.0, 0.0, 1.0, 1.0]),
+                );
                 let display = if third {
                     held_block_display()
                 } else {

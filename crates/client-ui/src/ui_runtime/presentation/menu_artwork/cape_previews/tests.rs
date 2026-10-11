@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn raw_hd_cape_fits_the_atlas_and_preserves_every_texel() {
-    let (width, height) = protocol::CAPE_DIMENSIONS.last().copied().unwrap();
+    let (width, height) = render_api::CAPE_DIMENSIONS.last().copied().unwrap();
     let pixels: Vec<_> = (0..height)
         .flat_map(|y| (0..width).flat_map(move |x| [x as u8, y as u8, (x ^ y) as u8, 255]))
         .collect();

@@ -73,7 +73,7 @@ impl ActorAnimationStore {
                     self.stats.invalid_server_stop_expressions.saturating_add(1);
                 return None;
             };
-            let layout = VariableLayout::from_symbols(&program.symbols);
+            let layout = VariableLayout::from_symbols(program.symbols());
             Some(Arc::new(StopCode { program, layout }))
         };
         Some(Arc::new(Request {
@@ -225,7 +225,7 @@ pub(super) fn select(
                         clock.map_or(elapsed >= clip.length_seconds.get(), |clock| clock.finished);
                     let time = clock.map_or(elapsed, |clock| clock.time);
                     playing.variables.copy_named_from(
-                        &stop.program.symbols,
+                        stop.program.symbols(),
                         evaluator.assets.molang_symbols(),
                         variables,
                     );
@@ -244,7 +244,7 @@ pub(super) fn select(
                         .truthy();
                     variables.copy_named_from(
                         evaluator.assets.molang_symbols(),
-                        &stop.program.symbols,
+                        stop.program.symbols(),
                         &playing.variables,
                     );
                     stopped.then(|| Arc::clone(&definition.request.next_state))

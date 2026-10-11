@@ -1,5 +1,6 @@
 use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
+use bevy::color::ColorToPacked;
 
 #[cfg(test)]
 mod water_tint_tests;
@@ -34,8 +35,7 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) variation_weight: u32,
 }
 
-pub(in crate::chunk) const _: () =
-    assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);
+const _: () = assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -47,7 +47,7 @@ pub(in crate::chunk) struct AnimationGpu {
     pub(in crate::chunk) uv_scale: f32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
+const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -63,7 +63,7 @@ pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
 }
 
-pub(in crate::chunk) const _: () =
+const _: () =
     assert!(std::mem::size_of::<BiomeTintGpu>() == 8 * 4 + assets::SEASONAL_FOLIAGE_COUNT * 16);
 
 pub(in crate::chunk) fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
@@ -615,10 +615,9 @@ pub(in crate::chunk) fn encode_model_template_words(assets: &RuntimeAssets) -> V
 pub(in crate::chunk) fn storage_table_fits(
     bytes: usize,
     max_buffer_size: u64,
-    max_binding_size: u32,
+    max_binding_size: u64,
 ) -> bool {
-    u64::try_from(bytes)
-        .is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= u64::from(max_binding_size))
+    u64::try_from(bytes).is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= max_binding_size)
 }
 
 /// Uploads validated mip bytes directly, without application-side row padding.

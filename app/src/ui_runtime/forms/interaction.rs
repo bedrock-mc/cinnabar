@@ -20,7 +20,7 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
     (player_runtime, window, mut focus, driven): (
-        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+        bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_presentation::camera::CursorFocus>>,
         Option<Res<crate::camera::DrivenInput>>,
@@ -251,14 +251,15 @@ pub(crate) fn drive_server_form_input(
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
     use bevy::prelude::{App, Update};
+    use client_ui::test_support::mini_engine_presentation;
     use client_ui::ui_runtime::forms::values::FormDrag;
 
     #[test]
     fn unfocused_form_discards_pointer_edges_without_closing_or_replaying_them() {
-        let mut player = crate::player_runtime::PlayerRuntime::new(1);
-        let mut runtime = pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut runtime =
+            client_ui::test_support::pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
         let identity = runtime.server_forms().active().unwrap().identity;
         let engine = runtime.server_forms_mut().engine_mut();
         engine.view.focused = Some("retained focus".into());

@@ -145,16 +145,20 @@ pub(super) fn prepare_actor_pipelines(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<ActorPipeline>,
     readiness: Res<crate::ActorPipelineReadiness>,
-    views: Query<(&ExtractedView, &Msaa, Option<&crate::EnhancedRendering>)>,
+    views: Query<(
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+        Option<&crate::EnhancedRendering>,
+    )>,
 ) {
     let mut has_view = false;
     let mut ready = true;
-    for (view, msaa, enhanced) in &views {
+    for (camera, msaa, enhanced) in &views {
         has_view = true;
         ready &= pipeline
-            .prewarm(&cache, *msaa, view.hdr, enhanced.is_some())
+            .prewarm(&cache, *msaa, camera.hdr, enhanced.is_some())
             .is_some()
-            && pipeline.ready(&cache, *msaa, view.hdr, enhanced.is_some());
+            && pipeline.ready(&cache, *msaa, camera.hdr, enhanced.is_some());
     }
     readiness.publish(has_view && ready);
 }
@@ -317,7 +321,7 @@ pub(super) fn actor_pipeline_descriptor(
             shader: ACTOR_SHADER_HANDLE,
             entry_point: Some("actor_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: crate::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -325,8 +329,8 @@ pub(super) fn actor_pipeline_descriptor(
         }),
         depth_stencil: Some(DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(CompareFunction::GreaterEqual),
             stencil: default(),
             bias: default(),
         }),
@@ -378,13 +382,13 @@ impl ActorPipelineKey {
             _ => assets::EntityRenderMaterial::Default,
         };
         let format = if self.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else if super::phase::sorted(self.material)
             && crate::chunk::transparent::gamma_pass::admitted(self.hdr, self.msaa, self.enhanced)
         {
-            TextureFormat::bevy_default().remove_srgb_suffix()
+            crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         ActorPipelineContract {
             msaa: self.msaa,
@@ -432,7 +436,7 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .depth_stencil
                 .as_mut()
                 .unwrap()
-                .depth_write_enabled = state.depth_write;
+                .depth_write_enabled = Some(state.depth_write);
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
@@ -445,10 +449,11 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .unwrap()
                 .write_mask = ColorWrites::empty();
         } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
-            descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Equal;
+            descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::Equal);
         }
         if state.is_some_and(|state| state.depth_always) {
-            descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Always;
+            descriptor.depth_stencil.as_mut().unwrap().depth_compare =
+                Some(CompareFunction::Always);
         }
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = contract.format;

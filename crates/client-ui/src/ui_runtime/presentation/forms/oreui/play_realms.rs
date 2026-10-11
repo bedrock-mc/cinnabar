@@ -7,7 +7,7 @@ use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DARK, TEXT_DIMMER};
 use super::widgets::{Variant, button, row, row_text, section_label, side_menu, tag};
-use crate::menu::{MenuAction, MenuRealmCard, MenuView};
+use launcher::menu::{MenuAction, MenuRealmCard, MenuView};
 
 /// Owner and invited tag fill.
 const PRIMARY_TINT: [u8; 4] = [0x6c, 0xc3, 0x49, 255];
@@ -37,7 +37,7 @@ pub(super) fn draw(
         [menu_left + pad, y, menu_right - pad, y + add_height],
         Variant::Secondary,
         "Add/join Realm",
-        (view.auth_state == crate::menu::auth::AuthState::Authenticated).then_some(
+        (view.auth_state == launcher::menu::auth::AuthState::Authenticated).then_some(
             MenuAction::RealmMembership(launcher::menu::realm_membership::Action::Open),
         ),
     )?;
@@ -200,7 +200,7 @@ fn realm_detail(realm: &MenuRealmCard) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::MenuRealmCard};
 
     fn realm(member: bool, days_left: i32, expired: bool) -> MenuRealmCard {
         MenuRealmCard {

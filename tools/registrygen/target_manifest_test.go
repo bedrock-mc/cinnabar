@@ -244,13 +244,13 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"Makefile":                                    {"assets/bedrock-target.json", "block-physics-v2193"},
 		"crates/assets/src/carriers.rs":               {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2193.mcbea"},
 		"crates/assets/src/pinned_content.rs":         {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
-		"app/src/install_layout.rs":                   {"launcher::install_layout"},
-		"crates/launcher/src/install_layout.rs":       {"block-physics-v2193.bin", "carriers::WORLD"},
-		"tools/dist/src/layout.rs":                    {"block-physics-v2193.bin", "carriers::required"},
+		"app/src/app.rs":                              {"launcher::install_layout"},
+		"crates/launcher/src/install_layout.rs":       {"carriers::physics_registry_basename", "carriers::WORLD"},
+		"tools/dist/src/layout.rs":                    {"carriers::physics_registry_basename", "carriers::required"},
 		"crates/pack-compiler/src/entity/item.rs":     {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
 		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2193.mcbea"},
 		"crates/protocol/Cargo.toml":                  {target.CodecFeature},
-		"app/src/local_worlds/launch.rs":              {"bedrock-target.json", "server_version", "bds_container_image"},
+		"crates/launcher-host/src/local_worlds.rs":    {"bedrock-target.json", "server_version", "bds_container_image"},
 	}
 	for path, required := range consumers {
 		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
@@ -266,20 +266,6 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			if strings.Contains(string(contents), forbidden) {
 				t.Fatalf("production target consumer %s still selects %s", path, forbidden)
 			}
-		}
-	}
-	legacyVisualCoverage, err := os.ReadFile(filepath.Join(root, "tools", "visualcoverage", "src", "main.rs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, marker := range []string{"Legacy protocol-1001", "LegacyBaseline1001", "LegacyRatchet1001", "LegacyStrict1001", "LegacyGalleryInventory1001"} {
-		if !strings.Contains(string(legacyVisualCoverage), marker) {
-			t.Fatalf("historical visual-coverage CLI is not explicitly retired: missing %s", marker)
-		}
-	}
-	for _, activeCommand := range []string{"Command::Baseline", "Command::Ratchet", "Command::Strict", "Command::GalleryInventory"} {
-		if strings.Contains(string(legacyVisualCoverage), activeCommand) {
-			t.Fatalf("historical visual-coverage CLI still exposes active command %s", activeCommand)
 		}
 	}
 	centralizedAcceptanceConsumers := map[string][]string{

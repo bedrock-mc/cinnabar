@@ -1,4 +1,4 @@
-use crate::player_runtime::PlayerRuntime;
+use client_state::PlayerRuntime;
 use std::{collections::HashSet, sync::Arc};
 
 use bevy::{
@@ -19,29 +19,31 @@ use protocol::{
 };
 use semantic_input::Action;
 
-use crate::{
-    app::{
-        ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
-    },
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    runtime::network::receive_network_events,
-    semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
-        route_semantic_input, synchronize_semantic_input_authority,
-    },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
-        flush_inventory_network, presentation::tests::fixture_font,
-    },
-};
 use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
-use client_ui::ui_runtime::{
-    UiRuntime, flush_inventory_send, inventory_ledger::InventoryPendingState,
-    presentation::UiPresentationRuntime,
-};
 use ui::UiPoint;
+use {
+    crate::{
+        app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        runtime::network::receive_network_events,
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
+        },
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
+            flush_inventory_network,
+        },
+    },
+    client_state::RuntimeSettings,
+    client_state::{ClientFrameSet, SemanticInputSnapshot},
+    client_ui::test_support::fixture_font,
+};
+use {
+    client_ui::ui_runtime::{UiRuntime, flush_inventory_send, presentation::UiPresentationRuntime},
+    inventory::inventory_ledger::InventoryPendingState,
+};
 
 #[test]
 fn production_schedule_drains_content_before_click_and_admits_only_in_network_send() {
@@ -132,7 +134,7 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
 
 #[test]
 fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_menu() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
@@ -207,7 +209,7 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
 
 #[test]
 fn scheduled_mouse_press_uses_same_frame_complete_and_partial_inventory_ingress() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for complete in [true, false] {
         run_scheduled_ingress_click(&mut player_runtime, complete);
@@ -216,7 +218,7 @@ fn scheduled_mouse_press_uses_same_frame_complete_and_partial_inventory_ingress(
 
 #[test]
 fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_owned() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let current = stack(6, 2, 55);
     let mut runtime = UiRuntime::new(1);
@@ -277,6 +279,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
+                crate::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
             )
                 .chain()
@@ -475,7 +478,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
 #[test]
 fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalization() {
     for key_code in [KeyCode::KeyE, KeyCode::Escape] {
-        let mut player_runtime = PlayerRuntime::new(1);
+        let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
         let mut runtime = UiRuntime::new(1);
         runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
         open_personal_inventory(&mut player_runtime, &mut runtime);
@@ -510,6 +513,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
                     drive_chat_keyboard_input,
                     drive_menu_input,
                     drive_inventory_ui_actions,
+                    crate::menu::screen_focus::publish_screen_focus,
                     synchronize_semantic_input_authority,
                 )
                     .chain()
@@ -582,7 +586,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
 #[test]
 fn focus_loss_preserves_inventory_without_routing_pointer_actions() {
     for (menu_visible, window_focused) in [(true, true), (false, false)] {
-        let mut player_runtime = PlayerRuntime::new(1);
+        let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
         let current = stack(6, 2, 55);
         let mut runtime = UiRuntime::new(1);
         runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
@@ -675,7 +679,7 @@ fn focus_loss_preserves_inventory_without_routing_pointer_actions() {
 #[test]
 fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
     let mut app = App::new();
-    app.insert_resource(PlayerRuntime::new(1));
+    app.insert_resource(PlayerRuntime(player_state::PlayerState::new(1)));
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
@@ -714,7 +718,7 @@ fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
 
 #[test]
 fn same_frame_storage_open_and_content_drive_real_button_input_before_network_send() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let current = stack(6, 3, 91);
     let mut runtime = UiRuntime::new(1);
@@ -839,7 +843,7 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
 
 #[test]
 fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
@@ -925,7 +929,7 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
 }
 
 fn run_scheduled_ingress_click(player_runtime: &mut PlayerRuntime, complete: bool) {
-    *player_runtime = PlayerRuntime::new(1);
+    *player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let stale = stack(5, 1, 44);
     let current = stack(6, 2, 55);
     let mut runtime = UiRuntime::new(1);

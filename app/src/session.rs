@@ -6,25 +6,33 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
 };
-
-use crate::{
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
-    menu::{
-        CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-        server_trust::SessionTrust, spawn_core_for_address,
-    },
-    movement::{LocalPhysicsController, MovementTicker},
-    player_runtime::PlayerRuntime,
-    runtime::{
-        network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
-        shutdown::record_fatal_error,
-        world::{ClientWorld, TransferNotice},
-    },
+use bridge::CORE_START_TIMEOUT;
+use launcher_host::{
+    core_process::{CoreProcessGuard, spawn_core_for_address},
+    server_trust::SessionTrust,
     session_cleanup::SessionDirectoryGuard,
 };
+
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        menu::{LauncherCoreSlot, MenuRuntime},
+        movement::{LocalPhysicsController, MovementTicker},
+        runtime::{
+            network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
+            shutdown::record_fatal_error,
+            world::{ClientWorld, TransferNotice},
+        },
+    },
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+    },
+    client_state::PlayerRuntime,
+};
 
 use std::{path::PathBuf, time::Instant};
+
+mod client_id;
 
 /// Bounded number of consecutive automatic transfer-follow hops.
 ///
@@ -61,6 +69,10 @@ pub(crate) struct SessionController {
     /// The join provisioning behind the connecting screen.
     join: Option<JoinAttempt>,
     generation: u64,
+    client_random_id: Option<protocol::ClientRandomId>,
+    client_id_load: Option<
+        std::sync::Mutex<std::sync::mpsc::Receiver<std::io::Result<protocol::ClientRandomId>>>,
+    >,
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
     destination_identity: Option<String>,
@@ -87,6 +99,8 @@ impl SessionController {
             directory: None,
             join: None,
             generation: 1,
+            client_random_id: None,
+            client_id_load: None,
             presence: None,
             destination_identity: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
@@ -221,6 +235,7 @@ impl SessionController {
     /// Installs a connecting join at the current generation.
     #[cfg(all(test, unix))]
     pub(crate) fn adopt_join(&mut self, address: &str, local_world: bool, stage: JoinStage) {
+        self.client_random_id = Some(protocol::ClientRandomId::new(-7).unwrap());
         self.join = Some(JoinAttempt {
             generation: self.generation,
             address: address.to_owned(),
@@ -290,7 +305,7 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
 /// joiner to see it through Xbox. Realms carry no invite, a local world's comes from its host
 /// (see `MenuRuntime::hosted_world_address`), and no identifier is ever shown on the card.
 fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
-    use protocol::launcher_control::ConnectTarget;
+    use bridge::ConnectTarget;
     use rich_presence::{Destination, Target};
     if local_world {
         return Target {
@@ -301,7 +316,7 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
         };
     }
     let address = address.trim();
-    let (destination, join) = match crate::menu::target_for(address) {
+    let (destination, join) = match launcher_host::launcher_core::target_for(address) {
         ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
@@ -335,6 +350,7 @@ pub(crate) struct SessionResources<'w> {
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
+    input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
 }
 
 impl SessionResources<'_> {
@@ -445,6 +461,10 @@ fn attempt_connect(
         )
     });
     let controller = &mut *session.controller;
+    if let Err(message) = controller.prepare_client_random_id(menu.layout()) {
+        controller.fail_join(menu, message);
+        return;
+    }
     let stage = match launcher {
         Some(receiver) => JoinStage::Launcher(receiver),
         // A local world exists only behind the launcher core.
@@ -482,9 +502,20 @@ fn poll_join(
     cache: &BlobCache,
 ) {
     let controller = &mut *session.controller;
-    let Some(attempt) = controller.join.take() else {
+    if controller.join.is_none() {
         return;
+    }
+    let client_random_id = match controller.poll_client_random_id() {
+        Ok(Some(id)) => id,
+        Ok(None) => return,
+        Err(message) => {
+            let join = controller.join.take();
+            controller.core.stop_detached(move || drop(join));
+            controller.fail_join(menu, message);
+            return;
+        }
     };
+    let attempt = controller.join.take().expect("pending join");
     use client_session::connection::JoinPoll;
     match attempt.poll(controller.generation, controller.connecting, || {
         controller.core.exited()
@@ -514,12 +545,15 @@ fn poll_join(
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
             }
+            let login_settings = login_settings(menu, session.input.as_deref());
             if let Err(error) = start_network(
                 commands,
                 menu,
                 controller.generation,
                 cache,
                 socket_dir,
+                login_settings,
+                client_random_id,
                 session.actor_artwork.as_deref(),
                 session.ui_catalog.as_deref(),
             ) {
@@ -539,13 +573,38 @@ fn poll_join(
     }
 }
 
+/// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
+pub(crate) fn login_settings(
+    menu: &MenuRuntime,
+    input: Option<&client_state::SemanticInputSnapshot>,
+) -> protocol::LoginSettings {
+    protocol::LoginSettings {
+        language_code: pack_runtime::pack_language::active_language_code(),
+        input_mode: input
+            .and_then(|input| input.snapshot())
+            .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
+                gameplay::mining::protocol_input_mode(snapshot.input_mode)
+            }),
+        gui_scale_offset: menu.gui_scale_offset(),
+        memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
+        graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
+        resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
+    }
+}
+
 /// Starts the network session against the core serving `socket_dir`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "joining forwards captured session inputs and optional presentation assets"
+)]
 fn start_network(
     commands: &mut Commands,
     menu: &MenuRuntime,
     session_generation: u64,
     cache: &BlobCache,
     socket_dir: PathBuf,
+    login_settings: protocol::LoginSettings,
+    client_random_id: protocol::ClientRandomId,
     actor_artwork: Option<&render::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
@@ -553,8 +612,10 @@ fn start_network(
         session_generation,
         socket_dir,
         display_name: menu.display_name().to_owned(),
+        client_random_id,
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
+        login_settings,
         actor_artwork: actor_artwork.cloned(),
         ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
@@ -755,6 +816,28 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A hidden-menu direct launch must still report the player's saved GUI scale.
+    #[test]
+    fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
+        let layout = launcher::test_support::scratch("login-settings");
+        std::fs::create_dir_all(&layout.user_config_root).unwrap();
+        std::fs::write(
+            layout.user_config_root.join("video-settings.json"),
+            r#"{"gui_scale_offset":-1}"#,
+        )
+        .unwrap();
+        let menu = MenuRuntime::new_with_layout(
+            false,
+            None,
+            "Direct".to_owned(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+        );
+        let settings = login_settings(&menu, None);
+        assert_eq!(settings.gui_scale_offset, -1);
+        assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
 
     #[test]
     fn joinable_destinations_and_ids_stay_off_the_card() {

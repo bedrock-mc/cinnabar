@@ -9,10 +9,12 @@ use resource_pack::LayeredPackView;
 
 use super::{OverlayGaps, compile_block_overlay};
 
+mod budget;
 mod builtins;
 mod legacy;
 mod lighting;
 mod random_offset;
+mod session;
 mod vines;
 
 fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
@@ -614,7 +616,8 @@ fn bone_visibility_hides_bones_per_state() {
 // Flipbook framing is bounded before copies are cut and each frame is shrunk.
 #[test]
 fn flipbook_frames_are_capped_and_shrunk() {
-    use super::textures::{DecodedTexture, Flipbook, flipbook_frames, shrink_to_max};
+    use super::textures::{Flipbook, flipbook_frames, shrink_to_max};
+    use pack_runtime::pack_textures::DecodedTexture;
     let strip = DecodedTexture {
         width: 64,
         height: 64 * 8,
@@ -784,7 +787,12 @@ fn custom_block_items_draw_their_default_state() {
     assert_eq!(icons.misses[0].0.as_ref(), "test:missing");
     let lucky = &icons.icons[0];
     assert_eq!((lucky.width, lucky.height), (32, 32));
-    let opaque = lucky.rgba8.chunks_exact(4).filter(|pixel| pixel[3] == 255);
+    let opaque = lucky
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] == 255);
     assert!(opaque.clone().count() > 300, "a filled cube silhouette");
     assert!(
         opaque.clone().all(|pixel| pixel[2] == 0),
@@ -1055,7 +1063,7 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let escaped = GEOMETRY.replace("geometry.gen", r"geometry\u002egen");
     let view = view_with_geometry(escaped.as_bytes());
     let wanted = std::collections::HashSet::from(["geometry.gen"]);
-    let catalog = super::geometry::geometry_catalog(&view, &wanted);
+    let catalog = super::geometry_inputs::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
 }
 
@@ -1074,7 +1082,7 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
             ..CustomBlockVisuals::default()
         },
     );
-    let inputs = Arc::new(super::super::pack_reload::PackInputs {
+    let inputs = Arc::new(pack_runtime::PackInputs {
         blocks: CustomBlocks {
             blocks: vec![lucky].into(),
             vanilla_blocks: Default::default(),
@@ -1089,4 +1097,97 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
     let icons = application.item_icons.expect("block item icons");
     assert_eq!(icons.block_sheets.len(), 1);
     assert_eq!(icons.block_sheets[0].identifier.as_ref(), "test:lucky");
+}
+
+/// A pack naming one more distinct texture than the overlay's array can hold.
+fn view_full_of_textures() -> LayeredPackView {
+    let mut catalog = String::from(r#"{"texture_data": {"#);
+    let mut files = Vec::new();
+    for index in 0..=super::MAX_OVERLAY_LAYERS {
+        if index > 0 {
+            catalog.push(',');
+        }
+        catalog.push_str(&format!(
+            r#""fill_{index}": {{"textures": "textures/blocks/fill_{index}"}}"#
+        ));
+        let png = png(16, 16, |x, y| {
+            let seed = u8::try_from(
+                (index + usize::try_from(x).unwrap_or(0) + usize::try_from(y).unwrap_or(0)) % 251,
+            )
+            .unwrap_or(0);
+            [seed, u8::try_from(index % 251).unwrap_or(0), 128, 255]
+        });
+        files.push((format!("textures/blocks/fill_{index}.png"), png));
+    }
+    catalog.push_str("}}");
+    let geometry = GEOMETRY.as_bytes();
+    let id = "00000000-0000-0000-0000-000000000001";
+    let manifest = format!(
+        r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+    );
+    let mut entries: Vec<(String, Vec<u8>)> = vec![
+        ("manifest.json".into(), manifest.into_bytes()),
+        ("textures/terrain_texture.json".into(), catalog.into_bytes()),
+        ("models/blocks/gen.geo.json".into(), geometry.to_vec()),
+    ];
+    entries.extend(files);
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, bytes) in entries {
+        writer
+            .start_file(path, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&bytes).unwrap();
+    }
+    LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![
+            protocol::ResourcePackArchive::unencrypted(
+                id.parse().unwrap(),
+                "1.0.0".into(),
+                String::new(),
+                writer.finish().unwrap().into_inner(),
+            ),
+        ]),
+    ))
+}
+
+/// The overlay keeps pushing diagnostics only for routes its array refused, so a
+/// full texture array is distinguishable from an unusable pack.
+#[test]
+fn a_full_texture_array_names_the_routes_it_refused() {
+    let view = view_full_of_textures();
+    let mut blocks = Vec::new();
+    let mut items = Vec::new();
+    for index in 0..=super::MAX_OVERLAY_LAYERS {
+        let name = format!("test:fill_{index}");
+        blocks.push(block(
+            &name,
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.full_block".into()),
+                    materials: materials(&format!("fill_{index}")),
+                    ..CustomVisualComponents::default()
+                },
+                ..CustomBlockVisuals::default()
+            },
+        ));
+        items.push((name.clone(), name));
+    }
+    let blocks = CustomBlocks {
+        blocks: blocks.into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view, &blocks, false, None).expect("overlay");
+    let layers = compiled.overlay.texture.as_ref().expect("array").layers;
+    assert_eq!(layers, u32::try_from(super::MAX_OVERLAY_LAYERS).unwrap());
+    assert!(
+        compiled.gaps.saturated_textures > 0,
+        "a full array must count the routes it refused, gaps: {:?}",
+        compiled.gaps
+    );
+    assert_eq!(
+        compiled.gaps.missing_textures, compiled.gaps.saturated_textures,
+        "each refused route is its own diagnostic visual"
+    );
 }

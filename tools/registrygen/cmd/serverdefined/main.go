@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	sharedblock "github.com/bedrock-mc/protocolgen/generated/data/block"
+	"github.com/bedrock-mc/protocolgen/generated/data/registry"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
@@ -40,10 +42,8 @@ type projectionManifest struct {
 	GameVersion string `json:"game_version"`
 	Protocol    int    `json:"protocol"`
 	Source      struct {
-		Module  string `json:"module"`
-		Version string `json:"version"`
-		SHA256  string `json:"sha256"`
-		Size    int    `json:"size"`
+		Module           string `json:"module"`
+		SourceLockSHA256 string `json:"source_lock_sha256"`
 	} `json:"source"`
 	Projection struct {
 		States int `json:"states"`
@@ -62,7 +62,7 @@ type sourceEntry struct {
 func main() {
 	var opts options
 	flag.StringVar(&opts.root, "root", "../..", "repository root")
-	flag.StringVar(&opts.states, "states", "", "pinned block_states.nbt (default: Go module cache)")
+	flag.StringVar(&opts.states, "states", "", "pinned block_states.nbt (default: shared catalog)")
 	flag.StringVar(&opts.output, "out", "", "output TSV (default: active assets metadata)")
 	flag.BoolVar(&opts.check, "check", false, "compare the generated table without writing")
 	flag.Parse()
@@ -101,20 +101,9 @@ func run(opts options) error {
 	if err != nil {
 		return err
 	}
-	if opts.states == "" {
-		cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
-		if err != nil {
-			return fmt.Errorf("locate Go module cache: %w", err)
-		}
-		opts.states = filepath.Join(strings.TrimSpace(string(cache)),
-			projection.Source.Module+"@"+projection.Source.Version, "server/world/block_states.nbt")
-	}
-	data, err := readPinned(opts.states, projection.Source.SHA256)
+	data, err := projectionStates(projection, target, opts.states)
 	if err != nil {
 		return err
-	}
-	if len(data) != projection.Source.Size {
-		return errors.New("block-state source size does not match the projection")
 	}
 	entries, err := decodeStates(data, projection.Projection.States)
 	if err != nil {
@@ -139,6 +128,22 @@ func run(opts options) error {
 		return nil
 	}
 	return os.WriteFile(opts.output, table, 0o644)
+}
+
+// projectionStates binds the default palette and any file override to the active shared catalog.
+func projectionStates(projection projectionManifest, target targetManifest, override string) ([]byte, error) {
+	if projection.Source.Module != "github.com/bedrock-mc/protocolgen/generated/data" ||
+		projection.Source.SourceLockSHA256 != shared.SourceLockSHA256 ||
+		registry.SourceLockSHA256 != shared.SourceLockSHA256 ||
+		projection.Projection.States != sharedblock.StateCount() ||
+		shared.MinecraftVersion != target.GameVersion || shared.ProtocolVersion != target.Protocol {
+		return nil, errors.New("shared block-state source does not match the active projection")
+	}
+	data := registry.BlockStatesNBT()
+	if override != "" {
+		return readPinned(override, fmt.Sprintf("%x", sha256.Sum256(data)))
+	}
+	return data, nil
 }
 
 func readJSON(path string, value any) error {

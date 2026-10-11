@@ -3,12 +3,18 @@ use std::{
     sync::{Arc, Weak},
 };
 
+#[cfg(test)]
+use bevy::prelude::{GlobalTransform, Mat4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Component, Deref, DerefMut, DetectChanges, Entity, FromWorld,
+        Handle, Has, IntoScheduleConfigs, Msaa, Plugin, Query, Res, ResMut, Resource, Result,
+        Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -78,6 +84,7 @@ use render_model::{
 
 /// Main-world holder of the published [`UiRenderScene`], cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct UiRenderSceneResource(pub UiRenderScene);
 
 /// The [`UiRenderStats`] handle both worlds share.

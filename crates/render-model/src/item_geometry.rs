@@ -134,7 +134,7 @@ pub fn held_sprite_vertices(
         }
     }
     // Mirroring X reverses every triangle; restore counter-clockwise winding about the normal.
-    for triangle in vertices.chunks_exact_mut(3) {
+    for triangle in vertices.as_chunks_mut::<3>().0 {
         triangle.swap(1, 2);
     }
     Some(vertices)
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn faces_show_the_sprite_unmirrored_from_their_own_side() {
         let vertices = extruded_sprite_vertices(4, 4, &opaque(4, 4), FULL).unwrap();
-        for triangle in vertices[..12].chunks_exact(3) {
+        for triangle in vertices[..12].as_chunks::<3>().0 {
             for vertex in triangle {
                 // The front-facing UV of one slab is the other slab's back-facing UV, mirrored in u.
                 let other = vertices[..12]
@@ -330,7 +330,7 @@ mod tests {
         });
         let vertices = super::textured_cube_vertices(rects);
         assert_eq!(vertices.len(), 36);
-        for (index, triangle) in vertices.chunks_exact(3).enumerate() {
+        for (index, triangle) in vertices.as_chunks::<3>().0.iter().enumerate() {
             let rect = rects[index / 2];
             let normal = triangle[0].normal;
             assert_eq!(normal.iter().map(|value| value.abs()).sum::<f32>(), 1.0);
@@ -365,7 +365,9 @@ mod tests {
         sprite[(4 * 4) + 3] = 0;
         for triangle in extruded_sprite_vertices(3, 3, &sprite, FULL)
             .unwrap()
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
         {
             let a = triangle[0].position;
             let b = triangle[1].position;
@@ -401,7 +403,7 @@ mod tests {
             let [x, y, _] = face.position;
             assert!((face.uv[0] + x).abs() < 1e-6 && (face.uv[1] + y - 1.0).abs() < 1e-6);
         }
-        for triangle in vertices.chunks_exact(3) {
+        for triangle in vertices.as_chunks::<3>().0 {
             let [a, b, c] = [0, 1, 2].map(|corner| triangle[corner].position);
             let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
             let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];

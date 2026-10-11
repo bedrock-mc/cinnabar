@@ -1,5 +1,8 @@
-use super::*;
 use bevy::prelude::{EulerRot, Quat, Vec3};
+use {
+    super::*, client_presentation::camera::CameraSettingsAuthority,
+    client_presentation::local_player::LocalViewPose,
+};
 
 #[test]
 fn teleport_camera_opt_in_keeps_production_position_reconciliation_and_ack() {

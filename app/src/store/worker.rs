@@ -1,18 +1,23 @@
 //! The store's link to the core: an API worker, so a slow purchase never queues behind image downloads,
-//! and a pool of image workers fetching offer art in parallel; the render loop only ever polls a channel.
+//! and a pool of image workers fetching offer art into the disk cache in parallel; the render loop
+//! only ever polls a channel.
 
-use std::{path::PathBuf, thread};
+use std::{
+    path::{Path, PathBuf},
+    thread,
+};
 
 use bevy::prelude::Resource;
+use bridge::{self, BridgeError};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
-use protocol::store_control::{self, BridgeError};
+use launcher_host::remote_images::{ImageDirectory, STORE_ART, Surface};
 
 const API_QUEUE: usize = 32;
 const IMAGE_QUEUE: usize = 64;
 /// Concurrent offer image fetches; each thumbnail is a few hundred KB from one CDN host.
 const IMAGE_WORKERS: usize = 8;
 
-pub(crate) use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
+use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
 
 fn reduce<T>(result: Result<T, BridgeError>) -> Result<T, StoreError> {
     result.map_err(|error| StoreError::from(&error))
@@ -27,16 +32,26 @@ pub(crate) struct StoreWorker {
 }
 
 impl StoreWorker {
-    /// Start the workers against the control endpoint under `socket_dir`.
-    pub(crate) fn new(socket_dir: PathBuf) -> Self {
+    /// Start the workers against the control endpoint under `socket_dir`, caching offer art
+    /// under `image_dir`.
+    pub(crate) fn new(socket_dir: PathBuf, image_dir: PathBuf) -> Self {
+        Self::with_images(socket_dir, image_dir, STORE_ART)
+    }
+
+    fn with_images(socket_dir: PathBuf, image_dir: PathBuf, surface: Surface) -> Self {
         let (api, api_requests) = bounded(API_QUEUE);
         let (images, image_requests) = bounded(IMAGE_QUEUE);
         let (event_tx, events) = unbounded();
-        let pool = std::iter::repeat_n(image_requests, IMAGE_WORKERS);
-        for requests in std::iter::once(api_requests).chain(pool) {
+        let api_worker = std::iter::once((api_requests, None));
+        let pool = std::iter::repeat_n((image_requests, Some(image_dir)), IMAGE_WORKERS);
+        for (requests, image_dir) in api_worker.chain(pool) {
             let socket_dir = socket_dir.clone();
             let event_tx = event_tx.clone();
-            thread::spawn(move || serve(&socket_dir, &requests, &event_tx));
+            thread::spawn(move || {
+                // Each image worker owns a cache client, as its connections live on this runtime.
+                let images = image_dir.map(|dir| ImageDirectory::new(dir, surface));
+                serve(&socket_dir, images.as_ref(), &requests, &event_tx)
+            });
         }
         Self {
             api,
@@ -65,7 +80,8 @@ impl StoreWorker {
 }
 
 fn serve(
-    socket_dir: &std::path::Path,
+    socket_dir: &Path,
+    images: Option<&ImageDirectory>,
     requests: &Receiver<StoreRequest>,
     events: &Sender<StoreEvent>,
 ) {
@@ -76,47 +92,52 @@ fn serve(
         return;
     };
     while let Ok(request) = requests.recv() {
-        let event = runtime.block_on(handle(socket_dir, request));
+        let event = runtime.block_on(handle(socket_dir, images, request));
         if events.send(event).is_err() {
             return;
         }
     }
 }
 
-async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEvent {
+async fn handle(
+    socket_dir: &Path,
+    images: Option<&ImageDirectory>,
+    request: StoreRequest,
+) -> StoreEvent {
     match request {
         StoreRequest::Home(page) => StoreEvent::Page(reduce(
-            store_control::store_home(socket_dir, page.as_deref()).await,
+            bridge::store_home(socket_dir, page.as_deref()).await,
         )),
-        StoreRequest::Search(search) => StoreEvent::Search(reduce(
-            store_control::store_search(socket_dir, &search).await,
-        )),
-        StoreRequest::Offer(id) => {
-            match reduce(store_control::store_offer(socket_dir, &id).await) {
-                Ok(detail) => StoreEvent::Offer(Ok(Box::new(detail))),
-                Err(error) => StoreEvent::OfferFailed { id, error },
-            }
+        StoreRequest::Search(search) => {
+            StoreEvent::Search(reduce(bridge::store_search(socket_dir, &search).await))
         }
+        StoreRequest::Offer(id) => match reduce(bridge::store_offer(socket_dir, &id).await) {
+            Ok(detail) => StoreEvent::Offer(Ok(Box::new(detail))),
+            Err(error) => StoreEvent::OfferFailed { id, error },
+        },
         StoreRequest::Balance => {
-            StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
+            StoreEvent::Balance(reduce(bridge::store_balance(socket_dir).await))
         }
         StoreRequest::Entitlements { offset, refresh } => StoreEvent::Entitlements {
             offset,
-            result: reduce(store_control::store_entitlements(socket_dir, offset, 0, refresh).await),
+            result: reduce(bridge::store_entitlements(socket_dir, offset, 0, refresh).await),
         },
         StoreRequest::RowMore { row, continuation } => StoreEvent::RowMore {
             row,
-            result: reduce(store_control::store_row_more(socket_dir, &continuation).await),
+            result: reduce(bridge::store_row_more(socket_dir, &continuation).await),
         },
         StoreRequest::Purchase(purchase) => StoreEvent::Purchase {
             purchase_id: purchase.purchase_id().to_owned(),
-            result: reduce(store_control::store_purchase(socket_dir, &purchase).await),
+            result: reduce(bridge::store_purchase(socket_dir, &purchase).await),
         },
         StoreRequest::Image(url) => {
-            let result = reduce(store_control::store_image(socket_dir, &url).await);
+            let path = match images {
+                Some(images) => images.fetch(&url).await,
+                None => None,
+            };
             StoreEvent::Image {
                 url,
-                result: result.map(|image| image.path),
+                result: path.ok_or(StoreError::Rejected),
             }
         }
     }
@@ -124,7 +145,10 @@ async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEve
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::store::worker::{StoreError, StoreRequest},
+    };
 
     fn rpc(code: i64) -> BridgeError {
         BridgeError::ControlRpc {
@@ -164,38 +188,59 @@ mod tests {
     }
 
     // One image worker fetched every thumbnail in turn, so a page took the sum of its downloads.
-    #[cfg(unix)]
     #[test]
     fn image_requests_are_fetched_in_parallel() {
-        use std::{io::Read, os::unix::net::UnixListener, time::Duration};
-        let dir = std::env::temp_dir().join(format!("store-images-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let listener =
-            UnixListener::bind(protocol::launcher_control::control_endpoint_path(&dir)).unwrap();
-        let worker = StoreWorker::new(dir.clone());
+        use std::{io::Read, net::TcpListener, time::Duration};
+        let dir = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let surface = Surface {
+            https_only: false,
+            public_hosts: false,
+            ..STORE_ART
+        };
+        let worker =
+            StoreWorker::with_images(dir.path().to_path_buf(), dir.path().join("images"), surface);
         for index in 0..IMAGE_WORKERS {
-            assert!(worker.send(StoreRequest::Image(format!("https://x.test/{index}.jpg"))));
+            assert!(worker.send(StoreRequest::Image(format!("{base}/{index}.jpg"))));
         }
-        // Each worker holds its connection open until answered; none is answered here.
+        // Each download holds its connection open until answered; none is answered here.
         let mut held = Vec::new();
         listener.set_nonblocking(true).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while held.len() < IMAGE_WORKERS && std::time::Instant::now() < deadline {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    stream.set_nonblocking(false).unwrap();
-                    let mut size = [0; 4];
-                    stream.read_exact(&mut size).unwrap();
-                    held.push(stream);
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(5)),
+        test_time::wait_until(Duration::from_secs(5), || {
+            if held.len() == IMAGE_WORKERS {
+                return true;
             }
-        }
+            if let Ok((mut stream, _)) = listener.accept() {
+                stream.set_nonblocking(false).unwrap();
+                let mut request = [0; 512];
+                let _ = stream.read(&mut request).unwrap();
+                held.push(stream);
+            }
+            held.len() == IMAGE_WORKERS
+        });
         let concurrent = held.len();
         drop(held);
         drop(worker);
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(concurrent, IMAGE_WORKERS, "image fetches ran one at a time");
+    }
+
+    #[test]
+    fn a_refused_image_reports_rejection() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = StoreWorker::new(dir.path().to_path_buf(), dir.path().join("images"));
+        assert!(worker.send(StoreRequest::Image("http://insecure.test/a.png".into())));
+        let mut events = Vec::new();
+        test_time::wait_until(std::time::Duration::from_secs(5), || {
+            events = worker.poll();
+            !events.is_empty()
+        });
+        assert!(matches!(
+            events.as_slice(),
+            [StoreEvent::Image {
+                result: Err(StoreError::Rejected),
+                ..
+            }]
+        ));
     }
 }

@@ -330,14 +330,14 @@ fn packed_payload_tint_index(payload: &[u32], x: u8, y: u8, z: u8) -> Option<u32
     let palette_len = usize::try_from((header >> PALETTE_LEN_SHIFT) & PALETTE_LEN_MASK).ok()?;
     let packed_word_count = packed_word_count(bits)?;
     let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
-    let palette_index = if bits == 0 {
-        0
-    } else {
-        let values_per_word = 32 / bits;
-        let word = *payload.get(HEADER_WORDS + linear / values_per_word)?;
-        let shift = (linear % values_per_word) * bits;
-        let mask = (1_u32 << bits) - 1;
-        ((word >> shift) & mask) as usize
+    let palette_index = match 32_usize.checked_div(bits) {
+        None => 0,
+        Some(values_per_word) => {
+            let word = *payload.get(HEADER_WORDS + linear / values_per_word)?;
+            let shift = (linear % values_per_word) * bits;
+            let mask = (1_u32 << bits) - 1;
+            ((word >> shift) & mask) as usize
+        }
     };
     if palette_index >= palette_len {
         return None;

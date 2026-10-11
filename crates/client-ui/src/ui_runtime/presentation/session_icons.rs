@@ -8,10 +8,13 @@ use std::{
 use render_model::UiTexturePage;
 use ui::UiMesh;
 
-use super::{
-    IconRef, UiPresentationRuntime, dynamic_textures,
-    gui_models::{IconKey, icon_key, ordinary_cube_sheet, sheet_faces},
-    item_gui,
+use {
+    super::{
+        UiPresentationRuntime, dynamic_textures,
+        gui_models::{IconKey, icon_key, ordinary_cube_sheet, sheet_faces},
+        item_gui,
+    },
+    ui::IconRef,
 };
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.

@@ -1,9 +1,6 @@
 //! Implements presentation's borrowed queries on the existing gameplay owners.
 
-use client_presentation::observations::{
-    CollisionLookup, ItemUseObservation, MiningObservation, ParticleAudioObservation,
-    PhysicsObservation,
-};
+use client_presentation::observations::{CollisionLookup, ItemUseObservation, PhysicsObservation};
 
 impl PhysicsObservation for crate::movement::LocalPhysicsController {
     /// Borrows the completed physics state at the presentation boundary.
@@ -28,32 +25,6 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn is_active(&self) -> bool {
         std::ops::Deref::deref(self).is_active()
     }
-    /// Forwards every completed tick so water entry survives frames with several physics ticks.
-    fn visit_motion_ticks(
-        &self,
-        after: Option<u64>,
-        visit: &mut dyn FnMut(u64, client_presentation::audio::local::MotionSample),
-    ) {
-        self.visit_completed_ticks(after, &mut |sample, environment, entry_velocity| {
-            let position = sample.position.map(f64::from);
-            visit(
-                sample.tick,
-                client_presentation::audio::local::MotionSample {
-                    position: [
-                        position[0],
-                        position[1] - f64::from(protocol::PLAYER_NETWORK_OFFSET),
-                        position[2],
-                    ],
-                    velocity_y: f64::from(sample.velocity[1]),
-                    entry_velocity,
-                    movement: sample.movement,
-                    on_ground: sample.grounded_after_tick,
-                    sneaking: sample.sneaking,
-                    in_water: environment.in_water,
-                },
-            );
-        });
-    }
     fn tick_alpha(&self) -> f32 {
         std::ops::Deref::deref(self).tick_alpha()
     }
@@ -72,25 +43,9 @@ impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {
         std::ops::Deref::deref(self).block_identifier(mode, runtime_id)
     }
 }
-impl MiningObservation for crate::survival_mining::SurvivalMiningRuntime {
-    /// Observes the admitted target without advancing mining.
-    fn destroying_target(&self) -> Option<([i32; 3], u8)> {
-        self.destroying_target()
-    }
-}
 impl ItemUseObservation for crate::item_use::ItemUseRuntime {
     /// Observes whether item use remains admitted.
     fn is_using(&self) -> bool {
         self.is_using()
-    }
-}
-impl ParticleAudioObservation for crate::particles::ParticleInbox {
-    /// Drains only audio's existing copy of actor status notices.
-    fn take_status_audio(&mut self) -> Vec<client_world::ActorStatusNotice> {
-        self.take_status_audio()
-    }
-    /// Drains only audio's existing copy of level events.
-    fn take_level_audio(&mut self) -> Vec<(i32, [f32; 3], i32)> {
-        self.take_level_audio()
     }
 }

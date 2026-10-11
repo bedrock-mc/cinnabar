@@ -1,9 +1,12 @@
 use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{CloudFace, PackedCloudQuad};
-use render::{
-    CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
-    CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView, CloudQuality,
-    CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
+use {
+    assets::CloudQuality,
+    render::{
+        CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
+        CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView,
+        CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
+    },
 };
 
 const QUALITIES: [CloudQuality; 4] = [
@@ -336,7 +339,7 @@ fn provisional_geometry_diagnostic_rejects_inconsistent_or_unbounded_values() {
 #[test]
 fn runtime_geometry_diagnostic_counts_validated_occupancy_and_packed_bytes() {
     let mut rgba8 = vec![255; 256 * 256 * 4];
-    for texel in rgba8.chunks_exact_mut(4) {
+    for texel in rgba8.as_chunks_mut::<4>().0 {
         texel[3] = 1;
     }
     rgba8[3] = 255;

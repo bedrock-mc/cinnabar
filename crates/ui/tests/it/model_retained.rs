@@ -198,6 +198,97 @@ fn a_fresh_retained_list_equals_the_full_build() {
 }
 
 #[test]
+fn viewport_clip_survives_retained_motion_without_changing_sibling_safe_clips() {
+    let viewport = rect(0.0, 0.0, 320.0, 200.0);
+    let safe = SafeArea::new(30.0, 20.0, 10.0, 10.0).unwrap();
+    let mut previous = vec![
+        UiNode::new(id(1), None, rect(-30.0, -20.0, 290.0, 180.0))
+            .with_viewport_clip(viewport)
+            .with_visual(UiVisual::Mesh(mesh(0.0))),
+        UiNode::new(id(2), None, rect(0.0, 0.0, 40.0, 20.0)).with_visual(sprite(0, [255; 4])),
+    ];
+    let mut draw = RetainedDraw::build(
+        &previous,
+        viewport,
+        UiScale::default(),
+        safe,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let mut next = previous.clone();
+    next[0] = next[0]
+        .clone()
+        .with_bounds(rect(-25.0, -20.0, 295.0, 180.0))
+        .with_visual(UiVisual::Mesh(mesh(0.2)));
+    draw.update(
+        &mut previous,
+        &next,
+        viewport,
+        UiScale::default(),
+        safe,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let batches = &draw.draw_list().batches;
+    assert_eq!(batches[0].clip, viewport);
+    assert_eq!(batches[1].clip, rect(30.0, 20.0, 310.0, 190.0));
+    let mut full = UiTree::new(next).unwrap();
+    full.layout(viewport, UiScale::default(), safe).unwrap();
+    assert_eq!(
+        draw.draw_list().batches,
+        full.build_draw_list().unwrap().batches
+    );
+}
+
+#[test]
+fn changing_only_a_viewport_clip_refreshes_cached_descendants() {
+    let viewport = rect(0.0, 0.0, 320.0, 200.0);
+    let safe = SafeArea::new(30.0, 20.0, 10.0, 10.0).unwrap();
+    let mut previous = vec![
+        UiNode::new(id(1), None, rect(0.0, 0.0, 100.0, 100.0)),
+        UiNode::new(id(2), Some(id(1)), rect(0.0, 0.0, 30.0, 20.0))
+            .with_visual(sprite(0, [255; 4])),
+    ];
+    let mut draw = RetainedDraw::build(
+        &previous,
+        viewport,
+        UiScale::default(),
+        safe,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let mut next = previous.clone();
+    next[0] = next[0].clone().with_viewport_clip(viewport);
+    if draw
+        .update(
+            &mut previous,
+            &next,
+            viewport,
+            UiScale::default(),
+            safe,
+            TextEffects::default(),
+        )
+        .is_none()
+    {
+        draw = RetainedDraw::build(
+            &next,
+            viewport,
+            UiScale::default(),
+            safe,
+            TextEffects::default(),
+        )
+        .unwrap();
+    }
+    let mut full = UiTree::new(next).unwrap();
+    full.layout(viewport, UiScale::default(), safe).unwrap();
+    assert_eq!(
+        draw.draw_list().batches,
+        full.build_draw_list().unwrap().batches
+    );
+    assert_eq!(draw.draw_list().batches[0].clip, viewport);
+}
+
+#[test]
 fn retained_builds_preserve_the_full_build_clip_depth_limit() {
     for depth in [UiLimits::MAX_CLIP_DEPTH, UiLimits::MAX_CLIP_DEPTH + 1] {
         let nodes: Vec<_> = (0..depth * 2)

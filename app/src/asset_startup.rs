@@ -24,8 +24,6 @@ use optional_carriers::{
     load_vanilla_entity_refs,
 };
 mod world_provenance;
-pub use world_provenance::pinned_world_provenance;
-pub(crate) use world_provenance::{active_content_registry_protocol, pinned_block_registry_bytes};
 
 pub const ATMOSPHERE_FILENAME: &str = assets::carriers::ATMOSPHERE.output;
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
@@ -46,8 +44,8 @@ pub const COMPILE_COMMAND: &str = "make world-assets";
 
 const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 const FONT_SOURCE_JSON: &str = include_str!("../../assets/cinnangles-sans-source.json");
-const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
-const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
+const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wesl");
+const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wesl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
@@ -107,7 +105,7 @@ pub(crate) mod test_carriers;
 /// Environment override consumed through [`path_selection`]; kept beside the
 /// other identity anchors so the registered marker's declared consumer stays
 /// this module.
-pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
+pub const ASSET_PATH_ENVIRONMENT: &str = diagnostics::markers::ASSETS;
 
 pub use path_selection::{
     AssetPathSource, AssetSelection, DEFAULT_ASSET_PATH, select_asset_path,
@@ -728,11 +726,11 @@ fn load_world_carrier(
         })?;
     let runtime = Arc::new(runtime);
     if let Some(keys) = load_material_keys(path, runtime.material_count()) {
-        crate::runtime::network::set_base_terrain_catalog(keys.aliases());
+        pack_runtime::pack_textures::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys);
     }
     if let Some(refs) = load_vanilla_entity_refs(path) {
-        crate::runtime::network::entity_pack::set_vanilla_refs(refs);
+        pack_runtime::entity_pack::set_vanilla_refs(refs);
     }
     world_provenance::verify_world_carrier(path, &runtime)?;
     Ok(Some((runtime, format_sha256(identity))))
@@ -769,7 +767,7 @@ impl LoadTimes {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        times.sort_by(|a, b| b.1.cmp(&a.1));
+        times.sort_by_key(|time| std::cmp::Reverse(time.1));
         let each = times
             .iter()
             .map(|(carrier, time)| format!("{carrier} {:.1}", time.as_secs_f64() * 1e3))

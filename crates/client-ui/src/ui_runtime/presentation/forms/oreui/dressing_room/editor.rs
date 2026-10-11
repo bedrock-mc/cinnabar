@@ -5,8 +5,8 @@ use super::super::{
     widgets::{self, Variant},
 };
 use super::command;
-use crate::menu::{MenuAction, MenuField, MenuView};
 use launcher::dressing_room::{Action, SkinEditorMode, SkinEditorTarget};
+use launcher::menu::{MenuAction, MenuField, MenuView};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

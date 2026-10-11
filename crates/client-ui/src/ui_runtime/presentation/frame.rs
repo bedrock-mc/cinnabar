@@ -56,6 +56,7 @@ impl UiPresentationRuntime {
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
         }
+        self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
         self.configure_oreui_motion();
         if let Some(view) = &self.menu_view {
@@ -98,6 +99,15 @@ impl UiPresentationRuntime {
             let host = self.scene_host();
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
+            if host.over_world {
+                self.append_item_activation(
+                    runtime,
+                    &mut nodes,
+                    &mut next_id,
+                    [logical_width, logical_height],
+                    [-safe_area.left(), -safe_area.top()],
+                )?;
+            }
             self.begin_form_frame();
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
             self.scene_clocks.observe(&open, self.menu_seconds);

@@ -10,7 +10,7 @@ use json_ui::{Catalog, Context, SceneStack, ScreenSettings};
 
 use super::UiRuntime;
 use super::presentation::forms::scene_policy::MenuScene;
-use crate::menu::MenuScreen;
+use launcher::menu::MenuScreen;
 
 const BED_SCREEN: &str = "bed.in_bed_screen";
 const SERVER_FORM_SCREEN: &str = "server_form.third_party_server_screen";
@@ -39,7 +39,7 @@ pub enum Scene {
 impl Scene {
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
-        use super::presentation::forms::menu_reference;
+        use launcher::menu::menu_reference;
         match (self, other) {
             (Self::Menu(a), Self::Menu(b)) => {
                 a == b || menu_reference(a).is_some_and(|r| menu_reference(b) == Some(r))

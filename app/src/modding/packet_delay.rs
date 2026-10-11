@@ -42,7 +42,7 @@ impl Shared {
     fn publish(&self, delay: u32, show: bool) -> bool {
         let config = u64::from(delay) | if show && delay != 0 { SHOW_BIT } else { 0 };
         self.request
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
                 if old & ((1 << 33) - 1) == config {
                     None
                 } else {
@@ -51,12 +51,7 @@ impl Shared {
             })
             .is_ok()
     }
-    fn accept(
-        &self,
-        request: u64,
-        lease: protocol::launcher_control::PacketDelayLease,
-        received: Instant,
-    ) {
+    fn accept(&self, request: u64, lease: bridge::PacketDelayLease, received: Instant) {
         if self.request.load(Ordering::Acquire) != request || self.stop.load(Ordering::Acquire) {
             return;
         }
@@ -85,10 +80,7 @@ impl Shared {
             .map_or_else(RealPositionSnapshot::default, |capture| capture.snapshot)
     }
 }
-fn witness(
-    request: u64,
-    lease: &protocol::launcher_control::PacketDelayLease,
-) -> RealPositionSnapshot {
+fn witness(request: u64, lease: &bridge::PacketDelayLease) -> RealPositionSnapshot {
     if request & SHOW_BIT == 0 || lease.delay_ms == 0 || lease.session_id == 0 {
         return RealPositionSnapshot::default();
     }
@@ -139,11 +131,7 @@ impl Worker {
                         let result = runtime.block_on(async {
                             tokio::time::timeout(
                                 REQUEST_TIMEOUT,
-                                protocol::launcher_control::packet_delay_with_position(
-                                    &socket_dir,
-                                    delay,
-                                    show,
-                                ),
+                                bridge::packet_delay_with_position(&socket_dir, delay, show),
                             )
                             .await
                         });
@@ -224,8 +212,8 @@ pub(super) fn publish_packet_delay(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bridge::{PacketDelayLease, RelayedPosition};
     use mod_host::ModGrants;
-    use protocol::launcher_control::{PacketDelayLease, RelayedPosition};
     /// A component whose `init` requests `delay` milliseconds of packet delay.
     fn delaying(directory: &std::path::Path, index: usize, delay: u32) -> PathBuf {
         let package = include_str!("../../../crates/mod-api/wit/extension.wit")

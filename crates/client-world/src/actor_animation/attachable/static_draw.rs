@@ -30,6 +30,7 @@ pub(super) struct Inputs {
     target: bool,
     elapsed: Option<u32>,
     duration: u32,
+    off_hand_duration: u32,
     frame: u32,
     enchanted: Value,
 }
@@ -63,6 +64,9 @@ impl Inputs {
             target: query::has_target(owner),
             elapsed: input.use_elapsed_ticks,
             duration: input.max_use_ticks,
+            off_hand_duration: inherited
+                .owner_context()
+                .map_or(0, |context| context.off_hand_max_use_ticks),
             frame: input.animation_frame,
             enchanted,
         }

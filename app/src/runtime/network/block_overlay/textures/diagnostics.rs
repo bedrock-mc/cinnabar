@@ -1,50 +1,97 @@
-//! The first terrain failures of each compiled stack, without retaining pack content.
+//! Counted terrain failures for one compiled stack, without retaining pack content.
 
-use std::cell::Cell;
+use std::{cell::RefCell, collections::BTreeMap};
 
 use resource_pack::LayeredPackView;
 
-use super::super::super::resource_packs::parse_pack_json;
+use pack_runtime::pack_textures::parse_pack_json;
 
-const MAX_FAILURES: usize = 8;
+/// Distinct routes kept as evidence for each failure reason.
+const MAX_ROUTES_PER_REASON: usize = 8;
 const MAX_LABEL_CHARS: usize = 160;
 
+/// Why a requested terrain route produced no texture.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum FailureReason {
+    /// A pack's terrain catalog is malformed.
+    InvalidCatalog,
+    /// The merged catalog holds no path for the requested key.
+    TerrainKeyMissing,
+    /// No pack in the stack carries the named raster.
+    TextureFileMissing,
+    /// The raster is present but could not be decoded.
+    ImageDecodeFailed,
+    /// The route names a texture set rather than a raster.
+    TextureSetUnresolved,
+    /// The overlay's texture array has no free layer left.
+    TextureArrayFull,
+}
+
+impl FailureReason {
+    /// The stable name reported in the aggregate log line.
+    fn key(self) -> &'static str {
+        match self {
+            Self::InvalidCatalog => "invalid_catalog",
+            Self::TerrainKeyMissing => "terrain_key_missing",
+            Self::TextureFileMissing => "texture_file_missing",
+            Self::ImageDecodeFailed => "image_decode_failed",
+            Self::TextureSetUnresolved => "texture_set_unresolved",
+            Self::TextureArrayFull => "texture_array_full",
+        }
+    }
+}
+
+/// Total rejections plus the bounded routes exemplifying them.
+#[derive(Default)]
+struct ReasonFailures {
+    count: usize,
+    routes: Vec<(String, String)>,
+}
+
+/// Counts every rejected terrain route and names a bounded sample of each, so a
+/// stack with thousands of failures still says which stage rejected them.
 #[derive(Default)]
 pub(super) struct TextureDiagnostics {
-    emitted: Cell<usize>,
+    reasons: RefCell<BTreeMap<FailureReason, ReasonFailures>>,
 }
 
 impl TextureDiagnostics {
-    /// Reports malformed terrain catalogs once while preparing this stack.
+    /// Checks every pack's terrain catalog, recording malformed ones.
     pub(super) fn catalogs(&self, view: &LayeredPackView) {
         for bytes in view.read_layers("textures/terrain_texture.json") {
             if !parse_pack_json(&bytes).is_some_and(|root| root["texture_data"].is_object()) {
-                self.failure("", Some("textures/terrain_texture.json"), "invalid_catalog");
+                self.failure(
+                    FailureReason::InvalidCatalog,
+                    "",
+                    Some("textures/terrain_texture.json"),
+                );
             }
         }
     }
 
-    /// Names a failed requested route within the stack's shared diagnostic budget.
-    pub(super) fn failure(&self, key: &str, path: Option<&str>, reason: &str) {
-        if !self.claim() {
-            return;
+    /// Records one rejected route under its reason.
+    pub(super) fn failure(&self, reason: FailureReason, key: &str, path: Option<&str>) {
+        let mut reasons = self.reasons.borrow_mut();
+        let entry = reasons.entry(reason).or_default();
+        entry.count += 1;
+        if entry.routes.len() < MAX_ROUTES_PER_REASON {
+            entry
+                .routes
+                .push((label(key), label(path.unwrap_or("<none>"))));
         }
-        bevy::log::warn!(
-            texture_key = %label(key),
-            texture_path = %label(path.unwrap_or("<none>")),
-            reason,
-            "PACK_TERRAIN_FAILURE"
-        );
     }
 
-    /// Reserves one line and stops counting once the bounded budget is exhausted.
-    fn claim(&self) -> bool {
-        let emitted = self.emitted.get();
-        if emitted >= MAX_FAILURES {
-            return false;
+    /// Emits one aggregate line per observed reason.
+    pub(super) fn emit(&self) {
+        for (reason, failures) in self.reasons.borrow().iter() {
+            bevy::log::warn!(
+                reason = reason.key(),
+                count = failures.count,
+                reported_routes = failures.routes.len(),
+                routes = %routes(&failures.routes),
+                "terrain texture failures"
+            );
         }
-        self.emitted.set(emitted + 1);
-        true
     }
 }
 
@@ -53,8 +100,17 @@ fn label(value: &str) -> String {
     value.chars().take(MAX_LABEL_CHARS).collect()
 }
 
+/// Renders the retained routes, with the count still unrepresented.
+fn routes(routes: &[(String, String)]) -> String {
+    routes
+        .iter()
+        .map(|(key, path)| format!("{key} -> {path}"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Distinguishes absent rasters from present inputs that failed bounded decoding.
-pub(super) fn failure_reason(view: &LayeredPackView, path: &str) -> &'static str {
+pub(super) fn failure_reason(view: &LayeredPackView, path: &str) -> FailureReason {
     let exists = |candidate: &str| {
         view.stack()
             .packs()
@@ -66,11 +122,11 @@ pub(super) fn failure_reason(view: &LayeredPackView, path: &str) -> &'static str
             .iter()
             .any(|extension| exists(&format!("{path}.{extension}")))
     {
-        "image_decode_failed"
+        FailureReason::ImageDecodeFailed
     } else if exists(&format!("{path}.texture_set.json")) {
-        "texture_set_unresolved"
+        FailureReason::TextureSetUnresolved
     } else {
-        "texture_file_missing"
+        FailureReason::TextureFileMissing
     }
 }
 
@@ -79,43 +135,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terrain_failure_budget_stays_bounded() {
+    fn every_reason_aggregates_its_own_routes() {
         let diagnostics = TextureDiagnostics::default();
-        for _ in 0..MAX_FAILURES {
-            assert!(diagnostics.claim());
+        for index in 0..24 {
+            diagnostics.failure(
+                FailureReason::TextureFileMissing,
+                &format!("pack:missing_{index}"),
+                Some("textures/blocks/missing"),
+            );
         }
-        for _ in 0..1000 {
-            assert!(!diagnostics.claim());
+        for _ in 0..3 {
+            diagnostics.failure(FailureReason::ImageDecodeFailed, "pack:broken", Some("a/b"));
         }
-        assert_eq!(diagnostics.emitted.get(), MAX_FAILURES);
-        assert!(TextureDiagnostics::default().claim());
+        let reasons = diagnostics.reasons.borrow();
+        let missing = &reasons[&FailureReason::TextureFileMissing];
+        assert_eq!(missing.count, 24);
+        assert_eq!(missing.routes.len(), MAX_ROUTES_PER_REASON);
+        assert_eq!(missing.routes[0].0, "pack:missing_0");
+        assert_eq!(reasons[&FailureReason::ImageDecodeFailed].count, 3);
     }
 
     #[test]
-    fn terrain_failure_labels_bound_unicode_without_panicking() {
+    fn reasons_keep_their_stable_names_apart() {
+        let names = [
+            FailureReason::InvalidCatalog,
+            FailureReason::TerrainKeyMissing,
+            FailureReason::TextureFileMissing,
+            FailureReason::ImageDecodeFailed,
+            FailureReason::TextureSetUnresolved,
+            FailureReason::TextureArrayFull,
+        ]
+        .map(FailureReason::key);
+        let mut unique = names.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len());
+    }
+
+    #[test]
+    fn labels_bound_unicode_without_panicking() {
         let text = "界".repeat(MAX_LABEL_CHARS + 1);
         assert_eq!(label(&text).chars().count(), MAX_LABEL_CHARS);
-    }
-
-    #[test]
-    fn terrain_failure_reasons_distinguish_missing_rasters_and_invalid_images() {
-        let view = fixture();
-        assert_eq!(
-            failure_reason(&view, "textures/missing"),
-            "texture_file_missing"
-        );
-        assert_eq!(
-            failure_reason(&view, "textures/blocks/gen"),
-            "image_decode_failed"
-        );
-        assert_eq!(
-            failure_reason(&view, "textures/blocks/gen.png"),
-            "image_decode_failed"
-        );
-        assert_eq!(
-            failure_reason(&view, "textures/blocks/set"),
-            "texture_set_unresolved"
-        );
     }
 
     /// Admits a fixture containing an invalid image and an unresolved texture set.
@@ -144,5 +204,26 @@ mod tests {
         LayeredPackView::new(resource_pack::validate_handoff(
             protocol::ResourcePackHandoff::from_archives(vec![archive]),
         ))
+    }
+
+    #[test]
+    fn failure_reasons_distinguish_missing_rasters_and_invalid_images() {
+        let view = fixture();
+        assert_eq!(
+            failure_reason(&view, "textures/missing"),
+            FailureReason::TextureFileMissing
+        );
+        assert_eq!(
+            failure_reason(&view, "textures/blocks/gen"),
+            FailureReason::ImageDecodeFailed
+        );
+        assert_eq!(
+            failure_reason(&view, "textures/blocks/gen.png"),
+            FailureReason::ImageDecodeFailed
+        );
+        assert_eq!(
+            failure_reason(&view, "textures/blocks/set"),
+            FailureReason::TextureSetUnresolved
+        );
     }
 }

@@ -179,7 +179,7 @@ mod tests {
             u32::MAX,
             &mut vertices,
         );
-        for triangle in vertices.chunks_exact(3) {
+        for triangle in vertices.as_chunks::<3>().0 {
             let a = triangle[0].position;
             let normal = cross(sub(triangle[1].position, a), sub(triangle[2].position, a));
             let towards = sub(camera, a);

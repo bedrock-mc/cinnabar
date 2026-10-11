@@ -6,8 +6,11 @@ use std::sync::Arc;
 
 use launcher::menu::invite::{Action, InviteState};
 
-use super::account_control::AccountControl;
-use super::{MenuAction, MenuRuntime, MenuScreen};
+use launcher_host::account_control::AccountControl;
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 /// The invite screen's state, the friends request waiting to go out and the invites to send.
 #[derive(Debug, Default)]

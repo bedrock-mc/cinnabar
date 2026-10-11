@@ -1,18 +1,22 @@
 //! Borrows current gameplay observations before camera presentation.
-use super::{
+use bevy::prelude::{Projection, Query, Res, ResMut, Time, Transform, With};
+use client_presentation::camera::presentation::{FirstPersonHandMotion, ScreenEffectFacts};
+use client_presentation::camera::{
     CameraFovInputs, CameraHurtState, CameraSettingsAuthority, FlyCamera, HandSwayState,
     HeadMedium, PortalProgress, ScreenOverlays, ServerCameraView, VisionEffects, WalkBobState,
 };
-use crate::{
-    local_player::LocalViewPose,
-    movement::{LocalMovementSpeedAuthority, LocalPhysicsController, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-};
-use bevy::prelude::{Projection, Query, Res, ResMut, Time, Transform, With};
-pub use client_presentation::camera::presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        movement::{
+            LocalMovementSpeedAuthority, LocalPhysicsController, PhysicsCollisionRegistries,
+        },
+        runtime::world::ClientWorld,
+    },
+    client_presentation::local_player::LocalViewPose,
+    client_state::SemanticInputSnapshot,
+};
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
@@ -39,16 +43,14 @@ pub(crate) fn collect_fov_inputs(
 /// Samples the local actor after tick preparation and clears death time when it leaves or recovers.
 pub(crate) fn collect_death_fov_inputs(
     world: Option<Res<ClientWorld>>,
-    partial_tick: Option<Res<crate::runtime::network::ActorFramePartialTick>>,
-    mut inputs: ResMut<CameraFovInputs>,
+    partial_tick: Option<Res<client_presentation::actor_publication::ActorFramePartialTick>>,
+    inputs: ResMut<CameraFovInputs>,
 ) {
-    let ticks = world
-        .as_deref()
-        .and_then(|world| world.stream.as_ref())
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .filter(|actor| actor.status.dead)
-        .map(|actor| actor.status.native_death_ticks());
-    inputs.set_death_ticks(ticks, partial_tick.map_or(0.0, |tick| tick.0));
+    client_presentation::camera::actor_effects::collect_death_fov_inputs(
+        world.as_deref().and_then(|world| world.stream.as_ref()),
+        partial_tick,
+        inputs,
+    );
 }
 
 /// Composes actor damage after this frame's counters advance and before UI publication.
@@ -57,7 +59,7 @@ pub(crate) fn apply_actor_damage_camera_rotation(
     hand: Res<FirstPersonHandMotion>,
     server: Res<ServerCameraView>,
     world: Option<Res<ClientWorld>>,
-    partial_tick: Option<Res<crate::runtime::network::ActorFramePartialTick>>,
+    partial_tick: Option<Res<client_presentation::actor_publication::ActorFramePartialTick>>,
     cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     client_presentation::camera::actor_effects::apply_actor_damage_camera_rotation(
@@ -113,7 +115,7 @@ pub(crate) fn advance_presentation_state(
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_screen_overlays(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,

@@ -49,7 +49,7 @@ fn water_fragment_preserves_submerged_receiver_and_native_gamma_lighting() {
     let source = format!(
         "{}\n{WITNESS}",
         shader_source::standalone(
-            include_str!("../../src/liquid.wgsl"),
+            include_str!("../../src/liquid.wesl"),
             &["NATIVE_GAMMA_BLEND"]
         )
     )

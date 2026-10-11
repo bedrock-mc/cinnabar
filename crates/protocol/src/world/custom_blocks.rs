@@ -1,3 +1,4 @@
+mod shared_states;
 use std::sync::Arc;
 
 use jolyne::GameData;
@@ -65,6 +66,8 @@ pub struct CustomBlockVisuals {
     pub state_axes: Box<[CustomStateAxis]>,
     /// A declared state could not be represented by the named axes.
     pub state_identity_incomplete: bool,
+    /// The palette run is retained for wire offsets, but its states must not be expanded.
+    pub materialization_disabled: bool,
 }
 
 /// Visual components present in one component set; `None` means absent.
@@ -168,7 +171,7 @@ pub enum CustomStateValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomHashedState {
     pub hash: u32,
-    pub values: Box<[CustomStateValue]>,
+    pub values: Arc<[CustomStateValue]>,
 }
 
 impl CustomBlock {
@@ -194,13 +197,18 @@ impl CustomBlock {
     /// Every state in palette order with its network block hash, for sessions whose block
     /// ids are hashes.
     #[must_use]
-    pub fn hashed_states(&self) -> Vec<CustomHashedState> {
+    pub fn hashed_states(&self) -> shared_states::SharedStates {
+        shared_states::resolve(self)
+    }
+
+    /// Compiles the canonical palette identities for one immutable definition.
+    fn compile_states(&self) -> Arc<[CustomHashedState]> {
         let axes = &self.visual.state_axes;
-        if self.visual.state_identity_incomplete {
-            return Vec::new();
+        if self.visual.state_identity_incomplete || self.visual.materialization_disabled {
+            return Arc::default();
         }
         let Some(total) = axis_combinations(axes) else {
-            return Vec::new();
+            return Arc::default();
         };
         (0..total)
             .filter_map(|index| {
@@ -212,7 +220,7 @@ impl CustomBlock {
                             .map(|axis| axis.name.as_ref())
                             .zip(values.iter()),
                     ),
-                    values,
+                    values: values.into(),
                 })
             })
             .collect()
@@ -221,15 +229,17 @@ impl CustomBlock {
     /// The value on each of `state_axes` of the state at `index` in the block's palette run;
     /// `None` when the axes do not account for every state.
     #[must_use]
-    pub fn state_values(&self, index: u32) -> Option<Box<[CustomStateValue]>> {
+    pub fn state_values(&self, index: u32) -> Option<Arc<[CustomStateValue]>> {
         let axes = &self.visual.state_axes;
-        if self.visual.state_identity_incomplete {
+        if self.visual.state_identity_incomplete || self.visual.materialization_disabled {
             return None;
         }
         if axis_combinations(axes)? != u64::from(self.state_count) {
             return None;
         }
-        decode_state(axes, u64::from(index))
+        self.hashed_states()
+            .get(index as usize)
+            .map(|state| Arc::clone(&state.values))
     }
 
     /// Vanilla orders the sequential block palette by FNV-1 64 of the name, then the name.
@@ -315,8 +325,10 @@ pub fn block_state_network_hash<'a>(
 }
 
 /// StartGame custom blocks in sequential palette order; malformed definitions are skipped.
+/// Budget-rejected runs retain their names and counts without materialized states.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomBlocks {
+    /// Materialized definitions form a prefix; budget-rejected runs follow it.
     pub blocks: Arc<[CustomBlock]>,
     /// Vanilla data-driven types admitted by the server's definitions.
     pub vanilla_blocks: Arc<[Arc<str>]>,
@@ -381,6 +393,26 @@ impl CustomBlocks {
         blocks.sort_by(|left, right| {
             (left.sort_key(), &left.name).cmp(&(right.sort_key(), &right.name))
         });
+        let mut state_budget = shared_states::AdmissionBudget::default();
+        let mut exhausted = false;
+        for block in &mut blocks {
+            let admitted =
+                !exhausted && state_budget.admit(&block.name, &block.visual, block.state_count);
+            if !admitted {
+                exhausted = true;
+                skipped += 1;
+                block.tags = Arc::default();
+                block.collision_boxes = None;
+                block.visual = Arc::new(CustomBlockVisuals {
+                    state_identity_incomplete: true,
+                    materialization_disabled: true,
+                    ..Default::default()
+                });
+            }
+        }
+        for block in &blocks {
+            let _ = block.hashed_states();
+        }
         Self {
             blocks: blocks.into(),
             vanilla_blocks: vanilla_blocks.into(),
@@ -530,6 +562,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             permutations,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
+            materialization_disabled: false,
         },
     })
 }

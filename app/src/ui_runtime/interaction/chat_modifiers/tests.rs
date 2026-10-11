@@ -25,7 +25,9 @@ impl Harness {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
             .insert_resource(crate::menu::MenuClipboard::with_access(
                 move |_| {
                     count.fetch_add(1, Ordering::Relaxed);
@@ -195,7 +197,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
                     true,
                     Some(2),
                     "Fixture".into(),
-                    crate::install_layout::scratch("chat-modifier-ownership"),
+                    launcher::test_support::scratch("chat-modifier-ownership"),
                     crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
                 ));
         } else {
@@ -208,7 +210,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
                     &mut h
                         .app
                         .world_mut()
-                        .resource_mut::<crate::player_runtime::PlayerRuntime>(),
+                        .resource_mut::<client_state::PlayerRuntime>(),
                     client_ui::ui_runtime::SequencedUiEvent {
                         session_id: 1,
                         fifo_sequence: 1,

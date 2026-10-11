@@ -1,4 +1,4 @@
-use crate::local_player::FrozenLocalAvatarVisibility;
+use client_presentation::local_player::FrozenLocalAvatarVisibility;
 use client_world::{ActorSnapshot, PlayerProfile};
 use render::{ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource};
 use render_model::ActorSkinPixels;

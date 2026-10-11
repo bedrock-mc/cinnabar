@@ -1,6 +1,6 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
-use crate::menu::{MenuAction, MenuField, MenuView, auth::AuthState};
+use launcher::menu::{MenuAction, MenuField, MenuView, auth::AuthState};
 
 use super::{
     super::{
@@ -533,15 +533,18 @@ fn action_panel(
 mod tests {
     use ui::{DpiScale, TextLayoutCache};
 
-    use super::*;
-    use crate::{
-        menu::{MenuScreen, auth::AuthState},
-        ui_runtime::presentation::tests::fixture_font,
+    use {
+        super::*,
+        launcher::menu::{MenuAction, MenuView},
+    };
+    use {
+        crate::ui_runtime::presentation::tests::fixture_font,
+        launcher::menu::{MenuScreen, auth::AuthState},
     };
 
     #[test]
     fn review_pause_panel_respects_content_origin() {
-        let view = crate::menu::MenuView::new(true, "Test".into());
+        let view = launcher::menu::MenuView::new(true, "Test".into());
         let font = fixture_font();
         let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
         let area = ContentArea {

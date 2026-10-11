@@ -5,8 +5,11 @@ use client_ui::ui_runtime::UiRuntime;
 use launcher::menu::join_requests::{LIFETIME, respond_hint, title};
 use semantic_input::{Action, ActionPhase, ActionSnapshot, InputMode};
 
-use super::super::{MenuAction, MenuRuntime, MenuScreen};
-use crate::semantic_controls::SemanticInputSnapshot;
+use client_state::SemanticInputSnapshot;
+use {
+    super::super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn host() -> MenuRuntime {
     MenuRuntime::new(true, 2, "Host".to_owned())
@@ -26,18 +29,20 @@ fn millis(at: Duration) -> u64 {
 fn open_notification_pressed() -> SemanticInputSnapshot {
     let mut phases = [ActionPhase::default(); Action::COUNT];
     phases[Action::InteractWithToast as usize].pressed = true;
-    SemanticInputSnapshot::from_finalized(ActionSnapshot {
-        frame_sequence: 1,
-        authority_generation: NonZeroU64::MIN,
-        movement: [0.0; 2],
-        raw_movement: [0.0; 2],
-        analogue_movement: [0.0; 2],
-        look_delta: [0.0; 2],
-        input_mode: InputMode::KeyboardMouse,
-        phases,
-        release_reasons: [None; Action::COUNT],
-        movement_buttons: Default::default(),
-    })
+    SemanticInputSnapshot(semantic_input::finalized::FinalizedInput::from_finalized(
+        ActionSnapshot {
+            frame_sequence: 1,
+            authority_generation: NonZeroU64::MIN,
+            movement: [0.0; 2],
+            raw_movement: [0.0; 2],
+            analogue_movement: [0.0; 2],
+            look_delta: [0.0; 2],
+            input_mode: InputMode::KeyboardMouse,
+            phases,
+            release_reasons: [None; Action::COUNT],
+            movement_buttons: Default::default(),
+        },
+    ))
 }
 
 #[test]

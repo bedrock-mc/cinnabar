@@ -1,9 +1,14 @@
 //! Portal view distortion and the hand's independent perspective.
 
+#[cfg(test)]
+use bevy::prelude::{App, Entity, OrthographicProjection, Transform, Update, World};
 use bevy::{
     camera::{CameraProjection, SubCameraView},
     math::Vec3A,
-    prelude::*,
+    prelude::{
+        Mat4, PerspectiveProjection, Projection, Query, Res, ResMut, Single, Time, Vec3, Window,
+        With,
+    },
     window::PrimaryWindow,
 };
 
@@ -191,7 +196,7 @@ mod tests {
         });
         let original_world_projection = projection.get_clip_from_view();
         let hand_fov = crate::actor_publication::HAND_FOV_DEGREES.to_radians();
-        let skin = protocol::SkinRgba8::from(Arc::<[u8]>::from(vec![
+        let skin = render_api::SkinRgba8::from(Arc::<[u8]>::from(vec![
             255;
             render_model::STANDARD_SKIN_BYTES
         ]));

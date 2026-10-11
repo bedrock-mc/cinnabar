@@ -92,20 +92,81 @@ fn file_identifiers_are_valid(
 /// Most recompiles spent isolating one structurally invalid file.
 const MAX_ISOLATION_ATTEMPTS: usize = 64;
 
+/// Virtual source keys use a colon, which pack admission forbids in authored paths.
+pub(super) const RETAINED_GEOMETRY_SOURCE_PREFIX: &str = "models/entity/:layers/";
+
+/// A unique catalog source key with its authored path retained for diagnostics.
+struct PackSource {
+    path: Box<str>,
+    authored_path: Box<str>,
+    bytes: Vec<u8>,
+}
+
+impl PackSource {
+    /// Parse a payload using its catalog key for references and authored path for errors.
+    fn parse(
+        &self,
+        bytes: &[u8],
+        symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+        geometries: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
+    ) -> Result<(), AssetError> {
+        parse_source(
+            &self.path,
+            Path::new(self.authored_path.as_ref()),
+            bytes,
+            symbols,
+            geometries,
+        )
+    }
+}
+
+/// Reserve authored and canonical paths before assigning short keys to retained geometry layers.
+fn select_sources(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<PackSource> {
+    let mut selected = files
+        .into_iter()
+        .filter(|(path, _)| in_families(path))
+        .map(|(path, bytes)| PackSource {
+            path: canonical_path(path.clone()),
+            authored_path: path,
+            bytes,
+        })
+        .collect::<Vec<_>>();
+    selected.sort_by(|left, right| left.path.cmp(&right.path));
+    selected.dedup_by(|later, earlier| {
+        later.path == earlier.path && !later.path.starts_with("models/entity/")
+    });
+    let mut counts = BTreeMap::new();
+    let mut used = BTreeSet::new();
+    for source in &selected {
+        *counts.entry(source.path.clone()).or_insert(0usize) += 1;
+        used.insert(source.path.clone());
+        used.insert(source.authored_path.clone());
+    }
+    let mut next = 0usize;
+    for source in &mut selected {
+        if source.path.starts_with("models/entity/") && counts[&source.path] > 1 {
+            loop {
+                let key: Box<str> = format!("{RETAINED_GEOMETRY_SOURCE_PREFIX}{next}.json").into();
+                next += 1;
+                if used.insert(key.clone()) {
+                    source.path = key;
+                    break;
+                }
+            }
+        }
+    }
+    selected
+}
+
 /// Compiles `(pack-relative path, bytes)` files; `Ok(None)` when no usable
 /// entity source remains. When the set is structurally invalid, single files are
 /// dropped one at a time (entities first) until it compiles, and counted in
 /// `isolated`; `Err` only when no single file explains the failure.
+/// Geometry layers sharing a path must first be selected by `select_entity_geometry`.
 pub fn compile_entity_pack(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> Result<Option<EntityPackCompilation>, AssetError> {
-    let mut selected = files
-        .into_iter()
-        .filter(|(path, _)| in_families(path))
-        .map(|(path, bytes)| (canonical_path(path), bytes))
-        .collect::<Vec<_>>();
-    selected.sort_by(|left, right| left.0.cmp(&right.0));
-    selected.dedup_by(|later, earlier| later.0 == earlier.0);
+    let selected = select_sources(files);
     let first_error = match compile_selected(&selected, None) {
         Ok(compiled) => return Ok(compiled),
         Err(error) => error,
@@ -115,12 +176,12 @@ pub fn compile_entity_pack(
     let candidates = selected
         .iter()
         .enumerate()
-        .filter(|(_, (path, _))| is_entity(path))
+        .filter(|(_, source)| is_entity(&source.path))
         .chain(
             selected
                 .iter()
                 .enumerate()
-                .filter(|(_, (path, _))| !is_entity(path)),
+                .filter(|(_, source)| !is_entity(&source.path)),
         )
         .map(|(index, _)| index)
         .take(MAX_ISOLATION_ATTEMPTS);
@@ -135,7 +196,7 @@ pub fn compile_entity_pack(
 
 /// One compile of `selected`, leaving out the file at `omit`.
 fn compile_selected(
-    selected: &[(Box<str>, Vec<u8>)],
+    selected: &[PackSource],
     omit: Option<usize>,
 ) -> Result<Option<EntityPackCompilation>, AssetError> {
     let mut skipped = EntityPackSkips::default();
@@ -144,11 +205,12 @@ fn compile_selected(
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
     let mut total = 0usize;
-    for (index, (path, bytes)) in selected.iter().enumerate() {
+    for (index, source) in selected.iter().enumerate() {
         if omit == Some(index) {
             continue;
         }
-        let path = path.clone();
+        let path = source.path.clone();
+        let bytes = &source.bytes;
         // Geometry is normalised to the accepted schema; a file that leaves nothing is skipped.
         let normalised;
         let bytes = if path.starts_with("models/entity/") {
@@ -180,14 +242,9 @@ fn compile_selected(
         // Parse into scratch maps so a failing file leaves no partial symbols.
         let mut file_symbols = BTreeMap::new();
         let mut file_geometries = BTreeMap::new();
-        if parse_source(
-            &path,
-            Path::new(path.as_ref()),
-            bytes,
-            &mut file_symbols,
-            &mut file_geometries,
-        )
-        .is_err()
+        if source
+            .parse(bytes, &mut file_symbols, &mut file_geometries)
+            .is_err()
         {
             skipped.unparsable += 1;
             continue;
@@ -247,6 +304,23 @@ mod tests {
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
         (path.into(), text.as_bytes().to_vec())
+    }
+
+    #[test]
+    fn retained_geometry_diagnostics_name_the_authored_path() {
+        let authored_path = "models/entity/shared.json";
+        let sources = select_sources(vec![
+            file(authored_path, r#"{"format_version":"unsupported"}"#),
+            file(authored_path, r#"{"format_version":"unsupported"}"#),
+        ]);
+        for source in sources {
+            let error = source
+                .parse(&source.bytes, &mut BTreeMap::new(), &mut BTreeMap::new())
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(authored_path), "{error}");
+            assert!(!error.contains(source.path.as_ref()), "{error}");
+        }
     }
 
     #[test]

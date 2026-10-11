@@ -1,5 +1,5 @@
-use super::*;
 use client_world::COMMITTED_AUDIO_CAPACITY;
+use {super::*, client_world::ingestion::WorldStreamError};
 
 fn audio_stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {

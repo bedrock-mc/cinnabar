@@ -4,8 +4,9 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
+use crate::contract::CONTROL_MAX_FRAME_LEN;
 use crate::endpoint::EndpointKind;
-use crate::status::{CONTROL_MAX_FRAME_LEN, RpcError, invalid};
+use crate::status::{RpcError, invalid};
 use crate::{BridgeError, FramedStream};
 
 const WORLD_REQUEST_ID: u64 = 1;
@@ -354,7 +355,7 @@ pub async fn delete_world(socket_dir: &Path, id: &str) -> Result<(), BridgeError
     Ok(())
 }
 
-/// Starts opening a world; poll [`world_status`] until it is running, then connect the game socket.
+/// Starts opening a world; poll [`world_status`] until it is running, then connect the session endpoint.
 pub async fn open_world(socket_dir: &Path, id: &str) -> Result<WorldStatus, BridgeError> {
     open_world_with(socket_dir, id, None).await
 }

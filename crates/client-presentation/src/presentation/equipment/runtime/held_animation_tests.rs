@@ -532,7 +532,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(
@@ -559,7 +559,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(repeated[0].submission.input.rig, initial_rig);
@@ -634,7 +634,7 @@ fn worn_attachable_categories_do_not_become_held_models() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: 1.0,
-                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                delta_seconds: world::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert!(
@@ -768,7 +768,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(layers.len(), 1);
@@ -846,7 +846,7 @@ fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
         owner: &owner,
         rig: &rig,
         frame_alpha: 0.5,
-        delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+        delta_seconds: world::TICK_DURATION.as_secs_f32(),
     };
     let mut input = held("test:held");
     assert!(
@@ -909,7 +909,7 @@ fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: alpha,
-                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                delta_seconds: world::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert_eq!(layers.len(), 1);
@@ -925,4 +925,45 @@ fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
             "authored offset drifted from the drawn parent at {alpha}: {drawn_item:?} vs {drawn_parent:?}"
         );
     }
+}
+
+#[test]
+fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
+    let (mut runtime, _) = pack_runtime(held_pack());
+    let mut body = player_body(&mut runtime);
+    body.overlay_rgba8 = 0x6600_00ff;
+    let owner = owner();
+    let names = [Box::from("rightItem"), Box::from("leftItem")];
+    let rig = owner_rig(&owner, &names);
+    let input = held("test:held");
+    let layers = runtime.layers_for(
+        &body,
+        &input,
+        Some(EquipmentAnimation {
+            owner: &owner,
+            rig: &rig,
+            frame_alpha: 0.5,
+            delta_seconds: 0.016,
+        }),
+    );
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0].submission.overlay_rgba8, 0);
+    for off_hand in [false, true] {
+        let item = runtime
+            .first_person_attachable(
+                &body,
+                input.main.as_ref().unwrap(),
+                &owner,
+                &rig,
+                client_world::AttachableAnimationInput {
+                    first_person: true,
+                    off_hand,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(item.presentation.submission.overlay_rgba8, 0);
+    }
+    assert_eq!(body.overlay_rgba8, 0x6600_00ff);
 }

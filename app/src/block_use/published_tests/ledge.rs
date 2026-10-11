@@ -1,4 +1,10 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::block_use::LocalUse,
+    gameplay::interaction_authority::FrozenBlockObservation,
+    gameplay::mining::{protocol_input_mode, survival_reach},
+};
 
 /// Builds a one-block-high ledge whose forward ray misses while its downward ray hits.
 fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
@@ -108,7 +114,7 @@ fn shallow_ledge_miss_does_not_place() {
 #[test]
 fn ledge_miss_outlines_the_supporting_block() {
     let (mut world, _) = ledge_fixture(-0.9601);
-    world.init_resource::<crate::settings_runtime::RuntimeSettings>();
+    world.init_resource::<client_state::RuntimeSettings>();
     let bounds = published_outline(&mut world).expect("ledge support outline");
     // The supporting block [4, 0, 6], outlined as a full unit box.
     assert_eq!(bounds, [[4.0, 0.0, 6.0], [5.0, 1.0, 7.0]]);
@@ -118,10 +124,10 @@ fn ledge_miss_outlines_the_supporting_block() {
 fn spectator_ledge_miss_has_no_use_or_outline() {
     let (mut world, mut captured) = ledge_fixture(-0.9601);
     world
-        .resource_mut::<crate::player_runtime::PlayerRuntime>()
+        .resource_mut::<client_state::PlayerRuntime>()
         .facts
         .publish_player_game_mode(PlayerGameMode::Spectator);
-    world.init_resource::<crate::settings_runtime::RuntimeSettings>();
+    world.init_resource::<client_state::RuntimeSettings>();
     assert!(published_outline(&mut world).is_none());
     world.run_system_cached(produce_block_use).unwrap();
     assert!(transaction_targets(&mut captured).is_empty());
@@ -151,7 +157,7 @@ fn a_picked_actor_prevents_indirect_support_use_and_outline() {
         .resource_mut::<BlockUseRuntime>()
         .retain_pick(&origin, authority);
     world.insert_resource(origin);
-    world.init_resource::<crate::settings_runtime::RuntimeSettings>();
+    world.init_resource::<client_state::RuntimeSettings>();
     assert!(published_outline(&mut world).is_none());
     world.run_system_cached(produce_block_use).unwrap();
     assert!(transaction_targets(&mut captured).is_empty());
@@ -180,11 +186,11 @@ fn sneaking_and_airborne_states_can_use_nearby_ledge_support() {
 fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenBlockObservation> {
     let mut system = bevy::ecs::system::SystemState::<(
         BlockUseContext,
-        Res<crate::player_runtime::PlayerRuntime>,
+        Res<client_state::PlayerRuntime>,
         Res<BlockUseRuntime>,
         Res<MovementTicker>,
     )>::new(world);
-    let (context, player, runtime, movement) = system.get_mut(world);
+    let (context, player, runtime, movement) = system.get_mut(world).unwrap();
     let input = context.input.snapshot()?;
     let authority = movement.interaction_authority_identity();
     observe_use_target(

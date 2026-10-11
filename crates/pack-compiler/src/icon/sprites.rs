@@ -41,7 +41,7 @@ impl SpriteBaker {
         {
             let dye = assets::DEFAULT_LEATHER_RGB;
             let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
-            for pixel in decoded.rgba8.chunks_exact_mut(4) {
+            for pixel in decoded.rgba8.as_chunks_mut::<4>().0 {
                 let texel = [pixel[0], pixel[1], pixel[2], pixel[3]];
                 pixel.copy_from_slice(&assets::color_mask_texel(texel, tint));
             }

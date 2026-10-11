@@ -1,7 +1,10 @@
-use crate::named_audio::{NamedAudio, SequencedAudioEvent, drain_live_named_audio};
-use client_presentation::named_audio::AudioDevice;
-use client_presentation::named_audio::test_support::sample;
+use client_audio::named_audio::AudioDevice;
+use client_audio::named_audio::test_support::sample;
 use std::sync::Arc;
+use {
+    crate::named_audio::{SequencedAudioEvent, drain_live_named_audio},
+    client_audio::named_audio::NamedAudio,
+};
 
 fn play(sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
@@ -51,25 +54,27 @@ fn forward_live_audio(
     mut messages: bevy::prelude::MessageWriter<SequencedAudioEvent>,
 ) {
     if let Some(stream) = world.stream.as_mut() {
-        client_presentation::audio_ingress::drain_committed_audio(stream, |event| {
+        client_audio::audio_ingress::drain_committed_audio(stream, |event| {
             messages.write(event);
         });
     }
 }
 fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32>) {
-    use crate::{
-        camera::{CameraSettingsAuthority, FlyCamera},
-        environment::WorldClock,
-        local_player::{
-            CameraPose, LocalPlayerFrameCarrier, LocalViewPose, publish_local_player_frame,
-            resolve_camera_pose,
-        },
-        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        runtime::world::ClientWorld,
-    };
     use bevy::prelude::*;
     use client_presentation::local_player_camera_receipt::{
         CameraPublicationAttempt, begin_camera_publication_attempt,
+    };
+    use {
+        crate::{
+            environment::WorldClock,
+            local_player::{publish_local_player_frame, resolve_camera_pose},
+            movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+            runtime::world::ClientWorld,
+        },
+        client_presentation::{
+            camera::{CameraSettingsAuthority, FlyCamera},
+            local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},
+        },
     };
     let mut world = ClientWorld::new(Arc::new(assets::RuntimeAssets::diagnostic()));
     world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
@@ -82,11 +87,11 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
         block_network_ids_are_hashes: false,
     }));
     let collisions = PhysicsCollisionRegistries::bind_coherent_assets(
-        crate::asset_startup::pinned_block_registry_bytes(),
+        assets::pinned_block_registry_bytes(),
         include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
         std::path::Path::new("fixture.preg"),
         std::path::Path::new("fixture.mcbea"),
-        crate::asset_startup::active_content_registry_protocol(),
+        assets::active_content_registry_protocol(),
     )
     .unwrap();
     let mut physics = LocalPhysicsController::default();
@@ -113,7 +118,7 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
         .init_resource::<LocalPlayerFrameCarrier>()
         .init_resource::<CameraPublicationAttempt>()
         .insert_resource(NamedAudio::new(Some(Arc::new(sample()))))
-        .insert_non_send_resource(device)
+        .insert_non_send(device)
         .add_systems(
             Update,
             (
@@ -196,7 +201,7 @@ fn delayed_actual_old_epoch_stop_cannot_cancel_current_epoch_submitted_voice() {
         let mut world = app
             .world_mut()
             .resource_mut::<crate::runtime::world::ClientWorld>();
-        client_presentation::audio_ingress::drain_committed_audio(
+        client_audio::audio_ingress::drain_committed_audio(
             world.stream.as_mut().unwrap(),
             |event| held.push(event),
         );

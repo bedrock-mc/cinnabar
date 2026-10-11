@@ -17,7 +17,7 @@ const PROBE: &str = concat!(
     "/../../examples/mods/screen-probe"
 );
 
-/// The probe's component, built once per test process into a target directory of its own.
+/// Builds the probe once per process, locking its shared target through the artifact read.
 fn probe_component() -> &'static [u8] {
     static COMPONENT: OnceLock<Vec<u8>> = OnceLock::new();
     COMPONENT.get_or_init(|| {
@@ -30,6 +30,9 @@ fn probe_component() -> &'static [u8] {
             .nth(3)
             .unwrap()
             .join(format!("mod-host-mods-{:016x}", hasher.finish()));
+        std::fs::create_dir_all(&target).unwrap();
+        let lock = std::fs::File::create(target.join("probe.lock")).unwrap();
+        lock.lock().unwrap();
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let output = std::process::Command::new(cargo)
             .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))

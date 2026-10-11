@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::sync::Arc;
 
 use super::*;
 use crate::BlobCacheReady;

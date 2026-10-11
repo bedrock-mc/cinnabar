@@ -58,7 +58,7 @@ impl ViewmodelGeometry {
             let tile = mip
                 .rgba8
                 .get(first..first.checked_add(TILE_SIDE * TILE_SIDE * 4)?)?;
-            if !tile.chunks_exact(4).all(|pixel| pixel[3] == 255) {
+            if !tile.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255) {
                 return None;
             }
             tiles[index] = tile;

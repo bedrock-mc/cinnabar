@@ -60,8 +60,8 @@ pub(super) fn render_scene(
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -75,7 +75,7 @@ pub(super) fn render_scene(
                 compilation_options: Default::default(),
                 targets: &[Some(target.color.format().into())],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
     let view = gpu.buffer(view, wgpu::BufferUsages::UNIFORM);

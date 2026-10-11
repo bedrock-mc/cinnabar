@@ -244,7 +244,7 @@ impl PlayerInventoryLedger {
                 _ => self.note_unrouted_container(),
             },
             None if protocol::is_personal_ui_inventory(&content.container)
-                && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
+                && content.slots.len() == protocol::UI_SLOT_COUNT =>
             {
                 self.set_authoritative_cell(Cell::Cursor, Held::new(&content.slots[0]));
                 for slot in 0..protocol::UI_SLOT_COUNT as u8 {
@@ -601,9 +601,6 @@ impl PlayerInventoryLedger {
         }
     }
 }
-
-/// The personal UI inventory's full content length.
-const UI_INVENTORY_SLOT_COUNT: usize = 54;
 
 /// Maps a fixed armor, offhand or crafting canonical cell onto its ledger cell.
 fn fixed_cell(canonical: CanonicalCell) -> Option<Cell> {

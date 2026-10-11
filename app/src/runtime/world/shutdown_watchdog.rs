@@ -20,7 +20,7 @@ use bevy::{
     prelude::{MessageReader, Res, Resource},
 };
 
-use crate::acceptance::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
+use diagnostics::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -41,7 +41,7 @@ pub(crate) struct ShutdownWatchdog {
 impl ShutdownWatchdog {
     pub(crate) fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
-            crate::lifecycle::children::stop_all(std::time::Duration::ZERO);
+            launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
             std::process::exit(code)
         })
     }

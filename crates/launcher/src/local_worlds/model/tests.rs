@@ -1,4 +1,4 @@
-use protocol::world_control::{
+use bridge::{
     Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
     WorldState, WorldStatus, WorldUpdate,
 };

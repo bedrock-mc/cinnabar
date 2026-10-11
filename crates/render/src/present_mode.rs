@@ -17,12 +17,13 @@ use bevy::{
 #[cfg(target_os = "windows")]
 use bevy::{
     ecs::{entity::Entity, system::Local},
-    prelude::{IntoScheduleConfigs, Res},
+    prelude::{IntoScheduleConfigs, Query, Res, With},
     render::{
         Render, RenderSystems,
         renderer::RenderAdapter,
-        view::window::{ExtractedWindows, create_surfaces},
+        view::window::{ExtractedWindow, create_surfaces},
     },
+    window::PrimaryWindow,
 };
 use render_model::{PresentModeKind, PresentationIntent, SurfacePresentModes};
 
@@ -347,7 +348,7 @@ impl AutoRemedyLifecycle {
 
 #[cfg(target_os = "windows")]
 fn apply_dx12_present_mode_policy(
-    windows: Res<ExtractedWindows>,
+    windows: Query<(bevy::render::sync_world::MainEntity, &ExtractedWindow), With<PrimaryWindow>>,
     probed: Res<crate::surface_capabilities::ProbedSurface>,
     render_adapter: Res<RenderAdapter>,
     policy: Res<PresentModePolicy>,
@@ -355,13 +356,7 @@ fn apply_dx12_present_mode_policy(
     mut lifecycle: Local<AutoRemedyLifecycle>,
 ) {
     let preference = policy.preference();
-    let Some(window_id) = windows.primary else {
-        policy.publish_remedy(PresentModeRemedy::KeepRequested);
-        *cached = None;
-        lifecycle.reset();
-        return;
-    };
-    let Some(window) = windows.windows.get(&window_id) else {
+    let Ok((window_id, window)) = windows.single() else {
         policy.publish_remedy(PresentModeRemedy::KeepRequested);
         *cached = None;
         lifecycle.reset();

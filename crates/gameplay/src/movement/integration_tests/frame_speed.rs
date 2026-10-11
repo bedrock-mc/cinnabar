@@ -84,7 +84,7 @@ fn gameplay_frame_applies_local_sprint_modifier_once() {
     let (mut physics, mut ticker) = walked_physics(0);
     let mut speed = super::LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
-    assert!(speed.apply(7, 1, 0, f64::from(0.12_f32), None));
+    assert!(speed.apply(7, 1, 0, attribute(f64::from(0.12_f32), 0.12, None)));
     let mut locals = super::LocomotionState::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
     for pressed in [true, false] {
@@ -123,7 +123,7 @@ fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
     );
     let mut speed = super::LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
-    assert!(speed.apply(7, 1, 0, f64::from(0.13_f32), None));
+    assert!(speed.apply(7, 1, 0, attribute(f64::from(0.13_f32), 0.1, None)));
     physics.apply_server_movement_flags(0, flags(|flags| flags.sprinting = Some(true)));
     assert!(super::LocomotionState::default().advance(
         speed_frame(Default::default()),

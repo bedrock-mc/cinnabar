@@ -90,7 +90,9 @@ fn bed_mattress_pillow_stays_in_the_head_cell_for_every_direction() {
 
         let mattress = mesh
             .solid
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .find(|face| {
                 face.iter()
                     .all(|vertex| (vertex.position[1] - expected_max.y).abs() < 1.0e-4)
@@ -131,7 +133,9 @@ fn bed_foot_end_keeps_the_authored_vertical_texture_orientation() {
         let outward = Vec3::from_array(model.other_half_offset().map(|value| value as f32));
         let foot_end = mesh
             .solid
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .find(|face| {
                 Vec3::from_array(face[0].normal).abs_diff_eq(outward, 1.0e-4)
                     && face.iter().all(|vertex| {
@@ -181,7 +185,9 @@ fn bed_head_covers_both_blocks_with_one_continuous_mattress_and_inset_frame() {
         assert!(max.abs_diff_eq(Vec3::new(8.0, 9.0, 8.0), 1.0e-4));
         let mattress = mesh
             .solid
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .find(|face| {
                 face.iter().all(|vertex| {
                     (inverse

@@ -441,10 +441,9 @@ mod tests {
     // A tall flipbook past the device limit draws downscaled instead of blanking every page.
     #[test]
     fn a_page_past_the_device_limit_uploads_downscaled() {
-        use bevy::render::renderer::WgpuWrapper;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+        let queue = RenderQueue::new(queue);
         let side = device.limits().max_texture_dimension_2d;
         let height = u16::try_from(side * 2).unwrap();
         let mut pages = ActorArtworkPages::default();
@@ -465,10 +464,9 @@ mod tests {
 
     #[test]
     fn replacement_artwork_supersedes_the_previous_generation() {
-        use bevy::render::renderer::WgpuWrapper;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+        let queue = RenderQueue::new(queue);
         let mut pages = ActorArtworkPages::default();
         pages.identity = [1; 32];
         pages.entity_identity = [2; 32];

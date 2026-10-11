@@ -11,7 +11,7 @@ pub(crate) fn hotbar_control_slots(
         .iter()
         .enumerate()
         .filter_map(move |(slot, action)| {
-            let (_, name) = super::KEY_BINDINGS
+            let (_, name) = launcher::menu::settings_options::KEY_BINDINGS
                 .iter()
                 .find(|(candidate, _)| candidate == action)?;
             (named_control(menu, name) == Some(control)).then_some(slot as u8)
@@ -24,7 +24,7 @@ pub(crate) fn named_control(
     name: &str,
 ) -> Option<PhysicalControl> {
     menu.map_or_else(
-        || super::SettingsOptions::default().named_key_control(name),
+        || launcher::menu::settings_options::SettingsOptions::default().named_key_control(name),
         |menu| menu.settings_options.named_key_control(name),
     )
 }
@@ -39,7 +39,10 @@ pub(crate) fn binding_key(
         let control = PhysicalControl::KeyboardUsage(code);
         named_control(menu, name) == Some(control)
             || menu.map_or_else(
-                || super::SettingsOptions::default().secondary_key_control(name),
+                || {
+                    launcher::menu::settings_options::SettingsOptions::default()
+                        .secondary_key_control(name)
+                },
                 |menu| menu.settings_options.secondary_key_control(name),
             ) == Some(control)
     })
@@ -98,7 +101,7 @@ pub(crate) fn binding_gamepad(
     };
     let row = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + index;
     let control = menu.map_or_else(
-        || super::SettingsOptions::default().key_control(row),
+        || launcher::menu::settings_options::SettingsOptions::default().key_control(row),
         |menu| menu.settings_options.key_control(row),
     );
     pads.iter().any(|pad| match control {
@@ -118,7 +121,7 @@ pub(crate) fn binding_gamepad(
 
 /// Uses the same swap mapping for menu confirmation as for gameplay.
 pub(crate) fn gamepad_button(
-    settings: &super::SettingsOptions,
+    settings: &launcher::menu::settings_options::SettingsOptions,
     button: bevy::input::gamepad::GamepadButton,
 ) -> bevy::input::gamepad::GamepadButton {
     let table = crate::semantic_controls::physical::TRANSLATED_GAMEPAD_BUTTONS;

@@ -5,6 +5,7 @@ mod axes;
 mod binding;
 mod button_events;
 mod device;
+pub mod finalized;
 mod router;
 
 pub use action::{

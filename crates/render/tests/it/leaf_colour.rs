@@ -190,7 +190,7 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
         ]);
     }
     let data = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
-    let chunk = material_shader::source(include_str!("../../src/chunk.wgsl"));
+    let chunk = material_shader::source(include_str!("../../src/chunk.wesl"));
     let source = format!("{}\n{}", shader_source::standalone(&chunk, &[]), FIXTURE);
     let pixels = gpu.render_srgb(
         &source,

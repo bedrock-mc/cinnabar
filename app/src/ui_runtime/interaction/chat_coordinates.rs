@@ -2,13 +2,12 @@
 
 use bevy::{ecs::system::SystemParam, prelude::Res};
 
-use crate::{
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    client_presentation::local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier},
+    client_state::SemanticInputSnapshot,
+};
 
 #[derive(SystemParam)]
 pub(crate) struct ChatCoordinateContext<'w> {
@@ -23,7 +22,7 @@ impl ChatCoordinateContext<'_> {
     /// Refreshes both sources without generating inventory or network actions.
     pub(super) fn publish(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         runtime: &UiRuntime,
         presentation: &mut UiPresentationRuntime,
     ) {
@@ -37,18 +36,18 @@ impl ChatCoordinateContext<'_> {
     /// Reuses block picking's validated ray and input-mode reach.
     fn target(
         &self,
-        player_runtime: &crate::player_runtime::PlayerRuntime,
+        player_runtime: &client_state::PlayerRuntime,
         runtime: &UiRuntime,
     ) -> Option<[i32; 3]> {
         let snapshot = self.input.snapshot()?;
         let selection = crate::mining::hand_interaction_selection(player_runtime)?;
-        let mode = crate::mining::protocol_input_mode(snapshot.input_mode);
+        let mode = gameplay::mining::protocol_input_mode(snapshot.input_mode);
         let reach = if player_runtime.facts.player_game_mode()
             == Some(protocol::PlayerGameMode::Creative)
         {
-            crate::mining::creative_reach(mode)
+            gameplay::mining::creative_reach(mode)
         } else {
-            crate::mining::survival_reach(mode)
+            gameplay::mining::survival_reach(mode)
         };
         crate::interaction_authority::observe_block(
             &self.origin,

@@ -1,5 +1,4 @@
 use super::*;
-use bevy::math::Mat4;
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldEvent,
 };
@@ -7,8 +6,9 @@ use std::sync::Arc;
 
 fn view() -> ActorCullView {
     let camera = Vec3::new(0.0, 70.0, 0.0);
-    let clip_from_view = Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05);
-    let view_from_world = Mat4::look_to_rh(camera, Vec3::NEG_Z, Vec3::Y);
+    let clip_from_view =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 1.0, 0.05);
+    let view_from_world = glam::camera::rh::view::look_to_mat4(camera, Vec3::NEG_Z, Vec3::Y);
     ActorCullView {
         clip_from_world: clip_from_view * view_from_world,
         camera_position: camera,

@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -31,7 +30,7 @@ const (
 	maxSelectedResourcePacks          = 32
 	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
 	maxResourcePackArchiveBytes       = 64 * 1024 * 1024
-	// Transfers may claim more bytes than their offer, so downloads are bounded
+	// Transfer sizes may differ from their offer, so downloads are bounded
 	// separately: gophertunnel holds every downloaded pack in memory until the
 	// handoff is captured, and past this ceiling the dial is cancelled.
 	maxResourcePackTransferBytes = 2 * maxSelectedResourcePackTotalBytes
@@ -75,8 +74,8 @@ func reportConnectStage(ctx context.Context, stage ConnectStage) {
 
 // resourcePackAcquisitionBudget admits offered packs for download in offer
 // order within the count and byte bounds; later packs are ignored, not fatal.
-// A pack whose transfer disagrees with its offer is dropped from the handoff so
-// login still succeeds, while transfers past the memory ceiling cancel the upstream dial.
+// Transfer sizes replace offer estimates within the archive and selection byte bounds;
+// transfers past the memory ceiling cancel the upstream dial.
 // It turns gophertunnel's acquisition events into vanilla's progress figures.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
@@ -84,7 +83,8 @@ type resourcePackAcquisitionBudget struct {
 
 	mu          sync.Mutex
 	accepted    []bool
-	offered     map[string]uint64 // admitted UUID/version -> archive byte cap
+	offered     map[string]uint64 // admitted UUID/version -> latest bounded transfer size
+	reserved    uint64            // admitted sizes, including packs not yet downloaded
 	excluded    map[string]bool
 	transferred uint64
 
@@ -119,6 +119,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
+	budget.reserved = 0
 	budget.excluded, budget.transferred = map[string]bool{}, 0
 	budget.downloads = map[string]*packDownload{}
 	budget.packs, budget.finished, budget.total, budget.received = 0, 0, 0, 0
@@ -138,6 +139,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		budget.accepted[index] = true
 		budget.offered[resourcePackIdentity(pack.UUID.String(), pack.Version)] = pack.Size
 	}
+	budget.reserved = total
 }
 
 // event is the Dialer's ResourcePackProgress callback.
@@ -147,8 +149,17 @@ func (budget *resourcePackAcquisitionBudget) event(event minecraft.ResourcePackE
 	defer budget.mu.Unlock()
 	switch event.Kind {
 	case minecraft.ResourcePackStarted:
-		if offered, known := budget.offered[id]; !known || event.Size > offered {
+		offered, known := budget.offered[id]
+		withinArchiveBound := event.Size <= maxResourcePackArchiveBytes
+		remaining := maxSelectedResourcePackTotalBytes - budget.reserved
+		withinSelectionBound := event.Size <= remaining+offered
+		if !known || !withinArchiveBound || !withinSelectionBound {
 			budget.excluded[id] = true // dropped from the handoff; login continues
+		} else {
+			// ResourcePacksInfo may contain an estimate. Use the transfer's size for
+			// admission while reserving the other accepted packs' byte budgets.
+			budget.reserved = budget.reserved - offered + event.Size
+			budget.offered[id] = event.Size
 		}
 		budget.transferred = saturatingAdd(budget.transferred, event.Size)
 		if budget.transferred > maxResourcePackTransferBytes {
@@ -206,9 +217,9 @@ func (budget *resourcePackAcquisitionBudget) reportLocked() {
 	})
 }
 
-// excludes validates the actual archive against the admitted offer. This also
+// excludes validates the actual archive against the admitted transfer. This also
 // catches chunk downloads whose manifest identity differs from their transfer.
-// Count and total byte limits were already applied once, in offer order.
+// Count limits apply in offer order; transfer sizes also retain the archive and total byte limits.
 func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
 	if budget == nil {
 		return false
@@ -399,6 +410,7 @@ type preparedConnection struct {
 	packetDelay   *PacketDelay
 	downstream    packetSession // attached when Accept transfers the prepared session
 	upstream      upstreamSession
+	releasePacks  func() // holds cached archives until the client session ends
 	releaseTarget func() error
 	packAdmission *resourcePackAdmissionTelemetry
 	packStack     *selectedResourcePackStack
@@ -414,6 +426,9 @@ func (prepared *preparedConnection) close() error {
 	}
 	prepared.closeOnce.Do(func() {
 		prepared.closeErr = errors.Join(shutdownSession(prepared.downstream), finishPreparedResources(prepared.upstream, prepared.releaseTarget))
+		if prepared.releasePacks != nil {
+			prepared.releasePacks()
+		}
 		prepared.packAdmission.reportFinal()
 		prepared.packStack.release()
 	})
@@ -518,39 +533,46 @@ func dialMinecraftUpstream(
 	return connection, err
 }
 
+// prepare acquires the upstream and configures a friend connection's pack offer.
 func (connections *preparedConnections) prepare(ctx context.Context, downstream *minecraft.Conn) error {
-	// The listener reads nothing while preparing, so a client that leaves (vanilla's cancel) is
-	// only noticed through the stream watcher; it ends the join like the downstream closing.
-	if watcher, ok := peerWatcher(downstream); ok {
-		var cancelPeer context.CancelFunc
-		ctx, cancelPeer = context.WithCancel(ctx)
-		go func() {
-			defer cancelPeer()
-			select {
-			case <-watcher.PeerDone():
-			case <-ctx.Done():
-			}
-		}()
-	}
 	return connections.prepareConnection(ctx, downstream, downstream)
-}
-
-// peerWatcher tolerates a zero Conn, whose RemoteAddr panics.
-func peerWatcher(conn *minecraft.Conn) (watcher streamnet.PeerWatcher, ok bool) {
-	defer func() {
-		if recover() != nil {
-			watcher, ok = nil, false
-		}
-	}()
-	watcher, ok = conn.RemoteAddr().(streamnet.PeerWatcher)
-	return watcher, ok
 }
 
 func (connections *preparedConnections) prepareConnection(
 	ctx context.Context,
 	key *minecraft.Conn,
 	downstream resourcePackOfferConnection,
-) (err error) {
+) error {
+	return connections.tracked(ctx, func(prepareCtx context.Context) (err error) {
+		prepared, err := connections.connectPrepared(prepareCtx, downstream)
+		if err != nil {
+			return errors.Join(err, prepared.close())
+		}
+		owned := true
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = errors.Join(err, panicTypeError("configuring downstream resource-pack offer", recovered))
+			}
+			if owned {
+				err = errors.Join(err, prepared.close())
+			}
+		}()
+		if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
+			prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
+			return err
+		}
+		prepared.packAdmission.observePolicyOutcome(prepared.packStack, true)
+		if err = connections.store(ctx, key, prepared); err != nil {
+			return err
+		}
+		owned = false
+		return nil
+	})
+}
+
+// tracked runs prepare so shutdown cancels and joins it; a failure after ctx or shutdown
+// cancellation becomes a preparationCancellationError. prepareCtx ends when prepare returns.
+func (connections *preparedConnections) tracked(ctx context.Context, prepare func(prepareCtx context.Context) error) (err error) {
 	connections.mu.Lock()
 	if connections.stopping {
 		connections.mu.Unlock()
@@ -572,30 +594,7 @@ func (connections *preparedConnections) prepareConnection(
 		stopShutdownCancellation()
 		cancel()
 	}()
-
-	prepared, err := connections.connectPrepared(prepareCtx, downstream)
-	if err != nil {
-		return errors.Join(err, prepared.close())
-	}
-	owned := true
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errors.Join(err, panicTypeError("configuring downstream resource-pack offer", recovered))
-		}
-		if owned {
-			err = errors.Join(err, prepared.close())
-		}
-	}()
-	if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
-		prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
-		return err
-	}
-	prepared.packAdmission.observePolicyOutcome(prepared.packStack, true)
-	if err = connections.store(ctx, key, prepared); err != nil {
-		return err
-	}
-	owned = false
-	return nil
+	return prepare(prepareCtx)
 }
 
 func (connections *preparedConnections) connect(ctx context.Context, downstream dialerDownstream) (result *preparedConnection, err error) {
@@ -628,7 +627,12 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		err = errors.Join(err, finishPreparedResources(upstream, releaseTarget))
 	}()
 
-	target, err = connections.resolveTarget(withConnectProgress(ctx, report))
+	resolve := connections.resolveTarget
+	session, isSession := downstream.(sessionJoinDownstream)
+	if isSession && session.sessionResolveTarget() != nil {
+		resolve = session.sessionResolveTarget()
+	}
+	target, err = resolve(withConnectProgress(ctx, report))
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +649,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if target.offline {
 		tokenSource = nil
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, connections.upstreamClientCache)
+	clientCache := connections.upstreamClientCache
+	if isSession {
+		clientCache = clientCache && session.sessionClientCache()
+	}
+	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}

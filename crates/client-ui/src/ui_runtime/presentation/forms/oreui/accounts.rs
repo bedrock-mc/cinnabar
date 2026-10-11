@@ -3,15 +3,15 @@
 
 use std::collections::HashMap;
 
-use super::super::super::IconRef;
 use super::modal::Modal;
 use super::theme::{DESTRUCTIVE_TINT, TEXT};
 use super::widgets::{MenuItem, Variant};
+use ui::IconRef;
 use ui::{UiNode, UiRect};
 
 use super::super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use super::paint::Canvas;
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
+use launcher::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// The picker for `view`, with account pictures from `images` once decoded.
 pub(super) fn modal<'a>(view: &'a MenuView, images: &HashMap<String, IconRef>) -> Modal<'a> {
@@ -218,8 +218,12 @@ mod tests {
     use super::super::theme::{
         EDGE, MENU_ITEM, MENU_SECONDARY, NEUTRAL, NEUTRAL100, OVERLAY_MODAL, PRIMARY_ROLE,
     };
-    use super::*;
-    use crate::menu::MenuDialog;
+    use launcher::menu::MenuDialog;
+    use {
+        super::*,
+        launcher::menu::auth::AuthState,
+        launcher::menu::{MenuAction, MenuScreen, MenuView},
+    };
 
     const SIZE: [f32; 2] = [1280.0, 720.0];
 

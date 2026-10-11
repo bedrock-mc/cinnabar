@@ -1,5 +1,5 @@
 //! Env-gated offline frame of a captured lobby: pack entities and every name tag, drawn from one
-//! camera with the same billboard maths as `nametag.wgsl`.
+//! camera with the same billboard maths as `nametag.wesl`.
 
 use std::{path::Path, sync::Arc};
 
@@ -12,7 +12,7 @@ use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
 use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
-use crate::presentation::{actors, entity_layers};
+
 use client_ui::ui_runtime::presentation::{
     nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
     nametags::{build_nametag_scene, extract_nametag},
@@ -85,8 +85,9 @@ fn render_captured_scene() {
     let rotation = Quat::from_euler(EulerRot::YXZ, camera[3], camera[4], 0.0);
     let aspect = WIDTH as f32 / HEIGHT as f32;
     let vertical_fov = 2.0 * ((HORIZONTAL_FOV_DEGREES.to_radians() / 2.0).tan() / aspect).atan();
-    let clip_from_world = Mat4::perspective_rh(vertical_fov, aspect, 0.05, 500.0)
-        * Mat4::from_rotation_translation(rotation, eye).inverse();
+    let clip_from_world =
+        glam::camera::rh::proj::directx::perspective(vertical_fov, aspect, 0.05, 500.0)
+            * Mat4::from_rotation_translation(rotation, eye).inverse();
     let mut frame = Frame::new(clip_from_world);
     draw_actors(
         &mut frame,
@@ -340,11 +341,22 @@ pub(super) fn draw_actors(
         .iter()
         .filter_map(|id| {
             let rig = world.authority().actor_rig(*id)?;
-            actors::entity_rig_presentation(&rig, world.authority().actor(*id)?, artwork, 1.0)
+            client_presentation::presentation::actors::entity_rig_presentation(
+                &rig,
+                world.authority().actor(*id)?,
+                artwork,
+                1.0,
+            )
         })
         .collect();
-    let mut batch = actors::select_actor_presentations(1, false, None, bodies);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1, false, None, bodies,
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
@@ -383,7 +395,7 @@ pub(super) fn draw_actors(
         let Some(vertices) = rig.geometry_vertices.span(span) else {
             continue;
         };
-        for corners in vertices.chunks_exact(3) {
+        for corners in vertices.as_chunks::<3>().0 {
             let placed = std::array::from_fn(|corner| {
                 let vertex = corners[corner];
                 let bone =

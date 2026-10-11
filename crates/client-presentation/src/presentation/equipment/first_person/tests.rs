@@ -35,7 +35,7 @@ fn sprite_idle_uses_a_camera_pose_not_the_third_person_grip() {
     assert!(idle.translation_scale[2] < -0.4);
     assert_ne!(
         idle.rotation,
-        super::super::display::held_sprite_display(false)
+        render_model::equipment::held_sprite_display(false)
             .rotation
             .to_array()
     );

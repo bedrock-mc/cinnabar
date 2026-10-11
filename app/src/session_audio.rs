@@ -1,10 +1,7 @@
 //! Borrows session identity for the presentation audio lane.
 use bevy::prelude::*;
-use client_presentation::audio_ingress::SequencedAudioEvent;
-pub use client_presentation::session_audio::{
-    AudioOutcome, AudioSkipReason, MAX_SESSION_AUDIO_OUTCOMES, ResolvedPlayback, SessionAudio,
-    SessionAudioCatalog,
-};
+use client_audio::audio_ingress::SequencedAudioEvent;
+use client_audio::session_audio::{SessionAudio, SessionAudioCatalog};
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
@@ -34,10 +31,10 @@ pub(crate) fn drain_sequenced_audio_into_session(
             wire_messages.clear();
         }
     }
-    client_presentation::session_audio::drain_sequenced_audio_into_session(
+    client_audio::session_audio::drain_sequenced_audio_into_session(
         messages,
-        client_presentation::observations::SessionObservation(clock.session_generation()),
-        client_presentation::observations::WorldObservation {
+        client_audio::observations::SessionObservation(clock.session_generation()),
+        client_audio::observations::WorldObservation {
             stream: client_world.stream.as_ref(),
         },
         catalog,

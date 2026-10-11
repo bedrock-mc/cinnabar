@@ -2,7 +2,7 @@
 
 use super::super::super::{UiPresentationError, rect};
 use super::paint::{Bounds, Canvas};
-use crate::menu::{
+use launcher::menu::{
     MenuAction,
     view::{SettingsFocusAxis, SettingsFocusLandmark},
 };

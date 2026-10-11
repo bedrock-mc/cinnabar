@@ -11,7 +11,7 @@ pub(super) fn apply(
 ) {
     let Some(root) = view
         .read("font/font_metadata.json")
-        .and_then(|bytes| super::super::resource_packs::parse_pack_json(&bytes))
+        .and_then(|bytes| pack_runtime::pack_textures::parse_pack_json(&bytes))
     else {
         return;
     };
@@ -49,7 +49,7 @@ pub(super) fn apply(
         let mut cells = BTreeMap::new();
         for selector in alias["fonts"].as_array().into_iter().flatten() {
             if selector["font_language_code"].as_str().is_some_and(|code| {
-                !code.is_empty() && code != super::super::resource_packs::active_language_code()
+                !code.is_empty() && code != pack_runtime::pack_language::active_language_code()
             }) {
                 continue;
             }

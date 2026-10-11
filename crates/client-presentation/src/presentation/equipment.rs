@@ -2,8 +2,6 @@
 
 mod armor;
 mod atlas;
-mod attachable;
-pub mod blocks;
 mod display;
 mod first_person;
 #[cfg(test)]

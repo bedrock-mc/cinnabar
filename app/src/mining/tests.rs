@@ -1,6 +1,6 @@
 use protocol::PlayerInputMode;
 
-use super::{creative_reach, survival_reach};
+use gameplay::mining::{creative_reach, survival_reach};
 
 #[test]
 fn creative_reach_is_frozen_per_input_mode() {
@@ -12,7 +12,7 @@ fn creative_reach_is_frozen_per_input_mode() {
 
 #[test]
 fn unknown_selected_slot_mines_as_a_bare_hand() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(7));
 
     // Before the inventory arrives the slot is Unknown; mining must still work
     // by hand rather than refusing (the "can't break blocks" regression).

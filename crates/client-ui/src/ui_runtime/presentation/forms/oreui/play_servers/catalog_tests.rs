@@ -1,6 +1,10 @@
-use super::*;
-use crate::menu::{MenuGameCard, ServerDetails};
 use crate::ui_runtime::presentation::tests::fixture_font;
+use launcher::menu::{MenuGameCard, ServerDetails};
+use {
+    super::*,
+    launcher::menu::{MenuServerCard, MenuView, PingInfo},
+    ui::IconRef,
+};
 
 fn card(name: &str, address: &str) -> MenuServerCard {
     MenuServerCard {
@@ -50,7 +54,7 @@ fn detail_labels(view: &MenuView) -> Vec<String> {
 #[test]
 fn experience_details_show_positive_service_counts_without_ping_status() {
     let mut view = MenuView::new(true, "Fixture".into());
-    let address = format!("{}fixture", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+    let address = format!("{}fixture", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
     view.featured = vec![card("Experience", &address)];
     view.feeds.pings.insert(
         address.clone(),

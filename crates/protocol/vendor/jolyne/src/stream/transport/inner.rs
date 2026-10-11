@@ -180,6 +180,8 @@ impl<T: Transport> BedrockTransport<T> {
         if self.write_buffer.is_empty() {
             return Ok(());
         }
+        // Draining keeps the buffer's capacity for the next frame; `mem::take` would drop it.
+        #[allow(clippy::drain_collect)]
         let packets: Vec<McpePacket> = self.write_buffer.drain(..).collect();
         self.send_batch(&packets).await
     }

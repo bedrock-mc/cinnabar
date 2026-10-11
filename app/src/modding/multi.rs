@@ -2,11 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use mod_host::{
-    CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
-    GameplaySnapshot, MAX_LOADED_MODS, ModCue, ModGrants, ModHost, PlayerStateSnapshot,
-};
 use serde::Deserialize;
+use {
+    mod_api::MAX_LOADED_MODS,
+    mod_host::{
+        CameraDelta, ControlFrame, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
+        GameplaySnapshot, ModCue, ModGrants, ModHost, PlayerStateSnapshot,
+    },
+};
 
 use super::ModRuntime;
 
@@ -171,9 +174,7 @@ impl ModRuntime {
     }
 
     /// Every mod's render output with its generation, in load order.
-    pub(super) fn render_outputs(
-        &self,
-    ) -> impl Iterator<Item = (&mod_host::mod_render::RenderOutput, u64)> {
+    pub(super) fn render_outputs(&self) -> impl Iterator<Item = (&mod_render::RenderOutput, u64)> {
         (0..self.host_count()).map(|index| self.host(index).render())
     }
 
@@ -240,11 +241,64 @@ pub(super) fn run_frame(
     ),
     mut failed: impl FnMut(usize, String),
 ) -> Merged {
+    let mut union = ModGrants::default();
+    let mut active = false;
+    for index in 0..runtime.host_count() {
+        let host = runtime.host(index);
+        if !host.is_active() {
+            continue;
+        }
+        active = true;
+        let grants = host.grants();
+        union.players |= grants.players;
+        union.camera |= grants.camera;
+        union.item_use |= grants.item_use;
+        union.movement |= grants.movement;
+        union.interaction |= grants.interaction;
+        union.entities |= grants.entities;
+        union.commands.extend(grants.commands.iter().cloned());
+    }
+    let (snapshot, mobs, movement) = if active {
+        world(&union)
+    } else {
+        (None, Vec::new(), None)
+    };
     let owner = runtime.panel_owner();
     let mut claimed = Vec::new();
     let mut merged = Merged::default();
     for index in 0..runtime.host_count() {
-        let (snapshot, mobs, movement) = world(runtime.host(index).grants());
+        let host = runtime.host(index);
+        if !host.is_active() {
+            continue;
+        }
+        let grants = host.grants();
+        let snapshot = snapshot
+            .as_ref()
+            .filter(|_| needs_gameplay(grants))
+            .map(|frame| GameplaySnapshot {
+                players: if grants.players {
+                    frame.players.clone()
+                } else {
+                    Vec::new()
+                },
+                session: frame.session,
+                dimension: frame.dimension,
+                eye: frame.eye,
+                yaw: frame.yaw,
+                pitch: frame.pitch,
+                frame_seconds: frame.frame_seconds,
+                attack_held: frame.attack_held,
+            });
+        let mobs = if grants.entities {
+            mobs.clone()
+        } else {
+            Vec::new()
+        };
+        let movement = if grants.movement {
+            movement.clone()
+        } else {
+            None
+        };
         let mut controls = claim_controls(input.controls, &claimed, index == owner);
         controls.gameplay = snapshot.is_some() || movement.is_some();
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
@@ -265,16 +319,14 @@ pub(super) fn run_frame(
             failed(index, format!("{error:#}"));
             continue;
         }
-        if host.is_active()
-            && let Err(error) = host.frame_with_movement(
-                input.pressed,
-                snapshot,
-                mobs,
-                player_state,
-                movement,
-                controls,
-            )
-        {
+        if let Err(error) = host.frame_with_movement(
+            input.pressed,
+            snapshot,
+            mobs,
+            player_state,
+            movement,
+            controls,
+        ) {
             failed(index, format!("{error:#}"));
         }
         if let Some(error) = host.take_settings_error() {
@@ -283,6 +335,17 @@ pub(super) fn run_frame(
         merged.absorb(host);
     }
     merged
+}
+
+/// Whether the host may receive the common gameplay pose and input snapshot.
+fn needs_gameplay(grants: &ModGrants) -> bool {
+    grants.players
+        || grants.camera
+        || grants.item_use
+        || grants.movement
+        || grants.interaction
+        || grants.entities
+        || !grants.commands.is_empty()
 }
 
 /// One frame's combined output; for single-valued outputs the earliest mod wins.

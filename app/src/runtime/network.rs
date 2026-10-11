@@ -1,18 +1,23 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::{
-    AcceptanceRun,
-    model_witness::ModelWitnessFileSource,
-    mutation::{
-        accepted_move_player_ingress_marker, move_player_ingress_marker,
-        write_move_player_ingress_before_source_capture, write_stdout_marker,
-    },
-};
-#[cfg(feature = "acceptance")]
-use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
-#[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(feature = "acceptance")]
+use {
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    acceptance::phase3_evidence::Phase3EvidenceEventKind,
+};
+#[cfg(feature = "acceptance")]
+use {
+    acceptance::model_witness::ModelWitnessFileSource,
+    acceptance::mutation::{
+        accepted_move_player_ingress_marker, move_player_ingress_marker,
+        write_move_player_ingress_before_source_capture,
+    },
+    diagnostics::write_stdout_marker,
+};
 
 use bevy::{
     ecs::system::SystemParam,
@@ -24,24 +29,29 @@ use client_world::SAFE_SERVER_HEIGHT;
 use protocol::WorldEvent;
 use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
-use crate::{
-    camera::{AutoFly, CameraSettingsAuthority},
-    environment::{bind_session_generation, replace_session},
-    local_player::{
-        InteractionOriginSnapshot, LocalAvatarPresentation, LocalPlayerFrameCarrier,
-        LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+use {
+    crate::{
+        environment::{bind_session_generation, replace_session},
+        movement::PhysicsAuthorityGate,
+        runtime::{
+            publication::PublicationController,
+            shutdown::record_fatal_error,
+            world::{AppWorldState, TransferNotice},
+        },
+        session::quiesce_local_player,
     },
-    movement::{MovementSource, PhysicsAuthorityGate, reset_start_game_prediction},
-    runtime::{
-        publication::PublicationController,
-        shutdown::record_fatal_error,
-        world::{AppWorldState, TransferNotice},
+    client_presentation::{
+        camera::{AutoFly, CameraSettingsAuthority},
+        local_player::{
+            InteractionOriginSnapshot, LocalAvatarPresentation, LocalPlayerFrameCarrier,
+            LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+        },
     },
-    session::quiesce_local_player,
+    gameplay::movement::{MovementSource, reset_start_game_prediction},
 };
-use client_ui::ui_runtime::{
-    UiRuntime,
-    inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
+use {
+    ::inventory::inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
+    client_ui::ui_runtime::UiRuntime,
 };
 
 #[cfg(test)]
@@ -50,14 +60,13 @@ pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
+use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::reuse::CompiledStacks;
 pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
-    BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
-    classify_bootstrap_generation, compiled_stacks, set_active_language, set_base_material_keys,
-    set_base_terrain_catalog, set_compile_cache_dir,
+    ResourcePackAdmissionState, compiled_stacks, set_base_material_keys,
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
@@ -81,11 +90,6 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
     auto_fly: Res<'w, AutoFly>,
 }
 
-#[cfg(test)]
-pub(crate) use client_presentation::actor_clock::{
-    ActorFrameClock, authoritative_local_actor_eye, publish_local_actor_visibility,
-};
-
 /// Why a network session ended; each reason latches its own follow-up.
 enum SessionEnd {
     /// `remote_close`: the receive side terminated, so the server closed it.
@@ -106,7 +110,7 @@ pub(crate) enum EquipmentIngress {
 }
 
 pub(crate) fn publish_equipment_identity(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_id: u64,
     runtime_id: u64,
@@ -120,7 +124,7 @@ pub(crate) fn publish_equipment_identity(
 }
 
 pub(crate) fn route_equipment_ingress(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<EquipmentIngress, InventoryRouterError> {
@@ -140,7 +144,7 @@ pub(crate) fn route_equipment_ingress(
 }
 
 fn consume_equipment_route(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_generation: u64,
     route: EquipmentRoute,
@@ -169,7 +173,7 @@ fn consume_equipment_route(
 // shared publication allowance into each newly created world stream.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     mut pack_reload: Option<ResMut<PackReload>>,
@@ -417,10 +421,12 @@ pub(crate) fn receive_network_events(
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
                 client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
-                client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
-                    components: packs.item_components.clone().unwrap_or_default(),
-                    icons: packs.item_icons.clone(),
-                }));
+                client_world.session_items = Some(Arc::new(
+                    client_presentation::session_assets::SessionItems {
+                        components: packs.item_components.clone().unwrap_or_default(),
+                        icons: packs.item_icons.clone(),
+                    },
+                ));
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {
@@ -529,7 +535,7 @@ pub(crate) fn receive_network_events(
                     packs.glyph_sheets,
                     client_world.fatal_error.is_none(),
                 );
-                crate::audio::publish_server_sounds(packs.server_sounds);
+                client_audio::audio::publish_server_sounds(packs.server_sounds);
                 player_runtime.facts.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
@@ -868,6 +874,16 @@ pub(crate) fn receive_network_events(
             }
             sequenced
         };
+        if matches!(&sequenced.event, WorldEvent::Actor(protocol::ActorEvent::Status(status))
+            if status.runtime_id == stream.authority().local_player_runtime_id()
+                && status.kind == protocol::ActorStatusKind::TotemActivate)
+        {
+            ui_runtime.retain_totem_snapshot(
+                &mut player_runtime,
+                sequenced.session_generation,
+                sequenced.sequence,
+            );
+        }
         #[cfg(feature = "acceptance")]
         let observed_at = Instant::now();
         #[cfg(feature = "acceptance")]
@@ -917,8 +933,6 @@ pub(crate) fn receive_network_events(
 }
 
 #[cfg(test)]
-pub(crate) use client_presentation::actor_publication::PreparedActorPublication;
-#[cfg(test)]
 mod actor_test_support;
 #[cfg(test)]
 pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
@@ -938,7 +952,8 @@ pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;
 mod pack_reload;
-mod pack_reload_diff;
+#[cfg(test)]
+mod pack_reload_diff_tests;
 mod pack_reload_geometry;
 #[cfg(test)]
 mod pack_reload_tests;
@@ -949,8 +964,7 @@ pub(crate) mod reload_environment;
 mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, advance_actor_frame, advance_actor_motion,
-    prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
     publish_local_actor_damage,
 };
 
@@ -959,4 +973,4 @@ pub(crate) use drain::drain_network_ingress;
 pub(crate) use drain::{WorldIngressDrain, drain_network_controls};
 
 #[cfg(feature = "acceptance")]
-pub(crate) use acceptance::committed_control::acceptance_surface_anchor;
+use acceptance::committed_control::acceptance_surface_anchor;

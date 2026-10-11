@@ -1,4 +1,4 @@
-use super::{integer_query_key, *};
+use super::*;
 
 mod fixture;
 mod pinned;
@@ -119,7 +119,7 @@ fn fish_phase_survives_controller_and_geometry_resets_but_respawn_starts_at_zero
     tick(&mut store, &actor, true);
     assert_eq!(phase(&store, &actor), [3.0, 2.0]);
     let first_geometry = store.get(actor.runtime_id).unwrap().rig;
-    let variant = integer_query_key("variant").unwrap();
+    let variant = Q::Variant.integer_metadata_key().unwrap();
     actor.metadata.insert(variant, ActorMetadataValue::Int(1));
     tick(&mut store, &actor, true);
     assert_ne!(store.get(actor.runtime_id).unwrap().rig, first_geometry);

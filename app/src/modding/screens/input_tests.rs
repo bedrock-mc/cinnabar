@@ -1,5 +1,4 @@
 //! Input regressions across the real inventory suppression and mod-screen paths.
-use super::*;
 use crate::ui_runtime::drive_chat_keyboard_input;
 use bevy::window::WindowEvent;
 use bevy::{
@@ -12,6 +11,10 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_ui::test_support::{fixture_font, inventory_session};
+use {
+    super::*,
+    experience_sdk::mod_manifest::{KeyDecl, Modifier},
+};
 
 const MOD_ID: &str = "input_test";
 const VIEW: &str = "ui/view.json";
@@ -30,7 +33,7 @@ struct Host(ModHost);
 
 /// Creates a focused inventory with the production keyboard suppression system.
 fn input_app() -> (App, Entity) {
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut ui = inventory_session(&mut player);
     ui.toggle_inventory(&mut player);
     assert!(ui.inventory_open());
@@ -218,8 +221,7 @@ fn draw_package_view(
     }));
     presentation
         .build(
-            app.world()
-                .resource::<crate::player_runtime::PlayerRuntime>(),
+            app.world().resource::<client_state::PlayerRuntime>(),
             app.world().resource::<UiRuntime>(),
             0,
             [1280, 720],
@@ -233,7 +235,7 @@ fn draw_package_view(
 /// Delivers declared mod keys through the production adapter after vanilla input.
 fn observe_keys(
     mut input: ScreenInput,
-    player: Res<crate::player_runtime::PlayerRuntime>,
+    player: Res<client_state::PlayerRuntime>,
     ui: Res<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut observed: ResMut<Observed>,
@@ -347,7 +349,7 @@ fn exercise_owner(
     mut input: ScreenInput,
     mut host: ResMut<Host>,
     mut state: ResMut<OwnerState>,
-    player: Res<crate::player_runtime::PlayerRuntime>,
+    player: Res<client_state::PlayerRuntime>,
     ui: Res<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
 ) {
@@ -586,7 +588,7 @@ fn a_package_reload_keeps_the_open_container_and_restored_view() {
 fn exercise_runtime(
     mut input: ScreenInput,
     mut runtime: ResMut<ModRuntime>,
-    player: Res<crate::player_runtime::PlayerRuntime>,
+    player: Res<client_state::PlayerRuntime>,
     ui: Res<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
 ) {
@@ -679,7 +681,7 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
             host.dispatch(vec![ModEvent::ScreenChanged(layout.clone())])
                 .unwrap();
             app.world_mut().resource_scope(
-                |world, mut player: Mut<crate::player_runtime::PlayerRuntime>| {
+                |world, mut player: Mut<client_state::PlayerRuntime>| {
                     world
                         .resource_mut::<UiRuntime>()
                         .toggle_inventory(&mut player);
@@ -689,7 +691,7 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
                 |world, mut presentation: Mut<UiPresentationRuntime>| {
                     presentation
                         .build(
-                            world.resource::<crate::player_runtime::PlayerRuntime>(),
+                            world.resource::<client_state::PlayerRuntime>(),
                             world.resource::<UiRuntime>(),
                             0,
                             [1280, 720],

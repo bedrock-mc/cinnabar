@@ -147,13 +147,27 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Replaces only the colour helper with its complete fragment-tint reference.
 fn source(reference: bool) -> String {
-    let mut source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
-        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+    let mut module: wesl::syntax::TranslationUnit =
+        crate::material_shader::source(include_str!("../../src/chunk.wesl"))
+            .parse()
+            .expect("chunk WESL parses");
     if reference {
-        let start = source.find("fn shade_cube(").expect("cube shade helper");
-        source.truncate(start);
-        source.push_str(REFERENCE_SHADE);
+        let mut replacement: wesl::syntax::TranslationUnit =
+            REFERENCE_SHADE.parse().expect("reference helper parses");
+        let shade = module
+            .global_declarations
+            .iter_mut()
+            .find(|declaration| {
+                let wesl::syntax::GlobalDeclaration::Function(function) = declaration.node() else {
+                    return false;
+                };
+                function.ident.to_string() == "shade_cube"
+            })
+            .expect("cube shade helper");
+        *shade = replacement.global_declarations.remove(0);
     }
+    let mut source = shader_source::standalone(&module.to_string(), &[])
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     source.push_str(
         &VERTEX
             .replace(
@@ -189,7 +203,7 @@ fn calls(module: &naga::Module, statement: &naga::Statement, name: &str) -> bool
 
 #[test]
 fn uniform_cube_tints_return_before_fragment_biome_work() {
-    let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[]);
+    let source = shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]);
     let module = naga::front::wgsl::parse_str(&source).unwrap();
     let helper = module
         .functions
@@ -265,7 +279,7 @@ fn enhanced_and_shadow_cube_vertices_do_not_resolve_biome_tint() {
         &["ENHANCED_SHADOW"][..],
         &["OPAQUE_OVERDRAW"][..],
     ] {
-        let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), definitions);
+        let source = shader_source::standalone(include_str!("../../src/chunk.wesl"), definitions);
         let module = naga::front::wgsl::parse_str(&source).unwrap();
         let vertex = module
             .entry_points
@@ -446,8 +460,10 @@ fn render_fixture(cache_admission: bool) {
             let expected = gpu.render_srgb(&reference, "tint_cube_vertex", &[draw(fragment)]);
             let actual = gpu.render_srgb(&candidate, "tint_cube_vertex", &[draw(fragment)]);
             let mismatched = expected
-                .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<4>().0.iter())
                 .filter(|(left, right)| left != right)
                 .count();
             assert_eq!(
@@ -455,7 +471,11 @@ fn render_fixture(cache_admission: bool) {
                 "{fragment}: cached and per-fragment tint must be identical"
             );
             assert!(
-                actual.chunks_exact(4).any(|pixel| pixel != &actual[..4]),
+                actual
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel != &actual[..4]),
                 "fixture must draw coloured terrain"
             );
         }

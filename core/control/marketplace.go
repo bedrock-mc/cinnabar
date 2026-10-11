@@ -17,7 +17,6 @@ const (
 	methodStoreBalance      = "store_balance.v1"
 	methodStoreEntitlements = "store_entitlements.v1"
 	methodStorePurchase     = "store_purchase.v1"
-	methodStoreImage        = "store_image.v1"
 	methodStoreRowMore      = "store_row_more.v1"
 
 	codePurchaseBusy   = -32031
@@ -36,12 +35,11 @@ type Marketplace interface {
 	Entitlements(ctx context.Context, offset, limit int, refresh bool) (store.Entitlements, error)
 	MoreOffers(ctx context.Context, token string) (store.RowMore, error)
 	Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error)
-	Image(ctx context.Context, rawURL string) (store.Image, error)
 }
 
 var storeMethods = map[string]struct{}{
 	methodStoreHome: {}, methodStoreSearch: {}, methodStoreOffer: {},
-	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {}, methodStoreImage: {}, methodStoreRowMore: {},
+	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {}, methodStoreRowMore: {},
 }
 
 func isStoreMethod(method string) bool {
@@ -92,11 +90,6 @@ type storeRowMoreResultV1 struct {
 	store.RowMore
 }
 
-type storeImageResultV1 struct {
-	SchemaVersion uint32      `json:"schema_version"`
-	Image         store.Image `json:"image"`
-}
-
 type storePurchaseResultV1 struct {
 	SchemaVersion uint32 `json:"schema_version"`
 	store.PurchaseResult
@@ -115,7 +108,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		switch {
 		case errors.Is(err, ErrSignedOut):
 			return reply.fail(codeSignedOut, "Not signed in")
-		case errors.Is(err, store.ErrInvalidRequest), errors.Is(err, store.ErrImageRejected):
+		case errors.Is(err, store.ErrInvalidRequest):
 			return reply.invalid()
 		case errors.Is(err, store.ErrPurchaseBusy):
 			return reply.fail(codePurchaseBusy, "Purchase in progress")
@@ -125,10 +118,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			server.logServiceFailure(method, err) // names the page keys the session config offers
 			return reply.fail(codeStoreNotFound, "Unknown page")
 		}
-		// Thumbnail misses are per image and bounded by the client; everything else names why the store failed.
-		if method != methodStoreImage {
-			server.logServiceFailure(method, err)
-		}
+		server.logServiceFailure(method, err)
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
@@ -225,18 +215,6 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			result.Offers = []store.Offer{}
 		}
 		return reply.ok(storeRowMoreResultV1{SchemaVersion: 1, RowMore: result})
-	case methodStoreImage:
-		var params struct {
-			URL *string `json:"url"`
-		}
-		if !decodeParams(raw, &params) || params.URL == nil {
-			return reply.invalid()
-		}
-		result, err := market.Image(ctx, *params.URL)
-		if err != nil {
-			return failStore(err)
-		}
-		return reply.ok(storeImageResultV1{SchemaVersion: 1, Image: result})
 	case methodStorePurchase:
 		var params struct {
 			PurchaseID          *string `json:"purchase_id"`

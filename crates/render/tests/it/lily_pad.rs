@@ -4,7 +4,7 @@ use crate::gpu_snapshot;
 use gpu_snapshot::{Draw, Gpu};
 
 fn shader() -> String {
-    let source = include_str!("../../src/model.wgsl");
+    let source = include_str!("../../src/model.wesl");
     let functions = source.split_once("fn rotate_cross(").unwrap().1;
     // Up to the first preprocessor directive or entry point that follows the helpers.
     let end = ["\n#", "\n@"]

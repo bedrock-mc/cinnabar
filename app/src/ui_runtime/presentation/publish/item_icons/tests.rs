@@ -1,10 +1,13 @@
 use super::*;
-use crate::item_use::{AirUse, ItemUseRuntime, UseFrame, classify};
 use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use {
+    crate::item_use::ItemUseRuntime,
+    gameplay::item_use::{AirUse, UseFrame, classify},
+};
 
 fn presentation() -> UiPresentationRuntime {
     let sprites = (0..6)
@@ -26,8 +29,8 @@ fn presentation() -> UiPresentationRuntime {
     }));
     let bytes = assets::encode_icon_catalog([1; 32], &sprites, &entries).unwrap();
     UiPresentationRuntime::with_hud_and_icons(
-        crate::ui_runtime::presentation::tests::fixture_font(),
-        crate::ui_runtime::presentation::tests::fixture_hud(),
+        client_ui::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
         Arc::new(assets::RuntimeIconCatalog::decode(&bytes).unwrap()),
     )
     .unwrap()
@@ -61,7 +64,7 @@ fn crossbow(projectile: Option<&str>) -> NetworkItemStack {
 }
 
 fn publish(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     ui: &mut UiRuntime,
     sequence: u64,
     slot: u16,
@@ -101,7 +104,7 @@ fn stream() -> chunk_pipeline::WorldStream {
 }
 
 fn charge_frame(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     ui: &UiRuntime,
     tick: u64,
 ) -> UseFrame {
@@ -176,7 +179,7 @@ fn native_crossbow_icon_uses_loaded_nbt_and_frame_minus_one_not_damage() {
 
 #[test]
 fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_corrections() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut presentation = presentation();
     let stream = stream();
@@ -199,7 +202,7 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
         _ => unreachable!(),
     };
     item_use.step(&charge_frame(&player_runtime, &ui, 10 + duration));
-    let mut capture = |player_runtime: &crate::player_runtime::PlayerRuntime,
+    let mut capture = |player_runtime: &client_state::PlayerRuntime,
                        ui: &mut UiRuntime,
                        item_use: &ItemUseRuntime,
                        tick| {

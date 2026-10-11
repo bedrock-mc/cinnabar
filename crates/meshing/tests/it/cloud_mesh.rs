@@ -234,7 +234,7 @@ fn empty_cloud_texture() -> AtmosphereTexture {
 
 fn cloud_texture_with_alpha(alpha: u8) -> AtmosphereTexture {
     let mut rgba8 = vec![255; (CLOUD_MASK_SIZE * CLOUD_MASK_SIZE * 4) as usize];
-    for pixel in rgba8.chunks_exact_mut(4) {
+    for pixel in rgba8.as_chunks_mut::<4>().0 {
         pixel[3] = alpha;
     }
     AtmosphereTexture {

@@ -11,16 +11,19 @@ mod primitives;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use bevy::prelude::{Entity, GlobalTransform, Mat4, Msaa, Mut, UVec4, Vec3, World, default};
 use bevy::{
-    prelude::*,
+    prelude::{App, Plugin, Resource},
     render::{
-        RenderApp, extract_resource::ExtractResource, extract_resource::ExtractResourcePlugin,
+        RenderApp,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
     },
 };
 use mod_render::{RenderOutput, geometry::ModVertex};
 use std::sync::Arc;
 
-pub use block_highlights::MAX_BLOCK_HIGHLIGHTS;
+use mod_api::MAX_BLOCK_HIGHLIGHTS;
 pub use passes::ModPassLabel;
 
 /// The current mod's render output, extracted whenever the mod commits a change.
@@ -37,7 +40,7 @@ pub struct ModRenderScene {
     block_color: [f32; 4],
 }
 
-impl ExtractResource for ModRenderScene {
+impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
     type Source = Self;
 
     fn extract_resource(source: &Self) -> Self {

@@ -50,10 +50,6 @@ func main() {
 		ParentGone: lifeline.WatchParent(lifeline.ParentFromEnv(), parentPollInterval),
 		Grace:      shutdownGrace,
 	})
-	if handled, code := helperMode(ctx, args, os.Stdout, os.Stderr); handled {
-		stop()
-		os.Exit(code)
-	}
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
 	stop()
 	if exitCode != 0 {
@@ -72,12 +68,9 @@ func configureRuntime(getenv func(string) string) {
 	}
 }
 
-// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
-// update helpers run with a null stdin.
+// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in
+// helper runs with a null stdin.
 func bindsStdin(args []string) bool {
-	if len(args) > 0 && args[0] == "check-update" {
-		return false
-	}
 	for _, arg := range args {
 		if arg == "-auth-events" || strings.HasPrefix(arg, "-auth-events=") {
 			return false
@@ -90,6 +83,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	deviceFile                string
 	language                  string
 	catalogFile               string
 	authEvents                bool
@@ -120,6 +114,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.deviceFile, "device-file", "", "the install's persisted login device profile (default: device.json beside -auth-cache)")
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
@@ -367,6 +362,7 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var sessionTarget func(context.Context, string, string) (string, error)
 	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
@@ -400,7 +396,6 @@ func runWithResourcePackCacheFactory(
 			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
-			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
 		if opts.xboxPresence {
 			presence := service.StartPresence(ctx)
@@ -409,6 +404,7 @@ func runWithResourcePackCacheFactory(
 		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
+		sessionTarget = service.SessionTarget
 		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)
@@ -428,6 +424,11 @@ func runWithResourcePackCacheFactory(
 				Log:     logger,
 			}
 		}
+	}
+	// One device per install, consistent with the platform the account signs in as.
+	deviceProfile, deviceErr := authcache.LoadDevice(opts.devicePath())
+	if deviceErr != nil {
+		logger.Warn("device profile not saved; using it for this run only")
 	}
 	serveErr := serve(ctx, proxy.Config{
 		PacketDelay:         packetDelay,
@@ -460,6 +461,8 @@ func runWithResourcePackCacheFactory(
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 		ConnectProgress:             connectProgress,
 		ServerTrust:                 serverTrust,
+		SessionTarget:               sessionTarget,
+		Device:                      &deviceProfile,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())
@@ -478,6 +481,14 @@ func runWithResourcePackCacheFactory(
 
 func newLifecycleLogger(writer io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(writer, nil))
+}
+
+// devicePath is the install's device profile, independent of which account's token the core holds.
+func (opts options) devicePath() string {
+	if opts.deviceFile != "" {
+		return opts.deviceFile
+	}
+	return authSibling(opts.authCache, "device.json")
 }
 
 // authSibling is the persistent per-install directory called name beside the auth cache; empty without one.

@@ -1,7 +1,14 @@
-use super::{
-    cactus::write_cactus_pack, cake::write_cake_pack, farmland::*,
-    inventory::write_selector_alias_cube_pack, mineral_cubes::write_mineral_pack,
-    resin_clump::write_resin_clump_pack, special_cubes::*, support::*,
+use {
+    super::{
+        cactus::write_cactus_pack, cake::write_cake_pack, farmland::*,
+        inventory::write_selector_alias_cube_pack, mineral_cubes::write_mineral_pack,
+        resin_clump::write_resin_clump_pack, special_cubes::*, support::*,
+    },
+    assets::{
+        AssetError, BlockFace, CompiledAssets, DIAGNOSTIC_MATERIAL, ModelStateField, NetworkIdMode,
+        RegistryRecord, RuntimeAssets, VisualKind, encode_blob,
+    },
+    std::{collections::HashSet, fs, path::Path},
 };
 
 /// Records named `names` from the registry the bedrock target pins.
@@ -157,6 +164,16 @@ fn exact_families_compile_from_target_registry() {
         let records = target_records(names);
         assert!(!records.is_empty(), "{names:?} absent from target registry");
         let compiled = compile_pack(directory.path(), &records).expect("compile target family");
+        let mut renumbered = records.clone();
+        for record in &mut renumbered {
+            record.collision_seed.shape_id ^= u16::MAX;
+        }
+        let same_geometry = compile_pack(directory.path(), &renumbered)
+            .expect("compile family with carrier-local shape keys");
+        assert_eq!(
+            encode_blob(&compiled).unwrap(),
+            encode_blob(&same_geometry).unwrap()
+        );
         for record in &records {
             let visual = compiled.visuals[record.sequential_id as usize];
             assert_ne!(

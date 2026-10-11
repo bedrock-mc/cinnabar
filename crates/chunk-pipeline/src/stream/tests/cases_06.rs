@@ -201,7 +201,7 @@ fn movement_attribute(current: f32) -> ActorAttribute {
 #[test]
 fn movement_authority_retains_effective_current_and_identifies_only_native_sprint() {
     let modifier = protocol::ActorAttributeModifier {
-        id: Arc::from("D208FC00-42AA-4AAD-9276-D5446530DE43"),
+        id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID.to_uppercase()),
         name: Arc::from("unrelated label"),
         amount: 0.3,
         operation: 2,
@@ -229,8 +229,8 @@ fn movement_authority_retains_effective_current_and_identifies_only_native_sprin
             .unwrap();
         assert_eq!(stream.local_movement_speed(), Some(f64::from(current)));
         assert!(matches!(stream.take_committed_controls().as_slice(), [
-                CommittedControlEvent::LocalMovementSpeed { current: Some(value), sprint_modifier, .. }
-            ] if *value == f64::from(current) && *sprint_modifier == expected_modifier));
+                CommittedControlEvent::LocalMovementSpeed { movement: Some(value), .. }
+            ] if value.current == f64::from(current) && value.sprint_modifier == expected_modifier));
     };
     let factor = Some(1.0 + modifier.amount);
     submit(Arc::from([modifier.clone()]), 0.13, factor);
@@ -252,7 +252,7 @@ fn movement_authority_retains_effective_current_and_identifies_only_native_sprin
 #[test]
 fn ambiguous_or_invalid_sprint_authority_keeps_previous_speed_and_session() {
     let modifier = protocol::ActorAttributeModifier {
-        id: Arc::from("d208fc00-42aa-4aad-9276-d5446530de43"),
+        id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
         name: Arc::from(""),
         amount: 0.3,
         operation: 2,
@@ -328,14 +328,13 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
             CommittedControlEvent::LocalMovementSpeed {
                 sequence: 2,
                 dimension: 0,
-                current: Some(0.0),
-                sprint_modifier: None,
+                movement: Some(value),
                 underwater: None,
                 lava: None,
                 air_drag_modifier: None,
                 tick: 2,
             }
-        ]
+        ] if value.current == 0.0 && value.sprint_modifier.is_none()
     ));
 }
 

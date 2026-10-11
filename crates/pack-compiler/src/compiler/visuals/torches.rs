@@ -1,9 +1,9 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, ThinTemplateKey, diagnostic_visual, push_model_template,
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const FAMILY: u8 = 0;
 const UPRIGHT: u8 = 0;
@@ -131,7 +131,7 @@ pub(in crate::compiler) fn torch_quads(material: u32, mount: u8) -> Vec<ModelQua
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, assets::BlockFace};
 
     #[test]
     fn upright_torch_is_a_two_pixel_pillar_centred_in_the_block() {

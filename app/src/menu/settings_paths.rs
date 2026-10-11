@@ -9,6 +9,11 @@ impl MenuRuntime {
             .with_file_name(launcher::store::settings::SETTINGS_FILE)
     }
 
+    /// Where downloaded Marketplace art is cached.
+    pub(crate) fn store_images_dir(&self) -> PathBuf {
+        self.layout.store_images_dir()
+    }
+
     /// Server trust lives beside the other per-user launcher settings.
     pub(crate) fn experience_settings_path(&self) -> PathBuf {
         self.config_path
@@ -17,6 +22,6 @@ impl MenuRuntime {
 
     /// The immutable bundle cache follows the installed per-user data layout.
     pub(crate) fn experience_cache_dir(&self) -> PathBuf {
-        self.layout.experience_cache_dir()
+        server_experience::cache::objects_dir(&self.layout.user_data_root)
     }
 }

@@ -25,7 +25,7 @@ pub(super) fn init_ui_gpu(
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: filter,
             min_filter: filter,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..default()
         })
     };

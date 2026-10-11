@@ -6,7 +6,7 @@ use client_ui::ui_runtime::presentation::{BedHit, ChatHit, UiPresentationRuntime
 /// Routes chat pointer actions while a settings modal owns its underlying controls.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut menu: Option<ResMut<crate::menu::MenuRuntime>>,
@@ -85,7 +85,7 @@ pub(crate) fn drive_chat_ui_actions(
             Some(ChatHit::Link(index)) => presentation.request_chat_link(index),
             Some(ChatHit::LinkOpen) => {
                 if let Some(url) = presentation.take_confirmed_chat_link() {
-                    crate::desktop::open_url(&url);
+                    launcher_host::desktop::open_url(&url);
                 }
             }
             Some(ChatHit::LinkCancel) => presentation.cancel_chat_link(),

@@ -124,7 +124,7 @@ fn compile(
 
     let mut visual_sprites: Vec<Option<u32>> = Vec::with_capacity(compiled.item_visuals.len());
     for visual in compiled.item_visuals.iter() {
-        let sprite = if visual.key.identifier.as_ref() == shield::IDENTIFIER {
+        let sprite = if visual.key.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER {
             if let Some(icon) = shield_icon.as_ref() {
                 model_item_visuals += 1;
                 Some(*shield_sprite.get_or_insert_with(|| {

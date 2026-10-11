@@ -212,7 +212,7 @@ fn custom_model_fixture_retains_lamp_vine_and_plant_geometry() {
         let Some(view) = super::super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let geometries = super::super::geometry::geometry_catalog(&view, &wanted);
+        let geometries = super::super::geometry_catalog(&view, &wanted);
         for (name, identifier, expected_faces) in targets {
             if !geometries.contains_key(identifier) {
                 continue;

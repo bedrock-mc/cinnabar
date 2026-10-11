@@ -25,7 +25,7 @@ Keep internal notes and agent reports in the private checkout. Public implementa
 
 ## Tests and documentation
 
-Reproduce bugs in the smallest owning crate and include a regression test that failed before each fix. Assert behavior, not source text, schedule names, wall-clock timing, or exact layout trees. Tests requiring unavailable local carriers or fixtures skip with a named missing-fixture message, never `#[ignore]`.
+Reproduce bugs in the smallest owning crate and include a regression test that failed before each fix. Assert behavior, not source text, schedule names, wall-clock timing, or exact layout trees. Domain code takes `now` from its caller and only edge code reads the clock; tests never sleep, but wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), which the architecture gate enforces. Tests requiring unavailable local carriers or fixtures skip with a named missing-fixture message, never `#[ignore]`.
 
 Write short, clear documentation and comments. Give helpers documentation comments that explain their contract. Avoid comments that repeat signatures and process notes such as PR numbers or phase names. Keep `plan.md` and the architecture gate's completion ledger consistent with the implementation.
 
@@ -37,7 +37,7 @@ PR titles become the changelog: use an imperative summary without a `type:` pref
 
 ## Worktrees, captures, and payloads
 
-Use one worktree and Cargo target directory per concurrent change. Bound parallel builds, use the configured shared build limiter when available, and never hold one build lock while waiting for another. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
+Use one worktree per concurrent change; each gets its own Cargo `build-dir` outside the checkout (`.cargo/config.toml`) and its own `target` for final artifacts. Bound parallel builds, use the configured shared build limiter when available, and never hold one build lock while waiting for another. Stop only processes you started, by PID; never use pattern-based kills. Remove a worktree's target directory after integration.
 
 Capture visible changes with the offline UI snapshot harness or a headless client MCP session. Include before/after screenshots in the PR description; `tools/pr-screenshots.sh` can upload them. Keep real account details and server addresses out of captures. Do not commit game assets, BDS binaries, credentials, recordings, traces, or `.local/` carriers. Delete raw captures and traces after the PR is open.
 

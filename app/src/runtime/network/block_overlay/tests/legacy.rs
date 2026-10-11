@@ -267,3 +267,28 @@ fn legacy_texture_bindings_admitted_pack_fixture_resolves_floor_blocks() {
     }
     assert_eq!(checked.len(), names.len());
 }
+
+#[test]
+fn legacy_inherited_block_models_publish_parent_faces() {
+    let document = serde_json::json!({"format_version":"1.8.0",
+        "geometry.base":{"texturewidth":32,"textureheight":32,"bones":[{"name":"root","cubes":[{"origin":[-8,0,-8],"size":[16,16,16],"uv":[0,0]}]}]},
+        "geometry.gen:geometry.base":{"bones":[]}
+    });
+    let view = view_with_geometry(&serde_json::to_vec(&document).unwrap());
+    let compiled = compile_block_overlay(
+        &view,
+        &CustomBlocks {
+            blocks: [generator()].into(),
+            ..Default::default()
+        },
+        false,
+        None,
+    )
+    .unwrap();
+    assert_eq!(compiled.gaps.missing_geometry, 0);
+    for visual in &compiled.overlay.visuals {
+        assert_eq!(visual.kind, VisualKind::Model);
+        let template = compiled.overlay.model_templates[visual.model_template as usize];
+        assert_eq!(template.quad_count, 6);
+    }
+}

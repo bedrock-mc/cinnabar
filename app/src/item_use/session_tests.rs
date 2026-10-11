@@ -54,7 +54,7 @@ fn admitted_item_transaction_precedes_the_same_tick_start_using_input() {
         |packets| network.send_inventory_packets(packets),
     );
     assert!(runtime.is_using());
-    crate::movement::flush_player_auth_inputs_guarded(
+    gameplay::movement::flush_player_auth_inputs_guarded(
         &mut ticker,
         1,
         Some(evidence()),
@@ -84,11 +84,11 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     let mut swings = SwingTracker::default();
-    let mut view = crate::local_player::LocalViewPose::default();
+    let mut view = client_presentation::local_player::LocalViewPose::default();
     // Writes one input and acknowledges it as the socket pump does.
     let flush = |ticker: &mut gameplay::movement::MovementTicker| {
         let mut written = None;
-        crate::movement::flush_player_auth_inputs_guarded(
+        gameplay::movement::flush_player_auth_inputs_guarded(
             ticker,
             1,
             Some(evidence()),

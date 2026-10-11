@@ -1,5 +1,15 @@
 use super::*;
 
+/// Camera identity and settings used to select actor render phases.
+type ActorQueueView = (
+    Entity,
+    &'static MainEntity,
+    &'static ExtractedView,
+    &'static bevy::render::camera::ExtractedCamera,
+    &'static Msaa,
+    Option<&'static crate::EnhancedRendering>,
+);
+
 #[derive(SystemParam)]
 pub(super) struct QueueActorParams<'w, 's> {
     pipeline: Res<'w, ActorPipeline>,
@@ -8,24 +18,14 @@ pub(super) struct QueueActorParams<'w, 's> {
     draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
     transparent_phases: ResMut<'w, ViewSortedRenderPhases<Transparent3d>>,
     transparent_functions: Res<'w, DrawFunctions<Transparent3d>>,
-    views: Query<
-        'w,
-        's,
-        (
-            Entity,
-            &'static MainEntity,
-            &'static ExtractedView,
-            &'static Msaa,
-            Option<&'static crate::EnhancedRendering>,
-        ),
-    >,
+    views: Query<'w, 's, ActorQueueView>,
     draw_tracker: Res<'w, ActorDrawTracker>,
     witness: Res<'w, ActorRuntimeWitness>,
 }
 
 pub(super) fn queue_actors(
     mut params: QueueActorParams<'_, '_>,
-    mut next_tick: Local<Tick>,
+
     mut next_draw_generation: Local<u64>,
 ) {
     params.draw_tracker.clear();
@@ -50,20 +50,19 @@ pub(super) fn queue_actors(
         .id::<DrawTransparentActorCommands>();
     let mut queued = false;
     let mut intended_view = None;
-    for (view_entity, main_entity, view, msaa, enhanced) in &params.views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &params.views {
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
         let Some(pipeline_id) = params.pipeline.draw_variant(
             *msaa,
-            view.hdr,
+            extracted_camera.hdr,
             enhanced.is_some(),
             assets::EntityRenderMaterial::Default as u32,
         ) else {
             continue;
         };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
+
         let mut view_queued = false;
         if params.gpu.spans.iter().any(|span| !sorted(span.material)) {
             phase.add(
@@ -72,16 +71,14 @@ pub(super) fn queue_actors(
                     pipeline: pipeline_id,
                     material_bind_group_index: None,
                     lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
+                    slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Shader>::invalid().untyped(),
+                    asset_id: AssetId::<Shader>::default().untyped(),
                 },
                 (view_entity, *main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
-                *next_tick,
             );
             view_queued = true;
         }
@@ -97,7 +94,7 @@ pub(super) fn queue_actors(
                 };
                 let Some(pipeline) = params.pipeline.draw_variant(
                     *msaa,
-                    view.hdr,
+                    extracted_camera.hdr,
                     enhanced.is_some(),
                     span.material,
                 ) else {
@@ -108,18 +105,23 @@ pub(super) fn queue_actors(
                     instance.world_from_actor[1][3],
                     instance.world_from_actor[2][3],
                 );
-                transparent.add(Transparent3d {
-                    entity: (view_entity, *main_entity),
-                    pipeline,
-                    draw_function: transparent_draw,
-                    distance: rangefinder.distance(&position),
-                    batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                        range: index as u32..index as u32 + 1,
-                        batch_set_index: None,
+                crate::transparent_phase::add(
+                    transparent,
+                    Transparent3d {
+                        sorting_info:
+                            bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                        entity: (view_entity, *main_entity),
+                        pipeline,
+                        draw_function: transparent_draw,
+                        distance: rangefinder.distance(&position),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                            range: index as u32..index as u32 + 1,
+                            batch_set_index: None,
+                        },
+                        indexed: false,
                     },
-                    indexed: false,
-                });
+                );
                 view_queued = true;
             }
         }
@@ -197,6 +199,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         Read<Msaa>,
         Read<ExtractedView>,
         Option<Read<crate::EnhancedRendering>>,
+        Read<bevy::render::camera::ExtractedCamera>,
     );
     type ItemQuery = ();
 
@@ -245,7 +248,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                 continue;
             }
             let Some(id) =
-                pipeline.draw_variant(*view.2, view.3.hdr, view.4.is_some(), span.material)
+                pipeline.draw_variant(*view.2, view.5.hdr, view.4.is_some(), span.material)
             else {
                 continue;
             };

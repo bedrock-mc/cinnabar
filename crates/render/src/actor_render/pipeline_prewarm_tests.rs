@@ -4,7 +4,7 @@ use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use bevy::{
     ecs::system::RunSystemOnce,
     prelude::{Msaa, Mut},
-    render::{render_resource::PipelineCache, view::ExtractedView},
+    render::{camera::ExtractedCamera, render_resource::PipelineCache},
 };
 
 use super::super::ActorPipeline;
@@ -19,7 +19,7 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
         .run_system_once(super::super::prepare_actor_pipelines)
         .unwrap();
     let (&msaa, view) = world
-        .query::<(&Msaa, &ExtractedView)>()
+        .query::<(&Msaa, &ExtractedCamera)>()
         .single(world)
         .unwrap();
     let pipeline = world.resource::<ActorPipeline>();
@@ -94,7 +94,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             .is_empty()
     );
     let (&msaa, view) = world
-        .query::<(&Msaa, &ExtractedView)>()
+        .query::<(&Msaa, &ExtractedCamera)>()
         .single(world)
         .unwrap();
     let hdr = view.hdr;
@@ -173,7 +173,7 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
     let world = app.world_mut();
     world.init_resource::<ActorPipeline>();
     let (&msaa, view) = world
-        .query::<(&Msaa, &ExtractedView)>()
+        .query::<(&Msaa, &ExtractedCamera)>()
         .single(world)
         .unwrap();
     let hdr = view.hdr;

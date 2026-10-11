@@ -24,7 +24,7 @@ pub(super) fn tile(
         return Ok(None);
     };
     let mut pixels = sprite.rgba8.to_vec();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let mask = f32::from(pixel[3]) / 255.0;
         for (source, color) in pixel[..3].iter_mut().zip(color) {
             let source_rgb = f32::from(*source) / 255.0;

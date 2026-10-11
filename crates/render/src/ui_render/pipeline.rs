@@ -165,7 +165,7 @@ pub(crate) fn ui_pipeline_descriptor(
             shader: UI_SHADER_HANDLE,
             entry_point: Some("ui_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: crate::SCENE_COLOR_FORMAT,
                 blend: Some(ui_alpha_blend_state()),
                 write_mask: ColorWrites::ALL,
             })],
@@ -213,12 +213,12 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         descriptor.depth_stencil =
             (key.depth_test || key.depth_write).then_some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: key.depth_write,
-                depth_compare: if key.depth_test {
+                depth_write_enabled: Some(key.depth_write),
+                depth_compare: Some(if key.depth_test {
                     CompareFunction::GreaterEqual
                 } else {
                     CompareFunction::Always
-                },
+                }),
                 stencil: default(),
                 // Depth-tested, depth-writing projected UI is the native environmental-text
                 // mode. Plates are read-only; ordinary text uses Always; HUD has no depth state.
@@ -237,9 +237,9 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         target.format = if key.layer {
             composite::UI_LAYER_FORMAT
         } else if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         target.blend = Some(if key.invert_blend {
             ui_invert_blend_state()
@@ -346,7 +346,7 @@ mod tests {
                 if layer {
                     composite::UI_LAYER_FORMAT
                 } else {
-                    ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 }
             );
             assert_eq!(
@@ -377,7 +377,7 @@ mod tests {
                     )
                     .unwrap();
                 let depth = descriptor.depth_stencil.unwrap();
-                assert_eq!(depth.depth_write_enabled, depth_write);
+                assert_eq!(depth.depth_write_enabled, Some(depth_write));
                 assert_eq!(depth.bias.constant, 0);
                 assert_eq!(depth.bias.slope_scale, 0.0);
                 assert_eq!(descriptor.multisample.count, 1);

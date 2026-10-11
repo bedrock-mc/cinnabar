@@ -1,6 +1,9 @@
 use ui::{UiNode, UiNodeId, UiVisual};
 
-use super::{HudLayout, IconRef, UiPresentationError, rect};
+use {
+    super::{HudLayout, UiPresentationError, rect},
+    ui::IconRef,
+};
 
 impl HudLayout<'_> {
     /// First-person item presentation. Skin-backed arm geometry is paired

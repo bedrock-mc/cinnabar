@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use json_ui::{DataSource, Scalar};
 
-use crate::menu::{ButtonArt, MenuView};
+use launcher::menu::{ButtonArt, MenuView};
 
 fn text(value: impl Into<String>) -> Scalar {
     Scalar::Text(value.into())
@@ -17,7 +17,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     button_art(data, "play", home.play_art.as_ref());
     button_art(data, "store", home.store_art.as_ref());
     // The inbox and friends drawer need an Xbox Live session.
-    let signed_in = view.auth_state == crate::menu::auth::AuthState::Authenticated;
+    let signed_in = view.auth_state == launcher::menu::auth::AuthState::Authenticated;
     data.set_global("#inbox_enabled", Scalar::Bool(signed_in));
     data.set_global("#friends_drawer_button_enabled", Scalar::Bool(signed_in));
     friends_button(view, data);

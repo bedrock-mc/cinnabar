@@ -1,7 +1,11 @@
 //! Player-card geometry from OreUI `bZ` and `hZ` (1.26.50.04).
 use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+    ui::IconRef,
+};
 
 /// Fixed height of OreUI's narrow player card (CSS `.cfdfb462a95f1a51c994`).
 const NARROW_CARD_HEIGHT_REM: f32 = 12.8;
@@ -81,7 +85,7 @@ pub(super) fn draw(
     } else {
         let banners = &crate::ui_runtime::oreui_assets::PROFILE_BANNERS;
         let banner_index =
-            crate::menu::profile_banner_index(&profile.xuid, banners.len()).unwrap_or_default();
+            launcher::menu::profile_banner_index(&profile.xuid, banners.len()).unwrap_or_default();
         if let Some(originals) = canvas.originals
             && let Some(sprite) = originals.sprites.get(banners[banner_index])
         {
@@ -144,7 +148,9 @@ pub(super) fn draw(
         ],
         Variant::Secondary,
         "Dressing room",
-        Some(MenuAction::Navigate(crate::menu::MenuScreen::DressingRoom)),
+        Some(MenuAction::Navigate(
+            launcher::menu::MenuScreen::DressingRoom,
+        )),
     )?;
     Ok(end)
 }
@@ -172,9 +178,13 @@ fn cover(mut icon: IconRef, bounds: Bounds) -> IconRef {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ui_runtime::presentation::TextMetrics;
     use crate::ui_runtime::presentation::tests::fixture_font;
+    use {
+        super::*,
+        launcher::menu::{MenuAction, MenuView},
+        ui::IconRef,
+    };
 
     #[test]
     fn wide_card_character_stays_beside_the_name_when_the_banner_widens() {
@@ -241,7 +251,7 @@ mod tests {
                 },
             );
             assert!(hits.iter().any(|(action, _)| *action
-                == MenuAction::Navigate(crate::menu::MenuScreen::DressingRoom)));
+                == MenuAction::Navigate(launcher::menu::MenuScreen::DressingRoom)));
         }
     }
 

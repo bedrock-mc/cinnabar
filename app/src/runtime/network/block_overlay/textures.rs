@@ -5,14 +5,14 @@ use std::collections::{HashMap, HashSet};
 use resource_pack::LayeredPackView;
 use serde_json::Value;
 
-pub(super) use super::super::resource_packs::DecodedTexture;
+use pack_runtime::pack_textures::DecodedTexture;
 mod diagnostics;
 mod terrain;
 mod tint;
-use super::super::resource_packs::{
+use diagnostics::{FailureReason, TextureDiagnostics};
+use pack_runtime::pack_textures::{
     MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
 };
-use diagnostics::TextureDiagnostics;
 pub(super) use terrain::{admit_static_rectangle, source_mip_chain};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -35,7 +35,7 @@ pub(super) struct TextureCatalog<'a> {
 
 impl<'a> TextureCatalog<'a> {
     pub(super) fn new(view: &'a LayeredPackView, base: Option<&assets::MaterialKeys>) -> Self {
-        let mut terrain = super::super::resource_packs::base_terrain_catalog();
+        let mut terrain = pack_runtime::pack_textures::base_terrain_catalog();
         if let Some(base) = base {
             terrain.extend(
                 base.aliases()
@@ -83,7 +83,7 @@ impl<'a> TextureCatalog<'a> {
         Self {
             view,
             terrain,
-            grids: client_session::pack_textures::terrain_texture_grids(view),
+            grids: pack_runtime::pack_textures::terrain_texture_grids(view),
             tints: tint::catalog_tints(view, base),
             server_keys,
             flipbooks,
@@ -107,7 +107,8 @@ impl<'a> TextureCatalog<'a> {
     /// Decodes the image a terrain key names.
     pub(super) fn decode(&self, key: &str) -> Option<DecodedTexture> {
         let Some(path) = self.terrain.get(key) else {
-            self.diagnostics.failure(key, None, "terrain_key_missing");
+            self.diagnostics
+                .failure(FailureReason::TerrainKeyMissing, key, None);
             return None;
         };
         let mut texture = decode_pack_texture(self.view, path);
@@ -119,11 +120,22 @@ impl<'a> TextureCatalog<'a> {
         if texture.is_none() {
             let reason = diagnostics::failure_reason(self.view, path);
             // Base aliases have no server raster until a pack overrides them.
-            if self.server_keys.contains(key) || reason != "texture_file_missing" {
-                self.diagnostics.failure(key, Some(path), reason);
+            if self.server_keys.contains(key) || reason != FailureReason::TextureFileMissing {
+                self.diagnostics.failure(reason, key, Some(path));
             }
         }
         texture
+    }
+
+    /// Records a route the overlay could not admit because its texture array is full.
+    pub(super) fn report_full(&self, key: &str) {
+        self.diagnostics
+            .failure(FailureReason::TextureArrayFull, key, None);
+    }
+
+    /// Emits the counted terrain failures for this stack.
+    pub(super) fn emit_diagnostics(&self) {
+        self.diagnostics.emit();
     }
 }
 

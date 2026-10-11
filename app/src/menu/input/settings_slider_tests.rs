@@ -9,11 +9,11 @@ use bevy::{
 use ui::DpiScale;
 
 use super::*;
-use crate::{
-    menu::{MenuAction, MenuScreen, settings_options::SETTINGS_OPTIONS},
-    ui_runtime::presentation::tests::engine_hud_tests::engine_presentation,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    client_ui::test_support::engine_presentation,
+    launcher::menu::{MenuAction, MenuScreen, settings_options::SETTINGS_OPTIONS},
+};
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
@@ -56,7 +56,9 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(PreUpdate, touch_screen_input_system)
@@ -114,7 +116,7 @@ fn build(app: &mut App) {
             presentation.set_menu_view(Some(view));
             presentation
                 .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<client_state::PlayerRuntime>(),
                     &UiRuntime::new(1),
                     0,
                     PHYSICAL,

@@ -305,7 +305,9 @@ fn read_cloud_override_with_policy(
         .into_boxed_slice();
     let pixels_sha256: [u8; 32] = Sha256::digest(&rgba8).into();
     let occupied_texels = rgba8
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] >= 128)
         .count();
     if rgba8.len() != pixel_length(policy.width, policy.height)?

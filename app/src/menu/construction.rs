@@ -1,7 +1,13 @@
 //! Launcher state construction and persisted settings startup.
 
 use super::input::field_editor;
-use super::*;
+#[cfg(feature = "developer-control")]
+use launcher::menu::MenuDialog;
+use launcher::menu::settings_options::{SETTINGS_FILE, SettingsOptions};
+use {
+    super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuField,
+    launcher::menu::view::MenuView,
+};
 
 impl MenuRuntime {
     /// Creates a menu over the checkout's assets with private, empty user roots, so parallel test
@@ -9,8 +15,8 @@ impl MenuRuntime {
     #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
         let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        let mut layout = crate::install_layout::checkout();
-        let user = crate::install_layout::scratch("menu");
+        let mut layout = launcher::test_support::checkout();
+        let user = launcher::test_support::scratch("menu");
         layout.user_config_root = user.user_config_root;
         layout.user_data_root = user.user_data_root;
         Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
@@ -27,22 +33,19 @@ impl MenuRuntime {
         let config_path = layout.server_file();
         let loaded = load_servers(&config_path);
         let mut message = loaded.recovery_message;
-        let saved_video_settings =
-            video_settings::load(&layout.user_config_root).unwrap_or_else(|error| {
+        let saved_video_settings = launcher_host::video_settings::load(&layout.user_config_root)
+            .unwrap_or_else(|error| {
                 let warning = format!("Video settings could not be read: {error:#}");
                 message = Some(message.take().map_or_else(
                     || warning.clone(),
                     |previous| format!("{previous}\n{warning}"),
                 ));
-                video_settings::SavedVideoSettings::default()
+                launcher_host::video_settings::SavedVideoSettings::default()
             });
-        let settings_options = settings_options::SettingsOptions::load(
-            &config_path.with_file_name(settings_options::SETTINGS_FILE),
-        );
+        let settings_options = SettingsOptions::load(&config_path.with_file_name(SETTINGS_FILE));
         let language_asset_path = layout.world_assets();
         let language_pending = settings_options.language().is_some();
-        let language_choices =
-            settings_options::SettingsOptions::language_choices(&layout.resource_root);
+        let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
         #[cfg(feature = "developer-control")]
         let sign_in_fixture = super::sign_in_fixture::startup();
@@ -116,8 +119,8 @@ impl MenuRuntime {
             friends: initial.friends,
             catalog_message: initial.catalog_message,
             catalog_started: false,
-            catalog_path: layout.catalog_file(std::process::id()),
-            catalog_process: None,
+            catalog: launcher_host::catalog::Catalog::new(layout.catalog_file(std::process::id())),
+            catalog_art: None,
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,
@@ -186,11 +189,11 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::view::MenuView};
 
     #[test]
     fn shared_initial_view_matches_the_host_before_services_are_loaded() {
-        let layout = crate::install_layout::scratch("initial-menu-view");
+        let layout = launcher::test_support::scratch("initial-menu-view");
         let display_name = "Initial view".to_owned();
         for visible in [false, true] {
             let initial = MenuView::new(visible, display_name.clone());

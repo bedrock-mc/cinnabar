@@ -8,21 +8,21 @@ use crate::ui_shader;
 
 /// Resolve the vanilla shader for standalone validation.
 fn standalone(source: &str) -> String {
-    let shader = shader_safety::from_actor_wgsl(
+    let shader = shader_safety::from_actor_wesl(
         source,
-        "standalone.wgsl",
+        "standalone.wesl",
         render::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
-        panic!("checked constructor must produce WGSL");
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("checked constructor must produce WESL");
     };
     shader_source::standalone(&source, &[])
 }
 
 #[test]
 fn dragon_dissolve_passes_preserve_identical_vertex_depths() {
-    let module = naga::front::wgsl::parse_str(&standalone(include_str!("../../src/actor.wgsl")))
+    let module = naga::front::wgsl::parse_str(&standalone(include_str!("../../src/actor.wesl")))
         .expect("production actor shader parses");
     let vertex = module
         .entry_points
@@ -51,11 +51,11 @@ fn every_shader_parses_and_validates() {
     for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".wgsl")
-            || name == "lighting.wgsl"
-            || name == "biome_tint.wgsl"
-            || name == "material.wgsl"
-            || name == "chunk_bindings.wgsl"
+        if !(name.ends_with(".wgsl") || name.ends_with(".wesl"))
+            || name == "lighting.wesl"
+            || name == "biome_tint.wesl"
+            || name == "material.wesl"
+            || name == "chunk_bindings.wesl"
         {
             continue;
         }
@@ -68,25 +68,25 @@ fn every_shader_parses_and_validates() {
                 panic!("UI shader constructor must produce WGSL");
             };
             standalone(&source)
-        } else if name == "transparent_terrain.wgsl" {
+        } else if name == "transparent_terrain.wesl" {
             // Composes the liquid and model modules, whose shared names only the composer resolves.
             shader_source::composed(&raw, &[])
-        } else if name == "nametag.wgsl" {
-            let shader = nametag_shader::from_wgsl(&raw, path.to_string_lossy());
-            let bevy::shader::Source::Wgsl(source) = shader.source else {
-                panic!("nametag shader constructor must produce WGSL");
+        } else if name == "nametag.wesl" {
+            let shader = nametag_shader::from_wesl(&raw, path.to_string_lossy());
+            let bevy::shader::Source::Wesl(source) = shader.source else {
+                panic!("nametag shader constructor must produce WESL");
             };
             // Validate the tested-glyph specialization; Bevy preprocesses this define at runtime.
             shader_source::standalone(&source, &["NAMETAG_ALPHA_TEST"])
-        } else if matches!(name.as_str(), "actor.wgsl" | "hand_rig.wgsl") {
-            let shader = shader_safety::from_actor_wgsl(
+        } else if matches!(name.as_str(), "actor.wesl" | "hand_rig.wesl") {
+            let shader = shader_safety::from_actor_wesl(
                 &raw,
                 path.to_string_lossy(),
                 render::ACTOR_GPU_INSTANCE_WORDS,
                 render_model::ACTOR_RIG_VERTEX_WORDS,
             );
-            let bevy::shader::Source::Wgsl(source) = shader.source else {
-                panic!("packed actor constructor must produce WGSL");
+            let bevy::shader::Source::Wesl(source) = shader.source else {
+                panic!("packed actor constructor must produce WESL");
             };
             standalone(&source)
         } else {
@@ -129,8 +129,8 @@ fn every_shader_parses_and_validates() {
 #[test]
 fn review_render_world_actor_fragments_read_shared_fog() {
     for raw in [
-        include_str!("../../src/actor.wgsl"),
-        include_str!("../../src/dropped_item.wgsl"),
+        include_str!("../../src/actor.wesl"),
+        include_str!("../../src/dropped_item.wesl"),
     ] {
         let module = naga::front::wgsl::parse_str(&standalone(raw)).unwrap();
         let info = naga::valid::Validator::new(

@@ -58,6 +58,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 	if !minecraft.IsRakNet(network) {
 		return network.DialContext(ctx, address)
 	}
+	budgetDeadline := time.Now().Add(budget)
 	bounded, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	started := time.Now()
@@ -66,7 +67,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 		// Separates a transport stall from a login stall when a join hangs.
 		slog.Info("upstream transport connected", "target", address, "elapsed_ms", time.Since(started).Milliseconds())
 	}
-	if err != nil && ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+	if err != nil && ctx.Err() == nil && !time.Now().Before(budgetDeadline) {
 		err = fmt.Errorf("proxy: %s did not accept the connection within %s (%w): %w", address, budget, context.DeadlineExceeded, err)
 	}
 	return conn, err

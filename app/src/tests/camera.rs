@@ -1,31 +1,36 @@
 use super::*;
 use std::num::NonZeroU64;
 
-use crate::camera::{CameraSettingsAuthority, perspective_pose};
-use crate::local_player::{
-    CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-    LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalPlayerFrameSample, LocalViewPose,
-};
-use crate::movement::{
-    MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
-    PhysicsAuthorityFaultRecord, PhysicsCorrectionOutcome, PhysicsTickEvidence,
-    PhysicsTickEvidenceContext,
-};
-use crate::runtime::phase3_evidence::{
-    MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
-    Phase3EvidenceEmitter, Phase3EvidenceEventKind, Phase3EvidenceFrame, Phase3EvidenceIdentity,
-    validate_phase3_build_source,
-};
 use crate::semantic_controls::{
     SemanticInputAuthorityFrame, SemanticInputRuntime, SemanticTouchTargets,
 };
 use bevy::math::Mat4;
+use client_presentation::camera::{CameraSettingsAuthority, perspective_pose};
+use client_presentation::local_player::{
+    CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
+    LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalPlayerFrameSample, LocalViewPose,
+};
 use client_ui::ui_runtime::UiRuntime;
 use render::{ActorCullView, ActorRenderScene, ActorRenderSource};
 use render_model::MAX_RENDERED_PLAYERS;
 use semantic_input::{
     Action, ControlSettings, ControllerFrame, DeviceFrame, InputContext, KeyboardMouseFrame,
     ReleaseReason, TouchContact,
+};
+use {
+    crate::movement::PhysicsAuthorityFaultRecord,
+    gameplay::movement::{
+        MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
+        PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
+    },
+};
+use {
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    acceptance::phase3_evidence::{
+        MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
+        Phase3EvidenceEventKind, Phase3EvidenceFrame, Phase3EvidenceIdentity,
+        validate_phase3_build_source,
+    },
 };
 
 fn frozen_collision_identity() -> sim::WorldCollisionIdentity {

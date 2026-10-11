@@ -1,7 +1,7 @@
 //! Bounded native render-graph coverage using the installed bamboo geometry and art.
 use bevy::{
     asset::AssetPlugin,
-    camera::{Camera3dDepthTextureUsage, CameraPlugin, RenderTarget},
+    camera::{Camera3dDepthTextureUsage, CameraPlugin, Hdr, RenderTarget},
     core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
     mesh::MeshPlugin,
     post_process::{PostProcessPlugin, bloom::Bloom},
@@ -11,7 +11,6 @@ use bevy::{
         gpu_readback::{Readback, ReadbackComplete},
         render_resource::*,
         renderer::RenderDevice,
-        view::Hdr,
     },
     window::WindowPlugin,
 };
@@ -293,7 +292,7 @@ fn app(assets: Arc<assets::RuntimeAssets>) -> (App, Entity) {
             RenderTarget::Image(image.clone().into()),
             Msaa::Off,
             Hdr,
-            Tonemapping::None,
+            Tonemapping::Linear,
             Bloom::default(),
             render::EnhancedRendering::bounded_diagnostic(),
             Transform::from_xyz(12.0, 8.0, 14.0).looking_at(Vec3::new(5.0, 2.0, 5.0), Vec3::Y),
@@ -370,8 +369,10 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     save("bamboo-enhanced-front", &first);
     assert!(
         first
-            .chunks_exact(4)
-            .zip(empty.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(empty.as_chunks::<4>().0.iter())
             .filter(|(a, b)| a != b)
             .count()
             > 100

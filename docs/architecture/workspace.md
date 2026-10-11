@@ -60,7 +60,6 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
-| `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
 
 The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension; its
 samples are `examples/mods/hello` and `examples/mods/time-changer`, and `examples/experiences/probe`
@@ -76,3 +75,12 @@ plan is in `docs/architecture/`.
 | `localworld` | Local worlds on BDS (a container on macOS); `proxy` hosts open ones for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
 | `update` | Signed update checks. |
+
+Cross-crate re-exports are forbidden: consumers import the owning crate directly.
+Named exports must also have unambiguous ownership across Rust namespaces. Use
+explicit dependency imports where external globs could supply an exported name.
+The architecture gate also rejects glob re-exports with restricted visibility and
+executable file headers regardless of extension. Files marked `binary` in Git
+need a named ownership record; executable files cannot use that exemption.
+Temporary, individually named protocol and session forwarding APIs are tracked
+in `tools/architecture/policy.toml` for removal with #532.

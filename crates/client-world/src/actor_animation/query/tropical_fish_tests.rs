@@ -1,14 +1,17 @@
 use super::super::{tests::actor_with_metadata, tick};
 use super::*;
 
-fn key(name: &str) -> u32 {
-    integer_query_key(name).expect("registered integer metadata query")
+/// Reads the integer metadata source from a typed query contract.
+fn key(query: Q) -> u32 {
+    query
+        .integer_metadata_key()
+        .expect("registered integer metadata query")
 }
 
 fn fish(variant: ActorMetadataValue, mark_variant: ActorMetadataValue) -> ActorSnapshot {
     let mut actor = actor_with_metadata(HashMap::from([
-        (key("variant"), variant),
-        (key("mark_variant"), mark_variant),
+        (key(Q::Variant), variant),
+        (key(Q::MarkVariant), mark_variant),
     ]));
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:tropicalfish".into(),
@@ -61,10 +64,10 @@ fn tropical_fish_metadata_changes_refresh_retained_variables() {
 
     actor
         .metadata
-        .insert(key("variant"), ActorMetadataValue::Int(1));
+        .insert(key(Q::Variant), ActorMetadataValue::Int(1));
     actor
         .metadata
-        .insert(key("mark_variant"), ActorMetadataValue::Int(2));
+        .insert(key(Q::MarkVariant), ActorMetadataValue::Int(2));
     update(&actor, &mut variables);
     assert_eq!(variables.number_at(0), Some(1.0));
     assert_eq!(variables.number_at(1), Some(8.0));

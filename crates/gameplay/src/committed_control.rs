@@ -86,8 +86,7 @@ impl CommittedGameplayState<'_> {
         if let CommittedControlEvent::LocalMovementSpeed {
             sequence,
             dimension,
-            current,
-            sprint_modifier,
+            movement,
             underwater,
             lava,
             air_drag_modifier,
@@ -96,18 +95,12 @@ impl CommittedGameplayState<'_> {
         {
             // Every attribute edit shares the packet's stamp, so one replay covers them.
             let mut rewind = None;
-            if let Some(current) = current
-                && self.speed.apply(
-                    self.session_generation,
-                    sequence,
-                    dimension,
-                    current,
-                    sprint_modifier,
-                )
+            if let Some(attribute) = movement
+                && self
+                    .speed
+                    .apply(self.session_generation, sequence, dimension, attribute)
                 && self.movement.physics_is_authorized()
-                && let Some((edited, speed)) =
-                    self.physics
-                        .retime_movement_speed(tick, current, sprint_modifier)
+                && let Some((edited, speed)) = self.physics.retime_movement_speed(tick, attribute)
             {
                 self.speed.adopt_replayed_speed(speed);
                 rewind = edited;

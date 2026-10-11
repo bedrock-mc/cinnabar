@@ -45,7 +45,7 @@ runs:
         CACHE_LANGUAGE: ${{ inputs.language }}
         CACHE_LANE: ${{ inputs.lane }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" plan
-    - uses: actions/cache/restore@v4
+    - uses: actions/cache/restore@v5
       if: inputs.phase == 'restore'
       with:
         key: ${{ steps.plan.outputs.key }}
@@ -65,7 +65,7 @@ runs:
       env:
         CACHE_WORKSPACE: ${{ inputs.workspace }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" verify-inputs
-    - uses: actions/cache/save@v4
+    - uses: actions/cache/save@v5
       if: inputs.phase == 'save'
       with:
         key: ${{ inputs.key }}

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"golang.org/x/oauth2"
 )
@@ -211,17 +213,11 @@ func TestAccountLifetimeCancellationInterruptsOAuthWait(t *testing.T) {
 // the competing lease stays held until after shutdown has finished.
 func waitForAccountOperation(t *testing.T, account *Account) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	testwait.Eventually(t, time.Second, "a credential operation to begin", func() bool {
 		account.activeMu.Lock()
-		active := account.active
-		account.activeMu.Unlock()
-		if active != 0 {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("credential operation never began")
+		defer account.activeMu.Unlock()
+		return account.active != 0
+	})
 }
 
 func TestAccountQueuedCallRespectsDeadline(t *testing.T) {

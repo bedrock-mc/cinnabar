@@ -18,11 +18,11 @@ use bevy::{
             BufferBindingType, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState,
             PipelineCache, RenderPipeline, RenderPipelineDescriptor, ShaderStages, ShaderType,
-            Specializer, SpecializerKey, TextureFormat, Variants, VertexState,
+            Specializer, SpecializerKey, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -37,9 +37,10 @@ pub(crate) fn install_lightning_render(app: &mut App) {
     load_internal_asset!(
         app,
         LIGHTNING_SHADER_HANDLE,
-        "lightning.wgsl",
-        crate::shader_safety::from_wgsl
+        "lightning.wesl",
+        crate::shader_safety::from_wesl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<LightningPipeline>()
         .add_render_command::<Transparent3d, DrawLightningCommands>()
@@ -154,7 +155,7 @@ impl FromWorld for LightningPipeline {
                 shader: LIGHTNING_SHADER_HANDLE,
                 entry_point: Some("lightning_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(additive),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -162,8 +163,8 @@ impl FromWorld for LightningPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -195,9 +196,9 @@ impl Specializer<RenderPipeline> for LightningPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -244,13 +245,19 @@ fn queue_lightning(
     scene: Res<LightningScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if scene.records.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawLightningCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -258,22 +265,27 @@ fn queue_lightning(
             &pipeline_cache,
             LightningPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
             },
         ) else {
             continue;
         };
         for (index, record) in scene.records.iter().take(MAX_BOLT_RECORDS).enumerate() {
             let midpoint = (Vec3::from_array(record.start) + Vec3::from_array(record.end)) * 0.5;
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function,
-                distance: view.rangefinder3d().distance(&midpoint),
-                batch_range: index as u32..index as u32 + 1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: false,
-            });
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
+                    pipeline: pipeline_id,
+                    draw_function,
+                    distance: view.rangefinder3d().distance(&midpoint),
+                    batch_range: index as u32..index as u32 + 1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: false,
+                },
+            );
         }
     }
 }

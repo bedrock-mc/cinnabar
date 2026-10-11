@@ -37,6 +37,7 @@ fn stream() -> WorldStream {
 
 fn feed(first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
         username: "test".into(),

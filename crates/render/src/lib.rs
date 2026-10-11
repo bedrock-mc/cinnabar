@@ -8,10 +8,11 @@ pub use depth_smaa::DepthSmaaPlugin;
 mod lighting;
 mod lightmap;
 #[cfg(test)]
+mod render_test_support;
+#[cfg(test)]
 mod shader_test_support;
 pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
-pub use render_api::fancy_actor_shade;
 
 mod aim_assist;
 pub use aim_assist::{
@@ -53,16 +54,19 @@ pub use media_screen::{
 };
 mod material_shader;
 mod mod_render;
-pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
+
+pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
 pub mod motion_blur;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
 mod native_trig;
 pub use native_sunlight::AtmosphereViewInputs;
+mod pack_skybox;
 mod panorama;
 mod panorama_render;
 mod particle_render;
+pub use pack_skybox::SkyboxSettings;
 mod pipeline_warmup;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
@@ -88,6 +92,7 @@ mod shader_safety;
 mod shader_source;
 mod surface_capabilities;
 mod surface_lifecycle;
+mod transparent_phase;
 mod ui_render;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
@@ -132,6 +137,7 @@ pub use actor::{
     pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
+
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_ALPHA,
     CLOUD_SCROLL_BLOCKS_PER_TICK, CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile,
@@ -147,13 +153,13 @@ pub use block_entity::{
     BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
     BlockSelectionFrame, BlockSelectionTarget, ChestModel, ChestPair, ChestVariant, ConduitModel,
     CopperAge, CrackInstance, CrackQuad, CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND,
-    DecoratedPotModel, DragonDeathModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
-    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
-    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
-    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
-    bed_color, block_matrix, crack_shape_from_template, crack_texture_name, floor_yaw_degrees,
-    item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture, sherd_pattern,
-    skull_geometry, swing_degrees,
+    DecoratedPotModel, DragonDeathModel, Facing, ITEM_FRAME_PANEL_FRONT_PIXELS,
+    ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES,
+    Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind,
+    SkullModel, SkullMount, SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel,
+    StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef, bed_color, block_matrix,
+    crack_shape_from_template, crack_texture_name, floor_yaw_degrees, item_frame_item_transform,
+    lid_angle_radians, matrix_rows, pattern_texture, sherd_pattern, skull_geometry, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
@@ -190,7 +196,7 @@ pub use chunk::{
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
-    CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
+    CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
 pub use dropped_item::{
@@ -205,7 +211,7 @@ pub use lightning::{
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
 };
-pub use panorama::{PANORAMA_WGSL, PanoramaScene};
+pub use panorama::PanoramaScene;
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
@@ -235,10 +241,9 @@ pub use weather::{
     ColumnSample, ColumnSampler, LAYERS_PER_KIND, MAX_PRECIPITATION_LAYERS, OCCLUSION_BLOCKED,
     OCCLUSION_OPEN, OCCLUSION_SIDE, OcclusionGrid, PARTICLE_BOX, PARTICLE_MESH_QUADS,
     PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_LEVEL_PER_TICK,
-    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, Precipitation,
-    PrecipitationLayerRecord, PrecipitationMix, PrecipitationParams, PrecipitationScene,
-    PrecipitationSim, RAIN_PARAMS, RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets,
-    altitude_adjusted_temperature, approach_level, average_precipitation, classify_precipitation,
+    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, PrecipitationLayerRecord,
+    PrecipitationMix, PrecipitationParams, PrecipitationScene, PrecipitationSim, RAIN_PARAMS,
+    RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets, approach_level, average_precipitation,
     column_heights, particle_mesh, particles_per_layer, pick_rain_splashes,
     precipitation_forward_offset,
 };
@@ -249,3 +254,9 @@ mod stars;
 
 #[cfg(test)]
 mod queue_review_support;
+
+/// Colour format used by the ordinary scene and its built-in pipeline variants.
+pub const SCENE_COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Colour format used by the enhanced scene and its built-in pipeline variants.
+pub const SCENE_HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;

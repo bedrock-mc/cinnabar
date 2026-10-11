@@ -1,3 +1,4 @@
+use client_world::MovementSpeedAttribute;
 use sim::MAX_SAFE_LIQUID_VELOCITY;
 
 /// Largest effective speed that stays inside the collision query extent.
@@ -11,22 +12,16 @@ pub(crate) const MAX_SIMULABLE_LAVA_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 1.1;
 /// Attribute current and the native sprint modifier currently installed on it.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct EffectiveMovementSpeed {
-    current: Option<f64>,
+    attribute: Option<MovementSpeedAttribute>,
     sprinting: bool,
-    sprint_modifier: Option<f32>,
 }
 
 impl EffectiveMovementSpeed {
     /// Restores the server current, its sprint modifier, and the matching actor flag.
-    pub(crate) fn authoritative(
-        current: f64,
-        sprint_modifier: Option<f32>,
-        sprinting: bool,
-    ) -> Self {
+    pub(crate) fn authoritative(attribute: MovementSpeedAttribute, sprinting: bool) -> Self {
         Self {
-            current: Some(current),
+            attribute: Some(attribute),
             sprinting,
-            sprint_modifier,
         }
     }
 
@@ -44,26 +39,23 @@ impl EffectiveMovementSpeed {
             return;
         }
         self.sprinting = sprinting;
+        let Some(attribute) = self.attribute.as_mut() else {
+            return;
+        };
         if sprinting {
-            if self.sprint_modifier.is_none() {
-                let factor = sim::SPRINT_SPEED_MULTIPLIER as f32;
-                self.current = self
-                    .current
-                    .map(|current| f64::from(current as f32 * factor));
-                self.sprint_modifier = Some(factor);
+            if attribute.sprint_modifier.is_none() {
+                attribute.set_sprint_modifier(Some(sim::SPRINT_SPEED_MULTIPLIER as f32));
             }
-        } else if let Some(factor) = self.sprint_modifier.take() {
-            self.current = self
-                .current
-                .map(|current| f64::from(current as f32 / factor));
+        } else {
+            attribute.set_sprint_modifier(None);
         }
     }
 
     /// The simulator's public input uses pre-sprint speed. Cancel its one fixed
     /// multiplier so its result reads our effective attribute current exactly once.
     pub(crate) fn prediction_speed(self) -> Option<f64> {
-        self.current
-            .map(|current| prediction_speed(current, self.sprinting))
+        self.attribute
+            .map(|attribute| prediction_speed(attribute.current, self.sprinting))
     }
 }
 
@@ -184,8 +176,7 @@ impl LocalMovementSpeedAuthority {
         session_id: u64,
         sequence: u64,
         dimension: i32,
-        current: f64,
-        sprint_modifier: Option<f32>,
+        attribute: MovementSpeedAttribute,
     ) -> bool {
         if session_id != self.session_id
             || dimension != self.dimension
@@ -194,8 +185,9 @@ impl LocalMovementSpeedAuthority {
             return false;
         }
         self.last_sequence = Some(sequence);
+        let current = attribute.current;
         if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current)
-            || sprint_modifier.is_some_and(|factor| {
+            || attribute.sprint_modifier.is_some_and(|factor| {
                 !factor.is_finite()
                     || factor <= 0.0
                     || !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED)
@@ -205,14 +197,21 @@ impl LocalMovementSpeedAuthority {
             super::diagnostics::note_skipped_authority("movement_speed", current);
             return false;
         }
-        self.speed =
-            EffectiveMovementSpeed::authoritative(current, sprint_modifier, self.speed.sprinting);
+        for factor in [None, Some(sim::SPRINT_SPEED_MULTIPLIER as f32)] {
+            let mut recalculated = attribute;
+            recalculated.set_sprint_modifier(factor);
+            if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&recalculated.current) {
+                super::diagnostics::note_skipped_authority("movement_speed", recalculated.current);
+                return false;
+            }
+        }
+        self.speed = EffectiveMovementSpeed::authoritative(attribute, self.speed.sprinting);
         true
     }
 
     /// Returns the effective attribute current after local sprint transitions.
-    pub const fn current(&self) -> Option<f64> {
-        self.speed.current
+    pub fn current(&self) -> Option<f64> {
+        self.speed.attribute.map(|attribute| attribute.current)
     }
 
     /// Returns the pre-sprint value expected by the simulator.

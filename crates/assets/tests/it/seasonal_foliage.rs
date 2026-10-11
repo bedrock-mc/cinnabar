@@ -13,7 +13,10 @@ fn live_snow_foliage_preserves_world_snow_brightness_without_recoloring_ordinary
         (TintMapId::Foliage, [100, 120, 140]),
     ] {
         let offset = map as usize * map_bytes;
-        for pixel in compiled.tint_maps_rgb8[offset..offset + map_bytes].chunks_exact_mut(3) {
+        for pixel in compiled.tint_maps_rgb8[offset..offset + map_bytes]
+            .as_chunks_mut::<3>()
+            .0
+        {
             pixel.copy_from_slice(&rgb);
         }
     }

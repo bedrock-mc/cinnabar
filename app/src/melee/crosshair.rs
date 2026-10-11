@@ -1,15 +1,21 @@
-use super::{Crosshair, MeleeContext, classify};
 #[cfg(feature = "local-mods")]
 use crate::modding::interaction::{block_pick_reach, effective_reach};
-use crate::{
-    interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
-    mining::{creative_reach, hand_interaction_selection, survival_reach},
-};
 use protocol::PlayerInputMode;
+use {
+    super::MeleeContext,
+    gameplay::melee::{Crosshair, classify},
+};
+use {
+    crate::{
+        interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
+        mining::hand_interaction_selection,
+    },
+    gameplay::mining::{creative_reach, survival_reach},
+};
 
 /// Assisted actor identity is preserved while ordinary reach and world obstruction remain authoritative.
 pub(super) fn resolve_crosshair(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &MeleeContext,
     input_mode: PlayerInputMode,
     attack_reach: f64,
@@ -52,7 +58,10 @@ pub(super) fn resolve_crosshair(
         ) {
             Ok(observed) => observed,
             Err(BlockRayUnavailable) => {
-                crate::movement::note_click_drop("attack", "block_ray_unreadable_treated_as_clear");
+                gameplay::movement::note_click_drop(
+                    "attack",
+                    "block_ray_unreadable_treated_as_clear",
+                );
                 None
             }
         }

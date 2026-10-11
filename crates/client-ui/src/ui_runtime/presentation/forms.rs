@@ -51,7 +51,10 @@ pub mod model;
 pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
+#[cfg(test)]
+mod retained_image_tests;
 mod retained_menu;
+mod skybox_setting;
 pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
@@ -61,12 +64,11 @@ mod font_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;
-pub mod panorama;
 #[cfg(test)]
 mod publication_tests;
 #[cfg(test)]
 pub mod regression_snapshots;
-pub use panorama::{built_in_faces, launcher_view};
+
 mod accounts;
 pub mod always_sprint_setting;
 pub mod enhanced_setting;
@@ -76,7 +78,6 @@ pub mod play_flow_snapshots;
 pub mod play_screen;
 mod player_list;
 pub mod recipe_book;
-pub mod remote_images;
 pub mod scene_policy;
 pub mod server_pack;
 pub mod settings_account;
@@ -111,8 +112,8 @@ pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
 pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use experience_modal::ExperienceModal;
+
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
-pub use menu_screens::menu_reference;
 pub use mod_screens::ModScreensInput;
 pub use npc::NPC_SCREEN;
 pub use oreui::BedHit;
@@ -126,7 +127,8 @@ use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
 pub use engine::hud_renderers;
 pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
-pub use server_pack::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
+
+pub use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -146,15 +148,15 @@ pub(super) struct FormPresentation {
     /// The container screen the engine drew this build, with its cell layout.
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
-    menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    menu_keys: Vec<(launcher::menu::MenuAction, String)>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
-    pub(super) menu_focus: Vec<crate::menu::MenuAction>,
+    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.
-    pub(super) menu_focus_context: Option<(crate::menu::MenuScreen, bool)>,
-    pub(super) menu_focus_geometry: Vec<crate::menu::view::SettingsFocusTarget>,
-    pub(super) menu_focus_landmarks: Vec<crate::menu::view::SettingsFocusLandmark>,
+    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
+    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
+    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
-    menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
+    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
@@ -270,6 +272,9 @@ impl UiPresentationRuntime {
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
         self.form_presentation.hud.invalidate_textures();
+        if let Some(cache) = &mut self.form_presentation.container_cache {
+            cache.invalidate_textures();
+        }
         if let Some(settings) = pack
             .screen_settings
             .as_ref()
@@ -303,6 +308,23 @@ impl UiPresentationRuntime {
             .collect();
         if let Some(engine) = self.form_presentation.engine.as_mut() {
             engine.textures.set_full_res(full_res);
+        }
+    }
+
+    /// Publishes completed original images before a saved menu frame can be reused.
+    pub(super) fn poll_server_ui_images(&mut self) {
+        if self
+            .form_presentation
+            .engine
+            .as_mut()
+            .is_some_and(|engine| engine.poll_native_images())
+        {
+            self.retained_menu = None;
+            self.form_presentation.hud.invalidate_textures();
+            if let Some(cache) = &mut self.form_presentation.container_cache {
+                cache.invalidate_textures();
+            }
+            self.sync_server_ui_pages();
         }
     }
 
@@ -402,6 +424,14 @@ impl UiPresentationRuntime {
             .map_or(&[], |engine| &engine.server_pages)
     }
 
+    /// Immutable original-image tiles owned by the active resource-pack namespace.
+    pub(super) fn server_ui_sheet_pages(&self) -> &[render_model::UiTexturePage] {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or(&[], |engine| &engine.server_sheet_pages)
+    }
+
     /// Applies the runtime's server UI pack when it changes identity.
     pub(super) fn observe_server_ui(&mut self, pack: Option<&Arc<ServerUiPack>>) {
         let Some(engine) = self.form_presentation.engine.as_mut() else {
@@ -425,7 +455,7 @@ impl UiPresentationRuntime {
     }
 
     /// The sound the engine menu's control for `action` plays when pressed.
-    pub fn menu_sound(&self, action: crate::menu::MenuAction) -> Option<&json_ui::ControlSound> {
+    pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
         self.form_presentation
             .menu_sounds
             .iter()
@@ -689,7 +719,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         EMOTE_EQUIP_POPUP,
         NPC_SCREEN,
         toast_screen::TOAST_SCREEN,
-        crate::store::SDL_SCREEN,
+        launcher::store::SDL_SCREEN,
         crate::ui_runtime::credits::CREDITS_SCREEN,
     ]
     .into_iter()

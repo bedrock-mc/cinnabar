@@ -1,8 +1,8 @@
-use super::*;
 use client_presentation::camera::{CameraSettingsAuthority, ServerCameraView, motion_blur};
 use developer_control::camera::{Easing, Keyframe};
 use render::motion_blur::CameraMotionBlur;
 use std::time::Duration;
+use {super::*, client_presentation::camera::FlyCamera};
 
 fn frame(t: f32, x: f32) -> Keyframe {
     Keyframe {
@@ -18,7 +18,7 @@ fn frame(t: f32, x: f32) -> Keyframe {
 fn app(path: CameraPath) -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<Time>()
-        .init_resource::<crate::local_player::LocalViewPose>()
+        .init_resource::<client_presentation::local_player::LocalViewPose>()
         .init_resource::<ServerCameraView>()
         .init_resource::<CameraSettingsAuthority>()
         .add_systems(
@@ -71,7 +71,9 @@ fn scripted_camera_step_resets_motion_blur_on_the_rendered_cut_frame() {
         app.world().get::<Transform>(camera).unwrap().translation.x,
         0.0
     );
-    let player = *app.world().resource::<crate::local_player::LocalViewPose>();
+    let player = *app
+        .world()
+        .resource::<client_presentation::local_player::LocalViewPose>();
     advance(&mut app, 0.5);
     let cut = blur(&app, camera);
     assert_eq!(
@@ -83,7 +85,8 @@ fn scripted_camera_step_resets_motion_blur_on_the_rendered_cut_frame() {
     let mut expected_player = player;
     expected_player.reanchor_camera();
     assert_eq!(
-        *app.world().resource::<crate::local_player::LocalViewPose>(),
+        *app.world()
+            .resource::<client_presentation::local_player::LocalViewPose>(),
         expected_player
     );
     advance(&mut app, 0.125);
@@ -127,7 +130,9 @@ fn scripted_fov_survives_gameplay_updates_and_release_restores_the_player_fov() 
     use bevy::window::{CursorOptions, PrimaryWindow, WindowResolution};
     let mut app = App::new();
     crate::app::configure_client_frame_schedule(&mut app);
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(crate::camera::FlyCameraPlugin::default());
     configure(&mut app);

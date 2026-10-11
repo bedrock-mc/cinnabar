@@ -197,8 +197,10 @@ fn default8_keeps_leading_padding_in_advance_and_falls_through_bad_images() {
     assert!(
         glyph
             .rgba8
-            .chunks_exact(4)
-            .all(|pixel| pixel == [240, 120, 60, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [240, 120, 60, 255])
     );
 }
 

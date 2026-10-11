@@ -133,9 +133,11 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
     assert!(
         scene.atlas[0]
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] != 0)
-            .all(|pixel| pixel == [255; 4])
+            .all(|pixel| *pixel == [255; 4])
     );
     for batch in input.batches.iter() {
         let logical = batch.texture_page as usize;
@@ -171,6 +173,7 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
             + small_page_bytes
             + dynamic_bytes
             + render_model::MAX_UI_ART_PAGES * page_bytes(render_model::UI_ART_PAGE_SIDE)
+            + render_model::MAX_UI_NATIVE_SHEET_PAGES * small_page_bytes
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
@@ -578,7 +581,9 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     assert_eq!(restored.atlas[0].rgba8, before.atlas[0].rgba8);
     assert_eq!(
         presentation.textures.pages().len(),
-        dynamic_start + render_model::MAX_UI_DYNAMIC_PAGES + render_model::MAX_UI_ART_PAGES
+        dynamic_start
+            + render_model::UI_NATIVE_SHEET_PAGE_OFFSET
+            + render_model::MAX_UI_NATIVE_SHEET_PAGES
     );
 }
 

@@ -9,7 +9,7 @@ use bevy::{
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 
-use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
+use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Read before menu input clears its keyboard state. OS key repeats must not
 /// flip fullscreen again while F11 is held, including on a visible menu.
@@ -31,7 +31,7 @@ pub(crate) fn toggle_fullscreen_hotkey(
         .read()
         .filter(|input| {
             input.window == entity
-                && crate::menu::settings_options::binding_key(
+                && crate::menu::settings_options::control_bindings::binding_key(
                     Some(&menu),
                     "key.fullscreen",
                     input.key_code,

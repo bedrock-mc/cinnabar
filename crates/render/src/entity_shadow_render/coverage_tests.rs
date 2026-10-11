@@ -89,36 +89,34 @@ fn overlapping_shadows_multiply_each_covered_sample_once() {
                     primitive: default(),
                     depth_stencil: descriptor.depth_stencil,
                     multisample: descriptor.multisample,
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 });
-        let mut context = RenderContext::new(device.clone(), None);
+        let mut encoder = device.create_command_encoder(&Default::default());
         {
-            let mut pass =
-                context
-                    .command_encoder()
-                    .begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("overlapping shadow fixture"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &scene_view,
-                            depth_slice: None,
-                            resolve_target: (samples > 1).then_some(&*resolved_view),
-                            ops: Operations {
-                                load: LoadOp::Clear(wgpu::Color::WHITE),
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                            view: &stencil_view,
-                            depth_ops: None,
-                            stencil_ops: Some(Operations {
-                                load: LoadOp::Clear(0),
-                                store: StoreOp::Discard,
-                            }),
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("overlapping shadow fixture"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &scene_view,
+                    depth_slice: None,
+                    resolve_target: (samples > 1).then_some(&*resolved_view),
+                    ops: Operations {
+                        load: LoadOp::Clear(wgpu::Color::WHITE),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                    view: &stencil_view,
+                    depth_ops: None,
+                    stencil_ops: Some(Operations {
+                        load: LoadOp::Clear(0),
+                        store: StoreOp::Discard,
+                    }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
             pass.set_pipeline(&pipeline);
             pass.set_stencil_reference(1);
             pass.draw(0..3, 0..2);
@@ -126,7 +124,7 @@ fn overlapping_shadows_multiply_each_covered_sample_once() {
         let actual = pixel(
             &device,
             &queue,
-            context,
+            vec![encoder.finish()],
             if samples > 1 { &resolved } else { &scene },
         );
         let expected = if samples == 1 {

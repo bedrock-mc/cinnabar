@@ -116,6 +116,7 @@ fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
             }
         };
         presentation.set_server_ui_pack(&pack);
+        presentation.hud_frame_mut().first_person = true;
         // A survival player in a session shows the HUD.
         let mut player = player_state::PlayerState::new(1);
         player

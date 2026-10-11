@@ -1,12 +1,12 @@
 //! Real-pack HUD placement and settings, including the built-in Java overlay.
 use super::engine_hud_tests::engine_presentation;
-use crate::{
-    menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions},
-    ui_runtime::UiRuntime,
-};
 use json_ui::{Draw, RectOut};
 use protocol::PlayerGameMode;
 use std::sync::Arc;
+use {
+    crate::ui_runtime::UiRuntime,
+    launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions},
+};
 
 #[test]
 fn paper_doll_uses_the_pack_control_and_visibility_binding() {

@@ -2,13 +2,12 @@ package launcher
 
 import (
 	"context"
-	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 )
 
-// Profile returns the signed-in profile with its gamerpic cached.
+// Profile returns the signed-in profile with its rendered persona avatar.
 func (s *Service) Profile(ctx context.Context) (result catalog.Profile, resultErr error) {
 	ctx = catalog.WithProfileObserver(ctx, s.logProfileRequest)
 	finishProfile := catalog.ObserveProfileRequest(ctx, "profile")
@@ -70,25 +69,8 @@ func (s *Service) Profile(ctx context.Context) (result catalog.Profile, resultEr
 	} else {
 		s.logProfileRequest(catalog.ProfileRequestEvent{Facet: "featured_screenshot", Outcome: "skipped", Reason: "no_xuid"})
 	}
-	images := []*catalog.Image{&profile.Gamerpic, &profile.FeaturedScreenshot}
-	if profile.Achievements != nil {
-		for _, entry := range catalog.ProfileOverviewAchievements(profile.Achievements.Entries) {
-			images = append(images, &entry.Image)
-		}
-	}
-	started := time.Now()
-	s.logProfileRequest(catalog.ProfileRequestEvent{Facet: "artwork", Outcome: "request"})
-	s.cacheArt(ctx, images)
-	art := profileArtworkOutcome(images, ctx.Err(), s.cfg.ArtworkDir != "")
-	art.Elapsed = time.Since(started)
-	s.logProfileRequest(art)
-	partialOutcome = partialOutcome || (art.Outcome != "skipped" && art.Outcome != "ok")
 	s.mu.Lock()
-	s.gamerpic = profile.Gamerpic.Path
-	s.profileArt = []string{profile.Avatar.Path}
-	for _, image := range images {
-		s.profileArt = append(s.profileArt, image.Path)
-	}
+	s.profileArt = profile.Avatar.Path
 	s.mu.Unlock()
 	return profile, nil
 }

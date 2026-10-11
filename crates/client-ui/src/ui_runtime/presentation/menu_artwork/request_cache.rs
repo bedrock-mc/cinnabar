@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use launcher::dressing_room::{DressingRoomCape, DressingRoomSection, DressingRoomSkin};
 
-use crate::menu::{MenuScreen, MenuView};
+use launcher::menu::{MenuScreen, MenuView};
 
 pub(super) struct GalleryRequest {
     skins: Arc<[DressingRoomSkin]>,
@@ -12,7 +12,7 @@ pub(super) struct GalleryRequest {
     selected_cape: Option<usize>,
     skin_indices: Vec<usize>,
     cape_indices: Vec<usize>,
-    cape: Option<protocol::CapeImage>,
+    cape: Option<render_api::CapeImage>,
 }
 
 impl GalleryRequest {

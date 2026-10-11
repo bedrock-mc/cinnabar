@@ -2,22 +2,21 @@
 use std::num::NonZeroU16;
 
 use super::{
-    ANIMATIONS_OPTION, FRAME_RATE_AUTOMATIC, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, SMAA_OPTION, SettingsOptions,
+    ANIMATIONS_OPTION, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
+    SMAA_OPTION, SettingsOptions,
 };
 use render_api::FrameRateLimit;
 use semantic_input::PerspectiveMode;
 
-/// The limit a stored `max_framerate` slider value selects.
+/// The selected FPS cap, or Unlimited for a value outside the fixed-cap range.
 #[must_use]
 pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
     match value {
-        FRAME_RATE_AUTOMATIC => FrameRateLimit::Automatic,
         FRAME_RATE_UNLIMITED.. => FrameRateLimit::Unlimited,
         fixed => u16::try_from(fixed)
             .ok()
             .and_then(NonZeroU16::new)
-            .map_or(FrameRateLimit::Automatic, FrameRateLimit::Fixed),
+            .map_or(FrameRateLimit::Unlimited, FrameRateLimit::Fixed),
     }
 }
 
@@ -47,6 +46,8 @@ impl SettingsOptions {
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;
+        settings.video.native_skybox_offset =
+            self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name) != 0;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =

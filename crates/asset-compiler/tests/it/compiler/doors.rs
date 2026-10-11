@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, CompiledAssets,
+        DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK,
+        MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelStateField,
+        RegistryRecord, VisualKind, encode_blob, read_registry,
+    },
+    std::{collections::HashSet, path::Path},
+};
 
 fn write_door_trapdoor_pack(root: &Path) {
     write_pack(

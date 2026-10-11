@@ -41,7 +41,9 @@ impl ChunkTextureAssets {
     }
 }
 
-impl bevy::render::extract_resource::ExtractResource for ChunkTextureAssets {
+impl bevy::render::extract_resource::ExtractResource<bevy::render::RenderApp>
+    for ChunkTextureAssets
+{
     type Source = Self;
 
     fn extract_resource(source: &Self::Source) -> Self {
@@ -74,7 +76,7 @@ pub fn texture_asset_needs_rebuild(
     current != Some(next)
 }
 
-pub(in crate::chunk) const ANIMATION_TICKS_PER_SECOND: f64 = 20.0;
+pub(in crate::chunk) const ANIMATION_TICKS_PER_SECOND: f64 = world::TICKS_PER_SECOND as f64;
 pub(in crate::chunk) const ANIMATION_TICK_MODULUS: f64 = u32::MAX as f64 + 1.0;
 
 /// Global Bedrock flipbook clock. Only this 16-byte value changes per frame;
@@ -90,7 +92,7 @@ pub struct ChunkAnimationClock {
     pub(in crate::chunk) _padding_1: u32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<ChunkAnimationClock>() == 16);
+const _: () = assert!(std::mem::size_of::<ChunkAnimationClock>() == 16);
 
 impl Default for ChunkAnimationClock {
     fn default() -> Self {
@@ -139,7 +141,9 @@ impl ChunkAnimationClock {
     }
 }
 
-impl bevy::render::extract_resource::ExtractResource for ChunkAnimationClock {
+impl bevy::render::extract_resource::ExtractResource<bevy::render::RenderApp>
+    for ChunkAnimationClock
+{
     type Source = Self;
 
     fn extract_resource(source: &Self::Source) -> Self {
@@ -368,7 +372,7 @@ pub fn plan_texture_mip_uploads(
 pub fn greedy_texture_uv(face: Face, corner: u32, width: u32, height: u32, flags: u32) -> [f32; 2] {
     let width = width as f32;
     let height = height as f32;
-    // Match the native face axes in chunk.wgsl before applying pack transforms.
+    // Match the native face axes in chunk.wesl before applying pack transforms.
     let horizontal_standard = [[0.0, height], [width, height], [width, 0.0], [0.0, 0.0]];
     let horizontal_transposed = [[0.0, 0.0], [0.0, height], [width, height], [width, 0.0]];
     let vertical_standard = [[0.0, height], [width, height], [width, 0.0], [0.0, 0.0]];

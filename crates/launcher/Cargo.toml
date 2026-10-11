@@ -5,16 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+test-support = []
+
 [dependencies]
+bridge = { path = "../bridge" }
 assets = { path = "../assets" }
-protocol = { path = "../protocol" }
 render-api = { path = "../render-api" }
 resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
-server-experience = { path = "../server-experience" }
 ui = { path = "../ui" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
+
+[lints]
+workspace = true

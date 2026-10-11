@@ -618,47 +618,63 @@ fn auto_jump_defaults_off_for_every_input_mode() {
     }
 }
 
+/// Returns the frame-rate limit applied by the loaded settings.
 fn limit(settings: &SettingsOptions) -> render_api::FrameRateLimit {
     settings.user_settings().video.frame_rate_limit
 }
 
-/// Saved files without a schema predate Automatic: no stored limit and 0 both meant Unlimited.
+/// Missing and unsupported FPS values use the default without becoming a one-FPS cap.
 #[test]
-fn legacy_frame_rate_limits_keep_their_meaning_and_new_installs_start_automatic() {
-    use render_api::FrameRateLimit::{Automatic, Fixed, Unlimited};
+fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
+    use render_api::FrameRateLimit::Unlimited;
 
-    assert_eq!(limit(&SettingsOptions::default()), Automatic);
-    assert_eq!(
-        limit(&SettingsOptions::decode(br#"{"values":{}}"#).unwrap()),
-        Unlimited
-    );
-    assert_eq!(
-        limit(&SettingsOptions::decode(br#"{"values":{"max_framerate":0}}"#).unwrap()),
-        Unlimited
-    );
-    let legacy_cap = SettingsOptions::decode(br#"{"values":{"max_framerate":90}}"#).unwrap();
-    assert_eq!(limit(&legacy_cap), Fixed(90.try_into().unwrap()));
-
-    for settings in [SettingsOptions::default(), legacy_cap] {
-        let saved = serde_json::to_vec(&settings).unwrap();
-        let reloaded = SettingsOptions::decode(&saved).unwrap();
-        assert_eq!(limit(&reloaded), limit(&settings), "migration runs once");
+    assert_eq!(limit(&SettingsOptions::default()), Unlimited);
+    for schema in [None, Some(SETTINGS_SCHEMA)] {
+        for value in [None, Some(0), Some(-1), Some(i32::MIN), Some(i32::MAX)] {
+            let mut saved = serde_json::json!({ "values": {} });
+            if let Some(schema) = schema {
+                saved["schema"] = schema.into();
+            }
+            if let Some(value) = value {
+                saved["values"]["max_framerate"] = value.into();
+            }
+            let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+            assert_eq!(limit(&settings), Unlimited, "{saved}");
+            assert_eq!(
+                settings.value("max_framerate"),
+                FRAME_RATE_UNLIMITED,
+                "{saved}"
+            );
+            let reloaded =
+                SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(limit(&reloaded), Unlimited, "{saved}");
+        }
     }
 }
 
+/// Every slider stop applies the selected limit and survives a settings round trip.
 #[test]
-fn frame_rate_slider_stops_cover_automatic_every_cap_and_unlimited() {
-    use render_api::FrameRateLimit::{Automatic, Fixed, Unlimited};
+fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {
+    use render_api::FrameRateLimit::{Fixed, Unlimited};
 
-    let option = &SETTINGS_OPTIONS[index("max_framerate")];
-    assert_eq!(frame_rate_limit(option.min), Automatic);
-    assert_eq!(frame_rate_limit(option.default), Automatic);
+    let index = index("max_framerate");
+    let option = &SETTINGS_OPTIONS[index];
+    assert_eq!(option.min, MIN_FIXED_FRAME_RATE);
+    assert_eq!(frame_rate_limit(option.default), Unlimited);
     assert_eq!(frame_rate_limit(option.max), Unlimited);
-    for fps in 1..=MAX_FIXED_FRAME_RATE {
-        assert_eq!(
-            frame_rate_limit(fps),
+    for fps in MIN_FIXED_FRAME_RATE..=FRAME_RATE_UNLIMITED {
+        let expected = if fps <= MAX_FIXED_FRAME_RATE {
             Fixed(u16::try_from(fps).unwrap().try_into().unwrap())
-        );
+        } else {
+            Unlimited
+        };
+        let mut settings = SettingsOptions::default();
+        settings.set(index, fps);
+        assert_eq!(limit(&settings), expected);
+        let reloaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(limit(&reloaded), expected);
+        settings.reset_group(SettingsGroup::Video);
+        assert_eq!(limit(&settings), Unlimited);
     }
 }
 
@@ -702,5 +718,38 @@ fn vrr_preference_persists_and_old_settings_remain_automatic() {
         assert_eq!(loaded.user_settings().video.vrr, preference);
         loaded.reset_group(super::SettingsGroup::Video);
         assert_eq!(loaded.user_settings().video.vrr, VrrPreference::Automatic);
+    }
+}
+/// Fresh installs preserve native sky placement, and opting out survives reloads.
+#[test]
+fn native_skybox_offset_defaults_on_and_persists_both_states() {
+    let mut settings = super::SettingsOptions::default();
+    assert_eq!(settings.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name), 1);
+    assert!(settings.user_settings().video.native_skybox_offset);
+    assert!(
+        super::SettingsOptions::decode(b"{}")
+            .unwrap()
+            .user_settings()
+            .video
+            .native_skybox_offset
+    );
+    for enabled in [0, 1] {
+        let index = super::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == super::NATIVE_SKYBOX_OFFSET_OPTION.name)
+            .unwrap();
+        settings.set(index, enabled);
+        let encoded = serde_json::to_vec(&settings).unwrap();
+        let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
+        assert_eq!(
+            loaded.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name),
+            enabled
+        );
+        assert_eq!(
+            loaded.user_settings().video.native_skybox_offset,
+            enabled != 0
+        );
+        loaded.reset_group(super::SettingsGroup::Video);
+        assert!(loaded.user_settings().video.native_skybox_offset);
     }
 }

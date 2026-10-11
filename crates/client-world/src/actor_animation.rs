@@ -12,7 +12,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 use crate::actor_store::ActorSnapshot;
 
 /// Simulation tick duration used by actor clocks and Molang time queries.
-pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
+use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
@@ -271,6 +271,7 @@ struct ActorRigState {
     complete_spear_variables: bool,
     samples_render_frames: bool,
     samples_camera_poses: bool,
+    presentation_expressions: evaluation::PresentationReads,
     samples_swing_poses: bool,
     /// Actor kind admits swelling independently of its initially bound clips.
     creeper: bool,

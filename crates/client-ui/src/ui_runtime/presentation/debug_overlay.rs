@@ -16,7 +16,10 @@ pub(super) mod visible;
 use paint::PaintedOverlay;
 
 use super::bounded_visible_text;
-use super::{FONT_DESIGN_PIXEL_TEXELS, TEXT_LINE_HEIGHT_64, UiPresentationRuntime};
+use {
+    super::UiPresentationRuntime,
+    ui::{FONT_DESIGN_PIXEL_TEXELS, TEXT_LINE_HEIGHT_64},
+};
 
 const STRIP_COLOR: [u8; 4] = [80, 80, 80, 144];
 const INSET: f64 = 2.0;

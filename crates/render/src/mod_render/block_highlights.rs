@@ -1,7 +1,6 @@
 //! Filled world-space unit blocks; no edge strips or outlines.
 use mod_render::geometry::{KIND_GROUND, ModVertex, STYLE_BILLBOARD};
 
-pub use mod_api::MAX_BLOCK_HIGHLIGHTS;
 pub(super) const VERTICES_PER_BLOCK: usize = 36;
 
 pub(super) fn build(positions: &[[i32; 3]], color: [f32; 4]) -> Vec<ModVertex> {
@@ -36,6 +35,7 @@ pub(super) fn build(positions: &[[i32; 3]], color: [f32; 4]) -> Vec<ModVertex> {
 mod tests {
     use super::*;
     use crate::ModRenderScene;
+    use mod_api::MAX_BLOCK_HIGHLIGHTS;
     use std::sync::Arc;
 
     const PINK: [f32; 4] = [1.0, 0.08, 0.45, 1.0];
@@ -45,7 +45,7 @@ mod tests {
         let position = [-17, 23, 91];
         let vertices = build(&[position], PINK);
         assert_eq!(vertices.len(), VERTICES_PER_BLOCK);
-        for face in vertices.chunks_exact(6) {
+        for face in vertices.as_chunks::<6>().0 {
             let points: Vec<_> = face
                 .iter()
                 .map(|v| Vec3::from_array(v.anchor[..3].try_into().unwrap()))

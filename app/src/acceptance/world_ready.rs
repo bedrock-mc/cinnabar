@@ -1,26 +1,20 @@
 //! Observations gathered from app resources for the acceptance plugin.
-use crate::{
-    acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
-    camera,
-    runtime::{
-        network::NetworkHandle,
-        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-        world::{ClientWorld, WorldStreamFramePoll},
-    },
-};
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use ::acceptance::world_observation::{WorldReadyCommands, WorldReadyObservation};
 use ::acceptance::world_ready::observe_world_ready;
-#[cfg(test)]
-pub(crate) use ::acceptance::world_ready::{
-    GalleryAnchorEmitter, WORLD_READY_QUIET_INTERVAL, WorldReadySettler, WorldReadySnapshot,
-    mutation_look_target, orient_acceptance_camera, orient_mutation_camera,
-};
-pub(crate) use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
+use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use bevy::prelude::*;
 use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
 use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;
+use {
+    crate::runtime::network::NetworkHandle,
+    crate::runtime::visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+    crate::runtime::world::{ClientWorld, WorldStreamFramePoll},
+    acceptance::model_witness::ModelWitnessFileSource,
+};
 
 /// Translates explicit evidence commands into the existing world API.
 struct Commands<'a>(&'a mut WorldStream);
@@ -59,9 +53,9 @@ pub(crate) fn emit_world_ready(
     acknowledgements: Res<ChunkUploadAcknowledgements>,
     presented_frames: Res<PresentedFrameGate>,
     mut acceptance: ResMut<AcceptanceRun>,
-    mut auto_fly: ResMut<camera::AutoFly>,
+    mut auto_fly: ResMut<client_presentation::camera::AutoFly>,
     mut metrics: ResMut<AppMetrics>,
-    mut cameras: Query<&mut Transform, With<camera::FlyCamera>>,
+    mut cameras: Query<&mut Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let missing_mapping_count = client_world.missing_asset_count();
     let Some(stream) = client_world.stream.as_mut() else {

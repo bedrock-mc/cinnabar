@@ -1,18 +1,20 @@
 pub mod args;
 pub mod asset_startup;
 mod audio;
+mod audio_observations;
 mod block_entities;
 mod block_selection;
 mod block_use;
 pub mod camera;
-mod desktop;
+
 #[cfg(feature = "developer-control")]
 mod developer_control;
 mod discord_presence;
 #[cfg(feature = "enhanced-diagnostics")]
 mod enhanced_diagnostics;
 mod environment;
-mod first_run;
+#[cfg(test)]
+mod first_run_tests;
 mod frame_pacing;
 mod fullscreen;
 mod global_resources;
@@ -31,10 +33,9 @@ mod mining;
 mod modding;
 pub mod movement;
 mod named_audio;
-mod native_dialog;
+
 mod particles;
 mod pick_block;
-pub mod player_runtime;
 mod player_skin;
 mod present_mode;
 mod primitive_shapes;
@@ -44,7 +45,8 @@ pub mod semantic_controls;
 mod server_experiences;
 mod session;
 pub mod session_audio;
-mod session_cleanup;
+#[cfg(test)]
+mod session_cleanup_tests;
 pub mod settings_runtime;
 #[allow(
     dead_code,

@@ -1,12 +1,47 @@
 use super::*;
+use protocol::block_state_network_hash;
+
+#[test]
+fn totem_activation_publishes_only_the_local_player_event() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, runtime_id) in [(1, 2), (2, 1)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Status(protocol::ActorStatusEvent {
+                    runtime_id,
+                    kind: protocol::ActorStatusKind::TotemActivate,
+                    data: 0,
+                })),
+                Some(sequence),
+            )
+            .unwrap();
+        let events = authority.take_committed_ui();
+        assert_eq!(events.len(), usize::from(runtime_id == 1));
+    }
+}
 
 /// Supplies a local pose without server-authored health attributes.
 fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [0; 16],
         username: "Player".into(),
-        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
             geometry: None,
             cape: None,
             width: 64,
@@ -450,6 +485,17 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
         });
         authority.set_sequential_id_remap(assets::SequentialIdRemap::new([(0, 1, 4)]));
         authority.set_custom_block_identities(&definitions);
+        for (block, first) in definitions.blocks.iter().zip([1, 2]) {
+            let expected: Vec<_> = match mode {
+                NetworkIdMode::Sequential => (first..first + block.state_count).collect(),
+                NetworkIdMode::Hashed => block
+                    .hashed_states()
+                    .iter()
+                    .map(|state| state.hash)
+                    .collect(),
+            };
+            assert_eq!(authority.block_ids_for_name(&block.name), expected);
+        }
         let ids = authority.decode_ids(0);
         assert_eq!(ids.assets.visual_count(), 1);
         assert!(!ids.assets.is_diagnostic());
@@ -639,5 +685,107 @@ fn custom_identity_registry_stops_at_admitted_range_and_offset_overflow() {
     assert_eq!(
         exhausted.resolve_persistent(&plain_identity_entry("example:after_overflow")),
         exhausted.air(),
+    );
+}
+
+#[test]
+fn session_block_names_follow_replacement_and_range_reset_in_both_modes() {
+    use protocol::{CustomBlock, CustomBlocks, CustomSelection};
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut authority = custom_identity_authority(mode);
+        let custom = CustomBlocks {
+            blocks: Arc::from([CustomBlock {
+                name: "example:highlighted".into(),
+                state_count: 1,
+                collides: true,
+                collision_boxes: None,
+                selection: CustomSelection::Default,
+                state_physics: Default::default(),
+                tags: Default::default(),
+                visual: Arc::default(),
+            }]),
+            ..Default::default()
+        };
+        authority.set_custom_block_ids(1..2);
+        authority.set_custom_block_identities(&custom);
+        let original = authority.block_name_revision();
+        assert_eq!(authority.block_ids_for_name("example:highlighted").len(), 1);
+        test_time::eventually("pinned stone block names", || {
+            !authority.block_ids_for_name("minecraft:stone").is_empty()
+        });
+        assert!(authority.block_ids_for_name("example:missing").is_empty());
+        authority.set_custom_block_identities(&CustomBlocks::default());
+        assert!(
+            authority
+                .block_ids_for_name("example:highlighted")
+                .is_empty()
+        );
+        assert_ne!(authority.block_name_revision(), original);
+        authority.set_custom_block_identities(&custom);
+        authority.set_custom_block_ids(10..11);
+        assert!(
+            authority
+                .block_ids_for_name("example:highlighted")
+                .is_empty()
+        );
+        authority.set_custom_block_identities(&custom);
+        if mode == NetworkIdMode::Sequential {
+            assert_eq!(authority.block_ids_for_name("example:highlighted"), [10]);
+        }
+    }
+}
+
+#[test]
+fn sequential_block_names_include_admitted_states_with_unnamed_properties() {
+    use world::BlockIds;
+    // A network-NBT root with one unnamed enum property and two string values.
+    let definition =
+        b"\x0a\x00\x09\x0aproperties\x0a\x02\x09\x04enum\x08\x04\x03one\x03two\x00\x00";
+    let definitions =
+        CustomBlocks::from_definitions([("example:incomplete", definition.as_slice())]);
+    assert_eq!(definitions.blocks.len(), 1);
+    assert_eq!(definitions.blocks[0].state_count, 2);
+    assert!(definitions.blocks[0].hashed_states().is_empty());
+    let mut authority = custom_identity_authority(NetworkIdMode::Sequential);
+    authority.set_custom_block_ids(100_000..100_002);
+    authority.set_custom_block_identities(&definitions);
+    let decoded = authority.decode_ids(0);
+    assert_eq!(decoded.resolve(100_000), 100_000);
+    assert_eq!(decoded.resolve(100_001), 100_001);
+    assert_eq!(
+        authority.block_ids_for_name("example:incomplete"),
+        [100_000, 100_001]
+    );
+    authority.set_custom_block_ids(100_000..100_001);
+    authority.set_custom_block_identities(&definitions);
+    assert!(
+        authority
+            .block_ids_for_name("example:incomplete")
+            .is_empty()
+    );
+}
+
+#[test]
+fn sequential_block_names_accumulate_repeated_definitions() {
+    use world::BlockIds;
+    let definition = b"\x0a\x00\x00";
+    let definitions = CustomBlocks::from_definitions([
+        ("example:repeated", definition.as_slice()),
+        ("example:repeated", definition.as_slice()),
+    ]);
+    assert_eq!(definitions.blocks.len(), 2);
+    let mut authority = custom_identity_authority(NetworkIdMode::Sequential);
+    authority.set_custom_block_ids(100_000..100_002);
+    authority.set_custom_block_identities(&definitions);
+    let decoded = authority.decode_ids(0);
+    assert_eq!(decoded.resolve(100_000), 100_000);
+    assert_eq!(decoded.resolve(100_001), 100_001);
+    assert_eq!(
+        decoded.resolve_persistent(&plain_identity_entry("example:repeated")),
+        100_000
+    );
+    assert_eq!(
+        authority.block_ids_for_name("example:repeated"),
+        [100_000, 100_001]
     );
 }

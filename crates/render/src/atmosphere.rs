@@ -76,9 +76,11 @@ const BOSS_DARKEN_ZENITH_TARGET: [f32; 3] = [0.12, 0.14, 0.16];
 const BOSS_DARKEN_HORIZON_TARGET: [f32; 3] = [0.22, 0.24, 0.26];
 
 #[derive(Resource, ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct AtmosphereTextureAssets {
     runtime: Option<Arc<RuntimeAtmosphereAssets>>,
     identity: [u8; 32],
+    skyboxes: Option<Arc<[assets::PackSkybox; assets::SkyboxDimension::ALL.len()]>>,
 }
 
 impl AtmosphereTextureAssets {
@@ -87,6 +89,7 @@ impl AtmosphereTextureAssets {
         Self {
             runtime: Some(runtime),
             identity,
+            skyboxes: None,
         }
     }
 
@@ -98,6 +101,25 @@ impl AtmosphereTextureAssets {
     #[must_use]
     pub fn runtime(&self) -> Option<&Arc<RuntimeAtmosphereAssets>> {
         self.runtime.as_ref()
+    }
+
+    /// Attaches optional pack faces without modifying the startup carrier.
+    #[must_use]
+    pub fn with_skyboxes(
+        mut self,
+        skyboxes: [assets::PackSkybox; assets::SkyboxDimension::ALL.len()],
+        identity: [u8; 32],
+    ) -> Self {
+        self.skyboxes = Some(Arc::new(skyboxes));
+        self.identity = identity;
+        self
+    }
+
+    /// Selects only the active dimension's pack textures.
+    pub fn skybox(&self, dimension: assets::SkyboxDimension) -> Option<&assets::PackSkybox> {
+        self.skyboxes
+            .as_ref()
+            .map(|skyboxes| &skyboxes[dimension as usize])
     }
 }
 
@@ -212,6 +234,7 @@ pub fn cloud_distance_fade(distance: f32, fade_distance: f32) -> f32 {
     bytemuck::Zeroable,
     ShaderType,
 )]
+#[extract_app(bevy::render::RenderApp)]
 pub struct AtmosphereFrame {
     sun_direction_daylight: Vec4,
     moon_direction_phase: Vec4,

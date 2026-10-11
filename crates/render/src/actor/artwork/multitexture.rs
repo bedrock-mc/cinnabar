@@ -100,7 +100,7 @@ mod tests {
         let mut pixels = Vec::new();
         append_nearest(&mut pixels, &texture, 4, 2);
         assert_eq!(pixels.len(), 4 * 2 * 4);
-        for (index, pixel) in pixels.chunks_exact(4).enumerate() {
+        for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let source = (index % 4) / 2;
             assert_eq!(pixel, &texture.rgba8[source * 4..source * 4 + 4]);
         }

@@ -84,7 +84,7 @@ fn main() -> Result<()> {
 fn options<'a, const N: usize>(args: &[&'a str], names: [&str; N]) -> Result<[&'a str; N]> {
     ensure!(args.len() == 2 * N, USAGE);
     let mut values = [None; N];
-    for pair in args.chunks_exact(2) {
+    for pair in args.as_chunks::<2>().0 {
         let index = names
             .iter()
             .position(|name| *name == pair[0])

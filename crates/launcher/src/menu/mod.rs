@@ -21,10 +21,11 @@ pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use view::{
-    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, FRIEND_ADDRESS_PREFIX,
-    InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret,
-    MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard,
-    MenuView, PingInfo, SavedServer, ServerDetails, ServerTrustPrompt, pingable,
+    ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
+    FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
+    LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
+    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
+    ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -235,3 +236,8 @@ pub fn split_address(address: &str) -> (String, String) {
 
 #[cfg(test)]
 mod address_tests;
+
+/// Maximum saved server name size in UTF-8 bytes.
+pub const MAX_SERVER_NAME_BYTES: usize = 64;
+/// Maximum saved server address size in UTF-8 bytes.
+pub const MAX_SERVER_ADDRESS_BYTES: usize = 128;

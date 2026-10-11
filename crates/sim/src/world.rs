@@ -889,10 +889,6 @@ fn block_floor(value: Vec3) -> Result<[i32; 3], WorldQueryError> {
     convert_block_coords(value, f64::floor)
 }
 
-fn block_ceil(value: Vec3) -> Result<[i32; 3], WorldQueryError> {
-    convert_block_coords(value, f64::ceil)
-}
-
 fn convert_block_coords(
     value: Vec3,
     round: impl Fn(f64) -> f64,

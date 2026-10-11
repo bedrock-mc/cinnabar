@@ -1,4 +1,4 @@
-use crate::player_runtime::PlayerRuntime;
+use client_state::PlayerRuntime;
 use std::sync::Arc;
 
 use bevy::{
@@ -21,33 +21,37 @@ use protocol::{
 use semantic_input::Action;
 use ui::UiPoint;
 
-use crate::{
-    app::{ClientFrameSet, configure_client_frame_schedule},
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
-        route_semantic_input, synchronize_semantic_input_authority,
+use {
+    crate::{
+        app::configure_client_frame_schedule,
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
+        },
+        ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
     },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
-    },
+    client_state::RuntimeSettings,
+    client_state::{ClientFrameSet, SemanticInputSnapshot},
+    client_ui::test_support::fixture_font,
 };
-use client_ui::ui_runtime::{
-    UiRuntime,
-    inventory_ledger::{
+use {
+    client_ui::ui_runtime::{
+        UiRuntime,
+        presentation::{UiPresentationRuntime, inventory_pointer::InventoryCellHit},
+    },
+    inventory::inventory_ledger::{
         GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState,
         SMALL_STORAGE_SLOT_COUNT,
     },
-    presentation::{UiPresentationRuntime, inventory_pointer::InventoryCellHit},
 };
 
 const PHYSICAL_SIZE: [u32; 2] = [1280, 720];
 
 #[test]
 fn primary_merges_an_occupied_compatible_stack_up_to_capacity() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = personal_runtime(
         &mut player_runtime,
@@ -95,7 +99,7 @@ fn primary_merges_an_occupied_compatible_stack_up_to_capacity() {
 
 #[test]
 fn secondary_places_one_into_occupied_compatible_stack_without_gameplay_use() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut runtime = personal_runtime(
         &mut player_runtime,
@@ -124,7 +128,7 @@ fn secondary_places_one_into_occupied_compatible_stack_without_gameplay_use() {
 
 #[test]
 fn secondary_player_take_uses_ceiling_half_for_odd_even_and_single_stacks() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for (count, cursor_count, source_count) in [(33, 17, 16), (32, 16, 16), (1, 1, 0)] {
         let runtime = personal_runtime(&mut player_runtime, Some(stack(count, 41)), None);
@@ -157,7 +161,7 @@ fn secondary_player_take_uses_ceiling_half_for_odd_even_and_single_stacks() {
 
 #[test]
 fn secondary_storage_take_uses_ceiling_half() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let runtime = storage_runtime(&mut player_runtime, Some((2, stack(9, 51))), None);
     let mut app = pointer_app(
@@ -182,7 +186,7 @@ fn secondary_storage_take_uses_ceiling_half() {
 
 #[test]
 fn secondary_places_one_into_empty_player_and_storage_cells() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for target in [InventoryCellHit::Player(1), InventoryCellHit::Storage(3)] {
         let runtime = match target {
@@ -217,7 +221,7 @@ fn secondary_places_one_into_empty_player_and_storage_cells() {
 
 #[test]
 fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut busy = pointer_app(
         personal_runtime(&mut player_runtime, Some(stack(9, 71)), None),
@@ -242,7 +246,7 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
     assert_eq!(busy_ledger.pending_request_count(), 1);
     assert_eq!(busy_ledger.cursor_stack().map(|stack| stack.count), Some(5));
 
-    player_runtime = PlayerRuntime::new(1);
+    player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut unknown = UiRuntime::new(1);
     unknown.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
     unknown
@@ -373,7 +377,7 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
 
 #[test]
 fn simultaneous_primary_and_secondary_preserves_primary_operation() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let runtime = personal_runtime(&mut player_runtime, Some(stack(9, 81)), None);
     let mut app = pointer_app(
@@ -399,7 +403,7 @@ fn simultaneous_primary_and_secondary_preserves_primary_operation() {
 
 #[test]
 fn secondary_is_consumed_before_gameplay_use() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let runtime = personal_runtime(&mut player_runtime, Some(stack(9, 91)), None);
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -433,7 +437,7 @@ fn secondary_is_consumed_before_gameplay_use() {
 
 #[test]
 fn inventory_open_and_close_transitions_suppress_secondary_edges() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for initially_open in [false, true] {
         let mut runtime = if initially_open {
@@ -506,7 +510,7 @@ fn inventory_open_and_close_transitions_suppress_secondary_edges() {
 
 #[test]
 fn menu_and_focus_loss_preempt_secondary_inventory_dispatch() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for (menu_visible, focused) in [(true, true), (false, false)] {
         let runtime = personal_runtime(&mut player_runtime, Some(stack(9, 111)), None);
@@ -653,6 +657,7 @@ fn semantic_app(
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
+                crate::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
             )
                 .chain()
@@ -678,7 +683,7 @@ fn personal_runtime(
     source: Option<NetworkItemStack>,
     cursor: Option<NetworkItemStack>,
 ) -> UiRuntime {
-    *player_runtime = PlayerRuntime::new(1);
+    *player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(player_runtime, InventoryAuthority::Server);
     runtime
@@ -713,7 +718,7 @@ fn storage_runtime(
     source: Option<(usize, NetworkItemStack)>,
     cursor: Option<NetworkItemStack>,
 ) -> UiRuntime {
-    *player_runtime = PlayerRuntime::new(1);
+    *player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(player_runtime, InventoryAuthority::Server);
     runtime
@@ -876,7 +881,7 @@ fn press_key(app: &mut App, key: KeyCode) {
 /// Shift-click quick-moves; a digit over a cell swaps with that hotbar cell.
 #[test]
 fn shift_click_and_number_keys_move_without_the_cursor() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     let mut shifted = pointer_app(
         personal_runtime(&mut player_runtime, Some(stack(9, 90)), None),
@@ -914,7 +919,7 @@ fn shift_click_and_number_keys_move_without_the_cursor() {
 /// click outside the panel drops the held stack.
 #[test]
 fn drop_keys_and_outside_clicks_drop_items() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
     for (control, remaining) in [(false, Some(8)), (true, None)] {
         let mut app = pointer_app(
@@ -957,9 +962,9 @@ fn drop_keys_and_outside_clicks_drop_items() {
 
 #[test]
 fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
-    use crate::menu::{
+    use launcher::menu::{
         MenuAction,
         settings_options::{EXTRA_KEYS, KEY_BINDINGS},
     };
@@ -976,7 +981,7 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
             true,
             &player_runtime,
         );
-        let mut layout = crate::install_layout::checkout();
+        let mut layout = launcher::test_support::checkout();
         layout.user_config_root =
             std::env::temp_dir().join(format!("review-drop-{}-{control}", std::process::id()));
         app.insert_resource(MenuRuntime::new_with_layout(

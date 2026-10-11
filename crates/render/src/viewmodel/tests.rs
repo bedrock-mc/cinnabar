@@ -415,7 +415,7 @@ fn arm_and_sleeve_share_one_parent_transform_and_distinct_uv_faces() {
             .transform_point3(bevy::math::Vec3::new(-3.25, 10.25, -2.25))
             .to_array()
     );
-    for face in mesh.vertices.chunks_exact(6) {
+    for face in mesh.vertices.as_chunks::<6>().0 {
         assert_eq!(face[0].position, face[3].position);
         assert_eq!(face[2].position, face[4].position);
         assert_eq!(face[0].uv, face[3].uv);
@@ -783,7 +783,7 @@ fn review_render_cube_uvs_span_complete_source_texels() {
         assets::RuntimeAssets::decode(&assets::encode_blob(&cube_carrier()).unwrap()).unwrap();
     let (geometry, skin) =
         ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
-    for face in geometry.vertices.chunks_exact(6) {
+    for face in geometry.vertices.as_chunks::<6>().0 {
         for axis in 0..2 {
             let low = face
                 .iter()

@@ -12,9 +12,9 @@ pub(crate) use vanilla::{set_vanilla_item_paths, vanilla_item_paths_installed};
 
 use resource_pack::LayeredPackView;
 
-use super::resource_packs::{DecodedTexture, decode_pack_texture};
-use crate::presentation::equipment::blocks::overlay_sheet;
 use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+use pack_runtime::pack_textures::{DecodedTexture, decode_pack_texture};
+use render_model::equipment::blocks::overlay_sheet;
 
 /// One icon per registry item, the most a session can name.
 const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -122,7 +122,7 @@ pub(super) struct BlockIcons {
 }
 
 #[cfg(test)]
-use client_session::custom_block_items;
+use pack_runtime::custom_block_items;
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
 /// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain
@@ -136,6 +136,9 @@ pub(super) fn custom_block_icons(
     let mut first_state = std::collections::HashMap::new();
     let mut offset = 0usize;
     for block in blocks.blocks.iter() {
+        if block.visual.materialization_disabled {
+            break;
+        }
         let count = if hashed {
             block.hashed_states().len()
         } else {

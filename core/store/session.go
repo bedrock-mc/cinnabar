@@ -8,7 +8,6 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
-	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
@@ -43,31 +42,14 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 // Session opens its Client on first use and serves every store call from it.
 type Session struct {
 	account func() (*authcache.Account, error)
-	images  *imagecache.Cache
 
 	mu     sync.Mutex
 	client *Client
 }
 
 // NewSession opens the current account on first use and checks it before every call.
-// An empty imageDir disables images.
-func NewSession(account func() (*authcache.Account, error), imageDir string) *Session {
-	s := &Session{account: account}
-	if imageDir != "" {
-		s.images = newImageCache(imageDir)
-	}
-	return s
-}
-
-// Image downloads an offer image into the bounded cache and returns its local path.
-func (s *Session) Image(ctx context.Context, rawURL string) (Image, error) {
-	if _, err := s.account(); err != nil {
-		return Image{}, err
-	}
-	if s.images == nil {
-		return Image{}, ErrImageRejected
-	}
-	return s.images.Fetch(ctx, rawURL)
+func NewSession(account func() (*authcache.Account, error)) *Session {
+	return &Session{account: account}
 }
 
 // get checks the account and opens its shared client once.

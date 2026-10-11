@@ -588,19 +588,11 @@ fn run_make_with_timeout(
     let stderr_pipe = child.stderr.take().unwrap();
     let stdout_rx = collect_detached(stdout_pipe);
     let stderr_rx = collect_detached(stderr_pipe);
-    let started = Instant::now();
-    let mut timed_out = false;
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if started.elapsed() > timeout {
-            timed_out = true;
-            let _ = child.kill();
-            break child.wait().unwrap();
-        }
-        thread::sleep(Duration::from_millis(25));
-    };
+    let timed_out = !test_time::wait_until(timeout, || child.try_wait().unwrap().is_some());
+    if timed_out {
+        let _ = child.kill();
+    }
+    let status = child.wait().unwrap();
     let drain_deadline = Instant::now() + OUTPUT_DRAIN_TIMEOUT;
     let (stdout, stdout_drained) = drain_until(&stdout_rx, drain_deadline);
     let (stderr, stderr_drained) = drain_until(&stderr_rx, drain_deadline);

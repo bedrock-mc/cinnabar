@@ -29,7 +29,7 @@ fn write_slab_render_pack(root: &Path, slab_name: &str, double_name: &str, cube_
         .enumerate()
     {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[40 + index as u8 * 60, 80, 120, 255]);
         }
         let mut png = Vec::new();

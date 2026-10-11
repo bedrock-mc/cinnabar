@@ -11,6 +11,7 @@ use bevy::{
     core_pipeline::CorePipelinePlugin,
     image::ImagePlugin,
     mesh::MeshPlugin,
+    prelude::{Camera, Camera3d, Image, MinimalPlugins, Transform, Vec3},
     window::WindowPlugin,
 };
 use meshing::{ChunkBiomeTintIdentity, ChunkMesh, PackedBiomeRecord};

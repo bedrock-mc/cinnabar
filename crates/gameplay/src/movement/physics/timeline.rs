@@ -107,8 +107,7 @@ impl LocalPhysicsController {
     pub(crate) fn retime_movement_speed(
         &mut self,
         tick: u64,
-        current: f64,
-        sprint_modifier: Option<f32>,
+        attribute: client_world::MovementSpeedAttribute,
     ) -> Option<(
         Option<u64>,
         crate::movement::speed_authority::EffectiveMovementSpeed,
@@ -118,9 +117,7 @@ impl LocalPhysicsController {
         };
         let sprinting = self.history.input_at(tick)?.sprinting;
         let mut speed = crate::movement::speed_authority::EffectiveMovementSpeed::authoritative(
-            current,
-            sprint_modifier,
-            sprinting,
+            attribute, sprinting,
         );
         let mut changed = false;
         for input in self.history.retained_inputs_after_mut(tick) {

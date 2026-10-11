@@ -513,7 +513,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let max = super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+    let max = super::MAX_VIEW_RADIUS_CHUNKS;
     let over_blocks = (max as u32 + 1) * 16;
     let target = super::ViewCohort {
         dimension: 0,
@@ -941,26 +941,23 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
             }),
         )
         .unwrap();
-    assert_eq!(
-        stream.chunk_radius,
-        Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
-    );
+    assert_eq!(stream.chunk_radius, Some(super::MAX_VIEW_RADIUS_CHUNKS));
     assert_eq!(
         stream.publisher.radius_chunks,
-        Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+        Some(super::MAX_VIEW_RADIUS_CHUNKS)
     );
     let stats = format!("{:?}", stream.stats());
     assert!(
         stats.contains(&format!(
             "received_radius_chunks: Some({})",
-            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+            super::MAX_VIEW_RADIUS_CHUNKS
         )),
         "{stats}"
     );
     assert!(
         stats.contains(&format!(
             "publisher_radius_chunks: Some({})",
-            super::PHASE0_MAX_VIEW_RADIUS_CHUNKS
+            super::MAX_VIEW_RADIUS_CHUNKS
         )),
         "{stats}"
     );
@@ -972,7 +969,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
                 dimension: 0,
                 // The confirmed player grid intentionally retains through
                 // radius + 2, independently of publisher control scope.
-                x: super::PHASE0_MAX_VIEW_RADIUS_CHUNKS + 3,
+                x: super::MAX_VIEW_RADIUS_CHUNKS + 3,
                 z: 0,
                 mode: LevelChunkMode::LimitlessRequests,
                 payload: biome_payload(0, 1),

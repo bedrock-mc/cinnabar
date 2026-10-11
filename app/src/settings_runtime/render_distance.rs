@@ -1,8 +1,8 @@
 //! Live view-radius requests; the server response updates residency and atmosphere distance.
 
-use super::RuntimeSettings;
 use crate::runtime::{network::NetworkHandle, world::ClientWorld};
 use bevy::prelude::{Local, Res};
+use client_state::RuntimeSettings;
 use client_ui::ui_runtime::UiRuntime;
 
 /// Sends the selected radius after joining and whenever it changes, retrying backpressure.
@@ -29,10 +29,8 @@ pub(crate) fn apply_render_distance(
     if *sent == Some(revision) {
         return;
     }
-    let packet = protocol::request_chunk_radius_packet(
-        radius,
-        chunk_pipeline::PHASE0_MAX_VIEW_RADIUS_CHUNKS as u8,
-    );
+    let packet =
+        protocol::request_chunk_radius_packet(radius, render_api::MAX_VIEW_RADIUS_CHUNKS as u8);
     if network.send_settings_packet(revision.0, packet).is_ok() {
         *sent = Some(revision);
     }

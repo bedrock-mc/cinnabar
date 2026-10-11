@@ -7,3 +7,6 @@ publish = false
 
 [dependencies]
 wit-bindgen.workspace = true
+
+[lints]
+workspace = true

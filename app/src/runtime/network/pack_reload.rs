@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) use client_session::PackInputs;
+use pack_runtime::PackInputs;
 
 struct Prepared {
     revision: u64,
@@ -174,8 +174,12 @@ impl PackReload {
             let result = ValidatedPackStack::compose(&globals, &server)
                 .map_err(|error| error.to_string())
                 .map(|stack| {
-                    let changes =
-                        super::pack_reload_diff::Changes::between(&stack, previous.as_ref());
+                    let changes = pack_runtime::reload_diff::Changes::between(
+                        &stack,
+                        previous
+                            .as_ref()
+                            .map(|old| (&old.admission, &old.dependencies)),
+                    );
                     let stack = Arc::new(stack);
                     let view = resource_pack::LayeredPackView::new(stack.clone());
                     let environment = environment_base
@@ -212,7 +216,7 @@ impl PackReload {
                         apply_biome_overlay(&biome_view, &base, &mut biome_overlay);
                         application
                             .dependencies
-                            .entry(super::pack_reload_diff::Subscriber::Blocks)
+                            .entry(pack_runtime::reload_diff::Subscriber::Blocks)
                             .or_default()
                             .extend(biome_view.dependencies().expect("tracked view").snapshot());
                         if biome_overlay.biomes.is_some() {
@@ -429,10 +433,12 @@ pub(crate) fn reload_resource_packs(
                 world.pack_entities = packs.entities.clone();
                 world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
                 if items_changed {
-                    world.session_items = Some(Arc::new(super::entity_pack::SessionItems {
-                        components: packs.item_components.clone().unwrap_or_default(),
-                        icons: packs.item_icons.clone(),
-                    }));
+                    world.session_items = Some(Arc::new(
+                        client_presentation::session_assets::SessionItems {
+                            components: packs.item_components.clone().unwrap_or_default(),
+                            icons: packs.item_icons.clone(),
+                        },
+                    ));
                 }
                 ui.set_server_lang(packs.server_lang);
                 ui.set_session_icons(packs.item_icons);
@@ -440,7 +446,7 @@ pub(crate) fn reload_resource_packs(
                 ui.set_session_glyphs(packs.glyph_sheets);
                 ui.set_server_ui(packs.server_ui);
                 if sounds_changed {
-                    crate::audio::publish_server_sounds(packs.server_sounds);
+                    client_audio::audio::publish_server_sounds(packs.server_sounds);
                 }
                 reload.applied = prepared.revision;
                 reload.last_duration = Some(prepared.elapsed);

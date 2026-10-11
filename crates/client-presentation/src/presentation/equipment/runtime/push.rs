@@ -1,6 +1,11 @@
 //! Per-category equipment layer builders for a drawn body.
 
-use super::*;
+use {
+    super::*,
+    render_model::equipment::{
+        BoneChannels, ItemDisplay, attach_to_bone, held_block_display, held_sprite_display,
+    },
+};
 
 impl EquipmentRuntime {
     pub(super) fn push_held(

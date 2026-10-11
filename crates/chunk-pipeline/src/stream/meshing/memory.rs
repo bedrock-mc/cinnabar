@@ -43,7 +43,7 @@ impl MeshMemoryPermit {
     /// Allows one oversized reservation only when no other output is retained.
     fn reserve(retained: &Arc<AtomicU64>, bytes: u64) -> Option<Self> {
         retained
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 let total = used.checked_add(bytes)?;
                 (used == 0 || total <= MAX_MESH_OUTPUT_BYTES).then_some(total)
             })

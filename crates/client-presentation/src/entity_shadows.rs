@@ -105,5 +105,61 @@ fn volume_may_be_visible(shadow: &EntityShadow, player: bool, view: ActorCullVie
         || outside(|clip| clip.w <= 0.0))
 }
 
+/// Samples the local visibility carrier and publishes shadows from the drawn actor frame.
+#[allow(clippy::too_many_arguments)]
+pub fn drive_entity_shadows(
+    stream: Option<&WorldStream>,
+    player: &player_state::PlayerState,
+    partial_tick: bevy::prelude::Res<crate::actor_publication::ActorFramePartialTick>,
+    local: bevy::prelude::Res<crate::local_player::LocalAvatarVisibilityCarrier>,
+    camera: bevy::prelude::Query<
+        (&bevy::prelude::Transform, &bevy::prelude::Projection),
+        bevy::prelude::With<crate::camera::FlyCamera>,
+    >,
+    frame: bevy::prelude::Res<ActorRenderFrame>,
+    mut drawn: bevy::prelude::Local<Vec<u64>>,
+    mut staging: bevy::prelude::Local<Vec<EntityShadow>>,
+    scene: Option<bevy::prelude::ResMut<EntityShadowScene>>,
+) {
+    let Some(mut scene) = scene else {
+        return;
+    };
+    let local = stream.map(|stream| {
+        let runtime_id = stream.local_player_runtime_id();
+        crate::entity_shadows::LocalShadowSource {
+            runtime_id,
+            visible: local.snapshot().is_some_and(|visibility| {
+                visibility.runtime_id() == runtime_id && visibility.visible()
+            }),
+            feet: local
+                .snapshot()
+                .filter(|visibility| visibility.runtime_id() == runtime_id)
+                .map(|visibility| visibility.feet().to_array()),
+            spectator: player
+                .facts
+                .game_mode_capabilities()
+                .is_some_and(|caps| !caps.visible),
+        }
+    });
+    let view = camera
+        .single()
+        .ok()
+        .map(|(transform, projection)| render::ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
+            camera_position: transform.translation,
+            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        });
+    crate::entity_shadows::drawn_bodies(&frame, &mut drawn);
+    crate::entity_shadows::publish_entity_shadows(
+        stream,
+        partial_tick.0,
+        local,
+        view,
+        &drawn,
+        &mut staging,
+        &mut scene,
+    );
+}
+
 #[cfg(test)]
 mod tests;

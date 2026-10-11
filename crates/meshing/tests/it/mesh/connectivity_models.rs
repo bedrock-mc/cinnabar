@@ -60,7 +60,7 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
     .enumerate()
     {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[20 + index as u8 * 25, 70, 110, 255]);
         }
         let mut png = Vec::new();

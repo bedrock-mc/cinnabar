@@ -4,7 +4,7 @@ use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 struct Fixture {
     directory: tempfile::TempDir,
@@ -337,7 +337,7 @@ fn fire_topology_group_covers_every_attachment_phase_and_uv_orientation() {
                         .all(|quad| quad.flags == MODEL_QUAD_FLAG_TWO_SIDED)
                 );
                 let side_count = (mask & 15).count_ones() as usize * 2;
-                for pair in quads[..side_count].chunks_exact(2) {
+                for pair in quads[..side_count].as_chunks::<2>().0 {
                     assert_eq!(pair[0].material, if alternate { down } else { up });
                     assert_eq!(pair[1].material, pair[0].material);
                     for vertex in 0..4 {

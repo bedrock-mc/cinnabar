@@ -1,13 +1,17 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::{
-    AcceptanceRun,
-    model_witness::ModelWitnessFileSource,
-    mutation::{deterministic_mutation_coordinate, write_stdout_marker},
+use crate::runtime::visibility::AppMetrics;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use {
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    acceptance::phase3_evidence::Phase3EvidenceEventKind,
 };
 #[cfg(feature = "acceptance")]
-use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
-#[cfg(feature = "acceptance")]
-use crate::runtime::visibility::AppMetrics;
+use {
+    acceptance::model_witness::ModelWitnessFileSource,
+    acceptance::mutation::deterministic_mutation_coordinate, diagnostics::write_stdout_marker,
+};
 mod committed_ui;
 mod control_apply;
 mod dimension;
@@ -48,7 +52,7 @@ use chunk_pipeline::{
 };
 use client_world::CommittedControlEvent;
 
-use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
+use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use client_ui::block_cracks::reconcile_world_block_cracks;
 use meshing::CameraMedium;
@@ -59,24 +63,29 @@ use render::{
     VisibilityDiagnosticsInput,
 };
 
-use crate::{
-    camera::{CameraSettingsAuthority, FlyCamera},
-    environment::{self, WeatherState, WorldClock, apply_environment_control},
-    local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
+use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        environment::{self, WeatherState, WorldClock, apply_environment_control},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            MovementTicker, PhysicsCollisionRegistries,
+        },
+        runtime::{
+            network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+            publication::{PublicationController, PublicationFrameWork},
+            shutdown::record_fatal_error,
+            visibility::{CaveVisibilityCache, DiagnosticQuads},
+        },
     },
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        publication::{PublicationController, PublicationFrameWork},
-        shutdown::record_fatal_error,
-        visibility::{CaveVisibilityCache, DiagnosticQuads},
+    client_presentation::{
+        camera::{CameraSettingsAuthority, FlyCamera},
+        local_player::{
+            InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+            LocalViewPose,
+        },
     },
 };
-use client_ui::ui_runtime::UiRuntime;
 
 #[cfg(feature = "acceptance")]
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
@@ -107,12 +116,12 @@ pub(crate) struct ClientWorld {
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
-    pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
+    pub(crate) pack_entities: Option<Arc<assets::SessionEntityPack>>,
     /// Worker-built pack pages, reused only while their base artwork and pack remain current.
     pub(crate) prepared_actor_artwork:
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
-    pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
+    pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -208,7 +217,8 @@ pub(crate) fn update_camera_medium(
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
-    mut precipitation: Local<environment::FogPrecipitationSamples>,
+    mut fog_bindings: ResMut<environment::FogBindings>,
+    atmosphere: Res<render::AtmosphereTextureAssets>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;
@@ -216,26 +226,32 @@ pub(crate) fn update_camera_medium(
         return;
     };
     let position = camera.translation.to_array();
+    fog_bindings.refresh(
+        stream.authority().resolved_biome_tints(),
+        stream.biome_tint_identity(),
+        Some(&atmosphere),
+    );
+    let raw_id = stream.camera_biome_id(position);
+    let (camera_profile, profile_route, camera_fog) =
+        fog_bindings.camera(raw_id, stream.current_dimension());
     medium.0 = stream.camera_medium(position);
-    let camera_biome = stream
-        .camera_biome_id(camera.translation.to_array())
-        .and_then(|raw_id| {
-            let rules = &client_world.runtime_assets.biome_assets().rules;
-            rules
-                .binary_search_by_key(&raw_id, |rule| rule.id)
-                .ok()
-                .map(|index| &rules[index])
-        });
+    let camera_biome =
+        raw_id.and_then(|raw_id| stream.authority().resolved_biome_tints().biome(raw_id));
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
-        fog_biomes: environment::fog_biome_samples(stream, &client_world.runtime_assets, position),
-        precipitation_sample_count: precipitation.count(
+        fog_registry_generation: fog_bindings.atmosphere_generation,
+        fog_biomes: Some(environment::fog_biome_samples(
             stream,
-            &client_world.runtime_assets,
             position,
-        ),
-        camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
-        camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
+            &fog_bindings,
+        )),
+        camera_profile,
+        camera_fog,
+        profile_route,
+        default_fog: fog_bindings.default_fog,
+        precipitation_sample_count: environment::fog_precipitation_count(stream, position),
+        camera_biome_identifier: fog_bindings.identifier(raw_id),
+        camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
         render_distance_blocks: Some(stream.render_distance_blocks()),
     };
 }
@@ -300,12 +316,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
-    mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
+    mut camera_hurt: Option<ResMut<client_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
     (visibility_diagnostics, profiler, mut player_runtime): (
         Option<Res<VisibilityDiagnosticsInput>>,
         Option<Res<RuntimeStageProfiler>>,
-        ResMut<crate::player_runtime::PlayerRuntime>,
+        ResMut<client_state::PlayerRuntime>,
     ),
 ) {
     let _timer = profiler
@@ -406,7 +422,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             match network.send_latency_reply(creation_time) {
                 Ok(()) => {
                     movement.set_control_fence_pending(network.has_pending_latency_reply());
-                    crate::movement::trace_server_control(&movement, &local_physics, &control)
+                    gameplay::movement::trace_server_control(&movement, &local_physics, &control)
                 }
                 Err(super::network::BatchSendError::Full) => {
                     movement.set_control_fence_pending(true);
@@ -417,7 +433,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             continue;
         }
-        crate::movement::trace_server_control(&movement, &local_physics, &control);
+        gameplay::movement::trace_server_control(&movement, &local_physics, &control);
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             let previous = player_runtime.facts.is_immobile();
             player_runtime
@@ -483,7 +499,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             match observation {
                 ControlObservation::Hurt { source_direction } => {
                     if let Some(hurt) = camera_hurt.as_deref_mut() {
-                        hurt.register(crate::camera::LocalHurtEvent {
+                        hurt.register(client_presentation::camera::LocalHurtEvent {
                             source_direction,
                             ..Default::default()
                         });

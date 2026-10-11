@@ -13,3 +13,6 @@ experience-sdk = { path = "../../../crates/experience-sdk", default-features = f
 
 [build-dependencies]
 experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["declarations"] }
+
+[lints]
+workspace = true

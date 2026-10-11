@@ -92,6 +92,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		conf.Resources = append(conf.Resources, pack)
 	}
+	if cfg.totemTexture {
+		pack, err := totemTexturePack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare totem texture fixture: %w", err)
+		}
+		conf.Resources = append(conf.Resources, pack)
+	}
 	generators, err := cfg.configureGenerators(&conf)
 	if err != nil {
 		if exps != nil {
@@ -116,6 +126,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.cameraTest {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = cameraTestListener(listen)
+		}
+	}
+	if cfg.totemTest || cfg.totemTexture {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = totemTestListener(listen)
 		}
 	}
 	if cfg.primitiveShapes {

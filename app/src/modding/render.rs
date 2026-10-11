@@ -1,7 +1,7 @@
 //! Hands committed mod render output to the renderer; depth sampling follows its grant.
 
-use crate::camera::FlyCamera;
 use bevy::{prelude::*, render::render_resource::TextureUsages};
+use client_presentation::camera::FlyCamera;
 use render::ModRenderScene;
 
 /// Republishes only when some mod's generation changed, so steady frames extract nothing.

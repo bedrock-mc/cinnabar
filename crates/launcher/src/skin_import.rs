@@ -12,7 +12,7 @@ use zip::ZipArchive;
 /// Imported items retained by one skin library.
 pub const MAX_IMPORTED_SKINS: usize = 256;
 /// Geometry without an explicit minimum engine version uses Bedrock's default.
-pub use protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION as DEFAULT_GEOMETRY_ENGINE_VERSION;
+use render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION;
 
 /// Original image bytes and validated model inputs for one declared skin.
 #[derive(Debug)]
@@ -20,7 +20,7 @@ pub struct SkinPackEntry {
     pub name: String,
     pub png: Vec<u8>,
     pub model: SkinModel,
-    pub geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub geometry: Option<Arc<render_api::SkinGeometrySource>>,
     pub engine_version: Arc<str>,
 }
 
@@ -125,7 +125,7 @@ pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportErr
     let catalog = read(
         &mut zip,
         catalog_path,
-        protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+        render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
     )?;
     let catalog: Catalog =
         serde_json::from_slice(&catalog).map_err(|_| SkinImportError::Metadata)?;
@@ -136,7 +136,7 @@ pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportErr
         Some(read(
             &mut zip,
             &format!("{root}geometry.json"),
-            protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+            render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES,
         )?)
     } else {
         None
@@ -201,8 +201,8 @@ pub fn parse_skin_pack(bytes: &[u8]) -> Result<Vec<SkinPackEntry>, SkinImportErr
 pub fn parse_skin_geometry(
     bytes: &[u8],
     identifier: Option<&str>,
-) -> Result<Arc<protocol::SkinGeometrySource>, SkinImportError> {
-    if bytes.len() > protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
+) -> Result<Arc<render_api::SkinGeometrySource>, SkinImportError> {
+    if bytes.len() > render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
         return Err(SkinImportError::TooLarge);
     }
     let data = std::str::from_utf8(bytes).map_err(|_| SkinImportError::Geometry)?;
@@ -249,7 +249,7 @@ pub fn parse_skin_geometry(
         return Err(SkinImportError::Geometry);
     }
     let patch = serde_json::json!({"geometry":{"default":name}}).to_string();
-    if patch.len() + bytes.len() > protocol::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
+    if patch.len() + bytes.len() > render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES {
         return Err(SkinImportError::TooLarge);
     }
     let model = assets::parse_skin_geometry(&patch, data)
@@ -263,7 +263,7 @@ pub fn parse_skin_geometry(
     {
         return Err(SkinImportError::Geometry);
     }
-    Ok(Arc::new(protocol::SkinGeometrySource {
+    Ok(Arc::new(render_api::SkinGeometrySource {
         resource_patch: patch.into(),
         geometry_data: data.into(),
         animations: Arc::from([]),
@@ -311,7 +311,7 @@ fn engine_version(manifest: &serde_json::Value) -> Result<Arc<str>, SkinImportEr
         .get("header")
         .and_then(|v| v.get("min_engine_version"))
     else {
-        return Ok(DEFAULT_GEOMETRY_ENGINE_VERSION.into());
+        return Ok(DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into());
     };
     let numbers = version
         .as_array()

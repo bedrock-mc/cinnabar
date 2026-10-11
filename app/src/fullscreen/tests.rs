@@ -4,8 +4,8 @@ use bevy::{
 };
 
 use super::*;
-use crate::menu::MenuAction;
 use crate::present_mode::{PresentModeRuntime, apply_present_mode};
+use launcher::menu::MenuAction;
 
 fn app(visible: bool) -> (App, Entity) {
     let menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
@@ -198,7 +198,7 @@ fn menu_press_waits_for_a_primary_window() {
 
 #[test]
 fn a_hidden_capture_window_ignores_the_saved_fullscreen_setting() {
-    let layout = crate::install_layout::scratch("hidden-fullscreen");
+    let layout = launcher::test_support::scratch("hidden-fullscreen");
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Hidden");
     let menu = MenuRuntime::new_with_layout(false, Some(2), "Hidden".into(), layout, skin);
     let mut settings = RuntimeSettings::default();

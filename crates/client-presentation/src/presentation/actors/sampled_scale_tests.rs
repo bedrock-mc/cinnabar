@@ -170,11 +170,11 @@ fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
     let camera = Vec3::new(0.0, 1.0, 0.0);
     let view = ActorCullView {
         camera_position: camera,
-        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             90_f32.to_radians(),
             1.0,
             render_api::CAMERA_NEAR_PLANE_BLOCKS,
-        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
         max_distance: 100.0,
     };
     for (feet, maximum, visible) in [
@@ -222,11 +222,11 @@ fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
     let camera = Vec3::new(0.0, 1.0, 0.0);
     let view = Some(ActorCullView {
         camera_position: camera,
-        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             90_f32.to_radians(),
             1.0,
             render_api::CAMERA_NEAR_PLANE_BLOCKS,
-        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
         max_distance: 100.0,
     });
     let through_wall = |layers: &[client_world::RenderTextureLayer]| {
@@ -259,11 +259,11 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
     let camera = Vec3::new(0.0, 1.0, 0.0);
     let view = ActorCullView {
         camera_position: camera,
-        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             90_f32.to_radians(),
             1.0,
             render_api::CAMERA_NEAR_PLANE_BLOCKS,
-        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
         max_distance: 100.0,
     };
     let (artwork, locations) =

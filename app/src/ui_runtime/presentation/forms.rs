@@ -10,15 +10,11 @@ pub(crate) use panorama::drive_menu_panorama;
 pub mod pack_harness;
 
 #[cfg(test)]
-pub(crate) mod tests {
-    pub(crate) use client_ui::test_support::mini_engine_presentation;
-}
+pub(crate) mod tests {}
 
 #[cfg(test)]
 mod loading_sequence_tests;
 #[cfg(test)]
 mod menu_gpu_tests;
 #[cfg(test)]
-mod play_flow_snapshots {
-    pub(crate) use client_ui::test_support::fixture_view;
-}
+mod play_flow_snapshots {}

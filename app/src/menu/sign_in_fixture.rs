@@ -4,7 +4,10 @@ use developer_control::{
     ENDPOINT_ENV, HIDDEN_WINDOW_ENV, SIGN_IN_FIXTURE_ENV, protocol::SignInFixtureState,
 };
 
-use super::{AuthState, MenuAction, MenuDialog, MenuRuntime, MenuScreen, MenuView};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuDialog, MenuScreen, auth::AuthState, view::MenuView},
+};
 
 const PLACEHOLDER_CODE: &str = "TEST-CODE";
 const PLACEHOLDER_URI: &str = "https://example.invalid/sign-in";
@@ -120,7 +123,7 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::MenuAction, launcher::menu::auth::AuthState};
 
     #[test]
     fn a_normal_session_cannot_enable_fixture_commands() {

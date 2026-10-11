@@ -267,7 +267,7 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
                 crate::begin_stage_span::<SURFACE>.before(prepare_windows),
                 crate::end_stage_span::<SURFACE>.after(prepare_windows),
             )
-                .in_set(RenderSystems::ManageViews),
+                .in_set(RenderSystems::PrepareViews),
         )
         // Spans all render-world work; the acquisition wait is subtracted at the end.
         .add_systems(
@@ -384,7 +384,7 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         let samples = saved["traceEvents"].as_array().unwrap();
-        for frame in samples.chunks_exact(3) {
+        for frame in samples.as_chunks::<3>().0 {
             assert!(frame.iter().all(|sample| sample["ts"] == frame[0]["ts"]));
             assert!(frame.iter().all(|sample| sample["ph"] == "C"));
             assert!(frame.iter().all(|sample| sample["dur"] == 0.0));

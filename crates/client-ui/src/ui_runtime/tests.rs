@@ -247,10 +247,7 @@ fn typed_rawtext_routes_by_packet_surface_without_cross_presenting() {
         runtime.chat().messages()[0].message.as_ref(),
         "Transfer accepted"
     );
-    assert_eq!(
-        runtime.hud().actionbar().unwrap().text.as_ref(),
-        "Action prompt"
-    );
+    assert_eq!(runtime.hud().tip().unwrap().text.as_ref(), "Action prompt");
     assert!(runtime.hud().title().is_none());
     assert!(runtime.scoreboards().sidebar().is_none());
     assert!(runtime.boss_bars().stacked().is_empty());

@@ -6,11 +6,11 @@ use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
 use super::super::transitions::resources::{Group, Resources};
 use super::super::widgets::{self, Variant};
 use super::{Content, picker};
-use crate::global_resources::{Action, Snapshot};
-use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::oreui_assets::{
     BASE_PACK_IMAGE, CHEVRON_DOWN_IMAGE, CHEVRON_UP_IMAGE, MISSING_PACK_IMAGE,
 };
+use launcher::global_resources::{Action, Snapshot};
+use launcher::menu::{MenuAction, MenuView};
 
 #[cfg(test)]
 mod tests;

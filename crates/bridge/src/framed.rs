@@ -298,6 +298,31 @@ mod tests {
     use super::{BridgeCodec, validate_frame_length};
     use crate::{BridgeError, MAX_FRAME_LEN};
 
+    /// Accepted streams use the same kernel-limited buffers as connecting streams.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn accepted_unix_stream_uses_tuned_buffers() {
+        use crate::endpoint::{EndpointKind, PlatformStream};
+        use rustix::net::sockopt::{socket_recv_buffer_size, socket_send_buffer_size};
+
+        let directory = tempfile::tempdir().unwrap();
+        let listener = crate::SessionListener::bind(directory.path())
+            .await
+            .unwrap();
+        let PlatformStream::Unix(client) =
+            crate::endpoint::connect(directory.path(), EndpointKind::Session)
+                .await
+                .unwrap();
+        let accepted = listener.accept().await.unwrap();
+        let PlatformStream::Unix(server) = accepted.inner.get_ref();
+        for read in [
+            socket_send_buffer_size::<&tokio::net::UnixStream>,
+            socket_recv_buffer_size,
+        ] {
+            assert_eq!(read(server).unwrap(), read(&client).unwrap());
+        }
+    }
+
     /// Clones of the queue share one writer that keeps the order frames were accepted in,
     /// while the read half keeps receiving.
     #[cfg(unix)]

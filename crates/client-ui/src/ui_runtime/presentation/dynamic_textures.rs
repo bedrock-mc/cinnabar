@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use render_model::UiTexturePage;
 
-use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
+use {
+    super::{UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview},
+    ui::IconRef,
+};
 
 /// Dynamic page offset holding the session's server item icons.
 pub(super) const SESSION_ICON_PAGE: usize = render_model::UI_SESSION_ICON_PAGE_OFFSET;
@@ -286,6 +289,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         };
         dynamic.push(page);
     }
+    let sheets = runtime.server_ui_sheet_pages();
+    dynamic.extend((0..render_model::MAX_UI_NATIVE_SHEET_PAGES).map(|offset| {
+        sheets
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
         let old = &previous[first_dynamic + offset];
@@ -327,7 +337,7 @@ fn warn_rebuild_failed(reason: &render_model::UiRenderRejectReason) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, ui::IconRef};
 
     #[test]
     fn rejected_rebuild_keeps_pending_artwork_and_preview_for_retry() {

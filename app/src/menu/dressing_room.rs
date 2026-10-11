@@ -1,8 +1,8 @@
 //! Skin selection work stays outside the frame loop; results publish atomically.
 
-use super::*;
 use launcher::dressing_room::{Action, DressingRoomView, SkinModel};
 use std::sync::Arc;
+use {super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuAction};
 
 mod editor;
 mod picker;
@@ -40,7 +40,7 @@ struct Outcome {
 impl Outcome {
     fn new(
         view: &DressingRoomView,
-        before: Option<protocol::StandardSkin>,
+        before: Option<render_api::StandardSkin>,
         previous_model: Option<(SkinModel, Arc<str>)>,
         uuid: [u8; 16],
         completed_command: bool,

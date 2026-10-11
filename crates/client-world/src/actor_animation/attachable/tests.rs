@@ -494,7 +494,7 @@ fn owner_name_binding_clears_defaults_but_explicit_binding_keeps_native_origin()
 }
 
 #[test]
-fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
+fn main_hand_queries_are_remaining_ticks_in_actor_and_attachable_contexts() {
     let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
     let input = ActorTickInput {
         item_use_ticks: 5,
@@ -506,7 +506,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
     };
     let read_with_args =
         |context: &ActorTickContext, name: &str, arguments: &[evaluation::MolangValue]| {
-            query::query(
+            query::named_query(
                 &query::QueryInputs {
                     actor: &owner,
                     input: &input,
@@ -527,7 +527,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
     let read = |context: &ActorTickContext, name: &str| read_with_args(context, name, &[]);
     assert_eq!(
         read(&context, "query.main_hand_item_use_duration").number(),
-        0.25
+        95.0
     );
     context.attachable = Some(AttachableQueryContext {
         worn: false,

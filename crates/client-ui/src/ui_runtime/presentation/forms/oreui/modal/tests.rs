@@ -1,6 +1,9 @@
 use super::super::review_tests::{paint, solids};
-use super::*;
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn option_modal() -> Modal<'static> {
     Modal {

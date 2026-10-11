@@ -22,7 +22,8 @@ impl ActorStore {
     /// Publishes crystal target beams and the dragons' retained healing beams.
     pub(crate) fn crystal_beams(&self, partial_tick: f32) -> Vec<CrystalBeamView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut beams = self.actors.values().filter_map(|actor| {
+        let mut beams = self.effect_members.crystals.iter().filter_map(|runtime| {
+            let actor = self.actors.get(runtime)?;
             if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_crystal") {
                 return None;
             }

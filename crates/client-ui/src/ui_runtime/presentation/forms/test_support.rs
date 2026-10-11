@@ -1,11 +1,11 @@
 //! Shared menu fixtures for renderer and app service integration tests.
 use super::pack_harness::engine_presentation;
-use crate::{
-    menu::{MenuAction, MenuScreen, MenuView},
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
 use std::{path::PathBuf, sync::Arc};
 use ui::DpiScale;
+use {
+    crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 /// Draws the retained menu twice and returns the active hit actions.
 pub fn draw_menu_actions(
@@ -34,7 +34,7 @@ pub fn draw_menu_actions(
 
 /// Creates a settings view without starting a session.
 pub fn settings_view() -> MenuView {
-    let mut view = crate::menu::MenuView::new(true, "Steve".into());
+    let mut view = launcher::menu::MenuView::new(true, "Steve".into());
     view.screen = MenuScreen::Settings;
     view
 }

@@ -9,7 +9,11 @@ use assets::gui_item::{
 use assets::{EntityGeometry, EntityGeometryBone, EntityGeometryCube, EquipmentTexture};
 use ui::{UiMesh, UiMeshVertex};
 
-use super::{GUI_ITEM_SIDE, IconRef, atlas_uv, batch, vertex};
+use {
+    super::{atlas_uv, batch, vertex},
+    assets::gui_item::GUI_ITEM_SIDE,
+    ui::IconRef,
+};
 
 pub(super) fn mesh(
     geometry: &EntityGeometry,

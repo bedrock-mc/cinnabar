@@ -604,7 +604,7 @@ mod tests {
     }
     #[test]
     fn review_render_cuboid_uvs_agree_at_shared_triangle_vertices() {
-        for face in cuboid_vertices([0.0; 3], [1.0; 3], 0).chunks_exact(6) {
+        for face in cuboid_vertices([0.0; 3], [1.0; 3], 0).as_chunks::<6>().0 {
             for a in face {
                 for b in face {
                     if a.position == b.position {

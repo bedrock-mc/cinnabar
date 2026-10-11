@@ -48,14 +48,15 @@ fn camera(eye: Vec3, target: Vec3) -> Camera {
 fn camera_with_aspect(eye: Vec3, target: Vec3, aspect: f32) -> Camera {
     let global =
         GlobalTransform::from(Transform::from_translation(eye).looking_at(target, Vec3::Y));
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, aspect, 0.05);
+    let projection =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, aspect, 0.05);
     let clip_from_world = projection * Mat4::from(global.affine().inverse());
-    let frustum = Frustum::from_clip_from_world_custom_far(
+    let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world_custom_far(
         &clip_from_world,
         &global.translation(),
         &global.back().as_vec3(),
         1000.0,
-    );
+    ));
     Camera {
         eye,
         clip_from_view: projection,
@@ -212,17 +213,19 @@ impl<'a> Culler<'a> {
             self.storage.draw_offsets.size(),
         );
         let offsets = bytemuck::cast_slice::<u8, u32>(&offsets)
-            .chunks_exact(2)
-            .map(|pair| [pair[0], pair[1]])
-            .collect::<Vec<_>>();
+            .as_chunks::<2>()
+            .0
+            .to_vec();
         CullStream::ALL.map(|stream| {
             let start = args_region(self.storage.capacity, phase, stream) as usize;
             let count = counts[count_index(phase, stream) as usize] as usize;
             assert!(count as u32 <= stream.draws_per_record() * self.slots);
             words[start..start + count * ARGS_WORDS as usize]
-                .chunks_exact(ARGS_WORDS as usize)
+                .as_chunks::<{ ARGS_WORDS as usize }>()
+                .0
+                .iter()
                 .map(|chunk| {
-                    let command: [u32; ARGS_WORDS as usize] = chunk.try_into().unwrap();
+                    let command = *chunk;
                     // Builtins see neither offset on DX12 count draws, so both stay zero.
                     assert_eq!((command[2], command[4]), (0, 0));
                     let entries = &offsets[command[3] as usize..][..OFFSET_CORNERS as usize];
@@ -258,7 +261,11 @@ fn map(gpu: &Gpu, staging: &wgpu::Buffer) -> Vec<u8> {
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
     rx.recv().unwrap().unwrap();
-    staging.slice(..).get_mapped_range().to_vec()
+    staging
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")
+        .to_vec()
 }
 
 /// Mixed records over a 9x4x9 sub-chunk grid, with dead and cave-hidden slots.
@@ -490,6 +497,7 @@ impl Target {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         })
     }
 
@@ -718,7 +726,7 @@ impl Raster {
     ) -> Self {
         let source = format!(
             "{}\n{UNSEALED_VERTEX}",
-            shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
+            shader_source::standalone(include_str!("../../src/chunk.wesl"), &[])
         )
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
         let module = gpu
@@ -727,11 +735,11 @@ impl Raster {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
-        let offsets = [wgpu::VertexBufferLayout {
+        let offsets = [Some(wgpu::VertexBufferLayout {
             array_stride: model::OFFSET_ENTRY_BYTES,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Uint32x2],
-        }];
+        })];
         let pipeline = |fragment, cull_mode| {
             gpu.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -749,8 +757,8 @@ impl Raster {
                     },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: DEPTH_FORMAT,
-                        depth_write_enabled: write_depth,
-                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_write_enabled: Some(write_depth),
+                        depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -769,7 +777,7 @@ impl Raster {
                             },
                         })],
                     }),
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 })
         };

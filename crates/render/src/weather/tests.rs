@@ -25,25 +25,6 @@ fn rainy() -> Flat {
 }
 
 #[test]
-fn dry_biomes_never_precipitate_and_cold_ones_snow() {
-    assert_eq!(classify_precipitation(2.0, 0.0, 64), Precipitation::None);
-    assert_eq!(classify_precipitation(0.8, 0.4, 64), Precipitation::Rain);
-    assert_eq!(classify_precipitation(0.0, 0.5, 64), Precipitation::Snow);
-    assert_eq!(classify_precipitation(0.15, 0.5, 64), Precipitation::Snow);
-    assert_eq!(
-        classify_precipitation(f32::NAN, 0.5, 64),
-        Precipitation::None
-    );
-}
-
-#[test]
-fn high_ground_snows_in_otherwise_rainy_biomes() {
-    assert_eq!(classify_precipitation(0.3, 0.5, 64), Precipitation::Rain);
-    assert_eq!(classify_precipitation(0.3, 0.5, 200), Precipitation::Snow);
-    assert_eq!(altitude_adjusted_temperature(0.5, 10), 0.5);
-}
-
-#[test]
 fn level_approaches_the_target_without_overshoot() {
     assert_eq!(approach_level(0.0, 1.0, 0.25), 0.25);
     assert_eq!(approach_level(0.9, 1.0, 0.25), 1.0);
@@ -280,4 +261,30 @@ fn simplex_noise_stays_in_range() {
         peak = peak.max(value.abs());
     }
     assert!(peak > 0.3);
+}
+
+#[test]
+fn precipitation_classification_and_occlusion_use_the_admitted_climate_threshold() {
+    for downfall in [0.0, f32::EPSILON / 2.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            classify_precipitation(0.8, downfall, 64),
+            Precipitation::None
+        );
+        assert_eq!(
+            column_heights(Some(ColumnSample {
+                surface_y: 64,
+                temperature: 0.8,
+                downfall
+            })),
+            [OCCLUSION_BLOCKED; 2]
+        );
+    }
+    assert_eq!(
+        classify_precipitation(0.8, f32::EPSILON, 64),
+        Precipitation::Rain
+    );
+    assert_eq!(
+        classify_precipitation(0.0, f32::EPSILON, 64),
+        Precipitation::Snow
+    );
 }

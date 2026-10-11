@@ -13,7 +13,6 @@ const FLYING_MODIFIER: f32 = 1.1;
 const BOW_FULL_DRAW_SECONDS: f32 = 1.0;
 const BOW_MAX_ZOOM: f32 = 0.15;
 const SMOOTHING_PER_TICK: f32 = 0.5;
-const TICKS_PER_SECOND: f32 = 20.0;
 const MIN_MODIFIER: f32 = 0.05;
 const MAX_MODIFIER: f32 = 2.0;
 const DEATH_CAMERA_BASE_FOV: f32 = 60.0;
@@ -137,7 +136,8 @@ impl CameraFovState {
     pub fn advance(&mut self, target: f32, delta_seconds: f32) -> f32 {
         let target = if target.is_finite() { target } else { 1.0 };
         if delta_seconds.is_finite() && delta_seconds > 0.0 {
-            let keep = SMOOTHING_PER_TICK.powf((delta_seconds * TICKS_PER_SECOND).min(1000.0));
+            let keep = SMOOTHING_PER_TICK
+                .powf((delta_seconds * world::TICKS_PER_SECOND as f32).min(1000.0));
             self.modifier += (target - self.modifier) * (1.0 - keep);
         }
         self.modifier = self.modifier.clamp(MIN_MODIFIER, MAX_MODIFIER);
@@ -190,6 +190,56 @@ mod tests {
         assert!((inputs.target_modifier() - 1.1 * 0.89).abs() < 1e-6);
     }
 
+    /// Attribute resends and sprint restarts retain one speed contribution to FOV.
+    #[test]
+    fn sprint_fov_does_not_overshoot_after_effective_attribute_resends() {
+        use client_world::MovementSpeedAttribute;
+        use protocol::{ActorAttribute, ActorAttributeModifier};
+        use std::sync::Arc;
+
+        let factor = sim::SPRINT_SPEED_MULTIPLIER as f32;
+        let mut packet = ActorAttribute {
+            name: Arc::from("minecraft:movement"),
+            min: 0.0,
+            max: f32::MAX,
+            current: SPRINTING_SPEED,
+            default: Some(sim::DEFAULT_MOVEMENT_SPEED as f32),
+            modifiers: Arc::from([]),
+        };
+        let mut inputs = CameraFovInputs::default();
+        for modifiers in [
+            Arc::from([]),
+            Arc::from([ActorAttributeModifier {
+                id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
+                name: Arc::from("sprint"),
+                amount: factor - 1.0,
+                operation: 2,
+                operand: 2,
+                serializable: false,
+            }]),
+        ] {
+            packet.modifiers = modifiers;
+            let mut speed = MovementSpeedAttribute::from_attribute(&packet).unwrap();
+            for _ in 0..5 {
+                inputs.movement_speed = speed.current as f32;
+                assert!((inputs.target_modifier() - 1.28).abs() < 1e-6);
+                speed.set_sprint_modifier(None);
+                inputs.movement_speed = speed.current as f32;
+                let stopped = if packet.modifiers.is_empty() {
+                    1.28
+                } else {
+                    1.1
+                };
+                assert!((inputs.target_modifier() - stopped).abs() < 1e-6);
+                speed.set_sprint_modifier(Some(factor));
+                inputs.movement_speed = speed.current as f32;
+                assert!((inputs.target_modifier() - 1.28).abs() < 1e-6);
+                // A server resend replaces the local modifier set and effective current.
+                speed = MovementSpeedAttribute::from_attribute(&packet).unwrap();
+            }
+        }
+    }
+
     /// Slowness replaces the speed term, so a sprinting slowed player does not widen.
     #[test]
     fn slowness_replaces_the_speed_term() {
@@ -235,10 +285,10 @@ mod tests {
     #[test]
     fn smoothing_halves_the_gap_per_tick_regardless_of_frame_rate() {
         let mut one = CameraFovState::default();
-        one.advance(0.1, 0.05);
+        one.advance(0.1, world::TICK_DURATION.as_secs_f32());
         let mut many = CameraFovState::default();
         for _ in 0..5 {
-            many.advance(0.1, 0.01);
+            many.advance(0.1, world::TICK_DURATION.as_secs_f32() / 5.0);
         }
         assert!((one.modifier() - 0.55).abs() < 1e-5);
         assert!((one.modifier() - many.modifier()).abs() < 1e-5);

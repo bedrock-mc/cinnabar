@@ -9,37 +9,35 @@
 mod account;
 mod account_control;
 mod accounts;
-pub(crate) mod auth;
+mod catalog_art;
 mod construction;
-pub(crate) mod core_process;
 mod death;
 pub(crate) mod disconnect;
 mod dressing_room;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
+#[cfg(test)]
+mod home_promo_tests;
 pub(crate) mod inbox;
 mod input;
 mod invite;
 mod join_requests;
 mod realm_membership;
 pub(crate) use join_requests::open_join_requests_from_key;
-pub(crate) mod launcher_account;
-mod launcher_core;
-mod services;
-mod xbox_presence;
-pub(crate) use launcher_core::target_for;
 #[cfg(test)]
 mod kept_packs_tests;
+pub(crate) mod launcher_account;
+mod launcher_core;
 mod navigation;
 mod presence_targets;
 mod reconnect;
 #[cfg(test)]
 mod reconnect_tests;
+pub(crate) mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
-pub(crate) mod server_trust;
-pub(crate) mod servers;
+mod services;
 #[cfg(test)]
 mod session_teardown_tests;
 pub(crate) mod settings_options;
@@ -47,7 +45,6 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
-mod sign_in_browser;
 #[cfg(feature = "developer-control")]
 mod sign_in_fixture;
 #[cfg(test)]
@@ -55,48 +52,50 @@ mod transfer_follow_tests;
 pub(crate) mod video_settings;
 mod view;
 mod worlds_tab;
+mod xbox_presence;
 
-use auth::{AuthState, AuthSupervisor};
+use launcher_host::{
+    auth, core_process, launcher_core::target_for, server_trust, servers, sign_in_browser,
+};
 use ui::RenderMode;
+use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
-pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use launcher::menu::view::{InboxItem, JoinProgress, JoinStage, MenuHome};
-pub(crate) use launcher::menu::view::{
-    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+
+use launcher::menu::view::{
+    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
 };
+
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
-    fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use bevy::prelude::{Commands, Res, ResMut, Resource};
 
-use crate::{
-    install_layout::InstallLayout,
-    runtime::world::ClientWorld,
-    session::{JoinIntent, SessionStatus},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        runtime::world::ClientWorld,
+        session::{JoinIntent, SessionStatus},
+    },
+    launcher::install_layout::InstallLayout,
+};
 
-const MAX_SERVER_NAME_BYTES: usize = 64;
-const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+use launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES};
 /// Vanilla's port box: six number characters, prefilled with the Bedrock default.
 const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
 
-pub(crate) use launcher::menu::split_address;
+use launcher::menu::split_address;
 
-pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
+use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
 #[derive(Debug, Resource)]
 pub(crate) struct MenuRuntime {
@@ -130,11 +129,11 @@ pub(crate) struct MenuRuntime {
     gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
-    video_settings_writer: Option<video_settings::writer::Writer>,
+    video_settings_writer: Option<launcher_host::video_settings::writer::Writer>,
     settings_focus: Vec<MenuAction>,
     settings_focus_geometry: focus::SettingsFocusGeometry,
-    last_saved_video_settings: video_settings::SavedVideoSettings,
-    failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    last_saved_video_settings: launcher_host::video_settings::SavedVideoSettings,
+    failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
     vsync_override: Option<bool>,
@@ -151,8 +150,8 @@ pub(crate) struct MenuRuntime {
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
     catalog_started: bool,
-    catalog_path: PathBuf,
-    catalog_process: Option<crate::lifecycle::children::Spawned>,
+    catalog: launcher_host::catalog::Catalog,
+    catalog_art: Option<launcher_host::catalog_art::CatalogArt>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
@@ -192,13 +191,13 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
-    store_actions: Vec<crate::store::StoreAction>,
-    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
-    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    store_actions: Vec<launcher::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<launcher::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
-    settings_options: std::sync::Arc<settings_options::SettingsOptions>,
-    storage: std::sync::Arc<settings_storage::StorageView>,
+    settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
+    storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
     settings_scale_picker: bool,
     settings_dirty: bool,
@@ -323,7 +322,7 @@ impl MenuRuntime {
     }
 
     /// Marketplace actions queued since the last call, for the store driver.
-    pub(crate) fn take_store_actions(&mut self) -> Vec<crate::store::StoreAction> {
+    pub(crate) fn take_store_actions(&mut self) -> Vec<launcher::store::StoreAction> {
         std::mem::take(&mut self.store_actions)
     }
 
@@ -440,8 +439,9 @@ impl MenuRuntime {
 
     /// Resets the join progress screen for a join to `address`.
     pub(crate) fn begin_join_progress(&mut self, address: &str, local_world: bool) {
-        self.feeds.join =
-            launcher::menu::view::JoinProgress::new(launcher_core::join_kind(address, local_world));
+        self.feeds.join = launcher::menu::view::JoinProgress::new(
+            launcher_host::launcher_core::join_kind(address, local_world),
+        );
     }
 
     /// Returns the session back to the launcher after a fatal session error.
@@ -784,7 +784,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::Store(action) => {
-                if action == crate::store::StoreAction::Open {
+                if action == launcher::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
                 }
                 self.store_actions.push(action);
@@ -917,7 +917,6 @@ impl Drop for MenuRuntime {
     fn drop(&mut self) {
         self.stop_sign_in();
         self.stop_catalog();
-        let _ = fs::remove_file(&self.catalog_path);
     }
 }
 

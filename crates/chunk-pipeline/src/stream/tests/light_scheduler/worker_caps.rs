@@ -77,7 +77,7 @@ fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     let mut stream = lit_stream(1);
     let capacity = super::super::effective_light_job_cap();
     assert!((1..=super::super::MAX_IN_FLIGHT_LIGHT_JOBS).contains(&capacity));
-    let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+    let radius = super::super::MAX_VIEW_RADIUS_CHUNKS;
     let keys = (-radius..=radius)
         .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
         .filter(|(x, z)| (x + z).rem_euclid(2) == 0)

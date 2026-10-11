@@ -1,16 +1,5 @@
 use std::time::Duration;
 
-use crate::app::{ClientFrameSet, configure_client_frame_schedule};
-use crate::camera::{
-    self, AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, FlyCameraPlugin,
-    PITCH_LIMIT,
-};
-use crate::local_player::LocalViewPose;
-use crate::semantic_controls::{
-    SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
-    route_semantic_input,
-};
-use crate::settings_runtime::RuntimeSettings;
 use bevy::{
     anti_alias::fxaa::Fxaa,
     core_pipeline::tonemapping::Tonemapping,
@@ -18,6 +7,8 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
+use client_presentation::local_player::LocalViewPose;
+use client_state::RuntimeSettings;
 use semantic_input::{Action, PerspectiveMode};
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts,
@@ -25,6 +16,19 @@ use sim::{
 };
 use ui::UserSettings;
 use world::ChunkKey;
+use {crate::app::configure_client_frame_schedule, client_state::ClientFrameSet};
+use {
+    crate::camera::{self, FlyCameraPlugin},
+    client_presentation::camera::{
+        AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
+    },
+};
+use {
+    crate::semantic_controls::{
+        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+    },
+    client_state::SemanticInputSnapshot,
+};
 
 mod cursor_changes;
 use cursor_changes::track_test_focus;
@@ -76,7 +80,7 @@ fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
         unavailable: false,
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -140,7 +144,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             boxes,
             unavailable: false,
         };
-        let blocked = camera::collision_safe_perspective_pose(
+        let blocked = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
@@ -153,18 +157,20 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
             "{label} boom distance {blocked_distance} did not stop at pre-hit {expected}",
         );
 
-        let clear = camera::collision_safe_perspective_pose(
+        let clear = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
             &CameraCollisionFixture::default(),
         );
         assert!(
-            (clear.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs()
+            (clear.translation.distance(subject)
+                - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+                .abs()
                 <= 1.0e-5,
             "{label} boom did not restore after collision space cleared",
         );
-        let blocked_again = camera::collision_safe_perspective_pose(
+        let blocked_again = client_presentation::camera::collision_safe_perspective_pose(
             subject,
             rotation,
             PerspectiveMode::ThirdPersonBack,
@@ -189,7 +195,7 @@ fn third_person_boom_retains_its_reach_when_the_boom_region_is_unloaded() {
         ..default()
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -197,7 +203,10 @@ fn third_person_boom_retains_its_reach_when_the_boom_region_is_unloaded() {
     );
 
     assert!(
-        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5,
+        (pose.translation.distance(subject)
+            - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+            .abs()
+            <= 1.0e-5,
         "unloaded boom region must not collapse the camera onto the subject",
     );
 }
@@ -220,7 +229,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         },
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -244,7 +253,7 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
         result: LenientCollisionBoxes::default(),
     };
 
-    let pose = camera::collision_safe_perspective_pose(
+    let pose = client_presentation::camera::collision_safe_perspective_pose(
         subject,
         Quat::IDENTITY,
         PerspectiveMode::ThirdPersonBack,
@@ -252,7 +261,10 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
     );
 
     assert!(
-        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5
+        (pose.translation.distance(subject)
+            - client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS)
+            .abs()
+            <= 1.0e-5
     );
 }
 
@@ -260,23 +272,36 @@ fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
 fn missing_world_stream_falls_back_to_eye_in_third_person() {
     let eye = Vec3::new(4.0, 70.0, -3.0);
     let rotation = Quat::from_rotation_y(0.4);
-    let pose =
-        camera::unavailable_world_perspective_pose(eye, rotation, PerspectiveMode::ThirdPersonBack);
+    let pose = client_presentation::camera::unavailable_world_perspective_pose(
+        eye,
+        rotation,
+        PerspectiveMode::ThirdPersonBack,
+    );
     assert_eq!(pose.translation, eye);
     assert!(pose.rotation.abs_diff_eq(rotation, 1.0e-6));
 }
 
 #[test]
 fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
-    assert_eq!(camera::auto_fly_offset(0.0), Vec3::ZERO);
+    assert_eq!(
+        client_presentation::camera::auto_fly_offset(0.0),
+        Vec3::ZERO
+    );
     assert!(
-        camera::auto_fly_offset(camera::AUTO_FLY_PERIOD_SECONDS).abs_diff_eq(Vec3::ZERO, 0.001)
+        client_presentation::camera::auto_fly_offset(
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS
+        )
+        .abs_diff_eq(Vec3::ZERO, 0.001)
     );
 
     for sample in 0..=2_000 {
-        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
-        let offset = camera::auto_fly_offset(seconds);
-        assert!(offset.xz().length() <= camera::AUTO_FLY_MAX_HORIZONTAL_BLOCKS + 0.001);
+        let seconds =
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let offset = client_presentation::camera::auto_fly_offset(seconds);
+        assert!(
+            offset.xz().length()
+                <= client_presentation::camera::AUTO_FLY_MAX_HORIZONTAL_BLOCKS + 0.001
+        );
         assert!(offset.y.abs() <= 8.001);
         assert!(offset.x.abs() < 16.0 * 16.0);
         assert!(offset.z.abs() < 16.0 * 16.0);
@@ -291,10 +316,11 @@ fn auto_fly_keeps_the_mutation_target_in_view() {
     auto_fly.set_look_target(target);
     assert!(auto_fly.enabled());
     for sample in 0..=2_000 {
-        let seconds = camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
-        let position = anchor + camera::auto_fly_offset(seconds);
+        let seconds =
+            client_presentation::camera::AUTO_FLY_PERIOD_SECONDS * sample as f32 / 2_000.0;
+        let position = anchor + client_presentation::camera::auto_fly_offset(seconds);
         assert!(position.distance(target) < 16.0 * 16.0);
-        let rotation = camera::look_at_target(position, target);
+        let rotation = client_presentation::camera::look_at_target(position, target);
         let forward = rotation * Vec3::NEG_Z;
         assert!(forward.dot((target - position).normalize()) > 0.999);
     }
@@ -342,12 +368,19 @@ fn direction_axes_map_wasd_space_and_both_shift_keys() {
 fn mouse_look_clamps_pitch_and_applies_pixel_delta_without_time() {
     assert_eq!(PITCH_LIMIT, 89.9_f32.to_radians());
 
-    let (yaw, pitch) = camera::look_angles(0.5, 0.25, Vec2::new(10.0, -20.0), Vec2::splat(0.01));
+    let (yaw, pitch) = client_presentation::camera::look_angles(
+        0.5,
+        0.25,
+        Vec2::new(10.0, -20.0),
+        Vec2::splat(0.01),
+    );
     assert!((yaw - 0.4).abs() < 1.0e-6);
     assert!((pitch - 0.45).abs() < 1.0e-6);
 
-    let (_, up) = camera::look_angles(0.0, 0.0, Vec2::new(0.0, -1_000_000.0), Vec2::ONE);
-    let (_, down) = camera::look_angles(0.0, 0.0, Vec2::new(0.0, 1_000_000.0), Vec2::ONE);
+    let (_, up) =
+        client_presentation::camera::look_angles(0.0, 0.0, Vec2::new(0.0, -1_000_000.0), Vec2::ONE);
+    let (_, down) =
+        client_presentation::camera::look_angles(0.0, 0.0, Vec2::new(0.0, 1_000_000.0), Vec2::ONE);
     assert_eq!(up, PITCH_LIMIT);
     assert_eq!(down, -PITCH_LIMIT);
 }
@@ -374,10 +407,18 @@ fn input_requires_focus_and_a_locked_hidden_cursor() {
     };
     let released = CursorOptions::default();
 
-    assert!(camera::input_is_active(&focused, &captured));
-    assert!(!camera::input_is_active(&unfocused, &captured));
-    assert!(!camera::input_is_active(&focused, &visible));
-    assert!(!camera::input_is_active(&focused, &released));
+    assert!(client_presentation::camera::input_is_active(
+        &focused, &captured
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &unfocused, &captured
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &focused, &visible
+    ));
+    assert!(!client_presentation::camera::input_is_active(
+        &focused, &released
+    ));
 }
 
 fn capture_test_app(
@@ -387,14 +428,24 @@ fn capture_test_app(
     capture_on_start: bool,
 ) -> (App, Entity) {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<client_presentation::camera::CursorFocus>()
         .add_systems(PreUpdate, track_test_focus)
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))
-        .add_systems(Update, camera::update_cursor_capture);
+        .init_resource::<client_state::ScreenFocus>()
+        .add_systems(
+            Update,
+            (
+                crate::menu::screen_focus::publish_screen_focus,
+                camera::update_cursor_capture,
+            )
+                .chain(),
+        );
 
     let entity = app
         .world_mut()
@@ -516,7 +567,9 @@ fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
 #[test]
 fn production_schedule_consumes_recapture_click_until_physical_release() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -586,7 +639,9 @@ fn production_schedule_consumes_recapture_click_until_physical_release() {
 #[test]
 fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -638,7 +693,9 @@ fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
 #[test]
 fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -656,7 +713,7 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
         .query_filtered::<&Tonemapping, (With<Camera3d>, With<FlyCamera>)>()
         .single(app.world())
         .unwrap();
-    assert_eq!(*tonemapping, Tonemapping::None);
+    assert_eq!(*tonemapping, Tonemapping::Linear);
     let msaa = app
         .world_mut()
         .query_filtered::<&Msaa, (With<Camera3d>, With<FlyCamera>)>()
@@ -693,14 +750,16 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     app.update();
 
     let end = app.world().resource::<LocalViewPose>().eye_translation();
-    let expected = start + camera::auto_fly_offset(0.5);
+    let expected = start + client_presentation::camera::auto_fly_offset(0.5);
     assert!(end.abs_diff_eq(expected, 1.0e-4));
 }
 
 #[test]
 fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -729,11 +788,11 @@ fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
         app.update();
 
         let actual = app.world().resource::<LocalViewPose>().eye_translation();
-        let expected = start + camera::auto_fly_offset(elapsed.as_secs_f32());
+        let expected = start + client_presentation::camera::auto_fly_offset(elapsed.as_secs_f32());
         assert!(actual.abs_diff_eq(expected, 1.0e-4));
         assert!(
             app.world()
-                .resource::<camera::ScreenOverlays>()
+                .resource::<client_presentation::camera::ScreenOverlays>()
                 .layers
                 .is_empty()
         );
@@ -743,7 +802,9 @@ fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
 #[test]
 fn stable_presentation_pause_ignores_held_movement_and_look_input() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true))
@@ -790,15 +851,15 @@ fn stable_presentation_pause_ignores_held_movement_and_look_input() {
 #[test]
 fn perspective_cycle_matches_bedrock_settings_order() {
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::FirstPerson),
+        client_presentation::camera::next_perspective(PerspectiveMode::FirstPerson),
         PerspectiveMode::ThirdPersonBack
     );
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::ThirdPersonBack),
+        client_presentation::camera::next_perspective(PerspectiveMode::ThirdPersonBack),
         PerspectiveMode::ThirdPersonFront
     );
     assert_eq!(
-        camera::next_perspective(PerspectiveMode::ThirdPersonFront),
+        client_presentation::camera::next_perspective(PerspectiveMode::ThirdPersonFront),
         PerspectiveMode::FirstPerson
     );
 }
@@ -808,18 +869,30 @@ fn perspective_poses_orbit_four_blocks_and_face_the_subject() {
     let subject = Vec3::new(4.0, 70.0, -2.0);
     let rotation = Quat::from_euler(EulerRot::YXZ, 0.7, -0.3, 0.0);
     let forward = rotation * Vec3::NEG_Z;
-    let radius = camera::THIRD_PERSON_RADIUS_BLOCKS;
+    let radius = client_presentation::camera::THIRD_PERSON_RADIUS_BLOCKS;
 
-    let first = camera::perspective_pose(subject, rotation, PerspectiveMode::FirstPerson);
+    let first = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::FirstPerson,
+    );
     assert!(first.translation.abs_diff_eq(subject, 1.0e-6));
     assert!(first.rotation.abs_diff_eq(rotation, 1.0e-6));
 
-    let back = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonBack);
+    let back = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::ThirdPersonBack,
+    );
     assert!((back.translation.distance(subject) - radius).abs() < 1.0e-5);
     assert!((back.translation - (subject - forward * radius)).length() < 1.0e-5);
     assert!((back.rotation * Vec3::NEG_Z).dot((subject - back.translation).normalize()) > 0.999);
 
-    let front = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonFront);
+    let front = client_presentation::camera::perspective_pose(
+        subject,
+        rotation,
+        PerspectiveMode::ThirdPersonFront,
+    );
     assert!((front.translation.distance(subject) - radius).abs() < 1.0e-5);
     assert!((front.translation - (subject + forward * radius)).length() < 1.0e-5);
     assert!((front.rotation * Vec3::NEG_Z).dot((subject - front.translation).normalize()) > 0.999);
@@ -909,7 +982,9 @@ fn review_unrelated_settings_keep_the_hotkey_perspective() {
 #[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -956,7 +1031,9 @@ fn captured_f5_cycles_perspective_without_moving_the_local_view() {
 #[test]
 fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -1015,7 +1092,9 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut()
@@ -1045,7 +1124,7 @@ fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     app.update();
 
     let end = *app.world().resource::<LocalViewPose>();
-    let expected = start + camera::auto_fly_offset(0.5);
+    let expected = start + client_presentation::camera::auto_fly_offset(0.5);
     assert!(
         end.eye_translation().abs_diff_eq(expected, 1.0e-4),
         "auto-fly stayed at {:?} instead of advancing to {expected:?}",

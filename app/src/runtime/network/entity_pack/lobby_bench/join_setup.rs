@@ -1,5 +1,5 @@
 //! Repeatable actor publication against an offline packet fixture and pack.
-use super::*;
+use {super::*, client_presentation::actor_publication::publish_actor_render_frame};
 
 /// Covers all registered vertex data, including geometry not yet used by a drawn actor.
 fn geometry_digest(frame: &ActorRenderFrame) -> u64 {
@@ -72,10 +72,12 @@ fn lobby_join_setup_bench() {
         measure_setup(&mut world, trial, "initial");
         world
             .resource_mut::<crate::runtime::world::ClientWorld>()
-            .session_items = Some(Arc::new(super::super::SessionItems {
-            components: Arc::default(),
-            icons: None,
-        }));
+            .session_items = Some(Arc::new(
+            client_presentation::session_assets::SessionItems {
+                components: Arc::default(),
+                icons: None,
+            },
+        ));
         measure_setup(&mut world, trial, "items_refresh");
     }
 }

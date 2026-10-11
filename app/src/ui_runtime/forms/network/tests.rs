@@ -5,7 +5,7 @@ use protocol::{BossAction, BossColor, BossEvent, BossOverlay, BossStyle, UiEvent
 
 #[test]
 fn boss_reply_drain_observes_the_transport_session_fence_during_credits() {
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(

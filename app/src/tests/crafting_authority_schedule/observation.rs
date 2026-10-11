@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, inventory::CraftingPreview};
 
 #[test]
 fn production_registration_orders_actual_network_control_before_observer_drain() {
@@ -49,18 +49,19 @@ fn production_registration_orders_actual_network_control_before_observer_drain()
 
 #[test]
 fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_frontier() {
-    use crate::{
-        camera::AutoFly,
-        local_player::LocalAvatarPresentation,
-        movement::PhysicsAuthorityGate,
-        runtime::{
-            network::{
-                NetworkControlEvent, NetworkHandle, ResourcePackAdmissionState,
-                SessionTransferTarget, receive_network_events,
+    use {
+        crate::{
+            movement::PhysicsAuthorityGate,
+            runtime::{
+                network::{
+                    NetworkControlEvent, NetworkHandle, ResourcePackAdmissionState,
+                    SessionTransferTarget, receive_network_events,
+                },
+                publication::PublicationController,
+                visibility::AppMetrics,
             },
-            publication::PublicationController,
-            visibility::AppMetrics,
         },
+        client_presentation::{camera::AutoFly, local_player::LocalAvatarPresentation},
     };
     let mut app = app();
     ingress(&mut app, 1, clear_recipes());

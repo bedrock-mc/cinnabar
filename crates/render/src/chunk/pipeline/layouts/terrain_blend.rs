@@ -26,8 +26,8 @@ pub(super) fn apply(descriptor: &mut RenderPipelineDescriptor) {
         .depth_stencil
         .as_mut()
         .expect("terrain depth state");
-    depth.depth_write_enabled = true;
-    depth.depth_compare = CompareFunction::GreaterEqual;
+    depth.depth_write_enabled = Some(true);
+    depth.depth_compare = Some(CompareFunction::GreaterEqual);
 }
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ mod tests {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -47,8 +47,8 @@ mod tests {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::Always,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Always),
                 stencil: default(),
                 bias: default(),
             }),
@@ -56,8 +56,8 @@ mod tests {
         };
         apply(&mut descriptor);
         let depth = descriptor.depth_stencil.unwrap();
-        assert!(depth.depth_write_enabled);
-        assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+        assert_eq!(depth.depth_write_enabled, Some(true));
+        assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
         let target = descriptor.fragment.unwrap().targets[0].clone().unwrap();
         assert_eq!(target.blend, Some(BlendState::ALPHA_BLENDING));
         assert_eq!(

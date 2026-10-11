@@ -1,6 +1,10 @@
-use super::*;
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font};
 use ui::{DpiScale, UiNode, UiVisual};
+use {
+    super::*,
+    launcher::menu::inbox::Action,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 fn frame(runtime: &mut UiPresentationRuntime, view: &MenuView, seconds: f64) -> Vec<UiNode> {
     runtime.menu_seconds = seconds;

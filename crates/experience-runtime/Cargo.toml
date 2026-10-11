@@ -15,5 +15,9 @@ wasmtime.workspace = true
 wit-component.workspace = true
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 tempfile = "3"
 wat = "1"
+
+[lints]
+workspace = true

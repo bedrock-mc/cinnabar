@@ -6,8 +6,9 @@ pub(crate) mod font;
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::{app::ClientFrameSet, environment::VisualTimeOverride, menu::MenuRuntime},
+    crate::{environment::VisualTimeOverride, menu::MenuRuntime},
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_state::ClientFrameSet,
     client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     mod_host::{ModGrants, ModHost},
     std::{
@@ -83,7 +84,7 @@ struct ModRuntime {
     label_rebuilds: u64,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
-    render_merge: mod_host::mod_render::RenderMerge,
+    render_merge: mod_render::RenderMerge,
     last_reload: Instant,
     controls: mod_host::ControlFrame,
     reload_on_main: bool,
@@ -307,7 +308,7 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.add_systems(
         Update,
         drive_mod
-            .in_set(crate::camera::ModCameraInputSet)
+            .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
@@ -321,7 +322,7 @@ fn configure_systems(app: &mut App, watching: bool) {
 #[cfg(feature = "local-mods")]
 type ModOutputs<'w> = (
     Option<Res<'w, crate::runtime::network::NetworkHandle>>,
-    Option<ResMut<'w, crate::camera::CameraSettingsAuthority>>,
+    Option<ResMut<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
 );
@@ -332,7 +333,7 @@ type ModOutputs<'w> = (
 )]
 #[cfg(feature = "local-mods")]
 fn drive_mod(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,
     focus: Option<Res<client_presentation::camera::CursorFocus>>,
@@ -414,7 +415,10 @@ fn drive_mod(
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
     let player_state = gameplay.player_state(
-        (0..extension.host_count()).any(|index| extension.host(index).grants().player_state),
+        (0..extension.host_count()).any(|index| {
+            let host = extension.host(index);
+            host.is_active() && host.grants().player_state
+        }),
         &player_runtime,
         &ui,
     );
@@ -561,8 +565,8 @@ fn send_commands(
 }
 
 #[cfg(feature = "local-mods")]
-fn camera_rig(rig: mod_host::GameplayCameraRig) -> crate::camera::CameraRig {
-    crate::camera::CameraRig {
+fn camera_rig(rig: mod_host::GameplayCameraRig) -> client_presentation::camera::CameraRig {
+    client_presentation::camera::CameraRig {
         offset: Vec3::new(rig.offset.x, rig.offset.y, rig.offset.z),
         roll_radians: rig.roll,
         fov_delta_degrees: rig.fov_delta,
@@ -604,15 +608,16 @@ mod tests {
             );
             return;
         }
-        let Some(presentation) =
-            crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+        let Some(presentation) = client_ui::test_support::pack_harness::engine_presentation()
         else {
             return;
         };
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
             .insert_resource(ButtonInput::<KeyCode>::default());
         let window = app
             .world_mut()
@@ -645,7 +650,7 @@ mod tests {
     fn sample_frame(app: &mut App) -> render_model::UiRenderInput {
         let player_runtime = app
             .world()
-            .resource::<crate::player_runtime::PlayerRuntime>()
+            .resource::<client_state::PlayerRuntime>()
             .clone();
         app.world_mut()
             .resource_mut::<UiPresentationRuntime>()

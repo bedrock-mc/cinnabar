@@ -1,6 +1,6 @@
 //! Real-carrier storage and support input checks; PNGs use the offline gallery path.
 
-use crate::menu::{
+use launcher::menu::{
     MenuAction, MenuDialog,
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };

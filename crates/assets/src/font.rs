@@ -94,9 +94,20 @@ impl FontPixels {
     fn coverage(&self) -> Option<Self> {
         let rgba8 = self.rgba8()?;
         rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|texel| texel[3] == 0 || texel[..3] == [255; 3])
-            .then(|| Self::Coverage(rgba8.chunks_exact(4).map(|texel| texel[3]).collect()))
+            .then(|| {
+                Self::Coverage(
+                    rgba8
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|texel| texel[3])
+                        .collect(),
+                )
+            })
     }
 }
 

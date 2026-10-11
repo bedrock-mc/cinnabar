@@ -3,11 +3,14 @@ use protocol::{
     ItemRegistryVersion, SlotIdentity,
 };
 
-use super::*;
-use crate::mining::FrozenMiningSelection;
+use gameplay::mining::FrozenMiningSelection;
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use {
+    super::*,
+    gameplay::item_use::{AirUse, UseFrame, classify},
+};
 
 const BOW: i32 = 300;
 
@@ -77,7 +80,7 @@ fn charged_stack() -> NetworkItemStack {
 }
 
 fn fixture(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     main_identifier: &str,
 ) -> (WorldStream, UiRuntime) {
     let mut stream = WorldStream::new(protocol::WorldBootstrap {
@@ -123,7 +126,7 @@ fn fixture(
 }
 
 fn publish(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut client_state::PlayerRuntime,
     ui: &mut UiRuntime,
     sequence: u64,
     container: ContainerIdentity,
@@ -145,7 +148,7 @@ fn publish(
 }
 
 fn use_frame(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     stream: &WorldStream,
     ui: &UiRuntime,
     tick: u64,
@@ -163,7 +166,7 @@ fn use_frame(
 
 #[test]
 fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     let mut runtime = ItemUseRuntime::default();
@@ -233,7 +236,7 @@ fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
 
 #[test]
 fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     assert_eq!(
         loading_projectile(&player_runtime, &stream, &ui, false),
@@ -278,7 +281,7 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
 
 #[test]
 fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offhand() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
     let (stream, mut ui) = fixture(&mut player_runtime, "minecraft:crossbow");
     let mut runtime = ItemUseRuntime::default();
@@ -381,7 +384,7 @@ fn owner_frame_is_admitted_only_for_the_selected_ranged_item() {
         ("minecraft:trident", 0),
         ("minecraft:bow", 1),
     ] {
-        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
         let (stream, ui) = fixture(&mut player_runtime, identifier);
         let mut runtime = ItemUseRuntime::default();
         runtime.observe_press(true);

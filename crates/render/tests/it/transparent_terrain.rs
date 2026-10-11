@@ -2,7 +2,7 @@
 //! produce the pixels of the liquid and model programs it composes, drawn in the same order
 //! through their own pipelines.
 use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source, solid_terrain_raster};
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use gpu_snapshot::Gpu;
 use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
 use meshing::{Face, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef};
@@ -111,12 +111,16 @@ impl Fixture {
             ];
             templates.extend(
                 positions
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|p| u32::from(p[0] as u16) | (u32::from(p[1] as u16) << 16)),
             );
             let uvs: [u16; 8] = [0, 0, 0, 4096, 4096, 4096, 4096, 0];
             templates.extend(
-                uvs.chunks_exact(2)
+                uvs.as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|p| u32::from(p[0]) | (u32::from(p[1]) << 16)),
             );
             templates.extend([1, 0]);
@@ -139,9 +143,11 @@ impl Fixture {
             uniform,
         );
         let eye = Vec3::new(1.0, 4.0, 1.0);
-        let world_from_view = Mat4::look_at_rh(eye, Vec3::new(1.0, 0.0, 1.0), Vec3::Z);
+        let world_from_view =
+            glam::camera::rh::view::look_at_mat4(eye, Vec3::new(1.0, 0.0, 1.0), Vec3::Z);
         let clip_from_world =
-            Mat4::perspective_infinite_reverse_rh(1.0, 1.0, 0.05) * world_from_view;
+            glam::camera::rh::proj::directx::perspective_infinite_reverse(1.0, 1.0, 0.05)
+                * world_from_view;
         let view = gpu.buffer(&gpu_snapshot::view(clip_from_world, eye), uniform);
         let atlas = solid_terrain_raster::pattern_texture(gpu);
         let sampler = gpu.device.create_sampler(&Default::default());
@@ -271,8 +277,8 @@ impl Fixture {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&self.layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&self.layout)],
+                immediate_size: 0,
             });
         gpu.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -291,8 +297,8 @@ impl Fixture {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::GreaterEqual,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -309,7 +315,7 @@ impl Fixture {
                             | wgpu::ColorWrites::BLUE,
                     })],
                 }),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
     }
@@ -377,6 +383,7 @@ impl Fixture {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_bind_group(0, &self.group, &[]);
             pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -413,13 +420,19 @@ impl Fixture {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        readback.slice(..).get_mapped_range().to_vec()
+        readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped")
+            .to_vec()
     }
 }
 
 fn mismatches(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0.iter())
         .filter(|(a, b)| a != b)
         .count()
 }
@@ -445,14 +458,14 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
     // Each family's own program, as its dedicated pipeline ran it before the merge.
     let liquid = lightmap(format!(
         "{}\n{LIQUID_REFERENCE}",
-        shader_source::standalone(include_str!("../../src/liquid.wgsl"), &defs)
+        shader_source::standalone(include_str!("../../src/liquid.wesl"), &defs)
     ));
     let model = lightmap(format!(
         "{}\n{MODEL_REFERENCE}",
-        shader_source::standalone(include_str!("../../src/model.wgsl"), &defs)
+        shader_source::standalone(include_str!("../../src/model.wesl"), &defs)
     ));
     let shared = lightmap(shader_source::composed(
-        include_str!("../../src/transparent_terrain.wgsl"),
+        include_str!("../../src/transparent_terrain.wesl"),
         &defs,
     ));
     let liquid = fixture.pipeline(
@@ -497,7 +510,11 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
     gpu_snapshot::save("transparent_terrain_direct", &direct);
     let background = &expected[..4];
     assert!(
-        expected.chunks_exact(4).any(|pixel| pixel != background),
+        expected
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel != background),
         "the fixture draws something"
     );
     assert_ne!(

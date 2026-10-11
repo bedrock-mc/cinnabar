@@ -10,7 +10,10 @@ use assets::{
     NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, encode_blob,
 };
-use client_world::{COMMITTED_UI_CAPACITY, ingestion::PreparedSubChunk};
+use client_world::{
+    COMMITTED_UI_CAPACITY,
+    ingestion::{PreparedSubChunk, WorldStreamError},
+};
 use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorLinkEvent,
     ActorLinkType, ActorMotionEvent, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent,
@@ -22,6 +25,7 @@ use protocol::{
     RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
     SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
+use render_api::{MAX_VIEW_RADIUS_CHUNKS, PublicationPermitStage, PublicationServiceConfig};
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,
     DecodedLevelChunk, MeshDependencyMask, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey,
@@ -946,6 +950,7 @@ fn acknowledge_request_sent(
     );
 }
 
+mod actor_light;
 mod audio_events;
 #[path = "tests/camera_events.rs"]
 mod camera_events;

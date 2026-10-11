@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, acceptance::committed_control::acceptance_surface_anchor};
 #[test]
 fn forced_remesh_starts_only_after_binding_teleport_completion() {
     let teleport_started = Instant::now();
@@ -365,7 +365,7 @@ fn acceptance_orients_a_normal_camera_toward_the_mutation_before_readiness() {
 }
 #[test]
 fn candidate_startup_capture_does_not_override_the_gameplay_camera() {
-    let mut capture_only = crate::camera::AutoFly::with_startup_capture(false, true);
+    let mut capture_only = client_presentation::camera::AutoFly::with_startup_capture(false, true);
     let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
     let original = camera;
 
@@ -379,7 +379,7 @@ fn candidate_startup_capture_does_not_override_the_gameplay_camera() {
 
 #[test]
 fn auto_fly_keeps_acceptance_camera_ownership_while_presentation_is_paused() {
-    let mut auto_fly = crate::camera::AutoFly::new(true);
+    let mut auto_fly = client_presentation::camera::AutoFly::new(true);
     auto_fly.pause_for_stable_presentation();
     let mut camera = Transform::from_xyz(10.5, 73.0, -5.5);
 

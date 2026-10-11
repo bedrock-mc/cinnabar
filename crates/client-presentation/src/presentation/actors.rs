@@ -2,12 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin, SkinRgba8};
+use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
 };
+use render_api::SkinRgba8;
 use render_model::{
     ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,
@@ -598,16 +599,19 @@ pub fn attach_layers<Context>(
     }
 }
 
-/// Lights each body at the reference body-height point; a body without solved light yet
+/// Lights each body at its collision-box endpoints; a body without solved light yet
 /// keeps drawing unlit rather than black.
 pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
     for submission in &mut batch.submissions {
         let feet = submission.world_from_actor.map(|row| row[3]);
-        let position = stream
+        let light = stream
             .authority()
             .actor(submission.input.identity.runtime_id)
-            .map_or(feet, |actor| actor.brightness_sample_position(feet));
-        if let Some((block, sky)) = stream.solved_light_at(position) {
+            .map_or_else(
+                || stream.solved_light_at(feet),
+                |actor| stream.actor_light_at(actor, feet),
+            );
+        if let Some((block, sky)) = light {
             submission.light = render::pack_actor_light(block, sky);
         }
     }

@@ -6,7 +6,7 @@ use std::{
 };
 
 use assets::{RuntimeEntityAssets, SkinGeometry, parse_skin_geometry};
-use protocol::SkinGeometrySource;
+use render_api::SkinGeometrySource;
 
 use super::super::{BoneTransform, RuntimeBone, compose_pose, skeleton, skin_layers};
 
@@ -180,8 +180,8 @@ fn prepare(
                         .ok(),
                     geometry: Arc::new(geometry),
                     bones,
+                    layers: skin_layers::parse(source, &names),
                     names,
-                    layers: skin_layers::parse(source),
                     rest,
                 })),
                 false,

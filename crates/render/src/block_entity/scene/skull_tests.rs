@@ -77,7 +77,7 @@ fn skull_base_and_hat_carry_rotated_outward_normals_without_terrain_shading() {
             Vec3::Y,
             Vec3::NEG_Y,
         ];
-        for (face, vertices) in frame.solid.chunks_exact(6).enumerate() {
+        for (face, vertices) in frame.solid.as_chunks::<6>().0.iter().enumerate() {
             let expected = rotation.transform_vector3(normals[face % normals.len()]);
             for vertex in vertices {
                 assert!(Vec3::from_array(vertex.normal).abs_diff_eq(expected, 1.0e-5));

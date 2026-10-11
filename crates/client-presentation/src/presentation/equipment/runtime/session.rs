@@ -1,7 +1,7 @@
 //! The session's server items: component facts and pack icons, so custom items draw in the
 //! hand and on the body as the vanilla client draws component items.
 
-use super::*;
+use {super::*, render_model::equipment::is_hand_equipped};
 
 use crate::session_assets::SessionItems;
 

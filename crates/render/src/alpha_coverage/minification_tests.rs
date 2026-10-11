@@ -3,7 +3,7 @@ use super::*;
 /// Draws a minified sprite before an opaque sprite behind it to expose stray colour and depth.
 fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
     let mut source = crate::shader_source::standalone(
-        include_str!("../dropped_item.wgsl"),
+        include_str!("../dropped_item.wesl"),
         if samples > 1 { &[SHADER_DEF] } else { &[] },
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
@@ -162,7 +162,12 @@ fn minified_dropped_item_transparent_texels_leave_colour_and_depth_uncovered() {
                 "nonzero mip alpha still produces partial coverage"
             );
         } else {
-            assert!(four.chunks_exact(4).all(|pixel| pixel[..3] == [0, 255, 0]));
+            assert!(
+                four.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[..3] == [0, 255, 0])
+            );
         }
     }
 }

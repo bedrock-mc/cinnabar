@@ -1,7 +1,10 @@
 //! Focus retained by the screen history and restored only on a return request.
 
-use super::super::{MenuAction, MenuRuntime, MenuScreen, focus::same_control};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+use {
+    super::super::{MenuRuntime, focus::same_control},
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 #[derive(Debug, Default)]
 pub(in crate::menu) struct NavigationFocus {

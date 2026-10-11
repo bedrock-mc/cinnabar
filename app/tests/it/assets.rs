@@ -16,18 +16,21 @@ use ::assets::{
     encode_font_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
-use bedrock_client::asset_startup::{
-    ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
-    DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
-    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-    LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
-    atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
-    font_asset_path, load_runtime_assets, local_font_asset_path, pinned_world_provenance,
-    select_asset_path, select_asset_path_in_context,
-};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
+use {
+    assets::pinned_world_provenance,
+    bedrock_client::asset_startup::{
+        ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
+        DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
+        FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+        LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
+        atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
+        font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
+        select_asset_path_in_context,
+    },
+};
 
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
@@ -476,7 +479,7 @@ fn atmosphere_evidence_summary_contains_only_stable_hashes() {
 fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
     let expected = format!(
         "{:x}",
-        Sha256::digest(include_bytes!("../../../crates/render/src/atmosphere.wgsl"))
+        Sha256::digest(include_bytes!("../../../crates/render/src/atmosphere.wesl"))
     );
     assert_eq!(atmosphere_shader_source_sha256(), expected);
 }
@@ -485,7 +488,7 @@ fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
 fn cloud_shader_identity_hashes_the_exact_embedded_wgsl_source() {
     let expected = format!(
         "{:x}",
-        Sha256::digest(include_bytes!("../../../crates/render/src/cloud.wgsl"))
+        Sha256::digest(include_bytes!("../../../crates/render/src/cloud.wesl"))
     );
     assert_eq!(cloud_shader_source_sha256(), expected);
 }

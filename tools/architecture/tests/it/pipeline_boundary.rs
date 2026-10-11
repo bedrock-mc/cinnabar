@@ -135,7 +135,7 @@ fn client_world_rejects_renamed_pipeline_and_compiler_edges_including_tests() {
 }
 
 #[test]
-fn client_world_cannot_import_the_publication_contract_directly() {
+fn client_world_can_import_shared_skin_contracts() {
     for kind in ["dependencies", "build-dependencies"] {
         let temp = fixture();
         set_dependencies(
@@ -143,11 +143,7 @@ fn client_world_cannot_import_the_publication_contract_directly() {
             "client-world",
             &format!("[{kind}]\ncontracts={{package='render-api',path='../render-api'}}"),
         );
-        assert!(
-            diagnostics(temp.path())
-                .iter()
-                .any(|line| { line == "client-world: forbidden dependency `render-api`" })
-        );
+        assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
     }
 }
 

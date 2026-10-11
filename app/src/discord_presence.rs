@@ -32,8 +32,8 @@ pub(crate) fn configure(app: &mut App) {
             .add_systems(
                 Update,
                 crate::menu::open_join_requests_from_key
-                    .after(crate::app::ClientFrameSet::SemanticFinalize)
-                    .before(crate::app::ClientFrameSet::UiPreparation),
+                    .after(client_state::ClientFrameSet::SemanticFinalize)
+                    .before(client_state::ClientFrameSet::UiPreparation),
             );
         }
         Ok(None) => {}

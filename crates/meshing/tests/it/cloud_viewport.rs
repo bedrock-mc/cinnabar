@@ -190,7 +190,7 @@ fn finite_closed_edges_are_admitted_even_when_the_periodic_quad_bound_is_exceede
 #[test]
 fn solid_window_closes_its_outer_edges_without_sampling_beyond_the_admitted_grid() {
     let mut texture = texture();
-    for texel in texture.rgba8.chunks_exact_mut(4) {
+    for texel in texture.rgba8.as_chunks_mut::<4>().0 {
         texel.copy_from_slice(&[255; 4]);
     }
     let quads = mesh_cloud_viewport(&texture, window([0.0; 2], false, false)).unwrap();

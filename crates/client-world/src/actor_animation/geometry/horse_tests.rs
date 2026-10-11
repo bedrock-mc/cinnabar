@@ -114,7 +114,7 @@ fn query_flag(name: &str) -> u64 {
                 bones: &[],
                 bone_names: &[],
             };
-            (query::query(&inputs, name, &[]).number() == 1.0).then_some(flag)
+            (query::named_query(&inputs, name, &[]).number() == 1.0).then_some(flag)
         })
         .collect();
     assert_eq!(flags.len(), 1, "{name} reads one actor flag");
@@ -129,7 +129,7 @@ fn pinned_horse_equipment_visibility_follows_saddle_and_rider_state() {
     let mut actor = horse(0);
     let mut store = ActorAnimationStore::with_assets(assets);
     store.insert(1, 0, &actor);
-    let saddled_flag = query_flag("is_saddled");
+    let saddled_flag = query_flag("query.is_saddled");
     for (saddled, rider) in [(false, false), (false, true), (true, false), (true, true)] {
         actor.metadata.insert(
             0,
@@ -219,7 +219,7 @@ fn pinned_horse_rears_and_grazes_from_its_synced_state() {
     tick(&mut store, &actor, false);
     actor
         .metadata
-        .insert(0, ActorMetadataValue::Flags(query_flag("is_standing")));
+        .insert(0, ActorMetadataValue::Flags(query_flag("query.is_standing")));
     for _ in 0..12 {
         tick(&mut store, &actor, false);
     }

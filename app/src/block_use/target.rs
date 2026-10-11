@@ -1,15 +1,19 @@
 //! Adapts fresh world evidence to the gameplay-owned held placement intention.
-use super::*;
 use gameplay::{
     block_use::PlacementTarget,
     melee::{Crosshair, classify, pick_actor},
 };
 use sim::CollisionWorld;
+use {
+    super::*,
+    gameplay::interaction_authority::FrozenBlockObservation,
+    gameplay::mining::{creative_reach, survival_reach},
+};
 
 /// Recasts the pre-tick frame pick against the current world and resolves the held support.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn observe_use_target(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &client_state::PlayerRuntime,
     context: &BlockUseContext,
     input_mode: PlayerInputMode,
     survival: bool,

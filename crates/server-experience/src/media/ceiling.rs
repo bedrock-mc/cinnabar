@@ -43,7 +43,7 @@ impl BoundedAllocator {
     fn reserve(&self, bytes: usize) -> bool {
         let limit = self.limit.load(Ordering::Acquire);
         self.used
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes)
                     .filter(|next| limit == 0 || *next <= limit)
             })

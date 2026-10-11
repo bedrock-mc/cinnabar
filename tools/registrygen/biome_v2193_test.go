@@ -95,6 +95,10 @@ func TestV2193BiomeSharedCatalogReproducesCarrier(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Normalize checkout line endings only for JSON, retaining exact carrier checks.
+		if strings.HasSuffix(checkedIn, ".json") {
+			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+		}
 		if !bytes.Equal(got, want) {
 			t.Errorf("shared biome projection differs from %s", checkedIn)
 		}

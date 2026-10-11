@@ -66,7 +66,7 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
     let buffer = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
     let source = format!(
         "{}\n{FIXTURE}",
-        shader_source::standalone(include_str!("../../src/material.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/material.wesl"), &[])
     );
     let pixels = gpu.render(
         &source,

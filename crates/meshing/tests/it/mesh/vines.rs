@@ -59,7 +59,7 @@ fn compiled_blank_signs_emit_exact_bounded_model_and_lighting_streams() {
     )
     .expect("write empty sign flipbooks");
     let mut rgba = vec![0_u8; 16 * 16 * 4];
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[139, 98, 55, 255]);
     }
     let mut png = Vec::new();
@@ -128,7 +128,7 @@ fn write_vine_render_pack(root: &Path, cube_name: &str) {
 
     for (index, name) in ["vine", "cube"].into_iter().enumerate() {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (pixel_index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let x = (pixel_index % 16) as u8;
             let y = (pixel_index / 16) as u8;
             pixel.copy_from_slice(&[20 + index as u8 * 90 + x, 40 + y, 80, 255]);

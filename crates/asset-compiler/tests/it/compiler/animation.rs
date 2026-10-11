@@ -1,4 +1,10 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{BlockFlags, encode_blob},
+    sha2::{Digest, Sha256},
+    std::fs,
+    std::process::Command,
+};
 
 #[test]
 fn assetc_root_help_documents_all_compile_inputs() {

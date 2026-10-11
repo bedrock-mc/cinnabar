@@ -1,4 +1,4 @@
-use protocol::world_control::{
+use bridge::{
     Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
     WorldState, WorldStatus, WorldUpdate,
 };
@@ -68,7 +68,7 @@ pub enum Input {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Effect {
     List,
-    Create(protocol::world_control::NewWorld),
+    Create(bridge::NewWorld),
     Delete(String),
     Update {
         id: String,
@@ -224,7 +224,7 @@ impl WorldsMenu {
         self.busy
     }
 
-    /// Takes the id of a world that finished opening; the caller then joins the game socket.
+    /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub fn take_ready(&mut self) -> Option<String> {
         self.ready.take()
     }

@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    render_api::{PublicationAllowance, PublicationServiceConfig},
+};
 
 #[test]
 fn urgent_scheduler_work_preempts_nearer_ordinary_work() {

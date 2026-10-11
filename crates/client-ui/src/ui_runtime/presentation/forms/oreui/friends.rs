@@ -8,7 +8,7 @@ use super::icons::{self, Icon};
 use super::paint::Canvas;
 use super::theme::{BODY, BORDER, CAPTION, NEUTRAL90, TEXT, TEXT_DIMMER, TEXT_DIMMEST};
 use super::widgets::{Variant, button, panel, row, screen_overlay, tabs};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 const DRAWER_WIDTH: f32 = 37.6;
 

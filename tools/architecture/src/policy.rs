@@ -20,6 +20,33 @@ pub(super) struct Policy {
     pub(super) markers: Vec<MarkerRule>,
     #[serde(default)]
     pub(super) module_boundaries: Vec<ModuleBoundary>,
+    #[serde(default)]
+    pub(super) reexport_allowances: Vec<ReexportAllowance>,
+    #[serde(default)]
+    pub(super) timing: TimingRules,
+}
+
+/// Tests never sleep, and listed crates never read the clock outside tests.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct TimingRules {
+    #[serde(default)]
+    pub(super) clock_free_crates: Vec<String>,
+    #[serde(default)]
+    pub(super) sleep_exceptions: Vec<SleepException>,
+}
+
+/// A test file that may sleep until it is converted; the reason says why.
+#[derive(Debug, Deserialize)]
+pub(super) struct SleepException {
+    pub(super) path: String,
+    pub(super) reason: String,
+}
+
+/// Temporary, individually named forwarding APIs retained during an ownership migration.
+#[derive(Debug, Deserialize)]
+pub(super) struct ReexportAllowance {
+    pub(super) path: String,
+    pub(super) exports: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +79,12 @@ pub(super) struct CrateRule {
     /// Reject every dependency, including external and development dependencies.
     #[serde(default)]
     pub(super) dependency_free: bool,
+    /// Limits all Rust source lines in a shared hub.
+    #[serde(default)]
+    pub(super) max_rust_lines: Option<usize>,
+    /// Allows only data declarations and module wiring, with no executable items.
+    #[serde(default)]
+    pub(super) contract_only: bool,
     /// Reject these packages through local dependency paths, including this crate's tests.
     #[serde(default)]
     pub(super) forbidden_transitive_dependencies: Vec<String>,

@@ -4,7 +4,7 @@ use super::super::super::super::UiPresentationError;
 use super::super::theme::{self, BODY, EDGE, NEUTRAL80, TEXT};
 use super::super::widgets::Interaction;
 use super::{Content, button};
-use crate::menu::{
+use launcher::menu::{
     MenuAction,
     settings_options::{
         ANIMATIONS_OPTION, CHAT_POSITION_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS,
@@ -126,12 +126,13 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 "gamma",
                 "max_framerate",
                 "vsync",
-                crate::menu::settings_options::VRR_OPTION.name,
+                launcher::menu::settings_options::VRR_OPTION.name,
                 "msaa",
                 SMAA_OPTION.name,
                 MOTION_BLUR_OPTION.name,
                 "smooth_lighting",
                 "fancy_skies",
+                launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name,
                 "render_distance",
             ],
         )?;
@@ -158,8 +159,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
             "ingame_player_names",
             "interface_opacity",
             "show_auto_save_icon",
-            crate::menu::settings_options::SHOW_EXACT_SERVER_PING,
-            crate::menu::settings_options::OREUI_DARK_MODE,
+            launcher::menu::settings_options::SHOW_EXACT_SERVER_PING,
+            launcher::menu::settings_options::OREUI_DARK_MODE,
         ],
     )?;
     content.heading(
@@ -541,7 +542,7 @@ pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
         "options.framerateLimit.description" => {
-            "Automatic lets your display pace frames, with fresh input and no tearing. Unlimited renders as fast as it can."
+            "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
         }
         "options.showExactServerPing" => "Show exact server ping",
         "options.oreuiDarkMode" => "Dark Mode",

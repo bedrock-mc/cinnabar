@@ -9,13 +9,16 @@ use std::sync::Arc;
 use protocol::{NetworkItemStack, WindowKind};
 use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiVisual};
 
-use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::inventory_actions::visible_creative_entries;
-use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
 use crate::ui_runtime::presentation::screens::{
     self, CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, PlacedSlot, SEARCH_TAB, SLOT_SIZE,
     STONECUTTER_CELLS, TAB_COUNT, Widget, tab_origin, tab_size,
+};
+use inventory::inventory_ledger::InventoryTarget;
+use {
+    super::{HudFrame, HudLayout, UiPresentationError, UiRuntime, rect},
+    ui::IconRef,
 };
 
 const FURNACE_COOK_TICKS: f32 = 200.0;
@@ -196,8 +199,8 @@ impl HudLayout<'_> {
                 text,
                 style: TextStyle::default(),
                 width_64: 1_024 * 64,
-                line_height_64: super::super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::super::TEXT_BASELINE_64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
                 scale: self.text_scale(TEXT_GUI_PX),
                 font: self.font,
                 wrap: self.geometry.text_wrap(),
@@ -374,8 +377,8 @@ impl HudLayout<'_> {
                 text,
                 style: TextStyle::default(),
                 width_64: 1_024 * 64,
-                line_height_64: super::super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::super::TEXT_BASELINE_64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
                 scale: self.text_scale(TEXT_GUI_PX),
                 font: self.font,
                 wrap: self.geometry.text_wrap(),
@@ -722,7 +725,7 @@ impl HudLayout<'_> {
             );
             self.ui_text(&text, [field[0] + 2.0, field[1] + 2.0], [255; 4], false)?;
         }
-        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), state);
+        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), runtime);
         for slot in screens::creative_slots() {
             let position = [origin[0] + slot.pos[0], origin[1] + slot.pos[1]];
             self.slot_frame(position, SLOT_SIZE)?;

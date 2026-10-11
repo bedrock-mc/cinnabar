@@ -1,5 +1,4 @@
-// Package streamnet adapts a local byte-stream connection to gophertunnel's
-// packet-oriented transport contract.
+// Package streamnet provides local control and framed session transports.
 package streamnet
 
 import (
@@ -9,11 +8,13 @@ import (
 	"io"
 	"net"
 	"sync"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
 	// MaxFrameLen is the largest local transport frame accepted by the bridge.
-	MaxFrameLen = 64 * 1024 * 1024
+	MaxFrameLen = bridgecontract.MaxFrameLen
 	maxFrameLen = MaxFrameLen
 )
 
@@ -31,7 +32,6 @@ type FramedConn struct {
 	writeMu   sync.Mutex
 	closeOnce sync.Once
 	closeErr  error
-	onClose   func()
 
 	aheadMu  sync.Mutex
 	ahead    chan framedRead // the read-ahead frame ReadPacket must return next
@@ -43,34 +43,9 @@ type framedRead struct {
 	err     error
 }
 
-// PeerWatcher is implemented by the remote address of a listener connection, so a holder of
-// only the gophertunnel Conn can notice its peer leaving while nothing reads.
-type PeerWatcher interface {
-	PeerDone() <-chan struct{}
-}
-
-type peerAddr struct {
-	net.Addr
-	conn *FramedConn
-}
-
-func (addr peerAddr) PeerDone() <-chan struct{} { return addr.conn.PeerDone() }
-
 // NewFramedConn wraps conn in the local bridge framing contract.
 func NewFramedConn(conn net.Conn) *FramedConn {
 	return &FramedConn{Conn: conn}
-}
-
-func newTrackedFramedConn(conn net.Conn, onClose func()) *FramedConn {
-	return &FramedConn{Conn: conn, onClose: onClose}
-}
-
-// RemoteAddr carries PeerWatcher for tracked listener connections.
-func (c *FramedConn) RemoteAddr() net.Addr {
-	if c.onClose == nil {
-		return c.Conn.RemoteAddr()
-	}
-	return peerAddr{Addr: c.Conn.RemoteAddr(), conn: c}
 }
 
 // PeerDone reads the next frame ahead and returns a channel closed if that read ends the
@@ -94,13 +69,10 @@ func (c *FramedConn) PeerDone() <-chan struct{} {
 	return done
 }
 
-// Close closes the underlying transport once and unregisters tracked server connections.
+// Close closes the underlying transport once.
 func (c *FramedConn) Close() error {
 	c.closeOnce.Do(func() {
 		c.closeErr = c.Conn.Close()
-		if c.onClose != nil {
-			c.onClose()
-		}
 	})
 	return c.closeErr
 }

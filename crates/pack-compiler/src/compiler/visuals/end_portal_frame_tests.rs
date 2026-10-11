@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use serde_json::Value;
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 fn compile_current_frames() -> (CompiledAssets, Vec<RegistryRecord>) {
     let target: Value =

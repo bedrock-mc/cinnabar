@@ -70,6 +70,35 @@ impl SequentialIdRemap {
         }
     }
 
+    /// Sets custom runs over the admitted vanilla palette without expanding custom states.
+    /// Run wire starts include earlier insertions; the internal starts follow the carrier.
+    #[must_use]
+    pub fn with_insertions(mut self, runs: impl IntoIterator<Item = (u32, u32, u32)>) -> Self {
+        let insertions = Self::new(runs);
+        if self.palette.is_some()
+            || insertions
+                .segments
+                .iter()
+                .any(|run| run.wire_start != run.internal_start)
+        {
+            self.segments = insertions.segments;
+        } else {
+            self.segments.clear();
+        }
+        self
+    }
+
+    /// Counts admitted vanilla states before an internal palette boundary.
+    /// Call before adding insertions, with vanilla entries in increasing internal order.
+    #[must_use]
+    pub fn wire_boundary(&self, internal: u32) -> u32 {
+        self.palette.as_ref().map_or(internal, |palette| {
+            palette
+                .wire_to_internal
+                .partition_point(|&id| id < internal) as u32
+        })
+    }
+
     #[must_use]
     pub fn is_identity(&self) -> bool {
         self.palette.is_none() && self.segments.is_empty()
@@ -78,37 +107,31 @@ impl SequentialIdRemap {
     /// Translates a server block id to the id the carrier and registries use.
     #[must_use]
     pub fn to_internal(&self, wire: u32) -> u32 {
-        if let Some(palette) = &self.palette {
-            return palette
-                .wire_to_internal
-                .get(wire as usize)
-                .copied()
-                .unwrap_or(u32::MAX);
-        }
         let after = self
             .segments
             .partition_point(|segment| segment.wire_start <= wire);
-        let Some(segment) = after.checked_sub(1).map(|index| self.segments[index]) else {
-            return wire;
-        };
-        let offset = wire - segment.wire_start;
-        if offset < segment.len {
-            segment.internal_start.saturating_add(offset)
-        } else {
+        let vanilla = if let Some(segment) = after.checked_sub(1).map(|index| self.segments[index])
+        {
+            let offset = wire - segment.wire_start;
+            if offset < segment.len {
+                return segment.internal_start.saturating_add(offset);
+            }
             wire - segment.shifted
-        }
+        } else {
+            wire
+        };
+        self.palette.as_ref().map_or(vanilla, |palette| {
+            palette
+                .wire_to_internal
+                .get(vanilla as usize)
+                .copied()
+                .unwrap_or(u32::MAX)
+        })
     }
 
     /// Recovers the wire id of a resolved internal state for diagnostics.
     #[must_use]
     pub fn to_wire(&self, internal: u32) -> u32 {
-        if let Some(palette) = &self.palette {
-            return palette
-                .internal_to_wire
-                .get(internal as usize)
-                .copied()
-                .unwrap_or(u32::MAX);
-        }
         for segment in &self.segments {
             if let Some(offset) = internal.checked_sub(segment.internal_start)
                 && offset < segment.len
@@ -116,16 +139,29 @@ impl SequentialIdRemap {
                 return segment.wire_start.saturating_add(offset);
             }
         }
+        let vanilla = if let Some(palette) = &self.palette {
+            let wire = palette
+                .internal_to_wire
+                .get(internal as usize)
+                .copied()
+                .unwrap_or(u32::MAX);
+            if wire == u32::MAX {
+                return wire;
+            }
+            wire
+        } else {
+            internal
+        };
         let after = self.segments.partition_point(|segment| {
             segment
                 .wire_start
                 .saturating_sub(segment.shifted - segment.len)
-                <= internal
+                <= vanilla
         });
         let shifted = after
             .checked_sub(1)
             .map_or(0, |index| self.segments[index].shifted);
-        internal.saturating_add(shifted)
+        vanilla.saturating_add(shifted)
     }
 }
 
@@ -186,5 +222,27 @@ mod tests {
         assert_eq!(remap.to_internal(1), u32::MAX);
         assert_eq!(remap.to_internal(3), 1);
         assert_eq!(remap.to_wire(1), 2);
+    }
+    #[test]
+    fn compact_insertions_preserve_omissions_and_large_diagnostic_runs() {
+        let base = SequentialIdRemap::from_palette(vec![0, 2, 4], 5);
+        assert_eq!(base.wire_boundary(3), 2);
+        let remap = base.with_insertions([(1, 1, 5), (3, 1_000_000, 6)]);
+        for (wire, internal) in [
+            (0, 0),
+            (1, 5),
+            (2, 2),
+            (3, 6),
+            (1_000_002, 1_000_005),
+            (1_000_003, 4),
+        ] {
+            assert_eq!(remap.to_internal(wire), internal);
+            assert_eq!(remap.to_wire(internal), wire);
+        }
+        assert_eq!(remap.to_wire(1), u32::MAX);
+        assert_eq!(remap.to_wire(3), u32::MAX);
+        assert_eq!(remap.to_internal(1_000_004), u32::MAX);
+        assert_eq!(remap.palette.as_ref().unwrap().wire_to_internal.len(), 3);
+        assert_eq!(remap.segments.len(), 2);
     }
 }

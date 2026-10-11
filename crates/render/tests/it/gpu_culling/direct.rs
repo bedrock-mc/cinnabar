@@ -357,6 +357,7 @@ fn shown_slots(
             }),
             timestamp_writes: None,
             occlusion_query_set: Some(&queries),
+            multiview_mask: None,
         });
         let eye = eye.as_dvec3().to_array();
         for (index, &slot) in slots.iter().enumerate() {

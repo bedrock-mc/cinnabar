@@ -3,9 +3,9 @@
 use json_ui::ScreenSettings;
 
 use super::menu_screens;
-use crate::{
-    menu::MenuView,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+use {
+    crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    launcher::menu::MenuView,
 };
 
 /// Synchronous launcher projection supplied by the app until launcher services move.
@@ -15,7 +15,7 @@ pub trait MenuScene {
     /// The current launcher view, preserving the caller's frame ordering.
     fn view(&self) -> MenuView;
     /// The visible launcher screen at this observation boundary.
-    fn scene(&self) -> Option<crate::menu::MenuScreen>;
+    fn scene(&self) -> Option<launcher::menu::MenuScreen>;
     /// Whether the menu was opened over the connected world.
     fn over_world(&self) -> bool;
     /// Whether that launcher screen draws the title panorama.
@@ -90,7 +90,7 @@ impl UiPresentationRuntime {
 
     /// Resolves the menu and any popup above it; a popup cannot uncover an opaque parent.
     fn menu_settings(&self, runtime: &UiRuntime, view: &MenuView) -> ScreenSettings {
-        if view.screen == crate::menu::MenuScreen::Death {
+        if view.screen == launcher::menu::MenuScreen::Death {
             return crate::ui_runtime::scene_stack::construction::death_settings();
         }
         let Some(engine) = self.form_presentation.engine.as_deref() else {
@@ -119,7 +119,7 @@ impl UiPresentationRuntime {
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support {
-    use super::*;
+    use {super::*, launcher::menu::MenuView};
     /// Reads the resolved menu policy for app transition integration tests.
     pub fn menu_settings(
         presentation: &UiPresentationRuntime,

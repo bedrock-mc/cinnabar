@@ -38,11 +38,11 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let sampler = gpu.device.create_sampler(&Default::default());
     let mut item_source =
-        shader_source::standalone(include_str!("../../src/dropped_item.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/dropped_item.wesl"), &[])
             .replace("@vertex\nfn item_vertex", "fn item_vertex");
     item_source.push_str(ITEM_VERTEX);
     let mut particle_source =
-        shader_source::standalone(include_str!("../../src/particles.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/particles.wesl"), &[])
             .replace("@vertex\nfn particle_vertex", "fn particle_vertex")
             .replace("@builtin(vertex_index) vertex_index:", "vertex_index:")
             .replace(

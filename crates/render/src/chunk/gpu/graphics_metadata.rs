@@ -108,8 +108,16 @@ fn graphics_metadata_pending(
 }
 
 #[derive(SystemParam)]
-pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w> {
-    windows: Res<'w, ExtractedWindows>,
+pub(in crate::chunk) struct GraphicsRuntimeMetadataInputs<'w, 's> {
+    windows: Query<
+        'w,
+        's,
+        (
+            bevy::render::sync_world::MainEntity,
+            &'static ExtractedWindow,
+        ),
+        With<bevy::window::PrimaryWindow>,
+    >,
     probed: Res<'w, ProbedSurface>,
     render_adapter: Res<'w, RenderAdapter>,
     policy: Option<Res<'w, PresentModePolicy>>,
@@ -132,10 +140,7 @@ pub(in crate::chunk) fn publish_graphics_runtime_metadata(
     if !input.enabled() || *publication == GraphicsMetadataPublicationState::Published {
         return;
     }
-    let Some(window_id) = windows.primary else {
-        return;
-    };
-    let Some(window) = windows.windows.get(&window_id) else {
+    let Ok((window_id, window)) = windows.single() else {
         return;
     };
     let preference = policy.as_deref().map(PresentModePolicy::preference);

@@ -15,21 +15,20 @@ use crosshair::resolve_crosshair;
 
 #[cfg(feature = "local-mods")]
 use crate::modding::interaction::{ModInteraction, effective_reach};
-use crate::{
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{hand_interaction_selection, protocol_input_mode},
-    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
-
-pub(crate) use gameplay::melee::{
-    Crosshair, PressContext, classify, obstructs_placement, pick_actor, press_admission,
-    resolve_and_send, swing_duration,
+use {
+    crate::{
+        mining::hand_interaction_selection,
+        movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+        runtime::{network::NetworkHandle, world::ClientWorld},
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    client_state::SemanticInputSnapshot,
+    gameplay::mining::protocol_input_mode,
 };
+
+use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send, swing_duration};
 
 /// Bevy resource adapter for the gameplay melee owner.
 #[derive(Resource, Debug, Default, Clone)]
@@ -68,7 +67,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
     ui: Res<'w, UiRuntime>,
-    menu: Res<'w, MenuRuntime>,
+    focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -76,7 +75,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
-    camera: Res<'w, crate::camera::ServerCameraView>,
+    camera: Res<'w, client_presentation::camera::ServerCameraView>,
     #[cfg(feature = "local-mods")]
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
@@ -88,12 +87,12 @@ pub(crate) struct MeleeContext<'w, 's> {
 /// Like vanilla's build-action handler, only an open screen or spectator mode ignores the
 /// press; everything else swings.
 pub(crate) fn produce_melee(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
     mut runtime: ResMut<MeleeRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
-    mut view: ResMut<crate::local_player::LocalViewPose>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
@@ -107,7 +106,7 @@ pub(crate) fn produce_melee(
     let attack = context.input.phase(Action::Attack);
     let drop = |reason| {
         if attack.pressed {
-            crate::movement::note_click_drop("attack", reason);
+            gameplay::movement::note_click_drop("attack", reason);
         }
     };
     let Some(input) = context.input.snapshot() else {
@@ -116,9 +115,9 @@ pub(crate) fn produce_melee(
     };
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     if let Err(reason) = press_admission(
-        focused && !context.ui.ui_focused(&player_runtime),
+        focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
     ) {
         drop(reason);
@@ -257,7 +256,7 @@ pub(crate) fn produce_melee(
 
 /// Resolves selected-item component facts through the admitted registry and active catalog.
 pub(crate) fn selected_attack_timing<'a>(
-    player: &crate::player_runtime::PlayerRuntime,
+    player: &client_state::PlayerRuntime,
     world: &'a ClientWorld,
 ) -> Option<&'a protocol::ItemAttackTiming> {
     let stream = world.stream.as_ref()?;
@@ -271,6 +270,3 @@ pub(crate) fn selected_attack_timing<'a>(
 
 #[cfg(test)]
 mod session_tests;
-
-#[cfg(test)]
-pub(crate) use gameplay::melee::ActorHit;

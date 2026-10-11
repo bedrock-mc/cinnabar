@@ -1,8 +1,8 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const FLAME_HEIGHT: f32 = 1.4;
 

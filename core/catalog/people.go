@@ -17,8 +17,7 @@ const MaxPeople = 100
 // gamerpicSide is the square size friends' gamerpics are requested at, enough for a list row.
 const gamerpicSide = 128
 
-// Person is one Xbox friend as the invite screen lists them. Gamerpic.Path is filled in by a
-// caller that caches the artwork.
+// Person is one Xbox friend as the invite screen lists them; the client caches Gamerpic.URL.
 type Person struct {
 	XUID     string `json:"xuid"`
 	Gamertag string `json:"gamertag"`

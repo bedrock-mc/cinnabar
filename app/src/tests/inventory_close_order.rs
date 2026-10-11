@@ -1,6 +1,6 @@
 //! Same-frame pointer and close-key ordering through the production input owners.
 
-use crate::player_runtime::PlayerRuntime;
+use client_state::PlayerRuntime;
 use std::sync::Arc;
 
 use bevy::{
@@ -20,14 +20,16 @@ use protocol::{
 };
 use ui::UiPoint;
 
-use crate::{
-    app::{ClientFrameSet, configure_client_frame_schedule},
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
-    },
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        app::configure_client_frame_schedule,
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
+    },
+    client_state::ClientFrameSet,
+    client_ui::test_support::fixture_font,
+};
 
 fn app() -> (App, Entity) {
     app_with(true)
@@ -35,7 +37,7 @@ fn app() -> (App, Entity) {
 
 /// One stack in slot zero under the pointer, with the personal inventory open or closed.
 fn app_with(open: bool) -> (App, Entity) {
-    let mut player_runtime = PlayerRuntime::new(1);
+    let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
     runtime
@@ -378,7 +380,7 @@ fn gameplay_click_followed_by_a_key_keeps_its_edge() {
 /// A press that triggers the inventory binding opens the screen and is never also a click on it.
 #[test]
 fn inventory_binding_press_followed_by_a_key_is_not_a_click() {
-    use crate::menu::{
+    use launcher::menu::{
         MenuAction,
         settings_options::{EXTRA_KEYS, KEY_BINDINGS},
     };

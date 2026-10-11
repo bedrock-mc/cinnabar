@@ -351,13 +351,6 @@ fn absorption_poison_outranks_wither_and_unknown_effect_actions_are_counted() {
     );
 }
 
-/// Every vanilla protocol-1001 effect id the HUD can present. Instant
-/// effects (6, 7, 23) have no HUD surface.
-pub const RENDERABLE_EFFECT_IDS: [i32; 27] = [
-    1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28,
-    29, 30,
-];
-
 #[test]
 fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
     let mut runtime = UiRuntime::new(1);
@@ -367,20 +360,22 @@ fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
         sequence
     };
     // The full renderable catalog stays under the retention cap by design.
-    for id in RENDERABLE_EFFECT_IDS {
+    let ids: Vec<_> = assets::EFFECT_DESCRIPTORS
+        .iter()
+        .filter(|descriptor| descriptor.icon.is_some())
+        .map(|descriptor| descriptor.id)
+        .collect();
+    for &id in &ids {
         runtime
             .apply_local_effect(1, next(), effect(ActorEffectAction::Add, id, -1, 0), 0)
             .unwrap();
     }
-    assert_eq!(
-        runtime.gameplay_hud().effects().len(),
-        RENDERABLE_EFFECT_IDS.len()
-    );
-    assert!(RENDERABLE_EFFECT_IDS.len() <= MAX_HUD_EFFECTS);
+    assert_eq!(runtime.gameplay_hud().effects().len(), ids.len());
+    assert!(ids.len() <= MAX_HUD_EFFECTS);
 
     // Unknown ids are odd remote data: counted, skipped, never stored, and
     // therefore never able to push a renderable effect out of the list.
-    for (offset, unknown_id) in [0, 6, 7, 23, 31, 999, -3].into_iter().enumerate() {
+    for (offset, unknown_id) in [0, 6, 7, 23, 38, 999, -3].into_iter().enumerate() {
         runtime
             .apply_local_effect(
                 1,
@@ -394,10 +389,7 @@ fn unknown_effect_ids_are_counted_and_never_evict_renderable_effects() {
             offset as u64 + 1
         );
     }
-    assert_eq!(
-        runtime.gameplay_hud().effects().len(),
-        RENDERABLE_EFFECT_IDS.len()
-    );
+    assert_eq!(runtime.gameplay_hud().effects().len(), ids.len());
     assert_eq!(runtime.gameplay_hud().diagnostics().evicted_effects, 0);
 }
 
@@ -628,6 +620,27 @@ fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_metadata_values, 3);
     assert_eq!(runtime.gameplay_hud().air_ticks(), None);
     assert_eq!(runtime.gameplay_hud().freezing_strength(), 0.0);
+}
+
+/// The server's interact text is retained until an empty update withdraws it.
+#[test]
+fn interact_text_tracks_the_latest_server_value() {
+    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
+    let text = |value: &str| ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::String(value.into()),
+    };
+    assert!(!state.has_interact_text());
+    state.apply_metadata(&[text("action.interact.ride.horse")]);
+    assert!(state.has_interact_text());
+    state.apply_metadata(&[ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::Int(1),
+    }]);
+    assert!(state.has_interact_text());
+    assert_eq!(state.diagnostics().odd_metadata_values, 1);
+    state.apply_metadata(&[text("")]);
+    assert!(!state.has_interact_text());
 }
 
 #[test]
@@ -991,7 +1004,7 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
     assert_eq!(empty_snapshot.slot, 2);
     assert_eq!(
         empty_snapshot.state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+        inventory::inventory_ledger::PlayerInventorySlot::Empty
     );
     assert_eq!(player_runtime.selected_stack(), None);
     assert_eq!(player_runtime.presented_hotbar_stack(2), None);
@@ -1086,7 +1099,7 @@ fn non_forcing_server_selection_does_not_override_local_prediction() {
 fn toast_duration_setting_reaches_the_notification_queue() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()

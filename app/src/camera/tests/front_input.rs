@@ -1,4 +1,8 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::camera::{CameraSettingsAuthority, PITCH_LIMIT},
+    client_presentation::local_player::LocalViewPose,
+};
 
 #[test]
 fn front_orbit_follows_pitch_and_yaw_without_rolling_at_the_pitch_limits() {
@@ -6,10 +10,16 @@ fn front_orbit_follows_pitch_and_yaw_without_rolling_at_the_pitch_limits() {
     for yaw in [-2.6, -0.5, 0.0, 0.8, 2.6] {
         for pitch in [-PITCH_LIMIT, -0.7, 0.0, 0.7, PITCH_LIMIT] {
             let rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-            let front =
-                camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonFront);
-            let back =
-                camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonBack);
+            let front = client_presentation::camera::perspective_pose(
+                subject,
+                rotation,
+                PerspectiveMode::ThirdPersonFront,
+            );
+            let back = client_presentation::camera::perspective_pose(
+                subject,
+                rotation,
+                PerspectiveMode::ThirdPersonBack,
+            );
             assert!(front.translation.is_finite() && front.rotation.is_finite());
             assert!(
                 (front.translation + back.translation).abs_diff_eq(subject * 2.0, 1.0e-5),
@@ -29,7 +39,9 @@ fn front_orbit_follows_pitch_and_yaw_without_rolling_at_the_pitch_limits() {
 #[test]
 fn routed_mouse_turns_keep_actor_direction_through_the_f5_cycle() {
     let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        1,
+    )));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default())

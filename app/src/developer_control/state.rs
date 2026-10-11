@@ -10,7 +10,10 @@ use developer_control::{protocol::Condition, server::Reply};
 use serde_json::{Value, json};
 
 use super::{camera::ScriptedCamera, capture::Recording};
-use crate::{local_player::LocalViewPose, menu::MenuRuntime, runtime::world::ClientWorld};
+use {
+    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Waits without a timeout give up after this long so a controller is never wedged.
 const DEFAULT_WAIT: Duration = Duration::from_secs(120);
@@ -136,7 +139,7 @@ fn player_position(world: &World) -> Option<[f32; 3]> {
 fn screens(world: &World) -> Vec<String> {
     let (Some(ui), Some(player)) = (
         world.get_resource::<UiRuntime>(),
-        world.get_resource::<crate::player_runtime::PlayerRuntime>(),
+        world.get_resource::<client_state::PlayerRuntime>(),
     ) else {
         return Vec::new();
     };
@@ -194,14 +197,14 @@ fn actors(world: &World) -> Vec<Value> {
 
 fn player_motion(world: &World) -> Option<Value> {
     let stream = world.get_resource::<ClientWorld>()?.stream.as_ref()?;
-    let player = world.get_resource::<crate::player_runtime::PlayerRuntime>()?;
+    let player = world.get_resource::<client_state::PlayerRuntime>()?;
     let physics = world.get_resource::<crate::movement::LocalPhysicsController>()?;
     let authority = stream.authority();
     let rig = authority.actor_rig(stream.local_player_runtime_id())?;
     let java = rig.java;
     let state = physics.state();
     let jump_held = world
-        .get_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .get_resource::<client_state::SemanticInputSnapshot>()
         .and_then(|input| input.snapshot())
         .map(|input| input.phases[semantic_input::Action::Jump as usize].held);
     Some(json!({
@@ -265,7 +268,7 @@ pub(super) fn snapshot(world: &World) -> Value {
     let local_mods: Option<Value> = None;
     json!({
         "in_world": stream.is_some(),
-        "immobile": world.get_resource::<crate::player_runtime::PlayerRuntime>()
+        "immobile": world.get_resource::<client_state::PlayerRuntime>()
             .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),
         "eye": view.map(|view| view.eye_translation().to_array()),
@@ -275,7 +278,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
-        "java_animations": world.get_resource::<crate::camera::CameraSettingsAuthority>()
+        "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
@@ -322,7 +325,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
-        "server_camera": world.get_resource::<crate::camera::ServerCameraView>().map(|camera| json!({
+        "server_camera": world.get_resource::<client_presentation::camera::ServerCameraView>().map(|camera| json!({
             "active": camera.is_active(),
             "preset": camera.active_preset_name(),
             "base_preset": camera.active_base_preset_name(),

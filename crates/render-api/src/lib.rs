@@ -18,13 +18,15 @@ pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };
 pub use skin::{
-    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
-    SkinRgba8, expand_legacy_skin_rgba8,
+    CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION,
+    MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+    MAX_STANDARD_SKIN_SIDE, SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8,
+    StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use vrr::VrrPreference;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
-pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
+pub const MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
 /// Retention radius before the server grants one, so an unbounded maximum never pins old terrain.
 pub const UNGRANTED_VIEW_RADIUS_CHUNKS: i32 = 16;
 

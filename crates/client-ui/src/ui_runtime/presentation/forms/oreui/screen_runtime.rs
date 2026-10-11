@@ -5,7 +5,7 @@ use super::{
     Look, add_server, death, dressing_room, friends, home, inbox, modal, motion, paint,
     paint::Canvas, pause, play, profile, progress, scroll_focus, settings, theme, world_settings,
 };
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 impl UiPresentationRuntime {
     /// Draws an owned OreUI route, including the owner's menu design extensions.
@@ -17,7 +17,7 @@ impl UiPresentationRuntime {
         next: &mut u32,
         metrics: TextMetrics,
         size: [f32; 2],
-        portrait: Option<super::super::super::IconRef>,
+        portrait: Option<ui::IconRef>,
         translate: super::super::menu_screens::Translate<'_>,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         #[cfg(feature = "tracy")]

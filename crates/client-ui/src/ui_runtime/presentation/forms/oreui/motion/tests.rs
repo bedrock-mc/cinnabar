@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn sample(motion: &mut Motion, state: Interaction, seconds: f64) -> Feedback {
     motion.feedback(
@@ -233,8 +236,8 @@ fn setting_choices_keep_selection_and_press_on_their_own_value() {
 
 #[test]
 fn persisted_screen_animation_setting_controls_all_oreui_timelines() {
-    use crate::menu::{MenuView, settings_options::SETTINGS_OPTIONS};
     use crate::ui_runtime::presentation::{UiPresentationRuntime, tests::fixture_font};
+    use launcher::menu::{MenuView, settings_options::SETTINGS_OPTIONS};
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Player".into());
     let index = SETTINGS_OPTIONS

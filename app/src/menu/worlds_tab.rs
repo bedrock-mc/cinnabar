@@ -3,12 +3,21 @@
 //! presses to the module, an opened world is joined through the launcher core
 //! and closed when its session ends, and the pause menu pauses it.
 
-use protocol::world_control::{Backend, Difficulty, GameMode};
+use bridge::{Backend, Difficulty, GameMode};
 
-use super::{MenuAction, MenuField, MenuRuntime, MenuScreen};
-use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, Tab, WorldsView};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuField, MenuScreen},
+};
+use {
+    crate::local_worlds::LocalWorlds,
+    launcher::local_worlds::{
+        model::{Input, Screen, Tab, WorldsView},
+        progress::Progress,
+    },
+};
 
-pub(crate) use launcher::menu::worlds_tab::LocalWorldAction;
+use launcher::menu::worlds_tab::LocalWorldAction;
 use launcher::menu::worlds_tab::world_card;
 
 /// The menu's side of the local-world screens: the mirrored view, queued presses and the
@@ -58,7 +67,7 @@ impl MenuRuntime {
 
     /// Includes deliberate joins whose local-world preparation completes on a later frame.
     pub(super) fn gameplay_return_pending(&self) -> bool {
-        use crate::local_worlds::{PromptButton, PromptFor};
+        use launcher::local_worlds::prompt::{PromptButton, PromptFor};
         self.intents.join.is_some()
             || self.local_world_requested.is_some()
             || self.local_ui.actions.iter().any(|action| match *action {
@@ -219,7 +228,7 @@ impl MenuRuntime {
 
     /// Keyboard and gamepad focus order on the local-world screens.
     pub(super) fn local_focus_actions(&self) -> Option<Vec<MenuAction>> {
-        use LocalWorldAction as A;
+        use launcher::menu::worlds_tab::LocalWorldAction as A;
         let view = &self.local_ui.view;
         let local = |actions: &[LocalWorldAction]| {
             Some(
@@ -257,8 +266,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
-                    A::Backend(protocol::world_control::Backend::Dragonfly),
-                    A::Backend(protocol::world_control::Backend::Bds),
+                    A::Backend(bridge::Backend::Dragonfly),
+                    A::Backend(bridge::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
                 ]),
@@ -277,7 +286,7 @@ impl MenuRuntime {
             ]),
             Screen::Templates => Some(vec![
                 MenuAction::LocalWorld(A::BeginCreate),
-                MenuAction::Store(crate::store::OPEN),
+                MenuAction::Store(client_ui::store::OPEN),
             ]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::ConfirmLeaveEdit => local(&[A::Save, A::Discard]),
@@ -326,7 +335,13 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::local_worlds::model::Screen,
+        launcher::local_worlds::progress::Progress,
+        launcher::menu::worlds_tab::LocalWorldAction,
+        launcher::menu::{MenuAction, MenuField, MenuScreen},
+    };
 
     #[test]
     fn backend_prompt_only_retains_gameplay_return_for_available_join_actions() {

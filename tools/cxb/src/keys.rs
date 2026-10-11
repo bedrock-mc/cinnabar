@@ -3,7 +3,10 @@
 use std::{fs::OpenOptions, io::Write, path::Path};
 
 use anyhow::{Context, Result};
-use server_experience::crypto::{self, Ed25519KeyPair, KeyPair};
+use {
+    ring::signature::{Ed25519KeyPair, KeyPair},
+    server_experience::crypto,
+};
 
 /// Writes a fresh seed to a new file and returns its public key. An existing file is never
 /// replaced, so a key in use cannot be lost by rerunning the command.

@@ -9,14 +9,17 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
-use server_experience::{
-    bundle::{MANIFEST_PATH, VerifiedBundle},
-    crypto::{self, Ed25519KeyPair, SignedDocument},
-    manifest::{ContentFile, Manifest, PackageOffer, Permission, Scope, TEXTURE_DIR},
-    policy::{API_VERSION, MAX_EXPANDED_BYTES, WIRE_VERSION},
-    wire::Channel,
-};
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter, write::SimpleFileOptions};
+use {
+    ring::signature::Ed25519KeyPair,
+    server_experience::{
+        bundle::{MANIFEST_PATH, VerifiedBundle},
+        crypto::{self, SignedDocument},
+        manifest::{ContentFile, Manifest, PackageOffer, Permission, Scope, TEXTURE_DIR},
+        policy::{API_VERSION, MAX_EXPANDED_BYTES, WIRE_VERSION},
+        wire::Channel,
+    },
+};
 
 use crate::keys;
 

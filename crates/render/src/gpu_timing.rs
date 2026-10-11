@@ -4,12 +4,14 @@
 //! marker is its own pass, and two per frame cost far less than two per timed node.
 
 mod categories;
+pub(crate) use categories::draw_categories;
 mod health;
+mod systems;
+pub(crate) use systems::profiled;
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
 #[cfg(feature = "tracy")]
 mod nodes;
-mod opaque;
 mod overdraw;
 mod pass;
 pub(crate) mod readback;
@@ -20,17 +22,15 @@ mod tracy;
 
 use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{Core3d, Core3dSystems},
     ecs::system::{SystemParamItem, lifetimeless::SRes},
-    prelude::*,
+    prelude::{
+        App, Commands, IntoScheduleConfigs, IntoSystemSet, Plugin, Res, ResMut, Resource,
+        SystemSet, World, info,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        graph::CameraDriverLabel,
-        render_graph::{
-            EmptyNode, InternedRenderLabel, Node, NodeRunError, RenderGraph, RenderGraphContext,
-            RenderLabel, SlotInfo,
-        },
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
@@ -92,11 +92,16 @@ const SLOT_BYTES: u64 = SLOT_SPANS as u64 * 2 * TIMESTAMP_BYTES;
 const TIMESTAMP_BYTES: u64 = 8;
 const NO_SLOT: u32 = u32::MAX;
 const NO_SPAN: u32 = u32::MAX;
-const NOT_RESOLVED: u64 = u64::MAX;
+const NOT_RECORDED: u64 = u64::MAX;
 
+/// The slot awaits GPU completion or buffer mapping.
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
 const FAILED: u8 = 2;
+/// Metal samples are complete and may be copied by a later frame.
+const WRITTEN: u8 = 3;
+/// A later frame encoded the copy; mapping starts after that frame's submission.
+const RESOLVED: u8 = 4;
 
 /// Feeds `gpu_*` stages into the [`RuntimeStageProfiler`] already present in the app.
 pub struct GpuTimingPlugin;
@@ -124,7 +129,12 @@ impl Plugin for GpuTimingPlugin {
             // and still reaches it after pipelined rendering moves the app to its own thread.
             .add_systems(
                 RenderStartup,
-                (init_gpu_timestamps, wrap_timed_nodes, add_readback_node),
+                (
+                    init_gpu_timestamps,
+                    install_builtin_timing,
+                    install_readback,
+                )
+                    .chain(),
             )
             .add_systems(
                 Render,
@@ -146,155 +156,77 @@ impl Plugin for GpuTimingPlugin {
 /// Asks for per-pass GPU spans in the next rendered frame when the stage profiler does not
 /// already record them, such as when a developer overlay refreshes its slowest passes.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct DetailedGpuTiming(pub bool);
 
-/// The timed Core3d nodes; absent labels are skipped.
-fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
-    use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
-    let mut nodes = vec![
-        (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
-        (Node3d::EndMainPass.intern(), RuntimeStage::GpuBlit),
-        (
-            crate::chunk::TerrainPassLabel.intern(),
-            RuntimeStage::GpuOpaque,
-        ),
-        (
-            Node3d::MainTransparentPass.intern(),
-            RuntimeStage::GpuTransparent,
-        ),
-        (UiWorldLabel.intern(), RuntimeStage::GpuUi),
-        (UiOverlayLabel.intern(), RuntimeStage::GpuUi),
-        (UiOverlayPostLabel.intern(), RuntimeStage::GpuUi),
-        (
-            crate::viewmodel_render::HandLabel.intern(),
-            RuntimeStage::GpuHand,
-        ),
-        (
-            crate::hand_rig_render::HandRigLabel.intern(),
-            RuntimeStage::GpuHand,
-        ),
-        (Node3d::Tonemapping.intern(), RuntimeStage::GpuTonemapping),
-        (Node3d::Fxaa.intern(), RuntimeStage::GpuFxaa),
-    ];
-    // Timestamps written just before presentation make macOS 26 flicker.
-    if !cfg!(target_os = "macos") {
-        nodes.push((Node3d::Upscaling.intern(), RuntimeStage::GpuBlit));
+/// Adds markers to stock post-processing systems while keeping their schedule boundaries.
+fn install_builtin_timing(world: &mut World) {
+    if world.contains_resource::<categories::CategoryProfiling>()
+        || cfg!(target_os = "macos")
+            && world
+                .get_resource::<RenderDevice>()
+                .is_some_and(|device| device.features().contains(wgpu::Features::TIMESTAMP_QUERY))
+    {
+        crate::scene_target::install_graph(world);
     }
-    #[cfg(feature = "enhanced")]
-    nodes.extend(crate::enhanced::graph::timed_nodes());
-    nodes
-}
-
-fn wrap_timed_nodes(world: &mut World) {
-    let mut replacement = categories::replacement(world);
-    let categories = replacement.is_some();
-    replacement = replacement.or_else(|| opaque::replacement(world));
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    for (label, stage) in timed_nodes() {
-        let Ok(state) = graph.get_node_state_mut(label) else {
-            continue;
-        };
-        // Replacing the node alone preserves its slots and edges.
-        let mut inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
-        if label == Node3d::MainOpaquePass.intern()
-            && categories::replaceable(&*inner, categories)
-            && let Some(replacement) = replacement.take()
-        {
-            inner = replacement;
-        }
-        state.node = Box::new(TimedNode { inner, stage });
-    }
-}
-
-/// Resolves the frame's spans at the end of its own graph, after every camera.
-fn add_readback_node(world: &mut World) {
-    let Some(mut graph) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    if graph.get_node_state(CameraDriverLabel).is_err() {
-        return;
-    }
-    graph.add_node(ReadbackLabel, ReadbackNode);
-    graph.add_node_edge(CameraDriverLabel, ReadbackLabel);
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct ReadbackLabel;
-
-struct ReadbackNode;
-
-impl Node for ReadbackNode {
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
-            && timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
-        {
-            if cfg!(target_os = "macos")
-                || timestamps.draw_spans
-                || world.contains_resource::<categories::CategoryProfiling>()
+    let _ = world.try_schedule_scope(Core3d, |world, schedule| {
+        use bevy::anti_alias::fxaa::fxaa;
+        use bevy::core_pipeline::tonemapping::tonemapping;
+        use bevy::ecs::schedule::ScheduleCleanupPolicy;
+        for (set, system) in [
+            (
+                tonemapping.into_system_set().intern(),
+                profiled(
+                    tonemapping,
+                    Some(RuntimeStage::GpuTonemapping),
+                    "Tonemapping",
+                ),
+            ),
+            (
+                fxaa.into_system_set().intern(),
+                profiled(fxaa, Some(RuntimeStage::GpuFxaa), "Fxaa").after(tonemapping),
+            ),
+        ] {
+            if schedule
+                .remove_systems_in_set(set, world, ScheduleCleanupPolicy::RemoveSystemsOnly)
+                .is_ok_and(|count| count != 0)
             {
-                // Owned Metal passes, category passes and profiled draws allocate queries while
-                // recording deferred work. Finish that CPU work before choosing query ranges,
-                // retaining the buffers for one submission. Other frames keep their encoder.
-                let replacement = RenderContext::new(render_context.render_device().clone(), None);
-                let pending = std::mem::replace(render_context, replacement);
-                let (buffers, device, diagnostics) = pending.finish();
-                *render_context = RenderContext::new(device, diagnostics);
-                for buffer in buffers {
-                    render_context.add_command_buffer(buffer);
-                }
+                schedule.add_systems(system.in_set(Core3dSystems::PostProcess));
             }
-            timestamps.encode_readback(render_context.command_encoder());
         }
-        Ok(())
-    }
+    });
 }
 
-struct TimedNode {
-    inner: Box<dyn Node>,
-    stage: RuntimeStage,
+/// Resolves frame queries after all cameras have recorded their commands.
+fn install_readback(world: &mut World) {
+    let _ = world.try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
+        schedule.add_systems(
+            encode_readback
+                .after(bevy::core_pipeline::schedule::camera_driver)
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+        );
+    });
 }
 
-impl Node for TimedNode {
-    fn input(&self) -> Vec<SlotInfo> {
-        self.inner.input()
-    }
-
-    fn output(&self) -> Vec<SlotInfo> {
-        self.inner.output()
-    }
-
-    fn update(&mut self, world: &mut World) {
-        self.inner.update(world);
-    }
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        timed(world, render_context, self.stage, |render_context| {
-            self.inner.run(graph, render_context, world)
-        })
+/// Copies completed pass and draw queries into this frame's nonblocking readback slot.
+fn encode_readback(world: &World, mut context: RenderContext) {
+    if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
+        && (timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+            || timestamps
+                .slots
+                .iter()
+                .any(|slot| slot.state.load(Ordering::Acquire) == WRITTEN))
+    {
+        timestamps.encode_readback(context.command_encoder());
     }
 }
 
 /// Times `record` as one node-level span of `stage`, for nodes that record several passes.
 pub(crate) fn timed<'w, R>(
     world: &World,
-    context: &mut RenderContext<'w>,
+    context: &mut RenderContext<'w, '_>,
     stage: RuntimeStage,
-    record: impl FnOnce(&mut RenderContext<'w>) -> R,
+    record: impl FnOnce(&mut RenderContext<'w, '_>) -> R,
 ) -> R {
     let span = world
         .get_resource::<GpuTimestamps>()
@@ -369,8 +301,8 @@ struct FrameSpans {
     started: AtomicBool,
     /// Begin query of a whole-frame span that [`GpuTimestamps::encode_readback`] still has to close.
     open_frame: AtomicU32,
-    /// Pass and draw span counts copied for readback, packed high and low, or `NOT_RESOLVED`.
-    resolved: AtomicU64,
+    /// Pass and draw span counts retained for readback, packed high and low, or `NOT_RECORDED`.
+    recorded: AtomicU64,
 }
 
 struct ReadbackSlot {
@@ -447,7 +379,7 @@ impl GpuTimestamps {
                 stages: std::array::from_fn(|_| AtomicU8::new(0)),
                 started: AtomicBool::new(false),
                 open_frame: AtomicU32::new(NO_SPAN),
-                resolved: AtomicU64::new(NOT_RESOLVED),
+                recorded: AtomicU64::new(NOT_RECORDED),
             },
             health: health::QueryHealth::requested(),
         })
@@ -510,12 +442,16 @@ impl GpuTimestamps {
         while let Some(index) = self.ring.oldest_in_flight() {
             let slot = &self.slots[index];
             match slot.state.load(Ordering::Acquire) {
-                PENDING => break,
+                PENDING | WRITTEN | RESOLVED => break,
                 MAPPED => {
                     if let Some(health) = &mut self.health {
                         health.readback();
                     }
-                    let bytes = slot.buffer.slice(..).get_mapped_range();
+                    let bytes = slot
+                        .buffer
+                        .slice(..)
+                        .get_mapped_range()
+                        .expect("readback buffer is mapped");
                     let tick = |query: u32| {
                         let start = query as usize * TIMESTAMP_BYTES as usize;
                         u64::from_le_bytes(
@@ -561,15 +497,23 @@ impl GpuTimestamps {
         self.frame.draws.store(0, Ordering::Relaxed);
         self.frame.started.store(false, Ordering::Relaxed);
         self.frame.open_frame.store(NO_SPAN, Ordering::Relaxed);
-        self.frame.resolved.store(NOT_RESOLVED, Ordering::Relaxed);
+        self.frame.recorded.store(NOT_RECORDED, Ordering::Relaxed);
         self.frame.slot.store(slot, Ordering::Release);
     }
 
-    /// Closes the whole-frame span and copies the frame's spans into its readback slot, inside the
-    /// frame's own submission so timing adds no queue submission.
+    /// Records this frame's query ranges and copies readable spans without an extra submission.
+    /// Metal counter resolves can overtake fragment samples, so only completed frames are copied.
     fn encode_readback(&self, encoder: &mut wgpu::CommandEncoder) {
         #[cfg(feature = "tracy")]
         let _zone = bevy::log::info_span!("gpu.timestamps.resolve").entered();
+        if cfg!(target_os = "macos") {
+            for (index, target) in self.slots.iter().enumerate() {
+                if target.state.load(Ordering::Acquire) == WRITTEN {
+                    self.resolve_slot(encoder, index, target.passes, target.draws);
+                    target.state.store(RESOLVED, Ordering::Release);
+                }
+            }
+        }
         let slot = self.frame.slot.load(Ordering::Acquire);
         if slot == NO_SLOT {
             return;
@@ -584,7 +528,24 @@ impl GpuTimestamps {
         if open_frame != NO_SPAN {
             mark(encoder, &self.queries, open_frame + 1);
         }
-        let base = slot * SLOT_SPANS * 2;
+        if !cfg!(target_os = "macos") {
+            self.resolve_slot(encoder, slot as usize, passes, draws);
+        }
+        self.frame.recorded.store(
+            u64::from(passes) << 32 | u64::from(draws),
+            Ordering::Release,
+        );
+    }
+
+    /// Copies one slot's retained query ranges into its own readback buffer.
+    fn resolve_slot(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        passes: u32,
+        draws: u32,
+    ) {
+        let base = slot as u32 * SLOT_SPANS * 2;
         if passes > 0 {
             encoder.resolve_query_set(&self.queries, base..base + passes * 2, &self.resolve, 0);
         }
@@ -597,28 +558,31 @@ impl GpuTimestamps {
                 u64::from(PASS_SPANS) * 2 * TIMESTAMP_BYTES,
             );
         }
-        let target = &self.slots[slot as usize];
+        let target = &self.slots[slot];
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &target.buffer, 0, SLOT_BYTES);
-        self.frame.resolved.store(
-            u64::from(passes) << 32 | u64::from(draws),
-            Ordering::Release,
-        );
     }
 
-    /// Maps the slot the submitted frame resolved into; nothing waits on the GPU. A frame whose
-    /// graph resolved nothing gives its slot back.
-    fn request_readback(&mut self) {
+    /// Maps submitted copies and retains Metal query slots until their writing submission completes.
+    /// A frame that recorded no queries gives its slot back; rendering never waits on the GPU.
+    fn request_readback(&mut self, queue: &RenderQueue) {
+        if cfg!(target_os = "macos") {
+            for target in &self.slots {
+                if target.state.load(Ordering::Acquire) == RESOLVED {
+                    map_readback(target);
+                }
+            }
+        }
         let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
         if slot == NO_SLOT {
             return;
         }
         let index = slot as usize;
-        let resolved = self.frame.resolved.swap(NOT_RESOLVED, Ordering::AcqRel);
-        if resolved == NOT_RESOLVED {
+        let recorded = self.frame.recorded.swap(NOT_RECORDED, Ordering::AcqRel);
+        if recorded == NOT_RECORDED {
             self.ring.release(index);
             return;
         }
-        let (passes, draws) = ((resolved >> 32) as u32, resolved as u32);
+        let (passes, draws) = ((recorded >> 32) as u32, recorded as u32);
         let target = &mut self.slots[index];
         target.passes = passes;
         target.draws = draws;
@@ -626,20 +590,34 @@ impl GpuTimestamps {
             let stage = self.frame.stages[span as usize].load(Ordering::Relaxed);
             target.stages[span as usize] = RuntimeStage::ALL[stage as usize];
         }
-        let state = target.state.clone();
-        let slice = target.buffer.slice(..);
-        {
-            #[cfg(feature = "tracy")]
-            let _zone = bevy::log::info_span!("gpu.timestamps.map_request", slot).entered();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                state.store(
-                    if result.is_ok() { MAPPED } else { FAILED },
-                    Ordering::Release,
-                );
+        if cfg!(target_os = "macos") {
+            target.state.store(PENDING, Ordering::Relaxed);
+            let state = target.state.clone();
+            crate::device_poll::on_frame_complete(queue, move || {
+                state.store(WRITTEN, Ordering::Release);
             });
+        } else {
+            map_readback(target);
         }
         self.ring.submit(index);
     }
+}
+
+/// Maps a submitted copy and publishes completion only after its bytes are readable.
+fn map_readback(target: &ReadbackSlot) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!("gpu.timestamps.map_request").entered();
+    target.state.store(PENDING, Ordering::Relaxed);
+    let state = target.state.clone();
+    target
+        .buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            state.store(
+                if result.is_ok() { MAPPED } else { FAILED },
+                Ordering::Release,
+            );
+        });
 }
 
 fn init_gpu_timestamps(
@@ -676,8 +654,8 @@ fn begin_gpu_frame(
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 
-fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>) {
+fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>, queue: Res<RenderQueue>) {
     if let Some(mut timestamps) = timestamps {
-        timestamps.request_readback();
+        timestamps.request_readback(&queue);
     }
 }

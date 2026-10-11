@@ -1,5 +1,5 @@
-use super::*;
 use bevy::{ecs::world::CommandQueue, prelude::World};
+use {super::*, launcher::menu::auth::AuthState};
 
 fn child_guard(exited: bool) -> CoreProcessGuard {
     #[cfg(windows)]
@@ -29,16 +29,12 @@ fn child_guard(exited: bool) -> CoreProcessGuard {
 }
 
 fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
-    let layout = crate::install_layout::scratch("launcher-child-recovery");
+    let layout = launcher::test_support::scratch("launcher-child-recovery");
     let socket_dir = layout.account_socket_dir(std::process::id(), 0);
     let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
-    std::fs::write(
-        crate::runtime::endpoint::bridge_endpoint_path(&socket_dir),
-        [],
-    )
-    .unwrap();
+    std::fs::write(bridge::session_endpoint_path(&socket_dir), []).unwrap();
     #[cfg(unix)]
-    std::fs::write(launcher_control::control_endpoint_path(&socket_dir), []).unwrap();
+    std::fs::write(bridge::control_endpoint_path(&socket_dir), []).unwrap();
     let slot = LauncherCoreSlot {
         core: Some(LauncherCore {
             _guard: child_guard(exited),
@@ -60,7 +56,12 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
     );
     menu.control_auth = Some(AuthState::SignedOut);
     let mut world = World::new();
-    world.insert_resource(LauncherAccount::new(socket_dir.clone()));
+    world.insert_resource(LauncherAccount(
+        launcher_host::launcher_account::LauncherAccount::new(
+            socket_dir.clone(),
+            socket_dir.join("artwork"),
+        ),
+    ));
     (slot, menu, world, socket_dir)
 }
 
@@ -149,11 +150,9 @@ fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness()
     );
     assert!(slot.failed.is_none());
     assert!(!world.contains_resource::<LauncherAccount>());
-    assert!(!crate::runtime::endpoint::bridge_endpoint_exists(
-        &socket_dir
-    ));
+    assert!(!bridge::bridge_endpoint_exists(&socket_dir));
     #[cfg(unix)]
-    assert!(!launcher_control::control_endpoint_path(&socket_dir).exists());
+    assert!(!bridge::control_endpoint_path(&socket_dir).exists());
 }
 
 #[test]
@@ -177,15 +176,13 @@ fn a_new_account_retires_the_authenticated_core_even_when_sign_in_mode_is_unchan
         "old profile data must not enter the new account"
     );
     // The retire signal belongs to `drive`; taking it here races the sender's drop.
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while slot.retiring.is_some() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the retired core never finished stopping"
-        );
-        std::thread::sleep(Duration::from_millis(10));
+    test_time::eventually_within(Duration::from_secs(5), "the retired core to stop", || {
+        if slot.retiring.is_none() {
+            return true;
+        }
         drive(&mut slot, &mut menu, &mut world, true);
-    }
+        false
+    });
     assert_eq!(slot.failed, Some(true));
 }
 
@@ -195,7 +192,7 @@ fn account_switch_waits_for_the_previous_profiles_credential_save() {
     let old_pid = slot.core.as_ref().unwrap()._guard.id();
     let (saved, pending) = crossbeam_channel::bounded(1);
     menu.accounts.remember = Some(pending);
-    menu.accounts.operation = Some(super::super::accounts::Operation::Switch("2".into()));
+    menu.accounts.operation = Some(launcher_host::accounts::Operation::Switch("2".into()));
     drive(&mut slot, &mut menu, &mut world, true);
     assert_eq!(slot.core.as_ref().unwrap()._guard.id(), old_pid);
     assert!(menu.accounts.operation.is_some());
@@ -209,19 +206,6 @@ fn account_switch_waits_for_the_previous_profiles_credential_save() {
     drive(&mut slot, &mut menu, &mut world, true);
     assert!(slot.core.is_none());
     assert!(menu.accounts.work.is_some());
-}
-
-#[test]
-fn retired_account_control_paths_cannot_reach_a_new_core_or_game_session() {
-    let layout = crate::install_layout::scratch("account-endpoint-isolation");
-    let first = next_account_socket_dir(&layout);
-    let second = next_account_socket_dir(&layout);
-    assert_ne!(first, second);
-    for generation in 0..3 {
-        let game = layout.connect_socket_dir(std::process::id(), generation);
-        assert_ne!(first, game);
-        assert_ne!(second, game);
-    }
 }
 
 #[test]

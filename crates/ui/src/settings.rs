@@ -196,6 +196,8 @@ pub struct VideoSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
     pub java_animations: bool,
+    /// Preserves Bedrock skybox placement; disabling it centers the cube.
+    pub native_skybox_offset: bool,
 }
 
 impl Default for VideoSettings {
@@ -203,7 +205,7 @@ impl Default for VideoSettings {
         Self {
             horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
-            frame_rate_limit: FrameRateLimit::Automatic,
+            frame_rate_limit: FrameRateLimit::Unlimited,
             vsync: true,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
@@ -221,6 +223,7 @@ impl Default for VideoSettings {
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
             java_animations: false,
+            native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
         }
     }
 }

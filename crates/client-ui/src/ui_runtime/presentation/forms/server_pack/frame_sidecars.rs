@@ -4,7 +4,10 @@ use std::{cell::RefCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use json_ui::{AsepriteFrame, parse_aseprite_frames};
 
-use super::{MAX_EXTRA, MAX_PACK_TEXTURE_BYTES, VANILLA_IN_PACKAGE, exact_case, vanilla_path};
+use {
+    super::{MAX_EXTRA, VANILLA_IN_PACKAGE, exact_case, vanilla_path},
+    resource_pack::MAX_PACK_TEXTURE_BYTES,
+};
 
 pub(super) type Frames = Arc<[AsepriteFrame]>;
 

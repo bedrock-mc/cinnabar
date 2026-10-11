@@ -5,22 +5,28 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{App, Commands, Handle, IntoScheduleConfigs, Res, ResMut, Resource, Shader},
     render::{
         Render, RenderApp, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        render_resource::*,
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+            BindingType, Buffer, BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
+            PipelineCache, ShaderStages,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
 
 /// Shared classic lightmap inputs, published with the current environment frame.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct WorldLighting(pub LightmapInputs);
 
 /// A transient personal-mod override; the ordinary environment inputs remain intact.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct WorldFullbright(pub bool);
 
 #[derive(Resource)]
@@ -82,11 +88,11 @@ pub(crate) fn install(app: &mut App) {
     const MATERIAL_SHADER: Handle<Shader> = uuid_handle!("40309d5a-76a4-4e3b-aed0-d5c76aa5d52e");
 
     const SHADER: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
-    load_internal_asset!(app, SHADER, "lighting.wgsl", |source, path| {
-        crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+    load_internal_asset!(app, SHADER, "lighting.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
     });
-    load_internal_asset!(app, MATERIAL_SHADER, "material.wgsl", |source, path| {
-        crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+    load_internal_asset!(app, MATERIAL_SHADER, "material.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
     });
     // Terrain, models, liquids and block overlays share one projection.
     const WORLD_PROJECTION_SHADER: Handle<Shader> =
@@ -94,8 +100,8 @@ pub(crate) fn install(app: &mut App) {
     load_internal_asset!(
         app,
         WORLD_PROJECTION_SHADER,
-        "world_projection.wgsl",
-        crate::shader_safety::from_wgsl
+        "world_projection.wesl",
+        crate::shader_safety::from_wesl
     );
     app.sub_app_mut(RenderApp)
         .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources));

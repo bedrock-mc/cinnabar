@@ -12,13 +12,19 @@ mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
 mod block_names;
+mod block_presentation_state;
+pub use block_presentation_state::pinned_block_presentation_states;
+pub use block_presentation_state::{BlockPresentationState, BlockPresentationStates, PortalAxis};
 pub mod carriers;
 mod compiled;
+pub mod dye;
+mod effects;
 mod encoding;
 mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
+mod family_routing;
 mod fire;
 mod fog_layers;
 mod fog_transition;
@@ -47,6 +53,7 @@ mod seasonal_foliage;
 mod server_lang;
 mod session_entities;
 mod skin_geometry;
+mod skybox;
 mod sound_bank;
 mod sound_events;
 mod stair;
@@ -88,8 +95,9 @@ pub use biome::{
     BIOME_TINT_FLAG_SWAMP_GRASS, BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets,
     DEFAULT_WATER_APPEARANCE_OPACITY, DEFAULT_WATER_OPACITY, DEFAULT_WATER_RGB, LinearBiomeTints,
     LiveBiomeDefinition, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES,
-    MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES,
-    TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource, colormap_coordinate, read_biome_registry,
+    MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT, ResolvedBiomeTints, SessionBiome,
+    TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource,
+    colormap_coordinate, read_biome_registry,
 };
 pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
@@ -112,6 +120,9 @@ pub use compiled::{
     MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
     MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, material_leaf_ao_exponent,
+};
+pub use effects::{
+    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_registry_version,
 };
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
@@ -142,11 +153,13 @@ pub use entity::{
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
-    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS,
+    MOLANG_QUERY_MANIFEST_VERSION, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram,
-    MolangSymbol, MolangSymbolKind, RuntimeEntityAssets, encode_entity_blob,
-    entity_render_pattern_matches, molang_call, molang_program_stack,
-    validate_entity_geometry_inheritance,
+    MolangQuery, MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler,
+    MolangQueryOutput, MolangQuerySupport, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
+    bind_molang_queries, encode_entity_blob, entity_render_pattern_matches, molang_call,
+    molang_program_stack, validate_entity_geometry_inheritance,
 };
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
@@ -154,7 +167,7 @@ pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,
     CompiledItemAttackTiming, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
     EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory,
-    EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
+    EquipmentColorMask, EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
     RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
@@ -162,10 +175,8 @@ pub use equipment::{
     encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
-pub use fire::{
-    FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,
-    fire_attachment_template_offset, fire_template_quad_count,
-};
+pub use fire::{FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT};
+pub use fire::{fire_attachment_template_offset, fire_template_quad_count};
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
 pub use font::{
@@ -177,19 +188,16 @@ pub use font::{
     MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog, encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
-pub use glyph_sheet::{
-    CellGlyph, GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph, extract_cells, pack_cells,
-    texel_size_64,
-};
+pub use glyph_sheet::{CellGlyph, GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph};
+pub use glyph_sheet::{extract_cells, pack_cells, texel_size_64};
 pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HUD_SOURCE_MANIFEST_SHA256,
     HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog,
     encode_hud_catalog,
 };
-pub use hud_extras::{
-    HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
-    MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
-};
+pub use hud_extras::{HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, MAX_HUD_EXTRAS_BYTES};
+pub use hud_extras::{HudExtraRole, HudExtras, HudExtrasError};
+pub use hud_extras::{decode_hud_extras, encode_hud_extras};
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
     ICON_CARRIER_VERSION, IconBlockModel, IconBlockSheet, IconEntry, IconSprite,
@@ -269,6 +277,8 @@ pub use skin_geometry::{
     SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
     parse_skin_geometry_layer, skin_geometry_name,
 };
+pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
+pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
 pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
     SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,

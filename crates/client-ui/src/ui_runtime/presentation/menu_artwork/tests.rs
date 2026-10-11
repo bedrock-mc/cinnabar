@@ -2,9 +2,9 @@ use super::*;
 
 #[test]
 fn server_details_art_fits_alongside_all_catalog_logos_without_home_promotions() {
-    use crate::menu::{MenuGameCard, MenuScreen, MenuServerCard, ServerDetails};
+    use launcher::menu::{MenuGameCard, MenuScreen, MenuServerCard, ServerDetails};
     for activities in [4, 12] {
-        let mut view = crate::menu::MenuView::new(true, "Fixture".into());
+        let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
         view.screen = MenuScreen::Servers;
         view.featured = (0..13)
             .map(|index| MenuServerCard {
@@ -72,9 +72,9 @@ fn server_details_art_fits_alongside_all_catalog_logos_without_home_promotions()
 
 #[test]
 fn settings_atlas_prepares_the_actual_profile_gamerpic_without_a_head_substitution() {
-    let mut view = crate::menu::MenuView::new(true, "Player".into());
-    view.screen = crate::menu::MenuScreen::Settings;
-    view.auth_state = crate::menu::auth::AuthState::Authenticated;
+    let mut view = launcher::menu::MenuView::new(true, "Player".into());
+    view.screen = launcher::menu::MenuScreen::Settings;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     view.feeds.profile.picture_path = "profile-gamerpic.png".into();
     view.feeds.home.persona_head = "persona-head.png".into();
     let set = ArtworkSet {
@@ -134,7 +134,7 @@ fn large_artwork_does_not_crowd_out_a_prioritized_gamerpic() {
 
 #[test]
 fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
-    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    let mut view = launcher::menu::MenuView::new(true, "Player".into());
     view.feeds.account_active_id = Some("player".into());
     view.feeds.accounts = vec![launcher::accounts::AccountProfile {
         id: "player".into(),
@@ -142,7 +142,7 @@ fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
         picture_path: Some("gamerpic.png".into()),
     }];
     view.featured = (0..MAX_ARTWORKS)
-        .map(|index| crate::menu::MenuServerCard {
+        .map(|index| launcher::menu::MenuServerCard {
             name: index.to_string(),
             address: index.to_string(),
             caption: String::new(),
@@ -164,7 +164,7 @@ fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
 
 #[test]
 fn account_pictures_are_queued_when_the_picker_opens() {
-    let mut view = crate::menu::MenuView::new(true, "First".into());
+    let mut view = launcher::menu::MenuView::new(true, "First".into());
     view.feeds.account_active_id = Some("first".into());
     view.feeds.accounts = ["first", "second"]
         .map(|id| launcher::accounts::AccountProfile {
@@ -176,7 +176,7 @@ fn account_pictures_are_queued_when_the_picker_opens() {
     let paths = view_paths(&view);
     assert!(paths.iter().any(|(path, _)| path == "first.png"));
     assert!(!paths.iter().any(|(path, _)| path == "second.png"));
-    view.dialog = Some(crate::menu::MenuDialog::Accounts);
+    view.dialog = Some(launcher::menu::MenuDialog::Accounts);
     assert!(
         view_paths(&view)
             .iter()
@@ -196,8 +196,8 @@ fn profile_replacement_atlas_preserves_the_portrait_fallback() {
     ));
     std::fs::write(&path, png(8, 8, [40, 80, 120, 255])).unwrap();
     let portrait = path.to_string_lossy().into_owned();
-    let mut view = crate::menu::MenuView::new(true, "Fixture Player".into());
-    view.auth_state = crate::menu::auth::AuthState::Authenticated;
+    let mut view = launcher::menu::MenuView::new(true, "Fixture Player".into());
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     view.feeds.profile.loaded = true;
     view.feeds.profile.avatar_loaded = true;
     view.feeds.profile.featured_screenshot_loaded = true;
@@ -209,10 +209,10 @@ fn profile_replacement_atlas_preserves_the_portrait_fallback() {
     let mut cache = DecodeCache::default();
     cache.decode(&cache.missing(&home), &home);
     assert!(pack(&home, &cache, 0, true).refs.contains_key(&portrait));
-    view.screen = crate::menu::MenuScreen::Profile;
+    view.screen = launcher::menu::MenuScreen::Profile;
     for tab in [
-        crate::menu::ProfileTab::Overview,
-        crate::menu::ProfileTab::Stats,
+        launcher::menu::ProfileTab::Overview,
+        launcher::menu::ProfileTab::Stats,
     ] {
         view.profile_tab = tab;
         // A missing gamerpic and a failed gamerpic decode both use the head.

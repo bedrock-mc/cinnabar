@@ -117,12 +117,16 @@ fn template_words() -> Vec<u32> {
         let positions: [i16; 12] = [0, 0, 128, 256, 0, 128, 256, 512, 128, 0, 512, 128];
         words.extend(
             positions
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0] as u16) | (u32::from(pair[1] as u16) << 16)),
         );
         let uvs: [u16; 8] = [0, 4096, 4096, 4096, 4096, 0, 0, 0];
         words.extend(
-            uvs.chunks_exact(2)
+            uvs.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0]) | (u32::from(pair[1]) << 16)),
         );
         words.extend([
@@ -212,7 +216,7 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
-    let mut source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions)
+    let mut source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     if reference {
         let start = source
@@ -271,7 +275,7 @@ fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
 #[test]
 fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
     for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
-        let source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions);
+        let source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
         for name in ["fragment", "fragment_blend"] {
@@ -304,13 +308,8 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
         };
         let tint = members
             .iter()
-            .find(|member| {
-                matches!(
-                    member.binding,
-                    Some(naga::Binding::Location { location: 14, .. })
-                )
-            })
-            .expect("ordinary model tint at location 14");
+            .find(|member| member.name.as_deref() == Some("tint_gamma"))
+            .expect("ordinary model tint interpolant");
         assert!(matches!(
             tint.binding,
             Some(naga::Binding::Location {
@@ -453,8 +452,10 @@ fn model_tint_pixels_match_fragment_biome_reference() {
                 let actual = raster(&gpu, &candidate, "raster_model_vertex", &draws);
                 // The flat vertex tint and the per-fragment reference may round one unit apart.
                 let mismatch = expected
-                    .chunks_exact(4)
-                    .zip(actual.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(actual.as_chunks::<4>().0.iter())
                     .filter(|(left, right)| {
                         left.iter().zip(*right).any(|(l, r)| l.abs_diff(*r) > 1)
                     })
@@ -537,8 +538,8 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);

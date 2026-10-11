@@ -13,6 +13,7 @@ struct State {
 
 /// Shared main/render-world mailbox; GPU replacements remain staged until CPU publication.
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ChunkTextureReload(Arc<Mutex<State>>);
 
 impl ChunkTextureReload {

@@ -43,7 +43,7 @@ fn write_cactus_render_pack(root: &Path, cube_name: &str) {
     .enumerate()
     {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (pixel_index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let x = pixel_index % 16;
             let alpha = if name.starts_with("cactus_") && (x == 0 || x == 15) {
                 0

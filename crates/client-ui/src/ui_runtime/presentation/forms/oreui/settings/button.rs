@@ -7,7 +7,7 @@ use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE};
 use super::super::widgets::{self, Interaction, Variant};
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 pub(super) const ACTION_HEIGHT: f32 = 4.8;
 pub(super) const ACTION_MIN_WIDTH: f32 = 14.0;
@@ -16,7 +16,7 @@ const ICON_SIZE: f32 = 2.4;
 const ICON_GAP: f32 = 0.8;
 
 pub(super) fn icon_width(action: Option<MenuAction>) -> f32 {
-    use crate::menu::settings_support::SupportAction;
+    use launcher::menu::settings_support::SupportAction;
     if matches!(
         action,
         Some(MenuAction::SettingsSupport(SupportAction::Open(_)))

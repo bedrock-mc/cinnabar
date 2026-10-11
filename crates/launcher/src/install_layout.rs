@@ -75,7 +75,9 @@ impl InstallLayout {
             return Ok(Self {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
-                physics_registry: local.join("assets/block-physics-v2193.bin"),
+                physics_registry: local
+                    .join("assets")
+                    .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
@@ -134,7 +136,9 @@ impl InstallLayout {
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
             compiled_assets: resource_root.join("assets"),
-            physics_registry: resource_root.join("assets/block-physics-v2193.bin"),
+            physics_registry: resource_root
+                .join("assets")
+                .join(assets::carriers::physics_registry_basename()),
             resource_root,
             core_executable,
             user_config_root,
@@ -150,7 +154,12 @@ impl InstallLayout {
         let layout = Self::resolve(
             platform,
             &InstallEnvironment {
-                executable: std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                executable: cargo_artifact_path(
+                    std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                    std::env::var_os("CARGO_MANIFEST_DIR")
+                        .map(PathBuf::from)
+                        .as_deref(),
+                ),
                 user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
@@ -247,6 +256,26 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// The install's one login device profile, whichever account's token the core holds.
+    #[must_use]
+    pub fn device_profile_file(&self) -> PathBuf {
+        self.auth_cache().with_file_name("device.json")
+    }
+
+    /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
+    #[must_use]
+    pub fn launcher_artwork_dir(&self) -> PathBuf {
+        self.auth_cache()
+            .with_file_name("catalog-cache")
+            .join("artwork")
+    }
+
+    /// Downloaded Marketplace offer art.
+    #[must_use]
+    pub fn store_images_dir(&self) -> PathBuf {
+        self.auth_cache().with_file_name("store-images")
+    }
+
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {
@@ -275,11 +304,6 @@ impl InstallLayout {
     #[must_use]
     pub fn compiled_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/compiled")
-    }
-
-    /// Immutable extension bundles, separate from per-server trust settings.
-    pub fn experience_cache_dir(&self) -> PathBuf {
-        server_experience::cache::objects_dir(&self.user_data_root)
     }
 
     #[must_use]
@@ -327,6 +351,23 @@ impl InstallLayout {
     pub fn connect_socket_dir(&self, process_id: u32, generation: u64) -> PathBuf {
         self.transient_runtime_root
             .join(format!("connect-{process_id}-{generation}"))
+    }
+}
+
+/// Cargo runs tests from its build directory, which `build-dir` puts outside the
+/// checkout; such a binary resolves as if it ran from its workspace's `target/debug`.
+fn cargo_artifact_path(executable: PathBuf, manifest_dir: Option<&Path>) -> PathBuf {
+    if development_root(&executable).is_some() {
+        return executable;
+    }
+    let workspace = manifest_dir.and_then(|manifest| {
+        manifest
+            .ancestors()
+            .find(|directory| directory.join("Cargo.lock").is_file())
+    });
+    match (workspace, executable.file_name()) {
+        (Some(root), Some(name)) => root.join("target/debug/deps").join(name),
+        _ => executable,
     }
 }
 
@@ -514,8 +555,66 @@ const fn current_platform() -> Platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform};
-    use std::path::PathBuf;
+    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn physics_filename_follows_the_carrier_registry_for_every_layout() {
+        for (platform, executable, home) in [
+            (
+                Platform::Windows,
+                "C:/Cinnabar/bedrock-client.exe",
+                "C:/Users/dev",
+            ),
+            (
+                Platform::Linux,
+                "/opt/cinnabar/bin/bedrock-client",
+                "/home/dev",
+            ),
+            (
+                Platform::MacOs,
+                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/Users/dev",
+            ),
+            (
+                Platform::Linux,
+                "/work/cinnabar/target/debug/bedrock-client",
+                "/home/dev",
+            ),
+        ] {
+            let mut env = environment(executable, home);
+            if platform == Platform::Windows {
+                env.local_app_data = Some(PathBuf::from("C:/Users/dev/AppData/Local"));
+            }
+            let layout = InstallLayout::resolve(platform, &env).unwrap();
+            assert_eq!(
+                layout.physics_registry.file_name().unwrap(),
+                assets::carriers::physics_registry_basename()
+            );
+            assert_eq!(
+                layout.physics_registry.parent().unwrap(),
+                layout.resource_root.join("assets")
+            );
+        }
+    }
+
+    /// A test binary in a build dir outside the checkout still resolves the checkout.
+    #[test]
+    fn external_build_dir_tests_resolve_their_workspace() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest.ancestors().nth(2).unwrap();
+        let shared = PathBuf::from("/cache/build/cinnabar/debug/deps/launcher-0123");
+        assert_eq!(
+            cargo_artifact_path(shared.clone(), Some(manifest)),
+            root.join("target/debug/deps/launcher-0123")
+        );
+        assert_eq!(cargo_artifact_path(shared.clone(), None), shared);
+        let checkout = PathBuf::from("/work/cinnabar/target/debug/bedrock-client");
+        assert_eq!(
+            cargo_artifact_path(checkout.clone(), Some(manifest)),
+            checkout
+        );
+    }
 
     fn environment(executable: &str, home: &str) -> InstallEnvironment {
         InstallEnvironment {
@@ -622,7 +721,8 @@ mod tests {
         );
         assert_eq!(
             layout.physics_registry,
-            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v2193.bin")
+            PathBuf::from("/work/cinnabar/.local/assets")
+                .join(assets::carriers::physics_registry_basename())
         );
         assert_eq!(
             layout.runtime_root,
@@ -661,6 +761,15 @@ mod tests {
         assert_eq!(
             layout.auth_cache(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/microsoft-token.json")
+        );
+        // Downloaded art stays where earlier cores cached it, so upgrades keep their cache.
+        assert_eq!(
+            layout.launcher_artwork_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/catalog-cache/artwork")
+        );
+        assert_eq!(
+            layout.store_images_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/store-images")
         );
         assert_eq!(
             layout.resource_pack_cache_dir(),

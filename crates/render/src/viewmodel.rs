@@ -1,6 +1,11 @@
 //! Neutral empty-hand foundation. Animation and environmental lighting are not
 //! supplied by this mode; it is deliberately not an idle-animation parity claim.
-use bevy::{prelude::*, render::extract_resource::ExtractResource};
+#[cfg(test)]
+use bevy::prelude::{App, Assets, Mat2, Shader};
+use bevy::{
+    prelude::{Entity, Mat4, Resource, Vec2, Vec3},
+    render::extract_resource::ExtractResource,
+};
 use std::sync::{Arc, Mutex};
 mod cube;
 mod geometry;
@@ -75,7 +80,9 @@ impl ViewmodelSkin {
         (identity != [0; 32]
             && rgba8.len() == VIEWMODEL_TEXTURE_BYTES
             && rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| matches!(pixel[3], 0 | 255)))
         .then_some(Self { rgba8, identity })
     }
@@ -132,6 +139,7 @@ pub(super) struct HandFrame {
 }
 
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ViewmodelScene {
     pub(super) frame: Option<HandFrame>,
 }
@@ -242,7 +250,7 @@ impl ViewmodelScene {
                 self.clear(gate);
                 return false;
             };
-            for (quad, values) in indices.chunks_exact(6).enumerate() {
+            for (quad, values) in indices.as_chunks::<6>().0.iter().enumerate() {
                 if values[0] != values[3] || values[2] != values[4] {
                     continue;
                 }
@@ -458,7 +466,7 @@ impl ViewmodelCompletionGate {
 }
 
 pub(super) fn hand_projection(size: [u32; 2]) -> Mat4 {
-    Mat4::perspective_infinite_reverse_rh(
+    glam::camera::rh::proj::directx::perspective_infinite_reverse(
         70.0_f32.to_radians(),
         size[0] as f32 / size[1] as f32,
         render_api::CAMERA_NEAR_PLANE_BLOCKS,

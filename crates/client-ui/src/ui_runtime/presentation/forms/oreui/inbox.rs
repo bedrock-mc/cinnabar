@@ -6,9 +6,9 @@ use super::motion::Surface;
 use super::paint::Canvas;
 use super::theme::{BODY, CAPTION, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::widgets::{header, row, screen_overlay};
-use crate::menu::{
-    InboxItem, MenuAction, MenuScreen, MenuView,
-    inbox::{self, Action, CATEGORIES},
+use {
+    launcher::menu::inbox::Action,
+    launcher::menu::{InboxItem, MenuAction, MenuScreen, MenuView, inbox},
 };
 
 mod actions;
@@ -79,7 +79,9 @@ pub(super) fn draw(
         .inbox
         .iter()
         .enumerate()
-        .filter(|(_, item)| inbox::category_index(&item.category) == Some(state.category))
+        .filter(|(_, item)| {
+            launcher::menu::inbox::category_index(&item.category) == Some(state.category)
+        })
         .collect();
     items.sort_by(|(_, a), (_, b)| b.received.cmp(&a.received));
     for (label, recent) in [("Recent", true), ("History", false)] {
@@ -87,7 +89,8 @@ pub(super) fn draw(
             .iter()
             .copied()
             .filter(|(_, item)| {
-                inbox::day(&item.received).is_none_or(|day| now - day <= 7) == recent
+                launcher::menu::inbox::day(&item.received).is_none_or(|day| now - day <= 7)
+                    == recent
             })
             .collect();
         if group.is_empty() {
@@ -150,7 +153,7 @@ fn card(
         TEXT,
         false,
     )?;
-    let date = inbox::date(&item.received);
+    let date = launcher::menu::inbox::date(&item.received);
     let date_width = canvas.measure(&date, BODY)?;
     let pad = canvas.r(1.2);
     let x = span[0] + canvas.r(3.6);

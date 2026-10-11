@@ -2,7 +2,7 @@
 
 use bevy::{
     app::{App, SubApp},
-    ecs::schedule::{ExecutorKind, MainThreadExecutor, Schedules},
+    ecs::schedule::{MainThreadExecutor, MultiThreadedExecutor, Schedules, SingleThreadedExecutor},
     render::{Render, RenderApp},
 };
 
@@ -17,7 +17,7 @@ pub(super) fn configure_frame_schedule_executors(app: &mut App) {
         // Pipelined rendering moves Render to its own thread. Only the parallel
         // executor sends NonSend surface systems back through MainThreadExecutor.
         if needs_ui_dispatch && let Some(schedule) = render_app.get_schedule_mut(Render) {
-            schedule.set_executor_kind(ExecutorKind::MultiThreaded);
+            schedule.set_executor(MultiThreadedExecutor::new());
         }
     }
 }
@@ -28,7 +28,7 @@ fn run_schedules_on_one_thread(app: &mut SubApp) {
         return;
     };
     for (_, schedule) in schedules.iter_mut() {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     }
 }
 

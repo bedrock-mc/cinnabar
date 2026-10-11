@@ -4,7 +4,10 @@
 mod focus;
 pub(super) use focus::NavigationFocus;
 
-use super::{LocalWorldAction, MenuAction, MenuRuntime, MenuScreen};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen, worlds_tab::LocalWorldAction},
+};
 
 impl MenuRuntime {
     pub(super) fn remember_session_origin(&mut self) {
@@ -121,7 +124,10 @@ impl MenuRuntime {
             return;
         }
         if !self.is_connecting()
-            && matches!(self.dialog, None | Some(super::MenuDialog::Accounts))
+            && matches!(
+                self.dialog,
+                None | Some(launcher::menu::MenuDialog::Accounts)
+            )
             && self.sign_in_focus().is_some()
         {
             self.activate(MenuAction::CancelSignIn);
@@ -133,14 +139,14 @@ impl MenuRuntime {
             return;
         }
         if self.dressing_room.editor.is_some() {
-            self.activate(super::MenuAction::DressingRoom(
+            self.activate(launcher::menu::MenuAction::DressingRoom(
                 launcher::dressing_room::Action::Cancel,
             ));
             return;
         }
         if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
             self.global_resource_actions
-                .push(crate::global_resources::Action::CloseSettings);
+                .push(launcher::global_resources::Action::CloseSettings);
             return;
         }
         if self.dialog.is_some() {
@@ -177,7 +183,7 @@ impl MenuRuntime {
         }
         match self.screen {
             MenuScreen::Death => self.activate(MenuAction::OpenDeathGameMenu),
-            MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
+            MenuScreen::Store => self.store_actions.push(launcher::store::StoreAction::Back),
             _ if self.history.screens().len() > 1 => {
                 self.history.pop();
                 self.show_top();

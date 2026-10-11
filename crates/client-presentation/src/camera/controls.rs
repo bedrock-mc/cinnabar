@@ -2,7 +2,10 @@
 
 use bevy::{
     input::mouse::AccumulatedMouseMotion,
-    prelude::*,
+    prelude::{
+        ButtonInput, EulerRot, KeyCode, MouseButton, Mut, Quat, Res, ResMut, Resource, Single,
+        Time, Transform, Vec2, Vec3, With,
+    },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
 use semantic_input::Action;

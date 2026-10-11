@@ -278,7 +278,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let mut presentation =
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
-    let vanilla = local(&crate::install_layout::vanilla_pack_relative());
+    let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
@@ -464,7 +464,10 @@ fn vanilla_form_button_images_resolve() {
     image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    let url = format!("{}/icon.png", super::remote_images::tests::serve(png));
+    let url = format!(
+        "{}/icon.png",
+        launcher_host::remote_images::tests::serve(png)
+    );
     let runtime = image_form(
         &mut player_runtime,
         "Shop",
@@ -478,7 +481,9 @@ fn vanilla_form_button_images_resolve() {
     let engine = presentation.form_presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    super::remote_images::tests::settle(&remote, &url);
+    test_time::wait_until(std::time::Duration::from_secs(5), || {
+        remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
+    });
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     let (drawn, missing) = presentation
         .form_presentation
@@ -497,8 +502,7 @@ fn vanilla_form_button_images_resolve() {
     assert!(missing.is_empty());
 }
 
-// A server-pack image bigger than a server page (Zeqa's 1992x669 title) draws
-// from its full-resolution art copy, point-sampled, not the 256px downscale.
+// An image larger than an art page samples its original source extent.
 #[test]
 fn large_server_pack_images_draw_at_full_resolution() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -510,8 +514,9 @@ fn large_server_pack_images_draw_at_full_resolution() {
         );
         return;
     };
+    const SIZE: [u32; 2] = [1992, 669];
     let mut png = Vec::new();
-    image::RgbaImage::from_pixel(1992, 669, image::Rgba([200, 30, 40, 255]))
+    image::RgbaImage::from_pixel(SIZE[0], SIZE[1], image::Rgba([200, 30, 40, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     presentation.set_server_ui_pack(&ServerUiPack {
@@ -529,18 +534,17 @@ fn large_server_pack_images_draw_at_full_resolution() {
             "textures/ui/big_logo".into(),
         ))],
     );
-    render(&mut presentation, &runtime, [1280, 720], 1.0);
-    presentation.finish_menu_artwork();
-    let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
-    let widths: Vec<u16> = nodes
-        .iter()
-        .filter_map(|node| match node.visual() {
-            UiVisual::Sprite { uv, .. } => Some(uv[2] - uv[0]),
-            _ => None,
-        })
-        .collect();
-    assert!(widths.contains(&1022), "{widths:?}");
-    assert!(!widths.contains(&256), "{widths:?}");
+    test_time::eventually("original extent of oversized server artwork", || {
+        let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
+        let widths: Vec<u16> = nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                UiVisual::Sprite { uv, .. } => Some(uv[2] - uv[0]),
+                _ => None,
+            })
+            .collect();
+        widths.contains(&(SIZE[0] as u16)) && !widths.contains(&256)
+    });
 }
 
 /// Button text shaped like a server's two-line entries plus a description.
@@ -772,7 +776,7 @@ fn start_screen_text_resolves_through_the_language_table() {
     };
     let mut runtime = UiRuntime::new(1);
     runtime.set_lang_catalog(Arc::new(lang));
-    let view = crate::menu::MenuView::new(true, "Player".to_owned());
+    let view = launcher::menu::MenuView::new(true, "Player".to_owned());
     presentation.set_menu_view(Some(view));
     let dpi = DpiScale::new(1.0).unwrap();
     let metrics = TextMetrics::for_viewport([1280, 720], dpi, None);

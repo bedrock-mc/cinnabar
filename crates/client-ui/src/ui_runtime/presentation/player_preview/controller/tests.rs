@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::menu::MenuScreen};
 
 fn point(x: f32, y: f32) -> Option<UiPoint> {
     Some(UiPoint::new(x, y).unwrap())
@@ -151,7 +151,7 @@ fn dressing_room_character_fits_its_stage_through_rotation_head_look_and_idle() 
 fn dressing_room_uses_native_idle_arm_sway_without_changing_menu_paper_dolls() {
     use crate::ui_runtime::presentation::player_preview::{bob_degrees, geometry};
     let source = render_model::standard_biped_vertices();
-    let icon = crate::ui_runtime::presentation::IconRef {
+    let icon = ui::IconRef {
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -419,14 +419,14 @@ fn an_attached_cape_stays_inside_the_fitted_stage_when_the_character_turns() {
     use crate::ui_runtime::presentation::player_preview::{
         PREVIEW_HEIGHT, PREVIEW_WIDTH, Rig, cape,
     };
-    let side = protocol::CLASSIC_SKIN_SIDE as u32;
-    let (width, height) = protocol::CAPE_DIMENSIONS[0];
-    let skin = protocol::StandardSkin {
+    let side = render_api::CLASSIC_SKIN_SIDE as u32;
+    let (width, height) = render_api::CAPE_DIMENSIONS[0];
+    let skin = render_api::StandardSkin {
         width: side,
         height: side,
         rgba8: vec![255; (side * side * 4) as usize].into(),
         geometry: None,
-        cape: Some(protocol::CapeImage {
+        cape: Some(render_api::CapeImage {
             width,
             height,
             rgba8: vec![255; (width * height * 4) as usize].into(),

@@ -115,7 +115,7 @@ fn a_duplicate_visible_key_draws_its_current_upload_once() {
         .unwrap();
     let drawn = phase
         .items
-        .iter()
+        .values()
         .map(|item| item.entity.0)
         .filter(|&entity| {
             world

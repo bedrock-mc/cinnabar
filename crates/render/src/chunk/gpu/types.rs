@@ -444,8 +444,7 @@ pub(in crate::chunk) struct GpuChunkOrigin {
     pub(in crate::chunk) cube_bases: [u32; 4],
 }
 
-pub(in crate::chunk) const _: () =
-    assert!(std::mem::size_of::<GpuChunkOrigin>() == CHUNK_ORIGIN_BYTES as usize);
+const _: () = assert!(std::mem::size_of::<GpuChunkOrigin>() == CHUNK_ORIGIN_BYTES as usize);
 
 pub(in crate::chunk) fn gpu_chunk_origin(
     origin: [i32; 3],

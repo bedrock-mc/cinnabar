@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use assets::RuntimeEquipmentCatalog;
 
-use super::{IconRef, UiPresentationRuntime};
+use {super::UiPresentationRuntime, ui::IconRef};
 
 pub(super) mod cape;
 pub(super) mod controller;
@@ -86,7 +86,7 @@ impl UiPresentationRuntime {
         runtime: &crate::ui_runtime::UiRuntime,
         identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
     ) {
-        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
             stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
@@ -102,17 +102,21 @@ impl UiPresentationRuntime {
         self.set_player_preview_gear(
             armor.each_ref().map(|worn| {
                 worn.as_ref()
-                    .map(|(id, stack)| (&**id, protocol::item_custom_color(&stack.extra_data)))
+                    .map(|(id, stack)| (&**id, runtime.stack_facts(stack, Some(id)).custom_color))
             }),
             held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
         );
         let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
         self.player_preview_gear.hands = [held, off_hand].map(|item| {
             let (identifier, stack) = item?;
+            let facts = runtime.stack_facts(&stack, Some(&identifier));
+            let charged_projectile = (identifier.as_ref() == "minecraft:crossbow")
+                .then(|| facts.charged_projectile())
+                .flatten();
             Some(PreviewHandItem {
                 identifier,
                 metadata: stack.metadata,
-                charged_projectile: protocol::item_charged_projectile(&stack.extra_data),
+                charged_projectile,
             })
         });
     }
@@ -455,7 +459,7 @@ pub(super) fn render_body_with_cape(
     view: PreviewView,
     bob: f32,
     gear: &PreviewEquipment,
-    cape: Option<&protocol::CapeImage>,
+    cape: Option<&render_api::CapeImage>,
 ) -> Vec<u8> {
     let width = PREVIEW_WIDTH as usize;
     let height = PREVIEW_HEIGHT as usize;
@@ -463,7 +467,7 @@ pub(super) fn render_body_with_cape(
     let mut depth = vec![f32::NEG_INFINITY; width * height];
     let rig = Rig::new(pose, view, bob, [gear.held.is_some(), false]);
     let mut draw = |vertices: &[ActorVertex], sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>| {
-        for triangle in vertices.chunks_exact(3) {
+        for triangle in vertices.as_chunks::<3>().0 {
             let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
             rasterize_triangle(&mut pixels, &mut depth, width, height, sample, projected);
         }
@@ -591,7 +595,7 @@ pub fn render_hand(skin: &[u8], pose: PlayerPreviewPose, left: bool) -> Vec<u8> 
     let part = if left { 2 } else { 3 };
     let mut vertices = standard_biped_vertices();
     vertices.extend(standard_biped_overlay_vertices());
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         if triangle.iter().any(|vertex| vertex.part != part) {
             continue;
         }

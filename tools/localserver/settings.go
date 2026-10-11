@@ -20,6 +20,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
+	totemTest, totemTexture                 bool
 	primitiveShapes, cameraTest, actorBurst bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
@@ -60,6 +61,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
+	flags.BoolVar(&s.totemTest, "totem-test", false, "enable /totemtest offhand, main, remote, empty and idle fixtures")
+	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry and /actorburst clear")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
@@ -181,6 +184,7 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.SaveData = true
 	uc.Players.Folder = filepath.Join(s.dir, "players")
 	uc.Players.MaxCount = maxPlayers
+	uc.Players.MaximumChunkRadius = 255
 	uc.Resources.Folder = s.resourcesDir()
 	if s.opaqueOverdraw {
 		uc.World.SaveData = false

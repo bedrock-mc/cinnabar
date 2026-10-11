@@ -1,12 +1,12 @@
 //! Fixture-only access for headless benchmarks; absent from normal client builds.
 
-use super::*;
 use client_world::ingestion::vanilla_dimension_range;
+use {super::*, render_api::MAX_VIEW_RADIUS_CHUNKS};
 
 /// Recreates the resident-key population of the former radius-16 cohort timing test.
 /// No terrain is decoded here: this measures the diagnostic's key scans, not streaming.
 pub fn cohort_fixture(mut stream: WorldStream, radius: i32) -> WorldStream {
-    assert!((1..=PHASE0_MAX_VIEW_RADIUS_CHUNKS).contains(&radius));
+    assert!((1..=MAX_VIEW_RADIUS_CHUNKS).contains(&radius));
     let range = vanilla_dimension_range(stream.current_dimension()).unwrap();
     for x in -radius..=radius {
         for z in -radius..=radius {

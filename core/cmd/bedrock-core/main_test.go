@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -28,7 +30,7 @@ func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "secret-token-sentinel"})
 	err := run(
 		context.Background(),
-		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"},
+		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")},
 		io.Discard,
 		&stderr,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
@@ -294,7 +296,7 @@ func TestRunAuthenticatedPassesTheAccountToProxy(t *testing.T) {
 	serveCalls := 0
 	err := run(
 		context.Background(),
-		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"},
+		[]string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")},
 		io.Discard,
 		io.Discard,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
@@ -371,7 +373,6 @@ func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
 func TestOnlyNullStdinHelpersIgnoreStdin(t *testing.T) {
 	for _, args := range [][]string{
 		{"-auth-events", "-auth-cache", "token.json"},
-		{"check-update", "-manifest-url", "https://example.test/m.json"},
 	} {
 		if bindsStdin(args) {
 			t.Fatalf("bindsStdin(%v) = true", args)
@@ -540,11 +541,11 @@ func TestRunSignedInKeepsTheAccountFresh(t *testing.T) {
 	keepAccountFresh = func(account *authcache.Account, ctx context.Context) {
 		refreshing <- account
 		for !account.Closed() && ctx.Err() == nil {
-			time.Sleep(time.Millisecond)
+			testwait.Idle()
 		}
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
-	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", "token.json"}, io.Discard, io.Discard,
+	err := run(context.Background(), []string{"-socket-dir", "run", "-upstream", "zeqa.net:19132", "-auth-cache", filepath.Join(t.TempDir(), "token.json")}, io.Discard, io.Discard,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return source, nil },
 		func(_ context.Context, cfg proxy.Config) error {
 			if account := <-refreshing; account != cfg.Account {
@@ -565,5 +566,40 @@ func TestServerTrustFileRequiresControlStatus(t *testing.T) {
 	opts, err := parseFlags([]string{"-control-status", "-server-trust-file", "trust.json"}, io.Discard)
 	if err != nil || opts.serverTrustFile != "trust.json" {
 		t.Fatalf("parseFlags = %+v, %v", opts.serverTrustFile, err)
+	}
+}
+
+// Signing in another account must not mint a second device for the same install.
+func TestRunKeepsOneDeviceAcrossAuthCaches(t *testing.T) {
+	install := t.TempDir()
+	deviceFile := filepath.Join(install, "auth", "device.json")
+	if err := os.MkdirAll(filepath.Join(install, "auth", "account-manager"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, authCache := range []string{
+		filepath.Join(install, "auth", "microsoft-token.json"),
+		filepath.Join(install, "auth", "account-manager", "pending-token.json"),
+	} {
+		err := run(context.Background(),
+			[]string{"-socket-dir", t.TempDir(), "-upstream", "example.test:19132", "-auth-cache", authCache, "-device-file", deviceFile},
+			io.Discard, io.Discard,
+			func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+				return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"}), nil
+			},
+			func(_ context.Context, cfg proxy.Config) error {
+				ids = append(ids, string(cfg.Device.ID))
+				return nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("run(%s) error = %v", authCache, err)
+		}
+	}
+	if ids[0] == "" || ids[0] != ids[1] {
+		t.Fatalf("device IDs = %q, want one persisted ID", ids)
+	}
+	if _, err := os.Stat(filepath.Join(install, "auth", "account-manager", "device.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending account wrote its own device profile: %v", err)
 	}
 }

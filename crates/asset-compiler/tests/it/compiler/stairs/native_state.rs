@@ -1,4 +1,9 @@
-use super::*;
+use {
+    super::*,
+    assets::{MODEL_QUAD_FLAG_FACE_MASK, RegistryRecord, RuntimeAssets, VisualKind, encode_blob},
+    std::fs,
+    std::path::Path,
+};
 
 fn native_stair_records() -> Vec<RegistryRecord> {
     let data = include_bytes!("../../../../../assets/data/block-registry-v2193.bin");

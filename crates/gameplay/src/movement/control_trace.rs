@@ -100,11 +100,12 @@ pub fn trace_server_control(
         }),
         CommittedControlEvent::LocalMovementSpeed {
             sequence,
-            current,
+            movement,
             tick,
             ..
         } => json!({
-            "kind": "movement_speed", "sequence": sequence, "current": current, "tick": tick,
+            "kind": "movement_speed", "sequence": sequence,
+            "current": movement.map(|attribute| attribute.current), "tick": tick,
         }),
         CommittedControlEvent::MovePlayer { movement, .. } => json!({
             "kind": "move_player", "tick": movement.source_tick,

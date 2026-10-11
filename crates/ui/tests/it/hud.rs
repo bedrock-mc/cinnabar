@@ -25,13 +25,46 @@ fn title_reset_clears_text_and_restores_vanilla_durations() {
     hud.set_title(Arc::from("title"), 1, 0);
     hud.set_subtitle(Arc::from("subtitle"), 2, 0);
     hud.set_actionbar(Arc::from("action"), 3, 0);
+    hud.set_tip(Arc::from("tip"), 4, 0);
 
     hud.reset_titles();
 
     assert!(hud.title().is_none());
     assert!(hud.subtitle().is_none());
     assert!(hud.actionbar().is_none());
+    assert!(hud.tip().is_none());
     assert_eq!(hud.durations(), TitleDurations::default());
+}
+
+// The tip text has its own slot: it does not overwrite the action bar.
+#[test]
+fn a_tip_text_does_not_replace_the_action_bar() {
+    let mut hud = HudStore::default();
+    hud.set_actionbar(Arc::from("bar"), 1, 0);
+    hud.set_tip(Arc::from("tip"), 2, 0);
+
+    assert_eq!(hud.actionbar().unwrap().text.as_ref(), "bar");
+    assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
+    let roles: Vec<HudViewRole> = hud.view_nodes(0).iter().map(|n| n.role).collect();
+    assert_eq!(roles, [HudViewRole::ActionBar, HudViewRole::Tip]);
+    // Expiry removes only what expired.
+    hud.expire(4_999);
+    assert_eq!(hud.actionbar().unwrap().text.as_ref(), "bar");
+    assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
+    hud.expire(5_000);
+    assert!(hud.actionbar().is_none());
+    assert!(hud.tip().is_none());
+
+    // A longer-lived tip outlives the action bar beside it.
+    let mut hud = HudStore::default();
+    hud.set_durations(TitleDurations::from_wire(0, 10, 0).unwrap());
+    hud.set_actionbar(Arc::from("bar"), 1, 0);
+    hud.set_tip(Arc::from("tip"), 2, 1_000);
+    hud.expire(900);
+    assert!(hud.actionbar().is_none());
+    assert_eq!(hud.tip().unwrap().text.as_ref(), "tip");
+    hud.expire(1_500);
+    assert!(hud.tip().is_none());
 }
 
 #[test]

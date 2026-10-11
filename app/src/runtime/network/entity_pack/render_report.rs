@@ -10,7 +10,7 @@ use protocol::{
 };
 use render::{ActorArtworkPages, ActorRenderScene};
 
-use crate::presentation::{actors, entity_layers};
+use client_presentation::presentation::actors;
 
 const SIDE: u32 = 320;
 
@@ -78,11 +78,9 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
-    let compiled = pack_compiler::compile_actor_pack(super::collect::collect_files(
-        &view,
-        refs.as_ref(),
-        None,
-    ))
+    let compiled = pack_compiler::compile_actor_pack(
+        pack_runtime::entity_pack::collect::collect_files(&view, refs.as_ref(), None),
+    )
     .unwrap()
     .unwrap();
     let artwork =
@@ -193,15 +191,26 @@ fn draw(
         eprintln!("render: no rig");
         return image;
     };
-    let Some(body) = actors::entity_rig_presentation(&rig, actor, artwork, 0.0) else {
+    let Some(body) = client_presentation::presentation::actors::entity_rig_presentation(
+        &rig, actor, artwork, 0.0,
+    ) else {
         eprintln!(
             "render: no presentation for rig {:?} fallback {:?}",
             rig.rig, rig.fallback
         );
         return image;
     };
-    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1,
+        false,
+        None,
+        [body],
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
@@ -227,7 +236,7 @@ fn draw(
         let Some(vertices) = rig.geometry_vertices.span(span) else {
             continue;
         };
-        for corners in vertices.chunks_exact(3) {
+        for corners in vertices.as_chunks::<3>().0 {
             let points = std::array::from_fn(|corner| {
                 let vertex = corners[corner];
                 let bone =
@@ -373,7 +382,7 @@ fn measure_pages(
     };
     let base = ActorArtworkPages::new(&catalog);
     summary("vanilla actor", &base);
-    let (_, base, _) = crate::presentation::equipment::EquipmentRuntime::build(
+    let (_, base, _) = client_presentation::presentation::equipment::EquipmentRuntime::build(
         entities,
         equipment.map(Arc::new),
         Arc::new(icons),

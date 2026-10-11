@@ -102,7 +102,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &fairness,
     );
 
-    arena.pending_removals.extend(removed_instances.read());
+    for entity in removed_instances.read() {
+        arena.pending_removals.insert(entity);
+        // Stop drawing immediately; GPU ranges retire behind their completion fence.
+        if let Ok(mut entity) = commands.get_entity(entity) {
+            entity.remove::<GpuChunkAllocation>();
+        }
+    }
     let retirement_pressure = prepare_publication_removals(
         &mut arena,
         *budget,

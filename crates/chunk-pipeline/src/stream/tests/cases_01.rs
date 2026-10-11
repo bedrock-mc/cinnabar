@@ -532,6 +532,72 @@ fn light_level_at_reads_resident_block_and_sky_and_falls_dark_off_boundary() {
 }
 
 #[test]
+fn light_level_at_uses_height_fallback_without_clamping_to_edge_cells() {
+    for dimension in [0, 1, 2] {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let range = stream.authority.dimension_range(dimension).unwrap();
+        let min = range.base_sub_chunk_y * 16;
+        let max = min + range.sub_chunk_count as i32 * 16;
+        for y in [min.div_euclid(16), (max - 1).div_euclid(16)] {
+            stream.lighting.store.insert_resident(
+                SubChunkKey::new(dimension, 0, y, 0),
+                SubChunkLight::uniform(9, 2, 1).unwrap(),
+            );
+        }
+        let fallback = if dimension == 0 { (0, 15) } else { (0, 0) };
+        for y in [min as f32 - 0.01, max as f32, max as f32 + 50.0] {
+            assert_eq!(stream.light_level_at([4.5, y, 4.5]), fallback);
+            assert_eq!(stream.solved_light_at([4.5, y, 4.5]), Some(fallback));
+        }
+        for y in [min as f32, max as f32 - 0.01] {
+            assert_eq!(stream.light_level_at([4.5, y, 4.5]), (9, 2));
+        }
+    }
+}
+
+#[test]
+fn light_level_at_obeys_admitted_height_instead_of_builtin_height() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .authority
+        .apply_dimension_heights(&[protocol::DimensionHeightDiagnostic {
+            name: "minecraft:overworld".into(),
+            dimension: 0,
+            minimum_y: -128,
+            height_range: 512,
+            generator: 0,
+        }]);
+    for y in [-8, -5, 20, 23, -9, 24] {
+        stream.lighting.store.insert_resident(
+            SubChunkKey::new(0, 0, y, 0),
+            SubChunkLight::uniform(9, 2, 1).unwrap(),
+        );
+    }
+    for y in [-128.0, -65.0, 320.0, 383.0] {
+        assert_eq!(stream.light_level_at([4.5, y, 4.5]), (9, 2));
+    }
+    for y in [-128.01, 384.0] {
+        assert_eq!(stream.light_level_at([4.5, y, 4.5]), (0, 15));
+    }
+}
+
+#[test]
 fn camera_environment_context_exposes_palette_biome_and_effective_block_radius() {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {

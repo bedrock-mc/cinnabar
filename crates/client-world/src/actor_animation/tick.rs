@@ -34,6 +34,10 @@ pub(crate) struct ActorTickContext {
     pub(crate) hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
     pub(crate) main_hand_max_use_ticks: u32,
+    /// Selected-stack gameplay clock for the local rig; remote actors retain their own ticks.
+    pub(crate) local_item_use_ticks: Option<u32>,
+    /// Maximum duration of the owner's offhand stack for explicitly selected-slot queries.
+    pub(crate) off_hand_max_use_ticks: u32,
     /// Selected kinetic weapon component timings used by its authored pose.
     pub(crate) main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
@@ -54,6 +58,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local: bool,
     /// The client's own player is flying.
     pub(crate) is_flying: bool,
+    /// The committed level default resolves players that use the default mode.
+    pub(crate) world_game_mode: Option<protocol::PlayerGameMode>,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -65,7 +71,7 @@ pub(crate) struct ActorTickContext {
     /// The player's skin carries a cape image.
     pub(crate) has_cape: bool,
     /// The player's skin model inputs, when it may name its own geometry.
-    pub(crate) skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub(crate) skin_geometry: Option<Arc<render_api::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
@@ -141,7 +147,9 @@ pub(super) fn advance_motion(
     } else {
         1.0
     };
-    let item_use_ticks = if query::actor_flag(actor, query::FLAG_USING_ITEM) {
+    let item_use_ticks = if let Some(ticks) = local_use_counter(actor, context) {
+        ticks
+    } else if query::actor_flag(actor, query::FLAG_USING_ITEM) {
         state
             .history
             .back()
@@ -239,6 +247,17 @@ pub(super) fn advance_motion(
         attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+/// Converts the local elapsed clock to the existing one-based hand and spear counter.
+pub(super) fn local_use_counter(actor: &ActorSnapshot, context: &ActorTickContext) -> Option<u32> {
+    context.local_item_use_ticks.map(|elapsed| {
+        if actor.is_using_item() {
+            elapsed.saturating_add(1)
+        } else {
+            0
+        }
+    })
 }
 
 /// Identifier changes request the native lowering transition. Item-specific stack
@@ -394,6 +413,10 @@ pub(super) fn evaluate_state(
         || samples_swell
         || (state.samples_swing_poses && state.local_swing.is_some()))
     .then(|| super::render_frame::FrameState {
+        samples_camera_poses: false,
+        samples_swing_poses: false,
+        selection_effects: evaluation::MolangEffects::default(),
+        retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::swell_endpoint::SwellMotion {
             variables: variables.clone(),
             sampling: state.swell_sampling.clone(),
@@ -478,13 +501,9 @@ pub(super) fn evaluate_state(
     } else {
         replay.map_or(&state.clip_clocks, |replay| &replay.clocks)
     };
-    let mut journal = controller::ControllerJournal::new(
-        samples_swell
-            && state
-                .swell_sampling
-                .as_ref()
-                .is_some_and(|s| s.samples_clips()),
-    );
+    let retain_selection = render_frame.is_some();
+    let mut journal = controller::ControllerJournal::new(retain_selection);
+    let selection_capture = render_frame.as_ref().map(|_| variables.begin_effects());
     let mut weighted_clips = selection::select(
         &evaluator,
         &mut variables,
@@ -495,18 +514,14 @@ pub(super) fn evaluate_state(
             blink: blink_controller,
             journal: &mut journal,
             replay: false,
-            record: samples_swell
-                && state
-                    .swell_sampling
-                    .as_ref()
-                    .is_some_and(|s| s.samples_clips()),
+            record: retain_selection,
         },
         budget,
     )?;
     let mut server_animations = replay
         .map_or(&state.server_animations, |replay| &replay.server_animations)
         .clone();
-    let server_capture = samples_swell.then(|| variables.begin_effects());
+    let server_capture = retain_selection.then(|| variables.begin_effects());
     super::server_animation::select(
         &evaluator,
         &mut variables,
@@ -535,11 +550,18 @@ pub(super) fn evaluate_state(
         super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
         previous_clocks.clone()
     };
-    if (state.samples_camera_poses
-        || samples_swell
-        || (state.samples_swing_poses && state.local_swing.is_some()))
-        && let Some(frame) = render_frame.as_mut()
-    {
+    if let Some(capture) = selection_capture {
+        render_frame.as_mut().unwrap().selection_effects = variables.finish_effects(capture);
+    }
+    if let Some(frame) = render_frame.as_mut() {
+        let inputs = super::render_frame::camera::active_pose_inputs(
+            layout,
+            state.presentation_expressions,
+            &controllers,
+            &weighted_clips,
+        );
+        frame.samples_camera_poses = state.samples_camera_poses && inputs.camera;
+        frame.samples_swing_poses = state.samples_swing_poses && inputs.swing;
         frame.motion.clips.clone_from(&weighted_clips);
         frame.motion.journal = journal;
         frame.motion.server_effects = server_effects;
@@ -553,6 +575,10 @@ pub(super) fn evaluate_state(
             frame.motion.controllers.clone_from(&controllers);
         }
     }
+    let pose_capture = render_frame
+        .as_ref()
+        .filter(|frame| !frame.samples_camera_poses)
+        .map(|_| variables.begin_effects());
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -561,6 +587,9 @@ pub(super) fn evaluate_state(
         &weighted_clips,
         budget,
     )?;
+    if let Some(capture) = pose_capture {
+        render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
+    }
     let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
     // Render selection must not freeze the pose when it alone exceeds the budget.
     let mut swell_layers = BTreeMap::new();

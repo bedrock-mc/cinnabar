@@ -5,8 +5,9 @@ use futures::{SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::contract::{CONTROL_MAX_FRAME_LEN, MAX_PING_TARGETS};
 use crate::endpoint::EndpointKind;
-use crate::status::{CONTROL_MAX_FRAME_LEN, RpcError, TransferPending, invalid};
+use crate::status::{RpcError, TransferPending, invalid};
 use crate::{BridgeError, FramedStream};
 
 const REQUEST_ID: u64 = 1;
@@ -39,7 +40,7 @@ pub struct Realm {
     pub member: bool,
 }
 
-/// Remote HTTPS artwork and the core's cached copy of it, when it has one.
+/// Remote HTTPS artwork and a local copy once one is cached; the core fills `path` only for art it renders.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Artwork {
     #[serde(default)]
@@ -354,7 +355,13 @@ pub struct Person {
 }
 
 /// Where the next client connection goes.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "value",
+    rename_all = "lowercase",
+    deny_unknown_fields
+)]
 pub enum ConnectTarget {
     /// A `host:port` server.
     RakNet(String),
@@ -364,24 +371,6 @@ pub enum ConnectTarget {
     Friend(String),
     /// A featured experience's ID, from a `gathering/<id>` featured server address.
     Gathering(String),
-}
-
-impl ConnectTarget {
-    fn params(&self) -> ConnectParams<'_> {
-        let (kind, value) = match self {
-            Self::RakNet(value) => ("raknet", value),
-            Self::Realm(value) => ("realm", value),
-            Self::Friend(value) => ("friend", value),
-            Self::Gathering(value) => ("gathering", value),
-        };
-        ConnectParams { kind, value }
-    }
-}
-
-#[derive(Serialize)]
-struct ConnectParams<'a> {
-    kind: &'static str,
-    value: &'a str,
 }
 
 /// Sign-in state of the core.
@@ -592,9 +581,9 @@ pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> 
     Ok(body.friends)
 }
 
-/// Selects the upstream for the next game-socket connection.
+/// Selects the upstream for the next session connection.
 pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result<(), BridgeError> {
-    call::<Empty, _>(socket_dir, "connect.v1", Some(target.params())).await?;
+    call::<Empty, _>(socket_dir, "connect.v1", Some(target)).await?;
     Ok(())
 }
 
@@ -646,10 +635,6 @@ async fn featured_servers(
     let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
     Ok(body.servers)
 }
-
-/// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
-/// a longer list was refused whole, so no row ever left "Loading ping".
-const MAX_PING_TARGETS: usize = 64;
 
 /// Pings servers for their player counts and round trip, in batches the core accepts.
 pub async fn ping_servers(
@@ -718,24 +703,24 @@ mod tests {
             jsonrpc: "2.0",
             id: 1,
             method: "connect.v1",
-            params: Some(ConnectTarget::Realm("42".into()).params()),
+            params: Some(ConnectTarget::Realm("42".into())),
         })
         .expect("encode");
         assert_eq!(
             encoded,
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}})
         );
-        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()).params());
+        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()));
         assert_eq!(
             raknet.expect("encode"),
             serde_json::json!({"kind":"raknet","value":"a:1"})
         );
-        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()).params());
+        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()));
         assert_eq!(
             friend.expect("encode"),
             serde_json::json!({"kind":"friend","value":"9"})
         );
-        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()).params());
+        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()));
         assert_eq!(
             gathering.expect("encode"),
             serde_json::json!({"kind":"gathering","value":"e"})

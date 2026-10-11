@@ -74,7 +74,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         }
         let side = u16::try_from(side).ok()?;
         let mut pixels = tile.to_vec();
-        for texel in pixels.chunks_exact_mut(4) {
+        for texel in pixels.as_chunks_mut::<4>().0 {
             texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
                 255
             } else {

@@ -13,7 +13,7 @@ use chunk_pipeline::WorldStreamService;
 use render::{ChunkUploadBudget, FrameStart, RuntimeStage, RuntimeStageProfiler};
 
 use super::{ClientWorld, WorldStreamFramePoll};
-use crate::{acceptance::markers, local_player::LocalViewPose};
+use client_presentation::local_player::LocalViewPose;
 
 /// Runs after every other main schedule; nothing later in the frame reads the stream.
 #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
@@ -32,7 +32,7 @@ pub(crate) struct WorldServiceSlot {
 impl WorldServiceSlot {
     /// Starts the service unless `RUST_MCBE_WORLD_SERVICE=0` keeps polling on the frame thread.
     pub(crate) fn from_environment() -> std::io::Result<Option<Self>> {
-        if std::env::var_os(markers::WORLD_SERVICE).is_some_and(|value| value == "0") {
+        if std::env::var_os(diagnostics::markers::WORLD_SERVICE).is_some_and(|value| value == "0") {
             return Ok(None);
         }
         Ok(Some(Self {

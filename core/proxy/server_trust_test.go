@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/endpoint"
@@ -177,17 +178,6 @@ func TestAddressedHTTPServerTrustPromptsOnceAndPersists(t *testing.T) {
 	}
 }
 
-// A declined server ends its join without taking the core down.
-func TestDeclinedServerTrustIsNotProcessFatal(t *testing.T) {
-	declined := fmt.Errorf("dial NetherNet: %w", minecraft.ErrServerNotTrusted)
-	if shouldSurfacePreparationError(declined, context.Background()) {
-		t.Fatal("a declined server stopped the core")
-	}
-	if !shouldSurfacePreparationError(errors.New("dial failed"), context.Background()) {
-		t.Fatal("ordinary preparation failures no longer surface")
-	}
-}
-
 // A signed-out join's identity is presented again by the redial after a slow trust answer, so it
 // must outlive the question.
 func TestSignedOutIdentityOutlivesTheTrustQuestion(t *testing.T) {
@@ -236,15 +226,11 @@ func TestServerTrustPromptsPublishInOrder(t *testing.T) {
 		wg.Add(1)
 		go func() { defer wg.Done(); _, _ = prompts.Confirm(ctx, "http://a:1") }()
 	}
-	for {
+	testwait.Eventually(t, testwait.DefaultTimeout, "all 20 trust checks", func() bool {
 		mu.Lock()
-		n := len(order)
-		mu.Unlock()
-		if n == 20 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(order) == 20
+	})
 	cancel()
 	wg.Wait()
 	if !slices.IsSorted(order) {

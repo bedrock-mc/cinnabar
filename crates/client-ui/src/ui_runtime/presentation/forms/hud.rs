@@ -15,12 +15,15 @@ use json_ui::{
 };
 use ui::{TimedText, UiNode};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, HudFrame, IconRef, TextMetrics, UiPresentationError,
-    UiPresentationRuntime, bounded_visible_text, hud_layout, resolve_chat_line,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{
+        HudFrame, TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text,
+        hud_layout, resolve_chat_line,
+    },
+    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
+};
 
 #[cfg(test)]
 mod hunger_control_tests;
@@ -99,6 +102,7 @@ struct Laid {
     root: [f64; 2],
     px: f32,
     language: [usize; 3],
+    texture_metadata: u64,
     render: FormRender,
 }
 
@@ -175,6 +179,7 @@ impl CachedScreen {
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
+        let texture_metadata = env.textures.metadata_revision();
         let fresh = self.laid.as_ref().is_some_and(|laid| {
             !self.binding.has_pending_visibility()
                 && laid.reference == reference
@@ -182,6 +187,7 @@ impl CachedScreen {
                 && laid.root == root
                 && laid.px == px
                 && laid.language == language
+                && laid.texture_metadata == texture_metadata
                 && self
                     .resolved
                     .as_ref()
@@ -220,7 +226,10 @@ impl CachedScreen {
             };
             let previous = self.laid.take().filter(|_| current);
             let same_frame = previous.as_ref().is_some_and(|laid| {
-                laid.root == root && laid.px == px && laid.language == language
+                laid.root == root
+                    && laid.px == px
+                    && laid.language == language
+                    && laid.texture_metadata == texture_metadata
             });
             let bound = match previous {
                 Some(laid) => {
@@ -253,6 +262,7 @@ impl CachedScreen {
                 root,
                 px,
                 language,
+                texture_metadata,
             });
         }
         self.laid.as_ref().map(|laid| &laid.render)
@@ -391,6 +401,16 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        // Packs may replace the native cursor renderer with ordinary image controls.
+        // Gate the whole overlay so these controls obey the same camera and HUD settings.
+        if crosshair && paint.crosshair.is_none() {
+            return Ok(true);
+        }
+        if !crosshair {
+            // Legacy HUDs embed this renderer; the separate overlay already draws it.
+            // Inverting the same pixels twice restores the world behind the cursor.
+            paint.crosshair = None;
+        }
         if self.mod_effect_icons_hidden() {
             paint.effects.clear();
         }
@@ -458,7 +478,7 @@ fn hud_model(
     frame: &HudFrame,
     sidebar: Option<Sidebar>,
     icons: &mut Vec<IconRef>,
-    settings: &crate::menu::settings_options::SettingsOptions,
+    settings: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;
@@ -577,6 +597,7 @@ fn hud_model(
         spectator: !mode_allows_hotbar,
         title,
         actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
         chat_visible,
@@ -746,6 +767,10 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 #[path = "hud/cache_tests.rs"]
 mod cache_tests;
+
+#[cfg(test)]
+#[path = "hud/texture_metadata_tests.rs"]
+mod texture_metadata_tests;
 
 #[cfg(test)]
 #[path = "hud/life_state_tests.rs"]

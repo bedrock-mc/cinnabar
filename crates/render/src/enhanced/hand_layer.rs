@@ -2,10 +2,8 @@
 use super::{EnhancedRendering, gpu::EnhancedViews};
 use crate::scene_target::SceneTarget;
 use bevy::{
-    ecs::query::QueryItem,
     prelude::*,
     render::{
-        render_graph::{NodeRunError, RenderGraphContext, RenderLabel, ViewNode},
         render_resource::{Texture, TextureView},
         renderer::{RenderContext, RenderDevice},
         view::ViewTarget,
@@ -63,7 +61,7 @@ impl HandLayer {
             primitive: default(),
             depth_stencil: None,
             multisample: default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -110,76 +108,78 @@ pub(crate) fn clear(context: &mut RenderContext, world: &World, scene: &SceneTar
                 crate::RuntimeStage::GpuHand,
             ),
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct EnhancedHandCompositeLabel;
-pub(crate) struct EnhancedHandCompositeNode;
 
-impl ViewNode for EnhancedHandCompositeNode {
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static SceneTarget,
-        &'static EnhancedRendering,
-    );
+type EnhancedHandCompositeQuery = (
+    &'static ViewTarget,
+    &'static SceneTarget,
+    &'static EnhancedRendering,
+);
 
-    fn run(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext,
-        (target, scene, _): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        if !super::enhanced_rendering_enabled() {
-            return Ok(());
-        }
-        let Some(layer) = world
-            .get_resource::<EnhancedViews>()
-            .and_then(|views| views.0.get(&graph.view_entity()))
-            .and_then(|view| view.hand_layer.as_ref())
-        else {
-            return Ok(());
-        };
-        if scene.texture.sample_count() > 1 {
-            let _pass = context
-                .command_encoder()
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("enhanced hand resolve"),
-                    color_attachments: &[Some(
-                        scene.resolve_attachment(&layer.view, wgpu::StoreOp::Discard),
-                    )],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                        world,
-                        crate::RuntimeStage::GpuHand,
-                    ),
-                    occlusion_query_set: None,
-                });
-        } else {
-            context.command_encoder().copy_texture_to_texture(
-                scene.texture.as_image_copy(),
-                layer.texture.as_image_copy(),
-                layer.texture.size(),
-            );
-        }
-        let mut pass = context
+/// Composites the enhanced hand layer after grading.
+pub(crate) fn enhanced_hand_composite(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<EnhancedHandCompositeQuery>,
+    mut context: RenderContext,
+) -> bevy::ecs::error::Result {
+    let view_entity = query.entity();
+    let (target, scene, _) = query.into_inner();
+    let context = &mut context;
+    if !super::enhanced_rendering_enabled() {
+        return Ok(());
+    }
+    let Some(layer) = world
+        .get_resource::<EnhancedViews>()
+        .and_then(|views| views.0.get(&view_entity))
+        .and_then(|view| view.hand_layer.as_ref())
+    else {
+        return Ok(());
+    };
+    if scene.texture.sample_count() > 1 {
+        let _pass = context
             .command_encoder()
             .begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("enhanced hand composite"),
-                color_attachments: &[Some(target.get_unsampled_color_attachment())],
+                label: Some("enhanced hand resolve"),
+                color_attachments: &[Some(
+                    scene.resolve_attachment(&layer.view, wgpu::StoreOp::Discard),
+                )],
                 depth_stencil_attachment: None,
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
                     crate::RuntimeStage::GpuHand,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
-        pass.set_pipeline(&layer.pipeline);
-        pass.set_bind_group(0, &layer.binding, &[]);
-        pass.draw(0..3, 0..1);
-        Ok(())
+    } else {
+        context.command_encoder().copy_texture_to_texture(
+            scene.texture.as_image_copy(),
+            layer.texture.as_image_copy(),
+            layer.texture.size(),
+        );
     }
+    let mut pass = context
+        .command_encoder()
+        .begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("enhanced hand composite"),
+            color_attachments: &[Some(target.get_unsampled_color_attachment())],
+            depth_stencil_attachment: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuHand,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    pass.set_pipeline(&layer.pipeline);
+    pass.set_bind_group(0, &layer.binding, &[]);
+    pass.draw(0..3, 0..1);
+    Ok(())
 }
 
 #[cfg(test)]

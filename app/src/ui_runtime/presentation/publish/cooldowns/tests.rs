@@ -40,7 +40,7 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
         ("minecraft:ender_pearl", "minecraft:wind_charge"),
         ("minecraft:wind_charge", "minecraft:chorus_fruit"),
     ] {
-        let mut player = PlayerRuntime::new(1);
+        let mut player = PlayerRuntime(player_state::PlayerState::new(1));
         let mut ui = UiRuntime::new(1);
         let mut stream = WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,

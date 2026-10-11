@@ -1,6 +1,6 @@
-use super::*;
 use bevy::window::CursorGrabMode;
 use client_ui::ui_runtime::UiRuntime;
+use {super::*, client_presentation::camera::AutoFly};
 
 /// Builds the production focus/capture boundary without a windowing plugin or OS input.
 fn focus_app() -> (App, Entity) {
@@ -9,9 +9,19 @@ fn focus_app() -> (App, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::new(false))
-        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
         .insert_resource(UiRuntime::new(1))
-        .add_systems(Update, update_cursor_capture);
+        .init_resource::<client_state::ScreenFocus>()
+        .add_systems(
+            Update,
+            (
+                crate::menu::screen_focus::publish_screen_focus,
+                update_cursor_capture,
+            )
+                .chain(),
+        );
     install(&mut app);
     let window = app
         .world_mut()
@@ -33,7 +43,7 @@ fn assert_released(app: &App, window: Entity) {
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::None);
     assert!(cursor.visible);
-    assert!(!super::super::input_is_active(
+    assert!(!client_presentation::camera::input_is_active(
         app.world().get::<Window>(window).unwrap(),
         cursor
     ));
@@ -157,14 +167,14 @@ fn late_screen_capture_cannot_override_loss_or_driven_control() {
 
 #[test]
 fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
-    use crate::ui_runtime::{
-        drive_server_form_input,
-        presentation::forms::{pack_harness, tests::mini_engine_presentation},
-    };
     use bevy::input::{ButtonState, InputPlugin, mouse::MouseButtonInput};
     use client_ui::ui_runtime::flush_form_response;
+    use {
+        crate::ui_runtime::drive_server_form_input,
+        client_ui::test_support::{mini_engine_presentation, pack_harness},
+    };
 
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
     let mut presentation = mini_engine_presentation();
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
@@ -184,13 +194,19 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     );
     let mut app = App::new();
     app.add_plugins(InputPlugin)
+        .init_resource::<client_state::ScreenFocus>()
         .insert_resource(AutoFly::new(false))
         .insert_resource(player)
         .insert_resource(runtime)
         .insert_resource(presentation)
         .add_systems(
             Update,
-            (drive_server_form_input, update_cursor_capture).chain(),
+            (
+                drive_server_form_input,
+                crate::menu::screen_focus::publish_screen_focus,
+                update_cursor_capture,
+            )
+                .chain(),
         );
     install(&mut app);
     let mut window = Window {
@@ -253,7 +269,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
 fn discarded_pointer_batch_cannot_authorize_a_later_programmatic_close() {
     use bevy::input::{ButtonState, mouse::MouseButtonInput};
     let (mut app, window) = focus_app();
-    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat(&mut player);
     app.insert_resource(player).insert_resource(runtime);
@@ -297,7 +313,7 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
         .add_message::<KeyboardInput>()
         .add_systems(
             Update,
-            drive_chat_keyboard_input.before(update_cursor_capture),
+            drive_chat_keyboard_input.before(crate::menu::screen_focus::publish_screen_focus),
         );
     {
         let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
@@ -341,7 +357,7 @@ fn leave_bed_retains_return_until_server_wakes_player() {
         ui_runtime::presentation::UiPresentationRuntime,
     };
     let (mut app, window) = focus_app();
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.set_local_sleeping(true);
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
@@ -373,11 +389,14 @@ fn leave_bed_retains_return_until_server_wakes_player() {
         .insert_resource(presentation)
         .init_resource::<Time<Real>>()
         .init_resource::<Touches>()
-        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
-        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
-        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
+        .init_resource::<client_state::SemanticInputSnapshot>()
         .init_resource::<crate::runtime::world::ClientWorld>()
-        .add_systems(Update, drive_chat_ui_actions.before(update_cursor_capture));
+        .add_systems(
+            Update,
+            drive_chat_ui_actions.before(crate::menu::screen_focus::publish_screen_focus),
+        );
     {
         let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
         win.resolution.set_physical_resolution(1280, 720);
@@ -412,15 +431,18 @@ fn leave_bed_retains_return_until_server_wakes_player() {
 
 #[test]
 fn touch_resume_returns_capture_after_focus_loss() {
-    use crate::menu::{MenuAction, MenuClipboard, MenuRuntime, drive_menu_input};
     use bevy::input::{
         InputPlugin,
         touch::{TouchInput, TouchPhase},
     };
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use {
+        crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        launcher::menu::MenuAction,
+    };
     let (mut app, window) = focus_app();
     app.add_plugins(InputPlugin);
-    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let runtime = UiRuntime::new(1);
     let mut menu = MenuRuntime::new(false, 2, "test".into());
     menu.open_pause();
@@ -449,7 +471,10 @@ fn touch_resume_returns_capture_after_focus_loss() {
         .insert_resource(menu)
         .insert_resource(presentation)
         .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
-        .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+        .add_systems(
+            Update,
+            drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+        );
     {
         let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
         win.resolution.set_physical_resolution(1280, 720);
@@ -502,7 +527,7 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
         .add_message::<KeyboardInput>()
         .add_systems(
             Update,
-            drive_chat_keyboard_input.before(update_cursor_capture),
+            drive_chat_keyboard_input.before(crate::menu::screen_focus::publish_screen_focus),
         );
     app.world_mut()
         .resource_mut::<UiRuntime>()
@@ -540,7 +565,10 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
     app.add_message::<KeyboardInput>()
         .init_resource::<crate::runtime::world::ClientWorld>()
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
-        .add_systems(Update, drive_sign_editor.before(update_cursor_capture));
+        .add_systems(
+            Update,
+            drive_sign_editor.before(crate::menu::screen_focus::publish_screen_focus),
+        );
     let mut edit = SignEdit::new([0, 0, 0], true, Default::default());
     assert!(edit.insert('a', |_| true));
     app.world_mut()
@@ -569,15 +597,18 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
 
 #[test]
 fn remapped_side_button_inventory_dismissal_returns_capture() {
-    use crate::{
-        menu::{
-            MenuAction, MenuClipboard, MenuRuntime, drive_menu_input,
-            settings_options::{EXTRA_KEYS, KEY_BINDINGS},
-        },
-        ui_runtime::interaction::drive_chat_keyboard_input,
-    };
     use bevy::{input::keyboard::KeyboardInput, time::Real};
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use {
+        crate::{
+            menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+            ui_runtime::interaction::drive_chat_keyboard_input,
+        },
+        launcher::menu::{
+            MenuAction,
+            settings_options::{EXTRA_KEYS, KEY_BINDINGS},
+        },
+    };
     let (mut app, window) = focus_app();
     let mut menu = MenuRuntime::new(false, 2, "test".into());
     menu.set_visible(true);
@@ -594,7 +625,10 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .add_systems(Update, drive_chat_keyboard_input.before(drive_menu_input))
-        .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+        .add_systems(
+            Update,
+            drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+        );
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Back);
@@ -611,16 +645,15 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         );
         menu.set_visible(false);
     }
-    app.world_mut().resource_scope(
-        |world, mut player: Mut<crate::player_runtime::PlayerRuntime>| {
+    app.world_mut()
+        .resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
             let mut runtime = world.resource_mut::<UiRuntime>();
             runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
             runtime
                 .publish_local_runtime_id(&mut player, 1, 42)
                 .unwrap();
             runtime.toggle_inventory(&mut player);
-        },
-    );
+        });
     assert!(app.world().resource::<UiRuntime>().inventory_open());
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();
@@ -639,9 +672,12 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
 
 #[test]
 fn explicit_join_keeps_return_authorization_across_loading() {
-    use crate::menu::{MenuAction, MenuClipboard, MenuRuntime, MenuScreen, drive_menu_input};
     use bevy::input::keyboard::KeyboardInput;
     use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use {
+        crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        launcher::menu::{MenuAction, MenuScreen},
+    };
     for local in [false, true] {
         let (mut app, window) = focus_app();
         let mut menu = MenuRuntime::new(true, 2, "test".into());
@@ -652,9 +688,9 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             assert_eq!(menu.take_local_world_request(), Some(0));
             MenuAction::PlayLocalWorld(0)
         } else {
-            crate::menu::servers::save_servers(
+            launcher_host::servers::save_servers(
                 &menu.layout().server_file(),
-                &[crate::menu::SavedServer {
+                &[launcher::menu::view::SavedServer {
                     name: "local fixture".into(),
                     address: "127.0.0.1".into(),
                     favorite: false,
@@ -671,7 +707,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             );
             menu.activate(MenuAction::Navigate(MenuScreen::Servers));
             menu.activate(MenuAction::SelectServerTab(
-                crate::menu::MenuServerTab::Saved,
+                launcher::menu::MenuServerTab::Saved,
             ));
             MenuAction::PlaySaved(0)
         };
@@ -679,8 +715,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
         presentation.set_menu_view(Some(menu.view()));
         presentation
             .build(
-                app.world()
-                    .resource::<crate::player_runtime::PlayerRuntime>(),
+                app.world().resource::<client_state::PlayerRuntime>(),
                 app.world().resource::<UiRuntime>(),
                 0,
                 [1280, 720],
@@ -705,7 +740,10 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             .insert_resource(menu)
             .insert_resource(presentation)
             .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
-            .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+            .add_systems(
+                Update,
+                drive_menu_input.before(crate::menu::screen_focus::publish_screen_focus),
+            );
         {
             let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
             win.resolution.set_physical_resolution(1280, 720);

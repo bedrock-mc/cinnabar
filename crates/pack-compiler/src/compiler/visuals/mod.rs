@@ -41,6 +41,7 @@ pub(in crate::compiler) mod pressure_plates;
 pub(in crate::compiler) mod rails;
 pub(in crate::compiler) mod resin_clump;
 pub(in crate::compiler) mod selector_alias;
+pub(in crate::compiler) mod shelf;
 pub(in crate::compiler) mod signs;
 pub(in crate::compiler) mod slabs;
 pub(in crate::compiler) mod snowy_grass;

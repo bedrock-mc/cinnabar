@@ -1,16 +1,21 @@
 //! Captures post-send observations and finalizes poses after local interaction admission.
-use crate::{
-    movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
-    player_runtime::PlayerRuntime,
-    runtime::world::ClientWorld,
-};
+#[cfg(test)]
+use bevy::prelude::{App, IntoScheduleConfigs, Mut, Resource, Update};
 use bevy::time::Real;
-use bevy::{ecs::system::SystemParam, prelude::*};
-use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
-pub(crate) use client_presentation::actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Local, Projection, Query, Res, ResMut, Time, Transform, Vec3, With},
 };
+use client_presentation::actor_publication::ActorFramePartialTick;
+use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+        runtime::world::ClientWorld,
+    },
+    client_state::PlayerRuntime,
+};
 
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
 pub(crate) fn publish_local_actor_damage(
@@ -34,16 +39,16 @@ pub(crate) struct ActorObservations<'w> {
     world: ResMut<'w, ClientWorld>,
     player: Res<'w, PlayerRuntime>,
     physics: Res<'w, LocalPhysicsController>,
-    view: Res<'w, crate::local_player::LocalViewPose>,
+    view: Res<'w, client_presentation::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
-    settings: Res<'w, crate::camera::CameraSettingsAuthority>,
+    settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
-    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
@@ -98,57 +103,35 @@ pub(crate) fn advance_actor_frame(
             stream.local_player_runtime_id(),
         )
     });
-    // Java blocks with a sword while use is held; Bedrock never flags that use.
-    let java_sword = settings.feel().java_animations
-        && local_equipment
-            .main
-            .as_ref()
-            .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
-    let blocking = java_sword
-        && input
+    let mining_effects = effects
+        .as_deref()
+        .map_or_else(Default::default, |effects| effects.mining_effects());
+    #[cfg(feature = "developer-control")]
+    let prefer_client_skin = skin.recording_cape_enabled();
+    #[cfg(not(feature = "developer-control"))]
+    let prefer_client_skin = false;
+    let local_feed = client_presentation::actor_feed::prepare_local_player_feed(
+        &*physics,
+        &view,
+        &settings,
+        &local_equipment,
+        &player,
+        input
             .as_deref()
-            .is_some_and(|input| input.phase(semantic_input::Action::Use).held);
-    let local_use = if blocking {
-        client_world::LocalItemUse::Using
-    } else {
-        match stream.zip(ui.as_deref()).zip(item_use.as_deref()) {
+            .is_some_and(|input| input.phase(semantic_input::Action::Use).held),
+        || match stream.zip(ui.as_deref()).zip(item_use.as_deref()) {
             Some(((stream, ui), item_use)) => item_use.local_item_use(&player, stream, ui),
             None => client_world::LocalItemUse::Unpredicted,
-        }
-    };
-    // Ending a block clears the use flag it raised, whatever the hand holds next.
-    let local_use =
-        if (java_sword || *java_blocking) && local_use == client_world::LocalItemUse::Unpredicted {
-            client_world::LocalItemUse::Idle
-        } else {
-            local_use
-        };
-    *java_blocking = blocking;
-    let mut local_feed = client_presentation::actor_feed::build_local_player_feed(
-        &*physics,
-        view.rotation(),
-        false,
-        settings.feel().view_bobbing,
+        },
+        &mut java_blocking,
         skin.local_uuid,
         || skin.player_skin(),
-        local_use,
+        prefer_client_skin,
+        (
+            gameplay::melee::swing_duration(mining_effects),
+            gameplay::melee::java_swing_duration(mining_effects),
+        ),
     );
-    if let Some(feed) = &mut local_feed {
-        #[cfg(feature = "developer-control")]
-        {
-            feed.prefer_client_skin = skin.recording_cape_enabled();
-        }
-        feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
-        feed.main_hand_stack_id = player
-            .selected_stack()
-            .map(|stack| stack.stack_network_id)
-            .filter(|id| *id > 0);
-        let mining_effects = effects
-            .as_deref()
-            .map_or_else(Default::default, |effects| effects.mining_effects());
-        feed.bedrock_swing_ticks = gameplay::melee::swing_duration(mining_effects);
-        feed.java_swing_ticks = gameplay::melee::java_swing_duration(mining_effects);
-    }
     let input = ActorFrameInput {
         local_feed,
         predicted_eye: physics.render_eye_position(),
@@ -179,6 +162,7 @@ pub(crate) fn advance_actor_frame(
             !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
                 settings.value("hide_hud") != 0,
                 settings.value("hide_hand") != 0,
+                player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
             )
             .hand
         }),
@@ -244,7 +228,7 @@ pub(crate) fn advance_actor_frame(
 #[derive(SystemParam)]
 pub(crate) struct ActorFinalObservations<'w> {
     world: ResMut<'w, ClientWorld>,
-    player: Option<Res<'w, crate::player_runtime::PlayerRuntime>>,
+    player: Option<Res<'w, client_state::PlayerRuntime>>,
     physics: Res<'w, LocalPhysicsController>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
@@ -354,51 +338,23 @@ pub(crate) fn publish_entity_shadows(
     world: Res<ClientWorld>,
     player: Res<PlayerRuntime>,
     partial_tick: Res<ActorFramePartialTick>,
-    local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
-    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    local: Res<client_presentation::local_player::LocalAvatarVisibilityCarrier>,
+    camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
     frame: Res<render::ActorRenderFrame>,
-    mut drawn: Local<Vec<u64>>,
-    mut staging: Local<Vec<render_model::EntityShadow>>,
+    drawn: Local<Vec<u64>>,
+    staging: Local<Vec<render_model::EntityShadow>>,
     scene: Option<ResMut<render::EntityShadowScene>>,
 ) {
-    let Some(mut scene) = scene else {
-        return;
-    };
-    let stream = world.stream.as_ref();
-    let local = stream.map(|stream| {
-        let runtime_id = stream.local_player_runtime_id();
-        client_presentation::entity_shadows::LocalShadowSource {
-            runtime_id,
-            visible: local.snapshot().is_some_and(|visibility| {
-                visibility.runtime_id() == runtime_id && visibility.visible()
-            }),
-            feet: local
-                .snapshot()
-                .filter(|visibility| visibility.runtime_id() == runtime_id)
-                .map(|visibility| visibility.feet().to_array()),
-            spectator: player
-                .facts
-                .game_mode_capabilities()
-                .is_some_and(|caps| !caps.visible),
-        }
-    });
-    let view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| render::ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
-    client_presentation::entity_shadows::drawn_bodies(&frame, &mut drawn);
-    client_presentation::entity_shadows::publish_entity_shadows(
-        stream,
-        partial_tick.0,
+    client_presentation::entity_shadows::drive_entity_shadows(
+        world.stream.as_ref(),
+        &player,
+        partial_tick,
         local,
-        view,
-        &drawn,
-        &mut staging,
-        &mut scene,
+        camera,
+        frame,
+        drawn,
+        staging,
+        scene,
     );
 }
 

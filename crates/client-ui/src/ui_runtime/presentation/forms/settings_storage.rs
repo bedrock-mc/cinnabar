@@ -1,10 +1,10 @@
 //! Vanilla storage categories and cache operations (storage_management.json).
 
-use crate::menu::{
+use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
+use launcher::menu::{
     MenuAction, MenuView,
     settings_storage::{CATEGORIES, StorageAction},
 };
-use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
 /// Supplies the authored category factory and its measured disk-backed rows.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&str) -> String) {
@@ -117,12 +117,12 @@ fn size_text(bytes: u64, translate: &dyn Fn(&str) -> String) -> String {
 /// Uses the pinned delete prompt, or shows a concrete disk error without hiding failure.
 pub(super) fn dialog_model(
     view: &MenuView,
-    dialog: crate::menu::MenuDialog,
+    dialog: launcher::menu::MenuDialog,
     translate: super::menu_screens::Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     use super::menu_screens::translated;
     let words = |key, fallback| translated(translate, key, fallback);
-    let (title, body, button1, confirm) = if dialog == crate::menu::MenuDialog::StorageError {
+    let (title, body, button1, confirm) = if dialog == launcher::menu::MenuDialog::StorageError {
         (
             words("menu.storageManagement", "Storage"),
             view.storage.error.clone().unwrap_or_default(),

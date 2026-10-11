@@ -8,7 +8,10 @@ use super::super::super::hud::CachedScreen;
 use super::super::super::server_pack::ServerAtlas;
 use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
 use super::{positioned, snapped};
-use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, tests::fixture_font};
+use {
+    crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 const PAINT_VIEWPORT: [u32; 2] = [1440, 813];
 
@@ -232,7 +235,7 @@ fn thin_nine_slice_caps_do_not_sample_the_neighboring_atlas_column() {
         .reduce(f32::min)
         .unwrap()
         .floor();
-    for quad in draw.vertices.chunks_exact(4) {
+    for quad in draw.vertices.as_chunks::<4>().0 {
         let (left, right) = (quad[0].position[0], quad[1].position[0]);
         for x in (left.ceil() as u32)..(right.ceil() as u32) {
             let fraction = (x as f32 + 0.5 - left) / (right - left);

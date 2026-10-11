@@ -139,7 +139,9 @@ fn current_anvil_states_keep_four_pieces_and_damage_art_through_the_carrier() {
             ([48, 160, 0], [208, 256, 256]),
         ];
         let sideways = matches!(direction, "east" | "west");
-        for (part, (faces, (mut min, mut max))) in quads.chunks_exact(6).zip(bounds).enumerate() {
+        for (part, (faces, (mut min, mut max))) in
+            quads.as_chunks::<6>().0.iter().zip(bounds).enumerate()
+        {
             if sideways {
                 min.swap(0, 2);
                 max.swap(0, 2);

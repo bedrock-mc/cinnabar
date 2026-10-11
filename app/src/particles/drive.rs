@@ -13,6 +13,7 @@ use particles::{
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
     critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
     item_icon_request, named_request, parse_molang_variables, terrain_request, tiles::item_tile,
+    totem_activation_request,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
@@ -21,14 +22,21 @@ use render::{
 
 use super::actors::{ActorParticleCommand, queue_actor_particles, route_actor_particles};
 use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
-use crate::{
-    camera::FlyCamera, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
-    survival_mining::SurvivalMiningRuntime,
+use {
+    crate::{
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
+        survival_mining::SurvivalMiningRuntime,
+    },
+    client_presentation::camera::FlyCamera,
 };
 
 #[cfg(test)]
 #[path = "drive/snowball_tests.rs"]
 mod snowball_tests;
+
+#[cfg(test)]
+#[path = "drive/totem_tests.rs"]
+mod totem_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -96,8 +104,8 @@ pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
         drive_particles
-            .after(crate::camera::FlyCameraUpdateSet)
-            .after(crate::app::ClientFrameSet::ActorPreparation)
+            .after(client_presentation::camera::FlyCameraUpdateSet)
+            .after(client_state::ClientFrameSet::ActorPreparation)
             .after(crate::environment::update_seasonal_foliage),
     );
 }
@@ -288,13 +296,15 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
             burst(system, "minecraft:witchspell_emitter", head, 1, seed);
         }
         ActorStatusKind::TotemActivate => {
-            system.spawn(&SpawnRequest {
-                effect: "minecraft:totem_manual".to_owned(),
-                position: head,
-                manual_count: Some(30),
-                seed,
-                ..SpawnRequest::default()
-            });
+            if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
+                && let Some(actor) = routing.stream.authority().actor(notice.runtime_id)
+            {
+                system.spawn(&totem_activation_request(
+                    actor.runtime_id,
+                    actor.position,
+                    actor.native_position(),
+                ));
+            }
         }
         ActorStatusKind::Feed => {
             if let Some(identifier) = routing
@@ -362,8 +372,8 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
-    mut block_cues: MessageReader<crate::audio::LocalBlockCue>,
-    mut break_echoes: Local<crate::audio::EchoLedger>,
+    mut block_cues: MessageReader<client_audio::audio::LocalBlockCue>,
+    mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
     profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
@@ -392,14 +402,14 @@ fn drive_particles(
     );
     if *session != identity {
         *session = identity;
-        *break_echoes = crate::audio::EchoLedger::default();
+        *break_echoes = client_audio::audio::EchoLedger::default();
         system.clear();
         inbox.actor_commands.clear();
         ambient.reset();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
     let mode = stream.network_id_mode();
-    let world = StreamParticleWorld::new(stream, collisions.registry(mode));
+    let world = StreamParticleWorld::new(stream, collisions.registry(mode), Some(&collisions));
     let routing = Routing {
         world: &world,
         stream,
@@ -420,15 +430,15 @@ fn drive_particles(
     // Vanilla emits local destruction effects before a server echo.
     // The cue carries the destroyed id because the world already predicts air.
     for cue in block_cues.read() {
-        if let crate::audio::LocalBlockCue::Break {
+        if let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         } = *cue
             && break_echoes.admit(
-                crate::audio::EchoOrigin::Client,
+                client_audio::audio::EchoOrigin::Client,
                 "break",
-                crate::audio::EchoSubject::Cell(position),
-                crate::audio::BLOCK_ECHO_SECONDS,
+                client_audio::audio::EchoSubject::Cell(position),
+                client_audio::audio::BLOCK_ECHO_SECONDS,
                 time.elapsed_secs_f64(),
             )
         {
@@ -444,10 +454,10 @@ fn drive_particles(
                 );
                 if !breaking
                     || break_echoes.admit(
-                        crate::audio::EchoOrigin::Packet,
+                        client_audio::audio::EchoOrigin::Packet,
                         "break",
-                        crate::audio::EchoSubject::Cell(floor_cell(level.position)),
-                        crate::audio::BLOCK_ECHO_SECONDS,
+                        client_audio::audio::EchoSubject::Cell(floor_cell(level.position)),
+                        client_audio::audio::BLOCK_ECHO_SECONDS,
                         time.elapsed_secs_f64(),
                     )
                 {

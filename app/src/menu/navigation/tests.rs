@@ -1,9 +1,12 @@
-use super::super::{MenuAction, MenuRuntime, MenuScreen};
+use {
+    super::super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 #[test]
 fn a_loaded_self_profile_can_open_dressing_room_from_keyboard_focus() {
     let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
-    menu.control_auth = Some(super::super::AuthState::Authenticated);
+    menu.control_auth = Some(launcher::menu::auth::AuthState::Authenticated);
     menu.feeds.profile.loaded = true;
     menu.feeds.profile.avatar_loaded = true;
     menu.feeds.profile.featured_screenshot_loaded = true;

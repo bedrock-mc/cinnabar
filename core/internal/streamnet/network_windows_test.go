@@ -17,15 +17,15 @@ func TestWindowsLivePublicationCannotBeStolen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer live.Close()
-	path := filepath.Join(dir, windowsEndpointName)
+	path := filepath.Join(dir, sessionWindowsEndpointName)
 	if err := os.WriteFile(path, []byte(live.Addr().String()+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	listener, err := New(dir).Listen("")
+	listener, err := ListenSession(dir)
 	if err == nil {
 		_ = listener.Close()
-		t.Fatal("Listen() stole an active game.addr publication")
+		t.Fatal("Listen() stole an active session.addr publication")
 	}
 	data, readErr := os.ReadFile(path)
 	if readErr != nil {
@@ -46,12 +46,12 @@ func TestWindowsStalePublicationIsRecoveredAtomically(t *testing.T) {
 	if err := stale.Close(); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, windowsEndpointName)
+	path := filepath.Join(dir, sessionWindowsEndpointName)
 	if err := os.WriteFile(path, []byte(staleAddress+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	listener, err := New(dir).Listen("")
+	listener, err := ListenSession(dir)
 	if err != nil {
 		t.Fatalf("Listen() with stale publication: %v", err)
 	}

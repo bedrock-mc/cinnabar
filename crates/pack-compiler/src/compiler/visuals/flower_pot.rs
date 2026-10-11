@@ -1,8 +1,8 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn soil_material(
     records: &[RegistryRecord],
@@ -88,7 +88,7 @@ mod tests {
 
     use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
-    use super::super::super::*;
+    use {super::super::super::*, assets::BlockFace};
 
     #[test]
     fn flower_pots_have_an_upward_dirt_floor_inside_the_rim() {

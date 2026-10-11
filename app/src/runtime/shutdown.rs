@@ -1,7 +1,7 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::AcceptanceRun;
-#[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentitySource};
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 
 #[cfg(feature = "acceptance")]
 use bevy::ecs::system::SystemParam;
@@ -97,8 +97,8 @@ pub(crate) fn finish_acceptance_run(
         acceptance::finish::TerminalMovementObservation {
             identity,
             source: match movement.source() {
-                crate::movement::MovementSource::Physics => "Physics",
-                crate::movement::MovementSource::FreeCamera => "FreeCamera",
+                gameplay::movement::MovementSource::Physics => "Physics",
+                gameplay::movement::MovementSource::FreeCamera => "FreeCamera",
             },
             physics_packet_count: movement.sent_physics_packet_count(),
             free_camera_packet_count: movement.sent_free_camera_packet_count(),

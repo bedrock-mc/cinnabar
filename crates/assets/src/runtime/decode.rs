@@ -214,7 +214,7 @@ fn validate_pages(
 ) -> Result<Box<[PageMeta]>, AssetError> {
     let mut metas = Vec::with_capacity(count);
     let mut expected = payload_offset;
-    for (index, record) in records.chunks_exact(PAGE_BYTES).enumerate() {
+    for (index, record) in records.as_chunks::<PAGE_BYTES>().0.iter().enumerate() {
         if u32_at(record, 0) as usize != index
             || u32_at(record, 8) != MIP_COUNT
             || u32_at(record, 12) != 0
@@ -272,7 +272,7 @@ fn validate_fixed(
     let mut referenced_stair_bases = vec![false; stair_bases.len()];
     let connected_bases = runtime_connected_bases(sections[3])?;
     let mut referenced_connected_bases = vec![false; connected_bases.len()];
-    for (index, record) in sections[0].chunks_exact(VISUAL_BYTES).enumerate() {
+    for (index, record) in sections[0].as_chunks::<VISUAL_BYTES>().0.iter().enumerate() {
         for face in 0..6 {
             if u32_at(record, face * 4) as usize >= header.counts[2] {
                 return Err(invalid(format!("visual {index} has invalid material")));
@@ -314,8 +314,9 @@ fn validate_fixed(
         if template != NO_MODEL_TEMPLATE
             && u32_at(
                 sections[3]
-                    .chunks_exact(TEMPLATE_BYTES)
-                    .nth(template as usize)
+                    .as_chunks::<TEMPLATE_BYTES>()
+                    .0
+                    .get(template as usize)
                     .expect("validated template reference"),
                 8,
             ) & MODEL_TEMPLATE_FLAG_STAIR
@@ -365,8 +366,9 @@ fn validate_fixed(
             && (kind != VisualKind::Model
                 || template == NO_MODEL_TEMPLATE
                 || sections[3]
-                    .chunks_exact(TEMPLATE_BYTES)
-                    .nth(template as usize)
+                    .as_chunks::<TEMPLATE_BYTES>()
+                    .0
+                    .get(template as usize)
                     .is_none_or(|template| u32_at(template, 4) == 0))
         {
             return Err(invalid(
@@ -384,14 +386,19 @@ fn validate_fixed(
         return Err(invalid("connected template group is unreferenced"));
     }
     let mut previous = None;
-    for record in sections[1].chunks_exact(8) {
+    for record in sections[1].as_chunks::<8>().0 {
         let hash = u32_at(record, 0);
         if previous.is_some_and(|p| p >= hash) || u32_at(record, 4) as usize >= header.counts[0] {
             return Err(invalid("hash lookup is noncanonical"));
         }
         previous = Some(hash);
     }
-    for (index, record) in sections[2].chunks_exact(MATERIAL_BYTES).enumerate() {
+    for (index, record) in sections[2]
+        .as_chunks::<MATERIAL_BYTES>()
+        .0
+        .iter()
+        .enumerate()
+    {
         let texture = TextureRef::from_raw(u32_at(record, 0))?;
         valid_ref(texture, pages)?;
         let flags = u32_at(record, 4);
@@ -410,7 +417,7 @@ fn validate_fixed(
         }
     }
     let mut quad = 0usize;
-    for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
+    for record in sections[3].as_chunks::<TEMPLATE_BYTES>().0 {
         if u32_at(record, 0) as usize != quad
             || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
@@ -426,12 +433,17 @@ fn validate_fixed(
     if quad != header.counts[4] {
         return Err(invalid("templates do not cover quads"));
     }
-    for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
+    for record in sections[3].as_chunks::<TEMPLATE_BYTES>().0 {
         if u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP == 0 {
             continue;
         }
         let start = u32_at(record, 0) as usize;
-        let mut quads = sections[4].chunks_exact(QUAD_BYTES).skip(start).take(6);
+        let mut quads = sections[4]
+            .as_chunks::<QUAD_BYTES>()
+            .0
+            .iter()
+            .skip(start)
+            .take(6);
         let body_is_one_sided = quads
             .by_ref()
             .take(4)
@@ -441,14 +453,14 @@ fn validate_fixed(
             return Err(invalid("kelp template has noncanonical sidedness"));
         }
     }
-    for record in sections[4].chunks_exact(QUAD_BYTES) {
+    for record in sections[4].as_chunks::<QUAD_BYTES>().0 {
         if u32_at(record, 40) as usize >= header.counts[2]
             || !model_quad_flags_are_valid(u32_at(record, 44))
         {
             return Err(invalid("model quad is invalid"));
         }
     }
-    for template in sections[3].chunks_exact(TEMPLATE_BYTES) {
+    for template in sections[3].as_chunks::<TEMPLATE_BYTES>().0 {
         if u32_at(template, 8) != MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE {
             continue;
         }
@@ -456,7 +468,9 @@ fn validate_fixed(
         let quad_count = u32_at(template, 4) as usize;
         let mut expected_alpha_class = None;
         for (index, quad) in sections[4]
-            .chunks_exact(QUAD_BYTES)
+            .as_chunks::<QUAD_BYTES>()
+            .0
+            .iter()
             .skip(start)
             .take(quad_count)
             .enumerate()
@@ -495,7 +509,7 @@ fn validate_fixed(
         }
     }
     let mut frame = 0usize;
-    for record in sections[5].chunks_exact(ANIMATION_BYTES) {
+    for record in sections[5].as_chunks::<ANIMATION_BYTES>().0 {
         if u32_at(record, 0) as usize != frame
             || u32_at(record, 4) == 0
             || u32_at(record, 8) == 0
@@ -509,14 +523,19 @@ fn validate_fixed(
     if frame != header.counts[6] {
         return Err(invalid("animations do not cover frames"));
     }
-    for record in sections[6].chunks_exact(FRAME_BYTES) {
+    for record in sections[6].as_chunks::<FRAME_BYTES>().0 {
         valid_ref(TextureRef::from_raw(u32_at(record, 0))?, pages)?;
     }
     validate_biome_sections(sections[9], sections[10], sections[11], header.biome_count)
 }
 
 fn runtime_stair_bases(bytes: &[u8]) -> Result<Vec<usize>, AssetError> {
-    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let records = bytes
+        .as_chunks::<TEMPLATE_BYTES>()
+        .0
+        .iter()
+        .map(|record| record.as_slice())
+        .collect::<Vec<_>>();
     let mut bases = Vec::new();
     let mut index = 0;
     while index < records.len() {
@@ -540,7 +559,12 @@ fn runtime_stair_bases(bytes: &[u8]) -> Result<Vec<usize>, AssetError> {
 }
 
 fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
-    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let records = bytes
+        .as_chunks::<TEMPLATE_BYTES>()
+        .0
+        .iter()
+        .map(|record| record.as_slice())
+        .collect::<Vec<_>>();
     let mut tails = vec![false; records.len()];
     for (index, record) in records.iter().enumerate() {
         let flags = u32_at(record, 8);
@@ -574,7 +598,12 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
 }
 
 fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError> {
-    let records = bytes.chunks_exact(TEMPLATE_BYTES).collect::<Vec<_>>();
+    let records = bytes
+        .as_chunks::<TEMPLATE_BYTES>()
+        .0
+        .iter()
+        .map(|record| record.as_slice())
+        .collect::<Vec<_>>();
     let mut bases = Vec::new();
     let mut index = 0;
     while index < records.len() {
@@ -645,7 +674,9 @@ fn valid_optional(id: u32, len: usize, what: &str) -> Result<(), AssetError> {
 
 fn decode_visuals(bytes: &[u8]) -> Result<Box<[BlockVisual]>, AssetError> {
     bytes
-        .chunks_exact(VISUAL_BYTES)
+        .as_chunks::<VISUAL_BYTES>()
+        .0
+        .iter()
         .map(|r| {
             let mut faces = [0; 6];
             for (i, v) in faces.iter_mut().enumerate() {
@@ -667,7 +698,9 @@ fn decode_visuals(bytes: &[u8]) -> Result<Box<[BlockVisual]>, AssetError> {
 }
 fn decode_light_properties(bytes: &[u8]) -> Box<[LightProperties]> {
     bytes
-        .chunks_exact(VISUAL_BYTES)
+        .as_chunks::<VISUAL_BYTES>()
+        .0
+        .iter()
         .map(|record| {
             LightProperties::new(record[27] & 0x0f, record[27] >> 4)
                 .expect("packed nibbles are always bounded")
@@ -677,14 +710,18 @@ fn decode_light_properties(bytes: &[u8]) -> Box<[LightProperties]> {
 }
 fn decode_hashes(bytes: &[u8]) -> Box<[(u32, u32)]> {
     bytes
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|r| (u32_at(r, 0), u32_at(r, 4)))
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
 fn decode_materials(bytes: &[u8]) -> Result<Box<[Material]>, AssetError> {
     bytes
-        .chunks_exact(MATERIAL_BYTES)
+        .as_chunks::<MATERIAL_BYTES>()
+        .0
+        .iter()
         .map(|r| {
             Ok(Material {
                 texture: TextureRef::from_raw(u32_at(r, 0))?,
@@ -700,7 +737,9 @@ fn decode_materials(bytes: &[u8]) -> Result<Box<[Material]>, AssetError> {
 }
 fn decode_templates(bytes: &[u8]) -> Box<[ModelTemplate]> {
     bytes
-        .chunks_exact(12)
+        .as_chunks::<12>()
+        .0
+        .iter()
         .map(|r| ModelTemplate {
             quad_start: u32_at(r, 0),
             quad_count: u32_at(r, 4),
@@ -711,7 +750,9 @@ fn decode_templates(bytes: &[u8]) -> Box<[ModelTemplate]> {
 }
 fn decode_quads(bytes: &[u8]) -> Box<[ModelQuad]> {
     bytes
-        .chunks_exact(QUAD_BYTES)
+        .as_chunks::<QUAD_BYTES>()
+        .0
+        .iter()
         .map(|r| {
             let mut positions = [[0; 3]; 4];
             for (v, p) in positions.iter_mut().flatten().enumerate() {
@@ -733,7 +774,9 @@ fn decode_quads(bytes: &[u8]) -> Box<[ModelQuad]> {
 }
 fn decode_animations(bytes: &[u8]) -> Box<[Animation]> {
     bytes
-        .chunks_exact(ANIMATION_BYTES)
+        .as_chunks::<ANIMATION_BYTES>()
+        .0
+        .iter()
         .map(|r| Animation {
             frame_start: u32_at(r, 0),
             frame_count: u32_at(r, 4),
@@ -748,7 +791,9 @@ fn decode_animations(bytes: &[u8]) -> Box<[Animation]> {
 }
 fn decode_frames(bytes: &[u8]) -> Result<Box<[TextureRef]>, AssetError> {
     bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|r| TextureRef::from_raw(u32_at(r, 0)))
         .collect::<Result<Vec<_>, _>>()
         .map(Vec::into_boxed_slice)
@@ -790,7 +835,7 @@ fn validate_biome_sections(
     let mut previous = None;
     let mut expected = 0usize;
     let mut seen = std::collections::BTreeSet::new();
-    for r in rules.chunks_exact(BIOME_RULE_BYTES) {
+    for r in rules.as_chunks::<BIOME_RULE_BYTES>().0 {
         let id = u32_at(r, 0);
         let offset = u32_at(r, 4) as usize;
         let length = u16::from_le_bytes(r[8..10].try_into().unwrap()) as usize;
@@ -836,7 +881,9 @@ fn decode_biomes(
     names: &[u8],
 ) -> Result<CompiledBiomeAssets, AssetError> {
     let rules = rules
-        .chunks_exact(36)
+        .as_chunks::<36>()
+        .0
+        .iter()
         .map(|r| {
             let o = u32_at(r, 4) as usize;
             let l = u16::from_le_bytes(r[8..10].try_into().unwrap()) as usize;

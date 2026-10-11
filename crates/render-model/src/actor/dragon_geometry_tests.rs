@@ -124,7 +124,7 @@ fn downloaded_dragon_membranes_keep_their_shared_hinge_when_the_parent_turns() {
                 (parent_point - tip_point).length() < 1e-5,
                 "{tip_name} membrane detached at phase {phase}: {parent_point:?} != {tip_point:?}"
             );
-            assert!(inner.chunks_exact(3).all(|triangle| {
+            assert!(inner.as_chunks::<3>().0.iter().all(|triangle| {
                 let points: [Vec3; 3] = std::array::from_fn(|index| {
                     let vertex = triangle[index];
                     shoulder + parent_rotation * (Vec3::from_array(vertex.position) - shoulder)
@@ -220,7 +220,7 @@ fn sample_membrane_uv(vertices: &[ActorRigVertex], point: [f32; 2]) -> [[f32; 2]
 }
 
 fn sample_face_uv(vertices: &[ActorRigVertex], point: [f32; 2]) -> [f32; 2] {
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         let delta = |vertex: &ActorRigVertex| {
             [
                 vertex.position[0] - triangle[0].position[0],

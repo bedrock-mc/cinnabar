@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 inventory = { path = "../inventory" }
 client-world = { path = "../client-world" }
+
+[lints]
+workspace = true

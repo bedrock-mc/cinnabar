@@ -101,6 +101,12 @@ impl<'a> ActorRenderFrame<'a> {
 #[derive(Debug)]
 pub(super) struct FrameState {
     pub motion: SwellMotion,
+    pub samples_camera_poses: bool,
+    pub samples_swing_poses: bool,
+    /// Completed selection and clock writes feed independently sampled layer channels.
+    pub selection_effects: evaluation::MolangEffects,
+    /// Completed channel writes survive frames that retain ordinary pose endpoints.
+    pub retained_pose_effects: evaluation::MolangEffects,
     pub previous_motion: Option<SwellMotion>,
     pub swell_poses: Option<SwellPoses>,
     pub swell_layers: BTreeMap<u32, SwellPoses>,
@@ -330,6 +336,7 @@ impl ActorAnimationStore {
             .map(|progress| progress.bedrock_progress(partial_tick));
         let swing_changed = state.samples_swing_poses
             && swing.is_some_and(|value| value != frame.motion.input.attack_time);
+        let body_swing_changed = frame.samples_swing_poses && swing_changed;
         let swell_changed = frame.needs_swell_sampling(actor);
         if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
@@ -433,6 +440,7 @@ impl ActorAnimationStore {
             .and_then(|sampling| sampling.sampled_scale(rig, scale, state.scale));
         let sampled_clips = if !isolated_swell
             && (swing_changed
+                || (frame.samples_camera_poses && pose_inputs_changed)
                 || (swell_changed
                     && state
                         .swell_sampling
@@ -451,6 +459,7 @@ impl ActorAnimationStore {
                     server_effects: &frame.motion.server_effects,
                 },
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
+                !swell_changed,
                 &mut budget,
             ) else {
                 return Some(completed());
@@ -459,6 +468,12 @@ impl ActorAnimationStore {
         } else {
             None
         };
+        if sampled_clips.is_none()
+            && endpoints.is_none()
+            && frame.selection_effects.apply(&mut variables).is_err()
+        {
+            return Some(completed());
+        }
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
             let Ok(local) = pose::sample_clips(
                 &current.evaluator,
@@ -471,8 +486,8 @@ impl ActorAnimationStore {
                 return Some(completed());
             };
             Some(local)
-        } else if (state.samples_camera_poses && pose_inputs_changed)
-            || swing_changed
+        } else if (frame.samples_camera_poses && pose_inputs_changed)
+            || body_swing_changed
             || swell_changed
         {
             let Ok(local) = pose::sample_clips(
@@ -547,6 +562,9 @@ impl ActorAnimationStore {
             .rig_geometries()
             .get(state.geometry_binding)?
             .geometry;
+        if sampled_local.is_none() && frame.retained_pose_effects.apply(&mut variables).is_err() {
+            return Some(completed());
+        }
         if let Some((_, current)) = &endpoints {
             current.variables.publish_writes(&mut variables);
         }
@@ -599,9 +617,32 @@ impl ActorAnimationStore {
                         .iter()
                         .find(|previous| previous.geometry == layer.geometry)
                 });
+            let layer_inputs_changed = if pose.is_none()
+                && previous.is_some()
+                && let Some(geometry) = layer.geometry
+            {
+                match camera::layer_needs_pose_sampling(
+                    &evaluator,
+                    clips,
+                    geometry,
+                    camera::LayerInputs {
+                        variables: &variables,
+                        completed: &state.variables,
+                        presentation_changed: pose_inputs_changed,
+                    },
+                    &mut budget,
+                ) {
+                    Ok(changed) => changed,
+                    Err(_) => return Some(completed()),
+                }
+            } else {
+                false
+            };
             let sampled = match (&pose, layer.geometry) {
                 (Some(pose), None) => Some(Arc::clone(pose)),
-                (Some(_), Some(geometry)) => {
+                (_, Some(geometry))
+                    if pose.is_some() || previous.is_none() || layer_inputs_changed =>
+                {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
                     {
@@ -684,7 +725,7 @@ impl ActorAnimationStore {
                         .get(&geometry)
                         .map(|(_, current)| Arc::clone(current))
                 }
-                (None, _) => None,
+                _ => None,
             };
             if let Some(pose) = sampled {
                 layer.previous_pose = match layer.geometry {
@@ -721,6 +762,14 @@ impl ActorAnimationStore {
                     return Some(completed());
                 };
                 Cow::Owned(skin)
+            }
+            _ if sample_skin && !state.skin_layers.is_empty() => {
+                let Ok(skin) =
+                    skin_layers::refresh(state, &evaluator, &variables, &layers, &mut budget)
+                else {
+                    return Some(completed());
+                };
+                skin
             }
             _ => Cow::Borrowed(state.skin_layers.as_slice()),
         };

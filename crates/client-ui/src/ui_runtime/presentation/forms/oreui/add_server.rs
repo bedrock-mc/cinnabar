@@ -5,7 +5,7 @@ use super::{
     theme::{self, CAPTION, HEADER5, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// A server draft keeps its fields scrollable while the actions remain visible.
 pub(super) fn draw(

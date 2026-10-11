@@ -1,5 +1,8 @@
-use super::*;
 use client_world::ingestion::PLAYER_NETWORK_OFFSET;
+use {
+    super::*,
+    render_api::{MAX_VIEW_RADIUS_CHUNKS, PublicationAllowance},
+};
 
 impl WorldStream {
     /// Prioritizes the complete spawn columns and their light halo while entry is pending.
@@ -290,34 +293,6 @@ impl WorldStream {
             local_position,
         )
     }
-    /// Retained block and sky light (0..=15) at `position`'s block cell in the current
-    /// dimension, for lighting the first-person hand to match the player's standing block. A
-    /// non-finite position or a sub-chunk whose light is not resident reads dark `(0, 0)`.
-    #[must_use]
-    pub fn light_level_at(&self, position: [f32; 3]) -> (u8, u8) {
-        self.solved_light_at(position).unwrap_or((0, 0))
-    }
-    /// `(block, sky)` light at `position`; `None` where no light has been solved yet.
-    #[must_use]
-    pub fn solved_light_at(&self, position: [f32; 3]) -> Option<(u8, u8)> {
-        if !position.iter().all(|value| value.is_finite()) {
-            return None;
-        }
-        let block = position.map(floor_to_i32);
-        let key = SubChunkKey::new(
-            self.authority.current_dimension(),
-            block[0].div_euclid(16),
-            block[1].div_euclid(16),
-            block[2].div_euclid(16),
-        );
-        let light = self.lighting.store.light(key)?;
-        let local = |axis: usize| block[axis].rem_euclid(16) as u8;
-        let (x, y, z) = (local(0), local(1), local(2));
-        Some((
-            light.get(LightChannel::Block, x, y, z).unwrap_or(0),
-            light.get(LightChannel::Sky, x, y, z).unwrap_or(0),
-        ))
-    }
     #[must_use]
     pub fn camera_biome_id(&self, position: [f32; 3]) -> Option<u32> {
         if !position.iter().all(|value| value.is_finite()) {
@@ -345,7 +320,7 @@ impl WorldStream {
     pub fn render_distance_blocks(&self) -> f32 {
         self.chunk_radius
             .unwrap_or_else(|| self.active_radius_chunks())
-            .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+            .clamp(0, MAX_VIEW_RADIUS_CHUNKS)
             .saturating_mul(16) as f32
     }
     pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {

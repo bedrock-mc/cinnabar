@@ -11,10 +11,12 @@ mod audio_bank;
 mod audio_pcm;
 mod biome;
 mod block_entity;
+pub mod block_geometry;
 mod compiler;
 mod entity;
 mod fadpcm;
 mod font;
+mod geometry_key;
 mod hud;
 mod hud_extras;
 mod icon;
@@ -32,7 +34,7 @@ pub use actor::{
     CompiledActorCarrier, compile_actor_assets, compile_actor_pack, compile_actor_pack_unless,
 };
 pub use animation::AnimationInventory;
-pub use assets::BlockFace;
+
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
 };
@@ -61,7 +63,7 @@ pub use entity::{
     compile_entity_assets_with_report, compile_entity_pack, compile_equipment_textures,
     compile_equipment_textures_for_assets, compile_equipment_textures_for_assets_with,
     compile_equipment_textures_with, compile_item_attack_timings, compile_item_use_durations,
-    compile_molang_expression, compile_vanilla_entity_refs,
+    compile_molang_expression, compile_vanilla_entity_refs, select_entity_geometry,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{

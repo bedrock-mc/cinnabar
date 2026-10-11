@@ -44,7 +44,7 @@ fn selection_edges_stay_on_the_pick_bounds_without_camera_expansion() {
         let mut frame = BlockSelectionFrame::default();
         frame.update(Some(&target), true);
         let mut edges = std::collections::BTreeSet::new();
-        for pair in frame.outline.chunks_exact(2) {
+        for pair in frame.outline.as_chunks::<2>().0 {
             let mut corner_indices = [0u8; 2];
             for (index, vertex) in pair.iter().enumerate() {
                 for (axis, &coordinate) in vertex.position.iter().enumerate() {

@@ -256,7 +256,7 @@ fn parse_vec2_table(shader: &str, name: &str) -> [[f32; 2]; 24] {
 mod tests {
     use super::LiquidShaderContract;
 
-    const SHADER: &str = include_str!("../../../src/liquid.wgsl");
+    const SHADER: &str = include_str!("../../../src/liquid.wesl");
 
     fn assert_rejects_mutation(from: &str, to: &str) {
         // `include_str!` preserves checkout line endings. Normalize the source

@@ -22,8 +22,10 @@ pub(in crate::runtime::network) fn apply_biome_overlay(
         }
         let target = &mut biomes.tint_maps_rgb8[map as usize * map_pixels * 3..][..map_pixels * 3];
         for (output, rgba) in target
-            .chunks_exact_mut(3)
-            .zip(texture.rgba8.chunks_exact(4))
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(texture.rgba8.as_chunks::<4>().0.iter())
         {
             output.copy_from_slice(&rgba[..3]);
         }

@@ -9,8 +9,6 @@ use crate::{menu::MenuRuntime, runtime::network::PackReload};
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::Arc};
 
-pub(crate) use launcher::global_resources::{Action, Snapshot};
-
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
 pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
     app.insert_resource(worker::Worker::new(root, files))
@@ -24,7 +22,7 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
             crate::runtime::network::reload_resource_packs
                 .after(crate::runtime::network::receive_network_events)
                 .before(crate::runtime::world::drive_world_stream)
-                .before(crate::app::ClientFrameSet::UiPublication)
+                .before(client_state::ClientFrameSet::UiPublication)
                 .before(render::ChunkRenderApplySet),
         );
 }

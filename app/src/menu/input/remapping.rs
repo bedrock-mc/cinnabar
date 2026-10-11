@@ -1,12 +1,5 @@
 //! Binding capture consumes input before normal menu navigation can handle it.
 
-use crate::{
-    menu::{MenuRuntime, settings_options::GAMEPAD_OFFSET},
-    semantic_controls::{
-        keyboard_usage,
-        physical::{TRANSLATED_GAMEPAD_BUTTONS, mouse_button_code},
-    },
-};
 use bevy::{
     ecs::message::MessageReader,
     input::{
@@ -17,6 +10,16 @@ use bevy::{
     prelude::{ButtonInput, KeyCode, MouseButton, Query},
 };
 use semantic_input::{AxisDirection, PhysicalControl};
+use {
+    crate::{
+        menu::MenuRuntime,
+        semantic_controls::{
+            keyboard_usage,
+            physical::{TRANSLATED_GAMEPAD_BUTTONS, mouse_button_code},
+        },
+    },
+    launcher::menu::settings_options::GAMEPAD_OFFSET,
+};
 
 /// Captures only the selected device family and allows Escape to cancel either family.
 pub(super) fn capture(

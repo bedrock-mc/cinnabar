@@ -1,6 +1,6 @@
 //! Builds the launcher presentation from the active menu and account state.
 
-use super::*;
+use {super::*, launcher::menu::auth::AuthState, launcher::menu::view::MenuView};
 
 impl MenuRuntime {
     /// Presents the visible route, modal focus, and current service feeds together.
@@ -16,7 +16,7 @@ impl MenuRuntime {
                 | AuthState::AwaitingCode { .. }
                 | AuthState::AwaitingXboxSignup { .. }
         ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog_process.is_some()));
+            && (!self.catalog_started || self.catalog.is_running()));
         let auth_state = if self.presentation_accounts {
             AuthState::Authenticated
         } else {
