@@ -1,4 +1,5 @@
 use super::*;
+use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
 
 pub(super) struct ActorPipelineSpecializer;
 
@@ -144,11 +145,11 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
 pub(super) fn prepare_actor_pipelines(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<ActorPipeline>,
-    readiness: Res<crate::ActorPipelineReadiness>,
+    readiness: Res<render_scene::ActorPipelineReadiness>,
     views: Query<(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
-        Option<&crate::EnhancedRendering>,
+        Option<&render_scene::EnhancedRendering>,
     )>,
 ) {
     let mut has_view = false;
@@ -321,7 +322,7 @@ pub(super) fn actor_pipeline_descriptor(
             shader: ACTOR_SHADER_HANDLE,
             entry_point: Some("actor_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -382,13 +383,13 @@ impl ActorPipelineKey {
             _ => assets::EntityRenderMaterial::Default,
         };
         let format = if self.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else if super::phase::sorted(self.material)
             && crate::chunk::transparent::gamma_pass::admitted(self.hdr, self.msaa, self.enhanced)
         {
-            crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
+            render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         ActorPipelineContract {
             msaa: self.msaa,

@@ -175,7 +175,11 @@ impl WorldStream {
         }
         self.with_urgent_deadline(|stream| {
             let camera = stream.last_camera_position;
-            stream.dispatch_light_jobs(camera, URGENT_DISPATCH_BUDGET);
+            stream.dispatch_light_jobs_reserving(
+                camera,
+                URGENT_DISPATCH_BUDGET,
+                URGENT_JOB_RESERVE,
+            );
             let budget = stream
                 .publication_allowance
                 .as_ref()
@@ -185,7 +189,7 @@ impl WorldStream {
                 )
                 .min(URGENT_DISPATCH_BUDGET)
                 .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
-            stream.dispatch_mesh_jobs_with_limits(camera, budget, budget);
+            stream.dispatch_mesh_jobs_reserving(camera, budget, budget, URGENT_JOB_RESERVE);
         });
     }
 

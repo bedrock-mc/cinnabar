@@ -75,13 +75,13 @@ fn cases() -> Vec<Case> {
             },
             Case {
                 name: "gamma dye",
-                tint: render::pack_overlay_rgba8([0.4, 0.7, 0.3, 1.0]),
+                tint: render_model::pack_overlay_rgba8([0.4, 0.7, 0.3, 1.0]),
                 ..Default::default()
             },
             Case {
                 name: "gamma dye mask",
                 texture: 1,
-                tint: render::pack_overlay_rgba8([0.4, 0.7, 0.3, 0.8]),
+                tint: render_model::pack_overlay_rgba8([0.4, 0.7, 0.3, 0.8]),
                 material: [0, 1, 0, 0],
                 ..Default::default()
             },
@@ -93,7 +93,7 @@ fn cases() -> Vec<Case> {
             },
             Case {
                 name: "overlay before light",
-                overlay: render::pack_overlay_rgba8([0.8, 0.2, 0.1, 0.6]),
+                overlay: render_model::pack_overlay_rgba8([0.8, 0.2, 0.1, 0.6]),
                 ..Default::default()
             },
             Case {
@@ -288,7 +288,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     let actor = include_str!("../../src/actor.wesl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
-            &render::ACTOR_GPU_INSTANCE_WORDS.to_string(),
+            &render_model::ACTOR_GPU_INSTANCE_WORDS.to_string(),
         )
         .replace(
             "ACTOR_RIG_VERTEX_WORDS",
@@ -311,7 +311,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     // The fragment reads instance words and the glint image only for glint materials.
     let instance = gpu.buffer(
-        &[0.0; render::ACTOR_GPU_INSTANCE_WORDS],
+        &[0.0; render_model::ACTOR_GPU_INSTANCE_WORDS],
         wgpu::BufferUsages::STORAGE,
     );
     let glint = gpu.blank_texture_view();
@@ -326,7 +326,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
         let light = if case.unlit {
             0
         } else {
-            render::pack_actor_light(case.sample.0, case.sample.1)
+            render_model::pack_actor_light(case.sample.0, case.sample.1)
         };
         let mut words = case.normal.to_vec();
         words.push(f32::from(case.interpolate_normals));

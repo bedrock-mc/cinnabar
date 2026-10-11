@@ -1,17 +1,25 @@
 //! Strafing over an ocean drives the production transparent sort and queue systems.
+
 use super::*;
 use crate::chunk::draw::queue_transparent_chunks;
 use bevy::ecs::schedule::ScheduleLabel;
+use bevy::ecs::system::RunSystemOnce;
+use bevy::render::render_phase::AddRenderCommand;
+
 use bevy::{
     core_pipeline::{Core3d, core_3d::Transparent3d},
-    ecs::system::RunSystemOnce,
     render::{
-        render_phase::{AddRenderCommand, DrawFunctions, ViewSortedRenderPhases},
+        render_phase::{DrawFunctions, ViewSortedRenderPhases},
         render_resource::PipelineCache,
         renderer::RenderAdapter,
         sync_world::MainEntity,
         view::RetainedViewEntity,
     },
+};
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
+    RuntimeStage, RuntimeStageProfiler, TransparentSortMetrics, TransparentWitnessEvidence,
+    TransparentWitnessRequest,
 };
 
 const OCEAN_RADIUS: i32 = 8;
@@ -177,7 +185,7 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,
@@ -388,7 +396,7 @@ pub(super) const STAGES: [RuntimeStage; 3] = [
 ];
 
 /// Returns per-stage samples and transparent upload bytes for one strafe pass.
-fn strafe_pass(shore_period: i32) -> ([crate::runtime_profile::RuntimeStageSample; 3], u64, usize) {
+fn strafe_pass(shore_period: i32) -> ([render_scene::RuntimeStageSample; 3], u64, usize) {
     let mut fixture = fixture_with(shore_period);
     let start = Vec3::new(3.3, 64.62, -40.7);
     for _ in 0..8 {

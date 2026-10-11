@@ -1,3 +1,4 @@
+use bevy::prelude::DetectChanges;
 mod commit;
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
@@ -13,7 +14,6 @@ use hand::{hand_camera_from_rig, hand_progress};
 
 use std::sync::Arc;
 
-use bevy::prelude::DetectChanges;
 use bevy::{
     ecs::system::SystemParam,
     math::Mat4,
@@ -22,10 +22,14 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
-use render::{
-    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
-    RuntimeStageProfiler,
+use {
+    render_model::{
+        ActorCullView, ActorRigFrameBuilder, ActorRigSubmission, HandItemAtlas, HandRigLight,
+        MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    },
+    render_scene::{
+        ActorMainWitness, ActorRenderScene, HandRigScene, RuntimeStage, RuntimeStageProfiler,
+    },
 };
 
 use crate::camera::{CameraSettingsAuthority, FlyCamera};
@@ -109,9 +113,9 @@ fn apply_session_pack(
     equipment: Option<&mut EquipmentRuntime>,
     profiler: Option<&RuntimeStageProfiler>,
 ) -> (
-    Option<render::ActorArtworkPages>,
+    Option<render_model::ActorArtworkPages>,
     Option<StagedSessionIcons>,
-    Vec<Option<render::ActorArtworkLocation>>,
+    Vec<Option<render_model::ActorArtworkLocation>>,
 ) {
     let equipment_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorEquipmentSetup));
     let mut pages = resources.pages.clone();
@@ -196,14 +200,14 @@ pub struct ActorFramePublication<'w, 's> {
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     presentation: ActorPresentationState<'w, 's>,
-    artwork: Res<'w, render::ActorArtworkPages>,
+    artwork: Res<'w, render_scene::ActorArtworkResource>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
-    glint_settings: Option<Res<'w, render::UiGlintSettings>>,
+    glint_settings: Option<Res<'w, render_scene::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
-    profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
+    profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
 }
 
@@ -286,7 +290,7 @@ pub fn prepare_actor_render_frame(
         .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
     let preparation = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorPreparation));
     let cull_view = camera
         .single()
         .ok()
@@ -733,7 +737,7 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
-            if (identity.layer == render::ACTOR_LAYER_BODY
+            if (identity.layer == render_model::ACTOR_LAYER_BODY
                 || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
                 || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
@@ -742,7 +746,7 @@ pub fn prepare_actor_render_frame(
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())
             {
-                submission.route = render::ActorRigRoute::NoDraw;
+                submission.route = render_model::ActorRigRoute::NoDraw;
             }
         }
     }
@@ -753,7 +757,7 @@ pub fn prepare_actor_render_frame(
     {
         let _rig_build = profiler
             .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
+            .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorRigBuild));
         register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
     }
     prepared.0 = Some(commit::PendingActorPublication {
@@ -877,7 +881,7 @@ fn animation_view(
             planes,
             camera: transform.translation.to_array(),
             player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-            entity_radius: render::ACTOR_CANDIDATE_RADIUS_BLOCKS,
+            entity_radius: render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS,
         })
 }
 

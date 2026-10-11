@@ -109,6 +109,7 @@ fn runtime_with_block_identity(
         },
         animation: NO_ANIMATION,
         variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
     let mips = [16_u32, 8, 4, 2, 1]
         .map(|size| TextureMip {

@@ -1,6 +1,7 @@
 //! Skin models, capes, and animated layers share the player animation state.
 use super::*;
-use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
+use render_model::{ACTOR_LAYER_BODY, ActorRigRejects, ActorRigRoute};
+use render_scene::ActorRenderScene;
 
 // Players draw from their own skin, never pack artwork: the body samples its skin layer and the
 // cape samples the layer appended after it.

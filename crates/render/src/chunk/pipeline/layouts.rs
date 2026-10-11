@@ -57,7 +57,7 @@ impl FromWorld for ChunkPipeline {
                 shader: CHUNK_SHADER_HANDLE,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -182,11 +182,11 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else if native_gamma {
-            crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
+            render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix()
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         #[cfg(feature = "enhanced")]
         if render_model::enhanced_rendering_enabled() && key.enhanced {
@@ -445,7 +445,7 @@ mod enhanced_tests {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -458,9 +458,9 @@ mod enhanced_tests {
             .as_mut()
             .unwrap()
             .format = if hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         descriptor
     }

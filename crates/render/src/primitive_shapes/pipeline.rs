@@ -1,8 +1,4 @@
 //! One instanced draw per shared mesh and four material passes for retained text.
-use super::{
-    PrimitiveShapesScene, SHADER,
-    gpu::{ACTOR_BYTES, INSTANCE_BYTES, ShapeGpu, TEXT_BYTES, is_text},
-};
 use bevy::{
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
@@ -25,6 +21,13 @@ use bevy::{
         sync_world::MainEntity,
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
+};
+use {
+    super::{
+        SHADER,
+        gpu::{ACTOR_BYTES, INSTANCE_BYTES, ShapeGpu, TEXT_BYTES, is_text},
+    },
+    render_scene::PrimitiveShapesScene,
 };
 
 pub(super) const TEXT_FRONT_FACE: FrontFace = FrontFace::Cw;
@@ -115,7 +118,7 @@ fn descriptor() -> RenderPipelineDescriptor {
             shader: SHADER,
             entry_point: Some("shape_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -156,9 +159,9 @@ impl Specializer<RenderPipeline> for ShapeSpecializer {
         descriptor.multisample.count = key.msaa.samples();
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         if key.gamma {
             let target = fragment.targets[0].as_mut().unwrap();
@@ -274,7 +277,7 @@ type ShapeQueueView = (
     &'static ExtractedView,
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
-    Option<&'static crate::EnhancedRendering>,
+    Option<&'static render_scene::EnhancedRendering>,
 );
 
 /// Queues work by mesh variant, never by shape or text record.

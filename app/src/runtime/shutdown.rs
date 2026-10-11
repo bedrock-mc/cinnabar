@@ -12,7 +12,7 @@ use bevy::{
     window::WindowCloseRequested,
 };
 #[cfg(feature = "acceptance")]
-use render::TransparentSortMetrics;
+use render_scene::TransparentSortMetrics;
 
 #[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;

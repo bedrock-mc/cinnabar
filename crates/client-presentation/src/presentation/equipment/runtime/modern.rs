@@ -161,7 +161,7 @@ impl EquipmentRuntime {
                 0,
             ),
             camera_space: java_camera.is_some(),
-            alpha_mode: render::HandItemAlphaMode::Cutout,
+            alpha_mode: render_model::HandItemAlphaMode::Cutout,
             java_camera,
             java_normal_axis,
         })

@@ -1,7 +1,7 @@
 use super::*;
 use crate::presentation::equipment::HeldKind;
 use bevy::math::Quat;
-use render::ActorArtworkPages;
+use render_model::ActorArtworkPages;
 
 /// Supplies an original attack-driven player arm and an identity-pose held attachable.
 fn fixture(
@@ -578,13 +578,15 @@ fn assert_attachable_readiness_clock(changed: bool) {
     time.advance_by(std::time::Duration::from_millis(50));
     world.insert_resource(time);
     world.insert_resource(equipment);
-    world.insert_resource(artwork);
-    world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
+    world.insert_resource(render_scene::ActorArtworkResource(artwork));
+    world.insert_resource(
+        render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
+    );
     world.insert_resource(super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap());
     world.init_resource::<super::super::ActorFrameState>();
     world.init_resource::<super::super::PreparedActorPublication>();
     world.init_resource::<super::super::ActorFramePartialTick>();
-    world.init_resource::<render::HandRigScene>();
+    world.init_resource::<render_scene::HandRigScene>();
     let mut avatar = crate::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(stream.authority().actor_session_id(), 1);
     world.insert_resource(avatar);
@@ -669,7 +671,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
         |_, _, _, _| false,
         params.get_mut(&mut world).unwrap(),
     );
-    let scene = world.resource::<render::HandRigScene>();
+    let scene = world.resource::<render_scene::HandRigScene>();
     assert!(scene.is_active());
     // A rest-parent draw exposes only the authored clock the production frame committed.
     stream.sync_local_swing(actor_animation::LocalSwingProgress {
@@ -679,7 +681,9 @@ fn assert_attachable_readiness_clock(changed: bool) {
     });
     stream.advance_actor_interpolation_frame(0);
     let mut cache = java::HandCache::default();
-    let artwork = world.resource::<ActorArtworkPages>().clone();
+    let artwork = world
+        .resource::<render_scene::ActorArtworkResource>()
+        .clone();
     let result = hand_source_for_mode(
         &stream,
         &mut world.resource_mut::<EquipmentRuntime>(),

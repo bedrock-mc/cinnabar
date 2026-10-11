@@ -27,6 +27,8 @@ pub struct ItemComponents {
     pub glint: bool,
     pub hand_equipped: bool,
     pub max_durability: Option<u32>,
+    /// Retains declaration presence when its maximum is absent or invalid.
+    pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
     /// `use_animation` by name (`eat`, `drink`, `bow`...); the legacy enum maps 1 and 2.
     pub use_animation: Option<Arc<str>>,
@@ -35,12 +37,42 @@ pub struct ItemComponents {
     pub food: bool,
     /// `minecraft:wearable` slot, e.g. `slot.armor.head`.
     pub wearable_slot: Option<Arc<str>>,
+    /// Whether the payload declares `minecraft:wearable`, including malformed declarations.
+    pub wearable_declared: bool,
+    /// Exact non-negative integer protection; absent or invalid values stay unresolved.
+    pub wearable_protection: Option<u32>,
     /// Block `minecraft:block_placer` places.
     pub block_placer: Option<Arc<str>>,
     /// `minecraft:rarity`: `common`, `uncommon`, `rare` or `epic`.
     pub rarity: Option<Arc<str>>,
     /// `minecraft:hover_text_color` format-code name, e.g. `gold`.
     pub hover_text_color: Option<Arc<str>>,
+}
+
+impl ItemComponents {
+    /// Counts the retained component allocation and its owned text for admission budgets.
+    pub fn retained_bytes(&self) -> usize {
+        let mut bytes = std::mem::size_of::<Self>().saturating_add(32);
+        for text in [
+            self.icon.as_deref(),
+            self.display_name.as_deref(),
+            self.use_animation.as_deref(),
+            self.wearable_slot.as_deref(),
+            self.block_placer.as_deref(),
+            self.rarity.as_deref(),
+            self.hover_text_color.as_deref(),
+            self.attack
+                .as_ref()
+                .and_then(|attack| attack.attack_cooldown.as_ref())
+                .map(|cooldown| &*cooldown.category),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            bytes = bytes.saturating_add(text.len()).saturating_add(32);
+        }
+        bytes
+    }
 }
 
 /// Components for every StartGame registry item whose component data is non-empty.
@@ -62,7 +94,10 @@ pub fn item_components(game_data: &GameData) -> Box<[(Arc<str>, ItemComponents)]
 /// data carries no components compound.
 pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
     let root = read_root(bytes)?;
-    let components = root.field("components")?;
+    // A non-compound payload carries no usable facts, not confirmed absence.
+    let components = root
+        .field("components")
+        .filter(|components| matches!(components, Nbt::Compound(_)))?;
     let properties = components.field("item_properties");
     let property = |name: &str| properties.and_then(|properties| properties.field(name));
     let component = |name: &str| components.field(name);
@@ -93,6 +128,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         glint: flag(property("foil")) || flag(component("minecraft:glint")),
         hand_equipped: flag(property("hand_equipped"))
             || flag(component("minecraft:hand_equipped")),
+        durability_declared: component("minecraft:durability").is_some(),
         max_durability: count(
             component("minecraft:durability")
                 .and_then(|durability| durability.field("max_durability")),
@@ -119,6 +155,13 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         wearable_slot: text(
             component("minecraft:wearable").and_then(|wearable| wearable.field("slot")),
         ),
+        wearable_declared: component("minecraft:wearable").is_some(),
+        wearable_protection: component("minecraft:wearable")
+            .and_then(|wearable| wearable.field("protection"))
+            .and_then(|value| match value {
+                Nbt::Int(value) if (0..=i64::from(i32::MAX)).contains(value) => Some(*value as u32),
+                _ => None,
+            }),
         block_placer: component("minecraft:block_placer").and_then(|placer| {
             let block = placer.field("block")?;
             text(Some(block)).or_else(|| text(block.field("name")))
@@ -175,7 +218,63 @@ mod tests {
         bytes
     }
 
+    #[test]
+    fn durability_declaration_retains_absent_invalid_and_positive_maxima() {
+        for (fields, expected) in [
+            (vec![], None),
+            (vec![int("max_durability", 0)], None),
+            (vec![int("max_durability", -1)], None),
+            (vec![int("max_durability", 50)], Some(50)),
+        ] {
+            let root = compound(
+                "",
+                &[compound(
+                    "components",
+                    &[compound("minecraft:durability", &fields)],
+                )],
+            );
+            let facts = parse_components(&root).unwrap();
+            assert!(facts.durability_declared);
+            assert_eq!(facts.max_durability, expected);
+        }
+        let root = compound("", &[compound("components", &[])]);
+        assert!(!parse_components(&root).unwrap().durability_declared);
+    }
+
+    #[test]
+    fn scalar_components_payload_is_not_admitted_as_empty_facts() {
+        let root = compound("", &[int("components", 1)]);
+        assert!(parse_components(&root).is_none());
+    }
+
     // Dragonfly's custom-item layout: properties nested under item_properties.
+    #[test]
+    fn wearable_protection_retains_zero_and_rejects_invalid_or_missing_values() {
+        for (value, expected) in [
+            (Some(int("protection", 6)), Some(6)),
+            (Some(int("protection", 0)), Some(0)),
+            (Some(int("protection", -1)), None),
+            (Some(string("protection", "6")), None),
+            (None, None),
+        ] {
+            let mut fields = vec![string("slot", "slot.armor.chest")];
+            fields.extend(value);
+            let payload = compound(
+                "",
+                &[compound(
+                    "components",
+                    &[compound("minecraft:wearable", &fields)],
+                )],
+            );
+            let facts = parse_components(&payload).unwrap();
+            assert!(facts.wearable_declared);
+            assert_eq!(facts.wearable_slot.as_deref(), Some("slot.armor.chest"));
+            assert_eq!(facts.wearable_protection, expected);
+        }
+        let absent = compound("", &[compound("components", &[])]);
+        assert!(!parse_components(&absent).unwrap().wearable_declared);
+    }
+
     #[test]
     fn food_classification_uses_the_food_component() {
         let food = compound(

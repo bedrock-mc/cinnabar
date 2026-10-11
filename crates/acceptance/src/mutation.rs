@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use render::{PresentedFrameAck, TargetRenderExpectation};
+use render_scene::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
 use {

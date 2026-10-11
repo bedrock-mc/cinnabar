@@ -86,6 +86,7 @@ pub(in crate::compiler) fn descriptors(
             path: path.into(),
             texture_key: key.clone(),
             state_variant,
+            flipbook_selector: None,
             flags: MATERIAL_FLAG_ALPHA_CUTOUT
                 | if rotate_uv {
                     MATERIAL_FLAG_ROTATE_UV

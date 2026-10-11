@@ -13,6 +13,18 @@ using fixtures from the `test-support` feature. Animation unit tests use a plain
 double. Compilation and execution of this move remain unverified, and no actor
 animation parity gate closes.
 
+## Render geometry and scene ownership
+
+- `render-model` owns CPU block-model and selection geometry, dropped-item meshes,
+  actor rig construction and artwork, and validated viewmodel meshes.
+- `render-scene` owns Bevy submission resources, chunk publication queues,
+  camera settings, and renderer acknowledgements. `client-presentation` and
+  `acceptance` consume these contracts without depending on `render`.
+- `render` owns GPU passes, pipelines, uploads, and render-world system registration.
+  The app composes the camera motion-blur plugin with the other GPU plugins.
+- Existing behavior tests are retained. Compilation and execution of these moves
+  remain unverified; behavior and performance acceptance gates stay open.
+
 ## Player interaction ownership
 
 `client-interaction` owns the movement and interaction resource wrappers, item-use
@@ -93,6 +105,17 @@ material selection, carrier roundtrips and malformed states. Offline Metal frame
 cover every state beside supporting terrain; broader world-join and performance
 gates remain open.
 
+## Respawn anchor artwork
+
+Respawn anchors compile six cube faces for charge states zero through four. Terrain
+arrays and animated top materials retain the selected charge, while the shared
+carried-face sheet preserves pack overrides for inventory and held rendering.
+Original-art regressions cover carrier roundtrips, short arrays, scalar overrides,
+transparent faces, partial animations and malformed states. Headless captures with
+checked world and icon carriers verify the held cube and all five charge textures
+through placement and charging input. Server-pack compilation, broader block and
+animation parity, and performance acceptance remain incomplete.
+
 ## End rod terrain geometry
 
 End rods compile a separate shaft and mounting plate for all six integer-facing states.
@@ -113,6 +136,16 @@ malformed selectors and replacement sprites. Matched headless frames cover all
 server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
+
+## Sea pickle terrain geometry
+
+Sea pickles compile one to four separate bodies and crossed live tips selected by
+the typed count and dead states. Bodies retain their side, top and inset cap sprite regions;
+replacement packs supply the sprite, and water remains a separate contributor.
+Original-art regressions cover all eight registry states, carrier roundtrips,
+material ownership and malformed selectors. Geometry uses the carrier's existing
+position and UV precision. Rendered/input acceptance and reported server-version
+placement remain incomplete; broader parity gates stay open.
 
 ## RakNet transport compatibility
 
@@ -151,6 +184,20 @@ The app retains renderer, UI, audio, and world publication adapters and their
 subscriber orchestration. Block visuals still use renderer-owned material flags,
 and item, glyph, audio, and artwork payloads retain their existing owners. These
 moves do not change the open behavior or performance acceptance gates.
+
+## Diagnostics ownership
+
+`diagnostics` holds Bevy-free metrics and marker contracts, with no `protocol`
+dependency. The app owns the build-identity resource and passes its build profile
+into the runtime-metadata and world-publication markers. Marker output is unchanged;
+compilation and test execution of this move remain unverified until CI.
+
+## World day length
+
+`world::TICKS_PER_DAY` is the single day length for sky and moon-phase math, the HUD
+days-played count and their tests. The guest SDK keeps its time-override bound because
+it cannot depend on `world`; a compile-time check in `render` keeps the two equal.
+Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Login identity
 
@@ -5652,9 +5699,13 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   budget. Land movement speed is not clamped.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
-  suspends player physics and streams steering input with boat paddle flags; rider seat
-  following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
-  signalling are not implemented. Sweet berry bush slowdown is written in `tools/registrygen`
+  suspends player physics and streams steering input with boat paddle flags. Server-defined
+  seat offsets follow the mount's actor origin and yaw for local and remote riders without
+  multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
+  vehicle-targeted dismount request; the server's removal link releases the rider.
+  Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
+  dismount exit placement, client-predicted vehicles (`IsInClientPredictedVehicle`) and
+  horse jump wire signalling remain open. Sweet berry bush slowdown is written in `tools/registrygen`
   (unverified state count and coefficients) and the sim, but the physics carrier is not
   regenerated: at reconcile run `go -C tools/registrygen run . -physics-v2168-out
   crates/assets/data/block-physics-v2168.bin -physics-v2168-sha-out
@@ -7636,3 +7687,27 @@ Incomplete parity: exact custom-biome fallback profiles and regional or height-a
 Composters retain inward walls and a level-dependent floor. Cauldrons retain their rim, inner floor, walls and feet, with separate water, lava and powder-snow surfaces at each fill level. These models do not occlude full neighbor faces.
 
 Incomplete parity: cauldron block-actor potion and dyed-water colours require runtime block-actor data; their state-only visual remains provisional. Enhanced lighting and performance acceptance remain open.
+
+Block destroy facts are compiled into world carrier 15 and read by numeric runtime
+identity during mining. Every input state is checked against the independent pinned
+registry; changed or custom identities remain unresolved. The existing hardness and
+tool source is retained as explicitly provisional prediction data. Full native tool,
+state-dependent hardness, legacy protocol and session destroy-component coverage is
+incomplete; this does not close the complete destroy parity gate. `make assets`
+regenerates the carrier and stale envelopes fail admission. Held-item tool and
+creative-break classification still use item names and need separate admission
+facts before the complete mining path can be considered name-free.
+
+Movement descriptor coverage remains incomplete. The current physics carrier requires a typed
+movement disposition for every admitted state. Existing declared special rules retain their
+numerical behavior; unclassified states remain unresolved and keep the previous conservative
+numerical defaults. No ordinary movement classification is inferred from absence of a special
+rule. Complete native ordinary/special coverage, custom session movement components and
+all provisional rule values still require verification before this gate can close.
+
+## Compiled item armour
+
+- Protection and player slots live in the entity carrier; HUD capture reads numeric registry facts resolved at admission. Server wearable components replace protection without per-frame parsing.
+- Incomplete: the full armour identifier/class inventory, missing-member defaults, body slots and later component versions still need parity verification. Unverified items and malformed declarations retain explicit unresolved facts.
+
+Effective item durability is shared through required entity-carrier descriptors and session registry admission. Unknown entries and invalid declared maxima stay unresolved; UI and elytra gameplay read the admitted numeric-ID fact. This gate remains incomplete: the full damageable item inventory, native class bindings, numeric component bounds and all network replacement behavior still need verification. The pinned base table preserves the existing positive values and its coverage guard checks their membership in the independent retail inventory.

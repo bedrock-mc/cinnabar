@@ -1,5 +1,7 @@
 //! Graphics adapter and present-mode metadata for diagnostic runs, from the shared surface probe.
 
+use render_scene::{VisibilityDiagnostics, VisibilityDiagnosticsInput};
+
 use crate::chunk::*;
 use crate::present_mode::{
     PresentModePolicy, PresentModePreference, PresentModeRemedy, requested_present_mode_kind,

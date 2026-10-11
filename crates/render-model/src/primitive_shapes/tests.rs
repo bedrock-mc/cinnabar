@@ -1,8 +1,7 @@
 use super::*;
 use render_api::primitive_shapes::*;
 
-#[path = "alloc_count.rs"]
-mod alloc_count;
+use crate::alloc_count;
 #[path = "bench.rs"]
 mod bench;
 

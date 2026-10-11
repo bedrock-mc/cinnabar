@@ -155,7 +155,7 @@ pub fn extra_commands(checks: &ExtraChecks) -> Vec<CommandSpec> {
 }
 
 /// Uses Cargo's exact workspace identity so a registry package with the same name is unambiguous.
-fn package_spec<'a>(name: &'a str, packages: &'a [Package]) -> &'a str {
+pub(crate) fn package_spec<'a>(name: &'a str, packages: &'a [Package]) -> &'a str {
     packages
         .iter()
         .find(|package| package.name == name)
@@ -172,7 +172,7 @@ fn append_tests(
 ) {
     match runner {
         TestRunner::Cargo => {
-            let mut args = vec!["test".into()];
+            let mut args = vec!["test".into(), "--no-fail-fast".into()];
             if workspace {
                 args.push("--workspace".into());
             }
@@ -181,7 +181,7 @@ fn append_tests(
             commands.push(CommandSpec::new("cargo", args));
         }
         TestRunner::Nextest => {
-            let mut args = vec!["nextest".into(), "run".into()];
+            let mut args = vec!["nextest".into(), "run".into(), "--no-fail-fast".into()];
             if workspace {
                 args.push("--workspace".into());
             }
@@ -217,7 +217,7 @@ mod tests {
         );
         assert_eq!(
             commands[2].to_string(),
-            "cargo test --locked -p assets -p render"
+            "cargo test --no-fail-fast --locked -p assets -p render"
         );
         assert_eq!(
             commands[3].to_string(),
@@ -229,7 +229,10 @@ mod tests {
     #[test]
     fn workspace_selection_uses_full_workspace_commands() {
         let commands = verification_commands(&Selection::Workspace, TestRunner::Cargo, &[]);
-        assert_eq!(commands[2].to_string(), "cargo test --workspace --locked");
+        assert_eq!(
+            commands[2].to_string(),
+            "cargo test --no-fail-fast --workspace --locked"
+        );
         assert_eq!(
             commands[3].to_string(),
             "cargo clippy --workspace --all-targets --locked -- -D warnings"
@@ -258,7 +261,7 @@ mod tests {
         );
         assert_eq!(
             commands[2].to_string(),
-            "cargo nextest run --locked -p world"
+            "cargo nextest run --no-fail-fast --locked -p world"
         );
         assert_eq!(
             commands[3].to_string(),

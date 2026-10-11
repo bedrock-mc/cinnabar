@@ -245,6 +245,7 @@ mod tests {
 
     fn entry(identifier: &str, component_based: bool, declared: Option<u8>) -> ItemRegistryEntry {
         ItemRegistryEntry {
+            components: None,
             identifier: identifier.into(),
             network_id: 900,
             component_based,

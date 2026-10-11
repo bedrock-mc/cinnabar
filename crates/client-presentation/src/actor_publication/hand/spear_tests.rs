@@ -44,7 +44,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         icons,
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     let timings = equipment.item_attack_timings();
     let timing = timings
@@ -100,13 +100,15 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     time.advance_by(world::TICK_DURATION);
     world.insert_resource(time);
     world.insert_resource(equipment);
-    world.insert_resource(artwork);
-    world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
+    world.insert_resource(render_scene::ActorArtworkResource(artwork));
+    world.insert_resource(
+        render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),
+    );
     world.insert_resource(super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap());
     world.init_resource::<super::super::ActorFrameState>();
     world.init_resource::<super::super::PreparedActorPublication>();
     world.init_resource::<super::super::ActorFramePartialTick>();
-    world.init_resource::<render::HandRigScene>();
+    world.init_resource::<render_scene::HandRigScene>();
     let mut avatar = crate::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(stream.authority().actor_session_id(), 1);
     world.insert_resource(avatar);
@@ -173,7 +175,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         .submissions()
         .unwrap()
         .iter()
-        .find(|draw| draw.input.identity.layer == render::ACTOR_LAYER_BODY)
+        .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
         .unwrap();
     let authored = crate::presentation::actors::convert_bones(rig.current).unwrap();
     let rotation = Quat::from_array(body.input.current_bones[arm].rotation);

@@ -118,7 +118,7 @@ pub(super) fn verify(app: &App) {
     }
     assert!(
         !app.world()
-            .resource::<render::ActorPresentationGate>()
+            .resource::<render_scene::ActorPresentationGate>()
             .drain()
             .is_empty(),
         "the production actor draw must execute and complete on the GPU"

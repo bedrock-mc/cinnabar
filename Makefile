@@ -3,6 +3,8 @@
 CARGO ?= cargo
 # Cargo profile for `make play`; PROFILE=release keeps developer features with shipping optimizations.
 PROFILE ?= play
+# Capture reads the client executable from Cargo artifact messages.
+CLIENT_MESSAGE_FORMAT ?= human
 # Cargo names the dev profile output directory debug.
 PROFILE_DIR = $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
 EXE = $(if $(filter Windows_NT,$(OS)),.exe)
@@ -117,13 +119,16 @@ local-server:
 	$(CARGO) build -p experience-runtime --release --locked
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
-play: assets
+play-build: assets
 ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
+
+play: play-build
 	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 dist-local:
@@ -159,3 +164,8 @@ package-windows: package-binaries $(FONT_SOURCE)
 
 package-linux: package-binaries $(FONT_SOURCE)
 	bash packaging/linux/build-appimage.sh
+
+SECONDS ?= 180
+.PHONY: capture play-build
+capture:
+	$(CARGO) run -p devtool --locked -- capture --seconds "$(SECONDS)" $(if $(BASELINE),--baseline "$(BASELINE)") $(if $(HZ),--refresh-hz "$(HZ)") $(if $(filter 1,$(NO_VSYNC)),--no-vsync)

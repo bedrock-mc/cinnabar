@@ -30,12 +30,7 @@ pub fn snapshot(
                     || ledger.slot_state(slot as u8).unwrap(),
                     |selected| selected.state,
                 );
-            project_slot(
-                authority,
-                ledger,
-                state,
-                ledger.presented_slot_overlay(slot as u8),
-            )
+            project_slot(authority, state, ledger.presented_slot_overlay(slot as u8))
         })
         .collect();
     let armor = (0..4)
@@ -43,7 +38,6 @@ pub fn snapshot(
             let target = InventoryTarget::Armor(slot);
             project_slot(
                 authority,
-                ledger,
                 ledger.gear_slot_state(target).unwrap(),
                 ledger.presented_target_overlay(target),
             )
@@ -60,7 +54,6 @@ pub fn snapshot(
     };
     let offhand = project_slot(
         authority,
-        ledger,
         offhand_state,
         ledger.presented_target_overlay(InventoryTarget::Offhand),
     );
@@ -94,7 +87,6 @@ pub fn snapshot(
 /// Keeps unknown slots distinct from empty and validated item observations.
 fn project_slot(
     authority: &WorldAuthority,
-    ledger: &inventory::PlayerInventoryLedger,
     state: PlayerInventorySlot<'_>,
     overlay: Option<&StackResponseOverlay>,
 ) -> PlayerStateSlot {
@@ -108,7 +100,7 @@ fn project_slot(
             item: None,
         },
         PlayerInventorySlot::Present(stack) => {
-            let item = project_item(authority, ledger, stack, overlay);
+            let item = project_item(authority, stack, overlay);
             PlayerStateSlot {
                 known: item.is_some(),
                 item,
@@ -120,7 +112,6 @@ fn project_slot(
 /// Projects admitted item identity and durability into the bounded guest payload.
 fn project_item(
     authority: &WorldAuthority,
-    ledger: &inventory::PlayerInventoryLedger,
     stack: &protocol::NetworkItemStack,
     overlay: Option<&StackResponseOverlay>,
 ) -> Option<PlayerStateItem> {
@@ -129,15 +120,7 @@ fn project_item(
         identifier.len() <= mod_api::MAX_ITEM_IDENTIFIER_BYTES
             && !identifier.chars().any(char::is_control)
     });
-    let max_durability = ledger
-        .negotiated_item_entry(stack.network_id)
-        .is_none_or(|entry| !entry.component_based)
-        .then(|| {
-            identifier
-                .as_deref()
-                .and_then(client_world::vanilla_max_durability)
-        })
-        .flatten();
+    let max_durability = canonical.durability.maximum();
     let damage = overlay
         .and_then(|overlay| overlay.durability_correction)
         .and_then(|damage| u32::try_from(damage).ok())

@@ -125,6 +125,7 @@ pub(in crate::compiler) fn farmland_material_descriptors(
             (
                 Descriptor {
                     state_variant,
+                    flipbook_selector: None,
                     path: path.into(),
                     texture_key: key.into(),
                     flags: 0,

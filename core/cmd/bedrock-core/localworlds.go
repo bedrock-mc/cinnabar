@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
@@ -106,4 +107,86 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 		provisioner.DetectInBackground(runtimeInfo)
 	}
 	return manager, nil
+}
+
+// worldSentinels are the local-world failures the control plane reports by code.
+var worldSentinels = []sentinelPair{
+	{control.ErrWorldNotFound, localworld.ErrNotFound},
+	{control.ErrWorldInvalid, localworld.ErrInvalid},
+	{control.ErrWorldBusy, localworld.ErrBusy},
+	{control.ErrWorldInUse, localworld.ErrInUse},
+	{control.ErrWorldNotOpen, localworld.ErrNotOpen},
+	{control.ErrWorldRuntimePending, localworld.ErrRuntimePending},
+	{control.ErrEULARequired, localworld.ErrEULARequired},
+	{control.ErrWorldBackendUnavailable, localworld.ErrBackendUnavailable},
+}
+
+func worldErr(err error) error { return classify(err, &worldSentinels) }
+
+// controlWorlds serves the control plane's world methods from the local-world manager.
+type controlWorlds struct {
+	manager *localworld.Manager
+	onOpen  func()                              // runs after each successful Open
+	invite  func(context.Context, string) error // nil while friends cannot be invited
+}
+
+func (w controlWorlds) List() ([]control.World, error) {
+	worlds, err := w.manager.List()
+	return mapSlice(worlds, func(world localworld.World) control.World { return control.World(world) }), worldErr(err)
+}
+
+func (w controlWorlds) Open(id string, viewDistance int) error {
+	err := w.manager.Open(id, localworld.OpenOptions{ViewDistance: viewDistance})
+	if err == nil && w.onOpen != nil {
+		w.onOpen()
+	}
+	return worldErr(err)
+}
+
+func (w controlWorlds) Close() error { return worldErr(w.manager.Close()) }
+
+func (w controlWorlds) Status() control.WorldStatus { return wireWorldStatus(w.manager.Status()) }
+
+func wireWorldStatus(status localworld.Status) control.WorldStatus {
+	wire := control.WorldStatus{
+		State: string(status.State), WorldID: status.WorldID, Backend: status.Backend, Paused: status.Paused,
+		PauseSupported: status.PauseSupported, Error: status.Error,
+		BackendUnavailableReason: status.BackendUnavailableReason, MaxPlayers: status.MaxPlayers,
+	}
+	if setup := status.Setup; setup != nil {
+		wire.Setup = &control.WorldSetup{
+			State: string(setup.State), Version: setup.Version, BytesDone: setup.BytesDone, BytesTotal: setup.BytesTotal,
+			LayersDone: setup.LayersDone, LayersTotal: setup.LayersTotal, EULAAccepted: setup.EULAAccepted,
+			Error: setup.Error, Runtime: setup.Runtime, Reason: setup.Reason, UnavailableReason: setup.UnavailableReason,
+		}
+	}
+	return wire
+}
+
+func (w controlWorlds) Create(spec control.WorldSpec) (control.World, error) {
+	world, err := w.manager.Create(localworld.Spec(spec))
+	return control.World(world), worldErr(err)
+}
+
+func (w controlWorlds) Update(id string, update control.WorldUpdate) (control.World, error) {
+	world, err := w.manager.Update(id, localworld.Update(update))
+	return control.World(world), worldErr(err)
+}
+
+func (w controlWorlds) Delete(id string) error { return worldErr(w.manager.Delete(id)) }
+
+func (w controlWorlds) SetPaused(paused bool) error { return worldErr(w.manager.SetPaused(paused)) }
+
+func (w controlWorlds) AcceptEULA() error { return worldErr(w.manager.AcceptEULA()) }
+
+func (w controlWorlds) Prefs(ctx context.Context, update control.WorldPrefsUpdate) (control.WorldPrefs, error) {
+	prefs, err := w.manager.Prefs(ctx, localworld.PrefsUpdate(update))
+	return control.WorldPrefs(prefs), worldErr(err)
+}
+
+func (w controlWorlds) Invite(ctx context.Context, xuid string) error {
+	if w.invite == nil {
+		return control.ErrWorldNotOpen
+	}
+	return worldErr(w.invite(ctx, xuid))
 }

@@ -3,11 +3,12 @@
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use bevy::ecs::system::RunSystemOnce;
 use client_state::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
 
-use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
+use bevy::{prelude::*, time::Real};
 use client_audio::audio_ingress::SequencedAudioEvent;
 use client_presentation::server_camera::ServerCameraInstructions;
 use protocol::{
@@ -90,7 +91,7 @@ fn app() -> App {
     .init_resource::<LocalMovementEffectTimeline>()
     .init_resource::<LocalMovementSpeedAuthority>()
     .init_resource::<Time<Real>>()
-    .init_resource::<render::ChunkUploadBudget>()
+    .init_resource::<render_scene::ChunkUploadBudget>()
     .init_resource::<CameraSettingsAuthority>()
     .init_resource::<LocalViewPose>()
     .init_resource::<LocalPlayerFrameCarrier>()
@@ -433,6 +434,7 @@ fn named_registry(name: &str) -> ItemRegistryEvent {
         entries: [(6, name), (7, "minecraft:oak_planks")]
             .into_iter()
             .map(|(network_id, identifier)| protocol::ItemRegistryEntry {
+                components: None,
                 identifier: identifier.into(),
                 network_id,
                 component_based: false,
@@ -913,6 +915,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         let mut app = app();
         let registry = ItemRegistryEvent {
             entries: std::sync::Arc::from([protocol::ItemRegistryEntry {
+                components: None,
                 identifier: "minecraft:apple".into(),
                 network_id: 878,
                 component_based: true,

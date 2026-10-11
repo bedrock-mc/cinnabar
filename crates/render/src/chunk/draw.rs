@@ -1,5 +1,9 @@
 use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
 use crate::chunk::*;
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, MAX_VISIBILITY_DIAGNOSTIC_KEYS,
+    ModelWitnessRequest, ModelWorkloadMetrics, PresentedFrameGate, RuntimeStageProfiler,
+};
 
 /// World views shared by opaque and transparent chunk queues.
 type ChunkViewQuery = (
@@ -8,7 +12,7 @@ type ChunkViewQuery = (
     Read<ExtractedView>,
     Read<RenderVisibleEntities>,
     Read<Msaa>,
-    Option<Read<crate::EnhancedRendering>>,
+    Option<Read<render_scene::EnhancedRendering>>,
     Read<bevy::render::camera::ExtractedCamera>,
 );
 

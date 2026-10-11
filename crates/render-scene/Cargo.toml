@@ -1,0 +1,38 @@
+[package]
+name = "render-scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+publication-test-support = []
+enhanced-diagnostics = ["render-model/enhanced-diagnostics"]
+tracy = ["dep:tracy-client"]
+
+[dependencies]
+assets = { path = "../assets" }
+bevy.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+glam.workspace = true
+meshing = { path = "../meshing" }
+mod-api = { path = "../mod-api" }
+mod-render = { path = "../mod-render" }
+particles = { path = "../particles" }
+render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
+serde_json = "1"
+sha2.workspace = true
+world = { path = "../world" }
+tracy-client = { version = "=0.19.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+sha2 = { workspace = true, features = ["asm"] }
+
+[dev-dependencies]
+pack-compiler = { path = "../pack-compiler" }
+tempfile = "3"
+test-time = { path = "../test-time" }
+
+[lints]
+workspace = true

@@ -165,7 +165,7 @@ pub(crate) fn ui_pipeline_descriptor(
             shader: UI_SHADER_HANDLE,
             entry_point: Some("ui_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: Some(ui_alpha_blend_state()),
                 write_mask: ColorWrites::ALL,
             })],
@@ -237,9 +237,9 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         target.format = if key.layer {
             composite::UI_LAYER_FORMAT
         } else if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         target.blend = Some(if key.invert_blend {
             ui_invert_blend_state()
@@ -346,7 +346,7 @@ mod tests {
                 if layer {
                     composite::UI_LAYER_FORMAT
                 } else {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 }
             );
             assert_eq!(

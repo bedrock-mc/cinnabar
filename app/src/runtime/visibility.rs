@@ -4,7 +4,7 @@ use bevy::prelude::{
     Add, Entity, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
 };
 use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
-use render::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
+use render_scene::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
 use world::SubChunkKey;
 
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};

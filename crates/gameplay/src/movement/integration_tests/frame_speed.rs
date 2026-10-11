@@ -4,6 +4,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         delta: Duration::from_millis(50),
         now: Duration::from_secs(1),
         active: true,
+        input_authority_released: false,
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],
@@ -244,15 +245,29 @@ fn suspended_input_keeps_toggled_sneak_only_under_persistent_controls() {
         ));
         let flags = ticker.pending_snapshots().last().unwrap().flags;
         assert_eq!(has(flags, PlayerInputFlags::SNEAK_DOWN), kept, "{mode:?}");
-        assert_eq!(has(flags, PlayerInputFlags::STOP_SNEAKING), !kept, "{mode:?}");
-        assert_eq!(has(flags, PlayerInputFlags::PERSIST_SNEAK), kept, "{mode:?}");
+        assert_eq!(
+            has(flags, PlayerInputFlags::STOP_SNEAKING),
+            !kept,
+            "{mode:?}"
+        );
+        assert_eq!(
+            has(flags, PlayerInputFlags::PERSIST_SNEAK),
+            kept,
+            "{mode:?}"
+        );
     }
 }
 
 /// Yaw wraps to vanilla's [-180, 180) and head yaw keeps the unwrapped camera angle.
 #[test]
 fn outbound_yaw_and_head_yaw_use_vanilla_ranges() {
-    for (degrees, yaw) in [(270.0, -90.0), (180.0, -180.0), (-180.0, -180.0), (0.0, 0.0), (540.0, -180.0)] {
+    for (degrees, yaw) in [
+        (270.0, -90.0),
+        (180.0, -180.0),
+        (-180.0, -180.0),
+        (0.0, 0.0),
+        (540.0, -180.0),
+    ] {
         assert_eq!(super::wire_yaw(degrees), yaw, "{degrees}");
     }
     for (yaw, head) in [(135.0, -225.0), (90.0, 90.0), (-170.0, -170.0)] {

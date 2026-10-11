@@ -56,6 +56,7 @@ fn filtered_light_test_assets() -> RuntimeAssets {
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     });
     let compiled = CompiledAssets {
         visuals: visuals.into(),

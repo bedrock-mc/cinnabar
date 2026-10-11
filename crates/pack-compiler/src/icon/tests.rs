@@ -15,6 +15,7 @@ fn cube_source(flags: u32) -> CompiledAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             },
         ]
         .into(),

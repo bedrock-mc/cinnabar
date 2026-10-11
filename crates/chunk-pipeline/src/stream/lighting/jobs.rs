@@ -43,6 +43,18 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
+        self.dispatch_light_jobs_reserving(camera_position, budget, 0)
+    }
+
+    /// [`Self::dispatch_light_jobs`], letting urgent batches take up to `urgent_reserve` jobs
+    /// beyond the worker cap, so a block the local player changed relights while streaming
+    /// work fills every worker.
+    pub(in crate::stream) fn dispatch_light_jobs_reserving(
+        &mut self,
+        camera_position: [f32; 3],
+        budget: usize,
+        urgent_reserve: usize,
+    ) -> usize {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!(
             "light.dispatch",
@@ -63,7 +75,8 @@ impl WorldStream {
             .len()
             .max(self.lighting.running_jobs.load(Ordering::Acquire));
         let worker_budget = light_job_cap.saturating_sub(occupied);
-        let solve_budget = budget.min(worker_budget);
+        let regular_budget = budget.min(worker_budget);
+        let solve_budget = budget.min((light_job_cap + urgent_reserve).saturating_sub(occupied));
         if self.lighting.fatal_failure || solve_budget == 0 || self.lighting.jobs.pending.is_empty()
         {
             return 0;
@@ -87,6 +100,8 @@ impl WorldStream {
         }
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
+        // Queued candidates passed over once only urgent batches may dispatch.
+        let mut over_cap = Vec::new();
         let mut scanned = 0;
         while prepared_batches.len() < solve_budget
             && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
@@ -132,6 +147,14 @@ impl WorldStream {
                 candidate.distance_squared = priority.distance_squared;
                 candidate.startup_class = priority.startup_class;
                 candidate.transfer = priority.transfer;
+            }
+            // Beyond the worker cap only urgent batches dispatch. Transfer work outranks urgent
+            // work, so keep scanning past what cannot use the reserve.
+            if prepared_batches.len() >= regular_budget && !candidate.urgent {
+                if queued {
+                    over_cap.push(candidate);
+                }
+                continue;
             }
             let key = candidate.key;
             let revision = candidate.revision;
@@ -269,6 +292,7 @@ impl WorldStream {
                 .insert(batch_id, batch.len());
             prepared_batches.push(batch);
         }
+        self.lighting.jobs.lanes[0].ready.extend(over_cap);
 
         let dispatched = prepared_batches.iter().map(Vec::len).sum::<usize>();
         self.stats.phase2_stages.light_jobs_dispatched = self
@@ -280,7 +304,8 @@ impl WorldStream {
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            dispatch.spawn_with_scratch(move |scratch| {
+            let urgent = batch.iter().any(|job| job.identity.urgent);
+            dispatch.spawn_with_scratch(urgent, move |scratch| {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("light.solve", sections = batch.len()).entered();
                 let started = Instant::now();
@@ -324,6 +349,25 @@ impl WorldStream {
         let blocks = self.light_block_snapshot(key);
         self.register_untrusted_light_waiters(key, retained_batch);
         let prior = self.light_prior_snapshot(key);
+        // Changed cells stand for the whole key only while the light around it is settled: each
+        // neighbour outside the batch has current light or none yet, whose first solve relights
+        // this key whole.
+        let changed = self
+            .lighting
+            .changed_cells
+            .remove(&key)
+            .filter(|_| {
+                key.mesh_dependents()
+                    .filter(|neighbour| *neighbour != key)
+                    .all(|neighbour| {
+                        !retained_batch.contains(&neighbour)
+                            && !matches!(
+                                self.light_source_state(neighbour),
+                                LightSourceState::Stale
+                            )
+                    })
+            })
+            .map(Arc::from);
         let identity = LightJobIdentity {
             revision: pending.revision,
             block_generation,
@@ -345,6 +389,7 @@ impl WorldStream {
             prior,
             bounds,
             queued_at: pending.queued_at,
+            changed,
         }
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
@@ -607,6 +652,8 @@ impl WorldStream {
                     && let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour)
                 {
                     let revision = pending.revision;
+                    // Its retained light was solved against this face's previous light.
+                    self.lighting.changed_cells.remove(&neighbour);
                     if urgent {
                         pending.urgent = true;
                         self.lighting.jobs.scan.push_front((neighbour, revision));
@@ -641,6 +688,7 @@ impl WorldStream {
             if let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour) {
                 let revision = pending.revision;
                 let effective_urgent = urgent || pending.urgent;
+                self.lighting.changed_cells.remove(&neighbour);
                 if effective_urgent {
                     pending.urgent = true;
                 }

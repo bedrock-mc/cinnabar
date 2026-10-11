@@ -17,6 +17,7 @@ fn grass_fixture(side_flags: u32) -> RuntimeAssets {
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
     grass.faces[BlockFace::Down as usize] = DIRT_MATERIAL;
     grass.faces[BlockFace::Up as usize] = TOP_MATERIAL;

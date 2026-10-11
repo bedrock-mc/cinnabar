@@ -7,14 +7,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/hashimthearab/rust-mcbe/core/localworld"
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 type stubWorlds struct {
-	worlds              []localworld.World
-	status              localworld.Status
+	worlds              []World
+	status              WorldStatus
 	opened              string
 	paused              *bool
 	eula                bool
@@ -23,15 +20,15 @@ type stubWorlds struct {
 	err                 error
 }
 
-func (s *stubWorlds) List() ([]localworld.World, error) { return s.worlds, s.err }
-func (s *stubWorlds) Create(spec localworld.Spec) (localworld.World, error) {
+func (s *stubWorlds) List() ([]World, error) { return s.worlds, s.err }
+func (s *stubWorlds) Create(spec WorldSpec) (World, error) {
 	if s.err != nil {
-		return localworld.World{}, s.err
+		return World{}, s.err
 	}
-	return localworld.World{ID: "0123456789abcdef", Name: spec.Name, GameMode: "survival"}, nil
+	return World{ID: "0123456789abcdef", Name: spec.Name, GameMode: "survival"}, nil
 }
-func (s *stubWorlds) Update(id string, u localworld.Update) (localworld.World, error) {
-	world := localworld.World{ID: id}
+func (s *stubWorlds) Update(id string, u WorldUpdate) (World, error) {
+	world := World{ID: id}
 	if u.Name != nil {
 		world.Name = *u.Name
 	}
@@ -41,31 +38,39 @@ func (s *stubWorlds) Update(id string, u localworld.Update) (localworld.World, e
 	return world, s.err
 }
 func (s *stubWorlds) Delete(string) error { return s.err }
-func (s *stubWorlds) Prefs(_ context.Context, u localworld.PrefsUpdate) (localworld.Prefs, error) {
+func (s *stubWorlds) Prefs(_ context.Context, u WorldPrefsUpdate) (WorldPrefs, error) {
 	s.redetect = u.Redetect
 	if u.DockerPromptDismissed != nil {
 		s.dismissed = *u.DockerPromptDismissed
 	}
-	return localworld.Prefs{DockerPromptDismissed: s.dismissed}, s.err
+	return WorldPrefs{DockerPromptDismissed: s.dismissed}, s.err
 }
 func (s *stubWorlds) AcceptEULA() error { s.eula = true; return s.err }
-func (s *stubWorlds) Open(id string, opts ...localworld.OpenOptions) error {
-	s.opened = id
-	if len(opts) > 0 {
-		s.view = opts[0].ViewDistance
-	}
-	s.status = localworld.Status{State: localworld.StateStarting, WorldID: id}
+func (s *stubWorlds) Open(id string, viewDistance int) error {
+	s.opened, s.view = id, viewDistance
+	s.status = WorldStatus{State: "starting", WorldID: id}
 	return s.err
 }
 func (s *stubWorlds) Close() error {
-	s.status = localworld.Status{State: localworld.StateIdle}
+	s.status = WorldStatus{State: "idle"}
 	return s.err
 }
 func (s *stubWorlds) SetPaused(p bool) error {
 	s.paused = &p
 	return s.err
 }
-func (s *stubWorlds) Status() localworld.Status { return s.status }
+func (s *stubWorlds) Status() WorldStatus { return s.status }
+
+// hostedWorlds also serves world_invite.v1.
+type hostedWorlds struct {
+	*stubWorlds
+	invite func(context.Context, string) error
+}
+
+func (w hostedWorlds) Invite(ctx context.Context, xuid string) error { return w.invite(ctx, xuid) }
+
+// bareWorlds offers only the required Worlds methods.
+type bareWorlds struct{ Worlds }
 
 func startWorlds(t *testing.T, worlds Worlds) string {
 	t.Helper()
@@ -87,7 +92,7 @@ func call(t *testing.T, dir, method, params string) []byte {
 }
 
 func TestWorldListCreateRenameDelete(t *testing.T) {
-	stub := &stubWorlds{worlds: []localworld.World{{ID: "0123456789abcdef", Name: "one"}}}
+	stub := &stubWorlds{worlds: []World{{ID: "0123456789abcdef", Name: "one"}}}
 	dir := startWorlds(t, stub)
 	list := call(t, dir, methodWorldList, "")
 	var decoded struct {
@@ -163,13 +168,13 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		code int
 		msg  string
 	}{
-		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
-		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
-		{localworld.ErrInUse, codeWorldBusy, "world is open"},
-		{localworld.ErrRuntimePending, codeWorldBusy, "still checking"},
-		{localworld.ErrEULARequired, codeEULARequired, "EULA"},
-		{localworld.ErrBackendUnavailable, codeBackendAbsent, "not available"},
-		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
+		{ErrWorldNotFound, codeWorldNotFound, "world not found"},
+		{fmt.Errorf("%w: x", ErrWorldBusy), codeWorldBusy, "another world"},
+		{ErrWorldInUse, codeWorldBusy, "world is open"},
+		{ErrWorldRuntimePending, codeWorldBusy, "still checking"},
+		{ErrEULARequired, codeEULARequired, "EULA"},
+		{ErrWorldBackendUnavailable, codeBackendAbsent, "not available"},
+		{fmt.Errorf("%w: unknown value", ErrWorldInvalid), -32602, "unknown value"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {
 		dir := startWorlds(t, &stubWorlds{err: tc.err})
@@ -183,10 +188,10 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 
 func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
 	var invited []string
-	hosted := WithInvites(&stubWorlds{}, func(_ context.Context, xuid string) error {
+	hosted := hostedWorlds{stubWorlds: &stubWorlds{}, invite: func(_ context.Context, xuid string) error {
 		invited = append(invited, xuid)
 		return nil
-	})
+	}}
 	dir := startWorlds(t, hosted)
 	for _, params := range []string{"", `{}`, `{"xuid":""}`, `{"xuid":"12a"}`, `{"xuid":"1","extra":1}`, `{"xuid":"123456789012345678901"}`} {
 		assertRPCError(t, call(t, dir, methodWorldInvite, params), -32602)
@@ -201,6 +206,28 @@ func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
 	assertRPCError(t, call(t, unhosted, methodWorldInvite, `{"xuid":"2535400000000000"}`), codeWorldBusy)
 }
 
+// Hosts without an editor or backend leave those methods unknown but still list, open and close.
+func TestOptionalWorldMethodsAreUnknownWithoutTheirCapability(t *testing.T) {
+	stub := &stubWorlds{worlds: []World{{ID: "0123456789abcdef"}}}
+	dir := startWorlds(t, bareWorlds{stub})
+	for _, tc := range []struct{ method, params string }{
+		{methodWorldCreate, `{"name":"x"}`}, {methodWorldUpdate, `{"id":"a","name":"b"}`}, {methodWorldDelete, `{"id":"a"}`},
+		{methodWorldPause, `{"paused":true}`}, {methodBDSEULA, `{"accepted":true}`}, {methodPrefs, ""},
+	} {
+		assertRPCError(t, call(t, dir, tc.method, tc.params), -32601)
+	}
+	if stub.paused != nil || stub.eula {
+		t.Fatal("an unsupported method reached the host")
+	}
+	if list := call(t, dir, methodWorldList, ""); !strings.Contains(string(list), `"id":"0123456789abcdef"`) {
+		t.Fatalf("list = %s", list)
+	}
+	if opened := call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef"}`); !strings.Contains(string(opened), `"state":"starting"`) {
+		t.Fatalf("open = %s", opened)
+	}
+	assertRPCError(t, call(t, dir, methodWorldInvite, `{"xuid":"2535400000000000"}`), codeWorldBusy)
+}
+
 func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	dir := t.TempDir()
 	server, err := Start(dir, NewStore())
@@ -211,22 +238,9 @@ func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	assertRPCError(t, call(t, dir, methodWorldList, ""), -32601)
 }
 
-func TestOpenHookRunsOnlyAfterSuccessfulOpen(t *testing.T) {
-	stub := &stubWorlds{}
-	opened := 0
-	worlds := WithOpenHook(stub, func() { opened++ })
-	if err := worlds.Open("0123456789abcdef"); err != nil || opened != 1 || stub.opened != "0123456789abcdef" {
-		t.Fatalf("Open() = %v, hook calls %d", err, opened)
-	}
-	stub.err = errors.New("busy")
-	if err := worlds.Open("0123456789abcdef"); err == nil || opened != 1 {
-		t.Fatalf("failed Open ran the hook: err=%v calls=%d", err, opened)
-	}
-}
-
 func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
 	store := NewStore()
-	store.ObserveTransfer(proxy.TransferTarget{Host: "a", Port: 1})
+	store.ObserveTransfer("a", 1)
 	store.ClearTransfer()
 	if store.Status().Transfer != nil {
 		t.Fatal("transfer still pending after ClearTransfer")

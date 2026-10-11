@@ -1,7 +1,7 @@
 //! Portal surfaces follow the primary block palette, including chunks without NBT.
 
 use bevy::prelude::Vec3;
-use render::{BlockEntityKind, BlockEntitySubmission};
+use render_model::{BlockEntityKind, BlockEntitySubmission};
 use world::{Chunk, ChunkKey, SUB_CHUNK_SIDE, SubChunk};
 
 /// One portal or gateway surface cell.

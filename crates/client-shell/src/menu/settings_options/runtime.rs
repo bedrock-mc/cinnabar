@@ -39,8 +39,8 @@ impl MenuRuntime {
         }
     }
     /// Publishes normalized glint factors to the shared UI renderer.
-    pub fn ui_glint_settings(&self) -> render::UiGlintSettings {
-        render::UiGlintSettings {
+    pub fn ui_glint_settings(&self) -> render_scene::UiGlintSettings {
+        render_scene::UiGlintSettings {
             strength: self.settings_options.value("glint_strength") as f32 / 100.0,
             speed: self.settings_options.value("glint_speed") as f32 / 100.0,
         }

@@ -20,6 +20,8 @@ pub struct LocalMovementFacts {
     pub immobile: bool,
     pub vertical_physics: sim::VerticalPhysics,
     pub ride: Option<super::RideKind>,
+    /// Runtime identity of the retained mount, when its actor is available.
+    pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
     pub server_flying: bool,
@@ -85,6 +87,11 @@ pub fn read(
             air_drag_modifier: player.facts.air_drag_modifier().map(f64::from),
         },
         ride,
+        mount_runtime_id: player
+            .facts
+            .mount_unique_id()
+            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .map(|actor| actor.runtime_id),
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
@@ -122,8 +129,10 @@ fn elytra_flies(stack: &client_world::CanonicalItemStack, corrected_damage: Opti
         .identifier
         .as_deref()
         .is_some_and(|identifier| identifier == ELYTRA_IDENTIFIER)
-        && client_world::vanilla_max_durability(ELYTRA_IDENTIFIER)
-            .is_some_and(|maximum| damage < maximum - 1)
+        && stack
+            .durability
+            .maximum()
+            .is_some_and(|maximum| damage < maximum.saturating_sub(1))
 }
 
 /// Reads a defined finite flight speed, including an authoritative zero.
@@ -194,6 +203,7 @@ mod tests {
     #[test]
     fn elytra_flies_until_one_damage_below_its_maximum() {
         let elytra = |identifier: &str, damage| client_world::CanonicalItemStack {
+            durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {
                 network_id: 1,
                 metadata: 0,
@@ -208,7 +218,9 @@ mod tests {
             damage,
             enchanted: false,
         };
-        let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
+        let maximum = assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER)
+            .maximum()
+            .unwrap();
         assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, None), None));
         assert!(elytra_flies(
             &elytra(ELYTRA_IDENTIFIER, Some(maximum - 2)),
@@ -224,8 +236,11 @@ mod tests {
     /// A response-corrected repair or break wins over the stack's unchanged Damage tag.
     #[test]
     fn corrected_elytra_damage_overrides_the_stale_tag() {
-        let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
+        let maximum = assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER)
+            .maximum()
+            .unwrap();
         let elytra = |damage| client_world::CanonicalItemStack {
+            durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {
                 network_id: 1,
                 metadata: 0,
@@ -242,6 +257,54 @@ mod tests {
         };
         assert!(elytra_flies(&elytra(Some(maximum - 1)), Some(0)));
         assert!(!elytra_flies(&elytra(Some(0)), Some(maximum - 1)));
+    }
+
+    #[test]
+    fn admitted_session_durability_controls_the_elytra_break_boundary() {
+        let mut authority = client_world::WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            [0.; 3],
+            None,
+        );
+        let mut entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == ELYTRA_IDENTIFIER)
+            .unwrap()
+            .clone();
+        entry.components = Some(std::sync::Arc::new(protocol::ItemComponents {
+            durability_declared: true,
+            max_durability: Some(50),
+            ..Default::default()
+        }));
+        assert!(authority.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: vec![entry.clone()].into()
+        }));
+        let stack = protocol::NetworkItemStack {
+            network_id: entry.network_id,
+            count: 1,
+            ..protocol::NetworkItemStack::empty()
+        };
+        let canonical = authority.canonical_item_stack(&stack).unwrap();
+        assert!(elytra_flies(&canonical, Some(48)));
+        assert!(!elytra_flies(&canonical, Some(49)));
+        std::sync::Arc::make_mut(entry.components.as_mut().unwrap()).max_durability = None;
+        assert!(authority.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: vec![entry].into()
+        }));
+        assert!(!elytra_flies(
+            &authority.canonical_item_stack(&stack).unwrap(),
+            Some(0)
+        ));
     }
 
     /// Placeholder floats in layers without FlySpeed must not override it.

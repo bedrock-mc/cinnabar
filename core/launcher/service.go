@@ -59,7 +59,7 @@ type Config struct {
 	JoinGathering             func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
 }
 
-// Service implements control.Services.
+// Service is the launcher backend behind the control plane's account, catalog and screen methods.
 type Service struct {
 	cfg       Config
 	logger    *slog.Logger

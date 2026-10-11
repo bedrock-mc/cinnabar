@@ -1,14 +1,15 @@
 /// Admits non-player actors inside vanilla's camera-centred candidate cube, including its edge.
 pub fn within_actor_candidate_cube(position: [f32; 3], camera: [f32; 3]) -> bool {
-    !(0..3)
-        .any(|axis| (position[axis] - camera[axis]).abs() > render::ACTOR_CANDIDATE_RADIUS_BLOCKS)
+    !(0..3).any(|axis| {
+        (position[axis] - camera[axis]).abs() > render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS
+    })
 }
 
 /// Rejects distance-ineligible actors independently of their authored frame scale.
 pub(crate) fn actor_within_render_distance(
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
-    view: Option<render::ActorCullView>,
+    view: Option<render_model::ActorCullView>,
 ) -> bool {
     let (Some(view), Some(feet)) = (
         view,
@@ -26,7 +27,7 @@ pub(crate) fn sample_candidate_scale<'a>(
     rig: actor_animation::ActorRigSnapshot<'a>,
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
-    view: Option<render::ActorCullView>,
+    view: Option<render_model::ActorCullView>,
     sample: impl FnOnce(actor_animation::ActorRigSnapshot<'a>) -> actor_animation::ActorRigSnapshot<'a>,
 ) -> Option<actor_animation::ActorRigSnapshot<'a>> {
     actor_within_render_distance(actor, partial_tick, view).then(|| sample(rig))

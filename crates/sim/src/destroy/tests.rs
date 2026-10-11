@@ -1,3 +1,26 @@
+/// Reads the generated source only to build simulation fixtures.
+fn block_destroy_info(identifier: &str) -> Option<BlockDestroyInfo> {
+    BlockDestroyInfo::from_facts(assets::compiled::block_destroy::builtin_destroy_facts(
+        identifier,
+    ))
+}
+
+/// Builds ordered simulation fixtures from the one generated source.
+fn table() -> Vec<(&'static str, BlockDestroyInfo)> {
+    let mut rows = DESTROY_TABLE
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let name = line.split('\t').next()?;
+            Some((name, block_destroy_info(name)?))
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|(name, _)| *name);
+    rows
+}
+
+const DESTROY_TABLE: &str = assets::compiled::block_destroy::DESTROY_SOURCE;
+
 use super::*;
 
 fn ticks(identifier: &str, conditions: DestroyConditions) -> Option<u32> {
@@ -211,7 +234,8 @@ const EVERY_TOOL: [&str; 9] = [
 
 #[test]
 fn rows_without_tool_evidence_take_the_slowest_rate_for_every_tool() {
-    let unresolved = table()
+    let rows = table();
+    let unresolved = rows
         .iter()
         .filter(|(_, info)| info.harvest == HarvestRequirement::Unresolved && info.hardness > 0.0)
         .collect::<Vec<_>>();
@@ -291,4 +315,18 @@ fn review_extreme_effect_amplifiers_never_create_nonfinite_destroy_progress() {
             );
         }
     }
+}
+
+#[test]
+fn unresolved_destroy_facts_never_predict_completion() {
+    assert_eq!(
+        BlockDestroyInfo::from_facts(BlockDestroyFacts::Unresolved),
+        None
+    );
+    let indestructible =
+        BlockDestroyInfo::from_facts(BlockDestroyFacts::ProvisionalIndestructible).unwrap();
+    assert_eq!(
+        destroy_progress_per_tick(&indestructible, &DestroyConditions::default()),
+        None
+    );
 }

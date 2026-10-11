@@ -3,7 +3,7 @@ use crate::environment::{self, WeatherState};
 use bevy::{prelude::*, time::Real};
 use client_world::CommittedControlEvent;
 use protocol::{DaylightCycleUpdateEvent, SetTimeEvent, WorldEnvironmentBootstrap};
-use render::{AtmosphereFrame, WorldLighting};
+use render_scene::{AtmosphereFrame, WorldLighting};
 
 /// Runs the real atmosphere publisher without rendering or a network session.
 fn atmosphere_app(cycle: bool) -> App {
@@ -31,9 +31,9 @@ fn atmosphere_app(cycle: bool) -> App {
         .init_resource::<environment::EnvironmentProfileRoute>()
         .init_resource::<environment::LightningFlashState>()
         .init_resource::<environment::WeatherTickFrame>()
-        .init_resource::<render::AtmosphereTextureAssets>()
+        .init_resource::<render_scene::AtmosphereTextureAssets>()
         .init_resource::<AtmosphereFrame>()
-        .init_resource::<render::AtmosphereViewInputs>()
+        .init_resource::<render_scene::AtmosphereViewInputs>()
         .init_resource::<WorldLighting>()
         .init_resource::<client_presentation::camera::VisionEffects>()
         .init_resource::<client_state::RuntimeSettings>()
@@ -95,7 +95,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_ne!(fixed.1.0.sky_darken, baseline.1.0.sky_darken);
         assert_eq!(
             fixed.1.0.sky_darken,
-            render::lightmap_sky_darken(fixed.0.celestial_angle(), 0.0, 0.0)
+            render_model::lightmap_sky_darken(fixed.0.celestial_angle(), 0.0, 0.0)
         );
         assert_eq!(*app.world().resource::<WorldClock>(), server);
         app.world_mut()
@@ -113,7 +113,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         let advancing_server = output(&mut app);
         assert_eq!(
             advancing_server.0.day_fraction(),
-            render::AtmosphereFrame::from_bedrock_time(
+            render_scene::AtmosphereFrame::from_bedrock_time(
                 environment::visual_world_time(server, 10.0),
                 0.0,
                 0.0
@@ -146,7 +146,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(output(&mut app), advancing_clouds);
         app.world_mut().resource_mut::<VisualTimeOverride>().0 = None;
         let restored = output(&mut app);
-        let expected = render::AtmosphereFrame::from_bedrock_time(
+        let expected = render_scene::AtmosphereFrame::from_bedrock_time(
             environment::visual_world_time(clock, 12.0),
             0.0,
             0.0,
@@ -156,7 +156,7 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(restored.0.with_cloud_renderer_ticks(0.0), expected);
         assert_eq!(
             restored.1.0.sky_darken,
-            render::lightmap_sky_darken(expected.celestial_angle(), 0.0, 0.0)
+            render_model::lightmap_sky_darken(expected.celestial_angle(), 0.0, 0.0)
         );
         assert_eq!(*app.world().resource::<WorldClock>(), clock);
     }

@@ -275,6 +275,32 @@ fn every_recipe_reads_the_outputs_the_table_names() {
     }
 }
 
+/// The world recipe receives exactly its three registries, in their declared roles.
+#[test]
+fn world_recipe_passes_only_its_registries() {
+    let dir = checkout();
+    let context = context(dir.path());
+    let Command::Compile {
+        registry,
+        light_registry,
+        biome_registry,
+        ..
+    } = command(&WORLD, &context).unwrap()
+    else {
+        panic!("the world recipe compiles block assets");
+    };
+    let named = |suffix: &str| {
+        context
+            .files(&WORLD)
+            .into_iter()
+            .find(|path| path.to_string_lossy().ends_with(suffix))
+            .unwrap()
+    };
+    assert_eq!(registry, named("block-registry-v2193.bin"));
+    assert_eq!(light_registry, named("block-light-registry-v2193.bin"));
+    assert_eq!(biome_registry, named("biome-registry-v2193.bin"));
+}
+
 fn run(root: &Path, only: &str) -> (Result<(), String>, Stamp) {
     let context = context(root);
     let only = [only.to_owned()];

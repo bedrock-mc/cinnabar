@@ -11,7 +11,7 @@ pub(super) fn attach(
     local_runtime_id: u64,
     input: &ActorEquipmentInput,
     java_posed: &[java::Posed],
-    frame: (f32, f32, Option<&render::UiGlintSettings>),
+    frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
 ) {
     let (partial_tick, delta_seconds, glint_settings) = frame;
     crate::presentation::actors::attach_layers(batch, equipment, |equipment, body| {

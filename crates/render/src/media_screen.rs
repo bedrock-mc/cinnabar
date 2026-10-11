@@ -1,25 +1,35 @@
 //! Emissive in-world quads that sample server media textures.
 
-use std::{collections::HashMap, sync::Arc};
+use bevy::prelude::IntoScheduleConfigs;
+#[cfg(test)]
+use bevy::prelude::System;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
+use render_scene::{MAX_MEDIA_SCREENS, MediaScreen, MediaScreenScene};
+
+use std::collections::HashMap;
 
 #[cfg(test)]
-use bevy::prelude::{IntoSystem, System};
+use bevy::prelude::IntoSystem;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Quat,
-        Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Query, Res, ResMut, Resource,
+        Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -27,10 +37,9 @@ use bevy::{
             BufferDescriptor, BufferId, BufferSize, BufferUsages, Canonical, ColorTargetState,
             ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
             PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexState,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TextureDataOrder,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+            TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -44,50 +53,6 @@ const MEDIA_SCREEN_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("5b8e2f4a-3c71-4d09-a6e2-91f0c7d3b852");
 /// Matches `Screen` in media_screen.wesl: centre+flag, right axis, up axis.
 const RECORD_BYTES: u64 = 48;
-
-pub const MAX_MEDIA_SCREENS: usize = 4;
-
-/// Screens to draw this frame; at most `MAX_MEDIA_SCREENS` are used, in order.
-#[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct MediaScreenScene {
-    pub screens: Vec<MediaScreen>,
-    /// Texture bytes all screens together may allocate.
-    pub gpu_budget_bytes: u64,
-}
-
-#[derive(Clone)]
-pub struct MediaScreen {
-    /// Keys the retained texture across frames.
-    pub id: u64,
-    pub center: [f32; 3],
-    pub half_right: [f32; 3],
-    pub half_up: [f32; 3],
-    pub frame: Option<MediaFrame>,
-}
-
-/// sRGB RGBA8, row-major, top row first; uploaded once per `serial`.
-#[derive(Clone)]
-pub struct MediaFrame {
-    pub serial: u64,
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Arc<[u8]>,
-}
-
-/// Centre and half-extent axes of a quad of `size` in its local XY plane facing local +Z, after
-/// scale, xyzw rotation and translation.
-pub fn media_screen_axes(
-    translation: [f32; 3],
-    rotation: [f32; 4],
-    scale: [f32; 3],
-    size: [f32; 2],
-) -> ([f32; 3], [f32; 3], [f32; 3]) {
-    let rotation = Quat::from_array(rotation);
-    let right = rotation * Vec3::new(scale[0] * size[0] * 0.5, 0.0, 0.0);
-    let up = rotation * Vec3::new(0.0, scale[1] * size[1] * 0.5, 0.0);
-    (translation, right.to_array(), up.to_array())
-}
 
 pub(crate) fn install_media_screen_render(app: &mut App) {
     crate::pipeline_warmup::register::<MediaScreenPipeline>(app);
@@ -107,7 +72,7 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
             (
                 prepare_media_screens.in_set(RenderSystems::PrepareBindGroups),
                 queue_media_screens
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -400,7 +365,7 @@ impl FromWorld for MediaScreenPipeline {
                 shader: MEDIA_SCREEN_SHADER_HANDLE,
                 entry_point: Some("media_screen_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -441,9 +406,9 @@ impl Specializer<RenderPipeline> for MediaScreenPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -557,6 +522,8 @@ mod tests {
     use super::*;
     use crate::queue_review_support as fixture;
     use bevy::ecs::system::RunSystemOnce;
+    use render_scene::{MediaFrame, media_screen_axes};
+    use std::sync::Arc;
 
     fn close(a: [f32; 3], b: [f32; 3]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5)
@@ -839,6 +806,6 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(colour.blend, None);
-        assert_eq!(colour.format, crate::SCENE_HDR_FORMAT);
+        assert_eq!(colour.format, render_scene::SCENE_HDR_FORMAT);
     }
 }

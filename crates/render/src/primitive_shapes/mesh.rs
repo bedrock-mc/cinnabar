@@ -65,7 +65,8 @@ fn ring(segments: u8, axis: usize) -> Vec<Vertex> {
             };
             let u = normal.cross(least);
             let v = normal.cross(u);
-            let point = u * crate::native_trig::cosine(angle) + v * crate::native_trig::sine(angle);
+            let point = u * render_model::native_trig::cosine(angle)
+                + v * render_model::native_trig::sine(angle);
             vertices.push(point.extend(0.0).to_array());
         }
     }

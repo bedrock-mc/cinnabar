@@ -24,6 +24,7 @@ meshing = { path = "../meshing" }
 pack-runtime = { path = "../pack-runtime" }
 protocol = { path = "../protocol" }
 render = { path = "../render" }
+render-scene = { path = "../render-scene" }
 render-api = { path = "../render-api" }
 tokio.workspace = true
 

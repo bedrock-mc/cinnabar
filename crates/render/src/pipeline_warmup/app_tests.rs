@@ -1,11 +1,5 @@
 //! A real render app: once readiness is published, first use of each owner compiles nothing.
 
-use crate::pipeline_warmup::PipelineWarmupReadiness;
-use crate::{
-    AimAssistHighlight, AimAssistHighlightPlugin, AimAssistHighlightScene, AimAssistTexture,
-    AtmospherePlugin, ModRenderPlugin, ModRenderScene, PanoramaRenderPlugin, PanoramaScene,
-    UiRenderPlugin, UiRenderSceneResource, UiRenderStatsResource,
-};
 use bevy::{
     asset::AssetPlugin,
     camera::{CameraPlugin, RenderTarget},
@@ -22,6 +16,17 @@ use bevy::{
 use render_model::{
     PanoramaFaces, PanoramaView, UiRenderBatch, UiRenderInput, UiRenderTextureArray,
     UiRenderVertex, UiScissor, UiTexturePage,
+};
+use render_scene::PipelineWarmupReadiness;
+use {
+    crate::{
+        AimAssistHighlightPlugin, AtmospherePlugin, ModRenderPlugin, PanoramaRenderPlugin,
+        UiRenderPlugin,
+    },
+    render_scene::{
+        AimAssistHighlight, AimAssistHighlightScene, AimAssistTexture, ModRenderScene,
+        PanoramaScene, UiRenderSceneResource, UiRenderStatsResource,
+    },
 };
 
 const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * param(1u); }";
@@ -80,7 +85,10 @@ fn standalone_renderers_keep_scene_format_independent_of_output() {
     let world = app.sub_app_mut(RenderApp).world_mut();
     let mut views = world.query::<&bevy::render::view::ViewTarget>();
     let target = views.single(world).unwrap();
-    assert_eq!(target.main_texture_format(), crate::SCENE_COLOR_FORMAT);
+    assert_eq!(
+        target.main_texture_format(),
+        render_scene::SCENE_COLOR_FORMAT
+    );
     assert_eq!(
         target.out_texture_view_format(),
         Some(TextureFormat::Bgra8UnormSrgb)

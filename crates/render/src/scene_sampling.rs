@@ -1,6 +1,5 @@
 //! Single-sample consumers of the scene retain explicit MSAA resolve boundaries.
 
-use crate::RuntimeStage;
 use bevy::{
     prelude::World,
     render::{
@@ -9,6 +8,7 @@ use bevy::{
         view::ViewDepthStencilTexture,
     },
 };
+use render_scene::RuntimeStage;
 
 #[cfg(test)]
 pub(crate) mod tests;

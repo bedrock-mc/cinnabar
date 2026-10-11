@@ -458,7 +458,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
-        let mut scene = render::ModRenderScene::default();
+        let mut scene = render_scene::ModRenderScene::default();
         scene.apply(&rendered_output(), 7);
         world.insert_resource(scene);
         world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
@@ -473,7 +473,12 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
-        assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
+        assert_eq!(
+            world
+                .resource::<render_scene::ModRenderScene>()
+                .vertex_count(),
+            0
+        );
         assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());
@@ -900,7 +905,10 @@ fn panel_key_capture_keeps_other_components_toggle_keys_for_rebinding() {
 }
 
 /// Publishes the retained render scene through the app's component-merging boundary.
-fn publish_render_scene(scene: ResMut<render::ModRenderScene>, mut runtime: ResMut<ModRuntime>) {
+fn publish_render_scene(
+    scene: ResMut<render_scene::ModRenderScene>,
+    mut runtime: ResMut<ModRuntime>,
+) {
     super::super::render::publish(Some(scene), &mut runtime);
 }
 
@@ -921,7 +929,7 @@ fn removing_a_companion_republishes_even_when_scene_and_primary_generations_matc
         },
     );
     let generation = world.resource::<ModRuntime>().hosts.host.render().1;
-    let mut scene = render::ModRenderScene::default();
+    let mut scene = render_scene::ModRenderScene::default();
     // Merged scene generations and source generations have independent counters.
     scene.apply(&rendered_output(), generation);
     assert!(scene.vertex_count() > 0);
@@ -935,7 +943,7 @@ fn removing_a_companion_republishes_even_when_scene_and_primary_generations_matc
         },
     );
     world.run_system_once(publish_render_scene).unwrap();
-    let scene = world.resource::<render::ModRenderScene>();
+    let scene = world.resource::<render_scene::ModRenderScene>();
     assert_eq!(scene.vertex_count(), 0);
     assert_ne!(scene.generation(), generation);
 }
@@ -956,7 +964,7 @@ fn replacing_a_registered_companion_refreshes_the_retained_render_scene() {
             result: Ok(Action::Replace(candidate(&companion, false, "First"))),
         },
     );
-    let mut scene = render::ModRenderScene::default();
+    let mut scene = render_scene::ModRenderScene::default();
     scene.apply(&rendered_output(), 1);
     world.insert_resource(scene);
     install(
@@ -969,7 +977,12 @@ fn replacing_a_registered_companion_refreshes_the_retained_render_scene() {
     );
     assert_eq!(retired.try_recv().unwrap().label(), Some("First"));
     world.run_system_once(publish_render_scene).unwrap();
-    assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
+    assert_eq!(
+        world
+            .resource::<render_scene::ModRenderScene>()
+            .vertex_count(),
+        0
+    );
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
 }
 

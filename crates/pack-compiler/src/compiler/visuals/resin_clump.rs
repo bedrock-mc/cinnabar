@@ -80,6 +80,7 @@ pub(in crate::compiler) fn resin_clump_material_descriptor(
     Some((
         Descriptor {
             state_variant: 0,
+            flipbook_selector: None,
             path: path.into(),
             texture_key: key.into(),
             flags: MATERIAL_FLAG_ALPHA_CUTOUT,

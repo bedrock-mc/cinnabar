@@ -109,7 +109,7 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     let empty = gpu.words(&[0; 64], storage);
     let clock = gpu.words(&[0; 4], uniform);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         uniform,
     );
     let expected = gpu.buffer(&expected, uniform);

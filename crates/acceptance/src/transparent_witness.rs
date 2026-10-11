@@ -1,15 +1,17 @@
+use anyhow::Context;
+use sha2::Digest;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 #[cfg(test)]
 use bevy::prelude::{App, Update};
 use bevy::prelude::{Res, ResMut, Resource};
-use render::{TransparentWitnessEvidence, TransparentWitnessRequest};
+use render_scene::{TransparentWitnessEvidence, TransparentWitnessRequest};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use world::SubChunkKey;
 
 pub const WITNESS_SCHEMA: &str = "rust-mcbe-transparent-witness-v1";
@@ -149,7 +151,7 @@ mod tests {
             r#"{"schema":"rust-mcbe-transparent-witness-v1","revision":1,"dimension":0,"sub_chunks":[{"x":0,"y":0,"z":0},{"x":0,"y":0,"z":0}]}"#.to_owned(),
             format!(
                 "{{\"schema\":\"rust-mcbe-transparent-witness-v1\",\"revision\":1,\"dimension\":0,\"sub_chunks\":[{}]}}",
-                (0..=render::MAX_TRANSPARENT_WITNESS_KEYS)
+                (0..=render_scene::MAX_TRANSPARENT_WITNESS_KEYS)
                     .map(|x| format!("{{\"x\":{x},\"y\":0,\"z\":0}}"))
                     .collect::<Vec<_>>()
                     .join(",")

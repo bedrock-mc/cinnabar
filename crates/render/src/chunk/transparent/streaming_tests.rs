@@ -1,6 +1,8 @@
 //! Streaming water in and out patches the committed sort instead of re-uploading it.
+
 use super::transparent_strafe::{Fixture, SURFACE_SUBCHUNK_Y, fixture_with};
 use super::*;
+use render_scene::TransparentSortMetrics;
 
 const CAMERA: Vec3 = Vec3::new(8.5, 64.6, 8.5);
 

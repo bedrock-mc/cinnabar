@@ -5,7 +5,7 @@ use crate::shader_source;
 
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE};
-use render::{
+use render_model::{
     BlockEntityKind, BlockEntityLight, BlockEntityScene, BlockEntitySubmission, LightmapInputs,
     SceneClock, SkullKind, SkullModel, SkullMount,
 };
@@ -37,8 +37,8 @@ fn source() -> String {
     let shader = shader_safety::from_block_entity_wesl(
         include_str!("../../src/block_entity/block_entity.wesl"),
         "skull.wesl",
-        render::BLOCK_ENTITY_VERTEX_WORDS,
-        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
         unreachable!()
@@ -74,7 +74,7 @@ fn raster(
         }],
     );
     let center = Vec3::new(0.5, 0.25, 0.5);
-    let front = Mat4::from_rotation_y(render::floor_yaw_degrees(rotation).to_radians())
+    let front = Mat4::from_rotation_y(render_model::floor_yaw_degrees(rotation).to_radians())
         .transform_vector3(Vec3::NEG_Z);
     let eye = if gallery {
         center + Vec3::new(-1.2, 0.7, 2.0)
@@ -216,9 +216,10 @@ fn placed_skull_pixels_match_native_day_night_torch_darkness_and_rotation() {
         };
         let light = sampled_light(inputs, block, sky);
         for rotation in [0.0, 45.0, 90.0] {
-            let normal = Mat4::from_rotation_y(render::floor_yaw_degrees(rotation).to_radians())
-                .transform_vector3(Vec3::NEG_Z)
-                .to_array();
+            let normal =
+                Mat4::from_rotation_y(render_model::floor_yaw_degrees(rotation).to_radians())
+                    .transform_vector3(Vec3::NEG_Z)
+                    .to_array();
             let shade = render_api::fancy_actor_shade(normal, 0.0);
             let pixels = raster(
                 &gpu,

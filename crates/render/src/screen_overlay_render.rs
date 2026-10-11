@@ -1,9 +1,6 @@
 //! Draws camera effects after first-person geometry and before the JSON-UI HUD.
-use crate::screen_overlay::{
-    MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayScene,
-};
-use crate::screen_overlay_portal::PortalTexture;
-use crate::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -12,15 +9,15 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::SRes},
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, World, default, warn,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, World, default, warn,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -39,6 +36,9 @@ use bevy::{
         view::{ExtractedView, ViewTarget},
     },
 };
+use render_scene::screen_overlay_portal::PortalTexture;
+use render_scene::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use render_scene::{MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayScene};
 use std::collections::HashMap;
 
 const OVERLAY_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2f6d4c1a-8b73-4e0c-a5d9-61c7b3e8f204");
@@ -100,7 +100,7 @@ fn install(app: &mut App) {
                 prepare_overlay.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_overlay
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -415,7 +415,7 @@ impl FromWorld for OverlayPipeline {
                 shader: OVERLAY_SHADER_HANDLE,
                 entry_point: Some("overlay_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -464,9 +464,9 @@ impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -582,7 +582,7 @@ pub(crate) fn draw_before_hud(
     world: &World,
 ) {
     if world
-        .get_resource::<crate::PanoramaScene>()
+        .get_resource::<render_scene::PanoramaScene>()
         .is_some_and(|scene| !scene.game_visible())
     {
         return;
@@ -611,7 +611,7 @@ pub(crate) fn draw_before_hud(
         depth_stencil_attachment: None,
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuPost,
+            render_scene::RuntimeStage::GpuPost,
         ),
         occlusion_query_set: None,
         multiview_mask: None,
@@ -743,8 +743,8 @@ mod review_tests {
         app.world_mut()
             .resource_mut::<ScreenOverlayScene>()
             .set_layers(
-                [crate::ScreenOverlayLayer {
-                    kind: crate::ScreenOverlayKind::Flat,
+                [render_scene::ScreenOverlayLayer {
+                    kind: render_scene::ScreenOverlayKind::Flat,
                     rgb: [1.0; 3],
                     alpha: 1.0,
                 }],

@@ -16,6 +16,7 @@ fn runtime(player_runtime: &mut player_state::PlayerState, enabled: bool) -> UiR
 fn registry() -> InventoryAuthorityEvent {
     InventoryAuthorityEvent::Registry(ItemRegistryEvent {
         entries: Arc::from([ItemRegistryEntry {
+            components: None,
             identifier: Arc::from(TARGET),
             network_id: 2,
             component_based: false,

@@ -6,8 +6,8 @@ use protocol::{
     ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, PlayerListEntry,
     PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
-use render::ActorArtworkPages;
 use render_api::StandardSkin;
+use render_model::ActorArtworkPages;
 
 use super::super::{
     PoseConversions, actor_rig_presentation, actor_rig_presentation_cached,

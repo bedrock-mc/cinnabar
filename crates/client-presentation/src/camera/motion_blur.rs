@@ -1,7 +1,7 @@
 //! Publishes camera-only exposure alongside the resolved camera pose.
 
 use bevy::{prelude::*, render::render_resource::TextureUsages};
-use render::motion_blur::CameraMotionBlur;
+use render_scene::CameraMotionBlur;
 use semantic_input::PerspectiveMode;
 
 use super::{CameraRig, CameraSettingsAuthority, FlyCamera, ServerCameraView};

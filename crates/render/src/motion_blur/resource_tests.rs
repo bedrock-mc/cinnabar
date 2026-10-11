@@ -2,13 +2,14 @@
 
 use super::{CameraMotionBlur, pipeline::BlurPipeline, prepare::BlurView};
 use bevy::ecs::schedule::ScheduleLabel;
+use bevy::ecs::system::RunSystemOnce;
+
 use bevy::{
     camera::{
         CameraMainTextureUsages, CameraOutputMode, ClearColorConfig, MsaaWriteback,
         NormalizedRenderTarget, RenderTarget,
     },
     core_pipeline::Core3d,
-    ecs::system::RunSystemOnce,
     prelude::*,
     render::{
         camera::ExtractedCamera,
@@ -189,7 +190,10 @@ fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
     world.run_system_once(super::pipeline::init).unwrap();
     world.resource_scope(|world, cache: Mut<PipelineCache>| {
         let mut pipeline = world.resource_mut::<BlurPipeline>();
-        for format in [crate::SCENE_COLOR_FORMAT, crate::SCENE_HDR_FORMAT] {
+        for format in [
+            render_scene::SCENE_COLOR_FORMAT,
+            render_scene::SCENE_HDR_FORMAT,
+        ] {
             for samples in [1, 2, 4, 8] {
                 let original = pipeline.specialize(&cache, format, samples);
                 let allocated = crate::alloc_count::thread_allocations();
@@ -227,9 +231,9 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                     .unwrap();
                 assert_eq!(warmed.len(), 1);
                 let format = if hdr {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 } else {
-                    crate::SCENE_COLOR_FORMAT
+                    render_scene::SCENE_COLOR_FORMAT
                 };
                 assert_eq!(
                     warmed[0],

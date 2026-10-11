@@ -406,7 +406,7 @@ fn render_fixture(cache_admission: bool) {
     atmosphere[20] = 64.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         uniform,
     );
     let native_atlas = atlas(&gpu);

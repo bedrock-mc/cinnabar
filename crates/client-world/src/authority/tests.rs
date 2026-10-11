@@ -544,6 +544,7 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }]),
         light_properties: Box::new([LightProperties::default()]),
         hashed: Box::new([(HASHED_AIR_NETWORK_ID, 0)]),

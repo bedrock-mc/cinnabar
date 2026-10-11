@@ -1,5 +1,5 @@
 use bevy::math::Vec3;
-use render::{
+use render_model::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityKind, BlockEntityScene, BlockEntitySubmission,
     BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget, CrackShape,
     ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, SceneClock,
@@ -290,7 +290,7 @@ fn every_mount_shows_a_centered_upright_item_in_front_of_its_support() {
     )
     .replace(
         "BLOCK_SELECTION_VERTICES_PER_EDGE",
-        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
+        &format!("{}u", render_model::BLOCK_SELECTION_VERTICES_PER_EDGE),
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
     .replace("@group(1) @binding(1)", "@group(0) @binding(6)");
@@ -394,7 +394,7 @@ fn frame_artwork_has_a_wooden_rim_and_a_distinct_backing() {
     )
     .replace(
         "BLOCK_SELECTION_VERTICES_PER_EDGE",
-        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
+        &format!("{}u", render_model::BLOCK_SELECTION_VERTICES_PER_EDGE),
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
     .replace("@group(1) @binding(1)", "@group(0) @binding(6)");
@@ -428,7 +428,9 @@ fn frame_artwork_has_a_wooden_rim_and_a_distinct_backing() {
                 );
                 if !oblique && outward == 2 {
                     let count = pixels
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .filter(|p| p[0] > 160 && p[1] > 100 && p[2] < 100)
                         .count();
                     rim_counts.push((name, count));

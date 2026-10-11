@@ -10,7 +10,7 @@ use std::{hint::black_box, time::Instant};
 use fixtures::{Fixture, Prior, Scene};
 use world::{
     LightBlockSample, LightChannel, LightReadAccess, LightSolveOutput, LightSolverScratch,
-    solve_light_with_scratch,
+    solve_light_full_with_scratch, solve_light_with_scratch,
 };
 
 #[global_allocator]
@@ -21,6 +21,8 @@ struct Options {
     warmups: usize,
     sections: Vec<usize>,
     filter: String,
+    /// Times the full solve, which ignores retained light, instead of the incremental one.
+    full: bool,
 }
 
 impl Options {
@@ -30,6 +32,7 @@ impl Options {
             warmups: 4,
             sections: vec![1, 10, 24],
             filter: String::new(),
+            full: false,
         };
         let mut arguments = std::env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -56,10 +59,11 @@ impl Options {
                     );
                 }
                 "--case" => options.filter = arguments.next().expect("case substring"),
+                "--full" => options.full = true,
                 "--bench" => {}
                 "--help" | "-h" => {
                     println!(
-                        "light_work [--samples N] [--warmups N] [--sections 1,10,24] [--case substring]\n\
+                        "light_work [--samples N] [--warmups N] [--sections 1,10,24] [--case substring] [--full]\n\
                          stdout: individual solve CSV; stderr: p50/p95/p99/max summaries.\n\
                          Times include output destruction. Allocation requests are measured separately.\n\
                          All inputs are synthetic; retained cases reuse a solved field, removal deletes its sources."
@@ -77,8 +81,14 @@ fn solve(
     fixture: &Fixture,
     prior: &Prior<'_>,
     scratch: &mut LightSolverScratch,
+    full: bool,
 ) -> LightSolveOutput {
-    solve_light_with_scratch(
+    let solve = if full {
+        solve_light_full_with_scratch
+    } else {
+        solve_light_with_scratch
+    };
+    solve(
         black_box(fixture),
         black_box(prior),
         fixture.bounds,
@@ -117,6 +127,7 @@ fn run(options: &Options, scene: Scene, sections: usize, retained: bool) {
             fixture: &fixture,
         },
         &mut scratch,
+        false,
     );
     if scene == Scene::Removal {
         fixture.samples.fill(LightBlockSample::KnownAir);
@@ -127,10 +138,15 @@ fn run(options: &Options, scene: Scene, sections: usize, retained: bool) {
     };
     // Always establish capacity for this prior/input pair before measuring allocation requests.
     for _ in 0..options.warmups.max(1) {
-        drop(black_box(solve(&fixture, &prior, &mut scratch)));
+        drop(black_box(solve(
+            &fixture,
+            &prior,
+            &mut scratch,
+            options.full,
+        )));
     }
     let (output, allocations, allocated_bytes) =
-        allocations::measure(|| solve(&fixture, &prior, &mut scratch));
+        allocations::measure(|| solve(&fixture, &prior, &mut scratch, options.full));
     let stats = output.stats();
     let hash = fingerprint(&fixture, &output);
     if scene == Scene::Removal || scene == Scene::Solid {
@@ -142,12 +158,21 @@ fn run(options: &Options, scene: Scene, sections: usize, retained: bool) {
     if retained && scene != Scene::Removal {
         assert_eq!(hash, fingerprint(&fixture, &original));
     }
+    // Both solvers reach the same light from the same inputs.
+    let reference = solve(&fixture, &prior, &mut scratch, false);
+    assert_eq!(hash, fingerprint(&fixture, &reference), "{name}/{sections}");
+    drop(reference);
     drop(output);
 
     let mut times = Vec::with_capacity(options.samples);
     for _ in 0..options.samples {
         let started = Instant::now();
-        drop(black_box(solve(&fixture, &prior, &mut scratch)));
+        drop(black_box(solve(
+            &fixture,
+            &prior,
+            &mut scratch,
+            options.full,
+        )));
         times.push(started.elapsed().as_nanos());
     }
     for (iteration, nanoseconds) in times.iter().enumerate() {

@@ -1,11 +1,11 @@
 use super::SceneTarget;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::core_3d::{AlphaMask3d, Opaque3d},
     prelude::*,
     render::{
         camera::ExtractedCamera,
-        diagnostic::RecordDiagnostics,
         render_phase::ViewBinnedRenderPhases,
         render_resource::{RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
@@ -79,7 +79,7 @@ pub(crate) fn scene_opaque(
         depth_stencil_attachment: Some(depth),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuOpaque,
+            render_scene::RuntimeStage::GpuOpaque,
         ),
         occlusion_query_set: None,
         multiview_mask: None,

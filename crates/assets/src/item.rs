@@ -3,6 +3,11 @@ use thiserror::Error;
 
 use crate::AssetError;
 
+pub mod armour;
+use armour::ItemArmour;
+pub mod durability;
+use durability::ItemDurability;
+
 pub const MAX_ITEM_VISUALS: usize = 16_384;
 pub const MAX_ITEM_VISUAL_ALIASES: usize = 65_536;
 pub const MAX_ITEM_IDENTIFIER_BYTES: usize = 256;
@@ -160,6 +165,10 @@ pub struct ItemVisualDefinition {
     /// Source containing the canonical item definition or reviewed rule.
     pub source: u32,
     pub route: ItemVisualDefinitionRoute,
+    /// Compiled protection and player slot, or an explicit unresolved disposition.
+    pub armour: ItemArmour,
+    /// Effective base durability before registry component overlays.
+    pub durability: ItemDurability,
     pub first_person: ItemDisplayTransform,
     pub third_person: ItemDisplayTransform,
     pub dropped: ItemDisplayTransform,
@@ -199,6 +208,7 @@ pub(crate) fn validate_item_visuals(
     for visual in visuals {
         validate_item_identifier(&visual.key.identifier)?;
         if previous_visual.is_some_and(|previous| previous >= &visual.key)
+            || matches!(visual.durability, ItemDurability::Maximum { maximum: 0 })
             || visual.source as usize >= sources
             || !visual.first_person.is_canonical()
             || !visual.third_person.is_canonical()

@@ -6,9 +6,14 @@ rust-version.workspace = true
 publish = false
 
 [features]
+test-support = []
 enhanced-diagnostics = []
 
 [dependencies]
+hashbrown = { version = "0.16.1", default-features = false }
+foldhash = { version = "0.2.0", default-features = false }
+block-transform = { path = "../block-transform" }
+mod-api = { path = "../mod-api" }
 image.workspace = true
 tracing.workspace = true
 assets = { path = "../assets" }

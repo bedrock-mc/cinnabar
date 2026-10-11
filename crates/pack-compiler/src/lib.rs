@@ -25,6 +25,7 @@ mod lang;
 mod lightning_rod;
 mod pack;
 mod particle;
+mod respawn_anchor;
 mod starter_skins;
 mod ui;
 mod weather_textures;

@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::{ChunkRenderInstance, PresentedFrameGate};
 
 use bevy::render::{
     RenderApp, RenderPlugin,

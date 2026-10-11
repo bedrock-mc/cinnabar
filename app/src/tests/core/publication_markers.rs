@@ -1,9 +1,6 @@
 //! Contracts for active visibility witnesses and current publication counters.
 
-use {
-    super::*, diagnostics::AcceptanceRuntimeConfig,
-    diagnostics::markers::world_publication_snapshot_marker,
-};
+use {super::*, diagnostics::markers::world_publication_snapshot_marker};
 
 #[test]
 fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separate() {
@@ -46,30 +43,11 @@ fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separa
         present_mode_proven: true,
     };
 
-    let marker = world_publication_snapshot_marker(
-        stats,
-        79,
-        83,
-        89,
-        visibility,
-        AcceptanceRuntimeConfig {
-            build_profile: "debug",
-        },
-        &graphics,
-    );
+    let marker =
+        world_publication_snapshot_marker(stats, 79, 83, 89, visibility, "debug", &graphics);
     assert_eq!(
         marker,
-        world_publication_snapshot_marker(
-            stats,
-            79,
-            83,
-            89,
-            visibility,
-            AcceptanceRuntimeConfig {
-                build_profile: "debug",
-            },
-            &graphics,
-        )
+        world_publication_snapshot_marker(stats, 79, 83, 89, visibility, "debug", &graphics,)
     );
     let document: serde_json::Value = serde_json::from_str(
         marker
@@ -96,9 +74,7 @@ fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separa
         83,
         89,
         VisibilityDiagnosticSnapshot::default(),
-        AcceptanceRuntimeConfig {
-            build_profile: "debug",
-        },
+        "debug",
         &graphics,
     );
     let inactive: serde_json::Value =

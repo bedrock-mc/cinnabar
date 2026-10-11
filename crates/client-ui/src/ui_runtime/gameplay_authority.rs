@@ -540,14 +540,6 @@ impl UiRuntime {
         super::item_facts::durability_fraction_for_damage(maximum, damage)
     }
 
-    /// A damageable item's maximum: the server's durability component, else the vanilla table.
-    pub fn item_max_durability(&self, identifier: Option<&str>) -> Option<u32> {
-        let identifier = identifier?;
-        self.item_components(identifier)
-            .and_then(|components| components.max_durability)
-            .or_else(|| client_world::vanilla_max_durability(identifier))
-    }
-
     pub fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {
         self.server_ui = pack;
     }

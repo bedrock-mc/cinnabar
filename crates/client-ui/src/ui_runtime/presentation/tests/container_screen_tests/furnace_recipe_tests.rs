@@ -20,6 +20,7 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
             .into_iter()
             .enumerate()
             .map(|(index, name)| ::protocol::ItemRegistryEntry {
+                components: None,
                 identifier: name.into(),
                 network_id: index as i32 + 1,
                 component_based: false,

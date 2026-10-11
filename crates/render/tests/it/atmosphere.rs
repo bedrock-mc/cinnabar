@@ -1,4 +1,5 @@
 use crate::shader_source;
+use bevy::render::render_resource::ShaderType;
 
 use assets::ResolvedFog;
 
@@ -6,18 +7,20 @@ use bevy::{
     math::{Mat3, Mat4, Vec3, Vec4},
     prelude::App,
     render::{
-        render_resource::{
-            BindingResource, DynamicUniformBuffer, ShaderType, encase::UniformBuffer,
-        },
+        render_resource::{BindingResource, DynamicUniformBuffer, encase::UniformBuffer},
         renderer::{RenderDevice, RenderQueue},
         view::{ColorGradingUniform, ViewUniform},
     },
 };
-use render::{
-    AtmosphereFrame, AtmospherePlugin, AtmosphereViewInputs, CLOUD_ALPHA, ChunkRenderPlugin,
-    PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
-    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_colour, cloud_distance_fade, cloud_face_shade,
-    cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
+use {
+    render::{AtmospherePlugin, ChunkRenderPlugin},
+    render_scene::AtmosphereViewInputs,
+    render_scene::{
+        AtmosphereFrame, CLOUD_ALPHA, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
+        PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS,
+        cloud_colour, cloud_distance_fade, cloud_face_shade, cloud_texture_offset,
+        cloud_weather_colour, moon_phase_tile,
+    },
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -256,8 +259,8 @@ fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() 
     let before_period_end = cloud_texture_offset(one_texture_period_ticks - 1.0);
     assert!((before_zero[0] - before_period_end[0]).abs() < 1.0e-5);
 
-    // 24,000 ticks drift 480 blocks toward -X.
-    let next_day = cloud_texture_offset(24_000.0);
+    // One day drifts 480 blocks toward -X.
+    let next_day = cloud_texture_offset(f64::from(world::TICKS_PER_DAY));
     assert!(
         (next_day[0] - (1.0 - 480.0 / 4096.0)).abs() < 1.0e-6,
         "{next_day:?}"
@@ -340,7 +343,7 @@ fn native_sky_subtraction_uses_camera_glare_not_rain_level() {
     let clear = AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0);
     let rainy = AtmosphereFrame::from_bedrock_time(6000.0, 1.0, 0.0);
     assert_eq!(clear.sky_zenith(), rainy.sky_zenith());
-    let sunward = clear.with_camera_environment(render::AtmosphereViewInputs {
+    let sunward = clear.with_camera_environment(render_scene::AtmosphereViewInputs {
         forward: [0.0, 1.0, 0.0],
         fog_weather_level: 0.0,
         ..Default::default()
@@ -356,11 +359,11 @@ fn native_sky_subtraction_uses_camera_glare_not_rain_level() {
         assert!((gamma(clear) - 0.2 - gamma(sunward)).abs() < 1e-5);
     }
     assert_eq!(
-        clear.cloud_colour_for_view(render::AtmosphereViewInputs::default()),
+        clear.cloud_colour_for_view(render_scene::AtmosphereViewInputs::default()),
         [1.0, 1.0, 1.0, CLOUD_ALPHA]
     );
     assert_eq!(
-        clear.cloud_colour_for_view(render::AtmosphereViewInputs {
+        clear.cloud_colour_for_view(render_scene::AtmosphereViewInputs {
             forward: [0.0, 1.0, 0.0],
             fog_weather_level: 0.0,
             ..Default::default()
@@ -487,7 +490,7 @@ fn native_rain_sky_keeps_clear_views_and_other_dimensions_unchanged() {
         fog_weather_level: 1.0,
         ..Default::default()
     };
-    for kind in [render::SkyKind::Nether, render::SkyKind::End] {
+    for kind in [render_scene::SkyKind::Nether, render_scene::SkyKind::End] {
         let other = frame.with_sky_kind(kind);
         assert_eq!(other.with_camera_environment(wet_view), other);
     }

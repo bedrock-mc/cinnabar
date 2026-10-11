@@ -5,11 +5,11 @@ use crate::presentation::{actors::ActorPresentationBatch, equipment::ELYTRA_LAYE
 use assets::EntityRenderMaterial;
 use client_world::PlayerProfile;
 use protocol::PlayerSkin;
-use render::{
+use render_api::{CapeImage, StandardSkin};
+use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorGlint, ActorMaterial, ActorRenderIdentity,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EquipmentRaster,
 };
-use render_api::{CapeImage, StandardSkin};
 use render_model::{EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 use std::{collections::HashMap, sync::Arc};
 
@@ -49,7 +49,7 @@ fn batch() -> ActorPresentationBatch {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
-        uv_anim: render::IDENTITY_UV_ANIM,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
     };

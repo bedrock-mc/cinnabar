@@ -16,7 +16,7 @@ use client_world::{ActorSnapshot, WorldAuthority};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRigSubmission};
+use render_model::{ActorArtworkPages, ActorRigSubmission};
 use std::sync::Arc;
 
 /// A solid synthetic raster in the wing geometry's native UV dimensions.

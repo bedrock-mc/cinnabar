@@ -6,8 +6,9 @@ use diagnostics::{
     },
     write_stdout_marker,
 };
-use render::{ModelWitnessEvidence, ModelWitnessManifestRecord, TransparentWitnessEvidence};
-use sha2::{Digest, Sha256};
+use render_scene::{ModelWitnessEvidence, ModelWitnessManifestRecord, TransparentWitnessEvidence};
+use sha2::Digest;
+use sha2::Sha256;
 
 /// Formats the fixed hash bytes used by witness identities.
 fn lower_hex(bytes: &[u8]) -> String {

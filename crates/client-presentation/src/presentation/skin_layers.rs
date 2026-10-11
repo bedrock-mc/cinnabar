@@ -3,11 +3,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use actor_animation::ActorRigSnapshot;
-use render::{
+use render_model::ActorRigGeometry;
+use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
     EquipmentRaster,
 };
-use render_model::ActorRigGeometry;
 
 use super::{
     actors::ActorPresentationBatch, entity_layers::LayerPoseCache, skin_rig::SkinRigCache,

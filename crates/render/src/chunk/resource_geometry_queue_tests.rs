@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{ChunkRenderInstance, ChunkRenderQueue};
 
 /// A transfer while a pack reload holds the resident set must not stall the new session.
 #[test]

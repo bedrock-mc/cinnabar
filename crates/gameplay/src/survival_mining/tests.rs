@@ -19,7 +19,9 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
         runtime_id: 9,
         wire_runtime_id: 9,
         relative_hit: [0.5, 1.0, 0.5],
-        block: sim::block_destroy_info(block),
+        block: sim::BlockDestroyInfo::from_facts(
+            assets::compiled::block_destroy::builtin_destroy_facts(block),
+        ),
         conditions: DestroyConditions {
             tool: tool.and_then(HeldTool::from_identifier),
             ..DestroyConditions::default()
@@ -902,4 +904,13 @@ fn a_timed_break_between_ticks_waits_for_its_tick() {
     );
     assert!(runtime.press_break.is_none());
     assert_eq!(runtime.machine, DestroyMachine::default());
+}
+
+#[test]
+fn missing_world_destroy_facts_do_not_inherit_name_based_prediction() {
+    let assets = assets::RuntimeAssets::diagnostic();
+    let facts = assets
+        .resolve(assets::NetworkIdMode::Sequential, 0)
+        .destroy();
+    assert_eq!(sim::BlockDestroyInfo::from_facts(facts), None);
 }

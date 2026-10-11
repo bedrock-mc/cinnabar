@@ -46,6 +46,9 @@ struct CullView {
     params: vec4<u32>,
     regions: vec4<u32>,
     index_counts: vec4<u32>,
+    // Commands each stream region holds. Count draws are not validated, so nothing past it
+    // is written or counted even if a slot count ever outruns the storage.
+    region_draws: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> view: CullView;
@@ -231,6 +234,9 @@ fn solid_runs(record: CullRecord, write: bool, base: u32) -> u32 {
 }
 
 fn write_args(index: u32, stream: u32, record: CullRecord, first: u32, count: u32) {
+    if (index >= view.region_draws[stream]) {
+        return;
+    }
     let draw = view.regions[stream] / 5u + index;
     let word = draw * 5u;
     args[word] = view.index_counts[stream];
@@ -335,7 +341,7 @@ fn cull_scan(@builtin(local_invocation_index) lid: u32) {
         running += total;
     }
     if (lid == WORKGROUP - 1u) {
-        let total = sums[lid];
+        let total = min(sums[lid], view.region_draws);
         let first = view.params.w;
         draw_counts[first] = total.x;
         draw_counts[first + 1u] = total.y;

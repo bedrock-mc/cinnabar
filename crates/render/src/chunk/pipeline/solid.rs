@@ -63,7 +63,7 @@ pub(in crate::chunk) fn prepare_solid_indirect_batch_draws<'a>(
 }
 
 pub(in crate::chunk) type DrawSolidChunkCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainSolid as usize },
+    { render_scene::RuntimeStage::GpuTerrainSolid as usize },
     (
         crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
@@ -73,7 +73,7 @@ pub(in crate::chunk) type DrawSolidChunkCommands = crate::gpu_timing::GpuDrawSpa
     ),
 >;
 pub(in crate::chunk) type DrawSolidChunkIndirectCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainSolid as usize },
+    { render_scene::RuntimeStage::GpuTerrainSolid as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
@@ -94,7 +94,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedSolidChunk {
         Entity,
         Read<ViewUniformOffset>,
         Read<ExtractedView>,
-        Has<crate::EnhancedRendering>,
+        Has<render_scene::EnhancedRendering>,
     );
     type ItemQuery = Read<GpuChunkAllocation>;
 
@@ -209,7 +209,7 @@ mod tests {
             clip_from_view,
             world_from_view: GlobalTransform::from(world_from_view),
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,

@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::ChunkUploadBudget;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(in crate::chunk) struct GeometryStreamCounts {

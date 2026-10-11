@@ -136,10 +136,10 @@ impl Fixture {
         let animations = gpu.words(&[0; 8], storage);
         let frames = gpu.words(&[0; 4], storage);
         let clock = gpu.words(&[0; 4], uniform);
-        let frame = render::AtmosphereFrame::default();
+        let frame = render_scene::AtmosphereFrame::default();
         let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
         let lightmap = gpu.buffer(
-            bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+            bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
             uniform,
         );
         let eye = Vec3::new(1.0, 4.0, 1.0);

@@ -112,6 +112,7 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
             model_template: 0,
             animation: assets::NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         light_properties: vec![assets::LightProperties::default()],
         materials: vec![assets::Material {
@@ -191,6 +192,7 @@ fn overlay_surface(height: i16) -> Arc<assets::RuntimeAssets> {
             model_template: 0,
             animation: assets::NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         light_properties: vec![assets::LightProperties::default()],
         materials: vec![assets::Material {

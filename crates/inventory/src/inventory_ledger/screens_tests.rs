@@ -35,6 +35,7 @@ fn ledger_with(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     ledger.apply_registry(&ItemRegistryEvent {
         entries: vec![ItemRegistryEntry {
+            components: None,
             identifier: Arc::from("minecraft:apple"),
             network_id: 6,
             component_based: true,

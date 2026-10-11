@@ -1,13 +1,13 @@
 use bevy::prelude::Vec3;
 use client_world::DragonDeathView;
-use render::{BlockEntityKind, BlockEntityLight, BlockEntitySubmission, DragonDeathModel};
+use render_model::{BlockEntityKind, BlockEntityLight, BlockEntitySubmission, DragonDeathModel};
 
 pub(super) fn update_without_atlas(
     stream: Option<&chunk_pipeline::WorldStream>,
     partial_tick: f32,
     camera: Option<Vec3>,
-    scene: &mut render::BlockEntityScene,
-    frame: &mut render::BlockEntityFrame,
+    scene: &mut render_model::BlockEntityScene,
+    frame: &mut render_model::BlockEntityFrame,
 ) {
     let mut submissions = Vec::new();
     if let Some(stream) = stream {
@@ -22,7 +22,7 @@ pub(super) fn update_without_atlas(
         );
     }
     *frame = scene
-        .update(render::SceneClock::default(), &[], &submissions)
+        .update(render_model::SceneClock::default(), &[], &submissions)
         .clone();
 }
 
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn only_candidate_bodies_consume_ray_submission_and_light_capacity() {
-        let radius = render::ACTOR_CANDIDATE_RADIUS_BLOCKS;
+        let radius = render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS;
         let mut submissions = Vec::new();
         let mut samples = Vec::new();
         submit(

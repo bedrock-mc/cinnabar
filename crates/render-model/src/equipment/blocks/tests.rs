@@ -28,6 +28,7 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         }],
         materials: vec![
             Material::unvaried(),

@@ -16,10 +16,12 @@ use super::{
     legacy_icons,
 };
 
+mod armour;
 mod spawn_eggs;
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
     include_bytes!("../../../assets/data/block-item-routes-v2193.json");
+
 const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2193.bin");
 const ROUTE_SCHEMA: u32 = 1;
 const ROUTE_PROTOCOL: u32 = 2193;
@@ -74,6 +76,7 @@ pub(super) fn compile(
         .collect::<BTreeMap<_, _>>();
     let routes = parse_block_item_routes()?;
     let bindings = item_bindings::reviewed()?;
+    let armour = armour::reviewed()?;
     let legacy = legacy_icons::reviewed()?;
     // Vanilla draws an item as its block only when it is that block's own block item: an item
     // the retail client gives a legacy icon, or one placing a differently named block, keeps
@@ -264,6 +267,19 @@ pub(super) fn compile(
             &mut definitions,
         )?;
     }
+    let facts_source = *source_indices
+        .get(assets::item::armour::ITEM_ARMOUR_SOURCE_PATH)
+        .ok_or_else(|| invalid("compiled item facts source is absent"))?;
+    let retail = std::str::from_utf8(item_bindings::RETAIL_ITEMS)
+        .map_err(|_| invalid("retail item list is not UTF-8"))?;
+    for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
+        definitions
+            .entry(ItemVisualKey {
+                identifier: identifier.into(),
+                metadata: 0,
+            })
+            .or_insert((facts_source, ItemVisualDefinitionRoute::Missing));
+    }
     let visuals = definitions
         .into_iter()
         .map(|(key, (source, route))| {
@@ -277,6 +293,11 @@ pub(super) fn compile(
                     .unwrap_or_else(ItemDisplayTransform::identity)
             };
             ItemVisualDefinition {
+                durability: assets::item::durability::builtin_item_durability(&key.identifier),
+                armour: armour
+                    .get(&key.identifier)
+                    .copied()
+                    .unwrap_or(assets::item::armour::ItemArmour::Unresolved),
                 first_person: display(|transforms| transforms.first_person),
                 third_person: display(|transforms| transforms.third_person),
                 dropped: display(|transforms| transforms.dropped),

@@ -1,4 +1,4 @@
-use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape};
+use render_model::{BlockSelectionFrame, BlockSelectionTarget, CrackShape};
 
 #[test]
 fn a_block_pick_draws_outline_or_highlight_and_clears_after_looking_away() {

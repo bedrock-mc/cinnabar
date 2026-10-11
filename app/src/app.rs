@@ -26,19 +26,22 @@ use client_runtime::network::NetworkHandle;
 use client_state::ClientFrameSet;
 use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
-use render::{
-    ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
-    AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
-    RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
-};
 use render_api::PublicationServiceConfig;
 #[cfg(test)]
 use std::fs;
-use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
+use std::io::Write;
+use std::{ffi::OsStr, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
     crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
     acceptance::transparent_witness::poll_transparent_witness_request,
+};
+use {
+    render::{ActorRenderPlugin, AtmospherePlugin, ChunkRenderPlugin, UiRenderPlugin},
+    render_scene::{
+        ActorRenderScene, AtmosphereFrame, AtmosphereTextureAssets, ChunkRenderApplySet,
+        ChunkTextureAssets, RuntimeStageProfiler, VisibilityDiagnosticsInput,
+    },
 };
 mod logging;
 mod startup;
@@ -50,7 +53,7 @@ use client_presentation::{
     local_player::{LocalPlayerFrameSet, publish_interaction_origin},
 };
 use client_ui::ui_runtime::{UiRuntime, oreui_fonts, presentation::UiPresentationRuntime};
-use diagnostics::AcceptanceRuntimeConfig;
+use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -397,7 +400,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         diagnostics::console::flush_before_exit();
     });
     UiRuntime::configure_crafting_observation(args.address.as_deref());
-    render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
+    render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
@@ -457,7 +460,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
     let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
-    let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
+    let hand_geometry =
+        render_model::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
@@ -754,7 +758,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
-    .insert_resource(actor_artwork)
+    .insert_resource(render_scene::ActorArtworkResource(actor_artwork))
     .insert_resource(ClientWorld::new_with_entity_assets(
         Arc::clone(&runtime_assets),
         entity_runtime,
@@ -832,7 +836,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         },
     ))
     .insert_resource(DiagnosticQuads::default())
-    .insert_resource(block_entity_scene)
+    .insert_resource(render_scene::BlockEntitySceneResource(block_entity_scene))
     .insert_resource(PublicationController::new(
         PublicationServiceConfig::PHASE2_GATE,
     ));
@@ -846,27 +850,27 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         model_witness_request: args.model_witness_request,
     });
     {
-        const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
+        const MAIN_FRAME: usize = render_scene::RuntimeStage::MainFrame as usize;
         app.insert_resource(RuntimeStageProfiler::for_gameplay(
             stage_profile_enabled,
             std::env::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
                 .map(std::path::PathBuf::from),
         ))
-        .init_resource::<render::RuntimeStageSpans>()
+        .init_resource::<render_scene::RuntimeStageSpans>()
         .add_plugins(render::GpuTimingPlugin)
         .add_systems(
             render::FrameStart,
             (
                 crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
-                render::begin_stage_span::<MAIN_FRAME>,
+                render_scene::begin_stage_span::<MAIN_FRAME>,
             )
                 .chain(),
         )
         .add_systems(
             Last,
             (
-                render::end_stage_span::<MAIN_FRAME>,
+                render_scene::end_stage_span::<MAIN_FRAME>,
                 crate::runtime::frame_profile::flush_trace_on_exit,
             )
                 .chain()
@@ -894,14 +898,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,
     ));
-    app.add_plugins(render::DepthSmaaPlugin);
+    app.add_plugins((
+        render::DepthSmaaPlugin,
+        render::motion_blur::CameraMotionBlurPlugin,
+    ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
         diagnostics_enabled,
     ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
-        app.insert_resource(render::ParticleSimulation(
+        app.insert_resource(render_scene::ParticleSimulation(
             particles::ParticleSystem::from_assets(particle_assets),
         ));
     }
@@ -912,7 +919,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::primitive_shapes::configure(&mut app);
     app.init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
-        app.insert_resource(geometry);
+        app.insert_resource(render_scene::ViewmodelGeometryResource(geometry));
     }
     #[cfg(feature = "acceptance")]
     if let Some(identity) = phase3_identity_source {

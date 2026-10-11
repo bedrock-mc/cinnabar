@@ -217,7 +217,7 @@ fn glint_renderer_factors_follow_each_persisted_percent() {
     menu.set_option(index("glint_speed") as u16, 75);
     assert_eq!(
         menu.ui_glint_settings(),
-        render::UiGlintSettings {
+        render_scene::UiGlintSettings {
             strength: 0.25,
             speed: 0.75,
         }

@@ -9,7 +9,10 @@ use chunk_pipeline::WorldStream;
 use protocol::{
     ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
+use {
+    render_model::ActorArtworkPages,
+    render_scene::{ActorRenderFrame, ActorRenderScene},
+};
 
 use super::render_report::world_for;
 

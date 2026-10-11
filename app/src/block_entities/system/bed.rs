@@ -1,4 +1,4 @@
-use render::{BedModel, BlockEntityLight};
+use render_model::{BedModel, BlockEntityLight};
 
 pub(super) fn light(
     model: BedModel,

@@ -16,10 +16,7 @@ use bevy::{
     },
     window::WindowPlugin,
 };
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 #[path = "composed_tests.rs"]
 mod composed_tests;
@@ -147,7 +144,7 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
                 entry_point: Some(entry),
                 compilation_options: default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -357,7 +354,7 @@ fn spatial_smaa_preserves_texels_and_filters_depth_silhouettes() {
         let world = app.sub_app(RenderApp).world();
         let adapter = world.resource::<RenderAdapter>();
         if [
-            crate::SCENE_COLOR_FORMAT,
+            render_scene::SCENE_COLOR_FORMAT,
             bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
         ]
         .into_iter()

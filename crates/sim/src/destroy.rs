@@ -5,38 +5,9 @@
 //! rate and unknown blocks yield none, so neither predicts early; rows with
 //! provisional tool classes can still predict early where Bedrock differs.
 
-use std::sync::OnceLock;
-
-const DESTROY_TABLE: &str = include_str!("../data/block_destroy_1_26_50.tsv");
-
-/// Tool families that change destroy speed or harvestability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolKind {
-    Pickaxe,
-    Axe,
-    Shovel,
-    Hoe,
-    Sword,
-    Shears,
-}
-
-impl ToolKind {
-    const fn bit(self) -> u8 {
-        1 << self as u8
-    }
-
-    fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "pickaxe" => Self::Pickaxe,
-            "axe" => Self::Axe,
-            "shovel" => Self::Shovel,
-            "hoe" => Self::Hoe,
-            "sword" => Self::Sword,
-            "shears" => Self::Shears,
-            _ => return None,
-        })
-    }
-}
+use assets::compiled::block_destroy::{
+    BlockDestroyFacts, HarvestRequirement, ProvisionalDestroy, ToolKind,
+};
 
 /// Tiered tool materials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,47 +95,32 @@ pub struct BlockDestroyInfo {
     sword_speed: Option<f32>,
 }
 
-/// Vanilla swords give bamboo the harvest divisor as their destroy speed,
-/// so a sword clears one bamboo per tick.
-const SWORD_BAMBOO_SPEED: f32 = 30.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HarvestRequirement {
-    Hand,
-    /// One of the harvest tools at or above this tier level.
-    Tool(u8),
-    /// No tool evidence: nothing is assumed to harvest it or speed it up.
-    Unresolved,
-}
-
 impl BlockDestroyInfo {
-    fn parse(line: &str) -> Option<(&str, Self)> {
-        let mut fields = line.split('\t');
-        let identifier = fields.next()?;
-        let hardness = fields.next()?.parse::<f32>().ok()?;
-        let (effective, harvest_tools, harvest) =
-            match (fields.next()?, fields.next()?, fields.next()?) {
-                ("?", "?", "?") => (0, 0, HarvestRequirement::Unresolved),
-                (effective, harvest_tools, level) => (
-                    tool_set(effective)?,
-                    tool_set(harvest_tools)?,
-                    match level {
-                        "-" => HarvestRequirement::Hand,
-                        level => HarvestRequirement::Tool(level.parse().ok()?),
-                    },
-                ),
-            };
-        (fields.next().is_none() && hardness.is_finite()).then_some((
-            identifier,
-            Self {
-                hardness,
-                effective,
+    /// Projects admitted carrier facts into the existing destroy calculation.
+    pub fn from_facts(facts: BlockDestroyFacts) -> Option<Self> {
+        match facts {
+            BlockDestroyFacts::Unresolved => None,
+            BlockDestroyFacts::ProvisionalIndestructible => Some(Self {
+                hardness: -1.0,
+                effective: 0,
+                harvest_tools: 0,
+                harvest: HarvestRequirement::Unresolved,
+                sword_speed: None,
+            }),
+            BlockDestroyFacts::Provisional(ProvisionalDestroy {
+                hardness_bits,
+                effective_tools,
                 harvest_tools,
-                harvest,
-                sword_speed: matches!(identifier, "minecraft:bamboo" | "minecraft:bamboo_sapling")
-                    .then_some(SWORD_BAMBOO_SPEED),
-            },
-        ))
+                requirement,
+                sword_speed_bits,
+            }) => Some(Self {
+                hardness: f32::from_bits(hardness_bits),
+                effective: effective_tools,
+                harvest_tools,
+                harvest: requirement,
+                sword_speed: (sword_speed_bits != 0).then(|| f32::from_bits(sword_speed_bits)),
+            }),
+        }
     }
 
     fn effective_for(&self, kind: ToolKind) -> bool {
@@ -185,37 +141,6 @@ impl BlockDestroyInfo {
     fn harvests_with(&self, kind: ToolKind) -> bool {
         self.harvest_tools & kind.bit() != 0
     }
-}
-
-fn tool_set(value: &str) -> Option<u8> {
-    if value == "-" {
-        return Some(0);
-    }
-    value
-        .split(',')
-        .try_fold(0, |set, tool| Some(set | ToolKind::parse(tool)?.bit()))
-}
-
-fn table() -> &'static [(&'static str, BlockDestroyInfo)] {
-    static TABLE: OnceLock<Vec<(&'static str, BlockDestroyInfo)>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut rows = DESTROY_TABLE
-            .lines()
-            .filter(|line| !line.starts_with('#') && !line.is_empty())
-            .map(|line| BlockDestroyInfo::parse(line).expect("generated destroy table row"))
-            .collect::<Vec<_>>();
-        rows.sort_unstable_by_key(|(identifier, _)| *identifier);
-        rows
-    })
-}
-
-/// Returns the destroy facts for a namespaced block identifier.
-#[must_use]
-pub fn block_destroy_info(identifier: &str) -> Option<BlockDestroyInfo> {
-    let rows = table();
-    rows.binary_search_by_key(&identifier, |(key, _)| key)
-        .ok()
-        .map(|index| rows[index].1)
 }
 
 /// Player state that scales destroy speed. Effect levels are wire amplifiers.

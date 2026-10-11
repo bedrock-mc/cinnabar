@@ -42,6 +42,7 @@ members = [
     "crates/render-api",
     "crates/test-time",
     "crates/render-model",
+    "crates/render-scene",
     "crates/inventory",
     "crates/launcher",
     "crates/launcher-host",

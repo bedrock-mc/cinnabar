@@ -16,6 +16,7 @@ fn registry() -> Vec<ItemRegistryEntry> {
     [(6, "minecraft:oak_log"), (7, "minecraft:oak_planks")]
         .into_iter()
         .map(|(network_id, name)| ItemRegistryEntry {
+            components: None,
             identifier: Arc::from(name),
             network_id,
             component_based: false,

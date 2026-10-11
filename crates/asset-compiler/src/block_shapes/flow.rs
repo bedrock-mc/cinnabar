@@ -23,14 +23,11 @@ pub(super) fn facts(record: &RegistryRecord) -> Option<CompiledFlow> {
         _ => return None,
     };
     let liquid_depth = if liquid {
-        let Some(depth) = record
+        let depth = record
             .model_state
             .get(ModelStateField::LiquidDepth)
             .and_then(|depth| u8::try_from(depth).ok())
-            .filter(|depth| *depth < 16)
-        else {
-            return None;
-        };
+            .filter(|depth| *depth < 16)?;
         Some(depth)
     } else {
         None

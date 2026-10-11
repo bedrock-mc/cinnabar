@@ -3,10 +3,10 @@
 //! The canvas is in Mojang design pixels (two font texels each). Line pitch, width and the
 //! glow outline treatment follow the Java Edition sign and need native measurement for Bedrock.
 
-use std::hash::{Hash, Hasher};
-
 use assets::CompiledFontCatalog;
-use render::TEXT_CELL;
+use render_model::TEXT_CELL;
+use std::hash::Hash;
+use std::hash::Hasher;
 use ui::{TextLayoutCache, TextLayoutRequest, TextStyle, UiScale};
 
 const LINES: usize = 4;

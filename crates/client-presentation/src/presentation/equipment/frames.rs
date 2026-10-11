@@ -8,7 +8,7 @@ use bevy::math::{Mat4, Vec3, Vec4};
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
 use protocol::{PlayerSkin, WorldBootstrap};
-use render::ActorRigFrameBuilder;
+use render_model::ActorRigFrameBuilder;
 use render_model::{ActorRigVertex, RenderBoneTransform};
 
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};

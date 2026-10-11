@@ -13,7 +13,7 @@ use bevy::{
 
 use super::{
     GpuCull, GpuCullFrame, GpuCullSubmission,
-    model::{CullPhase, CullStream, args_region, count_index},
+    model::{CullPhase, CullStream, STREAM_COUNT, args_region, count_index, region_draws},
 };
 use crate::chunk::*;
 use crate::gpu_timing::{SectionSpan, within_span};
@@ -58,7 +58,7 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         } else {
             CullPhase::Early
         };
-        let max_draw_count = draws.draw_bounds[stream as usize];
+        let max_draw_count = culled_max_draw_count(draws.draw_bounds, draws.capacity, stream);
         if max_draw_count == 0 {
             return RenderCommandResult::Skip;
         }
@@ -84,6 +84,15 @@ impl<P: PhaseItem, const STREAM: usize, const LATE: bool> RenderCommand<P>
         }
         RenderCommandResult::Success
     }
+}
+
+/// Commands one culled stream draw may read: the table's ceiling, never past its args region.
+pub(super) fn culled_max_draw_count(
+    draw_bounds: [u32; STREAM_COUNT],
+    capacity: u32,
+    stream: CullStream,
+) -> u32 {
+    draw_bounds[stream as usize].min(region_draws(capacity, stream))
 }
 
 pub(in crate::chunk) fn install_commands(render_app: &mut SubApp) {
@@ -220,8 +229,10 @@ pub(crate) fn late_cull(
     ];
     let colour = scene_target.color_attachment(target, false);
     let depth = depth.get_attachment(StoreOp::Store);
-    let timestamps =
-        crate::gpu_timing::render_pass_timestamps(world, crate::RuntimeStage::GpuTerrainOpaque);
+    let timestamps = crate::gpu_timing::render_pass_timestamps(
+        world,
+        render_scene::RuntimeStage::GpuTerrainOpaque,
+    );
     // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
     // which still builds the pyramid and culls but draws nothing.
     let viewport =

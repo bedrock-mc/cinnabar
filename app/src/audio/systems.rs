@@ -1,12 +1,13 @@
 //! App schedule and borrowed observations for presentation audio.
-use bevy::prelude::{App, IntoScheduleConfigs, Local, MessageReader, Res, ResMut, Time, Update};
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::prelude::{App, Local, MessageReader, Res, ResMut, Time, Update};
 use client_audio::audio::{
     AudioSettings,
     local::LocalMotion,
     systems::{AmbientState, IngestState, UiSoundCue},
 };
 use client_audio::audio_ingress::SequencedAudioEvent;
-use render::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
+use render_scene::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
 use {
     super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
@@ -225,7 +226,7 @@ mod tests {
     #[test]
     fn pump_attributes_its_own_work_to_the_audio_stage() {
         use bevy::prelude::{App, Update};
-        let profiler = render::RuntimeStageProfiler::new(true);
+        let profiler = render_scene::RuntimeStageProfiler::new(true);
         let mut app = App::new();
         app.insert_resource(profiler.clone())
             .init_resource::<Time>()
@@ -239,7 +240,7 @@ mod tests {
             .take_snapshot_if_due(std::time::Duration::ZERO)
             .expect("enabled profiler");
         assert_eq!(
-            snapshot.samples[render::RuntimeStage::Audio as usize].count,
+            snapshot.samples[render_scene::RuntimeStage::Audio as usize].count,
             2
         );
     }

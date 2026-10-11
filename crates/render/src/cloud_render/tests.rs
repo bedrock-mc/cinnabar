@@ -1,10 +1,12 @@
+use bevy::ecs::system::RunSystemOnce;
+use sha2::Digest;
 use std::sync::Arc;
 
 use assets::{
     AtmosphereTexture, CompiledAtmosphereAssets, RuntimeAtmosphereAssets, encode_atmosphere_blob,
 };
-use bevy::{ecs::system::RunSystemOnce, render::view::RetainedViewEntity};
-use sha2::{Digest, Sha256};
+use bevy::render::view::RetainedViewEntity;
+use sha2::Sha256;
 
 use super::*;
 
@@ -71,7 +73,7 @@ fn spawn_view(world: &mut World, position: Vec3) -> Entity {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::from_translation(position),
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 256, 256),
             color_grading: Default::default(),
             invert_culling: false,
@@ -94,7 +96,7 @@ fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.insert_resource(RenderQueue::new(queue));
-    world.init_resource::<crate::AtmosphereViewInputs>();
+    world.init_resource::<render_scene::AtmosphereViewInputs>();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
     world.insert_resource(frame);
     world.run_system_once(init_cloud_gpu).unwrap();
@@ -162,7 +164,7 @@ fn dimension_changes_remove_clouds_and_restore_them_only_in_the_overworld() {
     world.run_system_once(prepare_cloud_records).unwrap();
     assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
 
-    for kind in [crate::SkyKind::End, crate::SkyKind::Nether] {
+    for kind in [render_scene::SkyKind::End, render_scene::SkyKind::Nether] {
         world.insert_resource(base.with_sky_kind(kind));
         world.run_system_once(prepare_cloud_records).unwrap();
         assert!(
@@ -170,7 +172,7 @@ fn dimension_changes_remove_clouds_and_restore_them_only_in_the_overworld() {
             "clouds survived the switch to {kind:?}"
         );
 
-        world.insert_resource(base.with_sky_kind(crate::SkyKind::Overworld));
+        world.insert_resource(base.with_sky_kind(render_scene::SkyKind::Overworld));
         world.run_system_once(prepare_cloud_records).unwrap();
         assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
     }

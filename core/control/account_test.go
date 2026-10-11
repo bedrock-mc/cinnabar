@@ -9,21 +9,18 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 type stubServices struct {
-	realms      []catalog.Realm
-	friends     []catalog.Friend
+	realms      []Realm
+	friends     []Friend
 	err         error
 	kind, value string
 	signedOut   bool
 }
 
-func (s *stubServices) Realms(context.Context) ([]catalog.Realm, error)   { return s.realms, s.err }
-func (s *stubServices) Friends(context.Context) ([]catalog.Friend, error) { return s.friends, s.err }
+func (s *stubServices) Realms(context.Context) ([]Realm, error)   { return s.realms, s.err }
+func (s *stubServices) Friends(context.Context) ([]Friend, error) { return s.friends, s.err }
 func (s *stubServices) Connect(_ context.Context, kind, value string) error {
 	s.kind, s.value = kind, value
 	return s.err
@@ -63,8 +60,8 @@ func rpc(t *testing.T, dir, method, params string) rpcReply {
 
 func TestRealmsAndFriendsListReturnCatalogEntries(t *testing.T) {
 	stub := &stubServices{
-		realms:  []catalog.Realm{{Name: "R", State: "OPEN", Target: "realm_id/7"}},
-		friends: []catalog.Friend{{Gamertag: "F", XUID: "123", WorldName: "W"}},
+		realms:  []Realm{{Name: "R", State: "OPEN", Target: "realm_id/7"}},
+		friends: []Friend{{Gamertag: "F", XUID: "123", WorldName: "W"}},
 	}
 	dir := startServices(t, NewStore(), stub)
 	var realms realmsResultV1
@@ -172,9 +169,9 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 		t.Fatalf("initial events = %+v", events)
 	}
 	store.SetAuth(AuthV1{State: AuthAwaitingCode, VerificationURI: "https://example.test/link", UserCode: "ABCD1234"})
-	store.ObserveDisconnect(proxy.DisconnectInfo{Reason: 7, Message: "You are banned"})
-	store.ObserveDisconnect(proxy.DisconnectInfo{Reason: 8, Message: "Server full"})
-	store.ObserveTransfer(proxy.TransferTarget{Host: "next.example", Port: 19133})
+	store.ObserveDisconnect(7, "You are banned")
+	store.ObserveDisconnect(8, "Server full")
+	store.ObserveTransfer("next.example", 19133)
 	reply := rpc(t, dir, methodEvents, "")
 	events = EventsV1{}
 	if err := json.Unmarshal(reply.Result, &events); err != nil {
@@ -185,7 +182,7 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 		events.Transfer == nil || events.Transfer.Host != "next.example" {
 		t.Fatalf("events = %+v", events)
 	}
-	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 3, ReceivedBytes: 5, TotalBytes: 9})
+	store.ObserveConnectProgress(ConnectProgress{Stage: "packs", PacksDone: 1, PacksTotal: 3, ReceivedBytes: 5, TotalBytes: 9})
 	reply = rpc(t, dir, methodEvents, "")
 	var wire struct {
 		Connect map[string]any `json:"connect"`
@@ -197,7 +194,7 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 	if !maps.Equal(wire.Connect, want) {
 		t.Fatalf("connect wire = %v, want %v", wire.Connect, want)
 	}
-	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStageRealm})
+	store.ObserveConnectProgress(ConnectProgress{Stage: "realm"})
 	reply = rpc(t, dir, methodEvents, "")
 	wire.Connect = nil
 	if err := json.Unmarshal(reply.Result, &wire); err != nil {
@@ -206,13 +203,13 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 	if !maps.Equal(wire.Connect, map[string]any{"stage": "realm"}) {
 		t.Fatalf("realm stage wire = %v, want zero counters omitted", wire.Connect)
 	}
-	store.ObserveConnectProgress(proxy.ConnectProgress{})
+	store.ObserveConnectProgress(ConnectProgress{})
 	if got := store.Events().Connect; got != nil {
 		t.Fatalf("withdrawn stage still published: %+v", got)
 	}
-	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStageConnecting})
-	store.Observe(snapshot(1, proxy.ResourcePackOfferNone))
-	store.Observe(snapshot(2, proxy.ResourcePackOfferNone))
+	store.ObserveConnectProgress(ConnectProgress{Stage: "connecting"})
+	store.Observe(snapshot(1, packNone))
+	store.Observe(snapshot(2, packNone))
 	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil || got.Connect != nil {
 		t.Fatalf("new attempt kept stale events: %+v", got)
 	}
@@ -228,8 +225,8 @@ func TestServerTrustPromptReachesEventsAndTakesItsAnswer(t *testing.T) {
 		return id == 2
 	})
 	dir := startServices(t, store, nil)
-	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 2, URL: "http://127.0.0.1:19132"}, true)
-	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 1}, false)
+	store.ObserveServerTrust(ServerTrustPrompt{ID: 2, URL: "http://127.0.0.1:19132"}, true)
+	store.ObserveServerTrust(ServerTrustPrompt{ID: 1}, false)
 	var events EventsV1
 	if reply := rpc(t, dir, methodEvents, ""); json.Unmarshal(reply.Result, &events) != nil ||
 		events.ServerTrust == nil || events.ServerTrust.ID != 2 || events.ServerTrust.URL != "http://127.0.0.1:19132" {
@@ -246,7 +243,7 @@ func TestServerTrustPromptReachesEventsAndTakesItsAnswer(t *testing.T) {
 	if !slices.Equal(answered, []string{"2 true"}) {
 		t.Fatalf("answers = %q", answered)
 	}
-	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 2}, false)
+	store.ObserveServerTrust(ServerTrustPrompt{ID: 2}, false)
 	events = EventsV1{}
 	if reply := rpc(t, dir, methodEvents, ""); json.Unmarshal(reply.Result, &events) != nil || events.ServerTrust != nil {
 		t.Fatalf("events = %+v, want the prompt withdrawn", events)
@@ -256,8 +253,8 @@ func TestServerTrustPromptReachesEventsAndTakesItsAnswer(t *testing.T) {
 // A stale pending prompt from an older join never replaces the newer join's prompt.
 func TestStaleServerTrustPromptsAreIgnored(t *testing.T) {
 	store := NewStore()
-	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 5, URL: "http://new:1"}, true)
-	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 4, URL: "http://old:1"}, true)
+	store.ObserveServerTrust(ServerTrustPrompt{ID: 5, URL: "http://new:1"}, true)
+	store.ObserveServerTrust(ServerTrustPrompt{ID: 4, URL: "http://old:1"}, true)
 	if events := store.Events(); events.ServerTrust == nil || events.ServerTrust.ID != 5 {
 		t.Fatalf("events = %+v, want the newer prompt", events.ServerTrust)
 	}

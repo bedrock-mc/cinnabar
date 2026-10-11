@@ -51,7 +51,7 @@ compiled asset directory.
 
 The destroy-table generator reads hardness and provisional tool classifications
 from the same shared catalog. Missing tool evidence stays unresolved. Regenerate
-it with `go -C tools/registrygen run ./cmd/blockdestroy -out ../../crates/sim/data/block_destroy_1_26_50.tsv`.
+it with `go -C tools/registrygen run ./cmd/blockdestroy -out ../../crates/assets/data/block-destroy-v2193.tsv`.
 
 The active biome generator reads numeric IDs from the shared catalog and keeps
 only names in the local retail allowlist. Its source lock is recorded in the

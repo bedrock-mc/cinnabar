@@ -223,6 +223,7 @@ fn overridden_assets(
             model_template: index as u32,
             animation: assets::NO_ANIMATION,
             variant: visual.variant(),
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         });
         overlay.light_properties.push(visual.light_properties());
     }
@@ -265,8 +266,10 @@ fn app(assets: Arc<assets::RuntimeAssets>) -> (App, Entity) {
             render::BlockEntityRenderPlugin,
             render::EnhancedRenderPlugin,
         ))
-        .insert_resource(render::ChunkTextureAssets::new(assets))
-        .insert_resource(render::AtmosphereFrame::from_bedrock_time(2500.0, 0.0, 0.0))
+        .insert_resource(render_scene::ChunkTextureAssets::new(assets))
+        .insert_resource(render_scene::AtmosphereFrame::from_bedrock_time(
+            2500.0, 0.0, 0.0,
+        ))
         .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             std::time::Duration::ZERO,
         ))
@@ -294,7 +297,7 @@ fn app(assets: Arc<assets::RuntimeAssets>) -> (App, Entity) {
             Hdr,
             Tonemapping::Linear,
             Bloom::default(),
-            render::EnhancedRendering::bounded_diagnostic(),
+            render_scene::EnhancedRendering::bounded_diagnostic(),
             Transform::from_xyz(12.0, 8.0, 14.0).looking_at(Vec3::new(5.0, 2.0, 5.0), Vec3::Y),
         ))
         .id();
@@ -357,11 +360,11 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     let (mut app, camera) = app(Arc::clone(&assets));
     let empty = capture(&mut app);
     app.world_mut()
-        .resource_mut::<render::ChunkRenderQueue>()
+        .resource_mut::<render_scene::ChunkRenderQueue>()
         .try_insert(
             world::SubChunkKey::new(0, 0, 0, 0),
             mesh,
-            render::ChunkUploadPriority::new(0.0),
+            render_scene::ChunkUploadPriority::new(0.0),
         )
         .unwrap();
     let first = capture(&mut app);
@@ -391,7 +394,7 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
         .unwrap();
     let block = [2 + (index % 4) as i32 * 2, 4, 2 + (index / 4) as i32 * 2];
     let visual = assets.resolve(assets::NetworkIdMode::Sequential, stalk.sequential_id);
-    let shape = render::crack_shape_from_template(
+    let shape = render_model::crack_shape_from_template(
         &assets,
         visual.model_template().unwrap(),
         visual.variant(),
@@ -407,13 +410,13 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
         Transform::from_translation(center + Vec3::new(1.5, 0.4, 2.5)).looking_at(center, Vec3::Y);
     let close = capture(&mut app);
     save("bamboo-enhanced-close", &close);
-    let target = render::BlockSelectionTarget {
+    let target = render_model::BlockSelectionTarget {
         block,
         bounds,
         shape: shape.clone(),
     };
     app.world_mut()
-        .resource_mut::<render::BlockSelectionFrame>()
+        .resource_mut::<render_scene::BlockSelectionFrameResource>()
         .update(Some(&target), false);
     let highlighted = capture(&mut app);
     assert_ne!(
@@ -422,15 +425,17 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     );
     save("bamboo-enhanced-highlight", &highlighted);
     app.world_mut()
-        .resource_mut::<render::BlockSelectionFrame>()
+        .resource_mut::<render_scene::BlockSelectionFrameResource>()
         .update(None, false);
     let cracked = {
-        let mut scene = app.world_mut().resource_mut::<render::BlockEntityScene>();
+        let mut scene = app
+            .world_mut()
+            .resource_mut::<render_scene::BlockEntitySceneResource>();
         scene.install_assets(&block_entities);
         scene
             .update(
-                render::SceneClock::default(),
-                &[render::CrackInstance {
+                render_model::SceneClock::default(),
+                &[render_model::CrackInstance {
                     block,
                     stage: 8,
                     shape,
@@ -448,10 +453,10 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     );
     save("bamboo-enhanced-cracks", &cracked);
     app.world_mut()
-        .insert_resource(render::BlockEntityFrame::default());
+        .insert_resource(render_scene::BlockEntityFrameResource::default());
     *app.world_mut().get_mut::<Transform>(camera).unwrap() = original_view;
     app.world_mut()
-        .get_mut::<render::EnhancedRendering>(camera)
+        .get_mut::<render_scene::EnhancedRendering>(camera)
         .unwrap()
         .shadows = false;
     let unshadowed = capture(&mut app);
@@ -461,7 +466,7 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
     );
     save("bamboo-enhanced-no-shadows", &unshadowed);
     app.world_mut()
-        .get_mut::<render::EnhancedRendering>(camera)
+        .get_mut::<render_scene::EnhancedRendering>(camera)
         .unwrap()
         .shadows = true;
     for (index, eye) in [Vec3::new(-4.0, 6.0, 5.0), Vec3::new(5.0, 9.0, -4.0)]
