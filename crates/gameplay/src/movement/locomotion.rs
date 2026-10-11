@@ -289,11 +289,14 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
-        } else if !observed.in_water
-            && pose_fits(world, observed.feet, MovementMode::Crawling, false)?
-        {
-            // Dry low-space entry does not require an existing horizontal pose.
-            (MovementMode::Crawling, false)
+        } else if pose_fits(world, observed.feet, MovementMode::Crawling, false)? {
+            // Low-space entry does not require an existing horizontal pose or sprint input.
+            let low_mode = if observed.in_water {
+                MovementMode::Swimming
+            } else {
+                MovementMode::Crawling
+            };
+            (low_mode, false)
         } else {
             (MovementMode::Walking, false)
         };

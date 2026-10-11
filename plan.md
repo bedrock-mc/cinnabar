@@ -5337,8 +5337,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   the native swim blend and previous pose flag, with blend updates before swim triggers and
   transition jump suppression. Standing-space probes use the native box inset.
   Dry low-space entry now selects crawling from standing when neither standing
-  nor sneaking fits. Teleport recovery previews the destination pose before
-  probing overlap, preserving a fitting low-space feet anchor. Controller tests
+  nor sneaking fits; water contact selects a fitting swimming pose. Teleport
+  recovery previews the destination pose before probing overlap, preserving a
+  fitting low-space feet anchor. Controller tests
   cover crawl travel, eye height, start/stop input edges and correction replay.
   Rendered trapdoor and pearl acceptance remains incomplete until checked on
   the integrated candidate; broader crawl and correction parity gates stay open.

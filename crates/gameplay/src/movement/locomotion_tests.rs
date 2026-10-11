@@ -445,22 +445,55 @@ impl CollisionWorld for WetLowCeiling {
     }
 }
 
+/// Low-space water contact selects swimming without expanding the box or requiring sprint input.
 #[test]
-fn a_wet_or_fully_blocked_opening_does_not_start_crawling() {
-    let mut physics = settled_controller();
-    let wet = WetLowCeiling(LowCeiling(2.0));
-    let sample = step(
-        &mut physics,
-        MovementInput::default(),
-        ModeIntent::default(),
-        &wet,
-    );
-    assert_eq!(sample.processed.mode, MovementMode::Walking);
-    assert!(!has(
-        input_flags(&sample, HeldInput::default()),
-        PlayerInputFlags::START_CRAWLING
-    ));
+fn crawling_into_water_keeps_a_low_pose_and_publishes_swim_edges() {
+    for already_crawling in [false, true] {
+        let mut physics = settled_controller();
+        let low = LowCeiling(2.0);
+        let previous = if already_crawling {
+            let entry = step(
+                &mut physics,
+                MovementInput::default(),
+                ModeIntent::default(),
+                &low,
+            );
+            assert_eq!(entry.processed.mode, MovementMode::Crawling);
+            HeldInput::from(&entry)
+        } else {
+            HeldInput::default()
+        };
+        let wet = WetLowCeiling(low);
+        let sample = step(
+            &mut physics,
+            MovementInput::default(),
+            ModeIntent::default(),
+            &wet,
+        );
+        assert_eq!(sample.processed.mode, MovementMode::Swimming);
+        let flags = input_flags(&sample, previous);
+        assert!(has(flags, PlayerInputFlags::START_SWIMMING));
+        assert_eq!(
+            has(flags, PlayerInputFlags::STOP_CRAWLING),
+            already_crawling
+        );
+        assert!(!has(flags, PlayerInputFlags::START_CRAWLING));
+        let steady = step(
+            &mut physics,
+            MovementInput::default(),
+            ModeIntent::default(),
+            &wet,
+        );
+        assert_eq!(steady.processed.mode, MovementMode::Swimming);
+        assert!(!has(
+            input_flags(&steady, HeldInput::from(&sample)),
+            PlayerInputFlags::START_SWIMMING
+        ));
+    }
+}
 
+#[test]
+fn a_fully_blocked_opening_does_not_start_crawling() {
     let mut physics = settled_controller();
     let sample = step(
         &mut physics,
