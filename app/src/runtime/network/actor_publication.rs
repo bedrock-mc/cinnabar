@@ -137,6 +137,7 @@ pub(crate) fn advance_actor_frame(
         local_use,
     );
     if let Some(feed) = &mut local_feed {
+        feed.game_mode = player.facts.player_game_mode();
         #[cfg(feature = "developer-control")]
         {
             feed.prefer_client_skin = skin.recording_cape_enabled();
@@ -182,6 +183,7 @@ pub(crate) fn advance_actor_frame(
             !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
                 settings.value("hide_hud") != 0,
                 settings.value("hide_hand") != 0,
+                player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
             )
             .hand
         }),

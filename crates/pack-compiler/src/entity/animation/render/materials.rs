@@ -114,7 +114,9 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
             state.cull = name.ends_with("_one_sided");
         }
         "experience_orb" => state.alpha_test = true,
-        "entity_alphablend" | "slime_outer" => state.blend = true,
+        "entity_alphablend" | "entity_alphablend_nocolor" | "player_spectator" | "slime_outer" => {
+            state.blend = true;
+        }
         "breeze_wind" => {
             state.alpha_test = true;
             state.blend = true;

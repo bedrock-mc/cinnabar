@@ -506,6 +506,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
 
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        game_mode: None,
         uuid: [5; 16],
         prefer_client_skin: false,
         username: "local".into(),
