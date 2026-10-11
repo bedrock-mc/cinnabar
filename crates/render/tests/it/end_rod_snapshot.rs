@@ -27,6 +27,18 @@ fn fixture() -> Option<(assets::RuntimeAssets, Vec<assets::RegistryRecord>)> {
     ))
 }
 
+/// Returns the mounting neighbour offset for the active facing state.
+fn support_offset(direction: usize) -> [i32; 3] {
+    [
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, -1],
+        [0, 0, 1],
+        [-1, 0, 0],
+        [1, 0, 0],
+    ][direction]
+}
+
 /// Meshes a rod alongside its supporting cube, retaining the actual visibility and light streams.
 fn mesh(
     assets: &assets::RuntimeAssets,
@@ -41,14 +53,7 @@ fn mesh(
     store
         .update_block(key, world::BlockUpdate::new(1, 1, 1, 0, rod), air)
         .unwrap();
-    let support = [
-        [1, 2, 1],
-        [1, 0, 1],
-        [1, 1, 0],
-        [1, 1, 2],
-        [0, 1, 1],
-        [2, 1, 1],
-    ][direction];
+    let support = support_offset(direction).map(|offset| (1 + offset) as u8);
     store
         .update_block(
             key,
@@ -113,7 +118,7 @@ fn atlas(gpu: &Gpu, assets: &assets::RuntimeAssets) -> wgpu::TextureView {
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
     });
     gpu.queue.write_texture(
         texture.as_image_copy(),
@@ -126,13 +131,20 @@ fn atlas(gpu: &Gpu, assets: &assets::RuntimeAssets) -> wgpu::TextureView {
         texture.size(),
     );
     texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8Unorm),
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     })
 }
 
 /// Renders both terrain model layers through their production vertex and fragment code.
-fn render(gpu: &Gpu, assets: &assets::RuntimeAssets, mesh: &meshing::ChunkMesh) -> Vec<u8> {
+fn render(
+    gpu: &Gpu,
+    assets: &assets::RuntimeAssets,
+    mesh: &meshing::ChunkMesh,
+    direction: usize,
+    include_rod: bool,
+) -> Vec<u8> {
     let storage = wgpu::BufferUsages::STORAGE;
     let uniform = wgpu::BufferUsages::UNIFORM;
     let draw_refs = mesh
@@ -163,6 +175,28 @@ fn render(gpu: &Gpu, assets: &assets::RuntimeAssets, mesh: &meshing::ChunkMesh) 
         ]
     }));
     let geometry = gpu.words(&streams, storage);
+    let cube_quads = gpu.words(
+        &mesh
+            .cube_quads()
+            .iter()
+            .flat_map(|q| q.words())
+            .collect::<Vec<_>>(),
+        storage,
+    );
+    let cube_lights = gpu.words(
+        &mesh
+            .cube_lighting()
+            .iter()
+            .flat_map(|light| {
+                let [a, b, c, d] = light.samples();
+                [
+                    u32::from(a) | (u32::from(b) << 16),
+                    u32::from(c) | (u32::from(d) << 16),
+                ]
+            })
+            .collect::<Vec<_>>(),
+        storage,
+    );
     let templates = gpu.words(&templates(assets), storage);
     let origins = gpu.words(&[0; 8], storage);
     let materials = gpu.words(
@@ -189,9 +223,16 @@ fn render(gpu: &Gpu, assets: &assets::RuntimeAssets, mesh: &meshing::ChunkMesh) 
             .collect::<Vec<_>>(),
         storage,
     );
-    let eye = Vec3::new(3.4, 2.8, 4.0);
+    let mut eye_offset = Vec3::new(1.9, 1.3, 2.5);
+    for (axis, mounting_offset) in support_offset(direction).into_iter().enumerate() {
+        if mounting_offset != 0 {
+            eye_offset[axis] = -(mounting_offset as f32) * eye_offset[axis];
+        }
+    }
+    let eye = Vec3::splat(1.5) + eye_offset;
     let camera = glam::camera::rh::view::look_at_mat4(eye, Vec3::splat(1.5), Vec3::Y);
-    let projection = glam::camera::rh::proj::directx::orthographic(-0.8, 0.8, -0.8, 0.8, 10.0, 0.1);
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(-1.35, 1.35, -1.35, 1.35, 10.0, 0.1);
     let view = gpu.buffer(&gpu_snapshot::view(projection * camera, eye), uniform);
     let empty = gpu.words(&[0; 64], storage);
     let clock = gpu.words(&[0; 4], uniform);
@@ -238,6 +279,21 @@ fn render(gpu: &Gpu, assets: &assets::RuntimeAssets, mesh: &meshing::ChunkMesh) 
         (20, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+    let mut cube_bindings = bindings
+        .iter()
+        .filter(|entry| entry.binding != 12 && entry.binding != 13)
+        .cloned()
+        .collect::<Vec<_>>();
+    cube_bindings.extend([
+        wgpu::BindGroupEntry {
+            binding: 1,
+            resource: cube_quads.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 13,
+            resource: cube_lights.as_entire_binding(),
+        },
+    ]);
     let source = format!(
         "{}\n{}",
         shader_source::standalone(include_str!("../../src/model.wesl"), &[])
@@ -249,25 +305,56 @@ fn render(gpu: &Gpu, assets: &assets::RuntimeAssets, mesh: &meshing::ChunkMesh) 
                 .join(", ")
         )
     );
-    gpu.render_srgb(
-        &source,
-        "rod_vertex",
+    let cube_source = format!(
+        "{}\n{}",
+        shader_source::standalone(include_str!("../../src/chunk.wesl"), &[])
+            .replace("@group(1) @binding(0)", "@group(0) @binding(20)"),
+        CUBE_VERTEX.replace(
+            "INDICES",
+            &chunk_constants::STATIC_QUAD_INDICES
+                .map(|i| format!("{i}u"))
+                .join(", ")
+        )
+    );
+    let opaque_end = if include_rod {
+        mesh.model_draw_refs().len() as u32 * 6
+    } else {
+        0
+    };
+    let model_end = if include_rod {
+        draw_count as u32 * 6
+    } else {
+        0
+    };
+    gpu.render_sources_srgb(
+        &[&cube_source, &source, &source],
         &[
             Draw {
+                fragment: "fragment_solid",
+                vertices: 0..mesh.cube_quads().len() as u32 * 6,
+                bindings: &cube_bindings,
+                blend: None,
+                write_depth: true,
+            },
+            Draw {
                 fragment: "fragment",
-                vertices: 0..mesh.model_draw_refs().len() as u32 * 6,
+                vertices: 0..opaque_end,
                 bindings: &bindings,
                 blend: None,
                 write_depth: true,
             },
             Draw {
                 fragment: "fragment_blend",
-                vertices: mesh.model_draw_refs().len() as u32 * 6..draw_count as u32 * 6,
+                vertices: opaque_end..model_end,
                 bindings: &bindings,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_depth: false,
             },
         ],
+        &["support_vertex", "rod_vertex", "rod_vertex"].map(|vertex| gpu_snapshot::DrawPipeline {
+            vertex,
+            topology: wgpu::PrimitiveTopology::TriangleList,
+        }),
     )
 }
 
@@ -303,14 +390,15 @@ fn end_rods_render_complete_shafts_with_support_for_every_facing() {
             record.sequential_id,
             direction,
         );
-        let pixels = render(&gpu, &assets, &mesh);
+        let pixels = render(&gpu, &assets, &mesh, direction, true);
+        let support_pixels = render(&gpu, &assets, &mesh, direction, false);
         gpu_snapshot::save(&format!("end-rod-facing-{direction}"), &pixels);
-        let background = &pixels[..4];
         let drawn = pixels
             .as_chunks::<4>()
             .0
             .iter()
-            .filter(|pixel| pixel.as_slice() != background)
+            .zip(support_pixels.as_chunks::<4>().0)
+            .filter(|(pixel, support)| pixel != support)
             .count();
         eprintln!(
             "facing {direction}: {} opaque and {} blended model quads, {drawn} visible pixels",
@@ -331,5 +419,12 @@ const VERTEX: &str = r#"
 @vertex fn rod_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let indices = array<u32,6>(INDICES);
     return model_vertex(indices[index % 6u], index / 6u);
+}
+"#;
+
+const CUBE_VERTEX: &str = r#"
+@vertex fn support_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
+    let indices = array<u32,6>(INDICES);
+    return cube_vertex(indices[index % 6u], index / 6u);
 }
 "#;
