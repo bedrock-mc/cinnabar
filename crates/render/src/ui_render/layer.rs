@@ -143,6 +143,7 @@ pub(super) fn draw_ui_layer(
                 },
             ),
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         if !encoded && let Some(rect) = damage {
             pass.set_render_pipeline(

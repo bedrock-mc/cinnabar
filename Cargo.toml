@@ -63,9 +63,10 @@ edition = "2024"
 rust-version = "1.99.0"
 
 [workspace.dependencies]
+glam = { version = "0.33.2", default-features = false, features = ["std"] }
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
 # wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
-bevy = { version = "=0.18.1", default-features = false, features = [
+bevy = { version = "=0.20.0", default-features = false, features = [
     "bevy_anti_alias",
     "smaa_luts",
     "ktx2",
@@ -91,7 +92,7 @@ bevy = { version = "=0.18.1", default-features = false, features = [
     "x11",
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
-wgpu = { version = "27.0.1", default-features = false, features = ["noop", "wgsl"] }
+wgpu = { version = "30.0.1", default-features = false, features = ["noop", "wgsl"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 tokio = { version = "1.52", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
@@ -109,34 +110,21 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
-# Pin the wgpu family to bedrock-mc/wgpu cinnabar-v27, based on upstream af91efa9, with one shared wgpu-types.
-# This adds FIFO-only Windows acquire waits, batched indirect validation and lazy trace arguments; remove when Bevy supports them upstream.
+# Preserve FIFO pacing, batched indirect validation and lazy logging on wgpu 30.0.1.
 [patch.crates-io]
-naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
-wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
-wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
-wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
-wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
+
+wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e5deb6341cf9f088515ced3c8e6fe4f29" }
 
 [profile.dev]
 opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
-
-# wgpu-core 27.0.3 expands validated DX12 indexed draws from 20 to 32 bytes, but
-# its debug-only multi-draw assertion still compares the 20-byte source stride.
-# Upstream fixed this in gfx-rs/wgpu#9332. Keep wgpu's runtime validation and
-# disable only the dependency's faulty internal assertions until the next Bevy
-# upgrade, so workspace debug builds retain multi-draw indirect.
-[profile.dev.package."wgpu-core"]
-opt-level = 3
-debug-assertions = false
-
-# `cargo test` uses a separate profile and exercises the same DX12 MDI path.
-[profile.test.package."wgpu-core"]
-opt-level = 3
-debug-assertions = false
 
 [profile.release]
 codegen-units = 1

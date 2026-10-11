@@ -1,19 +1,17 @@
 use std::collections::HashMap;
 
 use assets::{AtmosphereRole, AtmosphereTexture};
-use bevy::image::BevyDefault;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
-        Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -37,7 +35,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -101,8 +99,8 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     load_internal_asset!(
         app,
         ATMOSPHERE_SHADER_HANDLE,
-        "atmosphere.wgsl",
-        crate::shader_safety::from_wgsl
+        "atmosphere.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::lighting::install(app);
     install_cloud_render(app);
@@ -250,7 +248,7 @@ fn prepare_atmosphere_textures(
         address_mode_w: AddressMode::Repeat,
         mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..default()
     });
     gpu.prepared = Some(PreparedAtmosphereAssets {
@@ -414,7 +412,7 @@ impl FromWorld for AtmospherePipeline {
                 shader: ATMOSPHERE_SHADER_HANDLE,
                 entry_point: Some("atmosphere_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -422,8 +420,8 @@ impl FromWorld for AtmospherePipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -470,9 +468,9 @@ impl Specializer<RenderPipeline> for AtmospherePipelineSpecializer {
             .as_mut()
             .unwrap();
         target.format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         target.blend = key.stars.then(native_star_blend);
         target.write_mask = ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE;
@@ -575,15 +573,20 @@ fn queue_atmosphere(
     mut pipeline: ResMut<AtmospherePipeline>,
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
     mut gpu: ResMut<AtmosphereGpu>,
-    mut next_tick: Local<Tick>,
 ) {
     let draw_function = draw_functions.read().id::<DrawAtmosphereCommands>();
     // Only current views contribute keys; the finite MSAA/HDR combinations do
     // not accumulate across view recreation or graphics setting changes.
     gpu.star_pipelines.clear();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -591,7 +594,7 @@ fn queue_atmosphere(
             &pipeline_cache,
             AtmospherePipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
                 stars: false,
             },
         ) else {
@@ -599,30 +602,27 @@ fn queue_atmosphere(
         };
         let star_key = AtmospherePipelineKey {
             msaa: *msaa,
-            hdr: view.hdr,
+            hdr: extracted_camera.hdr,
             stars: true,
         };
         if let Ok(star_pipeline) = pipeline.variants.specialize(&pipeline_cache, star_key) {
             gpu.star_pipelines.insert(star_key, star_pipeline);
         }
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
+
         phase.add(
             Opaque3dBatchSetKey {
                 draw_function,
                 pipeline: pipeline_id,
                 material_bind_group_index: None,
                 lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
+                slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
+                asset_id: AssetId::<Mesh>::default().untyped(),
             },
             (view_entity, *main_entity),
             InputUniformIndex::default(),
             BinnedRenderPhaseType::NonMesh,
-            *next_tick,
         );
     }
 }
@@ -658,7 +658,7 @@ struct DrawAtmosphere;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
     type Param = (SRes<AtmosphereGpu>, SRes<PipelineCache>);
-    type ViewQuery = (Read<Msaa>, Read<ExtractedView>);
+    type ViewQuery = (Read<Msaa>, Read<bevy::render::camera::ExtractedCamera>);
     type ItemQuery = ();
 
     fn render<'w>(
@@ -700,12 +700,11 @@ mod tests {
         asset::Assets,
         core_pipeline::core_3d::{Opaque3d, Transparent3d},
         ecs::{schedule::Schedule, system::RunSystemOnce},
-        image::BevyDefault,
         prelude::{App, Shader},
         render::{
             ExtractSchedule, Render, RenderApp, RenderStartup,
             render_phase::DrawFunctions,
-            renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+            renderer::{RenderDevice, RenderQueue},
         },
     };
     use sha2::{Digest, Sha256};
@@ -722,7 +721,7 @@ mod tests {
             let mut descriptor = RenderPipelineDescriptor {
                 fragment: Some(FragmentState {
                     targets: vec![Some(ColorTargetState {
-                        format: super::TextureFormat::bevy_default(),
+                        format: crate::SCENE_COLOR_FORMAT,
                         blend: None,
                         write_mask: super::ColorWrites::ALL,
                     })],
@@ -755,7 +754,7 @@ mod tests {
         let mut render_app = SubApp::new();
         render_app
             .insert_resource(RenderDevice::from(device))
-            .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+            .insert_resource(RenderQueue::new(queue))
             .insert_resource(DrawFunctions::<Opaque3d>::default())
             .insert_resource(DrawFunctions::<Transparent3d>::default())
             .add_schedule(Schedule::new(RenderStartup))

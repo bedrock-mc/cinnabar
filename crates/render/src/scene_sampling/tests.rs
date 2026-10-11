@@ -4,7 +4,7 @@ use bevy::render::texture::CachedTexture;
 /// Requests the format capabilities used by the live renderer without opening a window.
 pub(crate) fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -49,7 +49,7 @@ pub(crate) fn texture(
 pub(crate) fn pixel(
     device: &RenderDevice,
     queue: &wgpu::Queue,
-    mut context: RenderContext,
+    mut commands: Vec<wgpu::CommandBuffer>,
     texture: &Texture,
 ) -> [u8; 4] {
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -58,7 +58,8 @@ pub(crate) fn pixel(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    context.command_encoder().copy_texture_to_buffer(
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             aspect: if texture.format().is_depth_stencil_format() {
                 wgpu::TextureAspect::DepthOnly
@@ -81,18 +82,22 @@ pub(crate) fn pixel(
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(context.finish().0);
+    commands.push(encoder.finish());
+    queue.submit(commands);
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    readback.slice(..).get_mapped_range()[..4]
+    readback
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")[..4]
         .try_into()
         .unwrap()
 }
 
 /// Writes distinct sample depths; one uncovered sample is the reverse-Z clear value.
-fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: bool) {
+fn fill_depth(context: &mut RenderContext, depth: &ViewDepthStencilTexture, uncovered: bool) {
     let device = context.render_device().wgpu_device();
     let source = format!(
         "\
@@ -126,16 +131,16 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
         primitive: Default::default(),
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: Default::default(),
             bias: Default::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: depth.texture.sample_count(),
+            count: depth.texture().sample_count(),
             ..Default::default()
         },
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let mut pass = context
@@ -146,13 +151,14 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
             depth_stencil_attachment: Some(depth.get_attachment(wgpu::StoreOp::Store)),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     pass.set_pipeline(&pipeline);
     pass.draw(0..3, 0..1);
 }
 
 /// Runs the production Hi-Z seed directly on the same depth consumed by post effects.
-fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
+fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthStencilTexture) -> Texture {
     let device = context.render_device();
     let destination = texture(
         device,
@@ -166,7 +172,7 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         label: Some("production Hi-Z fixture"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../chunk/gpu_cull/hiz.wgsl").into()),
     });
-    let multi = depth.texture.sample_count() > 1;
+    let multi = depth.texture().sample_count() > 1;
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
         layout: None,
@@ -180,7 +186,7 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         cache: None,
     });
     // The seed's source is the whole depth target and it builds every covering texel.
-    let size = depth.texture.size();
+    let size = depth.texture().size();
     let bounds = wgpu::util::DeviceExt::create_buffer_init(
         device,
         &wgpu::util::BufferInitDescriptor {
@@ -200,7 +206,9 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         entries: &[
             wgpu::BindGroupEntry {
                 binding: u32::from(multi),
-                resource: wgpu::BindingResource::TextureView(depth.view()),
+                resource: wgpu::BindingResource::TextureView(crate::scene_sampling::view_depth(
+                    depth,
+                )),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
@@ -243,33 +251,38 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
             samples,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         );
-        let depth = ViewDepthTexture::new(
+        let depth = ViewDepthStencilTexture::new(
             CachedTexture {
                 default_view: texture.create_view(&Default::default()),
                 texture,
             },
             Some(0.0),
+            None,
         );
         let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost);
         assert!(resolved.matches(&depth));
         for uncovered in [false, true] {
-            let mut context = RenderContext::new(device.clone(), None);
-            fill_depth(&mut context, &depth, uncovered);
-            resolved.draw(&mut context, &World::new(), None);
+            let (_, commands) =
+                crate::render_test_support::record(&mut World::new(), &device, |world, context| {
+                    fill_depth(context, &depth, uncovered);
+                    resolved.draw(context, world, None);
+                });
             let expected = if samples == 1 && uncovered {
                 0.0
             } else {
                 samples as f32 * 0.1
             };
             assert!(
-                (f32::from_le_bytes(pixel(&device, &queue, context, &resolved._texture))
+                (f32::from_le_bytes(pixel(&device, &queue, commands, &resolved._texture))
                     - expected)
                     .abs()
                     < 1e-6
             );
-            let mut context = RenderContext::new(device.clone(), None);
-            let pyramid = hiz_seed(&mut context, &depth);
-            let farthest = f32::from_le_bytes(pixel(&device, &queue, context, &pyramid));
+            let (pyramid, commands) =
+                crate::render_test_support::record(&mut World::new(), &device, |_, context| {
+                    hiz_seed(context, &depth)
+                });
+            let farthest = f32::from_le_bytes(pixel(&device, &queue, commands, &pyramid));
             assert!((farthest - if uncovered { 0.0 } else { 0.1 }).abs() < 1e-6);
         }
     }

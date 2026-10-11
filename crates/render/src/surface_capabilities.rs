@@ -3,11 +3,12 @@
 use bevy::{
     app::SubApp,
     ecs::{entity::Entity, schedule::IntoScheduleConfigs},
-    prelude::{Res, ResMut, Resource},
+    prelude::{Query, Res, ResMut, Resource, With},
     render::{
         Render, RenderSystems,
         renderer::{RenderAdapter, RenderInstance},
-        view::window::{ExtractedWindows, create_surfaces},
+        sync_world::MainEntity,
+        view::window::create_surfaces,
     },
 };
 use render_model::{PresentModeKind, SurfacePresentModes};
@@ -55,21 +56,27 @@ pub(crate) fn install(render_app: &mut SubApp) {
 pub(crate) struct SurfaceCapabilitiesSet;
 
 /// Keeps the main-thread probe off the schedule once the current window is known.
-fn probe_pending(windows: Res<ExtractedWindows>, probed: Res<ProbedSurface>) -> bool {
+fn probe_pending(
+    windows: Query<MainEntity, With<bevy::window::PrimaryWindow>>,
+    probed: Res<ProbedSurface>,
+) -> bool {
     windows
-        .primary
-        .is_some_and(|window| probed.modes_for(window).is_none())
+        .iter()
+        .any(|window| probed.modes_for(window).is_none())
 }
 
 fn probe_surface_present_modes(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
-    windows: Res<ExtractedWindows>,
+    windows: Query<
+        (MainEntity, &bevy::window::RawHandleWrapper),
+        With<bevy::window::PrimaryWindow>,
+    >,
     render_instance: Res<RenderInstance>,
     render_adapter: Res<RenderAdapter>,
     policy: Option<Res<PresentModePolicy>>,
     mut probed: ResMut<ProbedSurface>,
 ) {
-    let Some(window_id) = windows.primary else {
+    let Ok((window_id, handle)) = windows.single() else {
         return;
     };
     if probed.window != Some(window_id) {
@@ -80,9 +87,6 @@ fn probe_surface_present_modes(
             policy.publish_capabilities(None);
         }
     }
-    let Some(window) = windows.windows.get(&window_id) else {
-        return;
-    };
     let modes = if render_adapter.get_info().backend == wgpu::Backend::Metal {
         // wgpu's Metal surfaces always offer FIFO and Immediate; a probe surface would leave an
         // extra CAMetalLayer attached to the window.
@@ -92,8 +96,8 @@ fn probe_surface_present_modes(
             return;
         }
         let surface_target = wgpu::SurfaceTargetUnsafe::RawHandle {
-            raw_display_handle: window.handle.get_display_handle(),
-            raw_window_handle: window.handle.get_window_handle(),
+            raw_display_handle: Some(handle.get_display_handle()),
+            raw_window_handle: handle.get_window_handle(),
         };
         #[cfg(feature = "tracy")]
         let _zone = bevy::log::info_span!("render.surface_probe").entered();

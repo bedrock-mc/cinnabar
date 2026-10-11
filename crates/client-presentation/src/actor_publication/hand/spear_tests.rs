@@ -146,7 +146,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         },
         |_| {},
         |_, _| (None, None),
-        params.get_mut(&mut world),
+        params.get_mut(&mut world).unwrap(),
     );
     super::super::prepare_actor_render_frame(
         super::super::ActorWorld {
@@ -159,7 +159,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         },
         None,
         |_, _, _, _| false,
-        params.get_mut(&mut world),
+        params.get_mut(&mut world).unwrap(),
     );
     let rig = stream.authority().actor_rig(1).unwrap();
     assert!(rig.hand[1].use_ticks > delay);

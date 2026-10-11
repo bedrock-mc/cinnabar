@@ -1,3 +1,12 @@
+use render::{SCENE_COLOR_FORMAT, SCENE_HDR_FORMAT};
+
+#[path = "../src/render_test_support.rs"]
+#[allow(
+    dead_code,
+    reason = "the UI fixture uses only camera and empty-view helpers"
+)]
+mod render_test_support;
+
 #[path = "../src/alloc_count.rs"]
 mod alloc_count;
 
@@ -28,6 +37,10 @@ mod scene_target;
 #[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;
 #[path = "../src/ui_render.rs"]
+#[allow(
+    unused_imports,
+    reason = "schedule labels are consumed by other render owners"
+)]
 pub mod ui_render;
 #[path = "../src/upload_staging.rs"]
 mod upload_staging;
@@ -47,6 +60,37 @@ mod screen_overlay_render {
 }
 
 mod gpu_timing {
+    /// Runs the UI fixture's draw system with profiling disabled.
+    pub(crate) fn profiled<S, M>(
+        system: S,
+        _: Option<render::RuntimeStage>,
+        _: &'static str,
+    ) -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>
+    where
+        S: bevy::ecs::system::IntoSystem<(), (), M>,
+    {
+        use bevy::prelude::IntoScheduleConfigs;
+        system.into_configs()
+    }
+
+    /// Keeps the fixture's opaque draw in a single pass without timing queries.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn draw_categories(
+        _: &bevy::prelude::World,
+        _: &mut bevy::render::renderer::RenderContext,
+        _: bevy::prelude::Entity,
+        _: &bevy::render::render_phase::BinnedRenderPhase<bevy::core_pipeline::core_3d::Opaque3d>,
+        _: &bevy::render::render_phase::BinnedRenderPhase<
+            bevy::core_pipeline::core_3d::AlphaMask3d,
+        >,
+        _: bool,
+        _: bevy::render::render_resource::RenderPassColorAttachment,
+        _: bevy::render::render_resource::RenderPassDepthStencilAttachment,
+        _: Option<Option<bevy::camera::Viewport>>,
+    ) -> bool {
+        false
+    }
+
     /// Diagnostics stay disabled in the standalone UI fixture.
     pub(crate) fn ui_profiling_requested() -> bool {
         false
@@ -80,7 +124,7 @@ use bevy::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
         render_resource::BlendFactor,
-        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
     },
 };
 use render_model::{
@@ -539,7 +583,7 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
     }
     render_app
         .world_mut()
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+        .insert_resource(RenderQueue::new(queue));
     render_app.world_mut().run_schedule(RenderStartup);
     render_app
         .world_mut()
@@ -806,7 +850,7 @@ fn app_with_noop_render_sub_app() -> App {
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))
         .add_schedule(Render::base_schedule())
@@ -819,17 +863,9 @@ fn app_with_noop_render_sub_app() -> App {
 
 #[test]
 fn ui_only_plugin_never_registers_a_duplicate_transparent_draw() {
-    use bevy::{
-        core_pipeline::core_3d::graph::{Core3d, Node3d},
-        render::render_graph::{EmptyNode, RenderGraph},
-    };
     let mut app = app_with_noop_render_sub_app();
-    let mut core = RenderGraph::default();
-    core.add_node(Node3d::MainTransparentPass, EmptyNode);
-    core.add_node(Node3d::EndMainPass, EmptyNode);
-    let mut graphs = RenderGraph::default();
-    graphs.add_sub_graph(Core3d, core);
-    app.sub_app_mut(RenderApp).insert_resource(graphs);
+    app.sub_app_mut(RenderApp)
+        .add_schedule(bevy::core_pipeline::Core3d::base_schedule());
     app.add_plugins(UiRenderPlugin);
     app.finish();
     // Compare the first assigned ID against an independently empty registry,
@@ -843,24 +879,6 @@ fn ui_only_plugin_never_registers_a_duplicate_transparent_draw() {
         .write()
         .add(TestTransparentDraw);
     assert_eq!(actual, expected);
-    assert!(
-        app.sub_app(RenderApp)
-            .world()
-            .resource::<RenderGraph>()
-            .get_sub_graph(Core3d)
-            .unwrap()
-            .get_node_state(ui_render::UiOverlayLabel)
-            .is_ok()
-    );
-    assert!(
-        app.sub_app(RenderApp)
-            .world()
-            .resource::<RenderGraph>()
-            .get_sub_graph(Core3d)
-            .unwrap()
-            .get_node_state(ui_render::UiWorldLabel)
-            .is_ok()
-    );
 }
 
 struct TestTransparentDraw;

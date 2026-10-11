@@ -11,8 +11,6 @@ use bevy::{
     prelude::*,
     render::{
         RenderApp, RenderStartup,
-        graph::CameraDriverLabel,
-        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
@@ -45,20 +43,22 @@ pub(crate) fn install(app: &mut App) {
 
 /// Creates retained staging only when a camera graph will consume its pending copies.
 fn initialize(world: &mut World) {
-    if world
-        .get_resource::<RenderGraph>()
-        .is_none_or(|graph| graph.get_node_state(CameraDriverLabel).is_err())
-    {
-        return;
-    }
     let staging = BufferUploadStaging(Mutex::new(Pool::new(
         world.resource::<RenderDevice>(),
         SLOT_BYTES,
     )));
-    world.insert_resource(staging);
-    let mut graph = world.resource_mut::<RenderGraph>();
-    graph.add_node(UploadLabel, UploadNode);
-    graph.add_node_edge(UploadLabel, CameraDriverLabel);
+    let installed = world
+        .try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(upload_buffers, None, "main/BufferUploads")
+                    .before(bevy::core_pipeline::schedule::camera_driver)
+                    .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(staging);
+    }
 }
 
 /// Uses retained storage when installed; isolated owners retain their ordinary queue path.
@@ -127,23 +127,10 @@ impl BufferUploadStaging {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct UploadLabel;
-struct UploadNode;
-
-impl Node for UploadNode {
-    /// Adds copies to the existing frame submission before all camera subgraphs.
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let staging = world.resource::<BufferUploadStaging>();
-        let mut pool = staging.0.lock().unwrap_or_else(|error| error.into_inner());
-        if pool.has_copies() {
-            pool.encode(context.command_encoder());
-        }
-        Ok(())
+/// Records all pending copies before any camera reads their destination buffers.
+fn upload_buffers(staging: Res<BufferUploadStaging>, mut context: RenderContext) {
+    let mut pool = staging.0.lock().unwrap_or_else(|error| error.into_inner());
+    if pool.has_copies() {
+        pool.encode(context.command_encoder());
     }
 }

@@ -69,12 +69,12 @@ fn tint_table() -> [TintRow; 2] {
 
 #[test]
 fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         // FXC's unoptimized debug shader exceeds its temporary-register limit for the
         // generated biome table. Exercise optimized shaders, as release builds do,
         // while retaining backend validation and every GPU bounds assertion.
         flags: wgpu::InstanceFlags::debugging() & !wgpu::InstanceFlags::DEBUG,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = match finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
         Ok(adapter) => adapter,
@@ -93,7 +93,7 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let source = shader_source::composed(
         &format!(
-            "#import cinnabar::biome_tint::blended_biome_tint
+            "import render::biome_tint::blended_biome_tint;
 @group(0) @binding(0) var<storage, read> queries: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> colours: array<vec4<f32>>;
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
@@ -181,8 +181,13 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     queue.submit([encoder.finish()]);
     readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    let colours: Vec<[f32; 4]> =
-        bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
+    let colours: Vec<[f32; 4]> = bytemuck::cast_slice(
+        &readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped"),
+    )
+    .to_vec();
 
     for (pair, &(outside, inside)) in colours.as_chunks::<2>().0.iter().zip(&OUTSIDE) {
         assert!(

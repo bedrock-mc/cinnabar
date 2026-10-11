@@ -9,13 +9,13 @@ fn noop_gpu_publication_app(
 ) -> App {
     use bevy::{
         ecs::system::RunSystemOnce,
-        render::renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        render::renderer::{RenderDevice, RenderQueue},
     };
 
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut app = App::new();
     app.insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(ChunkUploadBudget::new(0, 0))
         .insert_resource(ChunkGpuUploadStats::default())
         .insert_resource(ChunkBiomeTints::default())

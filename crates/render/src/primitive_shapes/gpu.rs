@@ -175,7 +175,7 @@ impl ShapeGpu {
     pub(super) fn new(device: &RenderDevice, limits: &WgpuLimits) -> Self {
         let chunk_bytes = limits
             .max_buffer_size
-            .min(u64::from(limits.max_storage_buffer_binding_size));
+            .min(limits.max_storage_buffer_binding_size);
         let atlas = device.create_texture(&TextureDescriptor {
             label: Some("primitive nametag atlas"),
             size: Extent3d {

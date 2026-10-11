@@ -63,6 +63,7 @@ impl VisibilityKeySet {
 }
 
 #[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct VisibilityDiagnosticsInput {
     enabled: bool,
     startup_probe_enabled: bool,

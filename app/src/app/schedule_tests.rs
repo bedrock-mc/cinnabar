@@ -52,5 +52,9 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
         .initialize(app.world_mut());
     app.world_mut().insert_resource(schedules);
 
-    assert!(result.is_ok(), "production Update schedule: {result:?}");
+    assert!(
+        result.is_ok(),
+        "production Update schedule: {:?}",
+        result.err()
+    );
 }

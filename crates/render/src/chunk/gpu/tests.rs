@@ -8,7 +8,7 @@ fn chunk_sampler_uses_point_texels_and_linear_mip_interpolation() {
     let descriptor = chunk_sampler_descriptor();
     assert_eq!(descriptor.mag_filter, FilterMode::Nearest);
     assert_eq!(descriptor.min_filter, FilterMode::Nearest);
-    assert_eq!(descriptor.mipmap_filter, FilterMode::Linear);
+    assert_eq!(descriptor.mipmap_filter, wgpu::MipmapFilterMode::Linear);
     assert_eq!(descriptor.anisotropy_clamp, 1);
 }
 

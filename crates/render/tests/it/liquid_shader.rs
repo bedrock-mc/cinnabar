@@ -6,7 +6,7 @@ mod liquid_shader_contract;
 use liquid_shader_contract::LiquidShaderContract;
 use meshing::Face;
 
-const SHADER: &str = include_str!("../../src/liquid.wgsl");
+const SHADER: &str = include_str!("../../src/liquid.wesl");
 
 /// Resolve the vanilla shader for standalone validation.
 fn shader_for_naga() -> String {

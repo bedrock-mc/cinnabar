@@ -806,7 +806,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ))
     .insert_resource(named_audio)
     .insert_resource(audio_engine)
-    .insert_non_send_resource(audio_device)
+    .insert_non_send(audio_device)
     .insert_resource(LocalPhysicsController::default())
     .insert_resource(LocalMovementEffectTimeline::default())
     .insert_resource(LocalMovementSpeedAuthority::default())

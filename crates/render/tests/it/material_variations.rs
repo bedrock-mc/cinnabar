@@ -21,7 +21,7 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .expect("this fixture requires a native GPU adapter");
     assert_ne!(
@@ -32,8 +32,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
     eprintln!("positional material GPU fixture: {:?}", adapter.get_info());
     let (device, queue) =
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-    let source = material_shader::source(include_str!("../../src/material.wgsl"))
-        .replace("#define_import_path cinnabar::material", "");
+    let source = material_shader::source(include_str!("../../src/material.wesl"));
     let source = format!(
         "{source}\n{}",
         r#"
@@ -78,7 +77,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let words: [u32; 18] = [
@@ -158,6 +157,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
@@ -187,7 +187,10 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
             .map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         rx.recv().unwrap().unwrap();
-        let pixels = readback.slice(..).get_mapped_range();
+        let pixels = readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped");
         let expected = if before {
             [false; 4]
         } else {

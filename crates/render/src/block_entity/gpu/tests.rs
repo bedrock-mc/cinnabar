@@ -1,5 +1,5 @@
 use super::*;
-use bevy::{ecs::system::RunSystemOnce, render::render_phase::SortedPhaseItem};
+use bevy::ecs::system::RunSystemOnce;
 
 #[test]
 fn vertex_lists_track_counts_without_a_device() {
@@ -35,16 +35,15 @@ fn overlapping_draws() -> (
         .resource::<DrawFunctions<Transparent3d>>()
         .read()
         .id::<DrawOverlayCommands>();
-    let mut items = std::mem::take(
-        &mut app
-            .world_mut()
+    let mut phase = std::mem::take(
+        app.world_mut()
             .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
             .get_mut(&view)
-            .unwrap()
-            .items,
+            .unwrap(),
     );
-    let crack = &items[0];
-    items.push(Transparent3d {
+    let crack = phase.items.first().unwrap().1;
+    let extra = Transparent3d {
+        sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
         entity: crack.entity,
         pipeline: crack.pipeline,
         draw_function: terrain_draw,
@@ -52,8 +51,10 @@ fn overlapping_draws() -> (
         batch_range: 0..1,
         extra_index: PhaseItemExtraIndex::None,
         indexed: false,
-    });
-    Transparent3d::sort(&mut items);
+    };
+    crate::transparent_phase::add(&mut phase, extra);
+    phase.sort();
+    let items = phase.items.into_values().collect();
     (items, particle_pipeline, particle_draw, terrain_draw)
 }
 
@@ -61,7 +62,7 @@ fn overlapping_draws() -> (
 fn mining_particles_occlude_cracks_and_cracks_remain_on_translucent_targets() {
     let (items, pipeline, particle_draw, terrain_draw) = overlapping_draws();
     let depth = pipeline.depth_stencil.unwrap();
-    assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+    assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
     assert!(
         pipeline.fragment.unwrap().targets[0]
             .as_ref()
@@ -86,7 +87,7 @@ fn mining_particles_occlude_cracks_and_cracks_remain_on_translucent_targets() {
             }
             if item.draw_function == particle_draw {
                 pixel = particle;
-                if depth.depth_write_enabled {
+                if depth.depth_write_enabled == Some(true) {
                     z = fragment_z;
                 }
             } else if item.draw_function == terrain_draw {

@@ -446,7 +446,7 @@ fn rotate_test_face(face: Face, rotation: u32) -> Face {
 
 #[test]
 fn stair_rotation_bakes_ao_from_rotated_faces_and_positions_for_both_halves() {
-    let shader = include_str!("../../../render/src/model.wgsl");
+    let shader = include_str!("../../../render/src/model.wesl");
     for clause in [
         "case 1u: { rotated = vec3(-centered.z, centered.y, centered.x); }",
         "case 2u: { rotated = vec3(-centered.x, centered.y, -centered.z); }",

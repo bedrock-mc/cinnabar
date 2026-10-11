@@ -128,7 +128,7 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
     for draw_first in [false, true] {
         let mut pipeline = UiCompositePipeline::from_world(&mut World::new());
         let key = UiCompositeKey {
-            format: TextureFormat::bevy_default(),
+            format: crate::SCENE_COLOR_FORMAT,
         };
         if draw_first {
             pipeline.specialize(cache, key).unwrap();

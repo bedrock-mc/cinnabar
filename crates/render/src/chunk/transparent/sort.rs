@@ -285,7 +285,7 @@ mod growth_tests {
     fn transparent_ref_buffer_grows_on_demand_and_keeps_resident_refs() {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(Arc::new(bevy::render::renderer::WgpuWrapper::new(queue)));
+        let queue = RenderQueue::new(queue);
         let mut arena = ChunkGpuArena::new(&device);
         let initial = transparent_ref_offset(2, INITIAL_TRANSPARENT_SLOT_REFS, 0);
         assert_eq!(arena.transparent_ref_buffer.size(), initial);

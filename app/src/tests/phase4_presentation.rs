@@ -538,9 +538,11 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             world_from_actor[1][3] + 1.0,
             world_from_actor[2][3],
         );
-        let clip_from_world =
-            Mat4::perspective_infinite_reverse_rh(70.0_f32.to_radians(), 16.0 / 9.0, 0.1)
-                * camera.to_matrix().inverse();
+        let clip_from_world = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            70.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+        ) * camera.to_matrix().inverse();
         let projected_center = clip_from_world * body_center.extend(1.0);
         assert!(projected_center.w > 0.0);
         assert!((projected_center.x / projected_center.w).abs() < 1.0e-5);

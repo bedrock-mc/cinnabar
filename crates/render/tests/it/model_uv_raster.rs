@@ -170,7 +170,7 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
         (21, expected.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
-    let source = shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
+    let source = shader_source::standalone(include_str!("../../src/model.wesl"), &[])
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let witness = WITNESS.replace(
         "INDICES",

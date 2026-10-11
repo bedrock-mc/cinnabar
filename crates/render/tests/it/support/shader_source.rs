@@ -1,10 +1,9 @@
-//! Resolve the project's small WGSL import graph for standalone validation.
+//! Compose production WESL modules for shader validation and native pixel fixtures.
 #![allow(
     dead_code,
     reason = "shared helpers serve different shader test targets"
 )]
 use crate::material_shader;
-use std::collections::BTreeSet;
 
 const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_from_world: mat4x4<f32>, view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4x4<f32>, view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
 const FULLSCREEN: &str = "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, }";
@@ -62,6 +61,9 @@ fn alpha_comparison(
     function: &naga::Function,
     condition: naga::Handle<naga::Expression>,
 ) -> Option<f32> {
+    if let naga::Expression::Load { pointer } = function.expressions[condition] {
+        return stored_alpha_comparison(module, function, &function.body, pointer, condition);
+    }
     let naga::Expression::Binary { op, left, right } = function.expressions[condition] else {
         return None;
     };
@@ -86,194 +88,178 @@ fn alpha_comparison(
     alpha_comparison(module, function, left).or_else(|| alpha_comparison(module, function, right))
 }
 
-/// Keep precisely the active Enhanced branches, including the depth caster variant.
+/// Follows Naga's temporary stores for short-circuit guards before the discard reads them.
+fn stored_alpha_comparison(
+    module: &naga::Module,
+    function: &naga::Function,
+    block: &naga::Block,
+    pointer: naga::Handle<naga::Expression>,
+    before: naga::Handle<naga::Expression>,
+) -> Option<f32> {
+    block.iter().find_map(|statement| match statement {
+        naga::Statement::Store {
+            pointer: target,
+            value,
+        } if value.index() < before.index()
+            && (*target == pointer
+                || matches!(
+                    (&function.expressions[*target], &function.expressions[pointer]),
+                    (naga::Expression::LocalVariable(left), naga::Expression::LocalVariable(right))
+                        if left == right
+                )) =>
+        {
+            alpha_comparison(module, function, *value)
+        }
+        naga::Statement::If { accept, reject, .. } => {
+            stored_alpha_comparison(module, function, accept, pointer, before)
+                .or_else(|| stored_alpha_comparison(module, function, reject, pointer, before))
+        }
+        naga::Statement::Block(inner) => {
+            stored_alpha_comparison(module, function, inner, pointer, before)
+        }
+        _ => None,
+    })
+}
+
+/// Resolves conditional attributes while retaining the module's imports and declaration names.
 pub fn preprocess(source: &str, definitions: &[&str]) -> String {
     let source = material_shader::source(source);
-    let mut active = vec![true];
-    let mut output = String::new();
-    for line in source.split_inclusive('\n') {
-        let directive = line.trim();
-        if let Some(name) = directive.strip_prefix("#ifdef ") {
-            active.push(definitions.contains(&name));
-        } else if let Some(name) = directive.strip_prefix("#ifndef ") {
-            active.push(!definitions.contains(&name));
-        } else if directive == "#else" {
-            let enabled = active.last_mut().expect("matching conditional");
-            *enabled = !*enabled;
-        } else if directive == "#endif" {
-            assert!(active.len() > 1, "unmatched endif");
-            active.pop();
-        } else if active.iter().all(|value| *value) {
-            output.push_str(line);
-        }
-    }
-    assert_eq!(active.len(), 1, "unterminated conditional");
-    output
+    let mut module: wesl::syntax::TranslationUnit = source.parse().expect("WESL parses");
+    wesl::pass::condcomp(&mut module, &features(definitions)).expect("shader flags resolve");
+    module.to_string()
 }
 
-/// Inline imported modules once, matching Bevy's shared WGSL definitions.
+/// Preserves helper names so native fixtures can call production shading functions directly.
 pub fn standalone(source: &str, definitions: &[&str]) -> String {
-    imports(
-        &preprocess(&meshing::cloud_viewport::shader_source(source), definitions),
-        &mut BTreeSet::new(),
-    )
+    compile(source, definitions, false)
 }
 
-/// Expand multiline imports recursively while retaining all selected module symbols.
-fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
-    let mut output = String::new();
-    let mut lines = source.lines();
-    let biome = material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
-        include_str!("../../../src/biome_tint.wgsl"),
-    ));
-    let material = material_shader::source(include_str!("../../../src/material.wgsl"));
-    let lighting = material_shader::source(include_str!("../../../src/lighting.wgsl"));
-    let bindings = material_shader::source(include_str!("../../../src/chunk_bindings.wgsl"));
-    while let Some(line) = lines.next() {
-        let directive = line.trim();
-        if directive.starts_with("#define_import_path") {
-            continue;
-        }
-        if let Some(import) = directive.strip_prefix("#import ") {
-            let module = import.split("::{").next().unwrap();
-            if import.contains('{') && !import.contains('}') {
-                for continuation in lines.by_ref() {
-                    if continuation.contains('}') {
-                        break;
-                    }
-                }
-            }
-            let (key, body) = if module.starts_with("bevy_render::view::") {
-                ("view", VIEW)
-            } else if module.starts_with("bevy_core_pipeline::fullscreen_vertex_shader::") {
-                ("fullscreen", FULLSCREEN)
-            } else if module.starts_with("cinnabar::material") {
-                ("material", material.as_str())
-            } else if module.starts_with("cinnabar::lighting") {
-                ("lighting", lighting.as_str())
-            } else if module.starts_with("cinnabar::biome_tint") {
-                ("biome", biome.as_str())
-            } else if module.starts_with("cinnabar::world_projection") {
-                (
-                    "world_projection",
-                    include_str!("../../../src/world_projection.wgsl"),
-                )
-            } else if module.starts_with("cinnabar::chunk_bindings") {
-                ("chunk_bindings", bindings.as_str())
-            } else if module.starts_with("cinnabar::enhanced_common") {
-                ("common", include_str!("../../../src/enhanced/common.wgsl"))
-            } else if module.starts_with("cinnabar::enhanced_view") {
-                (
-                    "enhanced_view",
-                    include_str!("../../../src/enhanced/view.wgsl"),
-                )
-            } else if module.starts_with("cinnabar::enhanced_caster") {
-                ("caster", include_str!("../../../src/enhanced/caster.wgsl"))
-            } else {
-                panic!("unhandled shader import: {import}");
-            };
-            if seen.insert(key.to_owned()) {
-                output.push_str(&imports(body, seen));
-            }
-        } else {
-            output.push_str(line);
-            output.push('\n');
-        }
-    }
-    output
-}
-
-/// Compose with the same imported-symbol pruning and preprocessor Bevy uses.
+/// Uses Bevy's WESL composition and pruning options before validating the resulting WGSL.
 pub fn composed(source: &str, definitions: &[&str]) -> String {
-    use naga_oil::compose::{
-        ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
-    };
-    let resolved = material_shader::source(source);
-    let source = resolved.as_str();
-    let mut composer = Composer::default();
-    for (name, body) in [
-        ("bevy_render::view", VIEW.to_owned()),
-        (
-            "bevy_core_pipeline::fullscreen_vertex_shader",
-            FULLSCREEN.to_owned(),
-        ),
-        (
-            "cinnabar::material",
-            material_shader::source(include_str!("../../../src/material.wgsl")),
-        ),
-        (
-            "cinnabar::lighting",
-            material_shader::source(include_str!("../../../src/lighting.wgsl")),
-        ),
-        (
-            "cinnabar::biome_tint",
-            material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
-                include_str!("../../../src/biome_tint.wgsl"),
-            )),
-        ),
-        (
-            "cinnabar::world_projection",
-            include_str!("../../../src/world_projection.wgsl").to_owned(),
-        ),
-        (
-            "cinnabar::enhanced_common",
-            include_str!("../../../src/enhanced/common.wgsl").to_owned(),
-        ),
-        (
-            "cinnabar::enhanced_view",
-            include_str!("../../../src/enhanced/view.wgsl").to_owned(),
-        ),
-        (
-            "cinnabar::enhanced_caster",
-            include_str!("../../../src/enhanced/caster.wgsl").to_owned(),
-        ),
-        (
-            "cinnabar::chunk_bindings",
-            material_shader::source(include_str!("../../../src/chunk_bindings.wgsl")),
-        ),
-        (
-            "cinnabar::liquid",
-            material_shader::source(include_str!("../../../src/liquid.wgsl")),
-        ),
-        (
-            "cinnabar::model",
-            material_shader::source(include_str!("../../../src/model.wgsl")),
-        ),
-    ] {
-        composer
-            .add_composable_module(ComposableModuleDescriptor {
-                source: &body,
-                file_path: name,
-                as_name: Some(name.to_owned()),
-                ..Default::default()
-            })
-            .map(|_| ())
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
-    }
-    let fullscreen_source;
-    let source = if source.contains("#import bevy_core_pipeline::fullscreen_vertex_shader") {
-        fullscreen_source = format!("{source}\n{FULLSCREEN_VERTEX}");
-        fullscreen_source.as_str()
+    let source = if source.contains("import bevy_core_pipeline::fullscreen_vertex_shader") {
+        format!("{source}\n{FULLSCREEN_VERTEX}")
     } else {
-        source
+        source.to_owned()
     };
-    let module = composer
-        .make_naga_module(NagaModuleDescriptor {
-            source,
-            file_path: "enhanced_validation.wgsl",
-            shader_defs: definitions
-                .iter()
-                .map(|name| ((*name).to_owned(), ShaderDefValue::Bool(true)))
-                .collect(),
-            ..Default::default()
-        })
-        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
-    let info = naga::valid::Validator::new(
+    let source = compile(&source, definitions, true);
+    let module = naga::front::wgsl::parse_str(&source).expect("composed WGSL parses");
+    naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
     )
     .validate(&module)
     .expect("composed module validates");
-    naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
-        .expect("write composed WGSL")
+    source
+}
+
+/// Enables precisely the requested pipeline flags; unspecified flags stay disabled.
+fn features(definitions: &[&str]) -> wesl::Features {
+    let mut features = wesl::Features::default();
+    for definition in definitions {
+        features.set(*definition, true);
+    }
+    features
+}
+
+/// Resolves generated constants and all production imports through the WESL compiler.
+fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
+    let mut resolver = wesl::resolver::VirtualResolver::new();
+    for (path, source) in [
+        ("bevy_render::view", VIEW.to_owned()),
+        (
+            "bevy_render::globals",
+            "struct Globals { time: f32, delta_time: f32, frame_count: u32 }".to_owned(),
+        ),
+        (
+            "bevy_core_pipeline::fullscreen_vertex_shader::fullscreen",
+            FULLSCREEN.to_owned(),
+        ),
+        (
+            "render::material",
+            material_shader::source(include_str!("../../../src/material.wesl")),
+        ),
+        (
+            "render::lighting",
+            material_shader::source(include_str!("../../../src/lighting.wesl")),
+        ),
+        (
+            "render::biome_tint",
+            material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
+                include_str!("../../../src/biome_tint.wesl"),
+            )),
+        ),
+        (
+            "render::world_projection",
+            include_str!("../../../src/world_projection.wesl").to_owned(),
+        ),
+        (
+            "render::chunk_bindings",
+            material_shader::source(include_str!("../../../src/chunk_bindings.wesl")),
+        ),
+        (
+            "render::enhanced::common",
+            include_str!("../../../src/enhanced/common.wesl").to_owned(),
+        ),
+        (
+            "render::enhanced::view",
+            include_str!("../../../src/enhanced/view.wesl").to_owned(),
+        ),
+        (
+            "render::enhanced::caster",
+            include_str!("../../../src/enhanced/caster.wesl").to_owned(),
+        ),
+        (
+            "render::liquid",
+            material_shader::source(include_str!("../../../src/liquid.wesl")),
+        ),
+        (
+            "render::model",
+            material_shader::source(include_str!("../../../src/model.wesl")),
+        ),
+    ] {
+        resolver.add_module(path.parse().expect("module path"), source.into());
+    }
+    let root: wesl::syntax::ModulePath = "fixture::shader".parse().expect("root module path");
+    resolver.add_module(
+        root.clone(),
+        material_shader::source(&meshing::cloud_viewport::shader_source(source)).into(),
+    );
+    let options = wesl::CompileOptions {
+        visibility: false,
+        features: features(definitions),
+        strip: prune,
+        mangler: if prune {
+            wesl::ManglerKind::Escape
+        } else {
+            wesl::ManglerKind::None
+        },
+        ..Default::default()
+    };
+    wesl::compile(&root, &options, &FixtureResolver(resolver))
+        .unwrap_or_else(|error| panic!("{}", error.diagnostic().render_plain()))
+        .to_string()
+}
+
+/// Resolves dependency packages with the same crate names used by Bevy's shader cache.
+struct FixtureResolver(wesl::resolver::VirtualResolver<'static>);
+
+impl wesl::Resolver for FixtureResolver {
+    /// Reads a fixture module after removing the importing package's dependency prefix.
+    fn resolve_source<'a>(
+        &'a self,
+        path: &wesl::syntax::ModulePath,
+    ) -> Result<std::borrow::Cow<'a, str>, wesl::error::ResolveError> {
+        self.0.resolve_source(&self.canonical_path(path))
+    }
+
+    /// Treats nested dependency paths as the registered crate's absolute module identity.
+    fn canonical_path(&self, path: &wesl::syntax::ModulePath) -> wesl::syntax::ModulePath {
+        let mut path = path.clone();
+        if let wesl::syntax::PathOrigin::Package(package) = &mut path.origin
+            && let Some((_, name)) = package.rsplit_once('/')
+        {
+            *package = name.to_owned();
+        }
+        path
+    }
 }

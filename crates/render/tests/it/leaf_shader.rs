@@ -3,13 +3,13 @@ use crate::shader_source;
 
 #[test]
 fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
-    let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let material = material_shader::source(include_str!("../../src/material.wesl"));
     assert!(material.contains(&format!(
         "const TWO_SIDED: u32 = {}u;",
         assets::MATERIAL_FLAG_TWO_SIDED
     )));
     assert!(material.contains("return front || (flags & TWO_SIDED) != 0u;"));
-    let chunk = include_str!("../../src/chunk.wgsl");
+    let chunk = include_str!("../../src/chunk.wesl");
     assert_eq!(
         chunk.matches("@builtin(front_facing) front: bool").count(),
         2
@@ -47,18 +47,18 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
     let pipeline = include_str!("../../src/chunk/pipeline/layouts.rs");
     let cube = pipeline.split("let mut model_descriptor").next().unwrap();
     assert!(cube.contains("cull_mode: None"));
-    assert!(cube.contains("depth_write_enabled: true"));
+    assert!(cube.contains("depth_write_enabled: Some(true)"));
 }
 
 #[test]
 fn native_leaf_colour_is_world_material_gated_and_enhanced_keeps_its_existing_path() {
-    let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let material = material_shader::source(include_str!("../../src/material.wesl"));
     assert!(material.contains(&format!(
         "const NATIVE_LEAF_COLOUR: u32 = {}u;",
         assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR
     )));
     assert!(material.contains("return (flags & NATIVE_LEAF_COLOUR) != 0u;"));
-    let chunk = include_str!("../../src/chunk.wgsl");
+    let chunk = include_str!("../../src/chunk.wesl");
     let ordinary = shader_source::preprocess(chunk, &[]);
     let enhanced = shader_source::preprocess(chunk, &["ENHANCED"]);
     assert!(ordinary.contains("let native_colour = native_cube_colour("));
@@ -92,7 +92,7 @@ fn alternate_atlas_views_and_native_sampler_fit_baseline_limits_without_more_sto
     let sampler = material_shader::native_leaf_sampler_descriptor();
     assert_eq!(sampler.min_filter, wgpu::FilterMode::Nearest);
     assert_eq!(sampler.mag_filter, wgpu::FilterMode::Nearest);
-    assert_eq!(sampler.mipmap_filter, wgpu::FilterMode::Linear);
+    assert_eq!(sampler.mipmap_filter, wgpu::MipmapFilterMode::Linear);
     assert_eq!(sampler.address_mode_u, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_v, wgpu::AddressMode::ClampToEdge);
     assert_eq!(sampler.address_mode_w, wgpu::AddressMode::ClampToEdge);

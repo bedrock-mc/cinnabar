@@ -9,13 +9,13 @@ use render_model::ActorRigVertex;
 
 /// Resolves packed storage constants and binds the real lightmap beside the hand resources.
 fn source() -> String {
-    let shader = shader_safety::from_actor_wgsl(
-        include_str!("../../src/hand_rig.wgsl"),
-        "hand_lighting.wgsl",
+    let shader = shader_safety::from_actor_wesl(
+        include_str!("../../src/hand_rig.wesl"),
+        "hand_lighting.wesl",
         render::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("WGSL shader")
     };
     shader_source::standalone(&source, &[])

@@ -102,7 +102,8 @@ impl Gpu {
         features: wgpu::Features,
         limits: wgpu::Limits,
     ) -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = fixture_adapter(
             name,
             finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())),
@@ -365,8 +366,8 @@ impl Gpu {
                     primitive,
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: draw.write_depth,
-                        depth_compare: state.depth_compare,
+                        depth_write_enabled: Some(draw.write_depth),
+                        depth_compare: Some(state.depth_compare),
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -381,7 +382,7 @@ impl Gpu {
                             write_mask: state.write_mask,
                         })],
                     }),
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 });
             let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -423,6 +424,7 @@ impl Gpu {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
@@ -460,7 +462,11 @@ impl Gpu {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        readback.slice(..).get_mapped_range().to_vec()
+        readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped")
+            .to_vec()
     }
 }
 

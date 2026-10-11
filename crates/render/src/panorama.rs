@@ -10,6 +10,7 @@ pub const PANORAMA_WGSL: &str = include_str!("panorama.wgsl");
 
 /// The panorama drawn behind the launcher; `view` is `None` while it is hidden.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PanoramaScene {
     pub(crate) faces: Option<Arc<PanoramaFaces>>,
     pub(crate) faces_revision: u64,

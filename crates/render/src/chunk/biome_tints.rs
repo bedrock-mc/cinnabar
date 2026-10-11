@@ -138,7 +138,7 @@ impl ChunkBiomeTints {
     }
 }
 
-impl bevy::render::extract_resource::ExtractResource for ChunkBiomeTints {
+impl bevy::render::extract_resource::ExtractResource<bevy::render::RenderApp> for ChunkBiomeTints {
     type Source = Self;
 
     fn extract_resource(source: &Self::Source) -> Self {

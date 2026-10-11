@@ -12,8 +12,6 @@ mod primitives;
 mod tests;
 
 #[cfg(test)]
-use bevy::image::BevyDefault;
-#[cfg(test)]
 use bevy::prelude::{Entity, GlobalTransform, Mat4, Msaa, Mut, UVec4, Vec3, World, default};
 use bevy::{
     prelude::{App, Plugin, Resource},
@@ -42,7 +40,7 @@ pub struct ModRenderScene {
     block_color: [f32; 4],
 }
 
-impl ExtractResource for ModRenderScene {
+impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
     type Source = Self;
 
     fn extract_resource(source: &Self) -> Self {

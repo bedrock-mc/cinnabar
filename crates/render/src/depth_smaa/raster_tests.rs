@@ -5,17 +5,12 @@ use bevy::{
     asset::{AssetPlugin, Assets},
     camera::{CameraPlugin, RenderTarget},
     core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
-    ecs::query::QueryItem,
-    image::{BevyDefault, ImagePlugin},
+    image::ImagePlugin,
     mesh::MeshPlugin,
     render::{
         RenderPlugin,
         render_asset::RenderAssets,
-        render_graph::{EmptyNode, NodeRunError, RenderGraphContext, ViewNode},
-        renderer::{
-            RenderAdapter, RenderAdapterInfo, RenderContext, RenderInstance, RenderQueue,
-            WgpuWrapper,
-        },
+        renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderInstance, RenderQueue},
         settings::RenderCreation,
         texture::GpuImage,
     },
@@ -25,6 +20,9 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+
+#[path = "composed_tests.rs"]
+mod composed_tests;
 
 const SIDE: u32 = 64;
 
@@ -36,47 +34,41 @@ struct FixturePipelines {
     scene: u8,
 }
 
-struct FixtureOpaque;
-
-impl ViewNode for FixtureOpaque {
-    type ViewQuery = (
+/// Draws known colour and depth patterns into the shared scene attachment.
+fn fixture_opaque(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<(
         &'static ViewTarget,
         &'static crate::scene_target::SceneTarget,
-        &'static ViewDepthTexture,
-    );
-
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        (target, scene, depth): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let fixture = world.resource::<FixturePipelines>();
-        let attachments = [Some(scene.color_attachment(target, false))];
-        let mut pass = context
-            .command_encoder()
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("depth SMAA raster fixture"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        pass.set_pipeline(match fixture.scene {
-            0 => &fixture.checker,
-            1 => &fixture.sloped_checker,
-            _ => &fixture.silhouette,
+        &'static ViewDepthStencilTexture,
+    )>,
+    mut context: RenderContext,
+) {
+    let (target, scene, depth) = query.into_inner();
+    let fixture = world.resource::<FixturePipelines>();
+    let attachments = [Some(scene.color_attachment(target, false))];
+    let mut pass = context
+        .command_encoder()
+        .begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("depth SMAA raster fixture"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
         });
-        pass.draw(0..3, 0..1);
-        Ok(())
-    }
+    pass.set_pipeline(match fixture.scene {
+        0 => &fixture.checker,
+        1 => &fixture.sloped_checker,
+        _ => &fixture.silhouette,
+    });
+    pass.draw(0..3, 0..1);
 }
 
 /// Requests a native adapter and its actual texture capabilities without creating a surface.
 fn renderer() -> Option<RenderPlugin> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => {
@@ -98,10 +90,10 @@ fn renderer() -> Option<RenderPlugin> {
     Some(RenderPlugin {
         render_creation: RenderCreation::manual(
             RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-            RenderAdapterInfo(WgpuWrapper::new(info)),
-            RenderAdapter(Arc::new(WgpuWrapper::new(adapter))),
-            RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+            RenderQueue::new(queue),
+            RenderAdapterInfo::new(info),
+            RenderAdapter::new(adapter),
+            RenderInstance::new(instance),
         ),
         synchronous_pipeline_compilation: true,
         ..default()
@@ -155,7 +147,7 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
                 entry_point: Some(entry),
                 compilation_options: default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -163,8 +155,8 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
             primitive: default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Always,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::Always),
                 stencil: default(),
                 bias: default(),
             }),
@@ -172,13 +164,21 @@ struct Fragment { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32
                 count: samples,
                 ..default()
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
 }
 
 /// Initializes the production render graph with image output and a known opaque fixture.
 fn app(render: RenderPlugin) -> (App, Entity, Handle<Image>) {
+    app_with_effects(render, |_| {})
+}
+
+/// Adds fixture effects before finishing the real offscreen renderer.
+fn app_with_effects(
+    render: RenderPlugin,
+    setup: impl FnOnce(&mut App),
+) -> (App, Entity, Handle<Image>) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
@@ -194,6 +194,7 @@ fn app(render: RenderPlugin) -> (App, Entity, Handle<Image>) {
             CorePipelinePlugin,
         ));
     crate::scene_target::install(&mut app);
+    crate::render_test_support::fail_on_render_error(&mut app);
     app.add_plugins(DepthSmaaPlugin);
     let mut output = Image::new_target_texture(SIDE, SIDE, TextureFormat::Rgba8Unorm, None);
     output.texture_descriptor.usage |= TextureUsages::COPY_SRC;
@@ -211,25 +212,29 @@ fn app(render: RenderPlugin) -> (App, Entity, Handle<Image>) {
             RenderTarget::Image(image.clone().into()),
             Msaa::Off,
             Transform::default(),
-            Tonemapping::None,
+            Tonemapping::Linear,
         ))
         .id();
+    setup(&mut app);
     app.finish();
     app.cleanup();
     let render = app.sub_app_mut(RenderApp).world_mut();
     crate::scene_target::install_graph(render);
-    let fixture = ViewNodeRunner::new(FixtureOpaque, render);
-    let mut graphs = render.resource_mut::<RenderGraph>();
-    let core = graphs.get_sub_graph_mut(Core3d).unwrap();
-    core.get_node_state_mut(Node3d::MainOpaquePass)
-        .unwrap()
-        .node = Box::new(fixture);
-    core.add_node(crate::ui_render::UiWorldLabel, EmptyNode);
-    core.add_node_edges((
-        Node3d::MainTransparentPass,
-        crate::ui_render::UiWorldLabel,
-        Node3d::EndMainPass,
-    ));
+    render.schedule_scope(Core3d, |world, schedule| {
+        schedule
+            .remove_systems_in_set(
+                crate::scene_target::ScenePass::Opaque,
+                world,
+                bevy::ecs::schedule::ScheduleCleanupPolicy::RemoveSystemsOnly,
+            )
+            .unwrap();
+        schedule.add_systems(fixture_opaque.in_set(crate::scene_target::ScenePass::Opaque));
+        schedule.configure_sets(
+            crate::ui_render::UiWorldLabel
+                .after(crate::scene_target::ScenePass::Transparent)
+                .before(crate::scene_target::ScenePass::Finish),
+        );
+    });
     (app, camera, image)
 }
 
@@ -275,6 +280,11 @@ fn ready(app: &mut App) {
 /// Reads the final output image after all scene and SMAA graph nodes have completed.
 fn pixels(app: &mut App, image: &Handle<Image>) -> Vec<u8> {
     frame(app);
+    read_pixels(app, image)
+}
+
+/// Reads the last submitted frame without changing camera history through another update.
+fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
     let world = app.sub_app(RenderApp).world();
     let device = world.resource::<RenderDevice>();
     let queue = world.resource::<RenderQueue>();
@@ -310,7 +320,11 @@ fn pixels(app: &mut App, image: &Handle<Image>) -> Vec<u8> {
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    buffer.slice(..).get_mapped_range().to_vec()
+    buffer
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")
+        .to_vec()
 }
 
 /// Saves optional native fixture evidence outside the checkout when capture is requested.
@@ -343,7 +357,7 @@ fn spatial_smaa_preserves_texels_and_filters_depth_silhouettes() {
         let world = app.sub_app(RenderApp).world();
         let adapter = world.resource::<RenderAdapter>();
         if [
-            TextureFormat::bevy_default(),
+            crate::SCENE_COLOR_FORMAT,
             bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
         ]
         .into_iter()

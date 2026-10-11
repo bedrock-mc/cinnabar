@@ -12,7 +12,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
     render_app.add_systems(
         Render,
         release_orphan_targets::<ViewTarget>
-            .in_set(RenderSystems::ManageViews)
+            .in_set(RenderSystems::PrepareViews)
             .before(create_surfaces),
     );
 }
@@ -34,8 +34,8 @@ mod tests {
     use super::*;
     use bevy::{
         camera::{CameraOutputMode, ClearColorConfig, MsaaWriteback},
-        core_pipeline::core_3d::graph::Core3d,
-        render::render_graph::RenderSubGraph,
+        core_pipeline::Core3d,
+        ecs::schedule::ScheduleLabel,
     };
     use std::sync::{Arc, Weak};
 
@@ -60,7 +60,7 @@ mod tests {
             physical_viewport_size: None,
             physical_target_size: None,
             viewport: None,
-            render_graph: Core3d.intern(),
+            schedule: Core3d.intern(),
             order: 0,
             output_mode: CameraOutputMode::default(),
             msaa_writeback: MsaaWriteback::default(),
@@ -100,7 +100,6 @@ mod tests {
                 view::{
                     ExtractedView, Msaa, RetainedViewEntity, ViewTargetAttachments,
                     cleanup_view_targets_for_resize, prepare_view_targets,
-                    window::ExtractedWindows,
                 },
             },
         };
@@ -135,7 +134,6 @@ mod tests {
         world.insert_resource(TextureCache::default());
         world.insert_resource(ClearColor::default());
         world.insert_resource(attachments);
-        world.insert_resource(ExtractedWindows::default());
         let mut camera = camera();
         camera.target = Some(target);
         camera.physical_target_size = Some(UVec2::splat(SIDE));
@@ -151,7 +149,7 @@ mod tests {
                     clip_from_view: Mat4::IDENTITY,
                     world_from_view: GlobalTransform::default(),
                     clip_from_world: None,
-                    hdr: false,
+                    target_format: crate::SCENE_COLOR_FORMAT,
                     viewport: UVec4::new(0, 0, SIDE, SIDE),
                     color_grading: Default::default(),
                     invert_culling: false,

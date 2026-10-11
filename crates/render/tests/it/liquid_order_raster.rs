@@ -3,7 +3,7 @@ use crate::chunk_constants;
 use crate::gpu_snapshot;
 use crate::shader_source;
 
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use gpu_snapshot::{Draw, Gpu, RasterState};
 use meshing::liquid::LIQUID_TOP_INSET_BIT;
 use meshing::{Face, PackedLiquidQuad};
@@ -72,8 +72,13 @@ fn render(
         .map(|_| [1.0_f32; 4]);
     let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
     let eye = Vec3::new(2.0, 3.0, -4.0);
-    let projection = Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_3, 1.0, 0.1);
-    let matrix = projection * Mat4::look_at_rh(eye, Vec3::new(2.0, 0.5, 2.0), Vec3::Y);
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_3,
+        1.0,
+        0.1,
+    );
+    let matrix =
+        projection * glam::camera::rh::view::look_at_mat4(eye, Vec3::new(2.0, 0.5, 2.0), Vec3::Y);
     let view = gpu.buffer(
         &gpu_snapshot::view(matrix, eye),
         wgpu::BufferUsages::UNIFORM,
@@ -171,7 +176,7 @@ fn witness_source() -> String {
     format!(
         "{}\n{index_source}\n{WITNESS}",
         shader_source::standalone(
-            include_str!("../../src/liquid.wgsl"),
+            include_str!("../../src/liquid.wesl"),
             &["NATIVE_GAMMA_BLEND"]
         )
     )

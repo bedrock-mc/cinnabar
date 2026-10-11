@@ -3,22 +3,20 @@ use crate::viewmodel::{
     HandVertex, ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, hand_projection,
     viewmodel_depth_bytes,
 };
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::Assets;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::graph::Core3d,
+    core_pipeline::Core3d,
     ecs::system::{SystemChangeTick, SystemParam},
     mesh::VertexBufferLayout,
     prelude::{
         App, BevyError, Commands, DetectChanges, Entity, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, UVec4, World, default,
+        Query, Res, ResMut, Resource, Result, Shader, SystemSet, UVec4, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
-        render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
@@ -48,7 +46,7 @@ const HAND_SHADER: Handle<Shader> = uuid_handle!("05c3d760-7ab6-4f19-b6b3-dea197
 pub struct ViewmodelRenderPlugin;
 #[derive(Resource)]
 struct Installed;
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct HandLabel;
 impl Plugin for ViewmodelRenderPlugin {
     fn build(&self, app: &mut App) {
@@ -96,49 +94,47 @@ fn install(app: &mut App) {
 
 /// The hand pass Enhanced views run after Bloom and grading.
 #[cfg(feature = "enhanced")]
-pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
-    ViewNodeRunner::new(
-        crate::ui_render::overlay::GradeStage::<_, true>(node::HandViewNode),
-        world,
-    )
+pub(crate) fn enhanced_post_pass(
+    world: &World,
+) -> Option<bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>> {
+    world.contains_resource::<Installed>().then(|| {
+        crate::gpu_timing::profiled(
+            node::hand_view,
+            Some(crate::RuntimeStage::GpuHand),
+            "EnhancedHandLabel",
+        )
+        .run_if(crate::ui_render::overlay::grade_stage::<true>)
+    })
 }
 
 pub(crate) fn install_hand_graph(world: &mut World) {
-    if !world.contains_resource::<Installed>() {
+    if !world.contains_resource::<Installed>() || world.contains_resource::<HandPassInstalled>() {
         return;
     }
-    let runner = ViewNodeRunner::new(
-        crate::ui_render::overlay::GradeStage::<_, false>(node::HandViewNode),
-        world,
-    );
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
-        return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    if graph
-        .get_node_state(crate::ui_render::UiOverlayLabel)
-        .is_err()
-    {
-        return;
-    }
-    if graph.get_node_state(HandLabel).is_err() {
-        graph.add_node(HandLabel, runner);
-    }
-    // The hand retains world colour samples until the final resolve before the HUD.
-    graph.add_node_edges((
-        crate::ui_render::UiWorldLabel,
-        HandLabel,
-        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
-    ));
-    if graph
-        .get_node_state(crate::hand_rig_render::HandRigLabel)
-        .is_ok()
-    {
-        let _ = graph.try_add_node_edge(HandLabel, crate::hand_rig_render::HandRigLabel);
+    let installed = world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(
+                    node::hand_view,
+                    Some(crate::RuntimeStage::GpuHand),
+                    "HandLabel",
+                )
+                .in_set(HandLabel)
+                .after(crate::ui_render::UiWorldLabel)
+                .before(crate::hand_rig_render::HandRigLabel)
+                .before(crate::scene_target::ScenePass::Finish)
+                .in_set(bevy::core_pipeline::Core3dSystems::MainPass)
+                .run_if(crate::ui_render::overlay::grade_stage::<false>),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(HandPassInstalled);
     }
 }
+
+#[derive(Resource)]
+struct HandPassInstalled;
 
 impl crate::pipeline_warmup::PrewarmPipelines for HandGpu {
     fn prewarm(

@@ -1,21 +1,22 @@
 use super::*;
-use bevy::core_pipeline::core_3d::graph::Node3d;
 
 fn empty_hand_world() -> World {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     use std::{
         future::Future,
         pin::pin,
-        sync::Arc,
         task::{Context, Poll, Waker},
     };
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(adapter)) =
@@ -29,12 +30,12 @@ fn empty_hand_world() -> World {
         panic!("noop device must be immediate");
     };
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+    let adapter = RenderAdapter::new(adapter);
     let mut world = World::new();
-    world.insert_resource(PipelineCache::new(device.clone(), adapter.clone(), true));
+    world.insert_resource(PipelineCache::new(device.clone(), true));
     world.insert_resource(device);
     world.insert_resource(adapter);
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<ViewmodelCompletionGate>();
     world.init_resource::<ViewmodelScene>();
     world.init_resource::<HandDrawn>();
@@ -123,7 +124,7 @@ fn neutral_shader_validates_and_has_private_projection_abi() {
     let descriptor = hand_pipeline_descriptor(hand_layout());
     assert_eq!(
         descriptor.depth_stencil.unwrap().depth_compare,
-        CompareFunction::GreaterEqual
+        Some(CompareFunction::GreaterEqual)
     );
     assert_eq!(descriptor.vertex.buffers[0].array_stride, 20);
     assert!(
@@ -147,14 +148,14 @@ fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
                     .unwrap()
                     .format,
                 if hdr {
-                    bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 } else {
-                    TextureFormat::bevy_default()
+                    crate::SCENE_COLOR_FORMAT
                 }
             );
             let depth = pipeline.depth_stencil.unwrap();
             assert_eq!(depth.format, TextureFormat::Depth32Float);
-            assert!(depth.depth_write_enabled);
+            assert_eq!(depth.depth_write_enabled, Some(true));
         }
     }
 }
@@ -230,11 +231,11 @@ fn actual_empty_hand_deactivation_preserves_variants_for_reenable() {
 
 #[test]
 fn actual_missing_current_view_coverage_revokes_prior_completion() {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<HandDrawn>();
     let gate = ViewmodelCompletionGate::default();
     let token = ViewmodelToken {
@@ -299,12 +300,9 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
 
 #[test]
 fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
-    use bevy::{
-        ecs::system::RunSystemOnce,
-        render::{render_resource::PollType, renderer::WgpuWrapper},
-    };
+    use bevy::{ecs::system::RunSystemOnce, render::render_resource::PollType};
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.insert_resource(queue.clone());
@@ -330,12 +328,15 @@ fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
     world.resource_mut::<HandGpu>().token = Some(token);
     *world.resource::<HandDrawn>().0.lock().unwrap() = Some(token);
 
-    let before = crate::device_poll::submissions_so_far(&queue);
+    let baseline = crate::device_poll::submission_marker(&queue);
+    queue.on_submitted_work_done(|| {});
+    let callback_delta = crate::device_poll::submission_marker(&queue) - baseline;
+    let before = crate::device_poll::submission_marker(&queue);
     world.run_system_once(submit_completion).unwrap();
     assert_eq!(
-        crate::device_poll::submissions_so_far(&queue) - before,
-        1,
-        "only the counting submit reaches the queue"
+        crate::device_poll::submission_marker(&queue) - before,
+        callback_delta,
+        "hand completion only registers the frame callback"
     );
     world
         .resource::<RenderDevice>()
@@ -348,78 +349,26 @@ fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
 }
 
 #[test]
-fn ui_only_and_optional_hand_graph_are_ordered_and_idempotent() {
-    use bevy::render::render_graph::{EmptyNode, RenderGraph};
-    let mut world = World::new();
-    let mut graph = RenderGraph::default();
-    let mut core = RenderGraph::default();
-    core.add_node(Node3d::MainTransparentPass, EmptyNode);
-    core.add_node(Node3d::EndMainPass, EmptyNode);
-    graph.add_sub_graph(Core3d, core);
-    world.insert_resource(graph);
+fn an_unprepared_hand_submits_nothing_after_repeated_installation() {
+    let mut world = crate::render_test_support::empty_render_world();
     crate::ui_render::install_overlay_graph(&mut world);
-    assert!(
-        world
-            .resource::<RenderGraph>()
-            .get_sub_graph(Core3d)
-            .unwrap()
-            .get_node_state(HandLabel)
-            .is_err()
-    );
     world.insert_resource(Installed);
     install_hand_graph(&mut world);
     install_hand_graph(&mut world);
     crate::ui_render::install_overlay_graph(&mut world);
-    let core = world
-        .resource::<RenderGraph>()
-        .get_sub_graph(Core3d)
-        .unwrap();
-    assert!(core.get_node_state(HandLabel).is_ok());
-    assert!(
-        core.get_node_state(crate::ui_render::UiOverlayLabel)
-            .is_ok()
-    );
-    assert!(
-        core.get_node_state(crate::ui_render::UiWorldLabel)
-            .unwrap()
-            .edges
-            .output_edges()
-            .iter()
-            .any(|edge| edge.get_input_node() == core.get_node_state(HandLabel).unwrap().label)
-    );
-    assert!(
-        core.get_node_state(Node3d::MainTransparentPass)
-            .unwrap()
-            .edges
-            .output_edges()
-            .iter()
-            .any(|edge| edge.get_input_node()
-                == core
-                    .get_node_state(crate::ui_render::UiWorldLabel)
-                    .unwrap()
-                    .label)
-    );
+    crate::render_test_support::assert_empty_render(&mut world);
 }
 
 #[test]
-fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
-    use bevy::{
-        app::SubApp,
-        ecs::schedule::Schedule,
-        render::{ExtractSchedule, render_graph::EmptyNode, renderer::WgpuWrapper},
-    };
+fn both_plugin_orders_submit_nothing_without_a_prepared_view() {
+    use bevy::{app::SubApp, ecs::schedule::Schedule, render::ExtractSchedule};
     for hand_first in [false, true] {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let mut render_app = SubApp::new();
-        let mut graphs = RenderGraph::default();
-        let mut core = RenderGraph::default();
-        core.add_node(Node3d::MainTransparentPass, EmptyNode);
-        core.add_node(Node3d::EndMainPass, EmptyNode);
-        graphs.add_sub_graph(Core3d, core);
         render_app
             .insert_resource(RenderDevice::from(device))
-            .insert_resource(RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue))))
-            .insert_resource(graphs)
+            .insert_resource(RenderQueue::new(queue))
+            .add_schedule(Core3d::base_schedule())
             .add_schedule(Schedule::new(RenderStartup))
             .add_schedule(Render::base_schedule())
             .add_schedule(Schedule::new(ExtractSchedule));
@@ -441,29 +390,8 @@ fn both_actual_plugin_orders_install_one_hand_and_one_hud_node() {
         }
         app.finish();
         install_hand_graph(app.sub_app_mut(RenderApp).world_mut());
-        let graph = app
-            .sub_app(RenderApp)
-            .world()
-            .resource::<RenderGraph>()
-            .get_sub_graph(Core3d)
-            .unwrap();
-        assert!(graph.get_node_state(HandLabel).is_ok());
-        assert!(
-            graph
-                .get_node_state(crate::ui_render::UiOverlayLabel)
-                .is_ok()
-        );
-        let hand = graph.get_node_state(HandLabel).unwrap();
-        assert_eq!(hand.edges.input_edges().len(), 1);
-        assert_eq!(hand.edges.output_edges().len(), 2);
-        let rig = graph
-            .get_node_state(crate::hand_rig_render::HandRigLabel)
-            .unwrap();
-        assert!(
-            hand.edges
-                .output_edges()
-                .iter()
-                .any(|edge| edge.get_input_node() == rig.label)
-        );
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        world.init_resource::<bevy::render::renderer::PendingCommandBuffers>();
+        crate::render_test_support::assert_empty_render(world);
     }
 }

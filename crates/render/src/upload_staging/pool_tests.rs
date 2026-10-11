@@ -1,11 +1,11 @@
 use super::*;
-use bevy::render::renderer::{RenderQueue, WgpuWrapper};
+use bevy::render::renderer::RenderQueue;
 
 /// Supplies validation and synchronous buffer copies without a hardware requirement.
 fn setup(slot_bytes: u64) -> (RenderDevice, RenderQueue, Pool, wgpu::Buffer) {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let pool = Pool::new(&device, slot_bytes);
     let target = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("pooled upload destination"),
@@ -132,7 +132,8 @@ fn four_byte_payload_sizes_keep_the_next_mapped_offset_aligned() {
         let bytes = pool.slots[copy.slot]
             .buffer
             .slice(copy.source..copy.source + copy.bytes)
-            .get_mapped_range();
+            .get_mapped_range()
+            .expect("readback buffer is mapped");
         assert!(
             bytes
                 .iter()

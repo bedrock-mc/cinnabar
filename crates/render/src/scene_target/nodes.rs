@@ -1,224 +1,131 @@
 use super::SceneTarget;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
-    core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transmissive3d, ViewTransmissionTexture},
-    ecs::query::QueryItem,
+    core_pipeline::core_3d::{AlphaMask3d, Opaque3d},
     prelude::*,
     render::{
         camera::ExtractedCamera,
-        render_graph::{NodeRunError, RenderGraphContext, ViewNode},
-        render_phase::{TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases},
-        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
+        diagnostic::RecordDiagnostics,
+        render_phase::ViewBinnedRenderPhases,
+        render_resource::{RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 
-/// Cinnabar's opaque, cutout and sky phase items share samples with later world passes. The
-/// pass records and encodes on a worker task, in parallel with other deferred world passes.
-pub(super) struct SceneOpaquePass;
+type SceneOpaqueQuery = (
+    &'static ExtractedCamera,
+    &'static ExtractedView,
+    &'static ViewTarget,
+    Option<&'static SceneTarget>,
+    &'static ViewDepthStencilTexture,
+    Option<&'static MainPassResolutionOverride>,
+    Option<&'static bevy::core_pipeline::skybox::SkyboxPipelineId>,
+    Option<&'static bevy::core_pipeline::skybox::SkyboxBindGroup>,
+    Option<&'static bevy::render::view::ViewUniformOffset>,
+);
 
-impl ViewNode for SceneOpaquePass {
-    type ViewQuery = (
-        &'static ExtractedCamera,
-        &'static ExtractedView,
-        &'static ViewTarget,
-        &'static SceneTarget,
-        &'static ViewDepthTexture,
-        Option<&'static MainPassResolutionOverride>,
+/// Draws opaque and cutout geometry with the current camera's colour and depth attachments.
+pub(crate) fn scene_opaque(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,
+    mut context: RenderContext,
+) {
+    let entity = query.entity();
+    let (camera, view, target, scene, depth, resolution, sky_pipeline, sky_group, offset) =
+        query.into_inner();
+    let (Some(opaque), Some(cutout)) = (
+        world.get_resource::<ViewBinnedRenderPhases<Opaque3d>>(),
+        world.get_resource::<ViewBinnedRenderPhases<AlphaMask3d>>(),
+    ) else {
+        return;
+    };
+    let (Some(opaque), Some(cutout)) = (
+        opaque.get(&view.retained_view_entity),
+        cutout.get(&view.retained_view_entity),
+    ) else {
+        return;
+    };
+    let color = scene.map_or_else(
+        || target.get_color_attachment(),
+        |scene| scene.color_attachment(target, false),
     );
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        (camera, view, target, scene, depth, resolution): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let (Some(opaque), Some(cutout)) = (
-            world.get_resource::<ViewBinnedRenderPhases<Opaque3d>>(),
-            world.get_resource::<ViewBinnedRenderPhases<AlphaMask3d>>(),
-        ) else {
-            return Ok(());
-        };
-        let (Some(opaque), Some(cutout)) = (
-            opaque.get(&view.retained_view_entity),
-            cutout.get(&view.retained_view_entity),
-        ) else {
-            return Ok(());
-        };
-        let attachments = [Some(scene.color_attachment(target, false))];
-        let depth = depth.get_attachment(StoreOp::Store);
-        let timestamps =
-            crate::gpu_timing::render_pass_timestamps(world, crate::RuntimeStage::GpuOpaque);
-        let view_entity = graph.view_entity();
-        // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
-        // which begins the pass but draws nothing.
-        let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
-            .map(|viewport| {
-                crate::render_bounds::viewport(
-                    &viewport,
-                    crate::render_bounds::extent(scene.color_view(false)),
-                )
-            });
-        context.add_command_buffer_generation_task(move |device| {
-            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("main opaque and cutout scene"),
-            });
-            let pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("main opaque and cutout scene"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: Some(depth),
-                timestamp_writes: timestamps,
-                occlusion_query_set: None,
-            });
-            let mut pass = TrackedRenderPass::new(&device, pass);
-            match &viewport {
-                Some(Some(viewport)) => pass.set_camera_viewport(viewport),
-                Some(None) => {
-                    drop(pass);
-                    return encoder.finish();
-                }
-                None => {}
-            }
-            if !opaque.is_empty()
-                && let Err(error) = opaque.render(&mut pass, world, view_entity)
-            {
-                bevy::log::error!("Error rendering the opaque scene: {error:?}");
-            }
-            if !cutout.is_empty()
-                && let Err(error) = cutout.render(&mut pass, world, view_entity)
-            {
-                bevy::log::error!("Error rendering the cutout scene: {error:?}");
-            }
-            drop(pass);
-            encoder.finish()
-        });
-
-        Ok(())
+    let depth = depth.get_attachment(StoreOp::Store);
+    let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution).map(
+        |viewport| {
+            crate::render_bounds::viewport(&viewport, crate::render_bounds::extent(color.view))
+        },
+    );
+    let sky = scene.is_none() && (sky_pipeline.is_some() || sky_group.is_some());
+    if crate::gpu_timing::draw_categories(
+        world,
+        &mut context,
+        entity,
+        opaque,
+        cutout,
+        sky,
+        color.clone(),
+        depth.clone(),
+        viewport.clone(),
+    ) {
+        return;
     }
+    let diagnostics = context.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let colors = [Some(color)];
+    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("main opaque and cutout scene"),
+        color_attachments: &colors,
+        depth_stencil_attachment: Some(depth),
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuOpaque,
+        ),
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    let span = diagnostics.pass_span(&mut pass, "main_opaque_pass_3d");
+    match &viewport {
+        Some(Some(viewport)) => pass.set_camera_viewport(viewport),
+        Some(None) => {
+            span.end(&mut pass);
+            return;
+        }
+        None => {}
+    }
+    if !opaque.is_empty()
+        && let Err(error) = opaque.render(&mut pass, world, entity)
+    {
+        bevy::log::error!("Error rendering the opaque scene: {error:?}");
+    }
+    if !cutout.is_empty()
+        && let Err(error) = cutout.render(&mut pass, world, entity)
+    {
+        bevy::log::error!("Error rendering the cutout scene: {error:?}");
+    }
+    if scene.is_none()
+        && let (Some(pipeline), Some(group), Some(offset)) = (sky_pipeline, sky_group, offset)
+        && let Some(pipeline) = world
+            .resource::<bevy::render::render_resource::PipelineCache>()
+            .get_render_pipeline(pipeline.0)
+    {
+        pass.set_render_pipeline(pipeline);
+        pass.set_bind_group(0, &group.0.0, &[offset.offset, group.0.1]);
+        pass.draw(0..3, 0..1);
+    }
+    span.end(&mut pass);
 }
 
-/// Optional screen-space transmission keeps source samples intact between its snapshots.
-pub(super) struct SceneTransmissivePass;
+type SceneFinishQuery = (&'static ViewTarget, &'static SceneTarget);
 
-impl ViewNode for SceneTransmissivePass {
-    type ViewQuery = (
-        &'static ExtractedCamera,
-        &'static ExtractedView,
-        &'static Camera3d,
-        &'static ViewTarget,
-        &'static SceneTarget,
-        Option<&'static ViewTransmissionTexture>,
-        &'static ViewDepthTexture,
-        Option<&'static MainPassResolutionOverride>,
-    );
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        context: &mut RenderContext<'w>,
-        (camera, view, settings, target, scene, transmission, depth, resolution): QueryItem<
-            'w,
-            '_,
-            Self::ViewQuery,
-        >,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transmissive3d>>() else {
-            return Ok(());
-        };
-        let Some(phase) = phases.get(&view.retained_view_entity) else {
-            return Ok(());
-        };
-        let count = phase.items.len();
-        if count == 0 {
-            return Ok(());
-        }
-        let snapshots = settings.screen_space_specular_transmission_steps;
-        let steps = snapshots.max(1).min(count);
-        let width = count / steps;
-        let extra = count % steps;
-        let mut start = 0;
-        for step in 0..steps {
-            if snapshots > 0 {
-                let transmission = transmission.expect("transmission texture must be prepared");
-                if scene.texture.sample_count() > 1 {
-                    let attachments = [Some(
-                        scene.resolve_attachment(target.main_texture_view(), StoreOp::Store),
-                    )];
-                    context
-                        .command_encoder()
-                        .begin_render_pass(&RenderPassDescriptor {
-                            label: Some("transmission scene snapshot"),
-                            color_attachments: &attachments,
-                            depth_stencil_attachment: None,
-                            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                                world,
-                                crate::RuntimeStage::GpuTransparent,
-                            ),
-                            occlusion_query_set: None,
-                        });
-                }
-                let source = if scene.texture.sample_count() > 1 {
-                    target.main_texture()
-                } else {
-                    &scene.texture
-                };
-                context.command_encoder().copy_texture_to_texture(
-                    source.as_image_copy(),
-                    transmission.texture.as_image_copy(),
-                    scene.texture.size(),
-                );
-            }
-            let end = start + width + usize::from(step < extra);
-            let attachments = [Some(scene.color_attachment(target, false))];
-            let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("main transmissive scene"),
-                color_attachments: &attachments,
-                depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                    world,
-                    crate::RuntimeStage::GpuTransparent,
-                ),
-                occlusion_query_set: None,
-            });
-            if let Some(viewport) =
-                Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
-            {
-                let Some(viewport) = crate::render_bounds::viewport(
-                    &viewport,
-                    crate::render_bounds::extent(scene.color_view(false)),
-                ) else {
-                    return Ok(());
-                };
-                pass.set_camera_viewport(&viewport);
-            }
-            if let Err(error) =
-                phase.render_range(&mut pass, world, graph.view_entity(), start..end)
-            {
-                bevy::log::error!("Error rendering the transmissive scene: {error:?}");
-            }
-            start = end;
-        }
-        Ok(())
-    }
-}
-
-/// Only this boundary consumes world colour samples before single-sample post-processing and HUD.
-pub(super) struct SceneFinish;
-
-impl ViewNode for SceneFinish {
-    type ViewQuery = (&'static ViewTarget, &'static SceneTarget);
-
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        context: &mut RenderContext,
-        (target, scene): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        scene.finish(context, world, target);
-        Ok(())
-    }
+/// Resolves the final scene samples before single-sample post-processing.
+pub(crate) fn scene_finish(
+    world: &World,
+    query: bevy::render::renderer::ViewQuery<SceneFinishQuery>,
+    mut context: RenderContext,
+) -> bevy::ecs::error::Result {
+    let (target, scene) = query.into_inner();
+    let context = &mut context;
+    scene.finish(context, world, target);
+    Ok(())
 }

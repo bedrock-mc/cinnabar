@@ -359,11 +359,11 @@ fn dependency_names(value: &toml::Value, names: &mut BTreeSet<String>) {
             if let Some(dependencies) = value.as_table() {
                 names.extend(dependencies.keys().map(|name| name.replace('-', "_")));
             }
-        } else if key == "target" {
-            if let Some(targets) = value.as_table() {
-                for target in targets.values() {
-                    dependency_names(target, names);
-                }
+        } else if key == "target"
+            && let Some(targets) = value.as_table()
+        {
+            for target in targets.values() {
+                dependency_names(target, names);
             }
         }
     }

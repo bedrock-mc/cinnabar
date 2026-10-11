@@ -20,7 +20,7 @@ pub(super) fn configure_chunk_publication(schedule: &mut Schedule) {
             ChunkPublicationStage::ModelSort,
         )
             .chain()
-            .after(RenderSystems::ManageViews)
+            .after(RenderSystems::PrepareViews)
             .before(RenderSystems::Queue),
     );
 }

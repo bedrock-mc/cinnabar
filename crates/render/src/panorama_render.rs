@@ -4,18 +4,16 @@
 //! It is opaque and draws in the main opaque pass: world passes queue nothing
 //! while it shows, so the menu's scene uses one pass.
 use crate::panorama::PanoramaScene;
-use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
     prelude::{
-        App, AssetId, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local,
-        Mesh, Msaa, Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, AssetId, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Mesh,
+        Msaa, Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -38,7 +36,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget},
+        view::ExtractedView,
     },
 };
 
@@ -161,7 +159,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..default()
         }),
         _texture: texture,
@@ -255,7 +253,7 @@ impl FromWorld for PanoramaPipeline {
                 entry_point: Some("panorama_fragment".into()),
                 // Every fragment writes alpha 1, so blending would only cost bandwidth.
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -263,8 +261,8 @@ impl FromWorld for PanoramaPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::Always,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Always),
                 stencil: default(),
                 bias: default(),
             }),
@@ -296,9 +294,9 @@ impl Specializer<RenderPipeline> for PanoramaPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -358,14 +356,19 @@ fn queue_panorama(
     scene: Res<PanoramaScene>,
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
-    mut next_tick: Local<Tick>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if scene.view.is_none() || scene.faces.is_none() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawPanoramaCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -373,29 +376,26 @@ fn queue_panorama(
             &pipeline_cache,
             PanoramaPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
             },
         ) else {
             continue;
         };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
+
         phase.add(
             Opaque3dBatchSetKey {
                 draw_function,
                 pipeline: pipeline_id,
                 material_bind_group_index: None,
                 lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
+                slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
+                asset_id: AssetId::<Mesh>::default().untyped(),
             },
             (view_entity, *main_entity),
             InputUniformIndex::default(),
             BinnedRenderPhaseType::NonMesh,
-            *next_tick,
         );
     }
 }

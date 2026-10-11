@@ -1,5 +1,4 @@
 use super::*;
-use bevy::render::renderer::WgpuWrapper;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -9,7 +8,7 @@ use std::sync::{
 fn setup() -> (RenderDevice, RenderQueue, BufferUploadStaging, wgpu::Buffer) {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let staging = BufferUploadStaging(Mutex::new(Pool::new(&device, 64)));
     let target = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("upload ordering destination"),
@@ -38,7 +37,11 @@ fn finish(
     queue.submit([encoder.finish()]);
     device.poll(wgpu::PollType::Poll).unwrap();
     assert!(mapped.load(Ordering::Acquire));
-    let bytes = target.slice(..).get_mapped_range().to_vec();
+    let bytes = target
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")
+        .to_vec();
     target.unmap();
     bytes
 }

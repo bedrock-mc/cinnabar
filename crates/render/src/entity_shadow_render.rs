@@ -2,13 +2,12 @@
 //! Rules: `docs/reference/entity-shadows.md`.
 use std::num::NonZeroU64;
 
-use bevy::image::BevyDefault;
+use bevy::prelude::SystemSet;
 #[cfg(test)]
 use bevy::prelude::{IntoSystem, System};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
-    ecs::query::QueryItem,
+    core_pipeline::{Core3d, Core3dSystems},
     mesh::VertexBufferLayout,
     prelude::{
         App, Camera3d, Commands, Component, Entity, Handle, IntoScheduleConfigs, Last, Msaa,
@@ -18,9 +17,6 @@ use bevy::{
         Render, RenderApp, RenderSystems,
         camera::ExtractedCamera,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_graph::{
-            NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-        },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
             BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
@@ -35,7 +31,7 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::{
-            ExtractedView, ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset,
+            ExtractedView, ViewDepthStencilTexture, ViewTarget, ViewUniform, ViewUniformOffset,
             ViewUniforms,
         },
     },
@@ -52,9 +48,10 @@ const INSTANCE_BYTES: u64 = size_of::<EntityShadow>() as u64;
 
 /// Main-world holder of this frame's casters, cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Default, Debug)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct EntityShadowScene(pub EntityShadowFrame);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct EntityShadowLabel;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -66,8 +63,8 @@ impl Plugin for EntityShadowRenderPlugin {
         load_internal_asset!(
             app,
             SHADER,
-            "entity_shadow.wgsl",
-            crate::shader_safety::from_wgsl
+            "entity_shadow.wesl",
+            crate::shader_safety::from_wesl
         );
         app.init_resource::<EntityShadowScene>()
             .add_plugins(ExtractResourcePlugin::<EntityShadowScene>::default())
@@ -97,31 +94,34 @@ impl Plugin for EntityShadowRenderPlugin {
 }
 
 /// Orders shadows after all opaque terrain and before transparent geometry.
-fn install_graph(world: &mut World) {
-    let node = ViewNodeRunner::new(EntityShadowNode, world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
+pub(crate) fn install_graph(world: &mut World) {
+    if world.contains_resource::<ShadowPassInstalled>() {
         return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    graph.add_node(EntityShadowLabel, node);
-    graph.add_node_edges((
-        Node3d::MainOpaquePass,
-        EntityShadowLabel,
-        Node3d::MainTransmissivePass,
-    ));
-    // Whichever plugin installs second orders shadows after late terrain draws.
-    if graph.get_node_state(crate::chunk::GpuCullLateLabel).is_ok() {
-        let _ = graph.try_add_node_edge(crate::chunk::GpuCullLateLabel, EntityShadowLabel);
+    }
+    let installed = world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(node::entity_shadows, None, "EntityShadowLabel")
+                    .in_set(EntityShadowLabel)
+                    .after(crate::scene_target::ScenePass::Opaque)
+                    .after(crate::chunk::GpuCullLateLabel)
+                    .before(crate::scene_target::ScenePass::Transparent)
+                    .in_set(Core3dSystems::MainPass),
+            );
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(ShadowPassInstalled);
     }
 }
+
+#[derive(Resource)]
+struct ShadowPassInstalled;
 
 mod gpu;
 mod node;
 mod view;
 use gpu::*;
-use node::EntityShadowNode;
 use view::*;
 
 #[cfg(test)]

@@ -849,7 +849,7 @@ fn animation_view(
         (half_vertical + guard).min(limit),
         (half_horizontal + guard).min(limit),
     );
-    let clip = Mat4::perspective_infinite_reverse_rh(
+    let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         half_vertical * 2.0,
         half_horizontal.tan() / half_vertical.tan(),
         perspective.near,

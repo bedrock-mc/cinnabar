@@ -66,7 +66,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
     // Actual model entry points, not a reproduction of their arithmetic.
     let source = format!(
         "{}\n{VERTEX}",
-        shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/model.wesl"), &[])
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
     .replace("GRID_COLUMNS", &format!("{}.0", CASE_COUNT + 1))
@@ -217,8 +217,8 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     out.native_ao_face = witness.distance_frames.z;
     out.tint_gamma = vec3(1.0);
     out.world_position = vec3(witness.distance_frames.x, 0.0, 0.0);
-    out.two_sided = 1u;
-    out.visible = 1u;
+    out.visibility.y = 1u;
+    out.visibility.x = 1u;
     return out;
 }
 "#;

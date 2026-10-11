@@ -15,16 +15,15 @@ use bevy::render::render_resource::{BufferUsages, Extent3d, TextureUsages};
 use bevy::{
     anti_alias::smaa::{Smaa, SmaaPlugin, SmaaTextures},
     asset::load_internal_asset,
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{Core3d, Core3dSystems},
     ecs::system::RunSystemOnce,
     prelude::{
         App, AssetServer, BevyError, Camera3d, Commands, Component, Entity, Handle,
         IntoScheduleConfigs, Local, Msaa, Plugin, Query, QueryState, Res, ResMut, Resource, Result,
-        Shader, With, Without, World, default,
+        Shader, SystemSet, With, Without, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
             BindGroupLayoutEntry, BindingType, BufferId, CachedRenderPipelineId, ColorTargetState,
@@ -35,7 +34,7 @@ use bevy::{
             TextureSampleType, TextureViewDimension, TextureViewId, VertexState,
         },
         renderer::RenderDevice,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 use pipelines::DepthSmaaPipelines;
@@ -50,8 +49,8 @@ impl Plugin for DepthSmaaPlugin {
         load_internal_asset!(
             app,
             pipelines::EDGE_SHADER,
-            "depth_smaa/edge.wgsl",
-            crate::shader_safety::from_wgsl
+            "depth_smaa/edge.wesl",
+            crate::shader_safety::from_wesl
         );
         load_internal_asset!(
             app,
@@ -94,7 +93,7 @@ struct DepthSmaaView {
 type PreparedView = (
     Entity,
     &'static ViewTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     &'static Msaa,
     Option<&'static DepthSmaaView>,
 );
@@ -126,7 +125,7 @@ fn prepare(
         let samples = msaa.samples();
         let format = target.main_texture_format();
         if previous.is_some_and(|old| {
-            old.source == depth.view().id()
+            old.source == crate::scene_sampling::view_depth(depth).id()
                 && old.samples == samples
                 && old.format == format
                 && old.uniform == uniform_id
@@ -141,7 +140,7 @@ fn prepare(
         let depth_binding = device.create_bind_group(
             "SMAA depth input",
             &cache.get_bind_group_layout(&pipelines.depth_layout(samples)),
-            &BindGroupEntries::single(depth.view()),
+            &BindGroupEntries::single(crate::scene_sampling::view_depth(depth)),
         );
         let post = [target.main_texture_view(), target.main_texture_other_view()].map(|view| {
             let binding = device.create_bind_group(
@@ -157,7 +156,7 @@ fn prepare(
             (view.id(), binding, restore)
         });
         commands.entity(entity).insert(DepthSmaaView {
-            source: depth.view().id(),
+            source: crate::scene_sampling::view_depth(depth).id(),
             uniform: uniform_id,
             depth: depth_binding,
             post,
@@ -168,87 +167,74 @@ fn prepare(
     }
 }
 
-/// Replaces the stock luma node and restores world samples before any text or hand draw.
-fn install_graph(world: &mut World) {
-    let runner = ViewNodeRunner::new(node::DepthSmaaNode, world);
-    let nametags = ViewNodeRunner::new(nametags::NametagsAfterSmaa, world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DepthSmaaLabel;
+
+#[derive(Resource)]
+struct SmaaPassesInstalled(bool);
+
+/// Replaces luma filtering with depth filtering and omits both passes when disabled.
+fn configure_passes(world: &mut World, enabled: bool) {
+    if world
+        .get_resource::<SmaaPassesInstalled>()
+        .is_some_and(|state| state.0 == enabled)
+    {
         return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    let _ = graph.remove_node(Node3d::Smaa);
-    let _ = graph.remove_node(nametags::NametagsAfterSmaaLabel);
-    graph.add_node(Node3d::Smaa, runner);
-    graph.add_node(nametags::NametagsAfterSmaaLabel, nametags);
-    graph.add_node_edges((
-        Node3d::MainTransparentPass,
-        Node3d::Smaa,
-        nametags::NametagsAfterSmaaLabel,
-        crate::ui_render::UiWorldLabel,
-    ));
-    for before in [
-        crate::chunk::GpuCullLateLabel.intern(),
-        crate::entity_shadow_render::EntityShadowLabel.intern(),
-    ] {
-        if graph.get_node_state(before).is_ok() {
-            graph.add_node_edge(before, Node3d::Smaa);
-        }
+    }
+    let configured = world
+        .try_schedule_scope(Core3d, |world, schedule| {
+            use bevy::ecs::schedule::ScheduleCleanupPolicy;
+            let _ = schedule.remove_systems_in_set(
+                bevy::anti_alias::smaa::smaa,
+                world,
+                ScheduleCleanupPolicy::RemoveSystemsOnly,
+            );
+            let _ = schedule.remove_systems_in_set(
+                DepthSmaaLabel,
+                world,
+                ScheduleCleanupPolicy::RemoveSystemsOnly,
+            );
+            let _ = schedule.remove_systems_in_set(
+                nametags::NametagsAfterSmaaLabel,
+                world,
+                ScheduleCleanupPolicy::RemoveSystemsOnly,
+            );
+            if enabled {
+                schedule.add_systems(
+                    (
+                        crate::gpu_timing::profiled(node::depth_smaa, None, "Smaa")
+                            .in_set(DepthSmaaLabel)
+                            .before(crate::motion_blur::graph::MotionBlurLabel),
+                        crate::gpu_timing::profiled(
+                            nametags::nametags_after_smaa,
+                            None,
+                            "NametagsAfterSmaaLabel",
+                        )
+                        .in_set(nametags::NametagsAfterSmaaLabel)
+                        .after(DepthSmaaLabel)
+                        .after(crate::motion_blur::graph::MotionBlurLabel),
+                    )
+                        .after(crate::scene_target::ScenePass::Transparent)
+                        .before(crate::ui_render::UiWorldLabel)
+                        .in_set(Core3dSystems::MainPass),
+                );
+            }
+        })
+        .is_ok();
+    if configured {
+        world.insert_resource(SmaaPassesInstalled(enabled));
     }
 }
 
 /// Reuses the world-camera query across frames without allocating for unchanged views.
 type SmaaCameraQuery = QueryState<Entity, (With<Smaa>, With<Camera3d>)>;
 
-/// Disabled views have no SMAA graph node or pass, including on the launcher camera.
+/// Disabled views have no SMAA pass, including on the launcher camera.
 fn sync_graph(world: &mut World, mut views: Local<Option<SmaaCameraQuery>>) {
     let enabled = views
         .get_or_insert_with(|| world.query_filtered())
         .iter(world)
         .next()
         .is_some();
-    let installed = world
-        .get_resource::<RenderGraph>()
-        .and_then(|graphs| graphs.get_sub_graph(Core3d))
-        .is_some_and(|graph| {
-            graph
-                .get_node_state(Node3d::Smaa)
-                .is_ok_and(|state| state.type_name.contains("DepthSmaaNode"))
-        });
-    if enabled && !installed {
-        install_graph(world);
-    }
-    if !enabled
-        && let Some(mut graphs) = world.get_resource_mut::<RenderGraph>()
-        && let Some(graph) = graphs.get_sub_graph_mut(Core3d)
-    {
-        let _ = graph.remove_node(Node3d::Smaa);
-        let _ = graph.remove_node(nametags::NametagsAfterSmaaLabel);
-    }
-    if enabled
-        && let Some(mut graphs) = world.get_resource_mut::<RenderGraph>()
-        && let Some(graph) = graphs.get_sub_graph_mut(Core3d)
-        && graph
-            .get_node_state(crate::motion_blur::graph::MotionBlurLabel)
-            .is_ok()
-    {
-        for (output_node, input_node) in [
-            (
-                Node3d::Smaa.intern(),
-                crate::motion_blur::graph::MotionBlurLabel.intern(),
-            ),
-            (
-                crate::motion_blur::graph::MotionBlurLabel.intern(),
-                nametags::NametagsAfterSmaaLabel.intern(),
-            ),
-        ] {
-            if !graph.has_edge(&bevy::render::render_graph::Edge::NodeEdge {
-                output_node,
-                input_node,
-            }) {
-                graph.add_node_edge(output_node, input_node);
-            }
-        }
-    }
+    configure_passes(world, enabled);
 }

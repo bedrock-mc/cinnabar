@@ -37,7 +37,7 @@ fn reset_phases(
 ) {
     for view in &views {
         opaque.prepare_for_new_frame(view.retained_view_entity, GpuPreprocessingMode::None);
-        transparent.insert_or_clear(view.retained_view_entity);
+        transparent.prepare_for_new_frame(view.retained_view_entity);
     }
 }
 
@@ -61,7 +61,7 @@ fn inspect_executed_frame(world: &mut World) {
         .get(&retained)
         .unwrap()
         .items
-        .iter()
+        .values()
         .filter(|item| item.draw_function == transparent_draw)
         .map(|item| {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
@@ -145,7 +145,7 @@ fn render_app() -> App {
         .init_resource::<crate::WorldFullbright>()
         .init_resource::<crate::NametagSceneResource>()
         .init_resource::<ExecutedFrames>()
-        .add_systems(Render, reset_phases.in_set(RenderSystems::ManageViews))
+        .add_systems(Render, reset_phases.in_set(RenderSystems::PrepareViews))
         .add_systems(
             Render,
             prepare_view_uniforms.in_set(RenderSystems::PrepareResources),
@@ -301,7 +301,7 @@ fn always_depth_dissolve_mask_queues_before_its_equal_depth_color() {
     assert_eq!(items.len(), 1, "mask and color must share one draw item");
     Transparent3d::sort(items);
     let ranges = items
-        .iter()
+        .values()
         .map(|item| {
             let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
             else {
@@ -385,7 +385,7 @@ fn a_depth_writing_blend_cannot_split_a_sorted_dissolve_pair() {
             .get(&retained)
             .unwrap()
             .items
-            .iter()
+            .values()
             .map(|item| {
                 let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
                 else {

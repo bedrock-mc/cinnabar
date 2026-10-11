@@ -173,6 +173,7 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
     world.init_resource::<UiGlintSettings>();
     let owner = world
         .spawn((
+            crate::render_test_support::camera(false),
             ExtractedView {
                 retained_view_entity: bevy::render::view::RetainedViewEntity::new(
                     Entity::PLACEHOLDER.into(),
@@ -182,7 +183,7 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
                 clip_from_view: Mat4::IDENTITY,
                 world_from_view: GlobalTransform::default(),
                 clip_from_world: None,
-                hdr: false,
+                target_format: crate::SCENE_COLOR_FORMAT,
                 viewport: bevy::math::UVec4::new(0, 0, 254, 124),
                 color_grading: Default::default(),
                 invert_culling: false,

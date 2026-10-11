@@ -8,6 +8,8 @@ pub use depth_smaa::DepthSmaaPlugin;
 mod lighting;
 mod lightmap;
 #[cfg(test)]
+mod render_test_support;
+#[cfg(test)]
 mod shader_test_support;
 pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
@@ -88,6 +90,7 @@ mod shader_safety;
 mod shader_source;
 mod surface_capabilities;
 mod surface_lifecycle;
+mod transparent_phase;
 mod ui_render;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
@@ -250,3 +253,9 @@ mod stars;
 
 #[cfg(test)]
 mod queue_review_support;
+
+/// Colour format used by the ordinary scene and its built-in pipeline variants.
+pub const SCENE_COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Colour format used by the enhanced scene and its built-in pipeline variants.
+pub const SCENE_HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;

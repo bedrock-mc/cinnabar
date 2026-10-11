@@ -35,6 +35,8 @@ const UNIFORM_BYTES: u64 = 32;
 
 pub(super) struct Gpu {
     surface: wgpu::Surface<'static>,
+    instance: wgpu::Instance,
+    window: Arc<Window>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -50,9 +52,11 @@ pub(super) struct Gpu {
 impl Gpu {
     pub(super) fn new(window: Arc<Window>, faces: &PanoramaFaces) -> Result<Self> {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+        let instance = wgpu::Instance::new(
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
+        );
         let surface = instance
-            .create_surface(window)
+            .create_surface(window.clone())
             .context("create window surface")?;
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
         let adapter = runtime
@@ -129,6 +133,8 @@ impl Gpu {
         );
         Ok(Self {
             surface,
+            instance,
+            window,
             device,
             queue,
             config,
@@ -194,8 +200,15 @@ impl Gpu {
 
     /// Presents one frame; a lost or outdated surface is reconfigured and skipped.
     pub(super) fn draw(&mut self, view: &PanoramaView) -> Result<()> {
-        let Some(frame) = acquire_frame(self.surface.get_current_texture(), || {
+        let Some(frame) = acquire_frame(self.surface.get_current_texture(), |recreate| {
+            if recreate {
+                self.surface = self
+                    .instance
+                    .create_surface(self.window.clone())
+                    .context("recreate setup window surface")?;
+            }
             self.surface.configure(&self.device, &self.config);
+            Ok(())
         })?
         else {
             return Ok(());
@@ -225,6 +238,7 @@ impl Gpu {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.panorama_pipeline);
             pass.set_bind_group(0, &self.panorama_group, &[]);
@@ -236,7 +250,7 @@ impl Gpu {
             }
         }
         self.queue.submit([encoder.finish()]);
-        frame.present();
+        self.queue.present(frame);
         Ok(())
     }
 }
@@ -360,8 +374,8 @@ fn pipeline(
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(layout)],
+        immediate_size: 0,
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: None,
@@ -385,24 +399,25 @@ fn pipeline(
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
 
-/// Reconfigures recoverable surface losses and classifies acquisition failures.
-fn acquire_frame<T>(
-    result: Result<T, wgpu::SurfaceError>,
-    mut reconfigure: impl FnMut(),
-) -> Result<Option<T>> {
+/// Skips unavailable frames and requests surface recreation only after a lost surface.
+fn acquire_frame(
+    result: wgpu::CurrentSurfaceTexture,
+    mut reconfigure: impl FnMut(bool) -> Result<()>,
+) -> Result<Option<wgpu::SurfaceTexture>> {
+    use wgpu::CurrentSurfaceTexture as Frame;
     match result {
-        Ok(frame) => Ok(Some(frame)),
-        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-            reconfigure();
+        Frame::Success(frame) | Frame::Suboptimal(frame) => Ok(Some(frame)),
+        Frame::Lost | Frame::Outdated => {
+            reconfigure(matches!(result, Frame::Lost))?;
             Ok(None)
         }
-        Err(wgpu::SurfaceError::Timeout) => Ok(None),
-        Err(error) => Err(error.into()),
+        Frame::Timeout | Frame::Occluded => Ok(None),
+        Frame::Validation => anyhow::bail!("setup surface acquisition failed validation"),
     }
 }
 
@@ -411,12 +426,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn review_fatal_surface_failure_must_not_be_retried() {
+    fn fatal_surface_failure_is_not_retried() {
         let mut reconfigured = false;
-        let result =
-            acquire_frame::<()>(Err(wgpu::SurfaceError::OutOfMemory), || reconfigured = true);
-        // Fatal errors must reach the setup host instead of silently skipping a frame.
+        let result = acquire_frame(wgpu::CurrentSurfaceTexture::Validation, |_| {
+            reconfigured = true;
+            Ok(())
+        });
         assert!(result.is_err(), "fatal surface failure was swallowed");
         assert!(!reconfigured);
+    }
+
+    #[test]
+    fn unavailable_frames_recover_without_reconfiguring_occlusion_or_timeouts() {
+        use wgpu::CurrentSurfaceTexture as Frame;
+        for (frame, expected) in [
+            (Frame::Lost, Some(true)),
+            (Frame::Outdated, Some(false)),
+            (Frame::Timeout, None),
+            (Frame::Occluded, None),
+        ] {
+            let mut recovery = None;
+            assert!(
+                acquire_frame(frame, |recreate| {
+                    recovery = Some(recreate);
+                    Ok(())
+                })
+                .unwrap()
+                .is_none()
+            );
+            assert_eq!(recovery, expected);
+        }
+        assert!(acquire_frame(Frame::Lost, |_| anyhow::bail!("recovery failed")).is_err());
     }
 }

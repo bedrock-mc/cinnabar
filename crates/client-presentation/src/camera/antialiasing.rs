@@ -12,7 +12,6 @@ use bevy::{
             WgpuFeatures,
         },
         renderer::{RenderAdapter, RenderDevice},
-        view::ViewTarget,
     },
 };
 
@@ -58,9 +57,9 @@ pub fn device_support(adapter: &RenderAdapter, device: &RenderDevice) -> CameraA
         }
     };
     let colors = [
-        TextureFormat::bevy_default(),
-        TextureFormat::bevy_default().remove_srgb_suffix(),
-        ViewTarget::TEXTURE_FORMAT_HDR,
+        render::SCENE_COLOR_FORMAT,
+        render::SCENE_COLOR_FORMAT.remove_srgb_suffix(),
+        render::SCENE_HDR_FORMAT,
     ]
     .map(format_features);
     let depth = format_features(CORE_3D_DEPTH_FORMAT);

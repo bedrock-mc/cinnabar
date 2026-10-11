@@ -1,9 +1,6 @@
-//! Opt-in GPU time for every render-graph node, plotted in Tracy as `gpu node <graph>/<label>`.
-//!
-//! `RUST_MCBE_GPU_NODES=1` wraps every node on the first rendered frame, after every plugin
-//! built the graph. Each node is bracketed by timestamps written between passes, so a plot
-//! is the node's elapsed GPU latency, including overlap with neighbours and idle gaps. The
-//! brackets add two empty passes per node: use the plots for attribution, not frame rate.
+//! Opt-in GPU time for render passes, plotted in Tracy as `gpu node <schedule>/<pass>`.
+//! `RUST_MCBE_GPU_NODES=1` adds timestamps between passes. These measure elapsed GPU
+//! latency, including overlap and idle gaps; their empty passes are for attribution.
 //! Results arrive a few frames late through the shared nonblocking device poll.
 
 use super::{
@@ -16,10 +13,7 @@ use bevy::{
         IntoScheduleConfigs, Local, ResMut, Resource, Result, SubApp, World, info, resource_exists,
     },
     render::{
-        Render, RenderSystems,
-        render_graph::{
-            EmptyNode, Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, SlotInfo,
-        },
+        Render, RenderStartup, RenderSystems,
         renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
@@ -42,18 +36,19 @@ pub(super) fn requested() -> bool {
     std::env::var_os("RUST_MCBE_GPU_NODES").is_some_and(|value| value == "1")
 }
 
+/// Installs opt-in pass plots and their nonblocking readback.
 pub(super) fn install(render_app: &mut SubApp) {
+    render_app.add_systems(RenderStartup, initialize);
     render_app.add_systems(
         Render,
-        (wrap_nodes, begin_frame.run_if(resource_exists::<NodeTimer>))
-            .chain()
-            .in_set(RenderSystems::PrepareResources),
-    );
-    render_app.add_systems(
-        Render,
-        request_readback
-            .run_if(resource_exists::<NodeTimer>)
-            .in_set(FrameSubmissions),
+        (
+            begin_frame
+                .run_if(resource_exists::<NodeTimer>)
+                .in_set(RenderSystems::PrepareResources),
+            request_readback
+                .run_if(resource_exists::<NodeTimer>)
+                .in_set(FrameSubmissions),
+        ),
     );
 }
 
@@ -75,6 +70,7 @@ struct NodeTimer {
     plots: Mutex<Vec<PlotName>>,
     /// Section names and their plot indices, registered on first use.
     sections: Mutex<Vec<(&'static str, u16)>>,
+    passes: Mutex<Vec<(&'static str, u16)>>,
     /// Slot of the frame being recorded, or `NO_SLOT`.
     slot: AtomicU32,
     spans: AtomicU32,
@@ -117,7 +113,7 @@ impl NodeTimer {
 #[derive(Clone, Copy)]
 pub(crate) struct SectionSpan<'w> {
     queries: &'w wgpu::QuerySet,
-    begin: u32,
+    pub(super) begin: u32,
 }
 
 impl SectionSpan<'_> {
@@ -141,133 +137,108 @@ impl SectionSpan<'_> {
     }
 }
 
-/// Times one wrapped node; its slots and edges stay on the original node state.
-struct TimedGraphNode {
-    inner: Box<dyn Node>,
-    index: u16,
+/// Claims the current pass's plot without changing command submission order.
+pub(super) fn open_node<'w>(world: &'w World, name: &'static str) -> Option<SectionSpan<'w>> {
+    let timer = world.get_resource::<NodeTimer>()?;
+    let index = {
+        let mut passes = timer.passes.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, index)) = passes.iter().find(|(known, _)| *known == name) {
+            *index
+        } else {
+            let mut plots = timer.plots.lock().unwrap_or_else(PoisonError::into_inner);
+            let index = u16::try_from(plots.len()).ok()?;
+            let path = if name.contains('/') {
+                name.to_owned()
+            } else {
+                format!("Core3d/{name}")
+            };
+            plots.push(PlotName::new_leak(format!("gpu node {path} ms")));
+            passes.push((name, index));
+            index
+        }
+    };
+    Some(SectionSpan {
+        queries: &timer.queries,
+        begin: timer.open(index)?,
+    })
 }
 
-impl Node for TimedGraphNode {
-    fn input(&self) -> Vec<SlotInfo> {
-        self.inner.input()
-    }
-
-    fn output(&self) -> Vec<SlotInfo> {
-        self.inner.output()
-    }
-
-    fn update(&mut self, world: &mut World) {
-        self.inner.update(world);
-    }
-
-    fn run<'w>(
-        &self,
-        graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let timer = world.get_resource::<NodeTimer>();
-        let begin = timer.and_then(|timer| timer.open(self.index));
-        if let (Some(timer), Some(begin)) = (timer, begin) {
-            mark(render_context.command_encoder(), &timer.queries, begin);
-        }
-        let result = self.inner.run(graph, render_context, world);
-        if let (Some(timer), Some(begin)) = (timer, begin) {
-            mark(render_context.command_encoder(), &timer.queries, begin + 1);
-        }
-        result
+/// Closes a pass plot even when the draw was skipped by its camera query.
+pub(super) fn close_node(world: &World, context: &mut RenderContext, begin: u32) {
+    if begin != super::NO_SPAN
+        && let Some(timer) = world.get_resource::<NodeTimer>()
+    {
+        mark(context.command_encoder(), &timer.queries, begin + 1);
     }
 }
 
-/// Copies the frame's spans for readback; runs after every other main-graph node.
-struct ResolveNode;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct NodeTimingResolveLabel;
-
-impl Node for ResolveNode {
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let Some(timer) = world.get_resource::<NodeTimer>() else {
-            return Ok(());
-        };
-        let slot = timer.slot.load(Ordering::Acquire);
-        let spans = timer.spans.load(Ordering::Relaxed).min(CAPACITY);
-        if slot == NO_SLOT || spans == 0 {
-            return Ok(());
-        }
-        let encoder = render_context.command_encoder();
-        let base = slot * CAPACITY * 2;
-        encoder.resolve_query_set(&timer.queries, base..base + spans * 2, &timer.resolve, 0);
-        encoder.copy_buffer_to_buffer(
-            &timer.resolve,
-            0,
-            &timer.slots[slot as usize].buffer,
-            0,
-            u64::from(spans) * 2 * 8,
-        );
-        timer.resolved.store(u64::from(spans), Ordering::Release);
-        Ok(())
-    }
-}
-
-/// Wraps every non-empty node of every graph once, naming each plot `<graph>/<label>`.
-fn wrap_nodes(world: &mut World, mut attempted: Local<bool>) {
-    if std::mem::replace(&mut *attempted, true) {
-        return;
-    }
-    let device = world.resource::<RenderDevice>().clone();
+/// Allocates timing storage once and resolves it after every camera.
+fn initialize(world: &mut World) {
+    let device = world.resource::<RenderDevice>();
     if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
         info!("GPU node timing unavailable: no timestamp queries");
         return;
     }
-    let period_ns = world.resource::<RenderQueue>().get_timestamp_period();
-    let mut names = Vec::new();
-    {
-        let mut graph = world.resource_mut::<RenderGraph>();
-        wrap_graph(&mut graph, "main", &mut names);
-        graph.add_node(NodeTimingResolveLabel, ResolveNode);
-        let labels: Vec<_> = graph
-            .iter_nodes()
-            .map(|state| state.label)
-            .filter(|label| *label != NodeTimingResolveLabel.intern())
-            .collect();
-        for label in labels {
-            let _ = graph.try_add_node_edge(label, NodeTimingResolveLabel);
-        }
-    }
-    info!(
-        nodes = names.len(),
-        "GPU node timing wraps every render-graph node"
+    let timer = timer(
+        device,
+        world.resource::<RenderQueue>().get_timestamp_period(),
     );
-    let plots = names
-        .into_iter()
-        .map(|name| PlotName::new_leak(format!("gpu node {name} ms")))
-        .collect();
-    let mut timer = timer(&device, period_ns);
-    timer.plots = Mutex::new(plots);
     world.insert_resource(timer);
+    install_stock_passes(world);
+    let _ = world.try_schedule_scope(bevy::render::renderer::RenderGraph, |_, schedule| {
+        schedule.add_systems(
+            resolve
+                .after(bevy::core_pipeline::schedule::camera_driver)
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+        );
+    });
 }
 
-fn wrap_graph(graph: &mut RenderGraph, prefix: &str, names: &mut Vec<String>) {
-    for state in graph.iter_nodes_mut() {
-        if state.type_name.ends_with("EmptyNode") || names.len() >= usize::from(u16::MAX) {
-            continue;
+/// Keeps stock post-processing passes visible in opt-in pass timing.
+fn install_stock_passes(world: &mut World) {
+    use bevy::{
+        core_pipeline::{Core3d, Core3dSystems},
+        post_process::bloom::bloom,
+    };
+    let _ = world.try_schedule_scope(Core3d, |world, schedule| {
+        if schedule
+            .remove_systems_in_set(
+                bloom,
+                world,
+                bevy::ecs::schedule::ScheduleCleanupPolicy::RemoveSystemsOnly,
+            )
+            .is_ok_and(|count| count != 0)
+        {
+            schedule.add_systems(
+                super::profiled(bloom, None, "Bloom")
+                    .before(bevy::core_pipeline::tonemapping::tonemapping)
+                    .in_set(Core3dSystems::PostProcess),
+            );
         }
-        let index = names.len() as u16;
-        names.push(format!("{prefix}/{:?}", state.label));
-        let inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
-        state.node = Box::new(TimedGraphNode { inner, index });
-    }
-    for (label, sub_graph) in graph.iter_sub_graphs_mut() {
-        wrap_graph(sub_graph, &format!("{label:?}"), names);
-    }
+    });
 }
 
+/// Copies the frame's pass spans after all camera systems have finished recording.
+fn resolve(timer: Res<NodeTimer>, mut context: RenderContext) {
+    let slot = timer.slot.load(Ordering::Acquire);
+    let spans = timer.spans.load(Ordering::Relaxed).min(CAPACITY);
+    if slot == NO_SLOT || spans == 0 {
+        return;
+    }
+    let encoder = context.command_encoder();
+    let base = slot * CAPACITY * 2;
+    encoder.resolve_query_set(&timer.queries, base..base + spans * 2, &timer.resolve, 0);
+    encoder.copy_buffer_to_buffer(
+        &timer.resolve,
+        0,
+        &timer.slots[slot as usize].buffer,
+        0,
+        u64::from(spans) * 2 * 8,
+    );
+    timer.resolved.store(u64::from(spans), Ordering::Release);
+}
+
+/// Builds bounded query storage for the configured adapter.
 fn timer(device: &RenderDevice, period_ns: f32) -> NodeTimer {
     let device = device.wgpu_device();
     let buffer = |label, usage| {
@@ -301,6 +272,7 @@ fn timer(device: &RenderDevice, period_ns: f32) -> NodeTimer {
         period_ns,
         plots: Mutex::new(Vec::new()),
         sections: Mutex::new(Vec::new()),
+        passes: Mutex::new(Vec::new()),
         slot: AtomicU32::new(NO_SLOT),
         spans: AtomicU32::new(0),
         nodes: std::array::from_fn(|_| AtomicU16::new(0)),
@@ -327,7 +299,8 @@ fn begin_frame(mut timer: ResMut<NodeTimer>) {
                 let bytes = slot
                     .buffer
                     .slice(..u64::from(slot.spans) * 2 * 8)
-                    .get_mapped_range();
+                    .get_mapped_range()
+                    .expect("readback buffer is mapped");
                 let tick = |query: usize| {
                     u64::from_le_bytes(bytes[query * 8..query * 8 + 8].try_into().unwrap())
                 };

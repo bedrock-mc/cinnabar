@@ -135,7 +135,7 @@ impl ChunkGpuArena {
         let device_limits = render_device.limits();
         let limits = arena_limits_from_device_limits(
             device_limits.max_buffer_size,
-            u64::from(device_limits.max_storage_buffer_binding_size),
+            device_limits.max_storage_buffer_binding_size,
         );
         let arena = Self {
             quad_buffer: create_storage_buffer(

@@ -6,7 +6,7 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipeline = CloudPipeline::from_world(&mut World::new());
     crate::shader_test_support::assert_binding_visibility(
-        &crate::shader_source::standalone(include_str!("cloud.wgsl"), &[]),
+        &crate::shader_source::standalone(include_str!("cloud.wesl"), &[]),
         0,
         &pipeline.bind_group_layout,
     );
@@ -22,8 +22,8 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
             assert_eq!(descriptor.primitive.cull_mode, Some(Face::Back));
             let depth = descriptor.depth_stencil.as_ref().unwrap();
             assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-            assert_eq!(depth.depth_compare, CompareFunction::Greater);
-            assert!(!depth.depth_write_enabled);
+            assert_eq!(depth.depth_compare, Some(CompareFunction::Greater));
+            assert_eq!(depth.depth_write_enabled, Some(false));
             let colour = descriptor.fragment.as_ref().unwrap().targets[0]
                 .as_ref()
                 .unwrap();
@@ -35,9 +35,9 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
             assert_eq!(
                 colour.format,
                 if hdr {
-                    ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 } else {
-                    TextureFormat::bevy_default()
+                    crate::SCENE_COLOR_FORMAT
                 }
             );
         }

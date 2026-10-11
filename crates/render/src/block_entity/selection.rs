@@ -18,6 +18,7 @@ pub struct BlockSelectionTarget {
 }
 
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct BlockSelectionFrame {
     pub revision: u64,
     /// Unexpanded endpoint pairs; the GPU supplies screen-space stroke coverage.

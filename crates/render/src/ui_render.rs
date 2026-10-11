@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{GlobalTransform, Mat4};
 use bevy::{
@@ -85,6 +84,7 @@ use render_model::{
 
 /// Main-world holder of the published [`UiRenderScene`], cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct UiRenderSceneResource(pub UiRenderScene);
 
 /// The [`UiRenderStats`] handle both worlds share.

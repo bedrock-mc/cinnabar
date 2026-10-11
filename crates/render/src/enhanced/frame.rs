@@ -19,7 +19,7 @@ pub(crate) const FEATURE_SHAFTS: u32 = 1 << 2;
 pub(crate) const FEATURE_WAVING: u32 = 1 << 3;
 pub(crate) const FEATURE_WATER: u32 = 1 << 4;
 
-/// Mirrors `EnhancedFrame` in `enhanced/common.wgsl`.
+/// Mirrors `EnhancedFrame` in `enhanced/common.wesl`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct EnhancedFrameGpu {
@@ -123,7 +123,7 @@ fn light_view(light_direction: Vec3) -> Mat4 {
     } else {
         Vec3::X
     };
-    Mat4::look_to_rh(Vec3::ZERO, -light_direction, up)
+    glam::camera::rh::view::look_to_mat4(Vec3::ZERO, -light_direction, up)
 }
 
 /// Rotation-invariant cascade whose light-space origin snaps to whole texels,
@@ -154,7 +154,8 @@ pub(crate) fn fit_cascade(
         center.z + radius + SHADOW_CASTER_REACH,
     );
     // View space looks down -Z, so depth distance is the negated z bound.
-    let projection = Mat4::orthographic_rh(min.x, max.x, min.y, max.y, -max.z, -min.z);
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(min.x, max.x, min.y, max.y, -max.z, -min.z);
     CascadeFit {
         clip_from_world: projection * light_from_world,
         texel_world: texel,

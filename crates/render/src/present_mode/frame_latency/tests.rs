@@ -36,26 +36,21 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
     let target = RenderTarget::Window(WindowRef::Entity(entity))
         .normalize(None)
         .unwrap();
-    let mut windows = ExtractedWindows::default();
-    windows.windows.insert(
-        entity,
-        ExtractedWindow {
-            entity,
-            handle: RawHandleWrapper::new(&WindowWrapper::new(TestWindow)).unwrap(),
-            physical_width: 4,
-            physical_height: 4,
-            present_mode: bevy::window::PresentMode::Fifo,
-            desired_maximum_frame_latency: latency,
-            swap_chain_texture_view: None,
-            swap_chain_texture: None,
-            swap_chain_texture_format: None,
-            swap_chain_texture_view_format: None,
-            size_changed: false,
-            present_mode_changed: false,
-            alpha_mode: Default::default(),
-            needs_initial_present: false,
-        },
-    );
+    let handle = RawHandleWrapper::new(&WindowWrapper::new(TestWindow)).unwrap();
+    let mut extracted = ExtractedWindow {
+        physical_width: 4,
+        physical_height: 4,
+        present_mode: bevy::window::PresentMode::Fifo,
+        desired_maximum_frame_latency: latency,
+        swap_chain_texture_view: None,
+        swap_chain_texture: None,
+        swap_chain_texture_format: None,
+        swap_chain_texture_view_format: None,
+        size_changed: false,
+        present_mode_changed: false,
+        alpha_mode: Default::default(),
+        needs_initial_present: false,
+    };
     let (app, _) = crate::queue_review_support::app();
     let device = app
         .world()
@@ -75,11 +70,7 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
         view_formats: &[],
     });
     let view = texture.create_view(&Default::default());
-    windows
-        .windows
-        .get_mut(&entity)
-        .unwrap()
-        .swap_chain_texture_view = Some(view.clone());
+    extracted.swap_chain_texture_view = Some(view.clone());
     let mut attachments = ViewTargetAttachments::default();
     attachments.insert(
         target.clone(),
@@ -87,11 +78,16 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
     );
     let mut world = World::new();
     world.insert_resource(main);
-    world.insert_resource(windows);
+    let render_entity = world
+        .spawn((
+            bevy::render::sync_world::MainEntity::from(entity),
+            extracted,
+            handle,
+        ))
+        .id();
     world.insert_resource(attachments);
     world.init_resource::<ChangedFrameLatency>();
-    world.init_resource::<WindowSurfaces>();
-    (world, entity, target)
+    (world, render_entity, target)
 }
 
 /// Both toggle directions invalidate retained outputs even when the present mode is unchanged.
@@ -107,15 +103,19 @@ fn live_frame_latency_changes_release_cached_surface_outputs() {
                 .contains_key(&target)
         );
 
+        let main_entity = world
+            .get::<bevy::render::sync_world::MainEntity>(entity)
+            .unwrap()
+            .id();
         world
             .resource_mut::<MainWorld>()
-            .entity_mut(entity)
+            .entity_mut(main_entity)
             .get_mut::<Window>()
             .unwrap()
             .desired_maximum_frame_latency = Some(frame_latency_for_vsync(!initial_vsync));
         world.run_system_once(extract_frame_latency).unwrap();
         world.run_system_once(recreate_surfaces).unwrap();
-        let extracted = &world.resource::<ExtractedWindows>().windows[&entity];
+        let extracted = world.get::<ExtractedWindow>(entity).unwrap();
         assert_eq!(
             extracted.desired_maximum_frame_latency,
             Some(frame_latency_for_vsync(!initial_vsync))

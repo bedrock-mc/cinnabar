@@ -397,10 +397,10 @@ fn transparent_indirect_command_upload_is_generation_cached() {
 #[test]
 fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = shader_source::preprocess(include_str!("../../../src/model.wgsl"), &[]);
+    let shader = shader_source::preprocess(include_str!("../../../src/model.wesl"), &[]);
     let compact_plugin: String = plugin.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(compact_plugin.contains(
-        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wgsl\",|source,path|{crate::shader_safety::from_wgsl(crate::material_shader::source(source),path)})"
+        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wesl\",|source,path|{crate::shader_safety::from_wesl(crate::material_shader::source(source),path)})"
     ));
     assert!(plugin.contains("\"packed model pipeline\""));
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
@@ -419,7 +419,7 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("let quad_index = geometry_streams[draw_ref_word + 1u]"));
     assert!(shader.contains("let geometry_word_count = arrayLength(&geometry_streams)"));
     assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
-    assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 0x3fffffffu)"));
+    assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 1073741823u)"));
     assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
     assert!(shader.contains("light_colour(light_sample)"));
     assert!(!shader.contains("block_light"));
@@ -453,7 +453,13 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     );
     assert!(shader.contains("let quad_flags = model_templates[template_quad_base + 11u]"));
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
-    assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
+    assert!(
+        shader
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .contains("if (!front_facing && in.visibility.y == 0u) { discard; }")
+    );
     assert!(!shader.contains("face_light"));
 }
 
@@ -461,12 +467,12 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
 fn transparent_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     let plugin = CHUNK_RENDERER_SOURCE;
     let blend = include_str!("../../../src/chunk/pipeline/layouts/terrain_blend.rs");
-    let shader = shader_source::preprocess(include_str!("../../../src/model.wgsl"), &[]);
+    let shader = shader_source::preprocess(include_str!("../../../src/model.wesl"), &[]);
 
     assert!(plugin.contains("packed transparent terrain pipeline"));
     assert!(plugin.contains("terrain_blend::apply(&mut transparent_descriptor)"));
     assert!(blend.contains("target.blend = Some(BlendState::ALPHA_BLENDING)"));
-    assert!(blend.contains("depth.depth_write_enabled = true"));
+    assert!(blend.contains("depth.depth_write_enabled = Some(true)"));
 
     let blend_start = shader
         .find("fn shade_blend(")
@@ -588,7 +594,7 @@ fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
 
 #[test]
 fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
-    let shader = include_str!("../../../src/model.wgsl");
+    let shader = include_str!("../../../src/model.wesl");
     let assets = flowerbed_runtime_assets();
     for runtime_id in 0..3 {
         let template_id = assets
@@ -736,11 +742,13 @@ fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
     panic!("unterminated {name} body")
 }
 
+/// Counts ordinary render entities separately from Bevy resource entities.
 fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Vec<String>, bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(ChunkRenderPlugin::new(1));
-    let entity_count_before = app.world().entities().len();
+    let mut ordinary_entities = app.world_mut().query_filtered::<bevy::prelude::Entity, bevy::prelude::Without<bevy::ecs::resource::IsResource>>();
+    let entity_count_before = ordinary_entities.iter(app.world()).count();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_insert(
@@ -779,7 +787,7 @@ fn flowerbed_render_entity_contract(mesh: meshing::ChunkMesh) -> (u32, usize, Ve
         })
         .collect::<Vec<_>>();
     (
-        app.world().entities().len() - entity_count_before,
+        u32::try_from(ordinary_entities.iter(app.world()).count() - entity_count_before).unwrap(),
         entities.len(),
         component_names,
         has_mesh3d,

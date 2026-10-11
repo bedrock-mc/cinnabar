@@ -140,7 +140,7 @@ pub fn spawn_fly_camera(
             near_clip_plane: Vec4::new(0.0, 0.0, -1.0, -render_api::CAMERA_NEAR_PLANE_BLOCKS),
             ..default()
         }),
-        Tonemapping::None,
+        Tonemapping::Linear,
         camera,
         perspective_pose(
             view.eye_translation(),

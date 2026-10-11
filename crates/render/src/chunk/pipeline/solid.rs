@@ -209,7 +209,7 @@ mod tests {
             clip_from_view,
             world_from_view: GlobalTransform::from(world_from_view),
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,
@@ -217,7 +217,7 @@ mod tests {
     }
 
     fn perspective() -> Mat4 {
-        Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05)
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 16.0 / 9.0, 0.05)
     }
 
     #[test]
@@ -228,7 +228,8 @@ mod tests {
             Some([40.5, 70.25, -3.0])
         );
         assert_eq!(solid_cull_camera(&view(perspective(), pose), true), None);
-        let orthographic = Mat4::orthographic_rh(-8.0, 8.0, -8.0, 8.0, 0.1, 100.0);
+        let orthographic =
+            glam::camera::rh::proj::directx::orthographic(-8.0, 8.0, -8.0, 8.0, 0.1, 100.0);
         assert_eq!(solid_cull_camera(&view(orthographic, pose), false), None);
         let mirrored = pose.with_scale(Vec3::new(-1.0, 1.0, 1.0));
         assert_eq!(

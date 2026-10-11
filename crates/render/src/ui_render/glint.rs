@@ -4,6 +4,7 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 /// Normalized accessibility factors, independent of the provisional glint artwork.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct UiGlintSettings {
     pub strength: f32,
     pub speed: f32,

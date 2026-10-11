@@ -73,13 +73,13 @@ fn buffer_entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_>
 /// Exercises production fragments and their interpolation interface on a diagonal quad.
 fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let source = if held {
-        let shader = crate::shader_safety::from_actor_wgsl(
-            include_str!("../../hand_rig.wgsl"),
+        let shader = crate::shader_safety::from_actor_wesl(
+            include_str!("../../hand_rig.wesl"),
             "hand",
             crate::actor::ACTOR_GPU_INSTANCE_WORDS,
             render_model::ACTOR_RIG_VERTEX_WORDS,
         );
-        let bevy::shader::Source::Wgsl(source) = shader.source else {
+        let bevy::shader::Source::Wesl(source) = shader.source else {
             unreachable!()
         };
         format!(
@@ -101,7 +101,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     } else {
         format!(
             "{}\n{QUAD}\n{}",
-            crate::shader_source::standalone(include_str!("../../model.wgsl"), &[]),
+            crate::shader_source::standalone(include_str!("../../model.wesl"), &[]),
             r#"
 @vertex fn edge_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let uv = edge_corner(index);
@@ -109,8 +109,8 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.clip_position = edge_position(uv);
     out.uv = uv;
     out.material_flags = MODEL_FIXTURE_CUTOUT;
-    out.visible = 1u;
-    out.two_sided = 1u;
+    out.visibility.x = 1u;
+    out.visibility.y = 1u;
     out.native_light_levels = vec2(15.0);
     out.native_ao_face = 1.0;
     out.tint_gamma = vec3(1.0);

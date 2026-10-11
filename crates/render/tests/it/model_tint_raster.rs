@@ -216,7 +216,7 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
-    let mut source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions)
+    let mut source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     if reference {
         let start = source
@@ -275,7 +275,7 @@ fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
 #[test]
 fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
     for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
-        let source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions);
+        let source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
         for name in ["fragment", "fragment_blend"] {
@@ -308,13 +308,8 @@ fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
         };
         let tint = members
             .iter()
-            .find(|member| {
-                matches!(
-                    member.binding,
-                    Some(naga::Binding::Location { location: 14, .. })
-                )
-            })
-            .expect("ordinary model tint at location 14");
+            .find(|member| member.name.as_deref() == Some("tint_gamma"))
+            .expect("ordinary model tint interpolant");
         assert!(matches!(
             tint.binding,
             Some(naga::Binding::Location {
@@ -543,8 +538,8 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
+    if (in.visibility.x == 0u) { discard; }
+    if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);

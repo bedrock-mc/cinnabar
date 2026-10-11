@@ -148,7 +148,7 @@ mod tests {
         let mut world = World::new();
         let mut state =
             bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
-        let chunks = state.get_mut(&mut world);
+        let chunks = state.get_mut(&mut world).unwrap();
         let gpu = ChunkTextureReload::default();
         preparation
             .request(&candidate, &current, None, &chunks, &gpu)
