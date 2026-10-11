@@ -43,8 +43,8 @@ struct Cache {
 }
 
 /// A bounded session cache shared by the frame's item presentation consumers.
-#[derive(Debug, Default)]
-pub struct ItemStackFactsCache(Mutex<Cache>);
+#[derive(Debug, Clone, Default)]
+pub struct ItemStackFactsCache(Arc<Mutex<Cache>>);
 
 impl ItemStackFactsCache {
     /// Resolves one immutable extra-data allocation, decoding projectiles only for crossbows.
