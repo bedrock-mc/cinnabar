@@ -225,7 +225,7 @@ pub fn read_registry_for_protocol(
             })?
             .into();
         let model_family = crate::family_routing::resolve(
-            protocol == LEGACY_REGISTRY_PROTOCOL,
+            metadata.protocol == LEGACY_REGISTRY_PROTOCOL,
             &name,
             model_family,
         )?;
