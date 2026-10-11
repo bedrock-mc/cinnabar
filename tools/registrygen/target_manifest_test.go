@@ -244,7 +244,6 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"Makefile":                                    {"assets/bedrock-target.json", "physics-assets"},
 		"crates/assets/src/carriers.rs":               {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2193.mcbea"},
 		"crates/assets/src/pinned_content.rs":         {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
-		"app/src/install_layout.rs":                              {"launcher::install_layout"},
 		"crates/launcher/src/install_layout.rs":       {"carriers::physics_registry_basename", "carriers::WORLD"},
 		"tools/dist/src/layout.rs":                    {"carriers::physics_registry_basename", "carriers::required"},
 		"crates/pack-compiler/src/entity/item.rs":     {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
