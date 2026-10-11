@@ -31,8 +31,13 @@ fn consumers_and_cloned_definitions_share_canonical_records_and_values() {
         &first[1].values,
         &block.state_values(1).unwrap()
     ));
-    let owned: Vec<_> = next.into_iter().collect();
-    assert!(Arc::ptr_eq(&first[1].values, &owned[1].values));
+    let mut owned = next.into_iter();
+    assert_eq!(owned.len(), first.len());
+    let head = owned.next().unwrap();
+    assert!(Arc::ptr_eq(&first[0].values, &head.values));
+    assert_eq!(owned.len(), first.len() - 1);
+    let tail: Vec<_> = owned.collect();
+    assert!(Arc::ptr_eq(&first[1].values, &tail[0].values));
     for state in first.iter() {
         assert_eq!(
             state.hash,

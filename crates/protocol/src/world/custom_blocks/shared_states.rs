@@ -38,7 +38,16 @@ impl Iterator for StateIter {
         self.next += 1;
         Some(state)
     }
+
+    /// Reports the remaining records so consumers reserve their output storage once.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.states.len() - self.next;
+        (remaining, Some(remaining))
+    }
 }
+
+impl ExactSizeIterator for StateIter {}
+impl std::iter::FusedIterator for StateIter {}
 
 impl IntoIterator for SharedStates {
     type Item = CustomHashedState;
