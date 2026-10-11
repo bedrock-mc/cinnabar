@@ -2,6 +2,7 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
+mod input_reads;
 mod owner_variables;
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
@@ -37,7 +38,17 @@ pub(super) struct VariableLayout {
     variable_count: usize,
     temp_base: usize,
     temp_count: usize,
+    clip_reads: Vec<Box<[u32]>>,
+    clip_inputs: Vec<PresentationReads>,
+    controller_inputs: Vec<PresentationReads>,
     pub(super) engine: EngineSlots,
+}
+
+/// Immutable camera and attack inputs used to admit scratch presentation evaluation.
+#[derive(Clone, Copy, Default, Debug)]
+pub(super) struct PresentationReads {
+    pub camera: bool,
+    pub swing: bool,
 }
 
 /// Slots of variables the client, not the pack, assigns.
@@ -120,7 +131,9 @@ impl VariableLayout {
     }
 
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
-        Self::from_symbols(assets.molang_symbols())
+        let mut layout = Self::from_symbols(assets.molang_symbols());
+        layout.bind_input_reads(assets);
+        layout
     }
 
     pub(super) fn from_symbols(symbols: &[assets::MolangSymbol]) -> Self {
@@ -141,6 +154,9 @@ impl VariableLayout {
             variable_count,
             temp_base,
             temp_count,
+            clip_reads: Vec::new(),
+            clip_inputs: Vec::new(),
+            controller_inputs: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()
@@ -447,6 +463,19 @@ impl MolangVariables {
             .get(slot?)
             .and_then(Option::as_ref)
             .map(MolangValue::number)
+    }
+
+    /// Compares persistent authored inputs, including assignment presence and value type.
+    pub(super) fn read_changed(
+        &self,
+        completed: &Self,
+        layout: &VariableLayout,
+        symbol: u32,
+    ) -> bool {
+        match layout.place(symbol) {
+            Some(Place::Variable(slot)) => self.values.get(slot) != completed.values.get(slot),
+            Some(Place::Temporary(_)) | None => false,
+        }
     }
 
     pub(super) fn clear_temporaries(&mut self) {

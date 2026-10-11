@@ -36,6 +36,9 @@ pub struct HudModel {
     pub spectator: bool,
     pub title: Option<HudTitle>,
     pub actionbar: Option<Timed>,
+    /// The tip text above the hotbar, which server packs reposition (the
+    /// Lumine array list moves it to the screen's top right).
+    pub tip: Option<Timed>,
     pub item_name: Option<Timed>,
     pub chat: Vec<Timed>,
     pub chat_visible: bool,
@@ -115,6 +118,8 @@ pub fn hud_context(base: &Context) -> Context {
 const TITLE_CLOCK: &str = "hud_title_text";
 const ACTIONBAR_CLOCK: &str = "hud_actionbar_text";
 const ITEM_NAME_CLOCK: &str = "item_name_text";
+/// The tip text's own fade clock, named by `hud_tip_text`'s `$destroy_id`.
+const TIP_CLOCK: &str = "popup_tip_text";
 
 /// When the title, action bar, and item name were last set, the clocks their
 /// fades read at paint time (so a re-send does not re-bind the screen).
@@ -129,6 +134,7 @@ pub fn hud_clocks(model: &HudModel) -> std::collections::BTreeMap<String, f64> {
             ITEM_NAME_CLOCK,
             model.item_name.as_ref().map(|item| item.born),
         ),
+        (TIP_CLOCK, model.tip.as_ref().map(|tip| tip.born)),
     ]
     .into_iter()
     .filter_map(|(clock, born)| Some((clock.to_owned(), born?)))
@@ -195,6 +201,19 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         model.offhand.iter().map(slot_item).collect(),
     );
     titles(&mut data, model);
+    if let Some(tip) = &model.tip {
+        data.set_global("#tip_text", Scalar::Text(tip.text.clone()));
+        // The tip text's own factory: its `$destroy_id` names the instance the
+        // fade removes, and the clock restarts that fade on a re-send.
+        data.set_factory(
+            "hud_tip_text_factory",
+            vec![
+                FactoryItem::new("tip_text", tip.born)
+                    .clocked(TIP_CLOCK)
+                    .named("popup_tip_text"),
+            ],
+        );
+    }
     if let Some(item) = &model.item_name {
         data.set_global("#item_text", Scalar::Text(item.text.clone()));
         data.set_factory(

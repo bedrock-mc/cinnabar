@@ -30,7 +30,7 @@ use bevy::{
 
 use crate::{
     AtmosphereFrame,
-    atmosphere_render::{AtmosphereGpu, upload_rgba},
+    atmosphere_render::{AtmosphereGpu, textures::upload_rgba},
     weather::{
         MAX_PRECIPITATION_LAYERS, OCCLUSION_SIDE, PrecipitationLayerRecord, PrecipitationScene,
         WeatherTextureAssets, particle_mesh,

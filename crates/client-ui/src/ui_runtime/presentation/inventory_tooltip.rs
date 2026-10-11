@@ -1,6 +1,6 @@
 //! Item tooltip text: name, enchantments and lore.
 
-use protocol::{NetworkItemStack, item_display};
+use protocol::NetworkItemStack;
 
 use super::UiRuntime;
 use super::hud_layout::TooltipLine;
@@ -109,9 +109,10 @@ pub(super) fn tooltip_lines(
     identifier: Option<&str>,
     stated_name: Option<&str>,
 ) -> Vec<TooltipLine> {
-    let display = item_display(&stack.extra_data);
+    let facts = runtime.stack_facts(stack, identifier);
+    let display = &facts.display;
     let mut lines = vec![
-        name_line(runtime, identifier, stated_name, &display).unwrap_or_else(|| TooltipLine {
+        name_line(runtime, identifier, stated_name, display).unwrap_or_else(|| TooltipLine {
             text: "Unknown Item".to_owned(),
             color: NAME_COLOR,
         }),

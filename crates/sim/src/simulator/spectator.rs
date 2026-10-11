@@ -30,6 +30,7 @@ pub(super) fn tick(
     next.movement = next.velocity;
     next.position = (next.position + next.velocity).rounded();
     flight::apply_drag(&mut next.velocity, &input, controls.move_vector, 1.0);
+    next.collision_shape = None;
     next.on_ground = false;
     next.collisions = AxisCollisions::default();
     next.jump_delay = 0;

@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+pub(crate) mod color;
+mod effect_members;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
@@ -51,6 +53,7 @@ pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
+pub(crate) const ACTOR_FLAG_TAMED: u32 = 28;
 const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
 const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
@@ -289,6 +292,9 @@ impl ActorSnapshot {
             LocalItemUse::Unpredicted => {}
             LocalItemUse::Idle => self.set_flag(ACTOR_FLAG_USING_ITEM, false),
             LocalItemUse::Using => self.set_flag(ACTOR_FLAG_USING_ITEM, true),
+            LocalItemUse::Predicted { elapsed_ticks, .. } => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, elapsed_ticks.is_some());
+            }
         }
     }
 
@@ -397,6 +403,13 @@ impl ActorSnapshot {
             feet[1] += 0.66 * (max[1] - min[1]);
         }
         feet
+    }
+
+    /// Restores the native actor-state origin from stored collision feet.
+    pub fn native_position(&self) -> [f32; 3] {
+        let mut position = self.position;
+        position[1] += self.network_position_offset();
+        position
     }
 
     /// Offset from stored collision feet to the native actor-state position.
@@ -692,6 +705,12 @@ pub enum LocalItemUse {
     Idle,
     /// A predicted item is in use.
     Using,
+    /// Gameplay's selected-stack clock, including charge-duration modifiers and loaded state.
+    Predicted {
+        elapsed_ticks: Option<u32>,
+        max_ticks: u32,
+        charged: bool,
+    },
 }
 
 /// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
@@ -710,6 +729,7 @@ pub(crate) struct ActorStore {
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
+    effect_members: effect_members::EffectMembers,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
     max_actor_links: usize,
@@ -750,6 +770,7 @@ pub(crate) struct ActorStore {
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
+    local_item_use: LocalItemUse,
     local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.

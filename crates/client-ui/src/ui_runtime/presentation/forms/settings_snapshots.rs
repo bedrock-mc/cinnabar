@@ -412,3 +412,53 @@ fn settings_vrr_choices_snapshot() {
         );
     }
 }
+
+/// The added Video toggle is actionable in both persisted states through the real carrier.
+#[test]
+fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
+    use launcher::menu::{
+        MenuAction,
+        settings_options::{NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS},
+    };
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping native_skybox_offset_video_toggle_is_reachable_in_both_states: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|o| o.name == NATIVE_SKYBOX_OFFSET_OPTION.name)
+        .unwrap() as u16;
+    let mut view = crate::test_support::settings_view();
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    for enabled in [true, false] {
+        std::sync::Arc::make_mut(&mut view.settings_options)
+            .set(index as usize, i32::from(enabled));
+        crate::test_support::draw_menu_actions(&player, &mut presentation, &view);
+        let action = MenuAction::SettingsOption(index, i32::from(!enabled));
+        assert!(
+            presentation
+                .menu_focus_actions()
+                .any(|candidate| candidate == action)
+        );
+        view.focused_action = Some(action);
+        assert!(
+            crate::test_support::draw_menu_actions(&player, &mut presentation, &view)
+                .contains(&action)
+        );
+        super::play_flow_snapshots::snapshot(
+            &player,
+            &view,
+            if enabled {
+                "settings-skybox-native"
+            } else {
+                "settings-skybox-centered"
+            },
+        );
+    }
+}

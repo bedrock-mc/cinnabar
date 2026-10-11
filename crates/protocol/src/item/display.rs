@@ -31,11 +31,11 @@ pub fn item_display(extra_data: &[u8]) -> ItemDisplay {
     let Some(nbt) = decode_extra_nbt(extra_data) else {
         return display;
     };
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     if let Some(payload) = root_tag(&mut cursor, TAG_COMPOUND, b"display") {
         read_display(payload, &mut display);
     }
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     if let Some(payload) = root_tag(&mut cursor, TAG_LIST, b"ench") {
         read_enchantments(payload, &mut display);
     }
@@ -62,7 +62,7 @@ pub fn item_book(extra_data: &[u8]) -> ItemBook {
         return book;
     };
     for (name, target) in [(&b"title"[..], 0), (&b"author"[..], 1)] {
-        let mut cursor = &nbt[..];
+        let mut cursor = nbt;
         if let Some(mut payload) = root_tag(&mut cursor, TAG_STRING, name)
             && let Some(text) = read_text(&mut payload)
         {
@@ -73,7 +73,7 @@ pub fn item_book(extra_data: &[u8]) -> ItemBook {
             }
         }
     }
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     if let Some(payload) = root_tag(&mut cursor, TAG_LIST, b"pages") {
         read_pages(payload, &mut book);
     }
@@ -114,7 +114,7 @@ fn read_pages(mut list: &[u8], book: &mut ItemBook) {
 #[must_use]
 pub fn item_has_enchantment_list(extra_data: &[u8]) -> bool {
     decode_extra_nbt(extra_data).is_some_and(|nbt| {
-        let mut cursor = &nbt[..];
+        let mut cursor = nbt;
         root_tag(&mut cursor, TAG_LIST, b"ench").is_some()
     })
 }
@@ -123,7 +123,7 @@ pub fn item_has_enchantment_list(extra_data: &[u8]) -> bool {
 #[must_use]
 pub fn item_bundle_id(extra_data: &[u8]) -> Option<u32> {
     let nbt = decode_extra_nbt(extra_data)?;
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     let mut payload = root_tag(&mut cursor, TAG_INT, b"bundle_id")?;
     u32::try_from(read_i32_le(&mut payload)?).ok()
 }

@@ -22,6 +22,7 @@ rustix = { version = "1", default-features = false, features = ["net", "process"
 sha2.workspace = true
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 sha2.workspace = true
 tempfile = "3"
 

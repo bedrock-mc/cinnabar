@@ -191,7 +191,15 @@ fn suppress_chat(control: &mut RawControl, chat: &BTreeSet<ControlRef>) {
 }
 
 fn collect_definition(catalog: &Catalog, reference: ControlRef, seen: &mut BTreeSet<ControlRef>) {
-    if reference.namespace != "hud" || !seen.insert(reference.clone()) {
+    // Top chat measures these pack-owned controls through invisible padding.
+    // Restoring chat must preserve their server textures, bindings and offsets.
+    if reference.namespace != "hud"
+        || matches!(
+            reference.name.as_str(),
+            "player_position" | "number_of_days_played"
+        )
+        || !seen.insert(reference.clone())
+    {
         return;
     }
     let Some(control) = catalog.lookup(&reference.namespace, &reference.name) else {

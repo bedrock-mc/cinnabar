@@ -4,7 +4,6 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -67,15 +66,13 @@ fn completed_add_account_helper_preserves_cancel_focus() {
     menu.dialog = Some(MenuDialog::Accounts);
     menu.feeds.account_adding = true;
     menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !matches!(
-        menu.current_auth().as_ref(),
-        AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. }
-    ) && Instant::now() < deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        matches!(
+            menu.current_auth().as_ref(),
+            AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. }
+        )
+    });
     assert!(matches!(
         menu.current_auth().as_ref(),
         AuthState::AwaitingCode { .. } | AuthState::AwaitingXboxSignup { .. }
@@ -85,13 +82,10 @@ fn completed_add_account_helper_preserves_cancel_focus() {
     assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));
     input.write_all(b"finish\n").unwrap();
     input.flush().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !matches!(menu.current_auth().as_ref(), AuthState::Authenticated)
-        && Instant::now() < deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        matches!(menu.current_auth().as_ref(), AuthState::Authenticated)
+    });
     assert_eq!(menu.current_auth().as_ref(), &AuthState::Authenticated);
     menu.poll_accounts();
     let focused = menu.view().focused_action;
@@ -426,16 +420,12 @@ fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
         Some(AuthState::SignedOut)
     ));
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !menu
-        .auth_process
-        .as_ref()
-        .is_some_and(AuthSupervisor::cleanup_complete)
-        && Instant::now() < deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        menu.auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+    });
     assert!(
         menu.auth_process
             .as_ref()
@@ -456,15 +446,13 @@ fn authenticated_connect_waits_for_sign_in_reap_and_keeps_validated_cache() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
     menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
 
-    let authenticated_deadline = Instant::now() + Duration::from_secs(5);
-    while !matches!(
-        menu.auth_process.as_ref().map(AuthSupervisor::state),
-        Some(AuthState::Authenticated)
-    ) && Instant::now() < authenticated_deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Authenticated)
+        )
+    });
     assert!(matches!(
         menu.auth_process.as_ref().map(AuthSupervisor::state),
         Some(AuthState::Authenticated)
@@ -472,16 +460,12 @@ fn authenticated_connect_waits_for_sign_in_reap_and_keeps_validated_cache() {
 
     menu.request_connect("authenticated.example:19132".to_owned());
     assert!(menu.take_join_intent().is_none());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !menu
-        .auth_process
-        .as_ref()
-        .is_some_and(AuthSupervisor::cleanup_complete)
-        && Instant::now() < deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        menu.auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+    });
     assert!(
         menu.auth_process
             .as_ref()
@@ -503,31 +487,25 @@ fn validation_failure_releases_the_queued_connection_offline() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
     menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
 
-    let failed_deadline = Instant::now() + Duration::from_secs(5);
-    while !matches!(
-        menu.auth_process.as_ref().map(AuthSupervisor::state),
-        Some(AuthState::Failed(_))
-    ) && Instant::now() < failed_deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        matches!(
+            menu.auth_process.as_ref().map(AuthSupervisor::state),
+            Some(AuthState::Failed(_))
+        )
+    });
     assert!(matches!(
         menu.auth_process.as_ref().map(AuthSupervisor::state),
         Some(AuthState::Failed(_))
     ));
 
     menu.request_connect("offline-after-failure.example:19132".to_owned());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !menu
-        .auth_process
-        .as_ref()
-        .is_some_and(AuthSupervisor::cleanup_complete)
-        && Instant::now() < deadline
-    {
+    test_time::wait_until(Duration::from_secs(5), || {
         menu.poll_sign_in();
-        thread::sleep(Duration::from_millis(5));
-    }
+        menu.auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+    });
     assert!(
         menu.auth_process
             .as_ref()

@@ -24,6 +24,7 @@ pub(super) struct ScreenKey<'a> {
     pub(super) px: f32,
     /// The language tables text measures with.
     pub(super) text: [usize; 3],
+    pub(super) texture_metadata: u64,
 }
 
 struct Entry {
@@ -35,6 +36,7 @@ struct Entry {
     root: [f64; 2],
     px: f32,
     text: [usize; 3],
+    texture_metadata: u64,
     render: Arc<FormRender>,
 }
 
@@ -45,6 +47,7 @@ impl Entry {
             && self.root == key.root
             && self.px == key.px
             && self.text == key.text
+            && self.texture_metadata == key.texture_metadata
             && self.view.same_layout(key.view)
             && self.context == *key.context
             && self.data == *key.data
@@ -88,6 +91,11 @@ struct Bound {
 }
 
 impl ScreenCache {
+    /// Retires texture-dependent geometry while preserving resolved controls and live bindings.
+    pub(super) fn invalidate_layouts(&self) {
+        lock(&self.laid).clear();
+    }
+
     /// The cached render for `key`, else `render()`'s, remembered in place of
     /// the oldest entry.
     pub(super) fn get_or_render(
@@ -117,6 +125,7 @@ impl ScreenCache {
             root: key.root,
             px: key.px,
             text: key.text,
+            texture_metadata: key.texture_metadata,
             render: Arc::clone(&rendered),
         });
         Some(rendered)
@@ -272,6 +281,7 @@ mod tests {
             root,
             px: 2.0,
             text: [0; 3],
+            texture_metadata: 0,
         };
         let first = cache.get_or_render(key([400.0, 300.0]), render).unwrap();
         let again = cache

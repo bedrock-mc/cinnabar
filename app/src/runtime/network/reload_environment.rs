@@ -78,6 +78,23 @@ fn prepare_atmosphere(
     let mut textures = Vec::new();
     let mut digest = Sha256::new();
     digest.update(base.identity());
+    let skyboxes = client_session::pack_skybox::prepare_pack_skyboxes(view);
+    let has_skyboxes = skyboxes.iter().any(|cube| cube.face_mask() != 0);
+    if has_skyboxes {
+        digest.update(b"numbered pack skybox\0");
+        for (dimension, cube) in assets::SkyboxDimension::ALL.into_iter().zip(&skyboxes) {
+            digest.update([dimension as u8]);
+            digest.update(cube.face_mask().to_le_bytes());
+            for (face, image) in cube.faces.iter().enumerate() {
+                if let Some(image) = image {
+                    digest.update([face as u8]);
+                    digest.update(image.width.to_le_bytes());
+                    digest.update(image.height.to_le_bytes());
+                    digest.update(&image.rgba8);
+                }
+            }
+        }
+    }
     for texture in runtime.textures() {
         let Some(decoded) = decode_pack_texture(view, &texture.source_path) else {
             continue;
@@ -131,20 +148,31 @@ fn prepare_atmosphere(
         && fogs.values().eq(runtime.fog_profiles())
         && biomes.values().eq(runtime.biome_profiles())
     {
-        return base.clone();
+        return if has_skyboxes {
+            base.clone()
+                .with_skyboxes(skyboxes, digest.finalize().into())
+        } else {
+            base.clone()
+        };
     }
-    match runtime.with_resource_pack_overrides(
+    let prepared = match runtime.with_resource_pack_overrides(
         &textures,
         &biomes.into_values().collect::<Vec<_>>(),
         &fogs.into_values().collect::<Vec<_>>(),
     ) {
-        Ok(runtime) => {
-            render::AtmosphereTextureAssets::new(Arc::new(runtime), digest.finalize().into())
-        }
+        Ok(runtime) => render::AtmosphereTextureAssets::new(
+            Arc::new(runtime),
+            digest.clone().finalize().into(),
+        ),
         Err(error) => {
             bevy::log::warn!(%error, "optional pack atmosphere ignored");
             base.clone()
         }
+    };
+    if has_skyboxes {
+        prepared.with_skyboxes(skyboxes, digest.finalize().into())
+    } else {
+        prepared
     }
 }
 

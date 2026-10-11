@@ -40,18 +40,19 @@ impl ActorStore {
 
     fn advance_dragon_beams_with(&mut self, mut refresh: impl FnMut(&ActorSnapshot) -> bool) {
         let selections = self
-            .actors
-            .values()
-            .filter(|actor| kind(actor, "minecraft:ender_dragon"))
+            .effect_members
+            .dragons
+            .iter()
+            .filter_map(|runtime| self.actors.get(runtime))
             .map(|dragon| {
                 let selected = if !alive(dragon) {
                     None
                 } else if refresh(dragon) {
-                    self.actors
-                        .values()
-                        .filter(|crystal| {
-                            kind(crystal, "minecraft:ender_crystal") && alive(crystal)
-                        })
+                    self.effect_members
+                        .crystals
+                        .iter()
+                        .filter_map(|runtime| self.actors.get(runtime))
+                        .filter(|crystal| alive(crystal))
                         .filter_map(|crystal| {
                             let squared: f32 = (0..3)
                                 .map(|axis| {
@@ -89,31 +90,35 @@ impl ActorStore {
         &self,
         alpha: f32,
     ) -> impl Iterator<Item = CrystalBeamView> + '_ {
-        self.actors.values().filter_map(move |dragon| {
-            if !kind(dragon, "minecraft:ender_dragon") || !alive(dragon) {
-                return None;
-            }
-            let (runtime, revision) = dragon.status.healing_crystal?;
-            let crystal = self.actors.get(&runtime)?;
-            if crystal.spawn_revision != revision
-                || !alive(crystal)
-                || !kind(crystal, "minecraft:ender_crystal")
-            {
-                return None;
-            }
-            let owner_position = dragon.interpolated_position(alpha)?;
-            let mut target = owner_position;
-            target[1] += 2.0;
-            let mut crystal = crystal.interpolated_position(alpha)?;
-            crystal[1] += 1.0;
-            Some(CrystalBeamView {
-                runtime_id: dragon.runtime_id,
-                owner_position,
-                target,
-                crystal,
-                age_ticks: dragon.status.age_ticks as f32 + alpha,
+        self.effect_members
+            .dragons
+            .iter()
+            .filter_map(move |runtime| {
+                let dragon = self.actors.get(runtime)?;
+                if !kind(dragon, "minecraft:ender_dragon") || !alive(dragon) {
+                    return None;
+                }
+                let (runtime, revision) = dragon.status.healing_crystal?;
+                let crystal = self.actors.get(&runtime)?;
+                if crystal.spawn_revision != revision
+                    || !alive(crystal)
+                    || !kind(crystal, "minecraft:ender_crystal")
+                {
+                    return None;
+                }
+                let owner_position = dragon.interpolated_position(alpha)?;
+                let mut target = owner_position;
+                target[1] += 2.0;
+                let mut crystal = crystal.interpolated_position(alpha)?;
+                crystal[1] += 1.0;
+                Some(CrystalBeamView {
+                    runtime_id: dragon.runtime_id,
+                    owner_position,
+                    target,
+                    crystal,
+                    age_ticks: dragon.status.age_ticks as f32 + alpha,
+                })
             })
-        })
     }
 }
 

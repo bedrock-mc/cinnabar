@@ -165,10 +165,10 @@ pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming, ItemBook,
     ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
-    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
-    item_charged_projectile, item_components, item_custom_color, item_display,
+    ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, KineticWeaponTiming,
+    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
+    MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book,
+    item_bundle_id, item_charged_projectile, item_components, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
     item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
@@ -269,3 +269,6 @@ pub use movement_transport::{BatchSendError, InteractionPacketGuard, PhysicsSend
 
 mod fast_transfer_action;
 pub use fast_transfer_action::FastTransferAction;
+
+#[cfg(test)]
+mod test_allocations;

@@ -782,8 +782,21 @@ pub fn prepare_actor_render_frame(
             ..Default::default()
         },
         |stream| {
-            let (block, sky) = authoritative_subject_eye
-                .map_or((0, 0), |eye| stream.light_level_at(eye.to_array()));
+            let (block, sky) = stream
+                .authority()
+                .actor(local_runtime_id)
+                .and_then(|actor| {
+                    let feet = visibility_snapshot
+                        .filter(|visibility| visibility.runtime_id() == local_runtime_id)
+                        .map(|visibility| visibility.feet().to_array())
+                        .or(input.predicted_feet)
+                        .unwrap_or(actor.position);
+                    stream.actor_light_at(actor, feet)
+                })
+                .or_else(|| {
+                    authoritative_subject_eye.map(|eye| stream.light_level_at(eye.to_array()))
+                })
+                .unwrap_or((0, 0));
             HandRigLight {
                 block_level: u32::from(block),
                 sky_level: u32::from(sky),

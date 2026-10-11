@@ -135,10 +135,10 @@ impl InventorySession {
         );
         match &sequenced.event {
             InventoryAuthorityEvent::Registry(registry) => {
-                self.inventory_ledger.apply_registry(registry)
+                self.ledger_mut().apply_registry(registry)
             }
             InventoryAuthorityEvent::Inventory(event) => {
-                self.inventory_ledger.apply(event);
+                self.ledger_mut().apply(event);
                 if let InventoryEvent::SelectedSlot(selected) = event
                     && selected.select_slot
                     && selected.slot < protocol::HOTBAR_SLOT_COUNT
@@ -150,6 +150,14 @@ impl InventorySession {
             }
         }
         Some(sequenced)
+    }
+
+    /// Apply one event preceding `sequence`, leaving later inventory updates queued.
+    pub fn apply_next_before(&mut self, sequence: u64) -> Option<SequencedInventoryEvent> {
+        if self.pending_inventory.front()?.fifo_sequence >= sequence {
+            return None;
+        }
+        self.apply_next()
     }
 
     /// Advance crafting once after all FIFO events and their presentation effects have drained.

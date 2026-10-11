@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, process::Command};
 
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTextureRole, RuntimeHudCatalog};
 use pack_compiler::compile_hud_assets;
@@ -68,9 +68,10 @@ fn stale_or_custom_pack_is_rejected_against_the_reviewed_source_inventory() {
 }
 
 #[test]
-#[ignore = "requires PINNED_BEDROCK_SAMPLES_PACK pointing at the pinned full sample resource_pack"]
 fn exact_official_sample_pack_compiles_all_reviewed_hud_sources() {
-    let pack = PathBuf::from(std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK").unwrap());
+    let Some(pack) = crate::fixture_input::env_path("PINNED_BEDROCK_SAMPLES_PACK") else {
+        return;
+    };
     let compiled = compile_hud_assets(&pack, SOURCE_MANIFEST).unwrap();
     let runtime = RuntimeHudCatalog::decode(&compiled.bytes).unwrap();
 

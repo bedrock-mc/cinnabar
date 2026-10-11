@@ -102,6 +102,7 @@ struct Laid {
     root: [f64; 2],
     px: f32,
     language: [usize; 3],
+    texture_metadata: u64,
     render: FormRender,
 }
 
@@ -178,6 +179,7 @@ impl CachedScreen {
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
+        let texture_metadata = env.textures.metadata_revision();
         let fresh = self.laid.as_ref().is_some_and(|laid| {
             !self.binding.has_pending_visibility()
                 && laid.reference == reference
@@ -185,6 +187,7 @@ impl CachedScreen {
                 && laid.root == root
                 && laid.px == px
                 && laid.language == language
+                && laid.texture_metadata == texture_metadata
                 && self
                     .resolved
                     .as_ref()
@@ -223,7 +226,10 @@ impl CachedScreen {
             };
             let previous = self.laid.take().filter(|_| current);
             let same_frame = previous.as_ref().is_some_and(|laid| {
-                laid.root == root && laid.px == px && laid.language == language
+                laid.root == root
+                    && laid.px == px
+                    && laid.language == language
+                    && laid.texture_metadata == texture_metadata
             });
             let bound = match previous {
                 Some(laid) => {
@@ -256,6 +262,7 @@ impl CachedScreen {
                 root,
                 px,
                 language,
+                texture_metadata,
             });
         }
         self.laid.as_ref().map(|laid| &laid.render)
@@ -585,6 +592,7 @@ fn hud_model(
         spectator: !mode_allows_hotbar,
         title,
         actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
         chat_visible,
@@ -754,6 +762,10 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 #[path = "hud/cache_tests.rs"]
 mod cache_tests;
+
+#[cfg(test)]
+#[path = "hud/texture_metadata_tests.rs"]
+mod texture_metadata_tests;
 
 #[cfg(test)]
 #[path = "hud/life_state_tests.rs"]

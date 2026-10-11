@@ -447,6 +447,7 @@ fn same_shape(new: &UiNode, old: &UiNode) -> bool {
         && new.focusable == old.focusable
         && new.navigation_order == old.navigation_order
         && new.clip_children == old.clip_children
+        && new.viewport_clip == old.viewport_clip
         && new.world_projection == old.world_projection
 }
 
@@ -456,7 +457,7 @@ fn draw_clip(node: &UiNode, inherited: UiRect) -> Result<UiRect, UiError> {
         Some(projection) => projection
             .viewport_clip()
             .map_err(|_| UiError::InvalidWorldProjection { node: node.id }),
-        None => Ok(inherited),
+        None => Ok(node.viewport_clip.unwrap_or(inherited)),
     }
 }
 

@@ -12,7 +12,7 @@ use ui::BoundedStat;
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
-const MILLIS_PER_SERVER_TICK: u64 = 50;
+pub(super) const MILLIS_PER_SERVER_TICK: u64 = world::TICK_DURATION.as_millis() as u64;
 
 /// The reference charges the mount jump bar from empty to full over half a
 /// second of held jump input; pinned in milliseconds as a bounded recorded
@@ -186,7 +186,21 @@ impl UiRuntime {
     /// queue would otherwise grow without a consumer until the Phase 5.5
     /// container store takes over this drain.
     pub fn drain_pending_inventory(&mut self, player_runtime: &mut player_state::PlayerState) {
-        while let Some(sequenced) = player_runtime.inventory.apply_next() {
+        self.drain_inventory_prefix(player_runtime, None);
+        player_runtime.inventory.finish_drain();
+        self.sample_crafting_observation(player_runtime);
+    }
+
+    /// Updates inventory presentation only through the transport prefix before an item event.
+    pub(super) fn drain_inventory_prefix(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        before: Option<u64>,
+    ) {
+        while let Some(sequenced) = match before {
+            Some(sequence) => player_runtime.inventory.apply_next_before(sequence),
+            None => player_runtime.inventory.apply_next(),
+        } {
             let event = match sequenced.event {
                 inventory::InventoryAuthorityEvent::Inventory(event) => event,
                 inventory::InventoryAuthorityEvent::Registry(registry) => {
@@ -265,8 +279,6 @@ impl UiRuntime {
                 &inventory::InventoryAuthorityEvent::Inventory(event),
             );
         }
-        player_runtime.inventory.finish_drain();
-        self.sample_crafting_observation(player_runtime);
     }
 
     pub fn apply_local_attributes(
@@ -440,15 +452,18 @@ impl UiRuntime {
     /// translation and item display names.
     pub fn set_lang_catalog(&mut self, catalog: Arc<assets::RuntimeLangCatalog>) {
         self.lang_catalog = Some(catalog);
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     /// The UI language's table, consulted before en_US.
     pub fn set_active_language(&mut self, catalog: Option<Arc<assets::RuntimeLangCatalog>>) {
         self.active_lang = catalog;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     pub fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
         self.server_lang = overlay;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     pub fn set_session_icons(&mut self, icons: Option<Arc<super::presentation::SessionIcons>>) {
@@ -475,6 +490,12 @@ impl UiRuntime {
         items: Option<Arc<super::item_facts::SessionItemComponents>>,
     ) {
         self.session_items = items;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
+    }
+
+    /// Identifies all component and language inputs used to resolve item names.
+    pub const fn item_name_generation(&self) -> u64 {
+        self.item_name_generation
     }
 
     /// The server's components for `identifier` this session.
@@ -483,7 +504,35 @@ impl UiRuntime {
     }
 
     pub fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
-        super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
+        super::item_facts::glint_for_facts(
+            self.stack_facts(stack, Some(identifier))
+                .has_enchantment_list,
+            identifier,
+            self.item_components(identifier),
+        )
+    }
+
+    /// Returns shared immutable NBT facts; descriptor and language generations are resolved separately.
+    pub fn stack_facts(
+        &self,
+        stack: &protocol::NetworkItemStack,
+        identifier: Option<&str>,
+    ) -> Arc<protocol::ItemStackFacts> {
+        self.stack_facts
+            .get(&stack.extra_data, identifier == Some("minecraft:crossbow"))
+    }
+
+    /// Resolves a cell's bar from cached damage and the latest authority correction.
+    pub fn stack_durability(
+        &self,
+        stack: &protocol::NetworkItemStack,
+        maximum: Option<u32>,
+        correction: Option<i32>,
+    ) -> Option<f32> {
+        let damage = correction
+            .and_then(|damage| u32::try_from(damage).ok())
+            .or_else(|| self.stack_facts(stack, None).damage)?;
+        super::item_facts::durability_fraction_for_damage(maximum, damage)
     }
 
     /// A damageable item's maximum: the server's durability component, else the vanilla table.
@@ -546,7 +595,7 @@ impl UiRuntime {
                 .translation(name)
                 .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
         }
-        if self.server_lang.is_some() || self.lang_catalog.is_some() {
+        if self.server_lang.is_some() || self.active_lang.is_some() || self.lang_catalog.is_some() {
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
                 if let Some(value) = self.translation(&key) {

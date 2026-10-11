@@ -180,15 +180,13 @@ fn a_new_account_retires_the_authenticated_core_even_when_sign_in_mode_is_unchan
         "old profile data must not enter the new account"
     );
     // The retire signal belongs to `drive`; taking it here races the sender's drop.
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while slot.retiring.is_some() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the retired core never finished stopping"
-        );
-        std::thread::sleep(Duration::from_millis(10));
+    test_time::eventually_within(Duration::from_secs(5), "the retired core to stop", || {
+        if slot.retiring.is_none() {
+            return true;
+        }
         drive(&mut slot, &mut menu, &mut world, true);
-    }
+        false
+    });
     assert_eq!(slot.failed, Some(true));
 }
 

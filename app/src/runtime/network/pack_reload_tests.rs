@@ -77,16 +77,15 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
 pub(super) fn settle(app: &mut App, revision: u64) -> (Duration, Duration) {
     let start = Instant::now();
     let mut peak = Duration::ZERO;
-    while app.world().resource::<PackReload>().completed_revision() < revision {
+    test_time::eventually_within(Duration::from_secs(120), "the reload worker", || {
+        if app.world().resource::<PackReload>().completed_revision() >= revision {
+            return true;
+        }
         let frame = Instant::now();
         app.update();
         peak = peak.max(frame.elapsed());
-        assert!(
-            start.elapsed() < Duration::from_secs(120),
-            "reload worker timed out"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
+        false
+    });
     (start.elapsed(), peak)
 }
 

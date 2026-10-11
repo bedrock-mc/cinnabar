@@ -152,10 +152,20 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires CINNABAR_VANILLA_POLAR_BEAR_SOURCE pointing to the downloaded sample"]
     fn downloaded_native_bind_pose_repair_is_content_pinned() {
-        let path =
-            std::path::PathBuf::from(std::env::var("CINNABAR_VANILLA_POLAR_BEAR_SOURCE").unwrap());
+        let Some(path) =
+            std::env::var_os("CINNABAR_VANILLA_POLAR_BEAR_SOURCE").map(std::path::PathBuf::from)
+        else {
+            eprintln!("skipping missing fixture: CINNABAR_VANILLA_POLAR_BEAR_SOURCE is not set");
+            return;
+        };
+        if !path.exists() {
+            eprintln!(
+                "skipping missing fixture: CINNABAR_VANILLA_POLAR_BEAR_SOURCE at {}",
+                path.display()
+            );
+            return;
+        }
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(<[u8; 32]>::from(Sha256::digest(&bytes)), SAMPLE_SHA256);
         let mut geometries = BTreeMap::new();
@@ -210,9 +220,19 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires CINNABAR_VANILLA_ROOT pointing to the downloaded resource pack"]
     fn downloaded_llama_retains_the_inherited_native_body_bind_only_for_the_pinned_source() {
-        let root = std::path::PathBuf::from(std::env::var_os("CINNABAR_VANILLA_ROOT").unwrap());
+        let Some(root) = std::env::var_os("CINNABAR_VANILLA_ROOT").map(std::path::PathBuf::from)
+        else {
+            eprintln!("skipping missing fixture: CINNABAR_VANILLA_ROOT is not set");
+            return;
+        };
+        if !root.exists() {
+            eprintln!(
+                "skipping missing fixture: CINNABAR_VANILLA_ROOT at {}",
+                root.display()
+            );
+            return;
+        }
         let path = root.join(LLAMA_PATH);
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(

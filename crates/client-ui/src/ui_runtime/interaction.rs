@@ -151,7 +151,7 @@ pub fn dispatch_inventory_key(
     {
         let total = super::inventory_actions::visible_creative_entries(
             runtime.inventory_ledger(player_runtime),
-            runtime.screen_state(),
+            runtime,
         )
         .len();
         runtime.screen_state_mut().scroll_creative(rows, total);

@@ -381,6 +381,7 @@ version = "0.1.12"
 dependencies = [
  "cfg-expr",
  "clap",
+ "proc-macro2",
  "serde",
  "syn 2.0.118",
  "tempfile",
@@ -724,6 +725,7 @@ dependencies = [
  "sha2",
  "sim",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tracing-tracy",
@@ -1892,6 +1894,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -2103,6 +2106,7 @@ dependencies = [
  "render-api",
  "serde_json",
  "sha2",
+ "test-time",
  "thiserror 2.0.18",
  "tracing",
  "windows-sys 0.61.2",
@@ -2162,6 +2166,7 @@ dependencies = [
  "mcp-stdio",
  "serde",
  "serde_json",
+ "test-time",
 ]
 
 [[package]]
@@ -2255,6 +2260,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "sim",
+ "test-time",
  "thiserror 2.0.18",
  "ui",
  "windows-sys 0.61.2",
@@ -2317,6 +2323,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "ui",
@@ -2936,6 +2943,7 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_json",
+ "test-time",
  "uuid",
 ]
 
@@ -3286,6 +3294,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "toml 0.9.12+spec-1.1.0",
  "wasmtime",
  "wat",
@@ -4795,6 +4804,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-time",
  "ui",
  "wasmtime",
  "wat",
@@ -5891,6 +5901,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "snap",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
@@ -6259,6 +6270,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "tracy-client",
  "wesl",
  "wgpu",
@@ -6691,6 +6703,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "tokio",
  "url",
  "zip",
@@ -7027,6 +7040,10 @@ checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "test-time"
+version = "0.1.12"
 
 [[package]]
 name = "thiserror"

@@ -131,6 +131,10 @@ impl RecipeUpdate {
     pub fn clears_catalog(&self) -> bool {
         self.batch.as_ref().is_none_or(|b| b.clear)
     }
+    /// Number of station recipes explicitly declined by this update.
+    pub fn skipped_screen_recipes(&self) -> usize {
+        self.screen.as_ref().map_or(0, |screen| screen.skipped)
+    }
     pub fn record_count(&self) -> usize {
         self.batch.as_ref().map_or(0, |b| b.records.len())
     }

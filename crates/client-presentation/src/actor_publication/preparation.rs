@@ -240,6 +240,16 @@ pub fn advance_actor_frame(
         }
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
+        if let Some(feed) = &mut local_feed
+            && let Some(timing) = hand_use(stream, step.partial_tick).1
+            && timing.max_use_ticks > 0
+        {
+            feed.item_use = client_world::LocalItemUse::Predicted {
+                elapsed_ticks: timing.use_elapsed_ticks,
+                max_ticks: timing.max_use_ticks,
+                charged: timing.hand_charged,
+            };
+        }
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
         }

@@ -28,6 +28,7 @@ valentine = { path = "vendor/valentine", default-features = false, features = ["
 jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 aes = "0.8"
 ctr = "0.9"
 flate2 = "1"

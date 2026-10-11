@@ -725,7 +725,7 @@ impl HudLayout<'_> {
             );
             self.ui_text(&text, [field[0] + 2.0, field[1] + 2.0], [255; 4], false)?;
         }
-        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), state);
+        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), runtime);
         for slot in screens::creative_slots() {
             let position = [origin[0] + slot.pos[0], origin[1] + slot.pos[1]];
             self.slot_frame(position, SLOT_SIZE)?;

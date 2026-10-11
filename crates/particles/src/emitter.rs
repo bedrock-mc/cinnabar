@@ -284,7 +284,10 @@ impl Emitter {
         let lifetime = def
             .particle
             .max_lifetime
-            .eval(&mut vars, &mut self.rng, &self.queries)
+            .as_ref()
+            .map_or(1_000_000.0, |program| {
+                program.eval(&mut vars, &mut self.rng, &self.queries)
+            })
             .max(1e-3);
         set_var(&mut vars, V_PARTICLE_LIFETIME, lifetime);
 

@@ -25,7 +25,7 @@ type SceneOpaqueQuery = (
     Option<&'static bevy::render::view::ViewUniformOffset>,
 );
 
-/// Draws opaque and cutout geometry with the current camera's colour and depth attachments.
+/// Draws opaque and cutout geometry while retaining the sky samples for later world passes.
 pub(crate) fn scene_opaque(
     world: &World,
     query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,

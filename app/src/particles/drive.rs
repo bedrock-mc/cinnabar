@@ -13,6 +13,7 @@ use particles::{
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
     critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
     item_icon_request, named_request, parse_molang_variables, terrain_request, tiles::item_tile,
+    totem_activation_request,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
@@ -32,6 +33,10 @@ use {
 #[cfg(test)]
 #[path = "drive/snowball_tests.rs"]
 mod snowball_tests;
+
+#[cfg(test)]
+#[path = "drive/totem_tests.rs"]
+mod totem_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -291,13 +296,15 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
             burst(system, "minecraft:witchspell_emitter", head, 1, seed);
         }
         ActorStatusKind::TotemActivate => {
-            system.spawn(&SpawnRequest {
-                effect: "minecraft:totem_manual".to_owned(),
-                position: head,
-                manual_count: Some(30),
-                seed,
-                ..SpawnRequest::default()
-            });
+            if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
+                && let Some(actor) = routing.stream.authority().actor(notice.runtime_id)
+            {
+                system.spawn(&totem_activation_request(
+                    actor.runtime_id,
+                    actor.position,
+                    actor.native_position(),
+                ));
+            }
         }
         ActorStatusKind::Feed => {
             if let Some(identifier) = routing
@@ -402,7 +409,7 @@ fn drive_particles(
         inbox.events.retain(|event| event.dimension == identity.1);
     }
     let mode = stream.network_id_mode();
-    let world = StreamParticleWorld::new(stream, collisions.registry(mode));
+    let world = StreamParticleWorld::new(stream, collisions.registry(mode), Some(&collisions));
     let routing = Routing {
         world: &world,
         stream,

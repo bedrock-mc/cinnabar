@@ -1,9 +1,46 @@
 //! Projects the committed crack progress onto the block's model surfaces.
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
 use chunk_pipeline::ActiveBlockCrack;
 use render::{CrackInstance, CrackShape, crack_shape_from_template};
+
+/// Keeps shapes only while their admitted asset identity is current.
+#[derive(Default)]
+pub(super) struct CrackShapeCache {
+    assets: Option<Weak<assets::RuntimeAssets>>,
+    shapes: HashMap<(u32, u32), CachedCrackShape>,
+}
+
+impl CrackShapeCache {
+    /// Clears a session's surfaces and owner while retaining the cache's buckets.
+    pub(super) fn clear(&mut self) {
+        self.shapes.clear();
+        self.assets = None;
+    }
+
+    /// Reports whether any surfaces are retained for the current asset identity.
+    #[cfg(test)]
+    pub(super) fn is_empty(&self) -> bool {
+        self.shapes.is_empty()
+    }
+
+    /// Drops surfaces when resource reload publishes a different asset generation.
+    fn bind_assets(&mut self, assets: &Arc<assets::RuntimeAssets>) {
+        if self
+            .assets
+            .as_ref()
+            .is_some_and(|current| current.as_ptr() == Arc::as_ptr(assets))
+        {
+            return;
+        }
+        self.shapes.clear();
+        self.assets = Some(Arc::downgrade(assets));
+    }
+}
 
 /// Retains one column per runtime identity and transform without growing with world positions.
 pub(super) struct CachedCrackShape {
@@ -13,12 +50,13 @@ pub(super) struct CachedCrackShape {
 
 /// Caches model surfaces by runtime identity, transform and admitted column displacement.
 pub(super) fn crack_shape(
-    shapes: &mut HashMap<(u32, u32), CachedCrackShape>,
-    assets: &assets::RuntimeAssets,
+    cache: &mut CrackShapeCache,
+    assets: &Arc<assets::RuntimeAssets>,
     mode: assets::NetworkIdMode,
     runtime_id: Option<u32>,
     block: [i32; 3],
 ) -> CrackShape {
+    cache.bind_assets(assets);
     let Some(runtime_id) = runtime_id else {
         return CrackShape::Cube;
     };
@@ -41,7 +79,10 @@ pub(super) fn crack_shape(
             })
             .unwrap_or_default(),
     };
-    let cached = shapes.entry((runtime_id, transform)).or_insert_with(build);
+    let cached = cache
+        .shapes
+        .entry((runtime_id, transform))
+        .or_insert_with(build);
     if cached.column != column {
         *cached = build();
     }

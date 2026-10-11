@@ -257,6 +257,7 @@ pub fn update_screen_overlays(
     };
 
     let mut active = [false; 4];
+    let mut sky_hidden = false;
     let mut freezing = 0.0;
     let mut pumpkin = false;
     let mut confusion_duration = None;
@@ -265,6 +266,9 @@ pub fn update_screen_overlays(
         let now_tick =
             ui.estimated_server_tick(u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
         for effect in hud.effects() {
+            if effect_hides_sky(effect, now_tick) {
+                sky_hidden = true;
+            }
             match effect.effect_id {
                 EFFECT_ID_NAUSEA if effect.visible_at_tick(now_tick) => {
                     active[0] = true;
@@ -295,6 +299,7 @@ pub fn update_screen_overlays(
     let goal = |on: bool| if on { 1.0_f32 } else { 0.0 };
     portal.advance_with_confusion(facts.in_portal, confusion_duration, dt);
     vision.nausea = portal.value();
+    vision.sky_hidden = sky_hidden;
     vision.blindness = approach(vision.blindness, goal(active[1]), step);
     vision.night_vision = approach(vision.night_vision, goal(active[2]), step);
     vision.darkness = approach(vision.darkness, goal(active[3]), step);
@@ -316,6 +321,15 @@ pub fn update_screen_overlays(
         server_fade: server.fade_overlay(),
         distortion_scale: settings.feel().distortion_scale,
     });
+}
+
+/// Gates the cube pass by active effects rather than their fading presentation strength.
+fn effect_hides_sky(
+    effect: &client_ui::ui_runtime::gameplay_hud::HudEffect,
+    now_tick: Option<u64>,
+) -> bool {
+    matches!(effect.effect_id, EFFECT_ID_BLINDNESS | EFFECT_ID_DARKNESS)
+        && effect.visible_at_tick(now_tick)
 }
 
 /// Composes camera motion while portal distortion stays in the projection.
@@ -428,6 +442,39 @@ mod tests {
 
     use super::*;
     use crate::{camera::hurt::LocalHurtEvent, server_camera::ServerCameraInstructions};
+
+    #[test]
+    fn sky_visibility_uses_effect_expiry_without_waiting_for_the_visual_fade() {
+        use client_ui::ui_runtime::gameplay_hud::HudEffect;
+        for effect_id in [
+            EFFECT_ID_BLINDNESS,
+            EFFECT_ID_DARKNESS,
+            EFFECT_ID_NIGHT_VISION,
+        ] {
+            let effect = HudEffect {
+                effect_id,
+                amplifier: 0,
+                ambient: false,
+                particles: false,
+                expires_at_tick: Some(100),
+            };
+            let hides = effect_id != EFFECT_ID_NIGHT_VISION;
+            assert_eq!(effect_hides_sky(&effect, Some(99)), hides);
+            assert_eq!(effect_hides_sky(&effect, None), hides);
+            assert!(!effect_hides_sky(&effect, Some(100)));
+            assert!(!effect_hides_sky(&effect, Some(101)));
+            assert_eq!(
+                effect_hides_sky(
+                    &HudEffect {
+                        expires_at_tick: None,
+                        ..effect
+                    },
+                    Some(u64::MAX)
+                ),
+                hides
+            );
+        }
+    }
 
     /// Runs the camera presentation core without a live world observation.
     #[allow(clippy::too_many_arguments)] // Each argument is a separately scheduled Bevy resource.

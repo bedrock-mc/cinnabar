@@ -91,6 +91,12 @@ impl ValidatedPack {
         self.entry(path).is_some()
     }
 
+    /// The admitted uncompressed entry size, without inflating or decrypting its bytes.
+    #[must_use]
+    pub fn file_size(&self, path: &str) -> Option<u64> {
+        self.entry(path).map(|entry| entry.uncompressed_size)
+    }
+
     /// Reads one decrypted file from this pack only, with a hard uncompressed cap.
     pub fn read_file(&self, path: &str) -> Result<Option<Box<[u8]>>, AdmissionError> {
         self.read_file_with_limit(path, MAX_FILE_BYTES)

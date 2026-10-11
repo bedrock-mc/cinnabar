@@ -23,6 +23,7 @@ pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
 
+mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
 pub mod oreui_assets;
@@ -176,6 +177,9 @@ pub struct UiRuntime {
     dropped_unsent_chat_messages: u64,
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
+    item_activation: Option<item_activation::ItemActivation>,
+    pending_totem_snapshots: VecDeque<(u64, Option<u32>)>,
+    activation_clock: item_activation::ActivationClock,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
     credits: credits::CreditsState,
@@ -205,6 +209,9 @@ pub struct UiRuntime {
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
     session_items: Option<Arc<item_facts::SessionItemComponents>>,
+    stack_facts: protocol::ItemStackFactsCache,
+    /// Invalidates names when components or any translation table changes.
+    item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
     session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
     /// Authoritative display names of real player/entity score owners,
@@ -271,6 +278,9 @@ impl UiRuntime {
             dropped_unsent_chat_messages: 0,
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
+            item_activation: None,
+            pending_totem_snapshots: VecDeque::new(),
+            activation_clock: item_activation::ActivationClock::default(),
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
@@ -294,6 +304,8 @@ impl UiRuntime {
             server_lang: None,
             session_icons: None,
             session_items: None,
+            stack_facts: Default::default(),
+            item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
         }
@@ -397,7 +409,7 @@ impl UiRuntime {
         self.inventory_open
     }
 
-    pub const fn inventory_ledger<'a>(
+    pub fn inventory_ledger<'a>(
         &self,
         player_runtime: &'a player_state::PlayerState,
     ) -> &'a PlayerInventoryLedger {
@@ -447,11 +459,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         now_millis: u64,
     ) {
-        if player_runtime
-            .inventory
-            .ledger_mut()
-            .poll_timeout(now_millis)
-        {
+        if player_runtime.inventory.poll_inventory_timeout(now_millis) {
             self.inventory_open = player_runtime
                 .inventory
                 .ledger()
@@ -613,6 +621,7 @@ impl UiRuntime {
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
         self.server_ui = None;
         self.session_glyphs = None;
         self.last_fifo_sequence = None;
@@ -654,6 +663,9 @@ impl UiRuntime {
         self.block_cracks = crate::block_cracks::BlockCracks::default();
         self.sign_editor = sign_editor::SignEditor::default();
         self.gameplay_hud.clear();
+        self.item_activation = None;
+        self.pending_totem_snapshots.clear();
+        self.activation_clock = item_activation::ActivationClock::default();
         self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
         self.credits = credits::CreditsState::default();

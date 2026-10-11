@@ -349,6 +349,19 @@ pub(super) struct ScreenCache {
 }
 
 impl ScreenCache {
+    /// Releases texture-dependent measurements and layout while retaining the live bound tree.
+    pub(super) fn invalidate_textures(&mut self) {
+        if let Some((_, _, render)) = self.laid.take()
+            && self.tree.is_none()
+        {
+            self.tree = Some(
+                Arc::try_unwrap(render)
+                    .map_or_else(|shared| shared.bound.clone(), |render| render.bound),
+            );
+        }
+        self.measures = json_ui::MeasureCache::default();
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render(
         cache: &mut Option<Self>,
@@ -831,6 +844,10 @@ fn held_stack(
     }
     nodes
 }
+
+#[cfg(test)]
+#[path = "containers/texture_metadata_tests.rs"]
+mod texture_metadata_tests;
 
 #[cfg(test)]
 mod review_tests {

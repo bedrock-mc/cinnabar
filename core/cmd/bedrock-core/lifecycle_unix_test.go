@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 )
 
@@ -89,23 +91,18 @@ func TestLauncherCoreExitsWhenItsClientIsKilled(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
-	deadline := time.Now().Add(10 * time.Second)
-	for {
+	testwait.Eventually(t, 10*time.Second, "the launcher core to publish its endpoint", func() bool {
 		if text, _ := os.ReadFile(log); strings.Contains(string(text), "listener ready") {
-			break
+			return true
 		}
-		if time.Now().After(deadline) || !alive() {
-			t.Fatal("launcher core never published its endpoint")
+		if !alive() {
+			t.Fatal("launcher core exited before publishing its endpoint")
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return false
+	})
 	_ = client.Process.Kill()
 	_ = client.Wait()
-	deadline = time.Now().Add(5 * time.Second)
-	for alive() {
-		if time.Now().After(deadline) {
-			t.Fatalf("launcher core %d outlived its killed client", pid)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if !testwait.WaitUntil(5*time.Second, func() bool { return !alive() }) {
+		t.Fatalf("launcher core %d outlived its killed client", pid)
 	}
 }

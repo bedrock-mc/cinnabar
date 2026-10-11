@@ -26,6 +26,7 @@ pub mod gui_scale_settings;
 pub mod hud_layout;
 pub mod inventory_pointer;
 pub mod inventory_tooltip;
+mod item_activation;
 pub mod item_gui;
 pub mod item_sprite;
 pub mod item_viewmodel;

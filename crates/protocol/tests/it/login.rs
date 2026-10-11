@@ -27,7 +27,6 @@ async fn login_reaches_start_game_through_bds() {
     let mut harness =
         GoHarness::spawn(socket_dir.path(), &bds_configuration).expect("start Go live harness");
     wait_for_endpoint(&mut harness, socket_dir.path())
-        .await
         .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
 
     let (mut session, game_data) = tokio::time::timeout(
@@ -138,9 +137,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
         let socket_dir = TestSocketDir::new().expect("socket directory");
         let mut harness =
             GoHarness::spawn_mode(socket_dir.path(), None, Some(scenario)).expect("offline core");
-        wait_for_endpoint(&mut harness, socket_dir.path())
-            .await
-            .expect("endpoint");
+        wait_for_endpoint(&mut harness, socket_dir.path()).expect("endpoint");
         let login = tokio::time::timeout(
             LOGIN_TIMEOUT,
             LoginSequence::connect_session(
@@ -285,34 +282,34 @@ fn startup_marker(timestamp: u64) -> protocol::Packet {
     .into()
 }
 
-async fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
+/// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
+fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
     #[cfg(windows)]
     let endpoint = socket_dir.join("session.addr");
     #[cfg(unix)]
     let endpoint = protocol::bridge_endpoint_path(socket_dir);
 
-    let deadline = Instant::now() + ENDPOINT_TIMEOUT;
-    loop {
-        if endpoint.exists() {
-            return Ok(());
-        }
-        if let Some(status) = harness
-            .try_wait()
-            .map_err(|error| format!("inspect Go harness: {error}"))?
-        {
-            return Err(format!(
-                "Go harness exited with {status} before publishing {}",
-                endpoint.display()
-            ));
-        }
-        if Instant::now() >= deadline {
-            return Err(format!(
+    tokio::task::block_in_place(|| {
+        let mut outcome = None;
+        test_time::wait_until(ENDPOINT_TIMEOUT, || {
+            outcome = match harness.try_wait() {
+                Err(error) => Some(Err(format!("inspect Go harness: {error}"))),
+                Ok(Some(status)) => Some(Err(format!(
+                    "Go harness exited with {status} before publishing {}",
+                    endpoint.display()
+                ))),
+                Ok(None) if endpoint.exists() => Some(Ok(())),
+                Ok(None) => None,
+            };
+            outcome.is_some()
+        });
+        outcome.unwrap_or_else(|| {
+            Err(format!(
                 "timed out waiting for Go harness endpoint {}",
                 endpoint.display()
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+            ))
+        })
+    })
 }
 
 struct GoHarness {
@@ -612,7 +609,7 @@ fn wait_for_child(child: &mut Child, timeout: Duration) -> io::Result<Option<Exi
         if Instant::now() >= deadline {
             return Ok(None);
         }
-        thread::sleep(Duration::from_millis(20));
+        test_time::idle();
     }
 }
 

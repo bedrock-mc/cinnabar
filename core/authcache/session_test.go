@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
@@ -135,12 +137,7 @@ func TestSISUCallersKeepTheirOwnContexts(t *testing.T) {
 func waitForOAuthLeaseWait(t *testing.T, account *Account) {
 	t.Helper()
 	source := account.oauth.(*persistingSource)
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if len(source.gate) != 0 {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("OAuth callback never acquired the source gate")
+	testwait.Eventually(t, time.Second, "the OAuth callback to acquire the source gate", func() bool {
+		return len(source.gate) != 0
+	})
 }

@@ -310,43 +310,23 @@ fn unique_entities(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
         .collect()
 }
 
-/// Geometry files under `models/`, dropping a file when every geometry it defines is
-/// redefined by a higher layer or a later file.
+/// Collect geometry documents in layer order for identifier selection by the compiler.
 fn unshadowed_geometry(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
-    let mut winners = BTreeMap::<String, Box<str>>::new();
-    let mut candidates = Vec::new();
+    let mut files = Vec::new();
     for layer in view.layers() {
         for path in layer.files_under("models/") {
-            if !path.ends_with(".json") {
-                continue;
-            }
-            let Ok(Some(bytes)) = layer.read_file(path) else {
-                continue;
-            };
-            let identifiers = geometry_identifiers(&bytes);
-            if identifiers.is_empty() {
-                continue;
-            }
-            for identifier in identifiers.iter() {
-                winners.insert(identifier.clone(), path.into());
-            }
-            if let Some(canonical) = canonical_json(&bytes) {
-                candidates.push((Box::<str>::from(path), canonical, identifiers));
+            if path.ends_with(".json")
+                && let Ok(Some(bytes)) = layer.read_file(path)
+                && let Some(canonical) = canonical_json(&bytes)
+            {
+                files.push((path.into(), canonical));
             }
         }
     }
-    let mut kept = BTreeMap::<Box<str>, Vec<u8>>::new();
-    for (path, bytes, identifiers) in candidates {
-        if identifiers
-            .iter()
-            .any(|identifier| winners.get(identifier) == Some(&path))
-        {
-            kept.insert(path, bytes);
-        }
-    }
-    kept.into_iter().collect()
+    pack_compiler::select_entity_geometry(files)
 }
 
+/// List modern and legacy identifiers used to fill missing geometry references.
 fn geometry_identifiers(bytes: &[u8]) -> Vec<String> {
     let Some(Value::Object(root)) = parse_pack_json(bytes) else {
         return Vec::new();

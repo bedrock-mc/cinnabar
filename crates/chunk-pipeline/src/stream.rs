@@ -65,6 +65,7 @@ mod dimension_transfer;
 mod dirty;
 mod helpers;
 mod light_diagnostics;
+mod light_queries;
 mod lighting;
 mod map_data;
 mod meshing;

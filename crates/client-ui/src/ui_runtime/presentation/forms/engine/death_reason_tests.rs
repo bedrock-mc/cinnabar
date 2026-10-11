@@ -42,6 +42,7 @@ fn death_reason_text_is_painted_without_a_second_translation() {
                 root: [400.0, 300.0],
                 px: 1.0,
                 text: [0; 3],
+                texture_metadata: 0,
             },
             &LayoutEnv {
                 text: &Measure,
@@ -93,6 +94,7 @@ fn death_reason_variables_and_inherited_labels_remain_literal() {
                 root: [400.0, 300.0],
                 px: 1.0,
                 text: [0; 3],
+                texture_metadata: 0,
             },
             &LayoutEnv {
                 text: &Measure,
@@ -149,6 +151,7 @@ fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
                     root: [400.0, 300.0],
                     px: 1.0,
                     text: [0; 3],
+                    texture_metadata: 0,
                 },
                 &LayoutEnv {
                     text: &Measure,

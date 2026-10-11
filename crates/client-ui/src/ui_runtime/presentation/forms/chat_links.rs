@@ -1,5 +1,8 @@
 //! HTTP(S) targets and clipped glyph hits from the rendered chat history.
-use super::{super::TextMetrics, engine::painted_label_request};
+use super::{
+    super::TextMetrics,
+    engine::{label_origin, painted_label_request},
+};
 use assets::RuntimeFontCatalog;
 use json_ui::{Draw, DrawNode, ViewState};
 use std::ops::Range;
@@ -125,6 +128,7 @@ pub(super) fn hits(
         ];
         let request =
             painted_label_request(metrics, text, dest, font, *factor, options, *align, scale);
+        let paint_origin = label_origin(dest, font, options, scale);
         let Ok(layout) = layouts.layout(request) else {
             continue;
         };
@@ -135,7 +139,12 @@ pub(super) fn hits(
                     continue;
                 }
                 let [x0, y0, x1, y1] = glyph.bounds_64.map(|n| n as f32 / 64.0);
-                let bounds = [dest[0] + x0, dest[1] + y0, dest[0] + x1, dest[1] + y1];
+                let bounds = [
+                    paint_origin[0] + x0,
+                    paint_origin[1] + y0,
+                    paint_origin[0] + x1,
+                    paint_origin[1] + y1,
+                ];
                 lines
                     .entry(glyph.line)
                     .and_modify(|rect| {
@@ -178,6 +187,9 @@ pub(super) fn hits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod hud_rows;
+
     #[test]
     fn web_targets_keep_punctuation_balanced_and_strip_formatting() {
         let links = targets(
@@ -292,6 +304,120 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn link_hits_follow_the_actual_default_and_named_label_paint_origin() {
+        use std::sync::Arc;
+
+        use super::super::engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
+        use crate::ui_runtime::presentation::UiPresentationRuntime;
+
+        for named in [false, true] {
+            let base = crate::test_support::fixture_font();
+            let font = if named {
+                Arc::new(base.with_named_font("alternative", &base).unwrap())
+            } else {
+                base
+            };
+            for gui_scale in [1u8, 2] {
+                let physical = [800, 600].map(|side| side * u32::from(gui_scale));
+                let metrics = TextMetrics::for_viewport(
+                    physical,
+                    ui::DpiScale::new(1.0).unwrap(),
+                    Some(gui_scale),
+                );
+                let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+                let mut presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
+                let engine =
+                    FormEngine::new(crate::test_support::mini_carrier(), Default::default(), 0);
+                let mut node = history_node("https://example.com", 600.0);
+                if let Draw::Text { options, .. } = &mut node.draw {
+                    options.font_type = named.then(|| "alternative".into());
+                }
+                let render = json_ui::FormRender {
+                    bound: json_ui::ResolvedControl {
+                        name: "fixture".into(),
+                        control_type: Some("panel".into()),
+                        base: None,
+                        unresolved_base: None,
+                        properties: Default::default(),
+                        children: Vec::new(),
+                        factory: None,
+                    },
+                    nodes: vec![node.clone()],
+                    hits: Arc::from([]),
+                    report: Default::default(),
+                    cancel_target: None,
+                    root_panel: None,
+                };
+                let mut painted = Vec::new();
+                let mut next = 1;
+                engine
+                    .draw(
+                        ScreenArt::default(),
+                        EngineInputs {
+                            layouts: &mut presentation.layouts,
+                            font: &font,
+                            metrics,
+                            solid_page: presentation.solid_texture_page,
+                            safe_area: ui::SafeArea::ZERO,
+                            content: physical.map(|side| side as f32),
+                            translate: &|_| None,
+                            language: [0; 3],
+                        },
+                        EngineOutput {
+                            nodes: &mut painted,
+                            next: &mut next,
+                            overlay: &[],
+                        },
+                        |_, _| Some(render),
+                    )
+                    .unwrap()
+                    .expect("history label paints");
+                let text = painted
+                    .iter()
+                    .find(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+                    .expect("retained text exists");
+                let origin = text.bounds().min();
+                assert_eq!(origin.x(), 10.0 * px);
+                assert_eq!(origin.y(), (20.0 + if named { 0.0 } else { 1.0 }) * px);
+                let ui::UiVisual::Text { layout, .. } = text.visual() else {
+                    unreachable!()
+                };
+                let mut ink = [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ];
+                for glyph in layout.glyphs() {
+                    let [x0, y0, x1, y1] = glyph.bounds_64.map(|edge| edge as f32 / 64.0);
+                    ink = [
+                        ink[0].min(x0),
+                        ink[1].min(y0),
+                        ink[2].max(x1),
+                        ink[3].max(y1),
+                    ];
+                }
+                let regions = hits(
+                    &[node],
+                    &ViewState::default(),
+                    metrics,
+                    &font,
+                    &mut presentation.layouts,
+                    px,
+                    [0.0; 2],
+                );
+                assert_eq!(regions.len(), 1);
+                let bounds = regions[0].1;
+                assert_eq!(bounds.min().x(), origin.x() + ink[0]);
+                assert_eq!(bounds.min().y(), origin.y() + ink[1]);
+                assert_eq!(bounds.max().x(), origin.x() + ink[2]);
+                assert_eq!(bounds.max().y(), origin.y() + ink[3]);
+            }
+        }
+    }
+
     #[test]
     fn clipped_and_non_history_text_never_produce_background_link_hits() {
         let font = super::super::super::tests::fixture_font();
