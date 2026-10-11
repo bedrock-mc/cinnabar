@@ -6,8 +6,7 @@ use std::{
 use assets::{AssetError, EntityAssetSource, EntityRenderMaterialState};
 use serde_json::{Map, Value};
 
-use super::super::super::SourcePayloads;
-use super::super::clip::read_json;
+use super::{SourcePayloads, json::parse_unique_json};
 
 struct Definition {
     parent: Option<Box<str>>,
@@ -19,6 +18,7 @@ pub(super) struct MaterialStates {
 }
 
 impl MaterialStates {
+    /// Reads retained material declarations once for this compilation.
     pub(super) fn load(
         root: &Path,
         payloads: &SourcePayloads,
@@ -28,7 +28,10 @@ impl MaterialStates {
         for source in sources.iter().filter(|source| {
             source.path.starts_with("materials/") && source.path.ends_with(".material")
         }) {
-            let value = read_json(root, payloads, source)?;
+            let bytes = payloads
+                .get(source.path.as_ref())
+                .ok_or_else(|| super::invalid("retained material source payload is absent"))?;
+            let value = parse_unique_json(&root.join(source.path.as_ref()), bytes)?;
             let Some(entries) = value.get("materials").and_then(Value::as_object) else {
                 continue;
             };
@@ -59,6 +62,69 @@ impl MaterialStates {
         Ok(Self { definitions })
     }
 
+    /// Resolves the dye mask from authored defines, preserving an unknown parent as unresolved.
+    pub(super) fn color_mask(&self, target: &str) -> assets::EquipmentColorMask {
+        use assets::EquipmentColorMask;
+        let mut name = target.strip_suffix(".skinning").unwrap_or(target);
+        let mut seen = BTreeSet::new();
+        let mut chain = Vec::new();
+        let mut enabled;
+        loop {
+            if !seen.insert(name) {
+                return EquipmentColorMask::Unresolved;
+            }
+            let Some(definition) = self.definitions.get(name) else {
+                enabled = match name {
+                    "armor_leather" | "armor_leather_enchanted" => Some(true),
+                    "armor" | "armor_enchanted" | "elytra" => Some(false),
+                    _ => builtin(name).map(|_| false),
+                };
+                break;
+            };
+            let Some(definition) = definition else {
+                return EquipmentColorMask::Unresolved;
+            };
+            chain.push(&definition.fields);
+            if let Some(parent) = definition.parent.as_deref() {
+                name = parent;
+            } else {
+                enabled = None;
+                break;
+            }
+        }
+        for fields in chain.into_iter().rev() {
+            let replace = fields.get("defines").is_some_and(|value| !value.is_null());
+            if replace {
+                enabled = Some(false);
+            }
+            for (key, value) in [("defines", true), ("+defines", true), ("-defines", false)] {
+                if replace != (key == "defines") {
+                    continue;
+                }
+                let Some(defines) = fields.get(key).filter(|value| !value.is_null()) else {
+                    continue;
+                };
+                let Some(defines) = defines.as_array() else {
+                    return EquipmentColorMask::Unresolved;
+                };
+                for define in defines {
+                    let Some(define) = define.as_str() else {
+                        return EquipmentColorMask::Unresolved;
+                    };
+                    if define == "USE_COLOR_MASK" {
+                        enabled = Some(value);
+                    }
+                }
+            }
+        }
+        match enabled {
+            Some(true) => EquipmentColorMask::Dye,
+            Some(false) => EquipmentColorMask::NoMask,
+            None => EquipmentColorMask::Unresolved,
+        }
+    }
+
+    /// Resolves supported render states through a bounded, acyclic parent chain.
     pub(super) fn resolve(&self, target: &str) -> Option<EntityRenderMaterialState> {
         let target = target.strip_suffix(".skinning").unwrap_or(target);
         let mut name = target;

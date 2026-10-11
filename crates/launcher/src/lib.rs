@@ -15,6 +15,7 @@ pub const PRODUCT_NAME: &str = product_name!();
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod accounts;
+mod client_random_id;
 pub mod dressing_room;
 pub mod global_resources;
 pub mod install_layout;

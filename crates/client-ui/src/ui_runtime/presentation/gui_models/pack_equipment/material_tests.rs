@@ -14,7 +14,12 @@ const LEATHER: [u8; 4] = [160, 160, 160, 255];
 const TEAM_RED: u32 = 0x00b0_2e26;
 
 /// Creates chest armor with the requested texture and material for dye-rule comparisons.
-fn chestplate(identifier: &str, texture: &str, material: &str) -> EquipmentBinding {
+fn chestplate(
+    identifier: &str,
+    texture: &str,
+    material: &str,
+    color_mask: assets::EquipmentColorMask,
+) -> EquipmentBinding {
     let reference = |identifier: &str| EquipmentReference {
         identifier: identifier.into(),
         resolution: EntityDependencyResolution::Catalog,
@@ -27,6 +32,7 @@ fn chestplate(identifier: &str, texture: &str, material: &str) -> EquipmentBindi
         geometry: reference("geometry.player.armor.chestplate"),
         texture: reference(texture),
         material: material.into(),
+        color_mask,
         render_controller: "controller.render.armor".into(),
         first_person: EquipmentTransform::NeedsMeasurement,
         third_person: EquipmentTransform::NeedsMeasurement,
@@ -51,11 +57,13 @@ fn vanilla() -> Arc<RuntimeEquipmentCatalog> {
                     "minecraft:diamond_chestplate",
                     "textures/models/armor/diamond_1",
                     "armor",
+                    assets::EquipmentColorMask::NoMask,
                 ),
                 chestplate(
                     "minecraft:leather_chestplate",
                     "textures/models/armor/leather_1",
                     "armor_leather",
+                    assets::EquipmentColorMask::Dye,
                 ),
             ],
             vec![
@@ -191,5 +199,95 @@ fn previews_resolve_the_world_players_armor_material_and_dye() {
             .unwrap()
             .color_mask_rgb(None),
         Some(DEFAULT_LEATHER_RGB)
+    );
+}
+
+#[test]
+fn authored_material_dye_reaches_the_player_preview() {
+    let materials = serde_json::json!({"materials": {
+        "cloth_tint:entity": {"+defines": ["USE_COLOR_MASK"]},
+        "renamed:cloth_tint": {},
+        "leather_decoy:entity": {}
+    }});
+    let mut files = vec![(
+        "materials/test.material".into(),
+        materials.to_string().into_bytes(),
+    )];
+    for material in ["renamed", "leather_decoy"] {
+        let attachable = serde_json::json!({
+            "format_version": "1.10.0", "minecraft:attachable": {"description": {
+                "identifier": format!("custom:{material}_chestplate"),
+                "materials": {"default": material},
+                "textures": {"default": "textures/test"},
+                "geometry": {"default": "geometry.player.armor.chestplate"},
+                "render_controllers": ["controller.render.test"]
+            }}
+        });
+        files.push((
+            format!("attachables/{material}.json").into(),
+            attachable.to_string().into_bytes(),
+        ));
+    }
+    let compiled = pack_compiler::compile_entity_pack(files).unwrap().unwrap();
+    assert_eq!(compiled.skipped.unparsable, 0);
+    let catalog = Arc::new(
+        RuntimeEquipmentCatalog::from_parts(
+            [9; 32],
+            compiled.equipment_bindings.into_vec(),
+            vec![EquipmentTexture {
+                identifier: "textures/test".into(),
+                width: 64,
+                height: 32,
+                rgba8: LEATHER.repeat(64 * 32).into(),
+            }],
+        )
+        .unwrap(),
+    );
+    let mut presentation = presentation(&catalog);
+    let skin = [100, 100, 100, 255].repeat(64 * 64);
+    let mut rendered = Vec::new();
+    for binding in catalog.bindings() {
+        presentation.set_player_preview_gear(
+            [
+                None,
+                Some((&binding.identifier, Some(TEAM_RED))),
+                None,
+                None,
+            ],
+            None,
+        );
+        let raster = player_preview::render(
+            &skin,
+            Default::default(),
+            views()[0],
+            0.0,
+            &presentation.player_preview_gear,
+        );
+        let image = image::RgbaImage::from_raw(
+            player_preview::PREVIEW_WIDTH,
+            player_preview::PREVIEW_HEIGHT,
+            raster,
+        )
+        .unwrap();
+        super::super::super::forms::snapshot::write_image(
+            &image,
+            &binding.identifier.replace(':', "_"),
+        );
+        rendered.push((binding.identifier.clone(), image));
+    }
+    assert_ne!(rendered[0].1, rendered[1].1);
+    assert_eq!(
+        catalog
+            .binding("custom:renamed_chestplate")
+            .unwrap()
+            .color_mask_rgb(Some(TEAM_RED)),
+        Some(TEAM_RED),
+    );
+    assert_eq!(
+        catalog
+            .binding("custom:leather_decoy_chestplate")
+            .unwrap()
+            .color_mask_rgb(Some(TEAM_RED)),
+        None,
     );
 }

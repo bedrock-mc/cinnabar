@@ -1,9 +1,10 @@
 use crate::capture::{CapturedPacket, hash_packet};
 use anyhow::{Result, ensure};
+use bridge::contract::PACK_CHUNK_BYTES;
 use bytes::Bytes;
 use futures::{Sink, SinkExt};
 use protocol::session_wire::{
-    CapturedPacketKind, CoreMessage, PACK_CHUNK_BYTES, SessionHandoff, encode_core_message,
+    CapturedPacketKind, CoreMessage, SessionHandoff, encode_core_message,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};

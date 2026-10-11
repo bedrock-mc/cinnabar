@@ -19,7 +19,7 @@ use valentine::bedrock::version::v1_26_51::{
     McpePacketData, TransferPacket,
 };
 
-use super::client_data::LoginSettings;
+use super::client_data::{ClientRandomId, LoginSettings};
 use super::{LoginSequence, MAX_DECOMPRESSED_BATCH_SIZE, PlaySession};
 use crate::session_transport::SessionTransport;
 use crate::{
@@ -29,10 +29,12 @@ use crate::{
 
 impl LoginSequence {
     /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
-    /// open local world. The owner calls `finish_loading` after presenting the world.
+    /// open local world, using the caller's persisted login ID. The owner calls
+    /// `finish_loading` after presenting the world.
     pub async fn connect_session(
         socket_dir: &Path,
         display_name: &str,
+        client_random_id: ClientRandomId,
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
@@ -46,6 +48,7 @@ impl LoginSequence {
             client_cache: cache.is_some(),
             client_data: super::client_data::login_client_data(
                 display_name,
+                client_random_id,
                 skin.as_ref(),
                 settings,
             ),

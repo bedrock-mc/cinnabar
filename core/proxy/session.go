@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
@@ -418,7 +419,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	if errors.As(cause, &refused) {
 		key = refused.key
 	}
-	frame, err := encodeSessionJSON(sessionKindDisconnect, sessionDisconnect{Message: key})
+	frame, err := encodeSessionJSON(bridgecontract.SessionKindDisconnect, sessionDisconnect{Message: key})
 	if err != nil {
 		return err
 	}

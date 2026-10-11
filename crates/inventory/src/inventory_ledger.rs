@@ -75,7 +75,8 @@ use protocol::{
 };
 use thiserror::Error;
 
-pub const PLAYER_INVENTORY_SLOT_COUNT: usize = 36;
+/// Player slots share the protocol request boundary.
+pub const PLAYER_INVENTORY_SLOT_COUNT: usize = protocol::PLAYER_INVENTORY_SLOTS as usize;
 pub const INVENTORY_REQUEST_TIMEOUT_MILLIS: u64 = 1_500;
 /// Remote window churn is retained only far enough to close the newest
 /// observed surface, while the current personal close can never be evicted.

@@ -164,6 +164,7 @@ async fn native_login_joins_the_replay_session() {
         let (mut session, _) = protocol::LoginSequence::connect_session(
             &socket_dir,
             "Fixture",
+            protocol::ClientRandomId::new(-7).unwrap(),
             None,
             None,
             &Default::default(),

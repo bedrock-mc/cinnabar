@@ -33,6 +33,8 @@ pub struct NetworkConfig {
     pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
+    /// The user storage owner's opaque persisted login identifier.
+    pub client_random_id: protocol::ClientRandomId,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.

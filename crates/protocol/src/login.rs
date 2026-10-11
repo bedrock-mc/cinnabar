@@ -26,7 +26,7 @@ mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 use boundary::boundary_wakeup;
-pub use client_data::LoginSettings;
+pub use client_data::{ClientRandomId, LoginSettings};
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
 pub use packet_trace::PacketIdTraceSnapshot;
@@ -34,7 +34,10 @@ use packet_trace::PacketIdTraceState;
 #[cfg(test)]
 use packet_trace::{MAX_PACKET_ID_TRACE_ENTRIES, PACKET_ID_TRACE_DURATION};
 
-const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
+/// A server may batch a whole pack transfer, or a large item registry, into one batch,
+/// so the local leg accepts batches far larger than a typical client's 16 MiB default.
+/// The core already bounds pack transfers before they reach this hop.
+const MAX_DECOMPRESSED_BATCH_SIZE: usize = 256 * 1024 * 1024;
 
 /// Entry point for joining through the core.
 pub struct LoginSequence;

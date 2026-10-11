@@ -1,6 +1,9 @@
 //! Local stream bridge between the Rust client and Go core.
 
 mod account;
+/// Shared frame limits and session message kinds for the Rust and Go bridge.
+pub mod contract;
+pub use contract::MAX_FRAME_LEN;
 mod endpoint;
 mod error;
 mod framed;
@@ -63,9 +66,6 @@ pub fn session_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
 pub fn control_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
     endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Control)
 }
-
-/// Largest payload accepted by the local bridge framing protocol.
-pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests {

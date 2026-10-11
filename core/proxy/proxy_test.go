@@ -1394,9 +1394,40 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	}
 }
 
-// The private listener negotiates no compression, so local batches are neither compressed nor decompressed.
-// The private listener skips the encryption handshake and serves packs in client-maximum chunks.
-// A client holding an offered pack declines it, so a rejoin moves no pack bytes over the local link.
+// A pack with more chunks than the upstream window must still request every chunk at
+// once: the window is only large enough to hold a pack's whole chunk count, so the
+// last chunks of a big pack are never serialized behind the data already received.
+func TestResourcePackWindowHoldsEveryChunkOfAPack(t *testing.T) {
+	window := boundedResourcePackDownload().MaxInFlightChunks
+	if window <= 0 {
+		t.Fatalf("resource pack request window = %d, want positive", window)
+	}
+	if window < minecraft.DefaultResourcePackMaxInFlightChunks {
+		t.Fatalf("resource pack request window = %d, want at least the vanilla default %d", window, minecraft.DefaultResourcePackMaxInFlightChunks)
+	}
+	// The largest pack observed in the wild needs more chunks than the vanilla
+	// default window covers; its tail must not be drip-fed one request per response.
+	const observedPackChunks = 123
+	if window < observedPackChunks {
+		t.Fatalf("resource pack request window = %d, want at least %d for a %d-chunk pack", window, observedPackChunks, observedPackChunks)
+	}
+}
+
+// A server may batch a whole pack transfer into one batch, so the upstream dialer must
+// accept batches far larger than the 16 MiB default that vanilla itself joins through.
+func TestUpstreamDialerAcceptsLargePackTransferBatches(t *testing.T) {
+	dialer := newUpstreamDialerForAdmission(dialerTestDownstream{}, nil, nil, nil, false)
+	if dialer.MaxDecompressedLen <= 0 {
+		t.Fatalf("upstream decompressed batch limit = %d, want positive", dialer.MaxDecompressedLen)
+	}
+	if got := packet.DefaultMaxDecompressedLen; dialer.MaxDecompressedLen <= got {
+		t.Fatalf("upstream decompressed batch limit = %d, want above the default %d", dialer.MaxDecompressedLen, got)
+	}
+	if dialer.MaxDecompressedLen < maxResourcePackTransferBytes {
+		t.Fatalf("upstream decompressed batch limit = %d, want at least the transfer bound %d", dialer.MaxDecompressedLen, maxResourcePackTransferBytes)
+	}
+}
+
 // BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.
 func BenchmarkLocalLegCompression(b *testing.B) {
 	payload := make([]byte, 1<<20)

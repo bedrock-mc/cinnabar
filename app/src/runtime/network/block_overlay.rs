@@ -54,6 +54,8 @@ pub(crate) struct OverlayGaps {
     pub(crate) approximated_materials: u32,
     pub(crate) incomplete_state_identities: u32,
     pub(crate) invalid_legacy_bindings: u32,
+    /// Routes refused because the overlay texture array had no layer left.
+    pub(crate) saturated_textures: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -147,8 +149,10 @@ pub(super) fn compile_block_overlay(
         builder.override_vanilla_materials(keys);
     }
     if blocks.blocks.is_empty() && builder.overlay.material_overrides.is_empty() {
+        builder.catalog.emit_diagnostics();
         return None;
     }
+    builder.catalog.emit_diagnostics();
     builder.finish()
 }
 
@@ -465,6 +469,10 @@ impl Builder<'_> {
     fn load_texture(&mut self, key: &str) -> Option<TextureSlot> {
         let available = MAX_OVERLAY_LAYERS.saturating_sub(self.sources.len());
         if available == 0 {
+            // A full array rejects every later route, so name it rather than
+            // leaving those textures indistinguishable from unusable pack data.
+            self.gaps.saturated_textures += 1;
+            self.catalog.report_full(key);
             return None;
         }
         let mut texture = self.catalog.decode(key)?;

@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 assets = { path = "../assets" }
+getrandom = "0.3"
 protocol = { path = "../protocol" }
 render-api = { path = "../render-api" }
 resource-pack = { path = "../resource-pack" }
@@ -17,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tempfile = "3"
 thiserror.workspace = true
 
 [lints]

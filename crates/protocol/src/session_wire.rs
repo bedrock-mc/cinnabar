@@ -16,16 +16,12 @@ mod pack_cache;
 mod server;
 pub use pack_cache::CachedArchive;
 pub use server::{
-    CapturedPacketKind, PACK_CHUNK_BYTES, captured_packet_kind, decode_connect,
-    encode_core_message, packet_from_body,
+    CapturedPacketKind, captured_packet_kind, decode_connect, encode_core_message, packet_from_body,
 };
 
-const KIND_CONNECT: u8 = 1;
-const KIND_BATCH: u8 = 2;
-const KIND_HANDOFF: u8 = 3;
-const KIND_PACK_DATA: u8 = 4;
-const KIND_TRANSFER: u8 = 5;
-const KIND_DISCONNECT: u8 = 6;
+use bridge::contract::{
+    KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_PACK_DATA, KIND_TRANSFER,
+};
 /// The StartGame packet ID, which ends a handoff's startup packets.
 const START_GAME_PACKET_ID: u32 =
     valentine::bedrock::version::v1_26_51::PacketId::StartGamePacket as u32;

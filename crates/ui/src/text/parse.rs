@@ -125,42 +125,15 @@ enum FormattingChange {
 
 /// Codes are case-sensitive; an unlisted digit or `a`-`w` falls back to white.
 fn formatting_change(code: char) -> Option<FormattingChange> {
-    use BedrockColor as Color;
     use FormattingChange as Change;
+    if let Some(color) = BedrockColor::from_code(code) {
+        return Some(Change::Color(color));
+    }
     Some(match code {
-        '0' => Change::Color(Color::Black),
-        '1' => Change::Color(Color::DarkBlue),
-        '2' => Change::Color(Color::DarkGreen),
-        '3' => Change::Color(Color::DarkAqua),
-        '4' => Change::Color(Color::DarkRed),
-        '5' => Change::Color(Color::DarkPurple),
-        '6' => Change::Color(Color::Gold),
-        '7' => Change::Color(Color::Gray),
-        '8' => Change::Color(Color::DarkGray),
-        '9' => Change::Color(Color::Blue),
-        'a' => Change::Color(Color::Green),
-        'b' => Change::Color(Color::Aqua),
-        'c' => Change::Color(Color::Red),
-        'd' => Change::Color(Color::LightPurple),
-        'e' => Change::Color(Color::Yellow),
-        'f' => Change::Color(Color::White),
-        'g' => Change::Color(Color::MinecoinGold),
-        'h' => Change::Color(Color::MaterialQuartz),
-        'i' => Change::Color(Color::MaterialIron),
-        'j' => Change::Color(Color::MaterialNetherite),
-        'm' => Change::Color(Color::MaterialRedstone),
-        'n' => Change::Color(Color::MaterialCopper),
-        'p' => Change::Color(Color::MaterialGold),
-        'q' => Change::Color(Color::MaterialEmerald),
-        's' => Change::Color(Color::MaterialDiamond),
-        't' => Change::Color(Color::MaterialLapis),
-        'u' => Change::Color(Color::MaterialAmethyst),
-        'v' => Change::Color(Color::MaterialResin),
         'k' => Change::Obfuscated,
         'l' => Change::Bold,
         'o' => Change::Italic,
         'r' => Change::Reset,
-        'w' => Change::Color(Color::PartyBlue),
         _ => return None,
     })
 }

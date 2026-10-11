@@ -3,9 +3,6 @@
 use super::*;
 use valentine::bedrock::version::v1_26_51::PacketId;
 
-/// Largest archive slice sent in one PackData message, shared with the core contract.
-pub const PACK_CHUNK_BYTES: usize = 4 * 1024 * 1024;
-
 /// Decodes the first client frame without requiring claims supplied only by upstream login.
 pub fn decode_connect(frame: &[u8]) -> Result<ConnectRequest, BridgeError> {
     if frame.first() != Some(&KIND_CONNECT) {

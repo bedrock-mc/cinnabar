@@ -4,13 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -20,7 +18,7 @@ import (
 
 func TestRequiredChunkPackWithUnderstatedWireOfferReachesHandoff(t *testing.T) {
 	pack := testAdmissionPack(t)
-	network := streamnet.New(filepath.Join(t.TempDir(), "socket"))
+	network := newStreamNetwork()
 	var rewritten atomic.Bool
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -45,7 +46,7 @@ func TestSessionHandoffUsesCachedArchive(t *testing.T) {
 	})
 	_, frames := dialTestSession(t, dir, testSessionConnect(t))
 	frame := <-frames
-	if len(frame) < 5 || frame[0] != sessionKindHandoff {
+	if len(frame) < 5 || frame[0] != bridgecontract.SessionKindHandoff {
 		t.Fatalf("expected handoff, got %x", frame)
 	}
 	size := binary.BigEndian.Uint32(frame[1:5])
@@ -70,7 +71,7 @@ func TestSessionHandoffUsesCachedArchive(t *testing.T) {
 	if _, err := os.Stat(ref.Path); err != nil {
 		t.Fatal(err)
 	}
-	if next := <-frames; len(next) == 0 || next[0] != sessionKindBatch {
+	if next := <-frames; len(next) == 0 || next[0] != bridgecontract.SessionKindBatch {
 		t.Fatal("cached pack was streamed instead of proceeding to the batch")
 	}
 }
@@ -126,7 +127,7 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 			defer release()
 			received := make([][]byte, len(packs))
 			err := writeSessionPacks(func(frame []byte) error {
-				if len(frame) < 5 || frame[0] != sessionKindPackData {
+				if len(frame) < 5 || frame[0] != bridgecontract.SessionKindPackData {
 					t.Fatal("incorrect pack frame")
 				}
 				index := binary.BigEndian.Uint32(frame[1:5])

@@ -8,23 +8,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
-
-// Session messages are streamnet frames on the session endpoint; the first byte names the kind.
-// The Rust protocol crate owns the same contract.
-const (
-	sessionKindConnect    byte = 1 // client: JSON sessionConnectRequest
-	sessionKindBatch      byte = 2 // either way: one network batch of length-prefixed packets
-	sessionKindHandoff    byte = 3 // core: u32 JSON length, JSON sessionHandoff, startup packets as a batch
-	sessionKindPackData   byte = 4 // core: u32 pack index, then that pack's next archive bytes
-	sessionKindTransfer   byte = 5 // core, terminal: JSON sessionTransfer
-	sessionKindDisconnect byte = 6 // core, terminal: JSON sessionDisconnect
-)
-
-// sessionPackChunkBytes bounds one PackData frame well under streamnet.MaxFrameLen.
-const sessionPackChunkBytes = 4 << 20
 
 var errMalformedSession = errors.New("proxy: malformed session message")
 
@@ -93,7 +80,7 @@ type sessionDisconnect struct {
 // decodeSessionConnect rejects any frame but one well-formed Connect.
 func decodeSessionConnect(frame []byte) (sessionConnectRequest, error) {
 	var request sessionConnectRequest
-	if len(frame) == 0 || frame[0] != sessionKindConnect {
+	if len(frame) == 0 || frame[0] != bridgecontract.SessionKindConnect {
 		return request, fmt.Errorf("%w: expected connect", errMalformedSession)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(frame[1:]))
@@ -162,7 +149,7 @@ func encodeSessionHandoff(handoff sessionHandoff, startup [][]byte) ([]byte, err
 		return nil, err
 	}
 	frame := make([]byte, 5, 5+len(metadata))
-	frame[0] = sessionKindHandoff
+	frame[0] = bridgecontract.SessionKindHandoff
 	binary.BigEndian.PutUint32(frame[1:5], uint32(len(metadata)))
 	frame = append(frame, metadata...)
 	for _, data := range startup {
@@ -176,7 +163,7 @@ func encodeSessionHandoff(handoff sessionHandoff, startup [][]byte) ([]byte, err
 
 // putSessionPackHeader starts a PackData frame for pack index; the archive bytes follow it.
 func putSessionPackHeader(frame []byte, index uint32) {
-	frame[0] = sessionKindPackData
+	frame[0] = bridgecontract.SessionKindPackData
 	binary.BigEndian.PutUint32(frame[1:5], index)
 }
 
@@ -198,7 +185,7 @@ func writeSessionPacks(writeFrame func([]byte) error, packs []*resource.Pack) er
 		}
 		size := pack.Size()
 		for offset := 0; offset < size; {
-			n := min(sessionPackChunkBytes, size-offset)
+			n := min(bridgecontract.SessionPackChunkBytes, size-offset)
 			if cap(frame) < 5+n {
 				frame = make([]byte, 5+n)
 			}

@@ -195,6 +195,7 @@ async fn check_handed_off_packs(cached: bool) {
         );
         assert_eq!(request["protocol"], crate::PROTOCOL_VERSION);
         assert_eq!(request["client_data"]["ThirdPartyName"], "Fixture");
+        assert_eq!(request["client_data"]["ClientRandomId"].as_i64(), Some(-7));
         core.send(handoff_frame(
             serde_json::json!({
                 "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
@@ -224,6 +225,7 @@ async fn check_handed_off_packs(cached: bool) {
     let join = LoginSequence::connect_session(
         dir.path(),
         "Fixture",
+        crate::ClientRandomId::new(-7).unwrap(),
         Some(ClientBlobCache::default()),
         None,
         &settings,
@@ -307,7 +309,14 @@ async fn a_startup_longer_than_one_batch_still_joins() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            crate::ClientRandomId::new(-7).unwrap(),
+            None,
+            None,
+            &settings
+        ),
         core
     );
     let (_, game_data) = joined.expect("a long startup joins");
@@ -362,7 +371,14 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            crate::ClientRandomId::new(-7).unwrap(),
+            None,
+            None,
+            &settings
+        ),
         core
     );
     let error = joined.err().expect("the join ends");
@@ -391,7 +407,14 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings),
+        LoginSequence::connect_session(
+            dir.path(),
+            "Fixture",
+            crate::ClientRandomId::new(-7).unwrap(),
+            None,
+            None,
+            &settings
+        ),
         core
     );
     let target = joined
@@ -459,7 +482,14 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         }), &[start_game()])).await;
         core
     };
-    let join = LoginSequence::connect_session(dir.path(), "Fixture", None, None, &settings);
+    let join = LoginSequence::connect_session(
+        dir.path(),
+        "Fixture",
+        ClientRandomId::new(-7).unwrap(),
+        None,
+        None,
+        &settings,
+    );
     let (result, _core) = tokio::join!(join, core);
     match result {
         Err(error) => assert!(error.to_string().contains("cached archive hash"), "{error}"),
