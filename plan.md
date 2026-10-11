@@ -4501,7 +4501,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     - [x] Compile recessed models for all thirteen wood shelves, including
       Poplar Shelf. Typed direction, power, and shelf-type selectors choose
       the pose and one of five front regions; malformed selectors remain
-      diagnostic. Original texture aliases work through ordinary pack routing.
+      diagnostic. Original texture aliases and sheets with transparent texels
+      work through ordinary pack routing with cutout materials.
       Active-registry tests cover every wood and all Poplar Shelf states,
       carrier round trips, both network-ID modes, and invalid selector types.
     - [ ] Complete shelf visual parity with a full native comparison gallery.

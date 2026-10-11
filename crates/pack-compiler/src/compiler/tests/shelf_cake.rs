@@ -371,3 +371,61 @@ fn shelf_models_cover_all_woods_and_reject_invalid_selectors() {
         );
     }
 }
+
+#[test]
+fn shelf_texture_overrides_with_alpha_keep_their_model_materials() {
+    let (records, lights, protocol) =
+        active_records(&["minecraft:oak_shelf", "minecraft:poplar_shelf"]);
+    let directory = tempfile::tempdir().unwrap();
+    shared_shelf_pack(directory.path(), &records);
+    let mut pixels = vec![255; 32 * 32 * 4];
+    // Powered front texels are unused by an unpowered shelf, but remain in its atlas layer.
+    for y in 16..32 {
+        for x in 0..32 {
+            pixels[(y * 32 + x) * 4 + 3] = 0;
+        }
+    }
+    write_png(
+        directory.path().join("textures/fixture/shelf.png"),
+        32,
+        32,
+        &pixels,
+    );
+    let span = records
+        .iter()
+        .map(|record| record.sequential_id as usize + 1)
+        .max()
+        .unwrap();
+    let (compiled, _) = super::super::compile_pack_inner(
+        directory.path(),
+        &records,
+        &lights[..span],
+        CompiledBiomeAssets::diagnostic(),
+        protocol,
+    )
+    .unwrap();
+    let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    for record in records
+        .iter()
+        .filter(|record| record.name.as_ref() != "minecraft:air")
+    {
+        let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        assert_eq!(
+            visual.kind(),
+            VisualKind::Model,
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+        let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
+        for quad in
+            &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize]
+        {
+            assert_ne!(quad.material, assets::DIAGNOSTIC_MATERIAL);
+            assert_ne!(
+                runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                0
+            );
+        }
+    }
+}
