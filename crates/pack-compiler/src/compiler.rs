@@ -265,6 +265,9 @@ fn compile_pack_inner(
     }
     let mut fallback_descriptors = BTreeSet::<Descriptor>::new();
     for record in records.iter().filter(|record| {
+        if visuals::hollow_containers::is_name(&record.name) {
+            return true;
+        }
         if is_mineral_cube_name(&record.name) {
             return (admit_mineral_cubes && is_mineral_cube_record(record))
                 || fallback.contains(record);
@@ -302,6 +305,14 @@ fn compile_pack_inner(
             || visuals::literal::is_literal_cube(record)
             || fallback.contains(record)
     }) {
+        if visuals::hollow_containers::is_name(&record.name) {
+            if let Some(descriptors) = visuals::hollow_containers::descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
         if visuals::candle_cake::is_record(record) {
             if let Some(descriptors) = visuals::candle_cake::descriptors(&pack, record) {
                 for (descriptor, key) in descriptors {

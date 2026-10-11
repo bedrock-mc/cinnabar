@@ -8,13 +8,13 @@ mod surface;
 pub use surface::{Surface, SurfaceValue};
 
 pub const MAX_PANEL_BYTES: usize = 128 * 1024;
-pub const MAX_PANEL_CONTROLS: usize = 128;
+pub const MAX_PANEL_CONTROLS: usize = 256;
 /// Input batches remain bounded independently of the retained control catalog.
 pub const MAX_PANEL_EVENTS: usize = 64;
 pub const MAX_PANEL_TEXT_BYTES: usize = 96;
 pub const MAX_PANEL_ID_BYTES: usize = 48;
 pub const MAX_PANEL_CHOICES: usize = 8;
-pub const MAX_PANEL_SECTIONS: usize = 12;
+pub const MAX_PANEL_SECTIONS: usize = 32;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
 
@@ -171,6 +171,25 @@ impl Panel {
                         .parse::<usize>()
                         .ok()
                         .is_some_and(|index| index < self.controls.len())
+                } else if let Some(axis) = action.strip_prefix("mod.axis:") {
+                    axis.split_once(':').is_some_and(|(index, axis)| {
+                        matches!(axis, "x" | "y")
+                            && index.parse::<usize>().ok().is_some_and(|i| {
+                                matches!(self.controls.get(i), Some(Control::Slider { .. }))
+                            })
+                    })
+                } else if let Some(indices) = action.strip_prefix("mod.vector:") {
+                    indices.split_once(':').is_some_and(|(x, y)| {
+                        let index = |s: &str| {
+                            s.parse::<usize>().ok().filter(|i| {
+                                matches!(self.controls.get(*i), Some(Control::Slider { .. }))
+                            })
+                        };
+                        match (index(x), index(y)) {
+                            (Some(x), Some(y)) => x != y,
+                            _ => false,
+                        }
+                    })
                 } else if let Some(index) = action.strip_prefix("mod.edit:") {
                     index.parse::<usize>().ok().is_some_and(|index| {
                         matches!(self.controls.get(index), Some(Control::Slider { .. }))

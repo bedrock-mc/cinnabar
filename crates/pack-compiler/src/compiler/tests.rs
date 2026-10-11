@@ -16,10 +16,14 @@ mod dragon_egg;
 mod end_rod;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
+#[path = "tests/hollow_containers.rs"]
+mod hollow_containers;
 #[path = "tests/isotropic.rs"]
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lightning_rod.rs"]
+mod lightning_rod;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
 

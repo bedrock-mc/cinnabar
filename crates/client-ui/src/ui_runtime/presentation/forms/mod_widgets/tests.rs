@@ -63,6 +63,7 @@ pub(in super::super) fn content() -> Hud {
             offset: [6., 6.],
             scale: 1.,
             rows: vec![Row {
+                formatted: false,
                 label: "Helmet".into(),
                 value: "85%".into(),
                 item: Some("minecraft:diamond_helmet".into()),
@@ -790,6 +791,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         ]
         .into_iter()
         .map(|(label, item, value, progress)| Row {
+            formatted: false,
             label: label.into(),
             value: value.into(),
             item: Some(item.into()),
@@ -814,6 +816,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         rows: [("Speed II", 1, "1:42"), ("Fire Resistance", 12, "6:15")]
             .into_iter()
             .map(|(label, id, value)| Row {
+                formatted: false,
                 label: label.into(),
                 value: value.into(),
                 item: None,
@@ -839,6 +842,7 @@ fn personal_hud_snapshot_with_real_carrier() {
         ]
         .into_iter()
         .map(|(label, item, metadata, value)| Row {
+            formatted: false,
             label: label.into(),
             value: value.into(),
             item: Some(item.into()),

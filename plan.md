@@ -24,6 +24,15 @@ execution of this move remain unverified, and no parity gate is closed by it.
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## Lightning rod terrain geometry
+
+Lightning rods compile their complete shaft and tip for all six facings, eight
+oxidation/wax variants and both powered states. Surfaces retain the authored sprite
+regions and powered texture selector. Original-art regressions cover geometry,
+material selection, carrier roundtrips and malformed states. Offline Metal frames
+cover every state beside supporting terrain; broader world-join and performance
+gates remain open.
+
 ## End rod terrain geometry
 
 End rods compile a separate shaft and mounting plate for all six integer-facing states.
@@ -7476,3 +7485,9 @@ Incomplete parity: bone mirror, inflation and visibility projection, modern geom
 Admitted live biome identifiers and climate now travel with the session tint registry. Weather, fog precipitation, camera temperature and environment routes read that registry, including custom biome routes. Registry replacement clears removed routes.
 
 Incomplete parity: exact custom-biome fallback profiles and regional or height-adjusted temperature behavior remain open.
+
+## Hollow terrain containers
+
+Composters retain inward walls and a level-dependent floor. Cauldrons retain their rim, inner floor, walls and feet, with separate water, lava and powder-snow surfaces at each fill level. These models do not occlude full neighbor faces.
+
+Incomplete parity: cauldron block-actor potion and dyed-water colours require runtime block-actor data; their state-only visual remains provisional. Enhanced lighting and performance acceptance remain open.

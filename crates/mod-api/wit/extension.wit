@@ -64,6 +64,26 @@ interface player-state {
         /// Currently visible status effects, sorted by effect id, without expired entries.
         effects: list<effect>,
     }
+    record world-observation {
+        session: u64,
+        /// Stable, host-selected destination identity; never a session generation.
+        %world: string,
+        dimension: s32,
+        position: tuple<f32, f32, f32>,
+        alive: bool,
+    }
+    record chat-message { sequence: u64, text: string }
+    /// Newest 32 retained received messages, filtered by sequence > after, in FIFO order.
+    /// limit is 1 through 4; individual text fields are at most 256 UTF-8 bytes.
+    read-chat: func(after: u64, limit: u32) -> result<list<chat-message>, string>;
+    record sidebar-row { label: string, score: s32 }
+    record sidebar { title: string, rows: list<sidebar-row> }
+    /// Session-fenced feet position and life state, readable while menus own input.
+    read-world: func() -> result<option<world-observation>, string>;
+    /// Measured completed client frames per real second, never the configured limit.
+    read-fps: func() -> result<option<f32>, string>;
+    /// Ordered, resolved sidebar names; none when the server has no sidebar.
+    read-sidebar: func() -> result<option<sidebar>, string>;
     /// Requires the player-state grant. None outside the current connected session.
     /// Available while a screen owns input; carries no camera, interaction or packet authority.
     read-snapshot: func() -> result<option<snapshot>, string>;
@@ -76,6 +96,9 @@ interface player-state {
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
 interface panel {
     record event { id: string, value: f32 }
+    /// Changes this instance's panel input ownership on successful callback return.
+    /// Requires controls authority and a retained or pending panel when opening.
+    set-open: func(open: bool) -> result<_, string>;
     /// Bounded panel JSON; empty text removes the panel and releases its input.
     set-content: func(json: string) -> result<_, string>;
 }
