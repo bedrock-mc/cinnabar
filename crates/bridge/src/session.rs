@@ -14,12 +14,9 @@ use crate::account::{ConnectParams, ConnectTarget};
 use crate::endpoint::EndpointKind;
 use crate::{BridgeError, FrameQueue, FramedReader, MAX_FRAME_LEN};
 
-const KIND_CONNECT: u8 = 1;
-const KIND_BATCH: u8 = 2;
-const KIND_HANDOFF: u8 = 3;
-const KIND_PACK_DATA: u8 = 4;
-const KIND_TRANSFER: u8 = 5;
-const KIND_DISCONNECT: u8 = 6;
+use crate::contract::{
+    KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_PACK_DATA, KIND_TRANSFER,
+};
 /// The StartGame packet ID, which ends a handoff's startup packets.
 const START_GAME_PACKET_ID: u32 = 11;
 

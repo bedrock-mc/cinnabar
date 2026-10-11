@@ -192,7 +192,7 @@ impl UiRuntime {
             | TextKind::JsonWhisper
             | TextKind::Json
             | TextKind::JsonAnnouncement => {
-                return self.push_chat(event, fifo_sequence, event_millis)
+                return self.push_chat(event, fifo_sequence, event_millis);
             }
         };
         slot(&mut self.hud, event.message, fifo_sequence, event_millis);

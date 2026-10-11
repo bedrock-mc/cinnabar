@@ -19,6 +19,7 @@ pub use block_presentation_state::{
 pub mod carriers;
 mod compiled;
 pub mod dye;
+mod effects;
 mod encoding;
 mod entity;
 mod environment_settings;
@@ -119,6 +120,9 @@ pub use compiled::{
     MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, material_leaf_ao_exponent,
 };
+pub use effects::{
+    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_registry_version,
+};
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
     CompiledEntityAssets, CompiledMolangExpression, ELYTRA_GEOMETRY_IDENTIFIER,
@@ -160,7 +164,7 @@ pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,
     CompiledItemAttackTiming, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
     EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory,
-    EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
+    EquipmentColorMask, EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
     RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,

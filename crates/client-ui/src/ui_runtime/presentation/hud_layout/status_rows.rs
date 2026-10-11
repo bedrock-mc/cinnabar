@@ -8,10 +8,7 @@ use assets::HudTextureRole;
 
 use super::{
     HudFrame, HudTexturePages, UiRuntime,
-    pinned::{
-        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role,
-        heart_role,
-    },
+    pinned::{MAX_HEART_ROWS, MAX_MOUNT_HEARTS, effect_blink_alpha, effect_icon_role, heart_role},
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
 use crate::ui_runtime::presentation::forms::hud_renderers::{Cell, HudPaint, SheetSprite};
@@ -475,7 +472,11 @@ fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
         if !effect.visible_at_tick(now_tick) || effect_icon_role(effect.effect_id).is_none() {
             continue;
         }
-        rows[usize::from(HARMFUL_EFFECT_IDS.contains(&effect.effect_id))].push(effect);
+        rows[usize::from(
+            assets::effect_descriptor(effect.effect_id)
+                .is_some_and(|descriptor| descriptor.harmful),
+        )]
+        .push(effect);
     }
     let mut cells = Vec::new();
     for (row, effects) in rows.iter_mut().enumerate() {

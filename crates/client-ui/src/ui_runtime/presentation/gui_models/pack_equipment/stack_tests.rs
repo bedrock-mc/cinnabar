@@ -32,6 +32,7 @@ fn binding(identifier: &str, slot: ArmorSlot, texture: &str, material: &str) -> 
         geometry: reference("geometry.fixture"),
         texture: reference(texture),
         material: material.into(),
+        color_mask: assets::EquipmentColorMask::NoMask,
         render_controller: "controller.render.armor".into(),
         first_person: EquipmentTransform::NeedsMeasurement,
         third_person: EquipmentTransform::NeedsMeasurement,

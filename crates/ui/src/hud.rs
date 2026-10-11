@@ -417,7 +417,12 @@ impl HudStore {
     }
 
     pub fn set_tip(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
-        self.tip = Some(TimedText::new(text, fifo_sequence, now_millis, self.durations));
+        self.tip = Some(TimedText::new(
+            text,
+            fifo_sequence,
+            now_millis,
+            self.durations,
+        ));
     }
 
     pub fn clear_titles(&mut self) {

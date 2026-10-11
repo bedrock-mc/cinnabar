@@ -34,3 +34,46 @@ fn snapshot_local_pack_hud() {
         "pack must preserve the hotbar"
     );
 }
+
+#[test]
+fn snapshot_recent_effects() {
+    let path = std::env::var_os("PINNED_HUD_CARRIER")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(assets::carriers::COMPILED_DIR)
+                .join(assets::carriers::HUD.output)
+        });
+    if !path.is_file() {
+        eprintln!(
+            "skipping snapshot_recent_effects: missing PINNED_HUD_CARRIER fixture at {}",
+            path.display()
+        );
+        return;
+    }
+    let Some(ui) = pack_harness::carrier() else {
+        return;
+    };
+    let hud = Arc::new(assets::RuntimeHudCatalog::decode(&std::fs::read(path).unwrap()).unwrap());
+    let mut presentation = UiPresentationRuntime::with_hud(pack_harness::font(), hud).unwrap();
+    presentation.enable_json_ui(ui).unwrap();
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    full_stats(&mut player, &mut runtime, 1);
+    player
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
+    for id in 31..=37 {
+        runtime
+            .apply_local_effect(1, id as u64, effect(id), 0)
+            .unwrap();
+    }
+    for frame in 0..24 {
+        let input = build(&player, &mut presentation, &runtime, frame * 100);
+        if frame == 23 {
+            snapshot::write(&input, "recent-effects");
+        }
+    }
+    assert_eq!(runtime.gameplay_hud().effects().len(), 7);
+}

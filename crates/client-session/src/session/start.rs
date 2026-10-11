@@ -46,6 +46,7 @@ pub fn spawn_network<P: Send + 'static>(
                     LoginSequence::connect_session(
                         &config.socket_dir,
                         &config.display_name,
+                        config.client_random_id,
                         Some(config.client_blob_cache.clone()),
                         Some(config.player_skin),
                         &config.login_settings,

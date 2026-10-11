@@ -34,6 +34,7 @@ async fn login_reaches_start_game_through_bds() {
         LoginSequence::connect_session(
             socket_dir.path(),
             "RustMCBEPhase0",
+            protocol::ClientRandomId::new(-7).unwrap(),
             None,
             None,
             &Default::default(),
@@ -143,6 +144,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
             LoginSequence::connect_session(
                 socket_dir.path(),
                 "StartupFixture",
+                protocol::ClientRandomId::new(-7).unwrap(),
                 None,
                 None,
                 &Default::default(),

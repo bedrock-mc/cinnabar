@@ -2484,7 +2484,13 @@ states by network hash (pack visuals via the runtime overlay; stone-surface coll
 provisional); sequential customs sorting among vanilla remap wire ids, custom collision
 uses `minecraft:collision_box`, and vanilla blocks retexture from a pack's terrain keys
 via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons override by
-short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
+short-name key (provisional). Custom-block selection boxes drive the pick ray. 2026-10-11 terrain
+diagnostics: rejected terrain routes are counted per reason and reported by key and path instead
+of the former eight-line budget, and routes the overlay refused because its texture array was full
+are counted separately (`OverlayGaps::saturated_textures`) so a full array is no longer
+indistinguishable from unusable pack data. Which reason dominates a real session is still unproven
+without a capture: the pack layer bound is `MAX_OVERLAY_LAYERS`, an index-space limit, while a
+served stack may ship thousands of distinct textures. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
 labeled incomplete: neutral material profile only (custom materials fall back; a controller's
@@ -6515,6 +6521,12 @@ frontend comparison and the broader UI visual parity gate remain incomplete.
 
 ## Go core simplification (2026-10-02)
 
+Login client IDs persist as nonzero signed 64-bit values in launcher user-data storage.
+Joins and transfers reuse the stored value, independently of account credentials,
+device profiles and transport GUIDs. Invalid or zero files are replaced using full-width
+OS entropy; storage failures return an explicit error. Broader network and platform
+parity and destination-routing acceptance remain incomplete.
+
 Client login claims use a supported memory tier and explicitly report editor capability
 and connection intent for normal gameplay, so PowerNukkitX accepts valid skins.
 The core-session and JWT login builders share the desktop-tier and editor-intent values.
@@ -7300,3 +7312,19 @@ allocation-free retained index view.
 Incomplete parity: formatted-name cleanup, Unicode case folding and alternate
 name search modes remain unverified. Display-name projection and cache freshness
 do not close those search acceptance gates.
+
+### Recent status effects
+
+Status-effect retention and HUD icon/row lookup now share a versioned descriptor
+registry. The pinned pack's effects through ID 37 are covered, including the
+nonpersistent effects without HUD icons. A hash-checked independent effect
+inventory checks descriptor coverage when the named local fixture is available.
+The required HUD carrier includes the added icons; rebuild it with `make assets`.
+
+### Compiled equipment dye capability
+
+Compiled equipment dye capabilities remain incomplete for material contracts the compiler cannot
+resolve. The equipment carrier stores Dye, NoMask or Unresolved; unknown parent chains no longer
+acquire dye from a material name. The existing undyed colour and legacy armour material defaults
+are retained. Complete native shader coverage and session item-component dye overrides remain
+open; this descriptor change does not close those parity gates.

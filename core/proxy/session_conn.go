@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -99,7 +100,7 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if read.err != nil {
 		return nil, read.err
 	}
-	if len(read.frame) == 0 || read.frame[0] != sessionKindBatch {
+	if len(read.frame) == 0 || read.frame[0] != bridgecontract.SessionKindBatch {
 		return nil, fmt.Errorf("%w: expected batch", errMalformedSessionMessage)
 	}
 	packets, err := splitBatch(read.frame[1:])
@@ -124,7 +125,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		case packet.IDTransfer:
 			if transfer, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Transfer); ok {
 				if _, err := transferAddress(transfer.Address, transfer.Port); err == nil {
-					return session.endLocked(sessionKindTransfer, sessionTransferMessage{
+					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransferMessage{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
 				}
@@ -132,7 +133,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		}
 	}
 	if len(session.pending) == 0 {
-		session.pending = append(session.pending, sessionKindBatch)
+		session.pending = append(session.pending, bridgecontract.SessionKindBatch)
 	}
 	session.pending = appendBatchPacket(session.pending, data)
 	return nil
@@ -180,7 +181,7 @@ func (session *sessionConn) DisconnectPacket(value packet.Disconnect) error {
 	if session.ended {
 		return nil // a Transfer already ended the session
 	}
-	err := session.endLocked(sessionKindDisconnect, sessionDisconnectMessage{
+	err := session.endLocked(bridgecontract.SessionKindDisconnect, sessionDisconnectMessage{
 		Reason: value.Reason, Message: value.Message, FilteredMessage: value.FilteredMessage,
 		HideScreen: value.HideDisconnectionScreen,
 	})
@@ -203,7 +204,7 @@ func (session *sessionConn) flushLocked() error {
 	}
 	_, err := session.conn.Write(session.pending)
 	// Write has returned, so the buffer is reused unless one large batch grew it.
-	if cap(session.pending) > sessionPackChunkBytes {
+	if cap(session.pending) > bridgecontract.SessionPackChunkBytes {
 		session.pending = nil
 	} else {
 		session.pending = session.pending[:0]

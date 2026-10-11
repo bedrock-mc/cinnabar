@@ -491,8 +491,14 @@ fn shipped() { Instant::now(); }
 "#,
         )]);
         assert_eq!(found.len(), 2, "{found:?}");
-        assert!(found[0].contains("lib.rs:3") && found[0].contains("never sleep"), "{found:?}");
-        assert!(found[1].contains("lib.rs:5") && found[1].contains("only edge code reads the clock"), "{found:?}");
+        assert!(
+            found[0].contains("lib.rs:3") && found[0].contains("never sleep"),
+            "{found:?}"
+        );
+        assert!(
+            found[1].contains("lib.rs:5") && found[1].contains("only edge code reads the clock"),
+            "{found:?}"
+        );
     }
 
     #[test]

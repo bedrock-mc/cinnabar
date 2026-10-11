@@ -539,9 +539,7 @@ fn vanilla_hud_draws_the_tip_text_in_its_own_slot() {
     );
     // Its label keeps the tip text, and its fade is animated as one instance.
     assert!(
-        tip.anim
-            .as_ref()
-            .is_some_and(|anim| !anim.alpha.is_empty()),
+        tip.anim.as_ref().is_some_and(|anim| !anim.alpha.is_empty()),
         "the tip text has no fade: {:?}",
         tip.anim
     );
