@@ -196,7 +196,7 @@ func TestSessionDownstreamPreservesSignedClientRandomID(t *testing.T) {
 			}
 			claims["ClientRandomId"], _ = json.Marshal(test.value)
 			request.ClientData, _ = json.Marshal(claims)
-			frame, err := encodeSessionJSON(sessionKindConnect, request)
+			frame, err := encodeSessionJSON(bridgecontract.SessionKindConnect, request)
 			if err != nil {
 				t.Fatal(err)
 			}

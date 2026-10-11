@@ -455,7 +455,8 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 }
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data; a device
-// replaces the client's claimed device, so the claim matches the core's sign-in.
+// replaces the client's claimed device and initializes SelfSignedId for this new login.
+// Without a core device, the caller's device and identity claims remain intact.
 func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
@@ -476,6 +477,13 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 	}
 	if err := clientData.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+	}
+	if claimed != nil {
+		if clientData.DeviceID == "" {
+			return nil, fmt.Errorf("%w: core device ID is empty", errMalformedSessionMessage)
+		}
+		clientData.SelfSignedID = initialSelfSignedID(clientData.ClientRandomID, string(clientData.DeviceID))
+		clientData.MarkClaims("SelfSignedId")
 	}
 	return &sessionDownstream{
 		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},
