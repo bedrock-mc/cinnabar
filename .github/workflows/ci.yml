@@ -183,9 +183,13 @@ jobs:
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
           cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
           cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+          cargo clippy -p client-extensions --features local-mods --all-targets --locked -- -D warnings
       - name: Test local WASM mod and developer control adapters
         if: ${{ !cancelled() }}
         run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
+      - name: Test local WASM mod hosts
+        if: ${{ !cancelled() }}
+        run: cargo test -p client-extensions --features local-mods --lib --locked
       - name: Test acceptance dry run and protocol provenance
         if: ${{ !cancelled() }}
         run: bash scripts/tests/acceptance_test.sh

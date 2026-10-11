@@ -51,7 +51,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     keyboard: MessageReader<'w, 's, KeyboardInput>,
     pads: Query<'w, 's, &'static Gamepad>,
     menu: Option<ResMut<'w, MenuRuntime>>,
-    consent: Option<Res<'w, crate::server_experiences::input::ConsentInput>>,
+    consent: Option<Res<'w, client_state::ConsentInput>>,
     world: Option<Res<'w, ClientWorld>>,
     player: Res<'w, PlayerRuntime>,
     runtime: ResMut<'w, UiRuntime>,

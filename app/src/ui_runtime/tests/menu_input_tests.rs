@@ -569,11 +569,12 @@ fn chat_typing_consumes_movement_keys_and_mouse_input() {
 fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
     let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    use crate::server_experiences::input::{ConsentInput, consume};
     use bevy::input::{
         gamepad::{Gamepad, GamepadButton},
         touch::{TouchInput, TouchPhase, touch_screen_input_system},
     };
+    use client_extensions::server_experiences::input::consume;
+    use client_state::ConsentInput;
     let (mut app, window) = menu_input_app(MenuClipboard::default());
     app.insert_resource(ConsentInput(true))
         .add_message::<TouchInput>()

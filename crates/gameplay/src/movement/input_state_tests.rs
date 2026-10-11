@@ -292,7 +292,21 @@ fn item_slowdown_ends_a_sprint_but_crouch_slowdown_does_not() {
             .samples
             .remove(0);
         assert_eq!(next.processed.sprinting, expected);
-        let replay = physics
+        // Replay the same retained anchor. A wire position correction rebuilds the
+        // collision box and can round differently from uninterrupted movement.
+        let replay = physics.replay_retained_from(first.tick, &floor).unwrap();
+        let [replayed] = replay.replayed_samples.as_slice() else {
+            panic!("expected one replayed tick")
+        };
+        assert_eq!(replayed.processed, next.processed);
+        assert_eq!(replayed.input, next.input);
+        assert_eq!(replayed.move_vector, next.move_vector);
+        assert_eq!(replayed.position, next.position);
+        if item.is_some() {
+            assert_eq!(next.position[2], 0.208_965_39);
+        }
+
+        let corrected = physics
             .apply_correction(
                 PhysicsAnchor {
                     network_position: first.position,
@@ -305,13 +319,19 @@ fn item_slowdown_ends_a_sprint_but_crouch_slowdown_does_not() {
                 &floor,
             )
             .unwrap();
-        let [replayed] = replay.replayed_samples.as_slice() else {
-            panic!("expected one replayed tick")
+        let [corrected] = corrected.replayed_samples.as_slice() else {
+            panic!("expected one corrected tick")
         };
-        assert_eq!(replayed.processed, next.processed);
-        assert_eq!(replayed.input, next.input);
-        assert_eq!(replayed.move_vector, next.move_vector);
-        assert_eq!(replayed.position, next.position);
+        assert_eq!(corrected.processed, next.processed);
+        assert_eq!(corrected.input, next.input);
+        assert_eq!(corrected.move_vector, next.move_vector);
+        if item.is_some() {
+            assert_eq!(
+                corrected.position,
+                [next.position[0], next.position[1], 0.208_965_38]
+            );
+        }
+
         assert_eq!(replayed.velocity, next.velocity);
     }
 }

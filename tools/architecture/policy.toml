@@ -59,7 +59,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["block-transform", "world"]
+allowed_dependencies = ["block-transform"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 
 [[crates]]
@@ -154,6 +154,13 @@ allowed_dependencies = ["player-state", "semantic-input", "ui"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "client-presentation", "client-audio", "client-runtime", "client-interaction", "client-shell", "client-extensions", "acceptance", "client-session", "gameplay", "launcher-host", "render", "pack-runtime", "asset-compiler", "pack-compiler"]
 max_rust_lines = 4000
 contract_only = true
+
+# Extensions consume the shared frame contract without reaching sibling plugins.
+[[crates]]
+name = "client-extensions"
+path = "crates/client-extensions"
+allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "player-state", "protocol", "render-model", "server-experience", "ui"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "client-interaction", "client-shell", "client-presentation", "client-audio", "render"]
 
 [[crates]]
 name = "client-ui"
@@ -258,7 +265,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["client-interaction", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["client-interaction", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "client-extensions"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 

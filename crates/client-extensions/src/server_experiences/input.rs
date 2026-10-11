@@ -8,11 +8,10 @@ use bevy::{
     prelude::*,
 };
 
-#[derive(Resource, Default)]
-pub(crate) struct ConsentInput(pub(crate) bool);
+use client_state::ConsentInput;
 
 /// Removes queued physical events after consent reads them and before ordinary UI runs.
-pub(crate) fn consume(world: &mut World) {
+pub fn consume(world: &mut World) {
     if !world.resource::<ConsentInput>().0 {
         return;
     }
@@ -50,7 +49,7 @@ fn clear_messages<T: Message>(world: &mut World) {
 }
 
 /// Keeps ordinary UI readers from observing controller and touch input owned by consent.
-pub(crate) fn ordinary_input(consent: Option<Res<ConsentInput>>) -> bool {
+pub fn ordinary_input(consent: Option<Res<ConsentInput>>) -> bool {
     !consent.is_some_and(|consent| consent.0)
 }
 

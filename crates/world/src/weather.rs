@@ -54,6 +54,27 @@ mod tests {
     }
 
     #[test]
+    fn precipitation_requires_finite_downfall_at_or_above_epsilon() {
+        for (downfall, eligible) in [
+            (0.0, false),
+            (f32::EPSILON * 0.5, false),
+            (f32::EPSILON, true),
+            (f32::NAN, false),
+            (f32::INFINITY, false),
+        ] {
+            assert_eq!(precipitation_eligible(downfall), eligible);
+            assert_eq!(
+                classify_precipitation(0.5, downfall, 64),
+                if eligible {
+                    Precipitation::Rain
+                } else {
+                    Precipitation::None
+                },
+            );
+        }
+    }
+
+    #[test]
     fn high_ground_snows_in_otherwise_rainy_biomes() {
         assert_eq!(classify_precipitation(0.3, 0.5, 64), Precipitation::Rain);
         assert_eq!(classify_precipitation(0.3, 0.5, 200), Precipitation::Snow);

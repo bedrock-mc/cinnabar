@@ -11,6 +11,7 @@ use super::*;
 
 const SESSION: u64 = 7;
 
+/// Creates an isolated world for inventory observations.
 fn authority() -> WorldAuthority {
     WorldAuthority::new(
         WorldBootstrap {
@@ -29,6 +30,7 @@ fn authority() -> WorldAuthority {
     )
 }
 
+/// Builds a stack using the negotiated vanilla item identity.
 fn stack(identifier: &str, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id: protocol::vanilla_item_registry()
@@ -41,6 +43,7 @@ fn stack(identifier: &str, count: u16) -> NetworkItemStack {
     }
 }
 
+/// Wraps fixture slots in a server inventory-content event.
 fn content(window: i32, slots: Vec<NetworkItemStack>) -> InventoryEvent {
     InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(window),
@@ -49,6 +52,7 @@ fn content(window: i32, slots: Vec<NetworkItemStack>) -> InventoryEvent {
     })
 }
 
+/// Attaches a valid retained NBT damage value to the fixture stack.
 fn damage(stack: &mut NetworkItemStack, value: u32) {
     // Valid retained little-endian root NBT Damage tag in item user data.
     let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 3, 6, 0];
@@ -154,6 +158,7 @@ fn durability_corrections_win_and_custom_or_invalid_data_is_not_invented() {
     assert!(invalid.item.is_none());
 }
 
+/// Creates a visible timed effect for the player-state projection.
 fn effect(id: i32, duration: i32) -> ActorEffectEvent {
     ActorEffectEvent {
         dimension: 0,

@@ -1157,21 +1157,70 @@ fn committed_hunger_waits_for_fifo_and_rejected_updates_preserve_domain_facts() 
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }
 
-/// Block cracks consume committed UI at the production dispatch point.
+/// Committed crack sequences reach frame authority before its consumers run.
 #[test]
-fn block_crack_consumer_is_wired_to_the_production_committed_dispatch() {
-    let source = include_str!("../../world.rs");
-    let drive = source
-        .split_once("pub(crate) fn drive_world_stream(")
+fn committed_block_cracks_reach_frame_authority_once_in_fifo_order() {
+    use client_ui::ui_runtime::{SequencedBlockCrackEvent, UiRuntimeError};
+    use protocol::{BlockCrackAction, BlockCrackEvent};
+
+    let (mut app, _) = fixture_app();
+    let event = BlockCrackEvent {
+        position: [0; 3],
+        action: BlockCrackAction::Stop,
+    };
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
         .unwrap()
-        .1;
-    let early = include_str!("../committed_ui.rs");
-    let authority = include_str!("../../../app/authority.rs");
-    assert!(early.contains("} => consume_committed_block_crack("));
-    assert!(early.contains("stream.take_committed_ui()"));
-    assert!(!drive.contains("stream.take_committed_ui()"));
-    assert!(authority.contains("drain_committed_ui_before_authority"));
-    assert!(authority.contains(".before(ClientFrameSet::UiAuthority)"));
-    assert!(drive.contains("reconcile_world_block_cracks(&mut ui_runtime, stream)"));
-    assert!(drive.contains("ui_runtime.clear_disconnected_block_cracks()"));
+        .submit(2, WorldEvent::BlockCrack(event))
+        .unwrap();
+    app.update();
+    assert!(
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .take_committed_ui()
+            .is_empty()
+    );
+
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, WorldEvent::BlockCrack(event))
+        .unwrap();
+    app.add_systems(
+        Update,
+        (move |mut runtime: ResMut<UiRuntime>| {
+            assert!(matches!(
+                runtime.retain_block_crack(SequencedBlockCrackEvent {
+                    session_id: 1,
+                    fifo_sequence: 2,
+                    dimension: 0,
+                    event,
+                }),
+                Err(UiRuntimeError::StaleBlockCrackSequence {
+                    previous: 2,
+                    actual: 2,
+                })
+            ));
+        })
+        .in_set(client_state::ClientFrameSet::UiAuthority),
+    );
+    app.update();
+    app.update();
+    let mut world = app.world_mut().resource_mut::<ClientWorld>();
+    assert!(world.fatal_error.is_none());
+    assert!(
+        world
+            .stream
+            .as_mut()
+            .unwrap()
+            .take_committed_ui()
+            .is_empty()
+    );
 }

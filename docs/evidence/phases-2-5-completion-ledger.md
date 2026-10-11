@@ -65,6 +65,13 @@ Frame sets and shared player, settings and finalized-input resources now live in
 and cursor regressions retain their domain owners. This ownership change has not
 been compiled or executed, and does not close this gate.
 
+`client-extensions` now owns personal component collection and callback merging,
+permission grants, player snapshots, panel fonts, and server consent input and text.
+Consent state and ordering live in `client-state`. The coupled session, gameplay,
+menu, render and audio adapters remain in `app`; the extraction and its execution
+validation are incomplete. The moved tests retain their assertions, and this move
+closes no acceptance gate.
+
 Spectator hand suppression and no-clip inside-block overlays have owning
 behavioral regressions. Runtime skin controller visibility precedes equipment, and
 authored opacity has a GPU regression. The spectator material fallback remains

@@ -1,7 +1,11 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
 #[cfg(feature = "local-mods")]
-pub(crate) mod font;
+use client_extensions::modding::{
+    font,
+    grants::environment_grants,
+    multi::{self, ModHosts},
+};
 
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
@@ -22,49 +26,12 @@ const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
 /// over a bare component.
 const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 #[cfg(feature = "local-mods")]
-const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
-#[cfg(feature = "local-mods")]
-const PLAYER_STATE_ENV: &str = "CINNABAR_MOD_PLAYER_STATE";
-#[cfg(feature = "local-mods")]
-const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
-#[cfg(feature = "local-mods")]
-const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
-#[cfg(feature = "local-mods")]
-const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
-#[cfg(feature = "local-mods")]
-const HUD_ENV: &str = "CINNABAR_MOD_HUD";
-#[cfg(feature = "local-mods")]
-const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
-#[cfg(feature = "local-mods")]
-const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
-#[cfg(feature = "local-mods")]
-const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
-#[cfg(feature = "local-mods")]
-const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
-#[cfg(feature = "local-mods")]
-const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
-#[cfg(feature = "local-mods")]
-const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
-#[cfg(feature = "local-mods")]
-const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
-#[cfg(feature = "local-mods")]
-const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
-/// Comma-separated command names the selected component may request.
-#[cfg(feature = "local-mods")]
-const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
-#[cfg(feature = "local-mods")]
-const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
-#[cfg(feature = "local-mods")]
-const PACKET_DELAY_VISUAL_ENV: &str = "CINNABAR_MOD_PACKET_DELAY_VISUAL";
-#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "local-mods")]
 mod hud_editor;
-#[cfg(feature = "local-mods")]
-mod multi;
 #[cfg(feature = "local-mods")]
 mod registration;
 
@@ -76,12 +43,7 @@ pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 #[cfg(feature = "local-mods")]
 #[derive(Resource)]
 struct ModRuntime {
-    host: ModHost,
-    companions: Vec<multi::Companion>,
-    /// Merged label of several mods, rebuilt only when one of their labels changes.
-    label: Option<String>,
-    label_inputs: Vec<String>,
-    label_rebuilds: u64,
+    hosts: ModHosts,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
@@ -100,9 +62,9 @@ struct ModRuntime {
 #[cfg(all(feature = "developer-control", feature = "local-mods"))]
 pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
     let runtime = world.get_resource::<ModRuntime>()?;
-    let hosts: Vec<_> = (0..runtime.host_count())
+    let hosts: Vec<_> = (0..runtime.hosts.host_count())
         .map(|index| {
-            let host = runtime.host(index);
+            let host = runtime.hosts.host(index);
             serde_json::json!({
                 "index": index,
                 "active": host.is_active(),
@@ -168,40 +130,6 @@ fn configure_package(app: &mut App, dir: &Path) {
     }
 }
 
-/// The grants a component or package selected on its own gets from the environment.
-#[cfg(feature = "local-mods")]
-fn environment_grants() -> ModGrants {
-    ModGrants {
-        environment: true,
-        players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
-        player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),
-        item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
-        camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
-        controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
-        hud: std::env::var(HUD_ENV).is_ok_and(|value| value == "1"),
-        movement: std::env::var(MOVEMENT_ENV).is_ok_and(|value| value == "1"),
-        interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
-        settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
-        render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
-        block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
-        fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
-        render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
-        entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
-        commands: std::env::var(COMMANDS_ENV)
-            .map(|names| {
-                names
-                    .split(',')
-                    .filter(|name| !name.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1")
-            || std::env::var(PACKET_DELAY_VISUAL_ENV).is_ok_and(|value| value == "1"),
-        ..ModGrants::default()
-    }
-}
-
 /// Grants are explicit and apply only to the selected personal component.
 #[cfg(feature = "local-mods")]
 fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) {
@@ -223,16 +151,7 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 /// leaves the rest.
 #[cfg(feature = "local-mods")]
 fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
-    let hosts = mods.into_iter().filter_map(|(source, grants)| {
-        source
-            .load(grants)
-            .inspect_err(|error| {
-                let path = source.path().display();
-                eprintln!("Cinnabar extension {path} disabled: {error:#}");
-            })
-            .ok()
-    });
-    install(app, hosts.collect());
+    install(app, multi::load_entries(mods));
 }
 
 /// Installs loaded mods in load order; none installs nothing.
@@ -247,11 +166,7 @@ fn install(app: &mut App, hosts: Vec<ModHost>) {
             .any(|companion| companion.host.grants().controls);
     app.insert_resource(VisualTimeOverride(host.time_override()))
         .insert_resource(ModRuntime {
-            host,
-            companions,
-            label: None,
-            label_inputs: Vec::new(),
-            label_rebuilds: 0,
+            hosts: ModHosts::new(host, companions),
             render_sources: Vec::new(),
             render_merge: Default::default(),
             last_reload: Instant::now(),
@@ -369,8 +284,8 @@ fn drive_mod(
     });
     let movement_allowed = extension.as_ref().is_some_and(|runtime| {
         !runtime.suspended
-            && (0..runtime.host_count()).any(|index| {
-                runtime.host(index).is_active() && runtime.host(index).grants().movement
+            && (0..runtime.hosts.host_count()).any(|index| {
+                runtime.hosts.host(index).is_active() && runtime.hosts.host(index).grants().movement
             })
     });
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed);
@@ -388,8 +303,8 @@ fn drive_mod(
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
         let first = usize::from(!extension.reload_on_main);
-        for index in first..extension.host_count() {
-            match extension.host_mut(index).reload_if_changed() {
+        for index in first..extension.hosts.host_count() {
+            match extension.hosts.host_mut(index).reload_if_changed() {
                 // A new instance never sees cues from before it existed.
                 Ok(true) => {
                     if extension
@@ -418,8 +333,8 @@ fn drive_mod(
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
     let player_state = gameplay.player_state(
-        (0..extension.host_count()).any(|index| {
-            let host = extension.host(index);
+        (0..extension.hosts.host_count()).any(|index| {
+            let host = extension.hosts.host(index);
             host.is_active() && host.grants().player_state
         }),
         &player_runtime,
@@ -444,7 +359,7 @@ fn drive_mod(
         });
     let mut callback_failed = false;
     let merged = multi::run_frame(
-        &mut extension,
+        &mut extension.hosts,
         multi::FrameInput {
             pressed,
             controls: &controls,
@@ -474,13 +389,14 @@ fn drive_mod(
     );
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(Some(&extension.host));
+        watcher.remember_settings(Some(&extension.hosts.host));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false);
     }
-    let movement_allowed = (0..extension.host_count())
-        .any(|index| extension.host(index).is_active() && extension.host(index).grants().movement);
+    let movement_allowed = (0..extension.hosts.host_count()).any(|index| {
+        extension.hosts.host(index).is_active() && extension.hosts.host(index).grants().movement
+    });
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel);
     interaction.attack_reach = merged.attack_reach;
@@ -502,28 +418,28 @@ fn drive_mod(
         policy.scope = merged.item_use_delay_fix;
     }
     time_override.0 = merged.time_override;
-    if let Err(error) = presentation.set_mod_label(extension.merged_label()) {
+    if let Err(error) = presentation.set_mod_label(extension.hosts.merged_label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
     }
-    let hud_owner = extension.hud_owner();
-    let hud = hud_owner.and_then(|owner| extension.host(owner).hud());
+    let hud_owner = extension.hosts.hud_owner();
+    let hud = hud_owner.and_then(|owner| extension.hosts.host(owner).hud());
     if let Err(error) = presentation.set_mod_hud(hud) {
         eprintln!("Cinnabar extension HUD cards rejected: {error}");
     }
     presentation.set_mod_world_projection(cameras.single().ok().map(|(transform, projection)| {
         (projection.get_clip_from_view() * transform.to_matrix().inverse()).to_cols_array()
     }));
-    let crosshair_owner = extension.crosshair_owner();
-    let crosshair = crosshair_owner.and_then(|owner| extension.host(owner).crosshair());
+    let crosshair_owner = extension.hosts.crosshair_owner();
+    let crosshair = crosshair_owner.and_then(|owner| extension.hosts.host(owner).crosshair());
     if let Err(error) = presentation.set_mod_crosshair(crosshair) {
         eprintln!("Cinnabar extension crosshair rejected: {error}");
     }
-    let owner = extension.panel_owner();
-    if let Err(error) = presentation.set_mod_panel(extension.host(owner).panel()) {
+    let owner = extension.hosts.panel_owner();
+    if let Err(error) = presentation.set_mod_panel(extension.hosts.host(owner).panel()) {
         eprintln!("Cinnabar extension panel rejected: {error}");
-        extension.host_mut(owner).set_panel_open(false);
+        extension.hosts.host_mut(owner).set_panel_open(false);
     }
-    presentation.set_mod_panel_open(extension.host(owner).panel_open());
+    presentation.set_mod_panel_open(extension.hosts.host(owner).panel_open());
     let editor_session = gameplay.hud_editor_session(&ui);
     hud_editor::publish(
         &mut extension,
@@ -685,8 +601,6 @@ mod input;
 pub(crate) mod interaction;
 #[cfg(feature = "local-mods")]
 pub(crate) mod packet_delay;
-#[cfg(feature = "local-mods")]
-mod player_state;
 #[cfg(feature = "local-mods")]
 mod render;
 #[cfg(feature = "local-mods")]

@@ -17,12 +17,13 @@ use std::{
 
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
+use client_extensions::modding::{font, multi::ModHosts};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModGrants, ModHost};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, font, interaction::ModInteraction};
+use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
 const REGISTRATION_FILE: &str = "local-mod.json";
@@ -407,7 +408,7 @@ fn install(world: &mut World, update: Update) {
             .get_resource_mut::<ModRuntime>()
             .is_some_and(|mut runtime| {
                 if runtime.registration_identity != Some(identity)
-                    || !runtime.host.is_active()
+                    || !runtime.hosts.host.is_active()
                     || runtime.suspended
                 {
                     return false;
@@ -434,8 +435,8 @@ fn install(world: &mut World, update: Update) {
     if let Ok(Action::Replace(candidate)) = &update.result
         && world.get_resource::<ModRuntime>().is_some_and(|previous| {
             candidate.host.settings_path().is_some()
-                && candidate.host.settings_path() == previous.host.settings_path()
-                && candidate.host.settings_seed() != previous.host.settings_snapshot()
+                && candidate.host.settings_path() == previous.hosts.host.settings_path()
+                && candidate.host.settings_seed() != previous.hosts.host.settings_snapshot()
         })
     {
         let watcher = world.resource::<Watcher>();
@@ -447,7 +448,7 @@ fn install(world: &mut World, update: Update) {
             watcher.remember_settings(
                 world
                     .get_resource::<ModRuntime>()
-                    .map(|runtime| &runtime.host),
+                    .map(|runtime| &runtime.hosts.host),
             );
             watcher.send(Message::Reload {
                 generation: update.generation,
@@ -488,11 +489,7 @@ fn install(world: &mut World, update: Update) {
                     world.insert_resource(VisualTimeOverride(candidate.host.time_override()));
                     world.insert_resource(ModInteraction::default());
                     world.insert_resource(ModRuntime {
-                        host: candidate.host,
-                        companions: Vec::new(),
-                        label: None,
-                        label_inputs: Vec::new(),
-                        label_rebuilds: 0,
+                        hosts: ModHosts::new(candidate.host, Vec::new()),
                         render_sources: Vec::new(),
                         render_merge: Default::default(),
                         last_reload: Instant::now(),
@@ -541,7 +538,7 @@ fn sync_authority(world: &mut World) {
     watcher.remember_settings(
         world
             .get_resource::<ModRuntime>()
-            .map(|runtime| &runtime.host),
+            .map(|runtime| &runtime.hosts.host),
     );
     let desired = watcher.desired.lock().expect("extension selection mutex");
     let identity = watcher
@@ -572,11 +569,11 @@ fn sync_authority(world: &mut World) {
             }
             runtime.suspended = true;
             runtime.controls = mod_host::empty_controls();
-            runtime.host.set_panel_open(false);
-            runtime.host.take_interaction();
-            runtime.host.take_camera_delta();
-            runtime.host.take_commands();
-            runtime.host.take_cues();
+            runtime.hosts.host.set_panel_open(false);
+            runtime.hosts.host.take_interaction();
+            runtime.hosts.host.take_camera_delta();
+            runtime.hosts.host.take_commands();
+            runtime.hosts.host.take_cues();
             true
         });
     if suspend {
@@ -598,7 +595,7 @@ fn sync_authority(world: &mut World) {
 fn clear_owned_state(world: &mut World) -> Option<ModHost> {
     let previous = world
         .remove_resource::<ModRuntime>()
-        .map(|runtime| runtime.host);
+        .map(|runtime| runtime.hosts.host);
     world.remove_resource::<VisualTimeOverride>();
     world.remove_resource::<ModInteraction>();
     clear_presentation(world);

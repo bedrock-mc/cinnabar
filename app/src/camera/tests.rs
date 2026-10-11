@@ -555,7 +555,7 @@ fn left_click_recaptures_with_locked_invisible_cursor() {
 #[test]
 fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
     let (mut app, window) = capture_test_app(true, CursorGrabMode::Locked, false, true);
-    app.insert_resource(crate::server_experiences::input::ConsentInput(true));
+    app.insert_resource(client_state::ConsentInput(true));
 
     app.update();
 
