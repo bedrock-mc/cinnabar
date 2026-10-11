@@ -303,3 +303,70 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
         }
     }
 }
+
+#[test]
+fn snapshot_custom_display_name_search() {
+    use crate::ui_runtime::{
+        inventory_actions::visible_creative_entries, item_facts::SessionItemComponents,
+    };
+    use std::sync::Arc;
+    let Some(mut presentation) =
+        crate::test_support::engine_presentation_with(pack_harness::font())
+    else {
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::creative_with(&mut player, 1);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&protocol::ItemRegistryEvent {
+            entries: Arc::from([protocol::ItemRegistryEntry {
+                network_id: 1,
+                identifier: "custom:blade".into(),
+                component_based: true,
+                version: protocol::ItemRegistryVersion::None,
+                component_digest: [0; 32],
+                negotiated_max_stack_size: None,
+                canonical_empty_component_data: true,
+                item_tags: Arc::from([]),
+            }]),
+        });
+    runtime.set_session_items(Some(Arc::new(SessionItemComponents::from_iter([(
+        Arc::from("custom:blade"),
+        protocol::ItemComponents {
+            display_name: Some(Arc::from("Crystal Blade")),
+            ..Default::default()
+        },
+    )]))));
+    runtime.screen_state_mut().creative_tab = crate::ui_runtime::presentation::screens::SEARCH_TAB;
+    runtime.screen_state_mut().search = "Crystal".into();
+    runtime.screen_state_mut().search_focused = true;
+    // A deterministic original fixture icon makes the matched grid cell visible.
+    presentation.hud_frame_mut().window_icons.creative[0] = Some(ui::IconRef {
+        page: presentation.solid_texture_page,
+        uv: [0, 0, 1, 1],
+        glint: false,
+    });
+    let first = runtime.screen_state().creative_row;
+    let matched = visible_creative_entries(runtime.inventory_ledger(&player), &runtime).len();
+    for frame in 0..24 {
+        let input = presentation
+            .build(
+                &player,
+                &runtime,
+                frame * 100,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        if frame == 23 {
+            assert!(
+                !input.vertices.is_empty(),
+                "creative inventory must be visible"
+            );
+            super::snapshot::write(&input, "custom-display-name-search");
+        }
+    }
+    assert_eq!(first, 0);
+    assert_eq!(matched, 1);
+}

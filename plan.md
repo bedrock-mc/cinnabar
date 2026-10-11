@@ -7209,3 +7209,12 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+Creative search uses the same component and localized item-name projection as
+item presentation. Retained matches follow component and language replacements
+as well as catalog, registry, tab, and query changes. Unchanged filters keep their
+allocation-free retained index view.
+
+Incomplete parity: formatted-name cleanup, Unicode case folding and alternate
+name search modes remain unverified. Display-name projection and cache freshness
+do not close those search acceptance gates.

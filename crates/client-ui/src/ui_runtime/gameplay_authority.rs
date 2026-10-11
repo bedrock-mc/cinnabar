@@ -440,15 +440,18 @@ impl UiRuntime {
     /// translation and item display names.
     pub fn set_lang_catalog(&mut self, catalog: Arc<assets::RuntimeLangCatalog>) {
         self.lang_catalog = Some(catalog);
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     /// The UI language's table, consulted before en_US.
     pub fn set_active_language(&mut self, catalog: Option<Arc<assets::RuntimeLangCatalog>>) {
         self.active_lang = catalog;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     pub fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
         self.server_lang = overlay;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     pub fn set_session_icons(&mut self, icons: Option<Arc<super::presentation::SessionIcons>>) {
@@ -475,6 +478,12 @@ impl UiRuntime {
         items: Option<Arc<super::item_facts::SessionItemComponents>>,
     ) {
         self.session_items = items;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
+    }
+
+    /// Identifies all component and language inputs used to resolve item names.
+    pub const fn item_name_generation(&self) -> u64 {
+        self.item_name_generation
     }
 
     /// The server's components for `identifier` this session.
@@ -546,7 +555,7 @@ impl UiRuntime {
                 .translation(name)
                 .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
         }
-        if self.server_lang.is_some() || self.lang_catalog.is_some() {
+        if self.server_lang.is_some() || self.active_lang.is_some() || self.lang_catalog.is_some() {
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
                 if let Some(value) = self.translation(&key) {
