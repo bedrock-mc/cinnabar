@@ -23,6 +23,9 @@ use super::{
 };
 
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a server may take to save and exit after its stop request; BDS saves the world
+/// before exiting. Exit sweeps wait this long before signalling a server.
+pub(crate) const SAVE_BUDGET: Duration = Duration::from_secs(30);
 /// How often an exited server's status is collected once its output closes.
 const EXIT_POLL: Duration = Duration::from_millis(10);
 
@@ -146,7 +149,7 @@ pub(crate) fn launch(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child = children::spawn(&mut command)
+    let child = children::spawn_saving(&mut command, SAVE_BUDGET)
         .map_err(|error| failed(format!("start local server: {error}")))?;
     let (stdin, stdout, stderr) = (child.take_stdin(), child.take_stdout(), child.take_stderr());
     let child = Arc::new(child);

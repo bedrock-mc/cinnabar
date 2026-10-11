@@ -96,9 +96,9 @@ fn failed(error: WorldError) -> Event {
 }
 
 fn prefs_event(manager: &Manager, route: &CoreRoute, update: PrefsUpdate) -> Event {
-    manager.prefs(update).map_or_else(failed, |prefs| {
-        Event::Prefs(prefs, route.gate(manager.status()))
-    })
+    manager
+        .prefs(update)
+        .map_or_else(failed, |prefs| Event::Prefs(prefs, route.status(manager)))
 }
 
 /// Runs one effect; reported statuses hold a running world at starting until the core routes it.
@@ -114,7 +114,7 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
             .update(&id, &update)
             .map_or_else(failed, Event::Updated),
         Effect::Open(id) => match manager.open(&id, None) {
-            Ok(()) => Event::Status(route.gate(manager.status())),
+            Ok(()) => Event::Status(route.status(manager)),
             Err(WorldError::EulaRequired) => Event::EulaRequired,
             Err(error) => failed(error),
         },
@@ -135,7 +135,7 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
         Effect::AcceptEula => manager
             .accept_eula()
             .map_or_else(failed, |()| Event::EulaAccepted),
-        Effect::PollStatus => Event::Status(route.gate(manager.status())),
+        Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
             return None;

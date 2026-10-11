@@ -5,12 +5,14 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
     process::{Command, Stdio},
-    sync::{Arc, Mutex, Once},
+    sync::{Arc, Once},
     thread,
     time::Duration,
 };
 
 use crossbeam_channel::Receiver;
+
+use crate::lifecycle::children;
 use launcher::local_worlds::world::{SetupState, UnavailableReason};
 
 use super::{
@@ -21,7 +23,6 @@ use super::{
     create_private_dir,
     docker::{PROBE_TIMEOUT, docker_command, finishes, succeeds},
     download::direct_url,
-    lock,
     ports::{
         BDS_CONTAINER_HTTP_PORT, BDS_CONTAINER_UDP_PORT, LAN_DISCOVERY_PORT, LOCAL_SERVER_HOST,
         bds_udp_mapping, check_bds_lan_port, free_bds_port, lan_address, loopback, udp_port_range,
@@ -334,11 +335,11 @@ impl BdsRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command
-            .spawn()
-            .map_err(|error| pull_failed(error.to_string()))?;
-        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-        let child = Arc::new(Mutex::new(child));
+        // Tracked, so an exit sweep ends a pull the start's cancellation has not reached yet.
+        let child =
+            children::spawn(&mut command).map_err(|error| pull_failed(error.to_string()))?;
+        let (stdout, stderr) = (child.take_stdout(), child.take_stderr());
+        let child = Arc::new(child);
         let errors = thread::spawn(move || {
             let mut text = String::new();
             if let Some(mut stderr) = stderr {
@@ -351,7 +352,7 @@ impl BdsRunner {
             let (child, cancelled) = (Arc::clone(&child), cancel.receiver().clone());
             thread::spawn(move || {
                 crossbeam_channel::select! {
-                    recv(cancelled) -> _ => { let _ = lock(&child).kill(); }
+                    recv(cancelled) -> _ => child.kill(),
                     recv(done) -> _ => {}
                 }
             })
@@ -363,21 +364,21 @@ impl BdsRunner {
                 provisioner.set_layers(done, total);
             }
         }
-        let status = lock(&child).wait();
+        let status = child.wait();
         drop(pulled);
         let _ = watcher.join();
         let errors = errors.join().unwrap_or_default();
         match status {
-            Ok(status) if status.success() => {
+            Some(status) if status.success() => {
                 provisioner.set_op(None, None, 0, 0);
                 Ok(())
             }
             _ if cancel.is_cancelled() => Err(WorldError::Cancelled),
-            Ok(status) => {
+            Some(status) => {
                 tracing::error!("docker pull failed: {}", errors.trim());
                 Err(pull_failed(status.to_string()))
             }
-            Err(error) => Err(pull_failed(error.to_string())),
+            None => Err(pull_failed("the pull process was lost".to_owned())),
         }
     }
 }

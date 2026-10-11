@@ -28,22 +28,24 @@ pub struct CoreLink {
 pub struct CoreRoute(Arc<Mutex<Option<LocalWorld>>>);
 
 impl CoreRoute {
-    /// `status` with a running world held at starting until the core routes sessions to it, so a
-    /// join never reaches a core that would still fall through to another server.
+    /// The manager's status with a running world held at starting until the core has
+    /// acknowledged that exact server (world and address), so a join never reaches a core that
+    /// would still fall through elsewhere or dial a previous instance.
     #[must_use]
-    pub fn gate(&self, mut status: WorldStatus) -> WorldStatus {
-        if status.state == WorldState::Running && !self.routes(status.world_id.as_deref()) {
+    pub fn status(&self, manager: &Manager) -> WorldStatus {
+        let status = manager.status();
+        self.gate(status, &manager.core_report())
+    }
+
+    fn gate(&self, mut status: WorldStatus, current: &LocalWorld) -> WorldStatus {
+        let routed = current.state == WorldState::Running
+            && current.target.is_some()
+            && current.world.as_ref().map(|world| world.id.as_str()) == status.world_id.as_deref()
+            && lock(&self.0).as_ref() == Some(current);
+        if status.state == WorldState::Running && !routed {
             status.state = WorldState::Starting;
         }
         status
-    }
-
-    fn routes(&self, world_id: Option<&str>) -> bool {
-        lock(&self.0).as_ref().is_some_and(|report| {
-            report.state == WorldState::Running
-                && report.target.is_some()
-                && report.world.as_ref().map(|world| world.id.as_str()) == world_id
-        })
     }
 
     fn acknowledge(&self, report: LocalWorld) {
@@ -149,34 +151,48 @@ mod tests {
         }
     }
 
-    /// A world is joinable only once its core routes sessions to it.
+    fn at(mut report: LocalWorld, address: &str) -> LocalWorld {
+        if let Some(target) = report.target.as_mut() {
+            target.address = address.into();
+        }
+        report
+    }
+
+    /// A world is joinable only once its core routes sessions to this very server.
     #[test]
     fn readiness_waits_for_the_core_to_route_the_world() {
         let route = CoreRoute::default();
-        assert_eq!(
-            route.gate(status(WorldState::Running)).state,
-            WorldState::Starting
-        );
+        let current = running("0123456789abcdef");
+        let gate = |route: &CoreRoute| route.gate(status(WorldState::Running), &current).state;
+        assert_eq!(gate(&route), WorldState::Starting, "nothing acknowledged");
         route.acknowledge(LocalWorld {
             state: WorldState::Starting,
-            ..running("0123456789abcdef")
+            ..current.clone()
         });
         assert_eq!(
-            route.gate(status(WorldState::Running)).state,
-            WorldState::Starting
+            gate(&route),
+            WorldState::Starting,
+            "only the start acknowledged"
         );
         route.acknowledge(running("fedcba9876543210"));
         assert_eq!(
-            route.gate(status(WorldState::Running)).state,
-            WorldState::Starting
+            gate(&route),
+            WorldState::Starting,
+            "another world acknowledged"
         );
-        route.acknowledge(running("0123456789abcdef"));
+        route.acknowledge(at(current.clone(), "127.0.0.1:6000"));
         assert_eq!(
-            route.gate(status(WorldState::Running)),
-            status(WorldState::Running)
+            gate(&route),
+            WorldState::Starting,
+            "a previous instance acknowledged"
         );
+        route.acknowledge(current.clone());
+        assert_eq!(gate(&route), WorldState::Running);
         for state in [WorldState::Idle, WorldState::Starting, WorldState::Failed] {
-            assert_eq!(CoreRoute::default().gate(status(state)).state, state);
+            assert_eq!(
+                CoreRoute::default().gate(status(state), &current).state,
+                state
+            );
         }
     }
 }

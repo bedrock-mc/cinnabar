@@ -14,14 +14,13 @@ use crate::lifecycle::children::{self, ExitHookGuard};
 
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
-    process::{Instance, Runner, StartSpec},
+    process::{Instance, Runner, SAVE_BUDGET, StartSpec},
     provision::{Provisioner, RuntimeInfo, RuntimeKind},
     store::Store,
     world::{WorldError, validate_name},
 };
 
-/// BDS saves the world before exiting.
-const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_STOP_TIMEOUT: Duration = SAVE_BUDGET;
 /// Outlasts the Docker probe's own timeout.
 const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
 
@@ -417,14 +416,17 @@ impl Manager {
         }
     }
 
-    /// Asks the running server to save and stop without waiting; the exit sweep then ends the
-    /// tracked process. A lifecycle lock held by the exiting thread skips the request.
+    /// Cancels a start in progress and asks the running server to save and stop without waiting;
+    /// the exit sweep then waits out its save budget. A lifecycle lock held by the exiting thread
+    /// skips the request.
     pub(crate) fn request_exit_stop(&self) {
-        let life = match self.inner.life.try_lock() {
+        let mut life = match self.inner.life.try_lock() {
             Ok(life) => life,
             Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
             Err(TryLockError::WouldBlock) => return,
         };
+        // A start in progress stops spawning; the sweep ends what it already started.
+        life.cancel_start = None;
         let instance = life.instance.clone();
         drop(life);
         if let Some(instance) = instance {

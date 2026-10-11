@@ -230,6 +230,23 @@ fn the_exit_sweep_asks_the_running_server_to_stop() {
     );
 }
 
+/// An exit while a world starts cancels the start, so it spawns nothing more.
+#[test]
+fn the_exit_sweep_cancels_a_start_in_progress() {
+    let (runner, _release) = FakeRunner::gated();
+    let runner = Arc::new(runner);
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("w")).expect("create");
+    manager.open(&world.id, None).expect("open");
+    manager.request_exit_stop();
+    wait_for(manager, WorldState::Idle);
+    assert!(
+        lock(&runner.made).is_empty(),
+        "the cancelled start made a server"
+    );
+}
+
 #[test]
 fn a_server_that_cannot_pause_is_never_marked_paused() {
     let runner = Arc::new(FakeRunner {

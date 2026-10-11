@@ -9,6 +9,8 @@ use std::{
 
 use launcher::local_worlds::world::UnavailableReason;
 
+use crate::lifecycle::children;
+
 use super::{
     Cancel,
     provision::{Platform, RuntimeInfo, RuntimeKind},
@@ -151,14 +153,14 @@ pub(crate) fn succeeds(command: Command, timeout: Duration) -> bool {
     finishes(command, timeout, &Cancel::never()) == Some(true)
 }
 
-/// Runs `command` quietly, killing it once `timeout` passes or `cancel` fires; `None` when
-/// cancelled, else whether it exited successfully.
+/// Runs `command` quietly as a tracked child, so an exit sweep ends it too, killing it once
+/// `timeout` passes or `cancel` fires; `None` when cancelled, else whether it exited successfully.
 pub(crate) fn finishes(mut command: Command, timeout: Duration, cancel: &Cancel) -> Option<bool> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let Ok(mut child) = command.spawn() else {
+    let Ok(child) = children::spawn(&mut command) else {
         return Some(false);
     };
     let deadline = Instant::now() + timeout;
@@ -168,8 +170,8 @@ pub(crate) fn finishes(mut command: Command, timeout: Duration, cancel: &Cancel)
             Ok(Some(status)) => return Some(status.success()),
             Ok(None) if !cancelled && Instant::now() < deadline => thread::sleep(POLL),
             _ => {
-                let _ = child.kill();
-                let _ = child.wait();
+                child.kill();
+                child.wait();
                 return (!cancelled).then_some(false);
             }
         }
