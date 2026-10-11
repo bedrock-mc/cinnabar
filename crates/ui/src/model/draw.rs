@@ -303,6 +303,13 @@ fn emit_text(
                 continue;
             }
             let glyph_color = style_color(glyph.style.color, color, effects.palette);
+            let glyph_color = if glyph.rendering == assets::FontRendering::Coverage
+                && assets::is_private_use_glyph(glyph.resolved_codepoint)
+            {
+                [255, 255, 255, glyph_color[3]]
+            } else {
+                glyph_color
+            };
             let glyph_color = if shadowed {
                 shadow_color(glyph_color)
             } else {

@@ -849,6 +849,81 @@ fn text_shadow_draws_a_darkened_offset_pass_before_the_glyph_pass() {
     assert_eq!(shadow_origin[1] - glyph_origin[1], 2.0);
 }
 
+#[test]
+fn private_use_glyphs_keep_sheet_colors_and_text_alpha() {
+    let layout = private_use_layout("A§c\u{d7ff}\u{e000}\u{e101}\u{f8ff}\u{f900}\u{e102}");
+    let draw = draw_list(UiVisual::Text {
+        layout: Arc::clone(&layout),
+        color: [20, 100, 200, 136],
+        shadow: TextShadow::None,
+    });
+    let colors = draw
+        .vertices
+        .chunks_exact(4)
+        .map(|quad| quad[0].color)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        colors,
+        [
+            [20, 100, 200, 136],
+            [255, 85, 85, 136],
+            [255, 255, 255, 136],
+            [255, 255, 255, 136],
+            [255, 255, 255, 136],
+            [255, 85, 85, 136],
+            [255, 85, 85, 136]
+        ]
+    );
+    assert_eq!(
+        layout.glyphs().last().unwrap().resolved_codepoint,
+        '\u{fffd}'
+    );
+    let shadow = draw_list(UiVisual::Text {
+        layout,
+        color: [20, 100, 200, 136],
+        shadow: TextShadow::Offset64(64),
+    });
+    assert_eq!(shadow.vertices[2 * 4].color, [63, 63, 63, 136]);
+}
+
+/// Creates sheet-like metrics including the private-use boundaries and a replacement glyph.
+fn private_use_layout(text: &str) -> Arc<TextLayout> {
+    let pixels = vec![255, 80, 30, 255].into_boxed_slice();
+    let pages = [FontTexturePage {
+        source_path: "font/glyph_E1.png".into(),
+        source_bytes: 4,
+        source_sha256: [1; 32],
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        width: 1,
+        height: 1,
+        pixels: FontPixels::Rgba8(pixels),
+    }];
+    let glyphs = [
+        'A', '\u{d7ff}', '\u{e000}', '\u{e101}', '\u{f8ff}', '\u{f900}', '\u{fffd}',
+    ]
+    .map(|codepoint| GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, 1, 1],
+        bearing: [0, 0],
+        advance_64: 64,
+    });
+    let bytes = encode_font_catalog([9; 32], &glyphs, &pages).unwrap();
+    let font = CompiledFontCatalog::decode(&bytes, [9; 32]).unwrap();
+    TextLayoutCache::new(1, 64 * 1024)
+        .layout(TextLayoutRequest {
+            text,
+            style: TextStyle::default(),
+            width_64: 1024,
+            line_height_64: 64,
+            baseline_64: 0,
+            scale: UiScale::default(),
+            font: &font,
+            wrap: Default::default(),
+        })
+        .unwrap()
+}
+
 fn draw_list(visual: UiVisual) -> UiDrawList {
     let mut tree = UiTree::new(vec![
         UiNode::new(node(1), None, rect(4.0, 8.0, 100.0, 40.0)).with_visual(visual),

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use json_ui::{Catalog, ControlRef, RawControl};
+use json_ui::{Catalog, ControlRef, RawControl, ResolvedControl};
 use serde_json::Value;
 
 const ROOTS: [&str; 4] = ["java_chat", "chat_panel", "chat_grid_item", "chat_label"];
@@ -45,14 +45,37 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
             }
         }
     }
-    let visibility = ROOTS
+    let mut visibility = ROOTS
         .into_iter()
         .filter_map(|name| {
             let reference = ControlRef::new("hud", name);
-            let bindings = visibility_bindings(catalog.lookup("hud", name)?);
+            let bindings = visibility_bindings(catalog.lookup("hud", name)?.props.get("bindings"))
+                .cloned()
+                .collect();
             Some((reference, bindings))
         })
         .collect::<BTreeMap<_, _>>();
+    let labels = derived_labels(&derived);
+    let label_bindings = visibility
+        .entry(ControlRef::new("hud", "chat_label"))
+        .or_default();
+    let context = crate::ui_runtime::presentation::forms::menu_screens::retail_context();
+    for reference in &chat {
+        if let Some(control) = json_ui::resolve(
+            catalog,
+            &format!("{}.{}", reference.namespace, reference.name),
+            &context,
+        )
+        .control
+        {
+            collect_label_visibility(
+                &control,
+                labels.contains(reference),
+                &labels,
+                label_bindings,
+            );
+        }
+    }
     for control in catalog.controls_mut() {
         suppress_chat(control, &chat);
     }
@@ -82,6 +105,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
             catalog.insert(control);
         }
     }
+    restore_chat_screen(catalog, builtin, &mut global_names);
     let globals = global_names
         .into_iter()
         .filter_map(|name| Some((format!("${name}"), builtin.global(&name)?.clone())))
@@ -113,10 +137,94 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) {
     }
 }
 
-fn visibility_bindings(control: &RawControl) -> Vec<Value> {
-    control
-        .props
-        .get("bindings")
+/// Finds named templates inheriting the ordinary HUD chat label.
+fn derived_labels(derived: &BTreeMap<ControlRef, Vec<ControlRef>>) -> BTreeSet<ControlRef> {
+    let root = ControlRef::new("hud", "chat_label");
+    let mut labels = BTreeSet::from([root.clone()]);
+    let mut pending = vec![root];
+    while let Some(base) = pending.pop() {
+        for reference in derived.get(&base).into_iter().flatten() {
+            if labels.insert(reference.clone()) {
+                pending.push(reference.clone());
+            }
+        }
+    }
+    labels
+}
+
+/// Retains resolved visibility bindings from ordinary chat labels and their instances.
+fn collect_label_visibility(
+    control: &ResolvedControl,
+    is_label: bool,
+    labels: &BTreeSet<ControlRef>,
+    bindings: &mut Vec<Value>,
+) {
+    if is_label
+        || control
+            .base
+            .as_ref()
+            .is_some_and(|base| labels.contains(base))
+    {
+        for binding in visibility_bindings(control.properties.get("bindings")) {
+            if !bindings.contains(binding) {
+                bindings.push(binding.clone());
+            }
+        }
+    }
+    for child in &control.children {
+        collect_label_visibility(child, false, labels, bindings);
+    }
+}
+
+/// Restores the built-in chat screen while retaining pack visibility rules at matching controls.
+fn restore_chat_screen(catalog: &mut Catalog, builtin: &Catalog, globals: &mut BTreeSet<String>) {
+    let context = crate::ui_runtime::presentation::forms::menu_screens::retail_context();
+    let controls = builtin
+        .controls()
+        .filter(|control| control.owner_ns == "chat")
+        .map(|control| {
+            let resolved =
+                json_ui::resolve(catalog, &format!("chat.{}", control.name), &context).control;
+            (control.clone(), resolved)
+        })
+        .collect::<Vec<_>>();
+    for (mut control, resolved) in controls {
+        if let Some(resolved) = resolved {
+            retain_visibility(&mut control, &resolved);
+        }
+        collect_globals(&control, globals);
+        catalog.insert(control);
+    }
+}
+
+/// Copies resolved visibility bindings onto the same named control and its children.
+fn retain_visibility(target: &mut RawControl, source: &ResolvedControl) {
+    let bindings = visibility_bindings(source.properties.get("bindings"));
+    for binding in bindings {
+        if let Some(target) = target
+            .props
+            .entry("bindings".to_owned())
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            && !target.contains(binding)
+        {
+            target.push(binding.clone());
+        }
+    }
+    for child in &mut target.children {
+        if let Some(source) = source
+            .children
+            .iter()
+            .find(|source| source.name == child.name)
+        {
+            retain_visibility(child, source);
+        }
+    }
+}
+
+/// Reads bindings that control visibility from a raw or resolved binding array.
+fn visibility_bindings(bindings: Option<&Value>) -> impl Iterator<Item = &Value> {
+    bindings
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -127,8 +235,6 @@ fn visibility_bindings(control: &RawControl) -> Vec<Value> {
                 .or_else(|| binding.get("binding_name"));
             target.and_then(Value::as_str) == Some("#visible")
         })
-        .cloned()
-        .collect()
 }
 
 fn collect_globals(control: &RawControl, names: &mut BTreeSet<String>) {

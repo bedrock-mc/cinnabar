@@ -377,15 +377,6 @@ impl FormEngine {
         &self.catalog
     }
 
-    /// Chat retains the built-in presentation while other screens use the pack stack.
-    pub(super) fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
-        if reference == super::chat_screen::CHAT_SCREEN {
-            &self.base
-        } else {
-            &self.catalog
-        }
-    }
-
     #[cfg(test)]
     pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(&mut self, native: bool) {
         self.base = if native {
@@ -393,6 +384,7 @@ impl FormEngine {
         } else {
             Arc::new(hud_renderers::with_java_hud(&self.vanilla))
         };
+        self.install_pack_catalog(Arc::clone(&self.base));
     }
 
     pub(super) fn context(&self) -> &Context {

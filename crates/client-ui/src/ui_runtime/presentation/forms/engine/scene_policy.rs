@@ -8,7 +8,7 @@ impl FormEngine {
         reference: &str,
         context: &Context,
     ) -> json_ui::ScreenSettings {
-        let catalog = self.screen_catalog(reference);
+        let catalog = self.catalog();
         self.screens
             .resolved(reference, catalog, context, || {
                 json_ui::resolve(catalog, reference, context).control
