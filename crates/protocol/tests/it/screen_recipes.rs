@@ -191,3 +191,111 @@ fn recipes_making_negative_id_block_items_are_kept() {
     assert_eq!(handles[0].network_id(), 3);
     assert_eq!(handles[0].recipe().output().network_id, -739);
 }
+
+/// Incremental replacements invalidate old station views even when the replacement is rejected.
+#[test]
+fn incremental_replacements_retire_all_old_views() {
+    let mut invalid = stonecutter(5);
+    invalid.results = vec![result(0, 1)];
+    let mut retyped = stonecutter(5);
+    retyped.tag = "crafting_table".into();
+    for replacements in [
+        vec![invalid],
+        vec![stonecutter(5), stonecutter(5)],
+        vec![retyped],
+    ] {
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        catalog.apply(
+            1,
+            1,
+            &update(CraftingDataPacket {
+                shapeless_recipes: vec![stonecutter(5), stonecutter(9)],
+                ..Default::default()
+            }),
+        );
+        assert!(catalog.screen_recipe(5).is_some());
+        catalog.apply(
+            1,
+            2,
+            &update(CraftingDataPacket {
+                shapeless_recipes: replacements,
+                ..Default::default()
+            }),
+        );
+        assert!(catalog.screen_recipe(5).is_none());
+        assert!(catalog.screen_recipe(9).is_some());
+    }
+}
+
+/// Unsupported input counts and quantities are counted, rather than reduced to a preview.
+#[test]
+fn station_shapes_are_explicitly_skipped() {
+    let mut extra = stonecutter(5);
+    extra.ingredients = vec![ingredient("name", "minecraft:stone"); 4];
+    let mut quantity = stonecutter(6);
+    quantity.ingredients[0].stack_size = 2;
+    let update = update(CraftingDataPacket {
+        shapeless_recipes: vec![extra, quantity, stonecutter(7)],
+        ..Default::default()
+    });
+    assert_eq!(update.skipped_screen_recipes(), 2);
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    catalog.apply(1, 1, &update);
+    assert!(catalog.screen_recipe(5).is_none());
+    assert!(catalog.screen_recipe(6).is_none());
+    assert!(catalog.screen_recipe(7).is_some());
+}
+
+/// Duplicate IDs across station and multi families cannot preserve either interpretation.
+#[test]
+fn multi_recipe_replacements_and_cross_family_duplicates_retire_old_views() {
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    catalog.apply(
+        1,
+        1,
+        &update(CraftingDataPacket {
+            multi_recipes: vec![MultiRecipePayload {
+                multi_recipe_uuid: uuid::Uuid::from_u128(1),
+                net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 5 },
+            }],
+            ..Default::default()
+        }),
+    );
+    assert_eq!(catalog.repair_multi_recipe_id(), Some(5));
+    catalog.apply(
+        1,
+        2,
+        &update(CraftingDataPacket {
+            shapeless_recipes: vec![stonecutter(5)],
+            multi_recipes: vec![MultiRecipePayload {
+                multi_recipe_uuid: uuid::Uuid::from_u128(1),
+                net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 5 },
+            }],
+            ..Default::default()
+        }),
+    );
+    assert!(catalog.repair_multi_recipe_id().is_none());
+    assert!(catalog.screen_recipe(5).is_none());
+}
+
+/// Conflicting repair advertisements must not choose an arbitrary request ID.
+#[test]
+fn multiple_repair_ids_are_ambiguous() {
+    let update = update(CraftingDataPacket {
+        multi_recipes: [5, 6]
+            .into_iter()
+            .map(|id| MultiRecipePayload {
+                multi_recipe_uuid: uuid::Uuid::from_u128(1),
+                net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: id },
+            })
+            .collect(),
+        ..Default::default()
+    });
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    catalog.apply(1, 1, &update);
+    assert!(catalog.repair_multi_recipe_id().is_none());
+}
