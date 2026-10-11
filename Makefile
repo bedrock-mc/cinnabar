@@ -16,14 +16,14 @@ POWERSHELL ?= powershell
 NO_VSYNC ?= 0
 TRACY ?= 0
 CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
-# Passed to the client at launch only; it is never a compile input.
+# Identifies the client build in its session log and supplies runtime acceptance markers.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
 DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-client.exe,bedrock-client)
 DIST_CORE ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-core.exe,bedrock-core)
 DIST_OUT ?= .local/dist/$(DIST_PLATFORM)
 DIST_TARGET ?= $(shell rustc --print host-tuple)
-DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
+DIST_GIT_COMMIT ?= $(RUST_MCBE_BUILD_COMMIT)
 DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
 VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
@@ -144,7 +144,7 @@ PKG_CORE_LDFLAGS = -s -w
 PACKAGE_CARGO_FLAGS ?=
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	$(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
