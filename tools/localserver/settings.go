@@ -181,6 +181,7 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.SaveData = true
 	uc.Players.Folder = filepath.Join(s.dir, "players")
 	uc.Players.MaxCount = maxPlayers
+	uc.Players.MaximumChunkRadius = 255
 	uc.Resources.Folder = s.resourcesDir()
 	if s.opaqueOverdraw {
 		uc.World.SaveData = false
