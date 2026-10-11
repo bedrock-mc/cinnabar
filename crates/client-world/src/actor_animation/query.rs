@@ -709,7 +709,11 @@ fn rotation_to_camera(actor: [f32; 3], camera: [f32; 3], axis: f32) -> f32 {
 
 #[cfg(test)]
 /// Binds a test's named query through the same admission contract.
-fn named_query(inputs: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> MolangValue {
+pub(super) fn named_query(
+    inputs: &QueryInputs<'_>,
+    name: &str,
+    arguments: &[MolangValue],
+) -> MolangValue {
     query(
         inputs,
         Q::from_name(name).expect("test query is admitted"),
