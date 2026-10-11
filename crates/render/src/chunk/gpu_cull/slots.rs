@@ -1,5 +1,7 @@
 //! The slot-indexed record mirror and the records built from resident allocations.
 
+use render_scene::ChunkRenderInstance;
+
 use crate::chunk::*;
 
 use super::model::{CullRecord, CullRecordSource, STREAM_COUNT, slot_enabled};

@@ -1,3 +1,11 @@
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
+use render_scene::actor::{
+    ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
+};
+
+use render_model::ACTOR_GPU_INSTANCE_WORDS;
 use std::mem::size_of;
 mod artwork;
 mod dissolve;
@@ -9,11 +17,6 @@ use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
 use pipeline::*;
 use skins::GpuSkinArrays;
 
-use crate::actor::{
-    ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
-    ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRuntimeWitness,
-    ActorSubmitWitness, gpu::ActorDrawTracker,
-};
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{
@@ -21,17 +24,20 @@ use bevy::{
     },
     ecs::{
         query::ROQueryItem,
-        system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParam, SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
-        Plugin, Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query, Res,
+        ResMut, Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
+            BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
             PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
             TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
         },
@@ -42,8 +48,8 @@ use bevy::{
             ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            ShaderType, Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo,
-            Texture, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
             TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
@@ -53,6 +59,11 @@ use bevy::{
     },
 };
 use render_model::ActorRigVertex;
+use {
+    crate::actor::gpu::ActorDrawTracker,
+    render_model::{ActorGpuInstance, ActorRigGeometrySpan},
+    render_scene::{ActorDrawFrame, ActorPresentationGate, ActorRenderFrame, ActorRuntimeWitness},
+};
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
@@ -77,7 +88,7 @@ struct ActorRenderInstalled;
 fn install_actor_render(app: &mut App) {
     app.init_resource::<ActorRenderFrame>()
         .init_resource::<ActorPresentationGate>()
-        .init_resource::<crate::ActorPipelineReadiness>()
+        .init_resource::<render_scene::ActorPipelineReadiness>()
         .init_resource::<ActorRuntimeWitness>();
     crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
@@ -93,7 +104,7 @@ fn install_actor_render(app: &mut App) {
     let runtime_witness = app.world().resource::<ActorRuntimeWitness>().clone();
     let pipeline_readiness = app
         .world()
-        .resource::<crate::ActorPipelineReadiness>()
+        .resource::<render_scene::ActorPipelineReadiness>()
         .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
     load_internal_asset!(
@@ -101,7 +112,7 @@ fn install_actor_render(app: &mut App) {
         ACTOR_SHADER_HANDLE,
         "actor.wesl",
         crate::shader_safety::from_actor_wesl,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS
     );
     crate::nametag_render::install_nametag_render(app);
@@ -129,7 +140,7 @@ fn install_actor_render(app: &mut App) {
                     .in_set(RenderSystems::Queue)
                     .before(queue_actors),
                 queue_actors
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
             ),
@@ -164,7 +175,7 @@ pub(crate) struct ActorGpu {
     geometry_revision: u64,
     skin_revision: u64,
     view_buffer_id: Option<BufferId>,
-    manifest: std::sync::Arc<[crate::actor::ActorDrawManifestEntry]>,
+    manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
 }
 
 /// Whether every player-page instance samples a resident skin slot.
@@ -223,19 +234,19 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         artwork_current: false,
         instance_buffer: render_device.create_buffer(&BufferDescriptor {
             label: Some("bounded shared actor instance arena"),
-            size: (crate::actor::MAX_ACTOR_RENDER_INSTANCES * size_of::<ActorGpuInstance>()) as u64,
+            size: (render_model::MAX_ACTOR_RENDER_INSTANCES * size_of::<ActorGpuInstance>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
         previous_bone_buffer: render_device.create_buffer(&BufferDescriptor {
             label: Some("bounded shared actor previous-bone arena"),
-            size: (crate::actor::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+            size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
         current_bone_buffer: render_device.create_buffer(&BufferDescriptor {
             label: Some("bounded shared actor current-bone arena"),
-            size: (crate::actor::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
+            size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -284,9 +295,9 @@ fn prepare_actor_resources(
     }
     let skins_resident = player_skins_resident(&frame);
     let structurally_valid = !rig.instances.is_empty()
-        && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
+        && rig.instances.len() <= render_model::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
-        && rig.previous_bones.len() <= crate::actor::MAX_ACTOR_POSE_BONES
+        && rig.previous_bones.len() <= render_model::actor::MAX_ACTOR_POSE_BONES
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
         && skins_resident

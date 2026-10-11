@@ -1,22 +1,28 @@
 //! Draws shadow volumes over opaque geometry, multiplying each covered sample once.
 //! Rules: `docs/reference/entity-shadows.md`.
+
+use bevy::prelude::IntoScheduleConfigs;
+#[cfg(test)]
+use bevy::prelude::System;
+use bevy::render::render_resource::ShaderType;
+use render_scene::EntityShadowScene;
 use std::num::NonZeroU64;
 
-use bevy::prelude::SystemSet;
 #[cfg(test)]
-use bevy::prelude::{IntoSystem, System};
+use bevy::prelude::IntoSystem;
+use bevy::prelude::SystemSet;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::{Core3d, Core3dSystems},
     mesh::VertexBufferLayout,
     prelude::{
-        App, Camera3d, Commands, Component, Entity, Handle, IntoScheduleConfigs, Last, Msaa,
-        Plugin, Query, Res, ResMut, Resource, Result, Shader, With, World, default,
+        App, Camera3d, Commands, Component, Entity, Handle, Last, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, With, World, default,
     },
     render::{
         Render, RenderApp, RenderSystems,
         camera::ExtractedCamera,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
             BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
@@ -24,7 +30,7 @@ use bevy::{
             CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, Face, FragmentState, LoadOp, MultisampleState, Operations,
             PipelineCache, PrimitiveState, RenderPassDepthStencilAttachment, RenderPassDescriptor,
-            RenderPipelineDescriptor, ShaderStages, ShaderType, StencilFaceState, StencilOperation,
+            RenderPipelineDescriptor, ShaderStages, StencilFaceState, StencilOperation,
             StencilState, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat,
             TextureSampleType, TextureUsages, TextureView, TextureViewDimension, TextureViewId,
             VertexAttribute, VertexFormat, VertexState, VertexStepMode,
@@ -37,19 +43,17 @@ use bevy::{
     },
 };
 use render_model::{
-    EntityShadow, EntityShadowFrame, EntityShadowParams, SHADOW_VOLUME_VERTICES,
-    entity_shadow_colour, shadow_screen_rect, shadow_volume_mesh,
+    EntityShadow, EntityShadowParams, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
+    shadow_screen_rect, shadow_volume_mesh,
 };
 
-use crate::{AtmosphereFrame, SkyKind, scene_target::SceneTarget};
+use {
+    crate::scene_target::SceneTarget,
+    render_scene::{AtmosphereFrame, SkyKind},
+};
 
 const SHADER: Handle<Shader> = uuid_handle!("6b0e5c1d-3f8a-4e27-9b41-2d7c0a5e8f13");
 const INSTANCE_BYTES: u64 = size_of::<EntityShadow>() as u64;
-
-/// Main-world holder of this frame's casters, cloned into the render world.
-#[derive(Resource, ExtractResource, Clone, Default, Debug)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct EntityShadowScene(pub EntityShadowFrame);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct EntityShadowLabel;

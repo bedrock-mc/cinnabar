@@ -4,6 +4,7 @@ use super::pipeline::{
 use super::resources::{init_ui_gpu, prepare_ui_resources};
 use super::*;
 use render_model::UiScissor;
+use render_scene::{UiRenderSceneResource, UiRenderStatsResource};
 
 #[test]
 fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_count() {

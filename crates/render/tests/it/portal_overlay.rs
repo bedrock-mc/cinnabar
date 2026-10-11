@@ -1,6 +1,6 @@
 //! Exercise the production overlay shader against native cube UVs and atlas blending.
-use crate::gpu_snapshot;
 
+use crate::gpu_snapshot;
 use bevy::prelude::{Mat4, Vec3};
 use gpu_snapshot::{Draw, Gpu, RasterState};
 use wgpu::util::DeviceExt;
@@ -17,12 +17,15 @@ fn uniform(portal_from_clip: Mat4) -> Vec<f32> {
         1.0,
         1.0,
         0.75,
-        render::ScreenOverlayKind::Portal as u32 as f32,
+        render_scene::ScreenOverlayKind::Portal as u32 as f32,
         0.0,
         0.0,
         0.0,
     ]);
-    words.resize(layer_start + render::MAX_SCREEN_OVERLAY_LAYERS * 8, 0.0);
+    words.resize(
+        layer_start + render_scene::MAX_SCREEN_OVERLAY_LAYERS * 8,
+        0.0,
+    );
     words
 }
 

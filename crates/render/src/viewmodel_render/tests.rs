@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
 
 fn empty_hand_world() -> World {
     use bevy::ecs::system::RunSystemOnce;
@@ -148,9 +149,9 @@ fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
                     .unwrap()
                     .format,
                 if hdr {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 } else {
-                    crate::SCENE_COLOR_FORMAT
+                    render_scene::SCENE_COLOR_FORMAT
                 }
             );
             let depth = pipeline.depth_stencil.unwrap();

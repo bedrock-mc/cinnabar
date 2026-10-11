@@ -1,6 +1,6 @@
 //! Production overlay vertices must stay in front of two-sided leaf depth from either view.
 use crate::{gpu_snapshot::Gpu, shader_safety, shader_source};
-use render::{
+use render_model::{
     BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance, SceneClock,
 };
 
@@ -22,11 +22,11 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     let leaf = &assets.model_quads()[template.quad_start as usize + assets::BlockFace::ALL.len()];
     assert_ne!(leaf.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED, 0);
     let plane_z = f32::from(leaf.positions[0][2]) / 256.0
-        + meshing::bamboo::quad_offset(
-            meshing::bamboo::transform_for_template(template.flags, visual.variant(), [0; 3]),
+        + assets::bamboo::quad_offset(
+            assets::bamboo::transform_for_template(template.flags, visual.variant(), [0; 3]),
             assets::BlockFace::ALL.len() as u32,
         )[2];
-    let shape = render::crack_shape_from_template(
+    let shape = render_model::crack_shape_from_template(
         &assets,
         visual.model_template().unwrap(),
         visual.variant(),
@@ -86,8 +86,8 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     let shader = shader_safety::from_block_entity_wesl(
         include_str!("../../src/block_entity/block_entity.wesl"),
         "bamboo-overlay-depth.wesl",
-        render::BLOCK_ENTITY_VERTEX_WORDS,
-        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("block overlay shader must retain WGSL");
@@ -131,7 +131,7 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     );
     let words = gpu.words(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         wgpu::BufferUsages::UNIFORM,
     );
     let output = gpu.words(

@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::BiomeTint;
 
 #[test]
 fn native_water_palette_preserves_every_authored_rgb8_byte() {

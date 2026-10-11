@@ -268,7 +268,7 @@ impl Fixture {
         let gpu = Gpu::for_fixture(name)?;
         let storage = wgpu::BufferUsages::STORAGE;
         let uniform = wgpu::BufferUsages::UNIFORM;
-        let frame = render::AtmosphereFrame::default();
+        let frame = render_scene::AtmosphereFrame::default();
         Some(Self {
             materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
             zeros: gpu.words(&UNUSED, storage),
@@ -280,7 +280,7 @@ impl Fixture {
             ),
             atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
             lightmap: gpu.buffer(
-                bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+                bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
                 uniform,
             ),
             atlas: solid_terrain_raster::pattern_texture(&gpu),

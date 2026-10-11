@@ -1,5 +1,9 @@
 //! Retained server debug geometry: shared meshes, stable instance slots and GPU visibility.
 
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
+use render_scene::PrimitiveShapesScene;
+
 mod gpu;
 mod mesh;
 mod pipeline;
@@ -10,37 +14,13 @@ mod tests;
 use bevy::prelude::{IntoSystem, System, default};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    prelude::{App, Handle, IntoScheduleConfigs, Plugin, Resource, Shader, World},
+    prelude::{App, Handle, Plugin, Resource, Shader, World},
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_phase::AddRenderCommand,
+        Render, RenderApp, RenderStartup, RenderSystems, extract_resource::ExtractResourcePlugin,
     },
 };
 use render_model::primitive_shapes::PrimitiveShapeStore;
 use std::sync::{Arc, Mutex};
-
-/// Shared retained state; extraction copies only the handle and the current clock/dimension.
-#[derive(Resource, Clone, ExtractResource)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct PrimitiveShapesScene {
-    pub store: Arc<Mutex<PrimitiveShapeStore>>,
-    pub clock: f32,
-    pub dimension: i32,
-    pub render_distance: f32,
-}
-
-impl Default for PrimitiveShapesScene {
-    /// Starts with no geometry or GPU publications.
-    fn default() -> Self {
-        Self {
-            store: Arc::new(Mutex::new(PrimitiveShapeStore::default())),
-            clock: 0.0,
-            dimension: 0,
-            render_distance: 0.0,
-        }
-    }
-}
 
 /// Installs the network primitive renderer independently of actor rendering.
 pub struct PrimitiveShapesRenderPlugin;
@@ -64,7 +44,7 @@ impl Plugin for PrimitiveShapesRenderPlugin {
             .add_systems(Render, (
                 gpu::prepare.in_set(RenderSystems::PrepareResources),
                 pipeline::prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                pipeline::queue.run_if(crate::panorama::world_passes_enabled).in_set(RenderSystems::Queue),
+                pipeline::queue.run_if(render_scene::panorama::world_passes_enabled).in_set(RenderSystems::Queue),
             ));
     }
 }

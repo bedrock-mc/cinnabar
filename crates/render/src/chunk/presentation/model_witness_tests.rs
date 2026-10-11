@@ -1,4 +1,8 @@
 use super::*;
+use render_scene::{
+    MAX_MODEL_WITNESS_KEYS, ModelWitnessFrameAck, ModelWitnessManifestRecord, ModelWitnessRequest,
+    PresentedFrameAck,
+};
 
 fn exact_model_witness_ack(
     revision: u64,

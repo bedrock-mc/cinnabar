@@ -1,5 +1,7 @@
 //! Per-frame preparation: record sync, uploads, the depth pyramid and the cull uniforms.
 
+use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
+
 use bevy::{
     camera::{MainPassResolutionOverride, primitives::Frustum},
     render::{

@@ -1,10 +1,4 @@
 use super::*;
-use crate::{
-    ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority,
-    ChunkUploadToken, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
-    publication_noop_render_plugin, publication_render_terminal_snapshot,
-    settle_publication_noop_frame,
-};
 use bevy::{
     asset::{AssetPlugin, Assets},
     camera::{CameraPlugin, RenderTarget},
@@ -19,6 +13,17 @@ use render_api::{PublicationAllowance, PublicationServiceConfig};
 use render_model::DroppedItemSprite;
 use std::{sync::Arc, time::Instant};
 use world::SubChunkKey;
+use {
+    crate::{
+        ChunkRenderPlugin, publication_noop_render_plugin, publication_render_terminal_snapshot,
+        settle_publication_noop_frame,
+    },
+    render_model::{TerrainItemInstance, TerrainItemTransition, dropped_item_transform},
+    render_scene::{
+        ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken,
+    },
+};
+use {render_model::MAX_DROPPED_ITEM_INSTANCES, render_scene::DroppedItemScene};
 
 #[derive(Resource, Default)]
 struct QueuedItemWitness(usize);
@@ -97,8 +102,8 @@ fn fixture() -> App {
     app
 }
 
-fn instance() -> crate::DroppedItemInstance {
-    crate::DroppedItemInstance {
+fn instance() -> render_model::DroppedItemInstance {
+    render_model::DroppedItemInstance {
         model: 0,
         world_from_item: dropped_item_transform([0.0; 3], 0.0, 1.0),
         block_level: 15,

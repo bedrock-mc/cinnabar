@@ -1,5 +1,7 @@
 //! Narrow access to the chunk arena for Enhanced shadow drawing.
 
+use render_scene::ChunkBiomeTints;
+
 use crate::chunk::*;
 use crate::enhanced::CascadeBounds;
 use bevy::{prelude::Handle, shader::Shader};

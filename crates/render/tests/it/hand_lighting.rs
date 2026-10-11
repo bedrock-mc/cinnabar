@@ -4,15 +4,15 @@ use crate::{
     shader_safety, shader_source,
 };
 use bevy::math::{Mat4, Vec3};
-use render::{ActorGpuInstance, ActorRigGeometrySpan, HandItemAlphaMode, HandRigLight};
 use render_model::ActorRigVertex;
+use render_model::{ActorGpuInstance, ActorRigGeometrySpan, HandItemAlphaMode, HandRigLight};
 
 /// Resolves packed storage constants and binds the real lightmap beside the hand resources.
 fn source() -> String {
     let shader = shader_safety::from_actor_wesl(
         include_str!("../../src/hand_rig.wesl"),
         "hand_lighting.wesl",
-        render::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
     let bevy::shader::Source::Wesl(source) = shader.source else {
@@ -49,11 +49,14 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
     let cutout = HandItemAlphaMode::Cutout.texture_layer_flag();
     let material = gpu.words(
         &[
-            render::HAND_ITEM_LAYER_FLAG,
-            render::HAND_OFFHAND_LAYER_FLAG,
+            render_model::HAND_ITEM_LAYER_FLAG,
+            render_model::HAND_OFFHAND_LAYER_FLAG,
             blend,
             cutout,
-            !(render::HAND_ITEM_LAYER_FLAG | render::HAND_OFFHAND_LAYER_FLAG | blend | cutout),
+            !(render_model::HAND_ITEM_LAYER_FLAG
+                | render_model::HAND_OFFHAND_LAYER_FLAG
+                | blend
+                | cutout),
             0,
             0,
             0,
@@ -91,9 +94,9 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
     let sampler = gpu.device.create_sampler(&Default::default());
     for (layer, basis, stretch) in [
         (0, Mat4::IDENTITY, 1.0),
-        (render::HAND_ITEM_LAYER_FLAG, Mat4::IDENTITY, 1.0),
+        (render_model::HAND_ITEM_LAYER_FLAG, Mat4::IDENTITY, 1.0),
         (
-            render::HAND_ITEM_LAYER_FLAG,
+            render_model::HAND_ITEM_LAYER_FLAG,
             Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2),
             1.2,
         ),

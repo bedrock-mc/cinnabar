@@ -1,11 +1,12 @@
 use super::*;
 use crate::queue_review_support as fixture;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::FromWorld;
-use bevy::{
-    core_pipeline::core_3d::Transparent3d, ecs::system::RunSystemOnce,
-    render::render_phase::AddRenderCommand, render::view::ExtractedView,
-};
+use bevy::render::render_phase::AddRenderCommand;
+
+use bevy::{core_pipeline::core_3d::Transparent3d, render::view::ExtractedView};
 use mod_render::{Decal, DecalStyle, Pass, Primitives};
+use render_scene::ModRenderScene;
 
 const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * param(1u); }";
 
@@ -86,7 +87,7 @@ fn frame_uniform_packs_view_and_params() {
         ),
         world_from_view: GlobalTransform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
         clip_from_world: None,
-        target_format: crate::SCENE_COLOR_FORMAT,
+        target_format: render_scene::SCENE_COLOR_FORMAT,
         viewport: UVec4::new(0, 0, 640, 360),
         color_grading: default(),
         invert_culling: false,
@@ -118,7 +119,10 @@ fn pass_pipelines_compile_for_each_view_format_without_blending() {
     let (mut app, _) = fixture::app();
     app.world_mut().run_system_once(passes::init_gpu).unwrap();
     bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    let formats = [crate::SCENE_HDR_FORMAT, crate::SCENE_COLOR_FORMAT];
+    let formats = [
+        render_scene::SCENE_HDR_FORMAT,
+        render_scene::SCENE_COLOR_FORMAT,
+    ];
     let pass = pass("a", 1);
     app.world_mut()
         .resource_scope(|world, mut gpu: Mut<passes::PassGpu>| {
@@ -198,7 +202,7 @@ fn sandbox_shaders_survive_bevy_shader_composition() {
 fn replaced_passes_release_their_pipelines() {
     let (mut app, _) = fixture::app();
     app.world_mut().run_system_once(passes::init_gpu).unwrap();
-    let format = crate::SCENE_HDR_FORMAT;
+    let format = render_scene::SCENE_HDR_FORMAT;
     let mut scene = ModRenderScene::default();
     for revision in 1..=20 {
         scene.apply(

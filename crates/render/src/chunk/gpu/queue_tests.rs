@@ -1,4 +1,8 @@
 use super::*;
+use render_scene::{
+    ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits, ChunkUploadAcknowledgement,
+    ChunkUploadAcknowledgements, ChunkUploadPriority, ChunkUploadToken,
+};
 
 #[test]
 fn adjacent_quad_frees_coalesce_and_reuse_the_lowest_range_under_churn() {

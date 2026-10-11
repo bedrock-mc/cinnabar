@@ -1,5 +1,6 @@
 use super::transparent::resident_transparent_allocation;
 use super::*;
+use render_scene::ChunkTextureAssetIdentity;
 
 #[test]
 fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {

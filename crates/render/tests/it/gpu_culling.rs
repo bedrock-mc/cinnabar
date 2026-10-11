@@ -814,7 +814,7 @@ impl Raster {
         atmosphere[19] = 8.0;
         atmosphere[20] = 60.0;
         let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
-        let table = render::LightmapInputs::default().build();
+        let table = render_model::LightmapInputs::default().build();
         let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
         let atlas = solid_terrain_raster::pattern_texture(gpu);
         let sampler = gpu.device.create_sampler(&Default::default());

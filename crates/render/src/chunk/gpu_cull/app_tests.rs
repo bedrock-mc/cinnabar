@@ -1,5 +1,7 @@
 //! Real render apps on a validating NOOP device and native fallback backends.
 
+use render_scene::{ChunkRenderInstance, ChunkRenderQueue, PipelineWarmupReadiness};
+
 use bevy::{
     asset::{AssetPlugin, Assets},
     camera::{CameraPlugin, RenderTarget},
@@ -249,7 +251,7 @@ fn native_devices_compile_opaque_and_transparent_terrain_variants() {
         }
         assert!(
             app.world()
-                .resource::<crate::PipelineWarmupReadiness>()
+                .resource::<render_scene::PipelineWarmupReadiness>()
                 .is_ready()
         );
     }

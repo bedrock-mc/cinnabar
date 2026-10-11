@@ -1,6 +1,8 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
+use render_scene::ParticleGpuFrame;
+
 #[test]
 fn recurring_particle_updates_allocate_no_gpu_staging_buffers() {
     let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {

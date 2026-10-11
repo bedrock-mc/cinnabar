@@ -1,14 +1,14 @@
 //! Mod post passes: each enabled pass reads the previous scene colour and writes the next,
 //! after post-processing and before the HUD, timed per pass slot.
 
-use super::ModRenderScene;
-use crate::{RuntimeStage, scene_sampling::ResolvedDepth};
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::prelude::Vec4Swizzles;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     prelude::{
-        Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, SubApp, SystemSet,
-        Time, UVec2, Vec4Swizzles, World, default, warn,
+        Commands, Entity, Query, Res, ResMut, Resource, SubApp, SystemSet, Time, UVec2, World,
+        default, warn,
     },
     render::{
         Render, RenderStartup, RenderSystems,
@@ -26,7 +26,9 @@ use bevy::{
     },
 };
 use mod_render::shader::{FRAGMENT_ENTRY, FRAME_UNIFORM_BYTES, VERTEX_ENTRY};
+use render_scene::ModRenderScene;
 use std::{collections::HashMap, sync::Mutex};
+use {crate::scene_sampling::ResolvedDepth, render_scene::RuntimeStage};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, SystemSet)]
 pub struct ModPassLabel;
@@ -471,7 +473,7 @@ pub(crate) fn mod_passes(
     };
     if scene.passes.is_empty()
         || world
-            .get_resource::<crate::PanoramaScene>()
+            .get_resource::<render_scene::PanoramaScene>()
             .is_some_and(|panorama| !panorama.game_visible())
     {
         return Ok(());

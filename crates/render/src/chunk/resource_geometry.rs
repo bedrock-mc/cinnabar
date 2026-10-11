@@ -1,5 +1,7 @@
 //! Complete mesh replacements share the atlas transaction's publication boundary.
+
 use super::*;
+use render_scene::{ChunkRenderInstance, ChunkRenderQueue};
 
 impl ChunkRenderInstance {
     /// Replaces geometry while preserving the resident entity and its world identity.

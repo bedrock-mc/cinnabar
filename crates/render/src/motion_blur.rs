@@ -22,15 +22,6 @@ use bevy::{
     },
 };
 
-/// Presentation-only exposure; removing this component releases the per-view blur resources.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub struct CameraMotionBlur {
-    pub exposure_seconds: f32,
-    pub samples: u32,
-    pub reset_epoch: u64,
-    pub delta_seconds: f32,
-}
-
 const SHADER: Handle<Shader> = uuid_handle!("084d4ee2-222c-4990-9c05-e303b8e8081a");
 const MSAA_SHADER: Handle<Shader> = uuid_handle!("935fcd71-f7d0-43b9-9b70-374366e0b3c3");
 

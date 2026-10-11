@@ -1,18 +1,16 @@
 use crate::ui_render::DeviceObservation;
-use crate::viewmodel::{
-    HandVertex, ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, hand_projection,
-    viewmodel_depth_bytes,
-};
 #[cfg(test)]
 use bevy::prelude::Assets;
+use bevy::prelude::DetectChanges;
+use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::Core3d,
     ecs::system::{SystemChangeTick, SystemParam},
     mesh::VertexBufferLayout,
     prelude::{
-        App, BevyError, Commands, DetectChanges, Entity, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, SystemSet, UVec4, World, default,
+        App, BevyError, Commands, Entity, Handle, Msaa, Plugin, Query, Res, ResMut, Resource,
+        Result, Shader, SystemSet, UVec4, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -34,6 +32,9 @@ use bevy::{
         view::ExtractedView,
     },
 };
+use render_model::viewmodel::HandVertex;
+use render_scene::viewmodel::hand_projection;
+use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
 use std::{mem::size_of, sync::Mutex};
 mod gpu;
 mod node;
@@ -100,7 +101,7 @@ pub(crate) fn enhanced_post_pass(
     world.contains_resource::<Installed>().then(|| {
         crate::gpu_timing::profiled(
             node::hand_view,
-            Some(crate::RuntimeStage::GpuHand),
+            Some(render_scene::RuntimeStage::GpuHand),
             "EnhancedHandLabel",
         )
         .run_if(crate::ui_render::overlay::grade_stage::<true>)
@@ -116,7 +117,7 @@ pub(crate) fn install_hand_graph(world: &mut World) {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
                     node::hand_view,
-                    Some(crate::RuntimeStage::GpuHand),
+                    Some(render_scene::RuntimeStage::GpuHand),
                     "HandLabel",
                 )
                 .in_set(HandLabel)
@@ -157,3 +158,6 @@ impl crate::pipeline_warmup::PrewarmPipelines for HandGpu {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod admission_tests;

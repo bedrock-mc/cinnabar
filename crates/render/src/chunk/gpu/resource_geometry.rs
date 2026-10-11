@@ -1,6 +1,9 @@
 //! Builds an isolated GPU arena; no visible allocation changes until the atlas is published.
+
 use crate::chunk::*;
 use bevy::ecs::system::RunSystemOnce;
+
+use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements};
 
 pub(in crate::chunk) struct PreparedResourceGeometry {
     arena: ChunkGpuArena,

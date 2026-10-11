@@ -35,9 +35,9 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
             assert_eq!(
                 colour.format,
                 if hdr {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 } else {
-                    crate::SCENE_COLOR_FORMAT
+                    render_scene::SCENE_COLOR_FORMAT
                 }
             );
         }

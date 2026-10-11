@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::{prelude::*, render::extract_resource::ExtractResource};
 use world::SubChunkKey;
 
-use crate::dropped_item::{DroppedItemScene, TerrainItemInstance};
+use {render_model::TerrainItemInstance, render_scene::DroppedItemScene};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TerrainItemSessionSet;

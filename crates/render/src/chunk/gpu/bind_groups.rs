@@ -2,6 +2,13 @@ use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
 use bevy::color::ColorToPacked;
 
+use render_scene::{
+    BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, TextureArrayLimits,
+    TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
+    plan_texture_mip_uploads, plan_texture_page_bindings, texture_asset_needs_rebuild,
+};
+
 #[cfg(test)]
 mod water_tint_tests;
 
@@ -236,7 +243,10 @@ pub struct ChunkTextureUploadStats {
 pub(in crate::chunk) fn prepare_chunk_texture_assets(
     mut commands: Commands,
     instances: Query<(Entity, &ChunkRenderInstance)>,
-    views: Query<(Entity, &ExtractedView, Has<crate::EnhancedRendering>), With<ExtractedCamera>>,
+    views: Query<
+        (Entity, &ExtractedView, Has<render_scene::EnhancedRendering>),
+        With<ExtractedCamera>,
+    >,
     mut arena: ResMut<ChunkGpuArena>,
     assets: Res<ChunkTextureAssets>,
     render_device: Res<RenderDevice>,

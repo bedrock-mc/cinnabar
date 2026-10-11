@@ -3,6 +3,8 @@
 //! so its depth holds only static, fully opaque geometry; a pyramid of it tests every resident
 //! slot, and the bits come back asynchronously for later frames to skip what stays occluded.
 
+use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
+
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU8, Ordering},
@@ -567,7 +569,7 @@ pub(crate) fn install_graph(world: &mut World) {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
                     terrain_pass,
-                    Some(crate::RuntimeStage::GpuOpaque),
+                    Some(render_scene::RuntimeStage::GpuOpaque),
                     "TerrainPassLabel",
                 )
                 .in_set(TerrainPassLabel)
@@ -616,7 +618,7 @@ pub(crate) fn terrain_pass(
             depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuTerrainOpaque,
+                render_scene::RuntimeStage::GpuTerrainOpaque,
             ),
             occlusion_query_set: None,
             multiview_mask: None,

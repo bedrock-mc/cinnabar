@@ -304,7 +304,7 @@ impl FromWorld for UiCompositePipeline {
                 shader: UI_COMPOSITE_SHADER_HANDLE,
                 entry_point: Some("composite_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -338,9 +338,9 @@ impl UiCompositePipeline {
         output: Option<TextureFormat>,
     ) -> Option<CompositePipelines> {
         let format = if hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         let main = self.specialize(cache, UiCompositeKey { format })?;
         let output = output.and_then(|format| self.specialize(cache, UiCompositeKey { format }));
@@ -465,8 +465,8 @@ fn encode_composite(
         &BindGroupEntries::sequential((sources[0], sources[1])),
     );
     if let Some(profile) = world.get_resource::<super::profile::UiProfile>() {
-        profile.record_pass(crate::RuntimeStage::GpuUiComposite);
-        profile.record_draw(crate::RuntimeStage::GpuUiComposite, 0);
+        profile.record_pass(render_scene::RuntimeStage::GpuUiComposite);
+        profile.record_draw(render_scene::RuntimeStage::GpuUiComposite, 0);
     }
     let attachments = [Some(destination)];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
@@ -475,7 +475,7 @@ fn encode_composite(
         depth_stencil_attachment: None,
         timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuUiComposite,
+            render_scene::RuntimeStage::GpuUiComposite,
         ),
         occlusion_query_set: None,
         multiview_mask: None,
@@ -581,7 +581,7 @@ pub(crate) fn install_present_node(world: &mut World) {
             schedule.add_systems((
                 crate::gpu_timing::profiled(
                     ui_present,
-                    (!cfg!(target_os = "macos")).then_some(crate::RuntimeStage::GpuBlit),
+                    (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
                     "UiPresent",
                 )
                 .after(Core3dSystems::PostProcess)
@@ -589,7 +589,7 @@ pub(crate) fn install_present_node(world: &mut World) {
                 .after(super::overlay::UiOverlayPostLabel),
                 crate::gpu_timing::profiled(
                     upscaling,
-                    (!cfg!(target_os = "macos")).then_some(crate::RuntimeStage::GpuBlit),
+                    (!cfg!(target_os = "macos")).then_some(render_scene::RuntimeStage::GpuBlit),
                     "Upscaling",
                 )
                 .after(ui_present)

@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::EnhancedRendering;
 
 #[test]
 fn an_unprepared_enhanced_view_encodes_nothing_after_repeated_installation() {

@@ -1,5 +1,10 @@
 //! Retained GPU resources, uploads and pipeline variants for the camera-local hand.
 
+use {
+    render_model::{ActorGpuInstance, ActorRigGeometrySpan, HandRigLight},
+    render_scene::HandRigScene,
+};
+
 use super::*;
 
 pub(super) struct HandRigDepth {
@@ -102,7 +107,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
 pub(super) fn prepare(
     scene: Res<HandRigScene>,
     (background, staging): (
-        Option<Res<crate::panorama::PanoramaScene>>,
+        Option<Res<render_scene::PanoramaScene>>,
         Option<Res<crate::upload_staging::BufferUploadStaging>>,
     ),
     device: Res<RenderDevice>,
@@ -591,9 +596,9 @@ pub(super) fn specialized_pipeline(
         .as_mut()
         .unwrap()
         .format = if hdr {
-        crate::SCENE_HDR_FORMAT
+        render_scene::SCENE_HDR_FORMAT
     } else {
-        crate::SCENE_COLOR_FORMAT
+        render_scene::SCENE_COLOR_FORMAT
     };
     descriptor
 }
@@ -613,7 +618,7 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
             shader: HAND_RIG_SHADER,
             entry_point: Some("hand_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],

@@ -2,9 +2,12 @@
 //! spent it, so a slow frame never reports main-thread work under no stage at all.
 
 use bevy::app::{App, Last, MainScheduleOrder, PreUpdate, RunFixedMainLoop, Update};
-use bevy::ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::ScheduleLabel;
+use render_scene::runtime_profile::begin_stage_span;
+use render_scene::runtime_profile::end_stage_span;
 
-use crate::runtime_profile::{RuntimeStage, RuntimeStageSpans, begin_stage_span, end_stage_span};
+use render_scene::{RuntimeStage, RuntimeStageSpans};
 
 const PRE_UPDATE: usize = RuntimeStage::MainPreUpdate as usize;
 const FIXED_UPDATE: usize = RuntimeStage::MainFixedUpdate as usize;
@@ -57,8 +60,8 @@ pub fn install_main_phase_spans(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RuntimeStageProfiler;
     use bevy::prelude::{App, PostUpdate, PreUpdate, Res, Update};
+    use render_scene::RuntimeStageProfiler;
     use std::time::Duration;
 
     /// Records a zero-length probe span from inside a phase.

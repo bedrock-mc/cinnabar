@@ -1,11 +1,11 @@
 //! Enhanced post chain node: light shafts and the graded HDR
 //! composite. Runs before the hand and UI so neither is tonemapped.
 
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     core_pipeline::FullscreenShader,
     prelude::*,
     render::{
-        diagnostic::RecordDiagnostics,
         render_resource::{
             BindGroup, BindGroupEntry, BindingResource, BlendState, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, FragmentState, LoadOp, Operations, PipelineCache,
@@ -17,9 +17,12 @@ use bevy::{
     },
 };
 
-use super::{
-    ENHANCED_POST_SHADER_HANDLE, EnhancedRendering,
-    gpu::{EnhancedGpu, EnhancedViews, POST_FORMAT, enhanced_post_layout},
+use {
+    super::{
+        ENHANCED_POST_SHADER_HANDLE,
+        gpu::{EnhancedGpu, EnhancedViews, POST_FORMAT, enhanced_post_layout},
+    },
+    render_scene::EnhancedRendering,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -143,7 +146,7 @@ fn fullscreen_pass(
         depth_stencil_attachment: None,
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuPost,
+            render_scene::RuntimeStage::GpuPost,
         ),
         occlusion_query_set: None,
         multiview_mask: None,

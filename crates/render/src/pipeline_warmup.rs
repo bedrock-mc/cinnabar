@@ -1,19 +1,15 @@
 //! Queues first-use pipeline variants as soon as a view exists, so loading absorbs compilation.
 
-use std::{
-    collections::HashSet,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use bevy::prelude::IntoScheduleConfigs;
+use render_scene::PipelineWarmupReadiness;
+
+use std::{collections::HashSet, sync::Arc};
 
 #[cfg(test)]
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
-        App, BevyError, IntoScheduleConfigs, Local, Msaa, Query, Res, ResMut, Resource, Result,
-        SubApp, SystemSet, error,
+        App, BevyError, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet, error,
     },
     render::{
         Render, RenderApp, RenderSystems,
@@ -24,17 +20,6 @@ use bevy::{
     },
     shader::ShaderCacheError,
 };
-
-/// True once every registered variant for the current views has compiled.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct PipelineWarmupReadiness(Arc<AtomicBool>);
-
-impl PipelineWarmupReadiness {
-    #[must_use]
-    pub fn is_ready(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-}
 
 /// The view properties our built-in pipeline keys depend on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,7 +127,7 @@ fn collect_views(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
         Option<&ViewTarget>,
-        Option<&crate::EnhancedRendering>,
+        Option<&render_scene::EnhancedRendering>,
     )>,
     mut registry: ResMut<WarmupRegistry>,
 ) {
@@ -195,7 +180,7 @@ fn publish_readiness(
     shared: Res<PipelineWarmupReadiness>,
 ) {
     let ready = registered_pipelines_ready(&cache, &mut registry);
-    shared.0.store(ready, Ordering::Release);
+    shared.set_ready(ready);
 }
 
 /// Shader loads keep loading held; terminal compile errors are logged once and stop blocking.

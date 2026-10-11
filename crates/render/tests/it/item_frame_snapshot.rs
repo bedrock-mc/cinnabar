@@ -1,5 +1,5 @@
 use bevy::math::Vec3;
-use render::{
+use render_model::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityKind, BlockEntityScene, BlockEntitySubmission,
     BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget, CrackShape,
     ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, SceneClock,
@@ -7,7 +7,7 @@ use render::{
 };
 
 use crate::{
-    gpu_snapshot::{self, Draw, Gpu},
+    gpu_snapshot::{Draw, Gpu},
     shader_source,
 };
 
@@ -250,7 +250,7 @@ fn every_mount_shows_a_centered_upright_item_in_front_of_its_support() {
     )
     .replace(
         "BLOCK_SELECTION_VERTICES_PER_EDGE",
-        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
+        &format!("{}u", render_model::BLOCK_SELECTION_VERTICES_PER_EDGE),
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
     .replace("@group(1) @binding(1)", "@group(0) @binding(6)");

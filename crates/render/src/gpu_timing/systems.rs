@@ -1,15 +1,16 @@
 //! GPU markers bracket the command buffers of one render system in submission order.
 
 use super::{GpuTimestamps, NO_SPAN, mark};
-use crate::RuntimeStage;
+use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     ecs::{
         schedule::ScheduleConfigs,
         system::{CombinatorSystem, Combine, IntoSystem, RunSystemError, ScheduleSystem, System},
     },
-    prelude::{IntoScheduleConfigs, World},
+    prelude::World,
     render::renderer::RenderContext,
 };
+use render_scene::RuntimeStage;
 use std::sync::{
     Arc,
     atomic::{AtomicU32, Ordering},

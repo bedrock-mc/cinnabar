@@ -11,8 +11,7 @@ pub const TRANSPARENT_REF_BUFFER_BYTES: usize = TRANSPARENT_REF_SLOT_BYTES * 2;
 /// Refs per slot before the first growth; slots double up to the ceiling as snapshots need.
 pub(in crate::chunk) const INITIAL_TRANSPARENT_SLOT_REFS: usize = 16_384;
 pub const DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME: usize = 131_072;
-pub const MAX_TRANSPARENT_WITNESS_KEYS: usize = 64;
-pub const MAX_MODEL_WITNESS_KEYS: usize = 64;
+
 pub(in crate::chunk) const MAX_TRANSPARENT_RETIRED_ALLOCATIONS: usize = 16_384;
 pub(in crate::chunk) const MAX_TRANSPARENT_RETIRED_BYTES: u64 = 64 * 1024 * 1024;
 

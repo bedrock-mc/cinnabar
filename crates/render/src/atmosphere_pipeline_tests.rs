@@ -56,9 +56,9 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
                 assert_eq!(
                     colour.format,
                     if hdr {
-                        crate::SCENE_HDR_FORMAT
+                        render_scene::SCENE_HDR_FORMAT
                     } else {
-                        crate::SCENE_COLOR_FORMAT
+                        render_scene::SCENE_COLOR_FORMAT
                     }
                 );
             }

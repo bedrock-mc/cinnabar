@@ -1,6 +1,8 @@
 use super::*;
 use bevy::color::ColorToPacked;
 
+use render_scene::{BiomeTint, ChunkRenderInstance, ChunkRenderQueue, ChunkUploadToken};
+
 #[test]
 fn biome_tint_table_is_revisioned_and_keeps_a_fallback_entry() {
     let fallback = ChunkBiomeTints::default();

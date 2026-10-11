@@ -1,6 +1,8 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
+use render_scene::{ChunkRenderInstance, ChunkUploadAcknowledgements, ChunkUploadToken};
+
 fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
     let mesh = solid_test_mesh();
     let count = if one_quad { 1 } else { mesh.quads().len() };
