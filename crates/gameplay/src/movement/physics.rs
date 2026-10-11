@@ -26,7 +26,7 @@ mod visual_correction;
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
 
-use super::anchor_probe::BeforeTick;
+use super::anchor_probe::AnchorProbeState;
 use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
@@ -585,32 +585,15 @@ impl LocalPhysicsController {
                 jumping: input.jumping,
                 jump_edge: self.jump_edge_pending,
             };
-            if tick_index == 0 && !input.immobile && self.anchor_state.pending() {
-                if input.spectator || context.mode_intent.ride.is_some() {
-                    self.anchor_state.reset();
-                } else {
-                    let mut preview = self.modes;
-                    // Preview a new pose only when the retained pose no longer fits.
-                    // The live trigger state still advances once, after recovery.
-                    if !sim::pose_fits(
-                        world,
-                        state.position,
-                        self.modes.mode(),
-                        self.modes.sneaking(),
-                    )
-                    .unwrap_or(true)
-                    {
-                        let _ = preview.select(context.mode_intent, observed, world);
-                    }
-                    if let BeforeTick::Adjust(clear_feet) = self.anchor_state.before_tick(
-                        world,
-                        state.position,
-                        preview.contact_height(),
-                    ) {
-                        state.position = clear_feet;
-                        observed.feet = clear_feet;
-                    }
-                }
+            if tick_index == 0 {
+                self.anchor_state.prepare_tick(
+                    world,
+                    self.modes,
+                    context.mode_intent,
+                    &mut observed,
+                    input,
+                );
+                state.position = observed.feet;
             }
             match self.modes.select(context.mode_intent, observed, world) {
                 Ok(choice) => {
@@ -685,6 +668,8 @@ impl LocalPhysicsController {
                     self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        frame_start: tick_index == 0,
+                        anchor_state: self.anchor_state,
                         entry_velocity,
                         eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,

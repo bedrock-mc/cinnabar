@@ -213,6 +213,7 @@ impl LocalPhysicsController {
             .copied()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
+        let mut anchor_state = anchor_controller.anchor_state;
         let deferred_corrections = self.deferred_corrections.clone();
         let (replay, replayed_ticks) = self
             .history
@@ -233,7 +234,14 @@ impl LocalPhysicsController {
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
-                    frame.prepare(&mut modes, environment, state, input, world)
+                    frame.prepare(
+                        &mut modes,
+                        &mut anchor_state,
+                        environment,
+                        state,
+                        input,
+                        world,
+                    )
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
