@@ -149,7 +149,7 @@ mod tests {
                     clip_from_view: Mat4::IDENTITY,
                     world_from_view: GlobalTransform::default(),
                     clip_from_world: None,
-                    target_format: crate::SCENE_COLOR_FORMAT,
+                    target_format: render_scene::SCENE_COLOR_FORMAT,
                     viewport: UVec4::new(0, 0, SIDE, SIDE),
                     color_grading: Default::default(),
                     invert_culling: false,

@@ -3,8 +3,8 @@
 
 use bevy::math::{Mat4, UVec4, Vec3, Vec4};
 
-use super::{EnhancedRendering, MAX_SHADOW_CASCADES};
-use crate::AtmosphereFrame;
+use render_scene::AtmosphereFrame;
+use {render_scene::EnhancedRendering, render_scene::MAX_SHADOW_CASCADES};
 
 /// Blocks kept toward the light beyond a cascade so off-screen terrain above
 /// the view (cave ceilings, mountains) still casts.
@@ -207,7 +207,7 @@ pub(crate) fn light_state(atmosphere: &AtmosphereFrame) -> LightState {
         let strength = smoothstep(-0.02, 0.12, moon.y) * 0.14 * (1.0 - 0.85 * storm);
         (moon, strength, Vec3::new(0.55, 0.66, 1.0))
     };
-    if atmosphere.sky_kind() != crate::SkyKind::Overworld {
+    if atmosphere.sky_kind() != render_scene::SkyKind::Overworld {
         strength = 0.0;
     }
     let sky = horizon.lerp(zenith, 0.6);
@@ -248,7 +248,7 @@ pub(crate) fn build_frame(
     let cascades = settings.shadow_cascades.clamp(2, MAX_SHADOW_CASCADES);
     let resolution = settings
         .shadow_resolution
-        .clamp(super::MIN_SHADOW_RESOLUTION, 4096);
+        .clamp(render_scene::enhanced::MIN_SHADOW_RESOLUTION, 4096);
     let shadows = light.strength > 0.0 && settings.shadows;
     let distance = if settings.shadow_distance.is_finite() {
         settings.shadow_distance.clamp(16.0, 256.0)

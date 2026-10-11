@@ -2,7 +2,7 @@ use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{CloudFace, PackedCloudQuad};
 use {
     assets::CloudQuality,
-    render::{
+    render_scene::{
         CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
         CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView,
         CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,

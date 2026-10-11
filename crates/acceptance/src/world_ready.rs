@@ -1,11 +1,14 @@
-use std::{io::Write, time::Instant};
+use std::io::Write;
+use std::time::Instant;
 
 use bevy::{
     log::{debug, error, info},
     prelude::{Transform, Vec3},
 };
 use chunk_pipeline::ViewCohortStatus;
-use render::{ChunkRenderQueue, PresentedFrameAck, PresentedFrameGate, TargetRenderExpectation};
+use render_scene::{
+    ChunkRenderQueue, PresentedFrameAck, PresentedFrameGate, TargetRenderExpectation,
+};
 
 use crate::world_observation::{WorldReadyCommands, WorldReadyObservation};
 use client_presentation::camera;

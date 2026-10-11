@@ -246,7 +246,7 @@ pub(crate) fn render_at(
     let empty = gpu.words(&[0; 64], storage);
     let clock = gpu.words(&[0; 4], uniform);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         uniform,
     );
     let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);

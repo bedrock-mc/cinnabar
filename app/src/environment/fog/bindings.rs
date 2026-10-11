@@ -44,7 +44,7 @@ impl FogBindings {
         &mut self,
         registry: &ResolvedBiomeTints,
         generation: meshing::ChunkBiomeTintIdentity,
-        atmosphere_assets: Option<&render::AtmosphereTextureAssets>,
+        atmosphere_assets: Option<&render_scene::AtmosphereTextureAssets>,
     ) {
         let atmosphere = atmosphere_assets.and_then(|assets| assets.runtime());
         let atmosphere_generation = atmosphere_assets

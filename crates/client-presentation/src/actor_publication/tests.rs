@@ -13,17 +13,22 @@ fn the_animation_view_admits_everything_the_render_cull_draws() {
         ..Default::default()
     });
     let view = super::animation_view(&camera, &projection).unwrap();
-    let cull = render::ActorCullView {
+    let cull = render_model::ActorCullView {
         clip_from_world: projection.get_clip_from_view() * camera.to_matrix().inverse(),
         camera_position: camera.translation,
-        max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
     };
     let (mut drawn, mut held) = (0, 0);
     for x in (-60..=60).step_by(3) {
         for z in (-60..=60).step_by(3) {
             for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
                 let feet = [x as f32, y, z as f32];
-                if render::actor_bounds_are_visible(feet, scale, Default::default(), Some(cull)) {
+                if render_model::actor_bounds_are_visible(
+                    feet,
+                    scale,
+                    Default::default(),
+                    Some(cull),
+                ) {
                     drawn += 1;
                     assert!(
                         view.admits(feet, scale, false, Default::default()),
@@ -355,7 +360,10 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
 }
 
 /// Original equipment pixels and geometry with a distinct startup glint.
-fn equipment_pack_fixture() -> (Arc<assets::SessionEntityPack>, render::ActorArtworkPages) {
+fn equipment_pack_fixture() -> (
+    Arc<assets::SessionEntityPack>,
+    render_model::ActorArtworkPages,
+) {
     let png = |rgba: [u8; 4], width, height| {
         let mut bytes = std::io::Cursor::new(Vec::new());
         image::RgbaImage::from_pixel(width, height, image::Rgba(rgba))
@@ -404,11 +412,13 @@ fn equipment_pack_fixture() -> (Arc<assets::SessionEntityPack>, render::ActorArt
         bindings: Arc::from([]),
         equipment: Some(Arc::new(catalog)),
     };
-    let startup = render::ActorArtworkPages::default().with_actor_glint(render::EquipmentRaster {
-        width: 1,
-        height: 1,
-        rgba8: Arc::from([1, 2, 3, 255]),
-    });
+    let startup = render_model::ActorArtworkPages::default().with_actor_glint(
+        render_model::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        },
+    );
     (Arc::new(pack), startup)
 }
 
@@ -441,7 +451,7 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), Some(&prepared));
     assert!(matches!(resources, std::borrow::Cow::Borrowed(_)));
     let mesh = &resources.equipment[0];
-    let mut scene = render::ActorRenderScene::default();
+    let mut scene = render_scene::ActorRenderScene::default();
     let mut ready = super::SessionGeometryReady::default();
     super::apply_session_pack(
         &mut scene,
@@ -490,9 +500,10 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
 #[test]
 fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
     let (pack, startup) = equipment_pack_fixture();
-    let mut scene = render::ActorRenderScene::default();
+    let mut scene = render_scene::ActorRenderScene::default();
     let mut ready = super::SessionGeometryReady::default();
-    let glint = |pages: &render::ActorArtworkPages| pages.actor_glint().unwrap().rgba8.to_vec();
+    let glint =
+        |pages: &render_model::ActorArtworkPages| pages.actor_glint().unwrap().rgba8.to_vec();
     let resources = crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), None);
     let (session, ..) = super::apply_session_pack(
         &mut scene,

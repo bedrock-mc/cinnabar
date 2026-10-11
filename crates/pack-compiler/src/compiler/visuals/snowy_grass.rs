@@ -32,6 +32,7 @@ pub(in crate::compiler) fn material_descriptor(
             // Snow is precolored; never apply the grass alpha-overlay tint.
             flags: 0,
             state_variant: 0,
+            flipbook_selector: None,
         },
         GRASS_SIDE_KEY.into(),
     ))

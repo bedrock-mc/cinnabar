@@ -1,6 +1,9 @@
 use super::*;
 use crate::chunk::gpu::layout::transparent_geometry_update_requires_cow;
 use crate::chunk::transparent::retirement::transparent_view_key_satisfies_witness;
+use render_scene::{
+    MAX_TRANSPARENT_WITNESS_KEYS, TransparentWitnessRequest, TransparentWitnessStageRecord,
+};
 
 pub(super) fn resident_transparent_allocation(
     identity: &TransparentAllocationIdentity,
@@ -846,8 +849,8 @@ fn transparent_completion_fence_is_bounded_and_stale_callbacks_cannot_regress() 
 
 #[test]
 fn daylight_changes_shared_table_without_rebaking() {
-    let day = crate::LightmapInputs::default().build();
-    let night = crate::LightmapInputs {
+    let day = render_model::LightmapInputs::default().build();
+    let night = render_model::LightmapInputs {
         sky_darken: 0.0,
         ..Default::default()
     }

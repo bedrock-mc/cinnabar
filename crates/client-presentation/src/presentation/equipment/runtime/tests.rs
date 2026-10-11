@@ -2,8 +2,9 @@
 
 use bevy::math::Quat;
 use client_world::ItemAnimationState;
-use render::ActorRenderIdentity;
-use sha2::{Digest, Sha256};
+use render_model::ActorRenderIdentity;
+use sha2::Digest;
+use sha2::Sha256;
 use {
     super::*,
     render_model::equipment::{attach_to_bone, held_block_display},
@@ -141,7 +142,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
-        uv_anim: render::IDENTITY_UV_ANIM,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
     };
@@ -253,7 +254,7 @@ fn carried_cube_alpha_mode_follows_world_materials_for_both_hands() {
         BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,
         TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
     };
-    use render::HandItemAlphaMode;
+    use render_model::HandItemAlphaMode;
 
     let (base, body, mut item) = block_fixture();
     let flags = [
@@ -363,7 +364,7 @@ fn carried_cube_alpha_mode_follows_world_materials_for_both_hands() {
 #[test]
 fn session_block_sheets_preserve_material_alpha_modes_for_both_hands() {
     use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
-    use render::HandItemAlphaMode;
+    use render_model::HandItemAlphaMode;
 
     let (mut runtime, body, mut item) = block_fixture();
     item.identifier = Arc::from("test:custom_cube");

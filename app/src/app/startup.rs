@@ -15,7 +15,8 @@ use assets::{
 };
 use client_interaction::movement::PhysicsCollisionRegistries;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 use std::{fs, path::Path, sync::Arc, time::Instant};
 
 /// Every carrier startup reads, each read and decoded exactly once. Results are checked by the
@@ -29,7 +30,7 @@ pub(super) struct StartupCarriers {
     pub(super) block_entities: Option<Arc<RuntimeBlockEntityAssets>>,
     pub(super) particles: Option<Arc<RuntimeParticleAssets>>,
     pub(super) ui: Result<Arc<RuntimeUiAssets>>,
-    pub(super) weather: render::WeatherTextureAssets,
+    pub(super) weather: render_scene::WeatherTextureAssets,
     pub(super) collision: Result<PhysicsCollisionRegistries>,
 }
 

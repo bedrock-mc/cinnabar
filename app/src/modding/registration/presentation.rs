@@ -71,7 +71,7 @@ pub(super) fn clear_presentation(world: &mut World) {
     if let Some(mut policy) = world.get_resource_mut::<crate::item_use::ModItemUsePolicy>() {
         policy.scope = None;
     }
-    if let Some(mut scene) = world.get_resource_mut::<render::ModRenderScene>() {
+    if let Some(mut scene) = world.get_resource_mut::<render_scene::ModRenderScene>() {
         scene.clear();
     }
     if let Some(mut cues) = world.get_resource_mut::<super::super::ModCueFeed>() {

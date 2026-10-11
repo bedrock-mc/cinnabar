@@ -1,6 +1,7 @@
 use super::*;
 use bevy::math::{Mat4, Vec3};
 use image::ImageEncoder;
+
 use protocol::{
     ActorEvent, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
@@ -114,7 +115,7 @@ fn sampled_scales_can_admit_a_frame_after_the_animation_tick_was_culled() {
 
 #[test]
 fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
-    let radius = render::ACTOR_CANDIDATE_RADIUS_BLOCKS;
+    let radius = render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS;
     let view = ActorCullView {
         camera_position: Vec3::Y,
         clip_from_world: Mat4::IDENTITY,
@@ -267,7 +268,7 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
         max_distance: 100.0,
     };
     let (artwork, locations) =
-        ActorArtworkPages::default().with_equipment_rasters(&[render::EquipmentRaster {
+        ActorArtworkPages::default().with_equipment_rasters(&[render_model::EquipmentRaster {
             width: 1,
             height: 1,
             rgba8: Arc::from([255; 4]),

@@ -2,6 +2,7 @@ use super::*;
 use bevy::render::render_resource::{
     CompareFunction, DepthBiasState, DepthStencilState, Face, FragmentState, StencilState,
 };
+use render_scene::RuntimeStage;
 
 #[test]
 fn diagnostic_pipeline_preserves_geometry_and_alpha_entry() {

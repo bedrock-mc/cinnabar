@@ -190,7 +190,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             let breg = read_bounded(&registry)?;
             let (records, protocol) =
                 registry_version::read_block_registry_input(&registry, &breg)?;
-            let input = assets::read_physics_registry_for_protocol(
+            let input = assets::read_physics_registry_seed_for_protocol(
                 &read_bounded(&seed)?,
                 &breg,
                 &records,

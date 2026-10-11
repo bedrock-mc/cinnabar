@@ -1,10 +1,14 @@
 //! Selects resident water needing sort without the frustum; face order depends only on camera position.
 //! Camera turns therefore retain sorted groups and change only which ones are drawn.
+
 use super::groups::{TransparentGroupInput, TransparentGroups, build_transparent_group};
 use super::state::{TransparentAllocationIdentity, TransparentSortRuntime, ViewSortKey};
 use crate::chunk::transparent::face_metric::TransparentFaceMetric;
 use crate::chunk::transparent::residents::{TransparentLiquidResident, select_sorted_residents};
 use crate::chunk::*;
+use render_scene::{
+    ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssetIdentity, TransparentSortMetrics,
+};
 
 const CEILING_LOG_INTERVAL: Duration = Duration::from_secs(5);
 

@@ -1,6 +1,10 @@
-use crate::{self as render_api, gpu_snapshot, shader_source};
+use crate as render_api;
+use crate::shader_source;
+use bevy::render::render_resource::Specializer;
+
+use crate::gpu_snapshot;
 use assets::{EntityRenderMaterial, EntityRenderMaterialState};
-use bevy::{prelude::Msaa, render::render_resource::Specializer, shader::ShaderDefVal};
+use bevy::{prelude::Msaa, shader::ShaderDefVal};
 
 use super::super::{
     ActorPipelineKey, ActorPipelineSpecializer, actor_bind_group_layout, actor_pipeline_descriptor,
@@ -23,7 +27,7 @@ fn authored_actor_opacity_multiplier_preserves_background() {
     else {
         return;
     };
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             blend: true,
             ..Default::default()
@@ -42,7 +46,7 @@ fn authored_actor_opacity_multiplier_preserves_background() {
             true,
             0,
             0,
-            crate::pack_overlay_rgba8([1.0, 1.0, 1.0, f32::from(alpha) / 255.0]),
+            render_model::pack_overlay_rgba8([1.0, 1.0, 1.0, f32::from(alpha) / 255.0]),
         )
     };
     let full = draw(255);
@@ -80,7 +84,7 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
     ) else {
         return;
     };
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             disable_overlay: true,
             ..Default::default()
@@ -101,8 +105,8 @@ fn actor_ignoring_lightmap_keeps_directional_shading_and_authored_multiplier() {
             [[200, 120, 40, 255]; 2],
             false,
             true,
-            crate::pack_actor_light_without_lightmap(),
-            crate::pack_overlay_rgba8([1.0; 4]),
+            render_model::pack_actor_light_without_lightmap(),
+            render_model::pack_overlay_rgba8([1.0; 4]),
             0,
         );
         let shade = ::render_api::fancy_actor_shade(normal, 0.0);
@@ -126,7 +130,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
     let plane = actor_raster::cube([16, 0, 16], true, false);
     let source = [32, 100, 200, 255];
     for disable_overlay in [false, true] {
-        let material = crate::ActorMaterial {
+        let material = render_model::ActorMaterial {
             state: Some(EntityRenderMaterialState {
                 cull: false,
                 blend: true,
@@ -139,8 +143,8 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
         };
         for light in [
             0,
-            crate::pack_actor_light(15, 15),
-            crate::pack_actor_light_without_lightmap(),
+            render_model::pack_actor_light(15, 15),
+            render_model::pack_actor_light_without_lightmap(),
         ] {
             let clear = actor_raster::raster_material_with_overlay(
                 &gpu,
@@ -154,7 +158,7 @@ fn additive_actor_without_overlay_keeps_authored_rgb_and_light_multiplier() {
                 0,
                 0,
             );
-            for overlay in [0, crate::pack_overlay_rgba8([1.0; 4])] {
+            for overlay in [0, render_model::pack_overlay_rgba8([1.0; 4])] {
                 let frame = actor_raster::raster_material_with_overlay(
                     &gpu,
                     &plane,
@@ -203,7 +207,7 @@ fn emissive_alpha_test_keeps_colored_zero_alpha_and_weights_only_lighting() {
         return;
     };
     let plane = actor_raster::cube([16, 0, 16], true, false);
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             alpha_test: true,
             cull: false,
@@ -246,7 +250,7 @@ fn emissive_alpha_test_keeps_colored_zero_alpha_and_weights_only_lighting() {
     let ordinary = actor_raster::raster_material_target(
         &gpu,
         &plane,
-        crate::ActorMaterial {
+        render_model::ActorMaterial {
             state: Some(EntityRenderMaterialState {
                 alpha_test: true,
                 ..Default::default()
@@ -268,7 +272,7 @@ fn additive_actor_material_adds_rgb_even_when_texture_alpha_is_zero() {
     ) else {
         return;
     };
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             alpha_test: true,
             cull: false,
@@ -348,7 +352,7 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
     ) else {
         return;
     };
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             cull: false,
             blend: true,
@@ -431,7 +435,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
     ) else {
         return;
     };
-    let material = crate::ActorMaterial {
+    let material = render_model::ActorMaterial {
         state: Some(EntityRenderMaterialState {
             alpha_test: true,
             cull: false,
@@ -461,7 +465,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
     let clear = actor_raster::raster_material_target(
         &gpu,
         &plane,
-        crate::ActorMaterial {
+        render_model::ActorMaterial {
             kind: EntityRenderMaterial::Dragon,
             ..Default::default()
         },
@@ -498,7 +502,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
 #[test]
 fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometry() {
     for depth_always in [false, true] {
-        let material = crate::ActorMaterial {
+        let material = render_model::ActorMaterial {
             state: Some(EntityRenderMaterialState {
                 alpha_test: true,
                 depth_always,

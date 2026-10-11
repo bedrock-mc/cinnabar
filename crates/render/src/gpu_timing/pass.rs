@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::RuntimeStage;
 use std::sync::LazyLock;
 
 /// Reads the shared UI diagnostic flag once; ordinary rendering never formats a report.

@@ -74,7 +74,7 @@ fn gpu_app(camera: Transform) -> App {
         Hdr,
         Tonemapping::Linear,
         Bloom::default(),
-        render::EnhancedRendering::default(),
+        render_scene::EnhancedRendering::default(),
         camera,
     ));
     app
@@ -117,10 +117,10 @@ fn publish_ui(
         .unwrap();
     let stats = app
         .world()
-        .resource::<render::UiRenderStatsResource>()
+        .resource::<render_scene::UiRenderStatsResource>()
         .clone();
     app.world_mut()
-        .resource_mut::<render::UiRenderSceneResource>()
+        .resource_mut::<render_scene::UiRenderSceneResource>()
         .publish(input, &stats)
         .unwrap();
 }
@@ -181,7 +181,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
         app.world_mut()
             .insert_resource(world.resource::<ActorRenderFrame>().clone());
         app.world_mut()
-            .insert_resource(world.resource::<render::HandRigScene>().clone());
+            .insert_resource(world.resource::<render_scene::HandRigScene>().clone());
         publish_ui(
             &player_runtime,
             &mut app,
@@ -209,13 +209,15 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 })
                 .collect();
             app.world_mut()
-                .insert_resource(render::NametagSceneResource(nametags::build_nametag_scene(
-                    &anchors,
-                    &font,
-                    &mut layouts,
-                    &mut atlas,
-                    &|page| nametag_atlas::font_page(&font, page),
-                )));
+                .insert_resource(render_scene::NametagSceneResource(
+                    nametags::build_nametag_scene(
+                        &anchors,
+                        &font,
+                        &mut layouts,
+                        &mut atlas,
+                        &|page| nametag_atlas::font_page(&font, page),
+                    ),
+                ));
         }
         app.update();
         app.sub_app(RenderApp)
@@ -232,7 +234,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     }
     assert!(
         !app.world()
-            .resource::<render::ActorPresentationGate>()
+            .resource::<render_scene::ActorPresentationGate>()
             .drain()
             .is_empty()
     );

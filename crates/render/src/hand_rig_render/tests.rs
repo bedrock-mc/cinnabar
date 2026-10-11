@@ -1,6 +1,14 @@
 use super::*;
-use crate::{ActorGpuInstance, ActorRigGeometrySpan};
+use bevy::prelude::Vec3;
 use render_model::ActorRigVertex;
+use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
+use {
+    render_model::{
+        ActorRigRenderFrame, HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode,
+        HandItemAtlas, HandRigLight,
+    },
+    render_scene::HandRigScene,
+};
 
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
@@ -9,7 +17,7 @@ fn single_instance_frame() -> ActorRigRenderFrame {
         instances: Arc::from([ActorGpuInstance::default()]),
         previous_bones: Arc::from([[[0.0; 4]; 3]]),
         current_bones: Arc::from([[[0.0; 4]; 3]]),
-        geometry_vertices: crate::actor::ActorRigVertexSegments::from_vertices([
+        geometry_vertices: render_model::ActorRigVertexSegments::from_vertices([
             ActorRigVertex::default(),
         ]),
         geometry_spans: Arc::from([ActorRigGeometrySpan {
@@ -18,7 +26,7 @@ fn single_instance_frame() -> ActorRigRenderFrame {
         }]),
         manifest: Arc::from([]),
         maximum_vertex_count: 36,
-        rejects: crate::ActorRigRejects::default(),
+        rejects: render_model::ActorRigRejects::default(),
     }
 }
 
@@ -52,7 +60,7 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 64, 64),
             color_grading: default(),
             invert_culling: false,
@@ -425,9 +433,9 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
                     .unwrap()
                     .format,
                 if hdr {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 } else {
-                    crate::SCENE_COLOR_FORMAT
+                    render_scene::SCENE_COLOR_FORMAT
                 }
             );
         }

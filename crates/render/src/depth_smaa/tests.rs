@@ -56,7 +56,7 @@ fn unprepared_views_encode_nothing_across_independent_filter_toggles() {
             if blur {
                 world
                     .entity_mut(camera)
-                    .insert(crate::motion_blur::CameraMotionBlur {
+                    .insert(render_scene::CameraMotionBlur {
                         exposure_seconds: 0.01,
                         delta_seconds: 0.01,
                         samples: 7,
@@ -65,7 +65,7 @@ fn unprepared_views_encode_nothing_across_independent_filter_toggles() {
             } else {
                 world
                     .entity_mut(camera)
-                    .remove::<crate::motion_blur::CameraMotionBlur>();
+                    .remove::<render_scene::CameraMotionBlur>();
             }
             schedule.run(&mut world);
             schedule.run(&mut world);

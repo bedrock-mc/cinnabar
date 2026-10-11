@@ -19,8 +19,8 @@ pub(super) fn apply(
     cache: &mut SkinRigCache,
     mut equipment: Option<&mut EquipmentRuntime>,
     pending: &mut Vec<render_model::ActorRigGeometry>,
-    local: &mut render::ActorRigSubmission,
-    animated: render::ActorRigSubmission,
+    local: &mut render_model::ActorRigSubmission,
+    animated: render_model::ActorRigSubmission,
 ) {
     if let Some(geometry) = rig.skin_geometry {
         let Some(id) = cache.rig(geometry, rig.skin_mesh, |built| {

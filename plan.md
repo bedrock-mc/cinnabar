@@ -1,3 +1,15 @@
+## Render geometry and scene ownership
+
+- `render-model` owns CPU block-model and selection geometry, dropped-item meshes,
+  actor rig construction and artwork, and validated viewmodel meshes.
+- `render-scene` owns Bevy submission resources, chunk publication queues,
+  camera settings, and renderer acknowledgements. `client-presentation` and
+  `acceptance` consume these contracts without depending on `render`.
+- `render` owns GPU passes, pipelines, uploads, and render-world system registration.
+  The app composes the camera motion-blur plugin with the other GPU plugins.
+- Existing behavior tests are retained. Compilation and execution of these moves
+  remain unverified; behavior and performance acceptance gates stay open.
+
 ## Player interaction ownership
 
 `client-interaction` owns the movement and interaction resource wrappers, item-use
@@ -78,6 +90,17 @@ material selection, carrier roundtrips and malformed states. Offline Metal frame
 cover every state beside supporting terrain; broader world-join and performance
 gates remain open.
 
+## Respawn anchor artwork
+
+Respawn anchors compile six cube faces for charge states zero through four. Terrain
+arrays and animated top materials retain the selected charge, while the shared
+carried-face sheet preserves pack overrides for inventory and held rendering.
+Original-art regressions cover carrier roundtrips, short arrays, scalar overrides,
+transparent faces, partial animations and malformed states. Headless captures with
+checked world and icon carriers verify the held cube and all five charge textures
+through placement and charging input. Server-pack compilation, broader block and
+animation parity, and performance acceptance remain incomplete.
+
 ## End rod terrain geometry
 
 End rods compile a separate shaft and mounting plate for all six integer-facing states.
@@ -98,6 +121,16 @@ malformed selectors and replacement sprites. Matched headless frames cover all
 server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
+
+## Sea pickle terrain geometry
+
+Sea pickles compile one to four separate bodies and crossed live tips selected by
+the typed count and dead states. Bodies retain their side, top and inset cap sprite regions;
+replacement packs supply the sprite, and water remains a separate contributor.
+Original-art regressions cover all eight registry states, carrier roundtrips,
+material ownership and malformed selectors. Geometry uses the carrier's existing
+position and UV precision. Rendered/input acceptance and reported server-version
+placement remain incomplete; broader parity gates stay open.
 
 ## RakNet transport compatibility
 
@@ -7621,3 +7654,10 @@ Incomplete parity: exact custom-biome fallback profiles and regional or height-a
 Composters retain inward walls and a level-dependent floor. Cauldrons retain their rim, inner floor, walls and feet, with separate water, lava and powder-snow surfaces at each fill level. These models do not occlude full neighbor faces.
 
 Incomplete parity: cauldron block-actor potion and dyed-water colours require runtime block-actor data; their state-only visual remains provisional. Enhanced lighting and performance acceptance remain open.
+
+Movement descriptor coverage remains incomplete. The current physics carrier requires a typed
+movement disposition for every admitted state. Existing declared special rules retain their
+numerical behavior; unclassified states remain unresolved and keep the previous conservative
+numerical defaults. No ordinary movement classification is inferred from absence of a special
+rule. Complete native ordinary/special coverage, custom session movement components and
+all provisional rule values still require verification before this gate can close.

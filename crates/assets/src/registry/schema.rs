@@ -4,6 +4,11 @@ use crate::AssetError;
 use bitflags::bitflags;
 
 pub(super) const REGISTRY_MAGIC: &[u8; 8] = b"BREG1003";
+pub const PHYSICS_REGISTRY_MAGIC: &[u8; 8] = b"PREG1002";
+pub const LEGACY_PHYSICS_REGISTRY_MAGIC: &[u8; 8] = b"PREG1001";
+pub const PHYSICS_REGISTRY_HEADER_BYTES: usize = 48;
+pub const PHYSICS_RECORD_HEADER_BYTES: usize = 28;
+pub const PHYSICS_MOVEMENT_SEMANTICS_OFFSET: usize = 11;
 pub(super) const LEGACY_REGISTRY_PROTOCOL: u32 = 1001;
 pub(super) const RECORD_HEADER_BYTES: usize = 56;
 pub(super) const MAX_REGISTRY_RECORDS: usize = 65536;
@@ -35,6 +40,28 @@ bitflags! {
         const DRAGONFLY = 1 << 1;
         const PRISMARINE = 1 << 2;
         const VALENTINE = 1 << 3;
+    }
+}
+
+/// Declared movement classification, with unresolved states distinct from ordinary behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u8)]
+pub enum MovementSemantics {
+    #[default]
+    Unresolved = 0,
+    Ordinary = 1,
+    Special = 2,
+}
+
+impl MovementSemantics {
+    /// Decode a known discriminator and reject reserved values.
+    pub(crate) fn read(raw: u8) -> Result<Self, AssetError> {
+        match raw {
+            0 => Ok(Self::Unresolved),
+            1 => Ok(Self::Ordinary),
+            2 => Ok(Self::Special),
+            _ => Err(AssetError::InvalidRegistryFlags(raw)),
+        }
     }
 }
 

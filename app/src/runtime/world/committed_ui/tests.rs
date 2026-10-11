@@ -23,7 +23,7 @@ use client_ui::ui_runtime::{
 use protocol::{
     FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent, WorldBootstrap, WorldEvent,
 };
-use render::ChunkUploadBudget;
+use render_scene::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
 use {

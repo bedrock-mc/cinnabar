@@ -8,7 +8,7 @@ use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use bevy::prelude::*;
 use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
 use client_runtime::network::NetworkHandle;
-use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
+use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;
 use {

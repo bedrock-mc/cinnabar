@@ -1,6 +1,7 @@
 //! Optional pass splitting attributes opaque cost on adapters without in-pass timestamps.
 //! Extra attachment stores and loads perturb timing; ordinary rendering never takes this path.
 
+use bevy::render::render_phase::PhaseItem;
 use std::ops::Range;
 
 use bevy::{
@@ -10,7 +11,7 @@ use bevy::{
     render::{
         render_phase::{
             BinnedPhaseItem, BinnedRenderPhase, DrawError, DrawFunctions, DrawFunctionsInternal,
-            PhaseItem, PhaseItemExtraIndex, TrackedRenderPass,
+            PhaseItemExtraIndex, TrackedRenderPass,
         },
         render_resource::RenderPassDescriptor,
         renderer::RenderContext,
@@ -18,7 +19,7 @@ use bevy::{
 };
 
 use super::GpuTimestamps;
-use crate::RuntimeStage;
+use render_scene::RuntimeStage;
 
 #[cfg(test)]
 mod tests;

@@ -1,24 +1,29 @@
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
             BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer,
             BufferBindingType, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState,
-            PipelineCache, RenderPipeline, RenderPipelineDescriptor, ShaderStages, ShaderType,
-            Specializer, SpecializerKey, Variants, VertexState,
+            PipelineCache, RenderPipeline, RenderPipelineDescriptor, ShaderStages, Specializer,
+            SpecializerKey, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -26,7 +31,7 @@ use bevy::{
     },
 };
 
-use crate::lightning::{BoltRecord, LightningScene, MAX_BOLT_RECORDS};
+use render_scene::{BoltRecord, LightningScene, MAX_BOLT_RECORDS};
 
 const LIGHTNING_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("c2a4d7e0-91b3-4f6a-8d15-6e0b7f3a9c42");
@@ -51,7 +56,7 @@ pub(crate) fn install_lightning_render(app: &mut App) {
                 prepare_lightning_records.in_set(RenderSystems::PrepareResources),
                 prepare_lightning_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_lightning
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -155,7 +160,7 @@ impl FromWorld for LightningPipeline {
                 shader: LIGHTNING_SHADER_HANDLE,
                 entry_point: Some("lightning_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(additive),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -196,9 +201,9 @@ impl Specializer<RenderPipeline> for LightningPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }

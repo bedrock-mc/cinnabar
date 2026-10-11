@@ -1,7 +1,7 @@
 mod bindings;
 pub(crate) use bindings::{BiomeProfileIndex, FogBindings, FogProfileIndex};
 use chunk_pipeline::WorldStream;
-use render::PRECIPITATION_SAMPLE_OFFSETS;
+use render_model::PRECIPITATION_SAMPLE_OFFSETS;
 
 /// The fog and weather renderers use the same native precipitation lattice.
 fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSETS.len()] {

@@ -39,7 +39,7 @@ fn offline_actor_frames_publish_and_advance_the_synthetic_actor() {
         stream.authority().actor_rig(42).is_some(),
         "the synthetic actor is admitted before preparation"
     );
-    let mut scene = render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
+    let mut scene = render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
     scene.configure_artwork(artwork.clone());
     let mut client = crate::runtime::world::ClientWorld::new_with_entity_assets(
         Arc::new(assets::RuntimeAssets::diagnostic()),

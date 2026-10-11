@@ -47,7 +47,7 @@ mod physics_registry;
 mod pinned_content;
 mod potion;
 mod provenance;
-mod registry;
+pub mod registry;
 mod runtime;
 mod seasonal_foliage;
 mod server_lang;
@@ -246,7 +246,7 @@ pub use particle::{
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,
     encode_physics_registry, physics_registry_header_protocol, read_physics_registry,
-    read_physics_registry_for_protocol,
+    read_physics_registry_for_protocol, read_physics_registry_seed_for_protocol,
 };
 pub use pinned_content::{
     active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,

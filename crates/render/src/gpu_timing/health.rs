@@ -1,7 +1,7 @@
 //! Opt-in bounded counters distinguish missing query samples from skipped readbacks.
 
-use super::readback::{SpanValidity, span_validity};
-use crate::RuntimeStage;
+use render_scene::RuntimeStage;
+use render_scene::gpu_times::{SpanValidity, span_validity};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

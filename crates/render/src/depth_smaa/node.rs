@@ -68,7 +68,7 @@ pub(crate) fn depth_smaa(
                 }),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuPost,
+                    render_scene::RuntimeStage::GpuPost,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -103,7 +103,7 @@ pub(crate) fn depth_smaa(
                 }),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuPost,
+                    render_scene::RuntimeStage::GpuPost,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -132,7 +132,7 @@ pub(crate) fn depth_smaa(
                 depth_stencil_attachment: None,
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuPost,
+                    render_scene::RuntimeStage::GpuPost,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -158,7 +158,7 @@ pub(crate) fn depth_smaa(
                 depth_stencil_attachment: None,
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,
-                    crate::RuntimeStage::GpuPost,
+                    render_scene::RuntimeStage::GpuPost,
                 ),
                 occlusion_query_set: None,
                 multiview_mask: None,

@@ -4,8 +4,8 @@ use bevy::{
 };
 use client_shell::menu::MenuRuntime;
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use render::PanoramaScene;
 use render_model::panorama::{launcher_faces, launcher_view, overlay_tint};
+use render_scene::PanoramaScene;
 use std::{sync::Arc, time::Instant};
 /// Uploads the faces on first sight of the carrier and shows the panorama
 /// behind launcher screens; in-world Settings retains the game beneath it.

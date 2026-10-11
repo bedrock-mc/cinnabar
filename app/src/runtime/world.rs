@@ -54,7 +54,7 @@ use client_presentation::server_camera::{ServerCameraInstructions, drain_committ
 use client_ui::block_cracks::reconcile_world_block_cracks;
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
-use render::{
+use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, RuntimeStage, RuntimeStageProfiler,
     VisibilityDiagnosticsInput,
@@ -217,7 +217,7 @@ pub(crate) fn update_camera_medium(
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
     mut fog_bindings: ResMut<environment::FogBindings>,
-    atmosphere: Res<render::AtmosphereTextureAssets>,
+    atmosphere: Res<render_scene::AtmosphereTextureAssets>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;

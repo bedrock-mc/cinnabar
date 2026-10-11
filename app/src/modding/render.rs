@@ -2,7 +2,7 @@
 
 use bevy::{prelude::*, render::render_resource::TextureUsages};
 use client_presentation::camera::FlyCamera;
-use render::ModRenderScene;
+use render_scene::ModRenderScene;
 
 /// Republishes only when some mod's generation changed, so steady frames extract nothing.
 pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super::ModRuntime) {

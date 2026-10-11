@@ -6,7 +6,7 @@ use std::{
 };
 
 use chunk_pipeline::ActiveBlockCrack;
-use render::{CrackInstance, CrackShape, crack_shape_from_template};
+use render_model::{CrackInstance, CrackShape, crack_shape_from_template};
 
 /// Keeps shapes only while their admitted asset identity is current.
 #[derive(Default)]
@@ -65,7 +65,7 @@ pub(super) fn crack_shape(
         .model_template()
         .and_then(|template| assets.model_templates().get(template as usize))
         .map_or(visual.variant(), |template| {
-            meshing::bamboo::transform_for_template(template.flags, visual.variant(), block)
+            assets::bamboo::transform_for_template(template.flags, visual.variant(), block)
         });
     let column = visual.model_template().and_then(|template| {
         has_component_offset(assets, template).then_some([block[0], block[2]])

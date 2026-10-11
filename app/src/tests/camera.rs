@@ -11,7 +11,6 @@ use client_presentation::local_player::{
     LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalPlayerFrameSample, LocalViewPose,
 };
 use client_ui::ui_runtime::UiRuntime;
-use render::{ActorCullView, ActorRenderScene, ActorRenderSource};
 use render_model::MAX_RENDERED_PLAYERS;
 use semantic_input::{
     Action, ControlSettings, ControllerFrame, DeviceFrame, InputContext, KeyboardMouseFrame,
@@ -31,6 +30,8 @@ use {
         MovementOutboxReconciliation, MovementSource, PhysicsAuthorityFault,
         PhysicsCorrectionOutcome, PhysicsTickEvidence, PhysicsTickEvidenceContext,
     },
+    render_model::ActorCullView,
+    render_scene::{ActorRenderScene, ActorRenderSource},
 };
 
 fn frozen_collision_identity() -> sim::WorldCollisionIdentity {

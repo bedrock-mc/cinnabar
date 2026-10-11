@@ -1,12 +1,12 @@
 //! Turning the camera over water draws every newly visible sub-chunk in order at once.
+
 use super::transparent_strafe::{
     Drawn, Fixture, drawn_water, fixture_with, is_shore, ocean_surface,
 };
 use super::*;
-use bevy::{
-    core_pipeline::core_3d::Transparent3d, ecs::system::RunSystemOnce,
-    render::render_phase::ViewSortedRenderPhases,
-};
+use bevy::ecs::system::RunSystemOnce;
+use bevy::{core_pipeline::core_3d::Transparent3d, render::render_phase::ViewSortedRenderPhases};
+use render_scene::{ChunkBiomeTints, ChunkRenderInstance, TransparentSortMetrics};
 
 /// One in five sub-chunks has side faces, so the sorted path is exercised too.
 const SHORE_PERIOD: i32 = 5;

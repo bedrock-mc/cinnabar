@@ -3,11 +3,12 @@
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use bevy::ecs::system::RunSystemOnce;
 use client_state::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
 
-use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
+use bevy::{prelude::*, time::Real};
 use client_audio::audio_ingress::SequencedAudioEvent;
 use client_presentation::server_camera::ServerCameraInstructions;
 use protocol::{
@@ -90,7 +91,7 @@ fn app() -> App {
     .init_resource::<LocalMovementEffectTimeline>()
     .init_resource::<LocalMovementSpeedAuthority>()
     .init_resource::<Time<Real>>()
-    .init_resource::<render::ChunkUploadBudget>()
+    .init_resource::<render_scene::ChunkUploadBudget>()
     .init_resource::<CameraSettingsAuthority>()
     .init_resource::<LocalViewPose>()
     .init_resource::<LocalPlayerFrameCarrier>()

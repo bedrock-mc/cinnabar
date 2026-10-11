@@ -65,7 +65,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     let render_apply = NodeId::Set(
         graph
             .system_sets
-            .get_key(render::ChunkRenderApplySet.intern())
+            .get_key(render_scene::ChunkRenderApplySet.intern())
             .unwrap(),
     );
     assert!(schedule_precedes(
@@ -500,9 +500,9 @@ fn publication_fixture_mesh(runtime_assets: &assets::RuntimeAssets) -> meshing::
 fn drive_unified_publication_fixture(
     mut fixture: bevy::prelude::ResMut<UnifiedPublicationFixture>,
     mut controller: bevy::prelude::ResMut<PublicationController>,
-    mut budget: bevy::prelude::ResMut<render::ChunkUploadBudget>,
-    mut render_queue: bevy::prelude::ResMut<render::ChunkRenderQueue>,
-    acknowledgements: bevy::prelude::Res<render::ChunkUploadAcknowledgements>,
+    mut budget: bevy::prelude::ResMut<render_scene::ChunkUploadBudget>,
+    mut render_queue: bevy::prelude::ResMut<render_scene::ChunkRenderQueue>,
+    acknowledgements: bevy::prelude::Res<render_scene::ChunkUploadAcknowledgements>,
 ) {
     const COHORT_ITEMS: usize = 6_951;
     const PAYLOADS_PER_FRAME: usize = 510;
@@ -611,15 +611,15 @@ fn drive_unified_publication_fixture(
                 urgent: _,
                 permit,
             } => {
-                let bytes = render::ChunkRenderQueue::upload_byte_len(&mesh, &biome);
+                let bytes = render_scene::ChunkRenderQueue::upload_byte_len(&mesh, &biome);
                 render_queue
                     .try_update_tracked_with_biome_identity_permitted(
                         key,
                         mesh,
                         biome,
                         tint_identity,
-                        render::ChunkUploadPriority::new(0.0),
-                        render::ChunkUploadToken {
+                        render_scene::ChunkUploadPriority::new(0.0),
+                        render_scene::ChunkUploadToken {
                             generation,
                             dirty_since,
                         },
@@ -639,8 +639,8 @@ fn drive_unified_publication_fixture(
                 render_queue
                     .try_remove_tracked_permitted(
                         key,
-                        render::ChunkUploadPriority::new(f32::MAX),
-                        render::ChunkUploadToken {
+                        render_scene::ChunkUploadPriority::new(f32::MAX),
+                        render_scene::ChunkUploadToken {
                             generation,
                             dirty_since,
                         },
@@ -682,11 +682,15 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
         window::WindowPlugin,
     };
     use protocol::WorldBootstrap;
-    use render::{
-        ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
-        ChunkUploadAcknowledgements, ChunkUploadBudget, PresentedFrameGate, RenderViewCohort,
-        TargetRenderExpectation, publication_noop_render_plugin,
-        publication_render_terminal_snapshot, settle_publication_noop_frame,
+    use {
+        render::{
+            ChunkRenderPlugin, publication_noop_render_plugin,
+            publication_render_terminal_snapshot, settle_publication_noop_frame,
+        },
+        render_scene::{
+            ChunkBiomeTints, ChunkRenderApplySet, ChunkTextureAssets, ChunkUploadAcknowledgements,
+            ChunkUploadBudget, PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+        },
     };
 
     const COHORT_ITEMS: usize = 6_951;
@@ -849,7 +853,7 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     );
     assert_eq!(
         app.world()
-            .resource::<render::ChunkRenderQueue>()
+            .resource::<render_scene::ChunkRenderQueue>()
             .retained_len(),
         0
     );
@@ -910,12 +914,17 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
         window::WindowPlugin,
     };
     use meshing::{ChunkBiomeTintIdentity, PackedBiomeRecord};
-    use render::{
-        ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
-        ChunkUploadPriority, ChunkUploadToken, publication_noop_render_plugin,
-        publication_render_terminal_snapshot, settle_publication_noop_frame,
-    };
     use world::SubChunkKey;
+    use {
+        render::{
+            ChunkRenderPlugin, publication_noop_render_plugin,
+            publication_render_terminal_snapshot, settle_publication_noop_frame,
+        },
+        render_scene::{
+            ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget, ChunkUploadPriority,
+            ChunkUploadToken,
+        },
+    };
 
     let config = PublicationServiceConfig::PHASE2_GATE;
     assert_eq!(config.maximum_zero_byte_operations_per_frame, 256);
@@ -1166,7 +1175,9 @@ fn production_stage_capacities_can_carry_one_literal_maximum_payload_frame() {
 
     assert!(chunk_pipeline::WORK_RESULT_CAPACITY >= config.maximum_frame_items);
     assert!(chunk_pipeline::MAX_PENDING_MESH_CHANGES >= config.maximum_frame_items);
-    assert!(render::ChunkRenderQueueLimits::default().max_items >= config.maximum_frame_items);
+    assert!(
+        render_scene::ChunkRenderQueueLimits::default().max_items >= config.maximum_frame_items
+    );
 }
 
 #[test]

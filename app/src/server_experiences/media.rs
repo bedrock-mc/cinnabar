@@ -59,7 +59,7 @@ impl Activity for Slot {
 /// Makes room for one more player within the concurrent limit.
 fn admit<V: Activity>(
     players: &mut BTreeMap<Key, V>,
-    frames: &mut BTreeMap<Key, Option<render::MediaFrame>>,
+    frames: &mut BTreeMap<Key, Option<render_scene::MediaFrame>>,
 ) -> Result<()> {
     if players.len() >= MAX_PLAYERS {
         // Finished players keep their last frame only until a new one needs the slot.
@@ -125,7 +125,7 @@ pub(super) struct Media {
     helper: PathBuf,
     bundles: BTreeMap<String, VerifiedBundle>,
     players: BTreeMap<(String, String), Slot>,
-    frames: BTreeMap<(String, String), Option<render::MediaFrame>>,
+    frames: BTreeMap<(String, String), Option<render_scene::MediaFrame>>,
     pending: VecDeque<Control>,
     events: VecDeque<(String, Vec<u8>)>,
     data_budget: Arc<AtomicU64>,
@@ -196,7 +196,7 @@ impl Media {
                         self.serial += 1;
                         self.frames.insert(
                             key.clone(),
-                            Some(render::MediaFrame {
+                            Some(render_scene::MediaFrame {
                                 serial: self.serial,
                                 width: frame.width,
                                 height: frame.height,
@@ -332,7 +332,11 @@ impl Media {
     /// The latest frame bound to the bundle's quad textured by `texture`, if one plays.
     /// The latest frame for the bundle's quad textured by `texture`; a linear scan over at
     /// most MAX_PLAYERS entries, so lookups never allocate.
-    pub(super) fn frame(&self, bundle: &str, texture: &str) -> Option<Option<render::MediaFrame>> {
+    pub(super) fn frame(
+        &self,
+        bundle: &str,
+        texture: &str,
+    ) -> Option<Option<render_scene::MediaFrame>> {
         self.frames
             .iter()
             .find(|((owner, path), _)| owner == bundle && path == texture)
@@ -349,7 +353,7 @@ impl Media {
         &mut self,
         bundle: &str,
         texture: &str,
-        frame: Option<render::MediaFrame>,
+        frame: Option<render_scene::MediaFrame>,
     ) {
         self.frames
             .insert((bundle.to_owned(), texture.to_owned()), frame);
@@ -389,7 +393,7 @@ impl Media {
 }
 
 /// Places a quad from a scene object the way the renderer draws a media screen.
-pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(&str, render::MediaScreen)> {
+pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(&str, render_scene::MediaScreen)> {
     let SceneObject::Quad {
         texture,
         transform,
@@ -398,7 +402,7 @@ pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(&str, render::Med
     else {
         return None;
     };
-    let (center, half_right, half_up) = render::media_screen_axes(
+    let (center, half_right, half_up) = render_scene::media_screen_axes(
         [transform[0], transform[1], transform[2]],
         [transform[3], transform[4], transform[5], transform[6]],
         [transform[7], transform[8], transform[9]],
@@ -406,7 +410,7 @@ pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(&str, render::Med
     );
     Some((
         texture.as_str(),
-        render::MediaScreen {
+        render_scene::MediaScreen {
             id,
             center,
             half_right,

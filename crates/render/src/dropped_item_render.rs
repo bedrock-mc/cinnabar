@@ -1,30 +1,32 @@
 //! Draws dropped-item and block models plus dynamic line geometry in the opaque 3D phase.
-use crate::dropped_item::{
-    DroppedItemModel, DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex,
-    MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    block_mesh, cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
-};
+use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
-use bevy::prelude::{IntoSystem, System};
+use bevy::prelude::IntoSystem;
+#[cfg(test)]
+use bevy::prelude::System;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParam, SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     mesh::VertexBufferLayout,
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -32,7 +34,7 @@ use bevy::{
             BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
             FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
             SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
             TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
@@ -44,6 +46,17 @@ use bevy::{
     },
 };
 use std::ops::Range;
+use {
+    render_model::{
+        DroppedItemModel, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
+        MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
+        dropped_item::{
+            ITEM_MESH_VERTEX_BYTES, block_mesh, cube_mesh, extruded_sprite_mesh,
+            native_dropped_sprite_mesh,
+        },
+    },
+    render_scene::DroppedItemScene,
+};
 
 const ITEM_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b7c1b0e-2f3d-4a61-9d1e-7a8f2c4e5b13");
 pub(crate) mod terrain_items;
@@ -102,7 +115,7 @@ fn install(app: &mut App) {
                 prepare_items.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_items
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -558,7 +571,7 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
             shader: ITEM_SHADER_HANDLE,
             entry_point: Some("item_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: crate::SCENE_COLOR_FORMAT,
+                format: render_scene::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -595,9 +608,9 @@ impl Specializer<RenderPipeline> for ItemPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -717,7 +730,7 @@ fn queue_items(mut params: QueueItemParams<'_, '_>) {
 }
 
 type DrawItemCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuActors as usize },
+    { render_scene::RuntimeStage::GpuActors as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,

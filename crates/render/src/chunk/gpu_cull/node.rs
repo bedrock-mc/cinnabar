@@ -220,8 +220,10 @@ pub(crate) fn late_cull(
     ];
     let colour = scene_target.color_attachment(target, false);
     let depth = depth.get_attachment(StoreOp::Store);
-    let timestamps =
-        crate::gpu_timing::render_pass_timestamps(world, crate::RuntimeStage::GpuTerrainOpaque);
+    let timestamps = crate::gpu_timing::render_pass_timestamps(
+        world,
+        render_scene::RuntimeStage::GpuTerrainOpaque,
+    );
     // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
     // which still builds the pyramid and culls but draws nothing.
     let viewport =

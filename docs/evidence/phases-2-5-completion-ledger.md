@@ -257,6 +257,15 @@ Selection shape parity and displayed-frame performance gates remain open.
 
 Block overlays use the shared pack compiler to resolve legacy geometry inheritance before projecting faces. Parents may come from other model files or pack layers; missing parents, cycles and chains beyond the depth limit are rejected. Budget-limited reads admit higher-priority definitions first. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.
 
+## Render ownership boundary
+
+CPU block models, dropped items, actor rigs and viewmodel meshes live in
+`render-model`. Bevy submission resources and presentation acknowledgements live
+in `render-scene`; presentation and acceptance have no dependency on `render`.
+GPU passes remain in `render`. Existing regression coverage is retained, but
+compilation and execution of these moves are unverified. No parity or performance
+gate is closed by the ownership change.
+
 ## Session biome climate and environment
 
 Admitted live biome identifiers and climate now travel with the session tint registry. Weather, fog precipitation, camera temperature and environment routes read that registry, including custom biome routes. Registry replacement clears removed routes. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.

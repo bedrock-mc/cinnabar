@@ -1,3 +1,5 @@
+use bevy::ecs::system::RunSystemOnce;
+use sha2::Digest;
 use std::sync::Arc;
 
 use assets::{
@@ -8,7 +10,7 @@ use bevy::{
     app::SubApp,
     asset::Assets,
     core_pipeline::core_3d::{Opaque3d, Transparent3d},
-    ecs::{schedule::Schedule, system::RunSystemOnce},
+    ecs::schedule::Schedule,
     prelude::{App, Shader},
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
@@ -16,10 +18,13 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use super::{AtmosphereGpu, AtmosphereRenderInstalled, prepare_atmosphere_textures};
-use crate::{AtmosphereTextureAssets, ChunkRenderPlugin, RuntimeStageProfiler};
+use {
+    crate::ChunkRenderPlugin,
+    render_scene::{AtmosphereTextureAssets, RuntimeStageProfiler},
+};
 
 #[test]
 fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
@@ -30,7 +35,7 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: super::ColorWrites::ALL,
                 })],
@@ -228,13 +233,13 @@ fn gpu_preparation_uploads_once_per_stable_asset_identity() {
         2
     );
     for (kind, expected_uploads) in [
-        (crate::SkyKind::End, 3),
-        (crate::SkyKind::End, 3),
-        (crate::SkyKind::Overworld, 4),
+        (render_scene::SkyKind::End, 3),
+        (render_scene::SkyKind::End, 3),
+        (render_scene::SkyKind::Overworld, 4),
     ] {
         render_app
             .world_mut()
-            .insert_resource(crate::AtmosphereFrame::default().with_sky_kind(kind));
+            .insert_resource(render_scene::AtmosphereFrame::default().with_sky_kind(kind));
         render_app
             .world_mut()
             .run_system_once(prepare_atmosphere_textures)

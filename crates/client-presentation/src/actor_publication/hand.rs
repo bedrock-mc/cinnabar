@@ -130,10 +130,10 @@ impl HandSource {
                 None => placement,
             };
             item.texture_layer = layer.presentation.location.layer()
-                | render::HAND_ITEM_LAYER_FLAG
+                | render_model::HAND_ITEM_LAYER_FLAG
                 | layer.alpha_mode.texture_layer_flag()
                 | if index == 1 {
-                    render::HAND_OFFHAND_LAYER_FLAG
+                    render_model::HAND_OFFHAND_LAYER_FLAG
                 } else {
                     0
                 };
@@ -173,7 +173,7 @@ pub(super) struct HandInputs<'a> {
     pub(super) consume_ticks: Option<u32>,
     pub(super) item_animation: Option<client_world::AttachableAnimationInput<'static>>,
     pub(super) alpha: f32,
-    pub(super) artwork: &'a render::ActorArtworkPages,
+    pub(super) artwork: &'a render_model::ActorArtworkPages,
     pub(super) motion: Mat4,
     pub(super) sampling_camera: Option<([f32; 2], [f32; 3])>,
 }
@@ -279,7 +279,7 @@ pub(super) fn attachable_hand_input<'a>(
 /// The artwork page an item layer samples, as the hand pass binds it.
 pub(super) fn item_atlas(
     layer: &FirstPersonItem,
-    artwork: &render::ActorArtworkPages,
+    artwork: &render_model::ActorArtworkPages,
 ) -> Option<HandItemAtlas> {
     let page = usize::from(layer.presentation.location.page()).checked_sub(1)?;
     let page = artwork.pages().get(page)?;
