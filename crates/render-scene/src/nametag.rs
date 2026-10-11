@@ -1,4 +1,7 @@
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{Deref, DerefMut, Resource},
+    render::extract_resource::ExtractResource,
+};
 use render_model::NametagScene;
 /// Main-world holder of this frame's [`NametagScene`], cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
