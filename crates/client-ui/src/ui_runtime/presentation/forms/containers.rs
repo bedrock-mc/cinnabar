@@ -677,7 +677,7 @@ pub(super) fn tooltip_text(
                 let rgb = [line.color[0], line.color[1], line.color[2]];
                 let descriptor = ui::FORMATTING_COLORS
                     .iter()
-                    .find(|entry| entry.fallback_rgb == rgb);
+                    .find(|entry| entry.name.is_some() && entry.fallback_rgb == rgb);
                 // Each TooltipLine was independently styled. Reset before its
                 // prefix so a custom name's bold/italic/color cannot leak.
                 match descriptor {
