@@ -562,7 +562,7 @@ pub(crate) fn login_settings(
     protocol::LoginSettings {
         language_code: client_session::pack_language::active_language_code(),
         input_mode: input
-            .and_then(client_state::SemanticInputSnapshot::snapshot)
+            .and_then(|input| input.snapshot())
             .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
                 gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
