@@ -3,7 +3,7 @@
 use bevy::prelude::IntoScheduleConfigs;
 use render_scene::PipelineWarmupReadiness;
 
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 #[cfg(test)]
 use bevy::prelude::{Handle, Mut, Shader, World, default};

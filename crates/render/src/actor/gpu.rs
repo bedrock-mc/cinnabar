@@ -1,13 +1,9 @@
 use render_scene::ActorDrawFrame;
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{collections::BTreeSet, sync::Mutex};
 
 use bevy::prelude::Resource;
 
-use render_model::{ActorArtworkPageId, ActorDrawManifestEntry};
+use render_model::ActorArtworkPageId;
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
@@ -101,7 +97,11 @@ impl ActorDrawTracker {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use render_model::ActorDrawManifestEntry;
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use render_model::EntityRigId;

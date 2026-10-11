@@ -1,7 +1,7 @@
 //! Native three-sampler rasters share one array page. Nearest texel replication preserves
 //! each source's normalized-UV lookup; RGB composition remains in the fragment shader.
 
-use crate::{ActorArtworkLocation, ActorArtworkPages, ActorTexturePage};
+use crate::{ActorArtworkLocation, ActorArtworkPages};
 
 use super::*;
 
@@ -89,6 +89,7 @@ impl ActorArtworkPages {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ActorTexturePage;
 
     #[test]
     fn nearest_expansion_preserves_partial_alpha_and_normalized_texel_boundaries() {

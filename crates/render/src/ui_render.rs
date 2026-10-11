@@ -79,8 +79,11 @@ use shader::UiViewportUniform;
 
 use render_model::{
     FontAtlasVertex, MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch,
-    UiRenderInput, UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
+    UiRenderInput, UiRenderRejectReason, UiRenderStats, UiRenderVertex,
 };
+
+#[cfg(test)]
+use render_model::UiRenderScene;
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 

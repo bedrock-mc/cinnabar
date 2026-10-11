@@ -55,8 +55,3 @@ static ALLOCATOR: Allocator = Allocator;
 pub(crate) fn count() -> u64 {
     COUNT.with(Cell::get)
 }
-
-/// Returns the bytes the calling thread has requested, counting each reallocation's new size.
-pub(crate) fn bytes() -> u64 {
-    BYTES.with(Cell::get)
-}

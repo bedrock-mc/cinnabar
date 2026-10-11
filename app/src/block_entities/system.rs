@@ -13,9 +13,9 @@ use ui::TextLayoutCache;
 use world::{ChunkKey, SUB_CHUNK_SIDE};
 use {
     render_model::{
-        AtlasRect, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind, BlockEntityLight,
-        BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace, SignModel,
-        StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        AtlasRect, BeaconModel, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
+        BlockEntitySubmission, ConduitModel, SceneClock, SignFace, SignModel, StaticItemPlacement,
+        item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };

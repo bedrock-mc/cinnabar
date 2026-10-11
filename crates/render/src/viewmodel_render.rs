@@ -34,7 +34,7 @@ use bevy::{
 };
 use render_model::viewmodel::HandVertex;
 use render_scene::viewmodel::hand_projection;
-use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
+use render_scene::{ViewmodelCompletionGate, ViewmodelScene};
 use std::{mem::size_of, sync::Mutex};
 mod gpu;
 mod node;

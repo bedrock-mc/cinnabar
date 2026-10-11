@@ -173,7 +173,7 @@ fn fullscreen_changes_preserve_the_automatic_vsync_policy() {
                 .resource::<PresentModeRuntime>()
                 .policy()
                 .preference(),
-            render_scene::PresentModePreference::Auto,
+            render::PresentModePreference::Auto,
         );
         assert_eq!(
             app.world().get::<Window>(window).unwrap().present_mode,

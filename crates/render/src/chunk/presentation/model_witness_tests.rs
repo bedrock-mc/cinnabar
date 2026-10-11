@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::ModelWitnessEvidence;
 use render_scene::{
     MAX_MODEL_WITNESS_KEYS, ModelWitnessFrameAck, ModelWitnessManifestRecord, ModelWitnessRequest,
     PresentedFrameAck,

@@ -10,7 +10,7 @@ use bevy::{
     core_pipeline::{Core3d, core_3d::CORE_3D_DEPTH_FORMAT},
     prelude::{
         App, BevyError, Commands, Handle, Mat4, Msaa, Plugin, Query, Res, ResMut, Resource, Result,
-        Shader, SystemSet, Vec3, World, default,
+        Shader, SystemSet, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -33,11 +33,10 @@ use bevy::{
 use render_api::{CAMERA_NEAR_PLANE_BLOCKS, SkinRgba8};
 use render_model::ActorRigVertex;
 use render_model::hand::{HAND_BLEND_LAYER_FLAG, HAND_CUTOUT_LAYER_FLAG, HAND_TEXTURE_LAYER_MASK};
-use render_model::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
 use render_scene::hand_rig::HandRigFrame;
 use std::{mem::size_of, sync::Arc};
 use {
-    render_model::{ACTOR_GPU_INSTANCE_WORDS, HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG},
+    render_model::{HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG},
     render_scene::HandRigScene,
 };
 

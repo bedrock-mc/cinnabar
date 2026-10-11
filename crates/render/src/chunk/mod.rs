@@ -1,8 +1,8 @@
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_resource::ShaderType;
 use render_scene::chunk::{
-    biome_record_byte_len, biome_record_is_fallback, build_presented_frame_ack, chunk_origin,
-    evaluate_model_witness_frame, pending_upload_byte_len,
+    biome_record_byte_len, biome_record_is_fallback, chunk_origin, evaluate_model_witness_frame,
+    pending_upload_byte_len,
 };
 use render_scene::visibility_diagnostics::hash_f32_words;
 use std::{
@@ -15,16 +15,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use assets::{
-    Material, ModelTemplate, NO_ANIMATION, RuntimeAssets, TextureArray, TextureMip, TextureRef,
-};
+use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset},
-    camera::visibility,
     core_pipeline::core_3d::{
         CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
     },
@@ -79,17 +76,14 @@ use world::SubChunkKey;
 
 use render_model::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, ModelWorkloadCount, OpaqueDrawMode,
-    TransparentSortMetricsSnapshot,
 };
 use {
     crate::{
-        ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef,
-        PackedQuad, PackedQuadLighting,
+        PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
         atmosphere_render::{AtmosphereGpu, install_atmosphere},
     },
     render_scene::{
-        AtmosphereFrame, MAX_VISIBILITY_DIAGNOSTIC_KEYS, RuntimeStage, RuntimeStageProfiler,
-        VisibilityDiagnostics, VisibilityDiagnosticsInput,
+        AtmosphereFrame, RuntimeStage, VisibilityDiagnosticsInput,
         visibility_diagnostics::{
             ActiveVisibilityFrameProbe, ExtractedCameraIdentityTracker, VisibilityCompletionFence,
             VisibilityFrameProbe,
@@ -116,7 +110,6 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
-use render_scene::chunk::instance::ChunkRenderInstance;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;
@@ -213,34 +206,20 @@ pub use publication_test_support::{
 };
 #[allow(unused_imports)]
 use queue::{apply_chunk_render_queue, update_chunk_animation_clock};
-use render_scene::ChunkRenderApplySet;
+use render_scene::chunk::api::ChunkUploadBudget;
 #[allow(unused_imports)]
 use render_scene::chunk::api::{
     ChunkGpuRemovalQueue, CompletedFrameProbe, DEFAULT_PRESENTED_FRAME_ACK_CAPACITY,
     DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME, FrameCompletionEvidence, PendingGpuRemoval,
     PublicationPermitSlot,
 };
-use render_scene::chunk::api::{
-    ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
-    ChunkUploadPriority, ChunkUploadToken, PresentedFrameAck, PresentedFrameGate, RenderViewCohort,
-    TargetRenderExpectation,
-};
 #[allow(unused_imports)]
 use render_scene::chunk::biome_tints::ChunkBiomeTintResourceIdentity;
-use render_scene::chunk::biome_tints::{BiomeTint, ChunkBiomeTints};
-use render_scene::chunk::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
+use render_scene::chunk::biome_tints::ChunkBiomeTints;
 
-use render_scene::chunk::model_witness::{
-    ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord, ModelWitnessRequest,
-};
-use render_scene::chunk::textures::{
-    ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets, TextureArrayLimits,
-    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError,
-};
-use render_scene::chunk::transparent_witness::{
-    TransparentWitnessEvidence, TransparentWitnessRequest, TransparentWitnessStageRecord,
-};
-use render_scene::{ChunkRenderQueue, ChunkRenderQueueLimits};
+use render_scene::chunk::model_witness::ModelWitnessRequest;
+use render_scene::chunk::textures::{ChunkAnimationClock, ChunkTextureAssets, TexturePageBinding};
+use render_scene::chunk::transparent_witness::TransparentWitnessRequest;
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
 #[allow(unused_imports)]
@@ -289,7 +268,4 @@ use transparent::visible_order::{VisibleWater, VisibleWaterOrder, each_visible_k
 #[cfg(test)]
 mod tests;
 
-use render_scene::chunk::{
-    ChunkStreamMask, DEFAULT_RENDER_QUEUE_BYTES, DEFAULT_RENDER_QUEUE_ITEMS,
-    MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_WITNESS_KEYS,
-};
+use render_scene::chunk::{ChunkStreamMask, DEFAULT_RENDER_QUEUE_BYTES};

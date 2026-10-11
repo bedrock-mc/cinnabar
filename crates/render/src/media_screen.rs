@@ -5,11 +5,9 @@ use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::System;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
-use render_scene::{
-    MAX_MEDIA_SCREENS, MediaFrame, MediaScreen, MediaScreenScene, media_screen_axes,
-};
+use render_scene::{MAX_MEDIA_SCREENS, MediaScreen, MediaScreenScene};
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[cfg(test)]
 use bevy::prelude::IntoSystem;
@@ -524,6 +522,8 @@ mod tests {
     use super::*;
     use crate::queue_review_support as fixture;
     use bevy::ecs::system::RunSystemOnce;
+    use render_scene::{MediaFrame, media_screen_axes};
+    use std::sync::Arc;
 
     fn close(a: [f32; 3], b: [f32; 3]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5)

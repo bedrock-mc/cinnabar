@@ -18,10 +18,6 @@ use bevy::{
     prelude::{App, Plugin, Resource},
     render::{RenderApp, extract_resource::ExtractResourcePlugin},
 };
-use mod_render::{RenderOutput, geometry::ModVertex};
-use std::sync::Arc;
-
-use mod_api::MAX_BLOCK_HIGHLIGHTS;
 pub use passes::ModPassLabel;
 
 #[derive(Clone, Copy, Debug, Default)]

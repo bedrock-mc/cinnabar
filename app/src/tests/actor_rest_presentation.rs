@@ -440,7 +440,7 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
             .len()
     };
     assert_eq!(drawn(&mut world), 1);
-    world.insert_resource(replaced.clone());
+    world.insert_resource(render_scene::ActorArtworkResource(replaced.clone()));
     assert_eq!(
         drawn(&mut world),
         1,

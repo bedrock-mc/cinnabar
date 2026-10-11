@@ -278,6 +278,7 @@ pub(in crate::chunk) use state::{
 #[cfg(test)]
 mod growth_tests {
     use super::*;
+    use render_scene::ChunkTextureAssetIdentity;
 
     /// The ref buffer starts small and grows only when a staged snapshot needs it.
     #[test]

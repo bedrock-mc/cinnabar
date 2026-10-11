@@ -6,7 +6,7 @@ use render_model::{
 use std::sync::Arc;
 
 use bevy::{
-    math::{Mat4, Vec3, Vec4},
+    math::{Vec3, Vec4},
     prelude::Resource,
     render::extract_resource::ExtractResource,
 };

@@ -18,6 +18,7 @@ use bevy::{
 
 use super::model::CullRecord;
 use super::*;
+use render_scene::ChunkUploadPriority;
 
 /// A render plugin on the first adapter of `backends`; `None` when none is present.
 pub(super) fn render_plugin(

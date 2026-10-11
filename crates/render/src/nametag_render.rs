@@ -1,5 +1,5 @@
-//! Draws [`NametagScene`] in the transparent 3D phase: a see-through pass over everything and
-//! a depth-tested pass, as vanilla's `name_tag` and `name_tag_depth_tested` materials do.
+//! Draws [`render_model::NametagScene`] in the transparent 3D phase with a see-through pass
+//! and a depth-tested pass, matching the `name_tag` and `name_tag_depth_tested` materials.
 
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
@@ -47,7 +47,7 @@ use bevy::{
 
 use render_model::{
     MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagRecord, NametagScene,
+    NametagRecord,
 };
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");

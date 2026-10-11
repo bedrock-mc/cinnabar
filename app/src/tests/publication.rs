@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{
     ecs::schedule::{
-        IntoSystemSet, NodeId, ScheduleGraph, Schedules,
+        IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet,
         graph::{DiGraph, Direction},
     },
     prelude::{App, Update},

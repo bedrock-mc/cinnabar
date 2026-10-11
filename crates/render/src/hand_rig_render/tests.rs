@@ -1,4 +1,5 @@
 use super::*;
+use bevy::prelude::Vec3;
 use render_model::ActorRigVertex;
 use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
 use {

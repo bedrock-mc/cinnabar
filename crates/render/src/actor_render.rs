@@ -5,7 +5,6 @@ use render_scene::actor::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
 };
 
-use render_model::ACTOR_GPU_INSTANCE_WORDS;
 use std::mem::size_of;
 mod artwork;
 mod dissolve;
@@ -62,7 +61,7 @@ use render_model::ActorRigVertex;
 use {
     crate::actor::gpu::ActorDrawTracker,
     render_model::{ActorGpuInstance, ActorRigGeometrySpan},
-    render_scene::{ActorDrawFrame, ActorPresentationGate, ActorRenderFrame, ActorRuntimeWitness},
+    render_scene::{ActorPresentationGate, ActorRenderFrame, ActorRuntimeWitness},
 };
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");

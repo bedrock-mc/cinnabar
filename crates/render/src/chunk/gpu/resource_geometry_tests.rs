@@ -3,9 +3,11 @@ use super::*;
 use crate::chunk::transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws,
 };
+use meshing::PackedBiomeRecord;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements,
 };
+use render_scene::{ChunkUploadPriority, TransparentSortMetrics};
 
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {

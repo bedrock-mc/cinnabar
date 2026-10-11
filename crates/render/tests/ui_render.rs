@@ -110,7 +110,6 @@ mod gpu_timing {
     }
 }
 
-use render_scene::RuntimeStage;
 use std::sync::Arc;
 
 use bevy::{

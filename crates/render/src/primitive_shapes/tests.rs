@@ -1,9 +1,11 @@
 use super::*;
 use render_api::primitive_shapes::PrimitiveShapeKind;
+use render_model::primitive_shapes::PrimitiveShapeStore;
 use render_model::primitive_shapes::{
     PrimitiveActor, PrimitiveInstance, PrimitiveMeshKey, PrimitiveState,
 };
 use render_scene::PrimitiveShapesScene;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn vanilla_mesh_counts_and_unit_geometry() {

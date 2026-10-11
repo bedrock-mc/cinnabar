@@ -1,6 +1,7 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::render::renderer::RenderAdapter;
+use render_scene::AtmosphereFrame;
 use render_scene::EntityShadowScene;
 use std::future::Future;
 use std::{

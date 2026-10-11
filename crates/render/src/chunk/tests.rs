@@ -11,6 +11,12 @@ use assets::{
 use world::{RawBlockIds, SubChunk};
 
 use super::*;
+use meshing::{ChunkMesh, PackedBiomeRecord};
+use render_model::TransparentSortMetricsSnapshot;
+use render_scene::{
+    ChunkRenderQueue, ChunkTextureAssetIdentity, ChunkUploadPriority, RenderViewCohort,
+    TransparentSortMetrics, TransparentWitnessEvidence, chunk::build_presented_frame_ack,
+};
 
 fn target_expectation(
     now: Instant,

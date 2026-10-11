@@ -1,10 +1,5 @@
 //! Allocation-free readback bookkeeping and timestamp decoding, independent of the GPU.
 
-use render_scene::GpuFrameTimes;
-
-use render_scene::RuntimeStage;
-use std::time::Duration;
-
 /// Frames that may be recorded or awaiting readback at once; a full ring skips timing.
 pub(crate) const SLOTS: usize = 3;
 
@@ -71,6 +66,8 @@ impl ReadbackRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_scene::{GpuFrameTimes, RuntimeStage};
+    use std::time::Duration;
 
     #[test]
     fn full_ring_skips_frames_instead_of_waiting() {

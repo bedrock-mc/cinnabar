@@ -14,13 +14,11 @@ mod tests;
 use bevy::prelude::{IntoSystem, System, default};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    prelude::{App, Handle, Plugin, Resource, Shader, World},
+    prelude::{App, Handle, Plugin, Shader, World},
     render::{
         Render, RenderApp, RenderStartup, RenderSystems, extract_resource::ExtractResourcePlugin,
     },
 };
-use render_model::primitive_shapes::PrimitiveShapeStore;
-use std::sync::{Arc, Mutex};
 
 /// Installs the network primitive renderer independently of actor rendering.
 pub struct PrimitiveShapesRenderPlugin;

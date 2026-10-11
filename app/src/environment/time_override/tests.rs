@@ -1,5 +1,5 @@
 use super::*;
-use crate::environment::WeatherState;
+use crate::environment::{self, WeatherState};
 use bevy::{prelude::*, time::Real};
 use client_world::CommittedControlEvent;
 use protocol::{DaylightCycleUpdateEvent, SetTimeEvent, WorldEnvironmentBootstrap};

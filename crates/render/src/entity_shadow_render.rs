@@ -47,10 +47,7 @@ use render_model::{
     shadow_screen_rect, shadow_volume_mesh,
 };
 
-use {
-    crate::scene_target::SceneTarget,
-    render_scene::{AtmosphereFrame, SkyKind},
-};
+use {crate::scene_target::SceneTarget, render_scene::SkyKind};
 
 const SHADER: Handle<Shader> = uuid_handle!("6b0e5c1d-3f8a-4e27-9b41-2d7c0a5e8f13");
 const INSTANCE_BYTES: u64 = size_of::<EntityShadow>() as u64;

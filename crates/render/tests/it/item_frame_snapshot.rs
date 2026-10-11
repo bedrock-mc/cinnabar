@@ -394,7 +394,7 @@ fn frame_artwork_has_a_wooden_rim_and_a_distinct_backing() {
     )
     .replace(
         "BLOCK_SELECTION_VERTICES_PER_EDGE",
-        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
+        &format!("{}u", render_model::BLOCK_SELECTION_VERTICES_PER_EDGE),
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
     .replace("@group(1) @binding(1)", "@group(0) @binding(6)");

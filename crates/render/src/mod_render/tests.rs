@@ -3,6 +3,8 @@ use crate::queue_review_support as fixture;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::FromWorld;
 use bevy::render::render_phase::AddRenderCommand;
+use mod_render::RenderOutput;
+use std::sync::Arc;
 
 use bevy::{core_pipeline::core_3d::Transparent3d, render::view::ExtractedView};
 use mod_render::{Decal, DecalStyle, Pass, Primitives};
