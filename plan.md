@@ -459,6 +459,35 @@ these changes do not close the movement, camera, or actor parity gates.
   body bones. Attachable animations and controller-selected geometry or
   materials are not applied, and vanilla armour keeps its static binding.
 
+## Tip text slot
+
+- `TextTypeTip` and its JSON variant used the action bar's slot, so a tip
+  overwrote the action bar and server packs that retarget the tip text were
+  ignored: the Lumine UI array list drew below the hotbar instead of the
+  screen's top right.
+- The tip text now has its own store slot, its `#tip_text` global and its own
+  `hud_tip_text_factory` feed, with the `$destroy_id` instance and fade clock
+  `popup_tip_text`. The built-in Java HUD pack defines the tip text's own
+  template, and `clear_titles` clears it.
+- Vanilla-template render tests cover the tip drawing beside, not over, the
+  action bar; a multi-line tip keeping its last line on the tip position with
+  earlier lines above it; and a pack retargeting `hud_tip_text` moving it to the
+  top right. Text routing and localization tests assert the tip's own slot.
+- A captured offline frame pass renders a real HUD frame at 1920x1080 under the
+  Lumine UI pack and without it, on the installed Cinnangles Sans carrier so the
+  glyph ink is legible. Without the pack the multi-line tip sits just above the
+  status row, its last line on the tip position; with the pack the same block
+  moves to the screen's top right, right-aligned, exactly where vanilla draws
+  it. `server_pack_stack_hud_dump` builds its presentation through
+  `pack_harness::font()`, which the fixture stub font cannot substitute for: the
+  stub fills every glyph with a solid white texel, so frames drawn on it show
+  text as flat blocks. See `docs/evidence/hud-tip-text-pack.md`.
+- Incomplete: the frame pass uses the offline CPU raster of the real pack, not
+  the GPU path on the target platform; no native parity or frame-budget gate
+  closes. Two pre-existing failures are unrelated:
+  `incremental_bind::hud_changes_rebuild_only_their_subtree`
+  and `engine_hud_tests::java_pack_geometry_on_a_real_viewport`.
+
 ## Server-pack actors and conditional forms
 
 - Captured CubeCraft definitions exposed rejected actor queries that discarded

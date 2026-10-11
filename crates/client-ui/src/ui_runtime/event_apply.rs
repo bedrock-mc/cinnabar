@@ -5,7 +5,9 @@ use std::sync::Arc;
 use protocol::{
     CommandOutputEvent, HudEvent, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
 };
-use ui::{BoundedStat, ChatApplyResult, ChatMessage, ChatMessageKind, TitleDurations, Toast};
+use ui::{
+    BoundedStat, ChatApplyResult, ChatMessage, ChatMessageKind, HudStore, TitleDurations, Toast,
+};
 
 use super::{
     SequencedUiEvent, UiApplyOutcome, UiRuntime, UiRuntimeError, hud_adapter, scoreboard_adapter,
@@ -176,14 +178,34 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<UiApplyOutcome, UiRuntimeError> {
-        if matches!(
-            event.kind,
-            TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip
-        ) {
-            self.hud
-                .set_actionbar(event.message, fifo_sequence, event_millis);
-            return Ok(UiApplyOutcome::Applied);
-        }
+        // A tip text rides its own `hud_tip_text` slot; a popup shares the
+        // action bar's, as both draw above the hotbar.
+        let slot = match event.kind {
+            TextKind::Tip => HudStore::set_tip,
+            TextKind::Popup | TextKind::JukeboxPopup => HudStore::set_actionbar,
+            TextKind::Chat
+            | TextKind::Whisper
+            | TextKind::Announcement
+            | TextKind::Translation
+            | TextKind::Raw
+            | TextKind::System
+            | TextKind::JsonWhisper
+            | TextKind::Json
+            | TextKind::JsonAnnouncement => {
+                return self.push_chat(event, fifo_sequence, event_millis)
+            }
+        };
+        slot(&mut self.hud, event.message, fifo_sequence, event_millis);
+        Ok(UiApplyOutcome::Applied)
+    }
+
+    /// Pushes `event` as a chat row on the chat store.
+    fn push_chat(
+        &mut self,
+        event: TextEvent,
+        fifo_sequence: u64,
+        event_millis: u64,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
         let kind = match event.kind {
             TextKind::Chat => ChatMessageKind::Chat,
             TextKind::Whisper | TextKind::JsonWhisper => ChatMessageKind::Whisper,

@@ -5,9 +5,9 @@
 use json_ui::{Draw, DrawNode};
 use protocol::{PlayerGameMode, ScoreIdentity as ProtocolScoreIdentity};
 
-use super::engine_hud_tests::engine_presentation;
+use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
-use crate::ui_runtime::presentation::forms::pack_harness::dir_pack;
+use crate::ui_runtime::presentation::forms::pack_harness::{dir_pack, font};
 
 const PACK_ENV: &str = "CINNABAR_HUD_PACK_DIRS";
 
@@ -94,6 +94,12 @@ fn session(player_runtime: &mut player_state::PlayerState, objective: &str) -> U
             .unwrap();
     }
     runtime.hud.set_title(Arc::from("Round 1"), 20, 0);
+    // The tip text: the Lumine array list rides it, on its own slot.
+    runtime.hud.set_tip(
+        Arc::from("LUMINE PROXY\nAnti Forced Packs\nJava\nJava"),
+        21,
+        0,
+    );
     runtime
 }
 
@@ -223,7 +229,7 @@ fn server_pack_stack_hud_dump() {
         );
         return;
     };
-    let Some(mut presentation) = engine_presentation() else {
+    let Some(mut presentation) = engine_presentation_with(font()) else {
         eprintln!(
             "skipping server_pack_stack_hud_dump: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
         );

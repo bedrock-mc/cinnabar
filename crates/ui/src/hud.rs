@@ -250,6 +250,7 @@ pub enum HudViewRole {
     Title,
     Subtitle,
     ActionBar,
+    Tip,
     ToastTitle,
     ToastMessage,
 }
@@ -280,6 +281,9 @@ pub struct HudStore {
     title: Option<TimedText>,
     subtitle: Option<TimedText>,
     actionbar: Option<TimedText>,
+    /// The tip text: `TextTypeTip` and its JSON variant sit above the hotbar,
+    /// bound to `#tip_text` in `hud_screen.json`.
+    tip: Option<TimedText>,
     durations: TitleDurations,
     toasts: VecDeque<Toast>,
     toast_retained_bytes: usize,
@@ -342,6 +346,10 @@ impl HudStore {
 
     pub const fn actionbar(&self) -> Option<&TimedText> {
         self.actionbar.as_ref()
+    }
+
+    pub const fn tip(&self) -> Option<&TimedText> {
+        self.tip.as_ref()
     }
 
     pub fn toasts(&self) -> &VecDeque<Toast> {
@@ -408,10 +416,15 @@ impl HudStore {
         ));
     }
 
+    pub fn set_tip(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
+        self.tip = Some(TimedText::new(text, fifo_sequence, now_millis, self.durations));
+    }
+
     pub fn clear_titles(&mut self) {
         self.title = None;
         self.subtitle = None;
         self.actionbar = None;
+        self.tip = None;
     }
 
     pub fn reset_titles(&mut self) {
@@ -477,6 +490,13 @@ impl HudStore {
             .is_some_and(|value| !value.visible_at(now_millis))
         {
             self.actionbar = None;
+        }
+        if self
+            .tip
+            .as_ref()
+            .is_some_and(|value| !value.visible_at(now_millis))
+        {
+            self.tip = None;
         }
         // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
@@ -595,6 +615,7 @@ impl HudStore {
             (HudViewRole::Title, self.title.as_ref()),
             (HudViewRole::Subtitle, self.subtitle.as_ref()),
             (HudViewRole::ActionBar, self.actionbar.as_ref()),
+            (HudViewRole::Tip, self.tip.as_ref()),
         ] {
             if let Some(value) = value.filter(|value| value.visible_at(now_millis)) {
                 nodes.push(HudViewNode {

@@ -585,6 +585,7 @@ fn hud_model(
         spectator: !mode_allows_hotbar,
         title,
         actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
         chat_visible,

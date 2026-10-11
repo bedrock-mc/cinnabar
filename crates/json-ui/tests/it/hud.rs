@@ -116,6 +116,10 @@ fn model() -> HudModel {
             text: "bar".into(),
             born: 0.0,
         }),
+        tip: Some(Timed {
+            text: "tip".into(),
+            born: 0.0,
+        }),
         sidebar: Some(Sidebar {
             title: "Kills".into(),
             rows: vec![("Steve".into(), "3".into()), ("Alex".into(), "1".into())],
@@ -140,9 +144,14 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
     render_full(model, java).map(|render| render.nodes)
 }
 
+/// The vanilla UI catalog for the pack's directory, before any overlay.
+fn catalog_for(dir: &PathBuf) -> Catalog {
+    Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads")
+}
+
 fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
-    let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
+    let mut catalog = catalog_for(&dir);
     if java {
         let files = java_pack::files();
         let before = catalog.diagnostics().len();
@@ -501,6 +510,182 @@ fn java_pack_places_the_hud() {
     assert_eq!(
         text_node(&nodes, "Alex").dest.x,
         text_node(&nodes, "Steve").dest.x
+    );
+}
+
+// The tip text rides its own `hud_tip_text` slot: it draws beside, not over, the
+// action bar's text, above the hotbar and inside its own factory instance.
+#[test]
+fn vanilla_hud_draws_the_tip_text_in_its_own_slot() {
+    let Some(render) = render_full(&model(), false) else {
+        return;
+    };
+    let nodes = &render.nodes;
+    dump(nodes);
+    let tip = text_node(nodes, "tip");
+    let bar = text_node(nodes, "bar");
+    assert_ne!(
+        (tip.dest.x, tip.dest.y),
+        (bar.dest.x, bar.dest.y),
+        "the tip text must not take the action bar's position"
+    );
+    // The action bar's label sits above the hotbar's top edge, from its own slot.
+    assert!(bar.dest.y < 248.0, "{:?}", bar.dest);
+    // The tip text draws in the same region, from `hud_tip_text`'s own template.
+    assert!(
+        named(nodes, "hud_tip_text").len() + named(nodes, "popup_tip_text").len() > 0,
+        "the tip text drew outside hud_tip_text: {:?}",
+        named(nodes, "hud_tip_text")
+    );
+    // Its label keeps the tip text, and its fade is animated as one instance.
+    assert!(
+        tip.anim
+            .as_ref()
+            .is_some_and(|anim| !anim.alpha.is_empty()),
+        "the tip text has no fade: {:?}",
+        tip.anim
+    );
+}
+
+/// A vanilla tip text of several lines keeps its last line on the tip position,
+/// with the earlier lines stacked above it.
+#[test]
+fn a_multiline_tip_text_keeps_its_last_line_on_the_tip_position() {
+    for java in [false, true] {
+        let mut multiline = model();
+        multiline.tip = Some(Timed {
+            text: "LUMINE PROXY\nJava".into(),
+            born: 0.0,
+        });
+        let Some(render) = render_full(&multiline, java) else {
+            return;
+        };
+        let nodes = &render.nodes;
+        dump(nodes);
+        let expected = format!("LUMINE PROXY\nJava");
+        let block = nodes
+            .iter()
+            .find(|node| matches!(&node.draw, Draw::Text { text, .. } if *text == expected))
+            .expect("the tip text drew both lines");
+        // Two lines of nine GUI px, laid out one above the other.
+        assert_eq!((block.dest.w, block.dest.h), (72.0, 18.0));
+        let one = model();
+        let Some(single) = render_full(&one, java) else {
+            return;
+        };
+        let bare = text_node(&single.nodes, "tip");
+        // The block's bottom is what the anchoring holds, so the earlier line
+        // is pushed up and the last line stays on the tip position.
+        let block_bottom = block.dest.y + block.dest.h;
+        let bare_bottom = bare.dest.y + bare.dest.h;
+        assert!(
+            (block_bottom - bare_bottom).abs() < 1e-6,
+            "the last tip line moved off the tip position: {block:?} vs {bare:?}"
+        );
+        // The two-line block is one line taller, anchored on the same bottom
+        // edge: its extra height grows upward, above the tip position.
+        assert!(
+            (block.dest.h - bare.dest.h - 9.0).abs() < 1e-6,
+            "the extra tip line did not grow the block: {block:?} vs {bare:?}"
+        );
+        // Both stay centred on the tip text's column.
+        let center = |node: &DrawNode| node.dest.x + node.dest.w / 2.0;
+        assert!(
+            (center(&block) - center(&bare)).abs() < 1e-6,
+            "tip lines are not centred alike: {block:?} vs {bare:?}"
+        );
+        // It stays clear of the hotbar row below it.
+        let hotbar = nodes
+            .iter()
+            .filter(|node| node.dest.y > 240.0 && node.dest.y < 250.0)
+            .map(|node| at(node))
+            .min_by(|[_, a], [_, b]| a.total_cmp(b))
+            .expect("a hotbar element");
+        assert!(
+            block.dest.y + block.dest.h <= hotbar[1],
+            "the tip text overlaps the hotbar: {block:?} vs {hotbar:?}"
+        );
+    }
+}
+
+// A resource pack that retargets `hud_tip_text` moves the tip text with it; the
+// Lumine UI pack anchors it to the top right, so it must leave the hotbar area.
+#[test]
+fn a_pack_retargeting_hud_tip_text_moves_the_tip_text() {
+    let Some(dir) = pack() else {
+        return;
+    };
+    // The Lumine UI pack's `hud_tip_text`, with its template flattened onto the
+    // vanilla one by whole-property selection.
+    let pack = r##"{
+        "namespace": "hud",
+        "hud_tip_text": {
+            "type": "image",
+            "texture": "",
+            "alpha": 0,
+            "size": [ "100%c + 12", "100%c + 4px" ],
+            "offset": [ "0px", "24px" ],
+            "anchor_from": "top_right",
+            "anchor_to": "top_right",
+            "$wait_duration|default": 1,
+            "$destroy_id|default": "popup_tip_text",
+            "controls": [
+              {
+                "item_text_label": {
+                  "type": "label",
+                  "layer": 1,
+                  "color": "$tool_tip_text",
+                  "text": "#text",
+                  "shadow": true,
+                  "alpha": "@hud.hud_tip_text_alpha_out",
+                  "text_alignment": "right",
+                  "bindings": [
+                    { "binding_name": "#tip_text", "binding_name_override": "#text" }
+                  ]
+                }
+              }
+            ]
+        }
+    }"##;
+    let mut catalog = catalog_for(&dir);
+    catalog.apply_pack([("ui/hud_screen.json", pack.as_bytes())]);
+    let model = self::model();
+    let textures = PackTextures::new(dir);
+    let env = LayoutEnv {
+        text: &FixedText,
+        textures: &textures,
+    };
+    let render = render_screen(
+        HUD_SCREEN,
+        &catalog,
+        &hud_context(&Context::desktop()),
+        &hud_data_source(&model),
+        [480.0, 270.0],
+        &env,
+        &ViewState::default(),
+    )
+    .expect("hud renders with the pack overlay");
+    let nodes = &render.nodes;
+    dump(nodes);
+    let tip = text_node(nodes, "tip");
+    let bar = text_node(nodes, "bar");
+    // The pack anchors it to the top right: the text sits in that corner and
+    // nowhere near the action bar's row above the hotbar.
+    assert!(
+        tip.dest.y < 60.0,
+        "tip text left the top-right anchor: {:?}",
+        tip.dest
+    );
+    assert!(
+        tip.dest.x + tip.dest.w > 480.0 * 0.6,
+        "tip text is not right-aligned: {:?}",
+        tip.dest
+    );
+    assert!(
+        (tip.dest.y - bar.dest.y).abs() > 20.0,
+        "tip text ignored the pack: {:?} vs {:?}",
+        tip.dest,
+        bar.dest
     );
 }
 
