@@ -97,8 +97,7 @@ impl ActorStore {
         now: std::time::Instant,
     ) -> Vec<BlockEntityCandidate> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let candidates = self
-            .effect_members
+        self.effect_members
             .blocks
             .iter()
             .filter_map(|runtime| self.actors.get(runtime))
@@ -109,8 +108,7 @@ impl ActorStore {
                     visible: actor.status.terrain_interlock.visible_at(now),
                 })
             })
-            .collect::<Vec<_>>();
-        candidates
+            .collect::<Vec<_>>()
     }
 
     /// Falling blocks and primed TNT with interpolated centres.
@@ -124,15 +122,13 @@ impl ActorStore {
         now: std::time::Instant,
     ) -> Vec<BlockEntityView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let views = self
-            .effect_members
+        self.effect_members
             .blocks
             .iter()
             .filter_map(|runtime| self.actors.get(runtime))
             .filter(|actor| actor.status.terrain_interlock.visible_at(now))
             .filter_map(|actor| self.block_entity_view(actor, alpha))
-            .collect::<Vec<_>>();
-        views
+            .collect::<Vec<_>>()
     }
 
     fn block_entity_view(&self, actor: &ActorSnapshot, alpha: f32) -> Option<BlockEntityView> {
