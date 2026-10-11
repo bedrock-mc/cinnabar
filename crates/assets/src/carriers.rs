@@ -22,6 +22,16 @@ const BLOCK_REGISTRY: &str = "crates/assets/data/block-registry-v2193.bin";
 const LIGHT_REGISTRY: &str = "crates/assets/data/block-light-registry-v2193.bin";
 const BIOME_REGISTRY: &str = "crates/assets/data/biome-registry-v2193.bin";
 
+/// The physics carrier filename shared by packaged and development installs.
+/// The checked-in registry is copied directly rather than compiled from a pack.
+#[must_use]
+pub fn physics_registry_basename() -> &'static str {
+    Path::new(crate::pinned_content::physics_registry_source())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("target manifest physics registry has a UTF-8 filename")
+}
+
 /// The compiler entry point that builds a carrier.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Recipe {
@@ -505,6 +515,17 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn physics_filename_follows_the_target_manifest() {
+        let target: serde_json::Value =
+            serde_json::from_str(include_str!("../../../assets/bedrock-target.json")).unwrap();
+        let source = target["artifacts"]["physics_registry"].as_str().unwrap();
+        assert_eq!(
+            Path::new(physics_registry_basename()),
+            Path::new(source).file_name().unwrap()
+        );
+    }
 
     #[test]
     fn names_and_outputs_are_unique() {

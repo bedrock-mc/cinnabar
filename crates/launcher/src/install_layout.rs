@@ -75,7 +75,9 @@ impl InstallLayout {
             return Ok(Self {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
-                physics_registry: local.join("assets/block-physics-v2193.bin"),
+                physics_registry: local
+                    .join("assets")
+                    .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
@@ -134,7 +136,9 @@ impl InstallLayout {
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
             compiled_assets: resource_root.join("assets"),
-            physics_registry: resource_root.join("assets/block-physics-v2193.bin"),
+            physics_registry: resource_root
+                .join("assets")
+                .join(assets::carriers::physics_registry_basename()),
             resource_root,
             core_executable,
             user_config_root,
@@ -559,6 +563,42 @@ mod tests {
     use super::{InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path};
     use std::path::{Path, PathBuf};
 
+    #[test]
+    fn physics_filename_follows_the_carrier_registry_for_every_layout() {
+        for (platform, executable, home) in [
+            (
+                Platform::Windows,
+                "C:/Cinnabar/bedrock-client.exe",
+                "C:/Users/dev",
+            ),
+            (
+                Platform::Linux,
+                "/opt/cinnabar/bin/bedrock-client",
+                "/home/dev",
+            ),
+            (
+                Platform::MacOs,
+                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/Users/dev",
+            ),
+            (
+                Platform::Linux,
+                "/work/cinnabar/target/debug/bedrock-client",
+                "/home/dev",
+            ),
+        ] {
+            let layout = InstallLayout::resolve(platform, &environment(executable, home)).unwrap();
+            assert_eq!(
+                layout.physics_registry.file_name().unwrap(),
+                assets::carriers::physics_registry_basename()
+            );
+            assert_eq!(
+                layout.physics_registry.parent().unwrap(),
+                layout.resource_root.join("assets")
+            );
+        }
+    }
+
     /// A test binary in a build dir outside the checkout still resolves the checkout.
     #[test]
     fn external_build_dir_tests_resolve_their_workspace() {
@@ -682,7 +722,8 @@ mod tests {
         );
         assert_eq!(
             layout.physics_registry,
-            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v2193.bin")
+            PathBuf::from("/work/cinnabar/.local/assets")
+                .join(assets::carriers::physics_registry_basename())
         );
         assert_eq!(
             layout.runtime_root,
