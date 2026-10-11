@@ -341,12 +341,36 @@ fn snapshot_custom_display_name_search() {
     runtime.screen_state_mut().creative_tab = crate::ui_runtime::presentation::screens::SEARCH_TAB;
     runtime.screen_state_mut().search = "Crystal".into();
     runtime.screen_state_mut().search_focused = true;
-    // A deterministic original fixture icon makes the matched grid cell visible.
-    presentation.hud_frame_mut().window_icons.creative[0] = Some(ui::IconRef {
-        page: presentation.solid_texture_page,
-        uv: [0, 0, 1, 1],
-        glint: false,
-    });
+    runtime.set_session_icons(Some(Arc::new(super::super::SessionIcons {
+        icons: vec![super::super::SessionIcon {
+            identifier: Arc::from("custom:blade"),
+            metadata: 0,
+            width: 16,
+            height: 16,
+            rgba8: [70, 225, 220, 255].repeat(16 * 16).into(),
+        }],
+        ..Default::default()
+    })));
+    // Wait for the original fixture icon's asynchronous atlas admission.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while presentation.item_icon("custom:blade", 0).is_none() {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "fixture icon must be admitted"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let icon = presentation.item_icon("custom:blade", 0).unwrap();
+    presentation.hud_frame_mut().window_icons.book_entries = vec![Some(icon)];
     let first = runtime.screen_state().creative_row;
     let matched = visible_creative_entries(runtime.inventory_ledger(&player), &runtime).len();
     for frame in 0..24 {
