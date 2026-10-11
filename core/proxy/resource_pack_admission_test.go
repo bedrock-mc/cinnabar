@@ -1704,9 +1704,9 @@ func started(source minecraft.ResourcePackSource, id uuid.UUID, size uint64) min
 	return minecraft.ResourcePackEvent{Kind: minecraft.ResourcePackStarted, Source: source, UUID: id, Version: "1.0.0", Size: size}
 }
 
-// A transfer larger than its offer, or for an unadvertised pack, is dropped from the handoff
-// without cancelling the join; only the memory ceiling cancels.
-func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
+// Bounded transfer sizes may exceed an offer estimate; unadvertised packs are excluded,
+// and only the memory ceiling cancels.
+func TestAcquisitionBudgetAcceptsGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
 	const mib = 1024 * 1024
 	info := packInfos(mib, mib)
 	grown, honest, unadvertised := info.TexturePacks[0].UUID, info.TexturePacks[1].UUID, uuid.New()
@@ -1715,8 +1715,8 @@ func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(
 	budget.event(started(minecraft.ResourcePackSourceChunks, honest, mib))
 	budget.event(started(minecraft.ResourcePackSourceChunks, unadvertised, mib))
 	grownPack, honestPack := admissionPackWithUUID(t, grown.String()), admissionPackWithUUID(t, honest.String())
-	if !budget.excludes(grownPack) || budget.excludes(honestPack) || !budget.excludes(admissionPackWithUUID(t, unadvertised.String())) || len(*causes) != 0 {
-		t.Fatalf("causes = %v, want only grown+unadvertised dropped and no cancel", *causes)
+	if budget.excludes(grownPack) || budget.excludes(honestPack) || !budget.excludes(admissionPackWithUUID(t, unadvertised.String())) || len(*causes) != 0 {
+		t.Fatalf("causes = %v, want only unadvertised dropped and no cancel", *causes)
 	}
 
 	over, overCauses := observedBudget(t, packInfos(mib))
