@@ -3095,9 +3095,9 @@ re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
 - The pinned pack is bedrock-samples `v1.26.50.4` (release). New blocks draw
   their own pack textures through their twin's model family, and
   `dappled_forest` compiles its own biome rule (absent atmosphere/lighting
-  components fall back to the default settings). Still diagnostic:
-  `poplar_shelf` (other shelves use the provisional vanilla fallback, which has
-  no entry for it) and `red_shrub` (data-driven block whose texture lives only
+  components fall back to the default settings). All thirteen wood shelves now
+  compile recessed models with facing and powered front selection. Still
+  diagnostic: `red_shrub` (data-driven block whose texture lives only
   in its behaviour-pack `material_instances`). The legacy icon crosswalk is
   still the 26.30 client's, so poplar boats, cushions, and the poplar door and
   hanging-sign icons lack their sprite routes.
@@ -4487,18 +4487,16 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       12,495..12,518 with zero additions, shrinking 2,448 -> 2,400 diagnostics.
       Bee occupants remain a separately reviewed block-entity concern rather
       than block-state geometry.
-    - [ ] Shelf visual authority: the exact twelve-name/384-state registry
-      contract is classified and now fails closed if one complete family is
-      missing or an unexpected `_shelf` family appears. The versioned retail
-      package exposes direction-specific `minecraft:voxel_shape` files and the pinned vanilla packs
-      expose shelf texture routes, texture sets, and pixels, but none defines
-      visible render geometry or per-face UV mapping. Collision/voxel bounds
-      must not be promoted into an exact render model. All 384 shelf states use
-      the explicitly provisional non-magenta fallback and remain open visual
-      parity work. Resume shelf work only
-      from legitimate version-matched render/UV authority or a reviewed native
-      procedure; precise paths and hashes are recorded in
-      `docs/evidence/phase-2-shelf-source-reference.md`.
+    - [x] Compile recessed models for all thirteen wood shelves, including
+      Poplar Shelf. Typed direction, power, and shelf-type selectors choose
+      the pose and one of five front regions; malformed selectors remain
+      diagnostic. Original texture aliases work through ordinary pack routing.
+      Active-registry tests cover every wood and all Poplar Shelf states,
+      carrier round trips, both network-ID modes, and invalid selector types.
+    - [ ] Complete shelf visual parity with a full native comparison gallery.
+      The offline GPU fixture verifies compiled geometry and texture regions
+      through the production model shader. Complete pack pixel fidelity and
+      live server-pack comparisons remain incomplete.
     - [ ] Close static sign visual parity and its deterministic native gallery.
       - [x] Eliminate all 4,872 standing, wall, and hanging-sign diagnostics
         with typed, order-independent selectors; exact 16-way rotation, six-way

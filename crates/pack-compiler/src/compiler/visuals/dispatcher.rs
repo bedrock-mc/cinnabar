@@ -135,6 +135,7 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
+    shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
 }
 
 impl VisualCompiler {
@@ -255,6 +256,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.honey_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::shelf::compile_rule(
+            record,
+            inputs,
+            &mut self.shelf_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

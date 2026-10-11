@@ -325,6 +325,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
     super::visuals::portal::is_record(record)
+        || super::visuals::shelf::is_record(record)
         || super::visuals::end_portal_frame::is_record(record)
         || is_stained_glass_cube(record)
         || is_clear_glass_cube(record)
