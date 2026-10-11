@@ -145,6 +145,31 @@ fn render(
     direction: usize,
     include_rod: bool,
 ) -> Vec<u8> {
+    let mut eye_offset = Vec3::new(1.9, 1.3, 2.5);
+    for (axis, mounting_offset) in support_offset(direction).into_iter().enumerate() {
+        if mounting_offset != 0 {
+            eye_offset[axis] = -(mounting_offset as f32) * eye_offset[axis];
+        }
+    }
+    render_at(
+        gpu,
+        assets,
+        mesh,
+        Vec3::splat(1.5) + eye_offset,
+        Vec3::splat(1.5),
+        include_rod,
+    )
+}
+
+/// Renders terrain model and cube streams with an explicit account-free fixture camera.
+pub(super) fn render_at(
+    gpu: &Gpu,
+    assets: &assets::RuntimeAssets,
+    mesh: &meshing::ChunkMesh,
+    eye: Vec3,
+    center: Vec3,
+    include_rod: bool,
+) -> Vec<u8> {
     let storage = wgpu::BufferUsages::STORAGE;
     let uniform = wgpu::BufferUsages::UNIFORM;
     let draw_refs = mesh
@@ -223,14 +248,7 @@ fn render(
             .collect::<Vec<_>>(),
         storage,
     );
-    let mut eye_offset = Vec3::new(1.9, 1.3, 2.5);
-    for (axis, mounting_offset) in support_offset(direction).into_iter().enumerate() {
-        if mounting_offset != 0 {
-            eye_offset[axis] = -(mounting_offset as f32) * eye_offset[axis];
-        }
-    }
-    let eye = Vec3::splat(1.5) + eye_offset;
-    let camera = glam::camera::rh::view::look_at_mat4(eye, Vec3::splat(1.5), Vec3::Y);
+    let camera = glam::camera::rh::view::look_at_mat4(eye, center, Vec3::Y);
     let projection =
         glam::camera::rh::proj::directx::orthographic(-1.35, 1.35, -1.35, 1.35, 10.0, 0.1);
     let view = gpu.buffer(&gpu_snapshot::view(projection * camera, eye), uniform);

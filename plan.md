@@ -7461,3 +7461,9 @@ Incomplete parity: bone mirror, inflation and visibility projection, modern geom
 Admitted live biome identifiers and climate now travel with the session tint registry. Weather, fog precipitation, camera temperature and environment routes read that registry, including custom biome routes. Registry replacement clears removed routes.
 
 Incomplete parity: exact custom-biome fallback profiles and regional or height-adjusted temperature behavior remain open.
+
+## Hollow terrain containers
+
+Composters retain inward walls and a level-dependent floor. Cauldrons retain their rim, inner floor, walls and feet, with separate water, lava and powder-snow surfaces at each fill level. These models do not occlude full neighbor faces.
+
+Incomplete parity: cauldron block-actor potion and dyed-water colours require runtime block-actor data; their state-only visual remains provisional. Enhanced lighting and performance acceptance remain open.
