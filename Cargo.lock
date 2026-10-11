@@ -3134,11 +3134,14 @@ dependencies = [
  "bevy",
  "chunk-pipeline",
  "client-ui",
+ "libc",
  "meshing",
  "protocol",
  "render-model",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
  "world",
 ]
 

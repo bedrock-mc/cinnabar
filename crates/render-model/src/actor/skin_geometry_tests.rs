@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn inherited_skin_parts_can_be_redeclared_visible_without_revealing_hidden_parts() {
+    let cube = serde_json::json!({"origin":[0,0,0],"size":[2,3,4],"uv":[0,0]});
+    for hidden in [None, Some(false), Some(true)] {
+        let mut child = serde_json::json!({"name":"hat","cubes":[cube.clone()]});
+        if let Some(hidden) = hidden {
+            child["neverRender"] = hidden.into();
+        }
+        let source = serde_json::json!({
+            "format_version":"1.8.0",
+            "geometry.parent":{"bones":[
+                {"name":"body","cubes":[cube.clone()]},
+                {"name":"hat","neverRender":true},
+                {"name":"hidden","neverRender":true,"cubes":[cube.clone()]}
+            ]},
+            "geometry.fixture:geometry.parent":{"bones":[child]}
+        });
+        let geometry = assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.fixture"}}"#,
+            &source.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+        let mesh = skin_geometry(&geometry, EntityRigId(0)).unwrap();
+        assert!(mesh.vertices.iter().any(|vertex| vertex.bone_index == 0));
+        assert_eq!(
+            mesh.vertices.iter().any(|vertex| vertex.bone_index == 1),
+            hidden != Some(true)
+        );
+        assert!(mesh.vertices.iter().all(|vertex| vertex.bone_index != 2));
+    }
+}
+
+#[test]
 fn captured_persona_body_polygon_survives_geometry_building() {
     let model = assets::parse_skin_geometry(
         r#"{"geometry":{"default":"geometry.fixture"}}"#,

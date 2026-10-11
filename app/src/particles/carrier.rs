@@ -20,14 +20,14 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
     let file = match File::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "particle carrier not found at {}; particles are disabled (build with: make particle-assets)",
                 path.display()
             );
             return None;
         }
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "could not open particle carrier {}: {error}; particles are disabled",
                 path.display()
             );
@@ -39,7 +39,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
         .take(MAX_PARTICLE_CARRIER_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
     {
-        eprintln!(
+        diagnostics::log_stderr!(
             "could not read particle carrier {}: {error}; particles are disabled",
             path.display()
         );
@@ -47,7 +47,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
     }
     match RuntimeParticleAssets::decode(&bytes) {
         Ok(assets) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "loaded particle carrier from {} ({} effects, {} textures)",
                 path.display(),
                 assets.effects().len(),
@@ -56,7 +56,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
             Some(Arc::new(assets))
         }
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "invalid particle carrier {}: {error}; particles are disabled (rebuild with: make particle-assets)",
                 path.display()
             );

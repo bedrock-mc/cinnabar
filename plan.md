@@ -271,6 +271,9 @@ moves do not change the open behavior or performance acceptance gates.
   performance gates remain open.
 - Dressing Room persists classic/slim and static custom-geometry skins, independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+  Standard fallback clothing uses quarter-texel expansion and the hat uses half-texel expansion;
+  base and outer faces share the skin atlas orientation. Redeclared skin parts default to visible
+  when they omit a hidden flag. Full second-layer preview parity remains incomplete.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
   preserving texels and private source files. This custom import extension leaves native cape
   gallery parity incomplete.
