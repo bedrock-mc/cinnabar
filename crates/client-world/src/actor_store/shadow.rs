@@ -65,6 +65,7 @@ impl ActorSnapshot {
             "parrot" if riding => 0.0,
             "armor_stand"
             | "area_effect_cloud"
+            | "cushion"
             | "fishing_hook"
             | "minecart"
             | "chest_minecart"
