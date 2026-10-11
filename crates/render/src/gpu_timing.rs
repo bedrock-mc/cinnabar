@@ -159,6 +159,10 @@ pub struct DetailedGpuTiming(pub bool);
 fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
     use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
     let mut nodes = vec![
+        (
+            crate::atmosphere_render::sky_pass::AtmospherePassLabel.intern(),
+            RuntimeStage::GpuSky,
+        ),
         (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
         (Node3d::EndMainPass.intern(), RuntimeStage::GpuBlit),
         (

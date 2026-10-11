@@ -4,26 +4,15 @@ use std::collections::HashMap;
 use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::image::BevyDefault;
 use bevy::{
-    asset::{AssetId, load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
-    ecs::{
-        change_detection::Tick,
-        query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
-    },
-    mesh::Mesh,
+    asset::{load_internal_asset, uuid_handle},
+    core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
-        Plugin, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin, Query, Res,
+        ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
-        render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
-        },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor,
@@ -37,8 +26,7 @@ use bevy::{
             TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
-        sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniforms},
     },
 };
 
@@ -81,13 +69,14 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<crate::LightningScene>();
     app.init_resource::<crate::MediaScreenScene>();
     crate::pipeline_warmup::register::<AtmospherePipeline>(app);
-    let Some(render_app) = app.get_sub_app(RenderApp) else {
+    let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     if render_app
         .world()
         .contains_resource::<AtmosphereRenderInstalled>()
     {
+        sky_pass::install_graph(render_app.world_mut());
         return;
     }
 
@@ -117,7 +106,6 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)
         .init_resource::<AtmospherePipeline>()
-        .add_render_command::<Opaque3d, DrawAtmosphereCommands>()
         .add_systems(RenderStartup, init_atmosphere_gpu)
         .add_systems(
             Render,
@@ -130,6 +118,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
                     .in_set(RenderSystems::Queue),
             ),
         );
+    sky_pass::install_graph(app.sub_app_mut(RenderApp).world_mut());
 }
 
 #[derive(Resource)]
@@ -143,7 +132,7 @@ pub(crate) struct AtmosphereGpu {
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
     bound_asset_identity: Option<[u8; 32]>,
-    additional_pipelines: HashMap<AtmospherePipelineKey, CachedRenderPipelineId>,
+    pipelines: HashMap<AtmospherePipelineKey, CachedRenderPipelineId>,
     #[cfg(test)]
     upload_count: u32,
 }
@@ -188,7 +177,7 @@ fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>)
         bind_group: None,
         view_buffer_id: None,
         bound_asset_identity: None,
-        additional_pipelines: HashMap::new(),
+        pipelines: HashMap::new(),
         #[cfg(test)]
         upload_count: 0,
     });
@@ -524,140 +513,37 @@ fn prepare_atmosphere_bind_group(
     gpu.bound_asset_identity = Some(asset_identity);
 }
 
+/// Prepares only the current views' sky pipelines for the ordered graph pass.
 fn queue_atmosphere(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<AtmospherePipeline>,
-    mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(&ExtractedView, &Msaa)>,
     mut gpu: ResMut<AtmosphereGpu>,
-    mut next_tick: Local<Tick>,
 ) {
-    let draw_function = draw_functions.read().id::<DrawAtmosphereCommands>();
-    // Only current views contribute keys; the finite MSAA/HDR combinations do
-    // not accumulate across view recreation or graphics setting changes.
-    gpu.additional_pipelines.clear();
-    for (view_entity, main_entity, view, msaa) in &views {
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
-            continue;
-        };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            AtmospherePipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                stars: false,
-                skybox: false,
-            },
-        ) else {
-            continue;
-        };
-        for (stars, skybox) in [(true, false), (false, true)] {
-            let star_key = AtmospherePipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                stars,
-                skybox,
-            };
-            if let Ok(star_pipeline) = pipeline.variants.specialize(&pipeline_cache, star_key) {
-                gpu.additional_pipelines.insert(star_key, star_pipeline);
-            }
-        }
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: pipeline_id,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
-            },
-            (view_entity, *main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-            *next_tick,
-        );
-    }
-}
-
-type DrawAtmosphereCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuSky as usize },
-    (SetItemPipeline, SetAtmosphereBindGroup<0>, DrawAtmosphere),
->;
-
-struct SetAtmosphereBindGroup<const I: usize>;
-
-impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetAtmosphereBindGroup<I> {
-    type Param = SRes<AtmosphereGpu>;
-    type ViewQuery = Read<ViewUniformOffset>;
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let Some(bind_group) = &gpu.into_inner().bind_group else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(I, bind_group, &[view_offset.offset]);
-        RenderCommandResult::Success
-    }
-}
-
-struct DrawAtmosphere;
-
-impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
-    type Param = (SRes<AtmosphereGpu>, SRes<PipelineCache>);
-    type ViewQuery = (Read<Msaa>, Read<ExtractedView>);
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        (msaa, view): ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (gpu, pipelines): SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        pass.draw(0..3, 0..1);
-        let gpu = gpu.into_inner();
-        let pipelines = pipelines.into_inner();
-        for (stars, skybox) in [(true, false), (false, true)] {
-            if skybox && !gpu.skybox_active {
-                continue;
-            }
+    gpu.pipelines.clear();
+    for (view, msaa) in &views {
+        for (stars, skybox) in [(false, false), (true, false), (false, true)] {
             let key = AtmospherePipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
                 stars,
                 skybox,
             };
-            if let Some(pipeline) = gpu
-                .additional_pipelines
-                .get(&key)
-                .and_then(|id| pipelines.get_render_pipeline(*id))
-            {
-                pass.set_render_pipeline(pipeline);
-                if stars {
-                    pass.draw(3..3 + gpu.star_vertex_count, 0..1);
-                } else {
-                    pass.draw(0..3, 0..1);
-                }
+            if let Ok(id) = pipeline.variants.specialize(&pipeline_cache, key) {
+                gpu.pipelines.insert(key, id);
             }
         }
-        RenderCommandResult::Success
     }
 }
 
+pub(crate) mod sky_pass;
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "atmosphere_render/sky_pass_tests.rs"]
+mod sky_pass_tests;
 
 #[cfg(test)]
 #[path = "atmosphere_pipeline_tests.rs"]

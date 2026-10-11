@@ -78,7 +78,8 @@ fn app_with_noop_render_sub_app() -> App {
     app
 }
 
-fn synthetic_runtime(seed: u8) -> Arc<RuntimeAtmosphereAssets> {
+/// Supplies original carrier pixels without requiring installed game fixtures.
+pub(super) fn synthetic_runtime(seed: u8) -> Arc<RuntimeAtmosphereAssets> {
     let textures = [
         (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
         (
