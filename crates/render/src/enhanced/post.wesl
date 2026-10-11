@@ -1,9 +1,9 @@
 // Enhanced post chain: half-resolution light shafts and
 // the HDR composite with grading and a filmic shoulder.
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
-#import cinnabar::enhanced_common::{
+import bevy_core_pipeline::fullscreen_vertex_shader::fullscreen::FullscreenVertexOutput;
+import render::enhanced::common::{
     EnhancedFrame, FEATURE_SHAFTS, interleaved_gradient_noise,
-}
+};
 
 @group(0) @binding(0) var<uniform> frame: EnhancedFrame;
 @group(0) @binding(1) var source_texture: texture_2d<f32>;

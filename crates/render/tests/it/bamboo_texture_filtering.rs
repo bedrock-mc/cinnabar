@@ -83,7 +83,7 @@ fn bamboo_tile_edges_and_distant_mips_preserve_the_admitted_rectangle() {
     });
     let source = format!(
         "{}\n{}",
-        shader_source::standalone(include_str!("../../src/model.wgsl"), &[]),
+        shader_source::standalone(include_str!("../../src/model.wesl"), &[]),
         FIXTURE
             .replace(
                 "SMALL_TEXTURE_REFERENCE",
@@ -187,7 +187,7 @@ fn gridded_cube_textures_repeat_per_block_with_native_mip_scale() {
     );
     let source = format!(
         "{}\n{}",
-        shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[]),
+        shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]),
         CUBE_GRID_FIXTURE.replace("GRID_TEXTURE_REFERENCE", &format!("{reference}u"))
     );
     let pixels = gpu.render(

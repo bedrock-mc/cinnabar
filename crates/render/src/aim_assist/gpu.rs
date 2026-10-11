@@ -74,8 +74,8 @@ fn install(app: &mut App) {
     load_internal_asset!(
         app,
         SHADER,
-        "highlight.wgsl",
-        crate::shader_safety::from_wgsl
+        "highlight.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -626,7 +626,7 @@ mod tests {
     fn shader_resources_match_their_stage_visibility() {
         let pipeline = HighlightPipeline::from_world(&mut World::new());
         crate::shader_test_support::assert_binding_visibility(
-            &crate::shader_source::standalone(include_str!("highlight.wgsl"), &[]),
+            &crate::shader_source::standalone(include_str!("highlight.wesl"), &[]),
             0,
             &pipeline.bind_group_layout,
         );

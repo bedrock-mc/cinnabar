@@ -81,8 +81,8 @@ fn install(app: &mut App) {
     load_internal_asset!(
         app,
         ITEM_SHADER_HANDLE,
-        "dropped_item.wgsl",
-        crate::shader_safety::from_wgsl
+        "dropped_item.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::pipeline_warmup::register::<ItemPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
@@ -706,7 +706,7 @@ fn queue_items(mut params: QueueItemParams<'_, '_>) {
                 slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Shader>::invalid().untyped(),
+                asset_id: AssetId::<Shader>::default().untyped(),
             },
             (view_entity, *main_entity),
             InputUniformIndex::default(),
@@ -790,24 +790,9 @@ mod tests {
     // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
     #[test]
     fn fragment_view_reads_are_visible_to_the_fragment_stage() {
-        let lighting = crate::material_shader::source(include_str!("lighting.wgsl")).replacen(
-            "#define_import_path cinnabar::lighting",
-            "",
-            1,
-        );
-        let source = include_str!("dropped_item.wgsl")
-            .replace(
-                "#import bevy_render::view::View",
-                "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-            )
-            .replace(
-                "#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}",
-                &lighting,
-            );
+        let source = crate::shader_source::composed(include_str!("dropped_item.wesl"), &[]);
         assert!(crate::shader_test_support::fragment_reads_binding(
-            &crate::shader_source::preprocess(&source, &[]),
-            0,
-            0
+            &source, 0, 0
         ));
         assert!(
             super::item_bind_group_layout().entries[0]

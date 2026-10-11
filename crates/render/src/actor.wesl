@@ -1,8 +1,7 @@
-#import bevy_render::view::View
-#import cinnabar::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear}
-#ifdef ALPHA_TO_COVERAGE
-#import cinnabar::lighting::{CutoutSample, cutout_alpha_array}
-#endif
+import bevy_render::view::View;
+import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
+@if(ALPHA_TO_COVERAGE)
+import render::lighting::{CutoutSample, cutout_alpha_array};
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -194,9 +193,15 @@ fn sample_actor_texture(uv: vec2<f32>, layer: u32) -> vec4<f32> {
     }
 }
 
-#ifdef ALPHA_TO_COVERAGE
 // Player skin resolution classes keep their own texel footprint when measuring cutout coverage.
-fn actor_alpha_footprint(uv: vec2<f32>, layer: u32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool) -> CutoutSample {
+@if(ALPHA_TO_COVERAGE)
+fn actor_alpha_footprint(@if(ALPHA_TO_COVERAGE)
+uv: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+layer: u32, @if(ALPHA_TO_COVERAGE)
+dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
+repeat_uv: bool) -> CutoutSample {
     let index = i32(layer & 0xffffffu);
     switch (layer >> 24u) {
         case 1u: { return cutout_alpha_array(skins_64, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
@@ -205,7 +210,6 @@ fn actor_alpha_footprint(uv: vec2<f32>, layer: u32, dx: vec2<f32>, dy: vec2<f32>
         default: { return cutout_alpha_array(skins, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
     }
 }
-#endif
 
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
@@ -224,10 +228,10 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         discard;
     }
     var uv = select(input.back_uv, input.uv, front);
-#ifdef ALPHA_TO_COVERAGE
+    @if(ALPHA_TO_COVERAGE)
     let uv_dx = dpdx(uv);
+    @if(ALPHA_TO_COVERAGE)
     let uv_dy = dpdy(uv);
-#endif
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
     if (input.uv_wrap != 0u) {
         uv = fract(uv);
@@ -236,27 +240,26 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     // decode before dye/overlay products, then transfer once at the output.
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
-#ifdef ALPHA_TO_COVERAGE
+    @if(ALPHA_TO_COVERAGE)
     let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.uv_wrap != 0u);
+    @if(ALPHA_TO_COVERAGE)
     let coverage = cutout.coverage;
+    @if(ALPHA_TO_COVERAGE)
     if (color.a < ACTOR_ALPHA_TEST_THRESHOLD && coverage > 0.0) { color = tint_to_gamma(cutout.colour); }
-#endif
     if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
         if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
         return vec4(0.0);
     }
     if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
-#ifndef ALPHA_TO_COVERAGE
+    @if(!ALPHA_TO_COVERAGE)
     if (material == ACTOR_MATERIAL_GLINT && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
-#endif
     let color_mask_material = material_class.y != 0u;
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
         if (emissive && all(color == vec4(0.0))) { discard; }
-#ifndef ALPHA_TO_COVERAGE
+        @if(!ALPHA_TO_COVERAGE)
         if (!emissive && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
-#endif
     }
     if (!authored && !color_mask_material && !multitexture_material && material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
@@ -300,14 +303,12 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let foil = (first + second) * vec3(0.38, 0.19, 0.608) * strength * foil_light;
         lit_gamma += foil * foil;
     }
-#ifdef ALPHA_TO_COVERAGE
+    @if(ALPHA_TO_COVERAGE)
     let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), coverage);
-#else
+    @if(!ALPHA_TO_COVERAGE)
     let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a);
-#endif
-#ifdef ACTOR_GAMMA_BLEND
+    @if(ACTOR_GAMMA_BLEND)
     return fogged_gamma;
-#else
+    @if(!ACTOR_GAMMA_BLEND)
     return tint_to_linear(fogged_gamma);
-#endif
 }

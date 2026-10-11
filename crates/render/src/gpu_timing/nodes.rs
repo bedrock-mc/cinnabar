@@ -299,7 +299,8 @@ fn begin_frame(mut timer: ResMut<NodeTimer>) {
                 let bytes = slot
                     .buffer
                     .slice(..u64::from(slot.spans) * 2 * 8)
-                    .get_mapped_range();
+                    .get_mapped_range()
+                    .expect("readback buffer is mapped");
                 let tick = |query: usize| {
                     u64::from_le_bytes(bytes[query * 8..query * 8 + 8].try_into().unwrap())
                 };

@@ -9,6 +9,7 @@ pub enum TransparentWitnessRequestError {
 }
 
 #[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TransparentWitnessRequest {
     pub(in crate::chunk) revision: u64,
     pub(in crate::chunk) keys: Arc<[SubChunkKey]>,

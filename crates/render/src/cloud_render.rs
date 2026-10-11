@@ -46,6 +46,7 @@ use meshing::{
 
 /// The user's cloud visibility preference, copied into the render world each frame.
 #[derive(Resource, ExtractResource, Clone, Copy)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct CloudVisibility(pub bool);
 
 impl Default for CloudVisibility {
@@ -63,8 +64,8 @@ pub(crate) fn install_cloud_render(app: &mut App) {
     load_internal_asset!(
         app,
         CLOUD_SHADER_HANDLE,
-        "cloud.wgsl",
-        |source: &str, path| crate::shader_safety::from_wgsl(
+        "cloud.wesl",
+        |source: &str, path| crate::shader_safety::from_wesl(
             meshing::cloud_viewport::shader_source(source),
             path,
         )

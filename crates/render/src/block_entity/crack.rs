@@ -145,7 +145,7 @@ pub fn crack_shape_from_template(
 
 fn rotate_corner(corner: [i16; 3], variant: u32) -> [f32; 3] {
     let [x, y, z] = corner.map(|axis| f32::from(axis) / POSITION_UNITS);
-    // Same cell-centered transform as model.wgsl::rotate_cross. The template
+    // Same cell-centered transform as model.wesl::rotate_cross. The template
     // already encodes vertical halves; unrelated high semantic bits are ignored.
     match variant & 3 {
         1 => [1.0 - z, y, x],

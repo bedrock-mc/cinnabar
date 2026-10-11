@@ -45,12 +45,8 @@ fn vanilla_mesh_counts_and_unit_geometry() {
 
 /// Resolves production imports and feature branches before standalone shader validation.
 pub(super) fn source(definitions: &[&str]) -> String {
-    let raw = shader(include_str!("shapes.wgsl"), "primitive test");
-    let raw = raw.source.as_str().replace(
-        "#import bevy_render::globals::Globals",
-        "struct Globals { time:f32, delta_time:f32, frame_count:u32, }",
-    );
-    crate::shader_source::standalone(&raw, definitions)
+    let raw = shader(include_str!("shapes.wesl"), "primitive test");
+    crate::shader_source::standalone(raw.source.as_str(), definitions)
 }
 
 #[test]
@@ -211,7 +207,12 @@ fn gpu_visibility_handles_expiry_dimension_removal_attachment_and_hour_wrap() {
         .unwrap();
     rx.recv().unwrap().unwrap();
     assert_eq!(
-        bytemuck::cast_slice::<u8, u32>(&readback.slice(..).get_mapped_range()),
+        bytemuck::cast_slice::<u8, u32>(
+            &readback
+                .slice(..)
+                .get_mapped_range()
+                .expect("readback buffer is mapped")
+        ),
         [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]
     );
 }
@@ -240,7 +241,7 @@ fn line_update(id: u64, x: f32) -> render_api::primitive_shapes::PrimitiveShapeC
 fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
     use bevy::{
         ecs::system::RunSystemOnce,
-        render::renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        render::renderer::{RenderDevice, RenderQueue},
     };
     use render_api::primitive_shapes::PrimitiveShapesEvent;
     let Some(native) = crate::gpu_snapshot::Gpu::for_fixture("retained primitive uploads") else {
@@ -248,7 +249,7 @@ fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
     };
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(native.device));
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(native.queue))));
+    world.insert_resource(RenderQueue::new(native.queue));
     let scene = PrimitiveShapesScene::default();
     scene.store.lock().unwrap().apply(PrimitiveShapesEvent {
         changes: (0..1000).map(|id| line_update(id, id as f32)).collect(),
@@ -292,7 +293,7 @@ fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
 
 /// Runs real GPU preparation with arena chunks limited to `chunk_bytes`.
 fn limited_prepare(chunk_bytes: u64) -> Option<(World, impl System<In = (), Out = ()>)> {
-    use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+    use bevy::render::renderer::{RenderDevice, RenderQueue};
     let native = crate::gpu_snapshot::Gpu::for_fixture("primitive arena binding limits")?;
     let mut world = World::new();
     let device = RenderDevice::from(native.device);
@@ -302,7 +303,7 @@ fn limited_prepare(chunk_bytes: u64) -> Option<(World, impl System<In = (), Out 
     };
     world.insert_resource(gpu::ShapeGpu::new(&device, &limits));
     world.insert_resource(device);
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(native.queue))));
+    world.insert_resource(RenderQueue::new(native.queue));
     world.insert_resource(PrimitiveShapesScene::default());
     let mut prepare = IntoSystem::into_system(gpu::prepare);
     prepare.initialize(&mut world);

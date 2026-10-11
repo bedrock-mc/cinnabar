@@ -156,6 +156,7 @@ impl Plugin for GpuTimingPlugin {
 /// Asks for per-pass GPU spans in the next rendered frame when the stage profiler does not
 /// already record them, such as when a developer overlay refreshes its slowest passes.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct DetailedGpuTiming(pub bool);
 
 /// Adds markers to stock post-processing systems while keeping their schedule boundaries.
@@ -446,7 +447,11 @@ impl GpuTimestamps {
                     if let Some(health) = &mut self.health {
                         health.readback();
                     }
-                    let bytes = slot.buffer.slice(..).get_mapped_range();
+                    let bytes = slot
+                        .buffer
+                        .slice(..)
+                        .get_mapped_range()
+                        .expect("readback buffer is mapped");
                     let tick = |query: u32| {
                         let start = query as usize * TIMESTAMP_BYTES as usize;
                         u64::from_le_bytes(

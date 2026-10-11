@@ -14,6 +14,7 @@ crossbeam-queue = "=0.3.13"
 anyhow.workspace = true
 assets = { path = "../assets" }
 bevy.workspace = true
+glam.workspace = true
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
 client-ui = { path = "../client-ui" }

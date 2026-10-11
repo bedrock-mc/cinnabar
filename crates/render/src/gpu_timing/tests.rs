@@ -1,17 +1,18 @@
 use super::*;
 use crate::render_test_support::record;
 use bevy::prelude::Component;
-use bevy::{
-    ecs::system::RunSystemOnce,
-    render::renderer::{PendingCommandBuffers, WgpuWrapper},
-};
+use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
 
 /// Creates a validation device with the requested timestamp capabilities.
 pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -24,10 +25,7 @@ pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueu
         ..Default::default()
     }))
     .unwrap();
-    (
-        RenderDevice::from(device),
-        RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-    )
+    (RenderDevice::from(device), RenderQueue::new(queue))
 }
 
 /// Resolves submitted frame spans and requests their asynchronous readback.
@@ -74,10 +72,10 @@ fn completed_metal_samples_drain_when_every_readback_slot_is_occupied() {
     assert!(timestamps.open_pass(RuntimeStage::GpuUi).is_none());
     let mut world = World::new();
     world.insert_resource(timestamps);
-    let submissions = crate::device_poll::submissions_so_far(&queue);
+    let submissions = crate::device_poll::submission_marker(&queue);
     let buffers = run_readback(&mut world, &device);
     assert_eq!(
-        crate::device_poll::submissions_so_far(&queue),
+        crate::device_poll::submission_marker(&queue),
         submissions + 1
     );
     queue.submit(buffers);
@@ -96,7 +94,10 @@ pub(super) fn run_readback(world: &mut World, device: &RenderDevice) -> Vec<wgpu
     world.insert_resource(device.clone());
     world.init_resource::<PendingCommandBuffers>();
     world.run_system_once(encode_readback).unwrap();
-    world.resource_mut::<PendingCommandBuffers>().take()
+    world
+        .resource_mut::<PendingCommandBuffers>()
+        .finish()
+        .collect::<Vec<_>>()
 }
 
 /// Deferred passes and draws belong to the same readback as synchronously recorded work.
@@ -182,7 +183,10 @@ fn run_opaque(world: &mut World, device: &RenderDevice) -> Vec<wgpu::CommandBuff
     world.insert_resource(device.clone());
     world.init_resource::<PendingCommandBuffers>();
     world.run_schedule(Core3d);
-    world.resource_mut::<PendingCommandBuffers>().take()
+    world
+        .resource_mut::<PendingCommandBuffers>()
+        .finish()
+        .collect::<Vec<_>>()
 }
 
 #[test]
@@ -495,7 +499,6 @@ fn readback_includes_every_camera_in_submission_order() {
             entity,
             order: order as isize,
             target: None,
-            hdr: false,
             output_mode,
         });
     }
@@ -517,7 +520,12 @@ fn readback_includes_every_camera_in_submission_order() {
     world.add_schedule(root);
     install_readback(&mut world);
     world.run_schedule(RenderGraph);
-    queue.submit(world.resource_mut::<PendingCommandBuffers>().take());
+    queue.submit(
+        world
+            .resource_mut::<PendingCommandBuffers>()
+            .finish()
+            .collect::<Vec<_>>(),
+    );
     let mut timestamps = world.resource_mut::<GpuTimestamps>();
     timestamps.request_readback(&queue);
     let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];

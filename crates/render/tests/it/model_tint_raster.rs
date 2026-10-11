@@ -216,7 +216,7 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
-    let mut source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions)
+    let mut source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     if reference {
         let start = source
@@ -275,7 +275,7 @@ fn calls_biome_blender(module: &naga::Module, block: &naga::Block) -> bool {
 #[test]
 fn ordinary_models_compute_flat_biome_tint_only_in_vertices() {
     for definitions in [&[][..], &["NATIVE_GAMMA_BLEND"][..]] {
-        let source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions);
+        let source = shader_source::standalone(include_str!("../../src/model.wesl"), definitions);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
         for name in ["fragment", "fragment_blend"] {

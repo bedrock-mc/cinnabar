@@ -159,7 +159,12 @@ fn read_pixel(
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    buffer.slice(..).get_mapped_range()[..4].try_into().unwrap()
+    buffer
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")[..4]
+        .try_into()
+        .unwrap()
 }
 
 /// Deliberately flattens the opaque samples so the differential fixture can detect lost coverage.
@@ -394,7 +399,10 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -445,7 +453,6 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
                 sorted_camera_index_for_target: 0,
                 exposure: 1.0,
                 hdr: false,
-                compositing_space: None,
             },
             ExtractedView {
                 retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 1),
@@ -463,6 +470,9 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
         .id();
     let mut schedule = Render::base_schedule();
     schedule.add_systems((
+        prepare_scene_formats
+            .in_set(RenderSystems::PrepareViews)
+            .before(prepare_view_targets),
         prepare_view_targets.in_set(RenderSystems::PrepareViews),
         render_systems(),
     ));

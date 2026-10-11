@@ -92,8 +92,8 @@ fn install(app: &mut App) {
     app.add_plugins(ExtractResourcePlugin::<BlockEntityFrame>::default());
     app.add_plugins(ExtractResourcePlugin::<BlockSelectionFrame>::default());
     crate::lighting::install(app);
-    load_internal_asset!(app, SHADER_HANDLE, "block_entity.wgsl", |source, path| {
-        crate::shader_safety::from_block_entity_wgsl(
+    load_internal_asset!(app, SHADER_HANDLE, "block_entity.wesl", |source, path| {
+        crate::shader_safety::from_block_entity_wesl(
             source,
             path,
             BLOCK_ENTITY_VERTEX_WORDS,
@@ -561,7 +561,7 @@ fn queue_solid(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Shader>::invalid().untyped(),
+                    asset_id: AssetId::<Shader>::default().untyped(),
                 },
                 (view_entity, *main_entity),
                 InputUniformIndex::default(),

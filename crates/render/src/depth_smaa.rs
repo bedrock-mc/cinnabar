@@ -34,7 +34,7 @@ use bevy::{
             TextureSampleType, TextureViewDimension, TextureViewId, VertexState,
         },
         renderer::RenderDevice,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 use pipelines::DepthSmaaPipelines;
@@ -49,8 +49,8 @@ impl Plugin for DepthSmaaPlugin {
         load_internal_asset!(
             app,
             pipelines::EDGE_SHADER,
-            "depth_smaa/edge.wgsl",
-            crate::shader_safety::from_wgsl
+            "depth_smaa/edge.wesl",
+            crate::shader_safety::from_wesl
         );
         load_internal_asset!(
             app,
@@ -93,7 +93,7 @@ struct DepthSmaaView {
 type PreparedView = (
     Entity,
     &'static ViewTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     &'static Msaa,
     Option<&'static DepthSmaaView>,
 );
@@ -125,7 +125,7 @@ fn prepare(
         let samples = msaa.samples();
         let format = target.main_texture_format();
         if previous.is_some_and(|old| {
-            old.source == depth.view().id()
+            old.source == crate::scene_sampling::view_depth(depth).id()
                 && old.samples == samples
                 && old.format == format
                 && old.uniform == uniform_id
@@ -140,7 +140,7 @@ fn prepare(
         let depth_binding = device.create_bind_group(
             "SMAA depth input",
             &cache.get_bind_group_layout(&pipelines.depth_layout(samples)),
-            &BindGroupEntries::single(depth.view()),
+            &BindGroupEntries::single(crate::scene_sampling::view_depth(depth)),
         );
         let post = [target.main_texture_view(), target.main_texture_other_view()].map(|view| {
             let binding = device.create_bind_group(
@@ -156,7 +156,7 @@ fn prepare(
             (view.id(), binding, restore)
         });
         commands.entity(entity).insert(DepthSmaaView {
-            source: depth.view().id(),
+            source: crate::scene_sampling::view_depth(depth).id(),
             uniform: uniform_id,
             depth: depth_binding,
             post,

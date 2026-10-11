@@ -1,17 +1,14 @@
-#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade}
-#ifdef ENHANCED_SHADOW
-#import cinnabar::enhanced_caster::caster_clip
-#endif
-#import bevy_render::view::View
-#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
-#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
-#ifdef ALPHA_TO_COVERAGE
-#import cinnabar::lighting::{CutoutSample, cutout_alpha_array, cutout_mix}
-#endif
-#ifdef ENHANCED
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
-#endif
+import render::material::{MaterialGpu, materials, positional_material, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+@if(ENHANCED_SHADOW)
+import render::enhanced::caster::caster_clip;
+import bevy_render::view::View;
+import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
+import render::world_projection::{section_camera_offset, camera_offset_clip};
+import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+@if(ALPHA_TO_COVERAGE)
+import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
+@if(ENHANCED)
+import render::enhanced::view::{sky_illumination, material_class, shade_surface, waved_position};
 
 const TERRAIN_ALPHA_THRESHOLD: f32 = 0.5;
 
@@ -99,15 +96,18 @@ struct VertexOutput {
     @location(7) @interpolate(flat) frame_blend_uv_limit: vec3<f32>,
     @location(8) world_position: vec3<f32>,
     @location(9) lighting: vec3<f32>,
-#ifdef ENHANCED
+    @if(ENHANCED)
     @location(10) sky_light: f32,
+    @if(ENHANCED)
     @location(11) ambient_occlusion: f32,
+    @if(ENHANCED)
     @location(12) @interpolate(flat) surface_class: u32,
-#else
+    @if(!ENHANCED)
     @location(10) native_light_levels: vec2<f32>,
+    @if(!ENHANCED)
     @location(11) native_ao_face: f32,
+    @if(!ENHANCED)
     @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
-#endif
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -317,9 +317,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
 
     var out: VertexOutput;
     out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
-#ifdef ENHANCED_SHADOW
+    @if(ENHANCED_SHADOW)
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
-#endif
     let uv_flags = material_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let corner_position = quad_position(face, local_position - local_origin);
     out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
@@ -334,21 +333,24 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
     out.lighting = light_colour(light_sample) * ao * dimming;
-#ifdef ENHANCED
+    @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
+    @if(ENHANCED)
     out.ambient_occlusion = ao;
-#else
     // Native RenderChunk samples its gamma lightmap after applying vertex AO.
     // Retain separate level and AO interpolants: table lookup occurs in the
     // fragment stage, not before interpolating its nonlinear RGB output.
+    @if(!ENHANCED)
     out.native_light_levels = terrain_light_levels(light_sample);
+    @if(!ENHANCED)
     out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    @if(!ENHANCED)
     out.uniform_tint_gamma = vec4(0.0);
-#ifndef ENHANCED_SHADOW
-#ifndef OPAQUE_OVERDRAW
+    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
     out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
     // A one-block face owns a single block's blend, so evaluate it here once rather than per
     // fragment. Mixed records mesh tinted faces one block wide for exactly this.
+    @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
     if (out.uniform_tint_gamma.a == 0.0 && (material.flags & 0x30u) != 0u && width == 1.0 && height == 1.0) {
         out.uniform_tint_gamma = vec4(blended_biome_tint_gamma(
             material.flags & 0x30u,
@@ -358,34 +360,42 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
             vec3<f32>(chunk_origin.value.xyz),
         ).rgb, 1.0);
     }
-#endif
-#endif
-#endif
-#ifdef ENHANCED
+    @if(ENHANCED)
     out.surface_class = material_class(quad.material_id);
+    @if(ENHANCED)
     out.world_position = waved_position(world_position, out.surface_class, 1.0);
+    @if(ENHANCED)
     out.clip_position = camera_offset_clip(
         view.clip_from_world,
         view.world_position,
         camera_offset + (out.world_position - world_position),
     );
-#endif
-#ifndef ENHANCED_SHADOW
     // Grow within the face plane, moving positions and UVs while retaining corner light samples.
     // World-axis motions project through the corresponding clip_from_world columns.
+    @if(!ENHANCED_SHADOW)
     let outward = sign(2.0 * corner_position - vec2(width, height));
+    @if(!ENHANCED_SHADOW)
     let normal_axis = face / 2u;
+    @if(!ENHANCED_SHADOW)
     let du = select(view.clip_from_world[0], view.clip_from_world[2], normal_axis == 0u) * outward.x;
+    @if(!ENHANCED_SHADOW)
     let dv = select(view.clip_from_world[1], view.clip_from_world[2], normal_axis == 1u) * outward.y;
+    @if(!ENHANCED_SHADOW)
     let steps = seal_steps(out.clip_position, du, dv, seal_pixels);
+    @if(!ENHANCED_SHADOW)
     out.clip_position += du * steps.x + dv * steps.y;
+    @if(!ENHANCED_SHADOW)
     let moved = outward * steps;
+    @if(!ENHANCED_SHADOW)
     let axes = quad_axes(face);
+    @if(!ENHANCED_SHADOW)
     let shift = axes[0] * moved.x + axes[1] * moved.y;
+    @if(!ENHANCED_SHADOW)
     out.uv = greedy_uv(face, corner_position + moved, width, height, uv_flags);
+    @if(!ENHANCED_SHADOW)
     out.local_position += shift;
+    @if(!ENHANCED_SHADOW)
     out.world_position += shift;
-#endif
     return out;
 }
 
@@ -424,22 +434,25 @@ fn sample_texture_ref(
 ) -> vec4<f32> {
     let page = texture_ref >> 31u;
     let layer = i32(texture_ref & 0x7ffu);
-#ifdef ENHANCED
+    @if(ENHANCED)
     if (page == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
         return textureSampleGrad(block_textures_page_0, block_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
     }
+    @if(ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    @if(ENHANCED)
     return textureSampleGrad(block_textures_page_1, block_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
-#else
     // Mips and animation frames interpolate the original encoded texture bytes.
+    @if(!ENHANCED)
     if (page == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
         return textureSampleGrad(native_leaf_textures_page_0, block_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
     }
+    @if(!ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
+    @if(!ENHANCED)
     return textureSampleGrad(native_leaf_textures_page_1, block_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
-#endif
 }
 
 fn sample_material_texture_ref(
@@ -449,8 +462,7 @@ fn sample_material_texture_ref(
     uv_dy: vec2<f32>,
     material_flags: u32,
 ) -> vec4<f32> {
-#ifdef ENHANCED
-#else
+    @if(!ENHANCED)
     if (material_uses_native_leaf_colour(material_flags)) {
         let layer = i32(texture_ref & 0x7ffu);
         if ((texture_ref >> 31u) == 0u) {
@@ -460,7 +472,6 @@ fn sample_material_texture_ref(
         let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
         return textureSampleGrad(native_leaf_textures_page_1, native_leaf_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
     }
-#endif
     return sample_texture_ref(texture_ref, uv, uv_dx, uv_dy);
 }
 
@@ -518,13 +529,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
     var sampled = sample_cube_texture(in, uv_dx, uv_dy);
-#ifndef ALPHA_TO_COVERAGE
+    @if(!ALPHA_TO_COVERAGE)
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) {
         discard;
     }
-#endif
-#ifdef ALPHA_TO_COVERAGE
+    @if(ALPHA_TO_COVERAGE)
     var coverage = 1.0;
+    @if(ALPHA_TO_COVERAGE)
     if ((in.material_flags & (1u << 8u)) != 0u) {
         // Same face-clamped coordinates as the colour sample, so sealed edges never reach outside the face.
         let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
@@ -536,51 +547,55 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
         coverage = cutout.coverage;
         if (sampled.a < TERRAIN_ALPHA_THRESHOLD && coverage > 0.0) { sampled = cutout.colour; }
     }
-#endif
-#ifdef OPAQUE_OVERDRAW
+    @if(OPAQUE_OVERDRAW)
     return vec4(1.0);
-#else
+    @if(!OPAQUE_OVERDRAW)
     let shaded = shade_cube(in, sampled);
-#ifdef ALPHA_TO_COVERAGE
+    @if(!OPAQUE_OVERDRAW && ALPHA_TO_COVERAGE)
     return vec4(shaded.rgb, coverage);
-#else
+    @if(!OPAQUE_OVERDRAW && !ALPHA_TO_COVERAGE)
     return shaded;
-#endif
-#endif
 }
 
-#ifdef ALPHA_TO_COVERAGE
 // Coverage shares color addressing and gradients for the source image on the selected page.
-fn cube_alpha_footprint(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, flags: u32) -> CutoutSample {
+@if(ALPHA_TO_COVERAGE)
+fn cube_alpha_footprint(@if(ALPHA_TO_COVERAGE)
+texture_ref: u32, @if(ALPHA_TO_COVERAGE)
+uv: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
+flags: u32) -> CutoutSample {
     let layer = i32(texture_ref & 0x7ffu);
     let coordinate = texture_cube_uv(texture_ref, uv);
-#ifdef ENHANCED
+    @if(ENHANCED)
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
         return cutout_alpha_array(block_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, TERRAIN_ALPHA_THRESHOLD);
     }
+    @if(ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    @if(ENHANCED)
     return cutout_alpha_array(block_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, TERRAIN_ALPHA_THRESHOLD);
-#else
+    @if(!ENHANCED)
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
         return cutout_alpha_array(native_leaf_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
     }
+    @if(!ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_1, 0));
+    @if(!ENHANCED)
     return cutout_alpha_array(native_leaf_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, !material_uses_native_leaf_colour(flags), TERRAIN_ALPHA_THRESHOLD);
-#endif
 }
-#endif
 
 // Single-sided opaque runs: back-face culling and the mesher's material partition
 // stand in for both discards, keeping early depth and hidden-surface removal.
 @fragment
 fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
-#ifdef OPAQUE_OVERDRAW
+    @if(OPAQUE_OVERDRAW)
     return vec4(1.0);
-#else
+    @if(!OPAQUE_OVERDRAW)
     return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
-#endif
 }
 
 // Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
@@ -596,9 +611,10 @@ fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> 
     return sampled;
 }
 
-#ifndef ENHANCED
 // Mixed records and position-noise grass keep their original per-block fragment lookup.
-fn ordinary_cube_tint_gamma(in: VertexOutput) -> vec3<f32> {
+@if(!ENHANCED)
+fn ordinary_cube_tint_gamma(@if(!ENHANCED)
+in: VertexOutput) -> vec3<f32> {
     if (in.uniform_tint_gamma.a != 0.0) { return in.uniform_tint_gamma.rgb; }
     var tint_gamma = vec3(1.0);
     let tint_kind = in.material_flags & 0x30u;
@@ -613,10 +629,9 @@ fn ordinary_cube_tint_gamma(in: VertexOutput) -> vec3<f32> {
     }
     return tint_gamma;
 }
-#endif
 
 fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
-#ifdef ENHANCED
+    @if(ENHANCED)
     let colour = apply_material_tint(
         sampled,
         in.material_flags,
@@ -625,6 +640,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.normal,
         in.world_position - in.local_position,
     );
+    @if(ENHANCED)
     let shaded = shade_surface(
         colour.rgb,
         in.normal,
@@ -635,9 +651,11 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.ambient_occlusion,
         in.surface_class,
     );
+    @if(ENHANCED)
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
-#else
+    @if(!ENHANCED)
     let tint_gamma = ordinary_cube_tint_gamma(in);
+    @if(!ENHANCED)
     let native_colour = native_cube_colour(
         sampled,
         in.material_flags,
@@ -647,14 +665,16 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         atmosphere.fog_color_start.rgb,
         distance_fog_amount(in.world_position),
     );
+    @if(!ENHANCED)
     return native_colour;
-#endif
 }
-#ifdef ENHANCED_SHADOW
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.
+@if(ENHANCED_SHADOW)
 @fragment
-fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
+fn fragment_shadow(@if(ENHANCED_SHADOW)
+in: VertexOutput, @if(ENHANCED_SHADOW)
+@builtin(front_facing) front: bool) {
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
@@ -664,4 +684,3 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) { discard; }
 }
-#endif

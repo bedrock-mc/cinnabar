@@ -6,7 +6,7 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipeline = CloudPipeline::from_world(&mut World::new());
     crate::shader_test_support::assert_binding_visibility(
-        &crate::shader_source::standalone(include_str!("cloud.wgsl"), &[]),
+        &crate::shader_source::standalone(include_str!("cloud.wesl"), &[]),
         0,
         &pipeline.bind_group_layout,
     );

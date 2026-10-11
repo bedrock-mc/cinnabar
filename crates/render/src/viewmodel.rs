@@ -139,6 +139,7 @@ pub(super) struct HandFrame {
 }
 
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ViewmodelScene {
     pub(super) frame: Option<HandFrame>,
 }
@@ -465,7 +466,7 @@ impl ViewmodelCompletionGate {
 }
 
 pub(super) fn hand_projection(size: [u32; 2]) -> Mat4 {
-    Mat4::perspective_infinite_reverse_rh(
+    glam::camera::rh::proj::directx::perspective_infinite_reverse(
         70.0_f32.to_radians(),
         size[0] as f32 / size[1] as f32,
         render_api::CAMERA_NEAR_PLANE_BLOCKS,

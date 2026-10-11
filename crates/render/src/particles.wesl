@@ -1,5 +1,5 @@
-#import bevy_render::view::View
-#import cinnabar::lighting::{actor_light_colour, tint_to_gamma, tint_to_linear}
+import bevy_render::view::View;
+import render::lighting::{actor_light_colour, tint_to_gamma, tint_to_linear};
 
 struct Particle {
     center_light: vec4<f32>,

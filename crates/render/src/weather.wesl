@@ -1,5 +1,5 @@
-#import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour}
+import bevy_render::view::View;
+import render::lighting::{lit_colour, light_colour};
 
 // Port of the vanilla RenderDragon `Weather` material: wrapped particle streaks stretched along
 // the layer velocity, hidden below each column's occlusion height.

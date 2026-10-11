@@ -35,8 +35,13 @@ struct Scene {
 /// Looks straight down at the floor from ten blocks above the origin, with -Z up the screen.
 fn scene() -> Scene {
     let eye = Vec3::new(0.0, FLOOR_Y + 10.0, 0.0);
-    let world_from_view = Mat4::look_to_rh(eye, Vec3::NEG_Y, Vec3::NEG_Z).inverse();
-    let clip_from_view = Mat4::perspective_infinite_reverse_rh(60f32.to_radians(), 1.0, 0.05);
+    let world_from_view =
+        glam::camera::rh::view::look_to_mat4(eye, Vec3::NEG_Y, Vec3::NEG_Z).inverse();
+    let clip_from_view = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        60f32.to_radians(),
+        1.0,
+        0.05,
+    );
     Scene {
         clip_from_world: clip_from_view * world_from_view.inverse(),
         view_from_clip: clip_from_view.inverse(),
@@ -230,7 +235,7 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
         }],
     });
     let source = shader_source::standalone(
-        include_str!("../../src/entity_shadow.wgsl"),
+        include_str!("../../src/entity_shadow.wesl"),
         if samples > 1 { &["MULTISAMPLED"] } else { &[] },
     );
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -244,11 +249,11 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
             module: &module,
             entry_point: Some("shadow_vertex"),
             compilation_options: Default::default(),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: 12,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x3],
-            }],
+            })],
         },
         primitive: wgpu::PrimitiveState {
             cull_mode: Some(wgpu::Face::Front),
@@ -452,7 +457,11 @@ fn render(gpu: &Gpu, casters: &[EntityShadow], samples: u32) -> Vec<u8> {
         .map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     rx.recv().unwrap().unwrap();
-    readback.slice(..).get_mapped_range().to_vec()
+    readback
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")
+        .to_vec()
 }
 
 /// Encoded red byte at the pixel showing floor point `(x, z)`.

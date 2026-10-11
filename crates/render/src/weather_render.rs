@@ -44,7 +44,7 @@ const OCCLUSION_BYTES: usize = 2 * (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize * 
 /// Fixed seed so the particle mesh is identical across runs.
 const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
 
-/// Uniform read by `weather.wgsl`: box forward offset plus sheet flag, then the grid origin.
+/// Uniform read by `weather.wesl`: box forward offset plus sheet flag, then the grid origin.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct WeatherParamsGpu {
@@ -57,8 +57,8 @@ pub(crate) fn install_weather_render(app: &mut App) {
     load_internal_asset!(
         app,
         WEATHER_SHADER_HANDLE,
-        "weather.wgsl",
-        crate::shader_safety::from_wgsl
+        "weather.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)

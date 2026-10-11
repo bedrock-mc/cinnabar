@@ -26,6 +26,7 @@ use render_model::{
 
 const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * param(1u); }";
 
+/// Builds standalone custom renderers with an output format different from their scene pipelines.
 fn app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -68,6 +69,22 @@ fn app() -> App {
     app.finish();
     app.cleanup();
     app
+}
+
+#[test]
+fn standalone_renderers_keep_scene_format_independent_of_output() {
+    let mut app = app();
+    for _ in 0..4 {
+        app.update();
+    }
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut views = world.query::<&bevy::render::view::ViewTarget>();
+    let target = views.single(world).unwrap();
+    assert_eq!(target.main_texture_format(), crate::SCENE_COLOR_FORMAT);
+    assert_eq!(
+        target.out_texture_view_format(),
+        Some(TextureFormat::Bgra8UnormSrgb)
+    );
 }
 
 fn pass(revision: u64, enabled: bool) -> mod_render::Pass {

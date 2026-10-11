@@ -7,9 +7,9 @@ type Variant = (&'static str, String, &'static str, &'static str, bool);
 fn variants() -> Vec<Variant> {
     let mut result = Vec::new();
     for (name, source) in [
-        ("chunk", include_str!("../chunk.wgsl")),
-        ("model", include_str!("../model.wgsl")),
-        ("liquid", include_str!("../liquid.wgsl")),
+        ("chunk", include_str!("../chunk.wesl")),
+        ("model", include_str!("../model.wesl")),
+        ("liquid", include_str!("../liquid.wesl")),
     ] {
         result.push((
             name,
@@ -36,7 +36,7 @@ fn variants() -> Vec<Variant> {
                 false,
             ));
         }
-        if source.contains("#ifdef ENHANCED_SHADOW") {
+        if source.contains("@if(ENHANCED_SHADOW)") {
             result.push((
                 name,
                 shader_source::composed(source, &["ENHANCED_SHADOW"]),
@@ -49,7 +49,7 @@ fn variants() -> Vec<Variant> {
     for fragment in ["light_shafts", "composite"] {
         result.push((
             fragment,
-            shader_source::composed(include_str!("../enhanced/post.wgsl"), &[]),
+            shader_source::composed(include_str!("../enhanced/post.wesl"), &[]),
             "fullscreen",
             fragment,
             false,
@@ -166,8 +166,8 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
     let (device, queue) =
         bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let source = shader_source::composed(
-        "#import cinnabar::enhanced_view::sky_illumination
-#import cinnabar::lighting::light_colour
+        "import render::enhanced::view::sky_illumination;
+import render::lighting::light_colour;
 @group(0) @binding(0) var<storage, read_write> results: array<f32, 3>;
 @compute @workgroup_size(1) fn main() {
     results[0] = smoothstep(0.25, 0.8, sky_illumination(240u));
@@ -234,7 +234,13 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
     queue.submit([encoder.finish()]);
     readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    let values: Vec<f32> = bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
+    let values: Vec<f32> = bytemuck::cast_slice(
+        &readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped"),
+    )
+    .to_vec();
     assert_eq!(values[0], 1.0, "direct-light gate at full sky");
     assert_eq!(values[1], 0.0, "no sky exposure");
 }

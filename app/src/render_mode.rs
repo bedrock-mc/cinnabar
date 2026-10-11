@@ -55,14 +55,20 @@ pub(crate) fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+        Context::with_context(fs::create_dir_all(parent), || {
+            format!("create {}", parent.display())
+        })?;
     }
     let bytes = serde_json::to_vec_pretty(&GraphicsFile {
         render_mode: mode.as_str().to_owned(),
     })?;
     let temp = path.with_extension("json.tmp");
-    fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
-    fs::rename(&temp, path).with_context(|| format!("replace {}", path.display()))
+    Context::with_context(fs::write(&temp, bytes), || {
+        format!("write {}", temp.display())
+    })?;
+    Context::with_context(fs::rename(&temp, path), || {
+        format!("replace {}", path.display())
+    })
 }
 
 /// CLI beats environment beats the saved file. Attributable evidence runs

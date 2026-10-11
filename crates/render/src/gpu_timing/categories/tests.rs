@@ -85,7 +85,7 @@ fn add(
             slabs: default(),
         },
         Opaque3dBinKey {
-            asset_id: AssetId::<Mesh>::invalid().untyped(),
+            asset_id: AssetId::<Mesh>::default().untyped(),
         },
         (entity, MainEntity::from(entity)),
         InputUniformIndex::default(),

@@ -20,6 +20,7 @@ mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
 bevy.workspace = true
+glam.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
@@ -46,8 +47,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { version = "29.0.4", features = ["wgsl-in", "wgsl-out"] }
-naga_oil = "0.22"
+naga = { version = "30.0.1", features = ["wgsl-in", "wgsl-out"] }
+wesl = "0.6.0"
 tempfile = "3"
 
 [lints]

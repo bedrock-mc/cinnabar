@@ -6,7 +6,7 @@ use bevy::{
             ColorTargetState, ColorWrites, FragmentState, RenderPipelineDescriptor, TextureFormat,
             VertexState,
         },
-        renderer::{RenderAdapter, RenderDevice, WgpuWrapper},
+        renderer::RenderDevice,
     },
 };
 
@@ -17,15 +17,18 @@ fn cache() -> PipelineCache {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&default())).unwrap();
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&default())).unwrap();
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
-    let mut cache = PipelineCache::new(RenderDevice::from(device), adapter, true);
+
+    let mut cache = PipelineCache::new(RenderDevice::from(device), true);
     cache.set_shader(
         Handle::<Shader>::default().id(),
         crate::shader_safety::from_wgsl(

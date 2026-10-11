@@ -74,7 +74,7 @@ pub(super) fn queue_actors(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Shader>::invalid().untyped(),
+                    asset_id: AssetId::<Shader>::default().untyped(),
                 },
                 (view_entity, *main_entity),
                 InputUniformIndex::default(),

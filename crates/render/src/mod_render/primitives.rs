@@ -42,8 +42,8 @@ pub(super) fn install(app: &mut App) {
     load_internal_asset!(
         app,
         PRIMITIVE_SHADER,
-        "primitives.wgsl",
-        crate::shader_safety::from_wgsl
+        "primitives.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)

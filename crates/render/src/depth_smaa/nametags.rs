@@ -20,7 +20,7 @@ type NametagsAfterSmaaQuery = (
     &'static ExtractedCamera,
     &'static ExtractedView,
     &'static ViewTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     &'static Msaa,
     &'static crate::scene_target::SceneTarget,
     Option<&'static MainPassResolutionOverride>,

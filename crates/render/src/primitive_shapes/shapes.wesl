@@ -1,6 +1,6 @@
-#import bevy_render::view::View
-#import bevy_render::globals::Globals
-#import cinnabar::lighting::{tint_to_linear, tint_to_gamma}
+import bevy_render::view::View;
+import bevy_render::globals::Globals;
+import render::lighting::{tint_to_linear, tint_to_gamma};
 
 struct Shape {
     transform: mat4x4<f32>,
@@ -111,16 +111,14 @@ fn text_vertex(@builtin(vertex_index) vertex:u32,@builtin(instance_index) index:
     }
     let textured=record.uv.z>=0.0;
     var show=in_arena&&visible(shape,origin)&&record.flags.y!=0u;
-#ifdef TEXT_DEPTH
+    @if(TEXT_DEPTH)
     show=show&&(record.flags.z&1u)!=0u;
-#else
+    @if(!TEXT_DEPTH)
     show=show&&(record.flags.z&1u)==0u;
-#endif
-#ifdef TEXT_GLYPH
+    @if(TEXT_GLYPH)
     show=show&&textured;
-#else
+    @if(!TEXT_GLYPH)
     show=show&&!textured;
-#endif
     var output:VertexOutput;
     output.position=view.clip_from_world*vec4(origin+vec3(0.0,bitcast<f32>(record.flags.w),0.0)+(right*local.x+down*local.y)*TEXT_SCALE_VALUE,1.0);
     if !show { output.position=vec4(2.0,2.0,2.0,1.0); }
@@ -139,17 +137,14 @@ fn shape_fragment(input:VertexOutput,@builtin(front_facing) front:bool) -> @loca
     var color=input.color;
     if input.textured==1u {
         var texel=textureSample(atlas,atlas_sampler,input.uv);
-#ifdef TEXT_ALPHA_TEST
+        @if(TEXT_ALPHA_TEST)
         if texel.a<0.5 { discard; }
-#endif
-#ifdef SHAPE_GAMMA
+        @if(SHAPE_GAMMA)
         texel=tint_to_gamma(texel);
-#endif
         color*=texel;
     }
-#ifndef SHAPE_GAMMA
+    @if(!SHAPE_GAMMA)
     if input.textured==2u { return tint_to_linear(color); }
-#endif
     if input.textured==2u { return color; }
     if color.a<=0.0 { discard; }
     return color;

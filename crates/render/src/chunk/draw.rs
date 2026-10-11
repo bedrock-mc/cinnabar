@@ -240,7 +240,7 @@ pub(in crate::chunk) fn queue_chunks(
                         slabs: default(),
                     },
                     Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        asset_id: AssetId::<Mesh>::default().untyped(),
                     },
                     (view_entity, *view_main_entity),
                     InputUniformIndex::default(),
@@ -352,7 +352,7 @@ pub(in crate::chunk) fn queue_chunks(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
@@ -368,7 +368,7 @@ pub(in crate::chunk) fn queue_chunks(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
@@ -384,7 +384,7 @@ pub(in crate::chunk) fn queue_chunks(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
@@ -400,7 +400,7 @@ pub(in crate::chunk) fn queue_chunks(
                     slabs: default(),
                 },
                 Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 (view_entity, *view_main_entity),
                 InputUniformIndex::default(),
@@ -469,7 +469,7 @@ pub(in crate::chunk) fn queue_chunks(
                         slabs: default(),
                     },
                     Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        asset_id: AssetId::<Mesh>::default().untyped(),
                     },
                     (render_entity, main_entity),
                     InputUniformIndex::default(),
@@ -486,7 +486,7 @@ pub(in crate::chunk) fn queue_chunks(
                         slabs: default(),
                     },
                     Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        asset_id: AssetId::<Mesh>::default().untyped(),
                     },
                     (render_entity, main_entity),
                     InputUniformIndex::default(),
@@ -503,7 +503,7 @@ pub(in crate::chunk) fn queue_chunks(
                         slabs: default(),
                     },
                     Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        asset_id: AssetId::<Mesh>::default().untyped(),
                     },
                     (render_entity, main_entity),
                     InputUniformIndex::default(),

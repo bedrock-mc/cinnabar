@@ -124,7 +124,7 @@ use bevy::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
         render_resource::BlendFactor,
-        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
     },
 };
 use render_model::{
@@ -583,7 +583,7 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
     }
     render_app
         .world_mut()
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+        .insert_resource(RenderQueue::new(queue));
     render_app.world_mut().run_schedule(RenderStartup);
     render_app
         .world_mut()
@@ -850,7 +850,7 @@ fn app_with_noop_render_sub_app() -> App {
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))
         .add_schedule(Render::base_schedule())

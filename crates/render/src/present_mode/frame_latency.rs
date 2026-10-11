@@ -10,7 +10,7 @@ use bevy::{
         Extract, ExtractSchedule, Render, RenderSystems,
         view::{
             ViewTarget, ViewTargetAttachments,
-            window::{ExtractedWindows, WindowSurfaces, create_surfaces},
+            window::{ExtractedWindow, SurfaceData, create_surfaces},
         },
     },
     window::Window,
@@ -53,12 +53,12 @@ fn frame_latency_changed(changed: Res<ChangedFrameLatency>) -> bool {
 
 /// Copies live latency changes; Bevy only copies this field on the first extraction.
 fn extract_frame_latency(
-    windows: Extract<Query<(Entity, &Window)>>,
-    mut extracted: ResMut<ExtractedWindows>,
+    windows: Extract<Query<&Window>>,
+    mut extracted: Query<(bevy::render::sync_world::MainEntity, &mut ExtractedWindow)>,
     mut changed: ResMut<ChangedFrameLatency>,
 ) {
-    for (entity, window) in &windows {
-        if let Some(extracted) = extracted.windows.get_mut(&entity)
+    for (entity, mut extracted) in &mut extracted {
+        if let Ok(window) = windows.get(entity)
             && extracted.desired_maximum_frame_latency != window.desired_maximum_frame_latency
         {
             extracted.desired_maximum_frame_latency = window.desired_maximum_frame_latency;
@@ -72,8 +72,7 @@ fn recreate_surfaces(
     #[cfg(any(target_os = "macos", target_os = "ios"))] _marker: bevy::ecs::system::NonSendMarker,
     mut commands: Commands,
     mut changed: ResMut<ChangedFrameLatency>,
-    mut windows: ResMut<ExtractedWindows>,
-    mut surfaces: ResMut<WindowSurfaces>,
+    mut windows: Query<(Entity, &mut ExtractedWindow)>,
     mut attachments: ResMut<ViewTargetAttachments>,
     targets: Query<Entity, With<ViewTarget>>,
 ) {
@@ -84,11 +83,9 @@ fn recreate_surfaces(
         commands.entity(entity).remove::<ViewTarget>();
     }
     attachments.clear();
-    for window in windows.values_mut() {
+    for (entity, mut window) in &mut windows {
+        commands.entity(entity).remove::<SurfaceData>();
         window.swap_chain_texture_view = None;
         window.swap_chain_texture = None;
     }
-    // Bevy exposes no per-window surface removal or mutable configuration. Rebuilding this
-    // cache makes create_surfaces consume the updated latency, including for latency-only edits.
-    *surfaces = WindowSurfaces::default();
 }

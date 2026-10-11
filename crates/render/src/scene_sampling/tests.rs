@@ -88,13 +88,16 @@ pub(crate) fn pixel(
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    readback.slice(..).get_mapped_range()[..4]
+    readback
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")[..4]
         .try_into()
         .unwrap()
 }
 
 /// Writes distinct sample depths; one uncovered sample is the reverse-Z clear value.
-fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: bool) {
+fn fill_depth(context: &mut RenderContext, depth: &ViewDepthStencilTexture, uncovered: bool) {
     let device = context.render_device().wgpu_device();
     let source = format!(
         "\
@@ -134,7 +137,7 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
             bias: Default::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: depth.texture.sample_count(),
+            count: depth.texture().sample_count(),
             ..Default::default()
         },
         multiview_mask: None,
@@ -155,7 +158,7 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthTexture, uncovered: 
 }
 
 /// Runs the production Hi-Z seed directly on the same depth consumed by post effects.
-fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
+fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthStencilTexture) -> Texture {
     let device = context.render_device();
     let destination = texture(
         device,
@@ -169,7 +172,7 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         label: Some("production Hi-Z fixture"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../chunk/gpu_cull/hiz.wgsl").into()),
     });
-    let multi = depth.texture.sample_count() > 1;
+    let multi = depth.texture().sample_count() > 1;
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
         layout: None,
@@ -183,7 +186,7 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         cache: None,
     });
     // The seed's source is the whole depth target and it builds every covering texel.
-    let size = depth.texture.size();
+    let size = depth.texture().size();
     let bounds = wgpu::util::DeviceExt::create_buffer_init(
         device,
         &wgpu::util::BufferInitDescriptor {
@@ -203,7 +206,9 @@ fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthTexture) -> Texture {
         entries: &[
             wgpu::BindGroupEntry {
                 binding: u32::from(multi),
-                resource: wgpu::BindingResource::TextureView(depth.view()),
+                resource: wgpu::BindingResource::TextureView(crate::scene_sampling::view_depth(
+                    depth,
+                )),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
@@ -246,12 +251,13 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
             samples,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         );
-        let depth = ViewDepthTexture::new(
+        let depth = ViewDepthStencilTexture::new(
             CachedTexture {
                 default_view: texture.create_view(&Default::default()),
                 texture,
             },
             Some(0.0),
+            None,
         );
         let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost);
         assert!(resolved.matches(&depth));

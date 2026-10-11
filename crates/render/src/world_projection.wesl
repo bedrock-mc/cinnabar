@@ -1,4 +1,3 @@
-#define_import_path cinnabar::world_projection
 
 // Projects shared world corners through one camera-relative path for identical clip coordinates.
 // Integer block subtraction preserves precision far from the origin.

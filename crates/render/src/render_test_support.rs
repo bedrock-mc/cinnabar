@@ -22,12 +22,19 @@ pub(crate) fn record<R>(
     device: &RenderDevice,
     draw: impl FnOnce(&World, &mut RenderContext<'_, '_>) -> R,
 ) -> (R, Vec<wgpu::CommandBuffer>) {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     world.insert_resource(device.clone());
     world.init_resource::<PendingCommandBuffers>();
     let mut state = SystemState::<RenderContext>::new(world);
     let result = draw(world, &mut state.get(world).unwrap());
     state.apply(world);
-    (result, world.resource_mut::<PendingCommandBuffers>().take())
+    (
+        result,
+        world
+            .resource_mut::<PendingCommandBuffers>()
+            .finish()
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Supplies camera metadata for a headless render view with no presentation surface.
@@ -45,18 +52,16 @@ pub(crate) fn camera(hdr: bool) -> ExtractedCamera {
         sorted_camera_index_for_target: 0,
         exposure: 1.0,
         hdr,
-        compositing_space: None,
     }
 }
 
 /// Creates a camera schedule with no drawable view and a validation device.
 pub(crate) fn empty_render_world() -> World {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(bevy::render::renderer::RenderQueue(std::sync::Arc::new(
-        bevy::render::renderer::WgpuWrapper::new(queue),
-    )));
+    world.insert_resource(bevy::render::renderer::RenderQueue::new(queue));
     world.init_resource::<PendingCommandBuffers>();
     let view = world.spawn_empty().id();
     world.insert_resource(bevy::render::renderer::CurrentView(view));
@@ -82,7 +87,8 @@ pub(crate) fn assert_empty_render(world: &mut World) {
     assert!(
         world
             .resource_mut::<PendingCommandBuffers>()
-            .take()
+            .finish()
+            .collect::<Vec<_>>()
             .is_empty()
     );
 }

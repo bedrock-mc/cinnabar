@@ -129,9 +129,9 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
         resource: data.as_entire_binding(),
     });
     let production = if model {
-        include_str!("../model.wgsl")
+        include_str!("../model.wesl")
     } else {
-        include_str!("../chunk.wgsl")
+        include_str!("../chunk.wesl")
     };
     let definitions: &[&str] = if enhanced {
         &[SHADER_DEF, "ENHANCED"]

@@ -66,7 +66,7 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
     // Actual model entry points, not a reproduction of their arithmetic.
     let source = format!(
         "{}\n{VERTEX}",
-        shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/model.wesl"), &[])
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
     .replace("GRID_COLUMNS", &format!("{}.0", CASE_COUNT + 1))

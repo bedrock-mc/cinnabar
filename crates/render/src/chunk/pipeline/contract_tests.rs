@@ -16,25 +16,25 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 (
                     &mut pipelines.variants,
                     CHUNK_SHADER_HANDLE,
-                    include_str!("../../chunk.wgsl"),
+                    include_str!("../../chunk.wesl"),
                     false,
                 ),
                 (
                     &mut pipelines.model_variants,
                     MODEL_SHADER_HANDLE,
-                    include_str!("../../model.wgsl"),
+                    include_str!("../../model.wesl"),
                     false,
                 ),
                 (
                     &mut pipelines.transparent_variants,
                     TRANSPARENT_SHADER_HANDLE,
-                    include_str!("../../transparent_terrain.wgsl"),
+                    include_str!("../../transparent_terrain.wesl"),
                     true,
                 ),
                 (
                     &mut pipelines.depth_liquid_variants,
                     LIQUID_SHADER_HANDLE,
-                    include_str!("../../liquid.wgsl"),
+                    include_str!("../../liquid.wesl"),
                     false,
                 ),
             ] {
@@ -142,9 +142,9 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
 fn world_bindings_are_visible_to_the_stages_that_use_them() {
     let layout = opaque_chunk_bind_group_layout();
     for source in [
-        include_str!("../../chunk.wgsl"),
-        include_str!("../../model.wgsl"),
-        include_str!("../../liquid.wgsl"),
+        include_str!("../../chunk.wesl"),
+        include_str!("../../model.wesl"),
+        include_str!("../../liquid.wesl"),
     ] {
         crate::shader_test_support::assert_binding_visibility(
             &crate::shader_source::standalone(source, &[]),
@@ -153,7 +153,7 @@ fn world_bindings_are_visible_to_the_stages_that_use_them() {
         );
     }
     crate::shader_test_support::assert_binding_visibility(
-        &crate::shader_source::composed(include_str!("../../transparent_terrain.wgsl"), &[]),
+        &crate::shader_source::composed(include_str!("../../transparent_terrain.wesl"), &[]),
         0,
         &chunk_bind_group_layout(),
     );
@@ -185,7 +185,7 @@ fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
     let (mut app, _) = crate::queue_review_support::app();
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipelines = ChunkPipeline::from_world(&mut World::new());
-    let source = crate::shader_source::standalone(include_str!("../../chunk.wgsl"), &[]);
+    let source = crate::shader_source::standalone(include_str!("../../chunk.wesl"), &[]);
     let module = naga::front::wgsl::parse_str(&source).unwrap();
     let entry = |name: &str| {
         let entry = module.entry_points.iter().find(|entry| entry.name == name);

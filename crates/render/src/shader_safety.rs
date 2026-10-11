@@ -12,15 +12,46 @@ pub(crate) fn from_wgsl(source: impl Into<Cow<'static, str>>, path: impl Into<St
     shader
 }
 
+/// Registers an embedded WESL module while retaining its source path and runtime checks.
+pub(crate) fn from_wesl(source: impl Into<Cow<'static, str>>, path: impl Into<String>) -> Shader {
+    let path = path.into();
+    let normalized = path.replace('\\', "/");
+    let relative = normalized.split_once("/src/").map_or_else(
+        || normalized.strip_prefix("src/").unwrap_or(&normalized),
+        |(_, relative)| relative,
+    );
+    let mut components = Vec::new();
+    for component in relative.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components
+                    .pop()
+                    .expect("shader path stays within the render crate");
+            }
+            component => components.push(component),
+        }
+    }
+    let embedded = format!(
+        "embedded://{}/{}",
+        env!("CARGO_PKG_NAME"),
+        components.join("/")
+    );
+    let mut shader = Shader::from_wesl(source, embedded);
+    shader.path = path;
+    shader.validate_shader = ValidateShader::Enabled;
+    shader
+}
+
 /// Both actor and hand shaders pull the same packed Rust instances. Substitute their single
-/// layout source before parsing, without disabling the checked WGSL constructor.
-pub(crate) fn from_actor_wgsl(
+/// layout source before WESL composition, keeping runtime checks enabled.
+pub(crate) fn from_actor_wesl(
     source: &str,
     path: impl Into<String>,
     words: usize,
     vertex_words: usize,
 ) -> Shader {
-    from_wgsl(
+    from_wesl(
         crate::material_shader::source(source)
             .replace("ACTOR_GPU_INSTANCE_WORDS", &format!("{words}u"))
             .replace("ACTOR_RIG_VERTEX_WORDS", &format!("{vertex_words}u")),
@@ -29,13 +60,13 @@ pub(crate) fn from_actor_wgsl(
 }
 
 /// Block entities share one packed Rust vertex layout across models and overlays.
-pub(crate) fn from_block_entity_wgsl(
+pub(crate) fn from_block_entity_wesl(
     source: &str,
     path: impl Into<String>,
     words: usize,
     selection_vertices_per_edge: u32,
 ) -> Shader {
-    from_wgsl(
+    from_wesl(
         crate::material_shader::source(source)
             .replace("BLOCK_ENTITY_VERTEX_WORDS", &format!("{words}u"))
             .replace(
@@ -66,17 +97,35 @@ mod tests {
     #[test]
     fn actor_constructor_substitutes_the_supplied_layout_and_keeps_checks_enabled() {
         let words = std::mem::size_of::<u64>() / std::mem::size_of::<u32>();
-        let shader = from_actor_wgsl(
+        let shader = from_actor_wesl(
             "const WORDS: u32 = ACTOR_GPU_INSTANCE_WORDS;",
-            "actor.wgsl",
+            "actor.wesl",
             words,
             words,
         );
         assert!(matches!(shader.validate_shader, ValidateShader::Enabled));
-        let bevy::shader::Source::Wgsl(actual) = shader.source else {
-            panic!("actor constructor must retain WGSL");
+        let bevy::shader::Source::Wesl(actual) = shader.source else {
+            panic!("actor constructor must retain WESL");
         };
         assert_eq!(actual, format!("const WORDS: u32 = {words}u;"));
+    }
+
+    #[test]
+    fn wesl_modules_resolve_imports_after_relative_path_normalization() {
+        let path = "crates/render/src/chunk/../lighting.wesl";
+        let library = from_wesl("fn light() -> f32 { return 1.0; }", path);
+        let root = from_wesl(
+            "import render::lighting::light;",
+            "crates/render/src/actor.wesl",
+        );
+        assert_eq!(library.path, path);
+        assert_eq!(
+            library.import_path,
+            bevy::shader::ShaderImport::Custom("render::lighting".into())
+        );
+        assert!(root.imports.contains(&library.import_path));
+        assert!(matches!(library.validate_shader, ValidateShader::Enabled));
+        assert!(matches!(root.validate_shader, ValidateShader::Enabled));
     }
 
     #[test]
@@ -97,7 +146,8 @@ mod tests {
                 {
                     let source = fs::read_to_string(&path).unwrap();
                     assert!(
-                        !source.contains("Shader::from_wgsl"),
+                        !source.contains("Shader::from_wgsl")
+                            && !source.contains("Shader::from_wesl"),
                         "{} bypasses the runtime-checked shader constructor",
                         path.display()
                     );

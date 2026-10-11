@@ -570,6 +570,7 @@ pub(crate) fn install_present_node(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(Core3d, |world, schedule| {
+            crate::scene_target::order_camera_stages(schedule);
             schedule
                 .remove_systems_in_set(
                     upscaling,

@@ -10,6 +10,7 @@ pub enum ModelWitnessRequestError {
 }
 
 #[derive(Resource, ExtractResource, Debug, Clone, Default, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ModelWitnessRequest {
     pub(in crate::chunk) revision: u64,
     pub(in crate::chunk) request_hash: [u8; 32],

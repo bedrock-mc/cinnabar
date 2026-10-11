@@ -1,18 +1,17 @@
-#define_import_path cinnabar::liquid
-#import cinnabar::chunk_bindings::{
+import render::chunk_bindings::{
     view, chunk_origins, block_textures_page_0, block_textures_page_1, block_sampler,
     terrain_gamma_page_0, terrain_gamma_page_1, animations, animation_frames, clock,
     geometry_streams, atmosphere, transparent_refs, TransparentDrawRef,
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
-}
-#import cinnabar::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale}
-#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
-#import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
-#ifdef ENHANCED
-#import cinnabar::enhanced_common::CLASS_WATER
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
-#endif
+};
+import render::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale};
+import render::world_projection::{section_camera_offset, camera_offset_clip};
+import render::biome_tint::blended_biome_tint;
+import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+@if(ENHANCED)
+import render::enhanced::common::CLASS_WATER;
+@if(ENHANCED)
+import render::enhanced::view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position};
 
 struct FrameSample { current: u32, next: u32, blend: f32, uv_scale: f32 }
 
@@ -51,19 +50,19 @@ struct VertexOutput {
     @location(3) @interpolate(flat) frame_blend: f32,
     @location(4) water_tint: vec4<f32>,
     @location(5) lighting: vec3<f32>,
-#ifdef ENHANCED
+    @if(ENHANCED)
     @location(6) sky_light: f32,
+    @if(ENHANCED)
     @location(7) ambient_occlusion: f32,
-#endif
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
     @location(12) native_light_levels: vec2<f32>,
     @location(13) @interpolate(flat) native_face_shade: f32,
     @location(14) @interpolate(flat) two_sided: u32,
-#ifdef ENHANCED
+    @if(ENHANCED)
     @location(10) normal: vec3<f32>,
+    @if(ENHANCED)
     @location(11) @interpolate(flat) surface_class: u32,
-#endif
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -235,22 +234,23 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         vec3<f32>(block_coordinate),
         vec3<f32>(chunk_origin.value.xyz),
     );
-#ifndef ENHANCED
+    @if(!ENHANCED)
     out.water_tint.a = liquid_vertex_alpha(out.water_tint.a, distance(world_position, view.world_position), atmosphere.liquid_distance.x);
-#endif
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_face_shade = face_shade(face_normal(face), (light_sample & 2048u) != 0u);
-#ifdef ENHANCED
+    @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
+    @if(ENHANCED)
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
-#endif
     out.depth_write_route = packed_material >> 31u;
     out.two_sided = u32((packed_material & LIQUID_TWO_SIDED_BIT) != 0u);
     out.world_position = world_position;
-#ifdef ENHANCED
+    @if(ENHANCED)
     out.normal = face_normal(face);
+    @if(ENHANCED)
     out.surface_class = material_class(packed_material & LIQUID_MATERIAL_MASK);
+    @if(ENHANCED)
     if ((out.surface_class & CLASS_WATER) != 0u) {
         out.world_position = waved_water_position(world_position, out.normal.y > 0.5
             || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
@@ -260,27 +260,29 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
             camera_offset + (out.world_position - world_position),
         );
     }
-#endif
     return out;
 }
 
 fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = i32(texture_ref & 0x7ffu);
-#ifdef ENHANCED
+    @if(ENHANCED)
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
         return textureSampleGrad(block_textures_page_0, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
     }
+    @if(ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
+    @if(ENHANCED)
     return textureSampleGrad(block_textures_page_1, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
-#else
+    @if(!ENHANCED)
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
         return textureSampleGrad(terrain_gamma_page_0, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
     }
+    @if(!ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
+    @if(!ENHANCED)
     return textureSampleGrad(terrain_gamma_page_1, block_sampler, uv * texture_uv_scale(texture_ref), layer, dx * scale, dy * scale);
-#endif
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
@@ -294,11 +296,14 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
     return mix(colour, atmosphere.fog_color_start.rgb, fog);
 }
 
-#ifndef ENHANCED
 // Native liquid vertex colours are byte-quantized tint * face shade, without AO.
 // Ordinary RenderChunk composes texture, tint, lightmap and fog in gamma, then
 // Native ordinary terrain blends these gamma values into an UNORM framebuffer.
-fn native_liquid_colour(sampled_gamma: vec3<f32>, tint_linear: vec3<f32>, in: VertexOutput) -> vec3<f32> {
+@if(!ENHANCED)
+fn native_liquid_colour(@if(!ENHANCED)
+sampled_gamma: vec3<f32>, @if(!ENHANCED)
+tint_linear: vec3<f32>, @if(!ENHANCED)
+in: VertexOutput) -> vec3<f32> {
     let tint_gamma = tint_to_gamma(vec4(tint_linear, 1.0)).rgb;
     let face_tint = floor(clamp(tint_gamma * in.native_face_shade, vec3(0.0), vec3(1.0)) * 255.0 + vec3(0.0001)) / 255.0;
     let lit_gamma = sampled_gamma * face_tint * terrain_light_colour(in.native_light_levels);
@@ -307,7 +312,6 @@ fn native_liquid_colour(sampled_gamma: vec3<f32>, tint_linear: vec3<f32>, in: Ve
     let fog = clamp((distance_to_camera - atmosphere.fog_color_start.w) / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001), 0.0, 1.0);
     return mix(lit_gamma, fog_gamma, fog);
 }
-#endif
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
@@ -327,13 +331,14 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-#ifdef ENHANCED
+    @if(ENHANCED)
     if ((in.surface_class & CLASS_WATER) != 0u) {
         let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
             in.world_position, in.clip_position, in.lighting, in.sky_light,
             in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
         return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
     }
+    @if(ENHANCED)
     let colour = shade_surface(
         sampled.rgb * in.water_tint.rgb,
         in.normal,
@@ -346,14 +351,12 @@ fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f3
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
+    @if(ENHANCED)
     return vec4(apply_distance_fog(colour, in.world_position), sampled.a * in.water_tint.a);
-#else
-#ifdef NATIVE_GAMMA_BLEND
+    @if(!ENHANCED && NATIVE_GAMMA_BLEND)
     return vec4(native_liquid_colour(sampled.rgb, in.water_tint.rgb, in), sampled.a * in.water_tint.a);
-#else
+    @if(!ENHANCED && !NATIVE_GAMMA_BLEND)
     return tint_to_linear(vec4(native_liquid_colour(sampled.rgb, in.water_tint.rgb, in), sampled.a * in.water_tint.a));
-#endif
-#endif
 }
 
 @fragment
@@ -368,7 +371,7 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-#ifdef ENHANCED
+    @if(ENHANCED)
     let lit = shade_surface(
         sampled.rgb,
         in.normal,
@@ -379,8 +382,8 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         in.ambient_occlusion,
         in.surface_class,
     );
+    @if(ENHANCED)
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
-#else
+    @if(!ENHANCED)
     return tint_to_linear(vec4(native_liquid_colour(sampled.rgb, vec3(1.0), in), 1.0));
-#endif
 }

@@ -64,6 +64,7 @@ pub struct ParticleSimulation(pub ParticleSystem);
 
 /// The frame's particle draw data, extracted to the render world each frame.
 #[derive(Resource, ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ParticleGpuFrame {
     base: Option<Arc<[u8]>>,
     patch_seq: u64,
@@ -167,8 +168,8 @@ impl Plugin for ParticleRenderPlugin {
         load_internal_asset!(
             app,
             PARTICLE_SHADER_HANDLE,
-            "particles.wgsl",
-            crate::shader_safety::from_wgsl
+            "particles.wesl",
+            crate::shader_safety::from_wesl
         );
         crate::pipeline_warmup::register::<ParticlePipeline>(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

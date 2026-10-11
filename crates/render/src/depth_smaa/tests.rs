@@ -77,7 +77,7 @@ fn unprepared_views_encode_nothing_across_independent_filter_toggles() {
 #[test]
 fn depth_smaa_edge_shader_reads_only_depth_for_both_sample_modes() {
     for definitions in [vec![], vec!["MULTISAMPLED"]] {
-        let shader = crate::shader_source::preprocess(include_str!("edge.wgsl"), &definitions);
+        let shader = crate::shader_source::preprocess(include_str!("edge.wesl"), &definitions);
         assert!(crate::shader_test_support::fragment_reads_binding(
             &shader, 0, 0
         ));

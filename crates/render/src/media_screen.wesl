@@ -1,4 +1,4 @@
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 struct Screen {
     center: vec3<f32>,

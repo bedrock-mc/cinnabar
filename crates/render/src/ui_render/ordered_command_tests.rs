@@ -93,7 +93,6 @@ fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_
 
 pub(super) fn binding_world() -> World {
     use bevy::ecs::system::RunSystemOnce;
-    use bevy::render::renderer::{RenderAdapter, WgpuWrapper};
     use std::{
         future::Future,
         pin::pin,
@@ -102,7 +101,10 @@ pub(super) fn binding_world() -> World {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -119,11 +121,11 @@ pub(super) fn binding_world() -> World {
         panic!("noop device must be immediate");
     };
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+
     let mut world = World::new();
-    world.insert_resource(PipelineCache::new(device.clone(), adapter, true));
+    world.insert_resource(PipelineCache::new(device.clone(), true));
     world.insert_resource(device);
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<UiPipeline>();
     world.init_resource::<UiRenderStatsResource>();
     world.init_resource::<UiRenderSceneResource>();

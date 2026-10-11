@@ -42,12 +42,14 @@ impl FromWorld for EnhancedShadowPipelines {
                     enhanced_caster_layout(),
                 ],
                 vertex: VertexState {
+                    constants: Default::default(),
                     shader: shader.clone(),
                     shader_defs: vec!["ENHANCED_SHADOW".into()],
                     entry_point: Some("vertex".into()),
                     buffers: vec![offsets.clone()],
                 },
                 fragment: Some(FragmentState {
+                    constants: Default::default(),
                     shader,
                     shader_defs: vec!["ENHANCED_SHADOW".into()],
                     entry_point: Some("fragment_shadow".into()),

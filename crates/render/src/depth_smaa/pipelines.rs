@@ -61,7 +61,7 @@ pub(super) fn init(mut commands: Commands, server: Res<AssetServer>) {
             "SMAA restore",
             &BindGroupLayoutEntries::single(ShaderStages::FRAGMENT, float),
         ),
-        shader: server.load("embedded://bevy_anti_alias/smaa/smaa.wgsl"),
+        shader: server.load("embedded://bevy_anti_alias/smaa/smaa.wesl"),
         variants: Vec::new(),
     });
 }
@@ -219,12 +219,14 @@ fn descriptor(
         label: Some("depth SMAA 1x".into()),
         layout,
         vertex: VertexState {
+            constants: Default::default(),
             shader: shader.clone(),
             shader_defs: defs.clone(),
             entry_point: Some(vertex.into()),
             buffers: vec![],
         },
         fragment: Some(FragmentState {
+            constants: Default::default(),
             shader,
             shader_defs: defs,
             entry_point: Some(fragment.into()),

@@ -8,7 +8,7 @@ use bevy::{
     render::{
         render_phase::{AddRenderCommand, DrawFunctions, ViewSortedRenderPhases},
         render_resource::PipelineCache,
-        renderer::{RenderAdapter, WgpuWrapper},
+        renderer::RenderAdapter,
         sync_world::MainEntity,
         view::RetainedViewEntity,
     },
@@ -106,7 +106,10 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -123,13 +126,13 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     }))
     .unwrap();
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+    let adapter = RenderAdapter::new(adapter);
     let mut app = App::new();
-    app.insert_resource(PipelineCache::new(device.clone(), adapter.clone(), false))
+    app.insert_resource(PipelineCache::new(device.clone(), false))
         .insert_resource(ChunkGpuArena::new(&device))
         .insert_resource(device)
         .insert_resource(adapter)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(ChunkUploadBudget::new(usize::MAX, u64::MAX))
         .insert_resource(RuntimeStageProfiler::new(true))
         .insert_resource(ChunkPipeline::from_world(&mut World::new()))
@@ -192,7 +195,6 @@ pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
-            compositing_space: None,
         },
         RenderVisibleEntities::default(),
     ));

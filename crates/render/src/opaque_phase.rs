@@ -65,7 +65,7 @@ mod tests {
                 slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: UntypedAssetId::from(AssetId::<Mesh>::invalid()),
+                asset_id: UntypedAssetId::from(AssetId::<Mesh>::default()),
             },
             (Entity::PLACEHOLDER, MainEntity::from(Entity::PLACEHOLDER)),
             InputUniformIndex::default(),

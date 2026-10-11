@@ -1,4 +1,3 @@
-#define_import_path cinnabar::lighting
 
 // Coverage and the nearest covered texel stay separate so opaque RGB is never filtered.
 struct CutoutSample { coverage: f32, colour: vec4<f32> }

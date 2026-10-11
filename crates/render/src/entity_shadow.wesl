@@ -1,4 +1,4 @@
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 // Mirrors render_model::EntityShadowParams.
 struct ShadowParams {
@@ -10,11 +10,10 @@ struct ShadowParams {
 }
 
 @group(0) @binding(0) var<uniform> view: View;
-#ifdef MULTISAMPLED
+@if(MULTISAMPLED)
 @group(0) @binding(1) var scene_depth: texture_depth_multisampled_2d;
-#else
+@if(!MULTISAMPLED)
 @group(0) @binding(1) var scene_depth: texture_depth_2d;
-#endif
 // Feet in xyz, radius in w.
 @group(0) @binding(3) var<storage, read> casters: array<vec4<f32>>;
 @group(0) @binding(4) var<uniform> params: ShadowParams;
@@ -58,16 +57,14 @@ fn inside_volume(local: vec3<f32>) -> bool {
 
 @fragment
 fn shadow_fragment(in: VertexOutput,
-#ifdef MULTISAMPLED
+    @if(MULTISAMPLED)
     @builtin(sample_index) sample: u32,
-#endif
 ) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(floor(in.position.xy));
-#ifdef MULTISAMPLED
+    @if(MULTISAMPLED)
     let depth = textureLoad(scene_depth, pixel, i32(sample));
-#else
+    @if(!MULTISAMPLED)
     let depth = textureLoad(scene_depth, pixel, 0);
-#endif
     // Reverse depth: zero is the sky.
     if depth <= 0.0 {
         discard;

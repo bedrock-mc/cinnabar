@@ -6,7 +6,7 @@ use bevy::{
         diagnostic::RecordDiagnostics,
         render_resource::{TexelCopyTextureInfo, TextureAspect},
         renderer::RenderContext,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -18,7 +18,7 @@ type EnhancedSnapshotQuery = (
     &'static EnhancedRendering,
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
 );
 
 /// Captures scene colour and depth for enhanced material sampling.

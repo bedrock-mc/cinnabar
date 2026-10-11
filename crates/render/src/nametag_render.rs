@@ -45,6 +45,7 @@ use render_model::{
 
 /// Main-world holder of this frame's [`NametagScene`], cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct NametagSceneResource(pub NametagScene);
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");
@@ -93,8 +94,8 @@ pub(crate) fn install_nametag_render(app: &mut App) {
     load_internal_asset!(
         app,
         NAMETAG_SHADER_HANDLE,
-        "nametag.wgsl",
-        shader::from_wgsl
+        "nametag.wesl",
+        shader::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -566,7 +567,7 @@ mod tests {
     // Storage layout and native geometry, with no invented glyph-to-plate separation.
     #[test]
     fn shader_mirrors_the_record_layout_scale_and_lift() {
-        let source = include_str!("nametag.wgsl");
+        let source = include_str!("nametag.wesl");
         assert_eq!(std::mem::size_of::<NametagRecord>(), 80);
         assert!(source.contains("BLOCKS_PER_FONT_PIXEL: f32 = NAMETAG_SCALE_VALUE;"));
         assert!(source.contains("native_acos(-z / horizontal)"));

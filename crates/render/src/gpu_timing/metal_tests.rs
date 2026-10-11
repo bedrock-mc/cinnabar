@@ -21,10 +21,7 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
         ..Default::default()
     }))
     .expect("Metal timestamp device");
-    Some((
-        RenderDevice::from(device),
-        RenderQueue(Arc::new(bevy::render::renderer::WgpuWrapper::new(queue))),
-    ))
+    Some((RenderDevice::from(device), RenderQueue::new(queue)))
 }
 
 /// Draws one triangle while recording an owned render-pass timestamp pair.
@@ -164,7 +161,11 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
         timestamps.slots[index].state.load(Ordering::Acquire),
         MAPPED
     );
-    let mapped = timestamps.slots[index].buffer.slice(..).get_mapped_range();
+    let mapped = timestamps.slots[index]
+        .buffer
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped");
     let values: Vec<_> = mapped[..16]
         .as_chunks::<8>()
         .0
@@ -194,7 +195,7 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
 #[test]
 fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
     use crate::scene_sampling::ResolvedDepth;
-    use bevy::render::{texture::CachedTexture, view::ViewDepthTexture};
+    use bevy::render::{texture::CachedTexture, view::ViewDepthStencilTexture};
 
     let Some((device, queue)) = metal_device() else {
         return;
@@ -213,12 +214,13 @@ fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
-    let depth = ViewDepthTexture::new(
+    let depth = ViewDepthStencilTexture::new(
         CachedTexture {
             default_view: texture.create_view(&Default::default()),
             texture,
         },
         Some(0.0),
+        None,
     );
     let mut resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuShadows);
     let retained = resolved.view.id();

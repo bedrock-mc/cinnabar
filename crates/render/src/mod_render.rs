@@ -40,7 +40,7 @@ pub struct ModRenderScene {
     block_color: [f32; 4],
 }
 
-impl ExtractResource for ModRenderScene {
+impl ExtractResource<bevy::render::RenderApp> for ModRenderScene {
     type Source = Self;
 
     fn extract_resource(source: &Self) -> Self {

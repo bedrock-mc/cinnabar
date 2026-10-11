@@ -160,11 +160,16 @@ fn decals_render_on_the_ground_and_respect_scene_depth() {
         return;
     };
     let source =
-        shader_source::standalone(include_str!("../../src/mod_render/primitives.wgsl"), &[]);
+        shader_source::standalone(include_str!("../../src/mod_render/primitives.wesl"), &[]);
     // Looks straight down at the origin from ten blocks up; screen right is +X.
     let world_from_view =
-        Mat4::look_at_rh(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, Vec3::NEG_Z).inverse();
-    let projection = Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1);
+        glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, Vec3::NEG_Z)
+            .inverse();
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_2,
+        1.0,
+        0.1,
+    );
     let view = gpu.buffer(
         &view_words(projection, world_from_view),
         wgpu::BufferUsages::UNIFORM,
@@ -449,7 +454,11 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
-    readback.slice(..).get_mapped_range()[..side as usize * 4].to_vec()
+    readback
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")[..side as usize * 4]
+        .to_vec()
 }
 
 #[test]

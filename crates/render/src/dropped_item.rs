@@ -64,6 +64,7 @@ pub struct TerrainItemInstance {
 
 /// The frame's dropped items. `models_revision` must change whenever `models` changes.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct DroppedItemScene {
     pub(crate) models_revision: u64,
     pub(crate) models: Arc<[DroppedItemModel]>,

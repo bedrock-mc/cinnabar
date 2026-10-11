@@ -158,6 +158,7 @@ pub(crate) struct HandRigFrame {
 
 /// Published by the app each frame the first-person hand should draw; empty otherwise.
 #[derive(Clone, Default, Debug, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct HandRigScene {
     pub(crate) frame: Option<HandRigFrame>,
 }
@@ -245,8 +246,8 @@ fn install(app: &mut App) {
     load_internal_asset!(
         app,
         HAND_RIG_SHADER,
-        "hand_rig.wgsl",
-        crate::shader_safety::from_actor_wgsl,
+        "hand_rig.wesl",
+        crate::shader_safety::from_actor_wesl,
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS
     );

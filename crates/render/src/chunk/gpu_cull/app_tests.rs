@@ -8,7 +8,7 @@ use bevy::{
     mesh::MeshPlugin,
     render::{
         RenderPlugin,
-        renderer::{RenderAdapterInfo, RenderInstance, WgpuWrapper},
+        renderer::{RenderAdapterInfo, RenderInstance},
         settings::RenderCreation,
     },
     window::WindowPlugin,
@@ -26,7 +26,10 @@ pub(super) fn render_plugin(
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: noop },
+            noop: wgpu::NoopBackendOptions {
+                enable: noop,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -55,10 +58,10 @@ pub(super) fn render_plugin(
     Some(RenderPlugin {
         render_creation: RenderCreation::manual(
             RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-            RenderAdapterInfo(WgpuWrapper::new(adapter_info)),
-            RenderAdapter(Arc::new(WgpuWrapper::new(adapter))),
-            RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+            RenderQueue::new(queue),
+            RenderAdapterInfo::new(adapter_info),
+            RenderAdapter::new(adapter),
+            RenderInstance::new(instance),
         ),
         synchronous_pipeline_compilation: true,
         ..Default::default()

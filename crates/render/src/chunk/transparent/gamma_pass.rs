@@ -12,7 +12,7 @@ use bevy::{
         render_phase::{DrawFunctionId, TrackedRenderPass},
         render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
-        view::ViewDepthTexture,
+        view::ViewDepthStencilTexture,
     },
 };
 
@@ -64,7 +64,7 @@ type GammaView = (
     &'static ExtractedCamera,
     &'static ExtractedView,
     &'static ViewTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     Option<&'static MainPassResolutionOverride>,
     &'static Msaa,
     Option<&'static crate::EnhancedRendering>,

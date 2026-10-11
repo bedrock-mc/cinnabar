@@ -1,17 +1,19 @@
 use super::*;
 
 fn empty_hand_world() -> World {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     use std::{
         future::Future,
         pin::pin,
-        sync::Arc,
         task::{Context, Poll, Waker},
     };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -28,12 +30,12 @@ fn empty_hand_world() -> World {
         panic!("noop device must be immediate");
     };
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+    let adapter = RenderAdapter::new(adapter);
     let mut world = World::new();
-    world.insert_resource(PipelineCache::new(device.clone(), adapter.clone(), true));
+    world.insert_resource(PipelineCache::new(device.clone(), true));
     world.insert_resource(device);
     world.insert_resource(adapter);
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<ViewmodelCompletionGate>();
     world.init_resource::<ViewmodelScene>();
     world.init_resource::<HandDrawn>();
@@ -229,11 +231,11 @@ fn actual_empty_hand_deactivation_preserves_variants_for_reenable() {
 
 #[test]
 fn actual_missing_current_view_coverage_revokes_prior_completion() {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<HandDrawn>();
     let gate = ViewmodelCompletionGate::default();
     let token = ViewmodelToken {
@@ -298,12 +300,9 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
 
 #[test]
 fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
-    use bevy::{
-        ecs::system::RunSystemOnce,
-        render::{render_resource::PollType, renderer::WgpuWrapper},
-    };
+    use bevy::{ecs::system::RunSystemOnce, render::render_resource::PollType};
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.insert_resource(queue.clone());
@@ -329,12 +328,15 @@ fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
     world.resource_mut::<HandGpu>().token = Some(token);
     *world.resource::<HandDrawn>().0.lock().unwrap() = Some(token);
 
-    let before = crate::device_poll::submissions_so_far(&queue);
+    let baseline = crate::device_poll::submission_marker(&queue);
+    queue.on_submitted_work_done(|| {});
+    let callback_delta = crate::device_poll::submission_marker(&queue) - baseline;
+    let before = crate::device_poll::submission_marker(&queue);
     world.run_system_once(submit_completion).unwrap();
     assert_eq!(
-        crate::device_poll::submissions_so_far(&queue) - before,
-        1,
-        "only the counting submit reaches the queue"
+        crate::device_poll::submission_marker(&queue) - before,
+        callback_delta,
+        "hand completion only registers the frame callback"
     );
     world
         .resource::<RenderDevice>()
@@ -359,17 +361,13 @@ fn an_unprepared_hand_submits_nothing_after_repeated_installation() {
 
 #[test]
 fn both_plugin_orders_submit_nothing_without_a_prepared_view() {
-    use bevy::{
-        app::SubApp,
-        ecs::schedule::Schedule,
-        render::{ExtractSchedule, renderer::WgpuWrapper},
-    };
+    use bevy::{app::SubApp, ecs::schedule::Schedule, render::ExtractSchedule};
     for hand_first in [false, true] {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let mut render_app = SubApp::new();
         render_app
             .insert_resource(RenderDevice::from(device))
-            .insert_resource(RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue))))
+            .insert_resource(RenderQueue::new(queue))
             .add_schedule(Core3d::base_schedule())
             .add_schedule(Schedule::new(RenderStartup))
             .add_schedule(Render::base_schedule())

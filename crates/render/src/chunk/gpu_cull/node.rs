@@ -5,9 +5,9 @@ use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     render::{
         render_phase::{DrawFunctionId, TrackedRenderPass},
-        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
+        render_resource::{RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
-        view::ViewDepthTexture,
+        view::ViewDepthStencilTexture,
     },
 };
 
@@ -180,7 +180,7 @@ type LateCullQuery = (
     &'static ExtractedCamera,
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     Option<&'static MainPassResolutionOverride>,
 );
 
@@ -233,65 +233,59 @@ pub(crate) fn late_cull(
                 )
             },
         );
-    let device = render_context.render_device().clone();
-    let buffer = {
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("terrain late cull"),
-        });
-        if let Some(prepared) = pyramid {
-            within_span(spans[0].as_ref(), &mut encoder, |encoder| {
-                cull.kernels
-                    .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
-            });
-        }
-        within_span(spans[1].as_ref(), &mut encoder, |encoder| {
+    let device = world.resource::<RenderDevice>();
+    let encoder = render_context.command_encoder();
+    if let Some(prepared) = pyramid {
+        within_span(spans[0].as_ref(), encoder, |encoder| {
             cull.kernels
-                .encode_cull(encoder, &groups[1], cull.slot_count());
+                .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
         });
-        within_span(spans[2].as_ref(), &mut encoder, |encoder| {
-            let pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("terrain late cull pass"),
-                color_attachments: &[Some(colour)],
-                depth_stencil_attachment: Some(depth),
-                timestamp_writes: timestamps,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            let mut pass = TrackedRenderPass::new(&device, pass);
-            match &viewport {
-                Some(Some(viewport)) => pass.set_camera_viewport(viewport),
-                Some(None) => return,
-                None => {}
-            }
-            let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
-            let mut draw_functions = draw_functions.write();
-            draw_functions.prepare(world);
-            for (draw_function, pipeline) in view.late_draws.into_iter().zip(view.pipelines) {
-                let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
-                    Opaque3dBatchSetKey {
-                        draw_function,
-                        pipeline,
-                        material_bind_group_index: None,
-                        lightmap_slab: None,
-                        slabs: default(),
-                    },
-                    Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
-                    },
-                    (view_entity, view.main),
-                    0..1,
-                    PhaseItemExtraIndex::None,
-                );
-                let Some(draw) = draw_functions.get_mut(draw_function) else {
-                    continue;
-                };
-                if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
-                    bevy::log::error!("late terrain cull draw failed: {error:?}");
-                }
-            }
+    }
+    within_span(spans[1].as_ref(), encoder, |encoder| {
+        cull.kernels
+            .encode_cull(encoder, &groups[1], cull.slot_count());
+    });
+    within_span(spans[2].as_ref(), encoder, |encoder| {
+        let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("terrain late cull pass"),
+            color_attachments: &[Some(colour)],
+            depth_stencil_attachment: Some(depth),
+            timestamp_writes: timestamps,
+            occlusion_query_set: None,
+            multiview_mask: None,
         });
-        encoder.finish()
-    };
-    render_context.add_command_buffer(buffer);
+        let mut pass = TrackedRenderPass::new(device, pass);
+        match &viewport {
+            Some(Some(viewport)) => pass.set_camera_viewport(viewport),
+            Some(None) => return,
+            None => {}
+        }
+        let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
+        let mut draw_functions = draw_functions.write();
+        draw_functions.prepare(world);
+        for (draw_function, pipeline) in view.late_draws.into_iter().zip(view.pipelines) {
+            let item = <Opaque3d as bevy::render::render_phase::BinnedPhaseItem>::new(
+                Opaque3dBatchSetKey {
+                    draw_function,
+                    pipeline,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    slabs: default(),
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::default().untyped(),
+                },
+                (view_entity, view.main),
+                0..1,
+                PhaseItemExtraIndex::None,
+            );
+            let Some(draw) = draw_functions.get_mut(draw_function) else {
+                continue;
+            };
+            if let Err(error) = draw.draw(world, &mut pass, view_entity, &item) {
+                bevy::log::error!("late terrain cull draw failed: {error:?}");
+            }
+        }
+    });
     Ok(())
 }

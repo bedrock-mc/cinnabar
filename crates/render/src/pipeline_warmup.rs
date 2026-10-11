@@ -114,10 +114,12 @@ pub(crate) fn register_pending<T: PendingPipelines>(app: &mut App) {
     }
 }
 
+/// Installs shared scene formats and readiness tracking for custom pipeline owners.
 fn install(app: &mut App) -> Option<&mut SubApp> {
     app.init_resource::<PipelineWarmupReadiness>();
     let shared = app.world().resource::<PipelineWarmupReadiness>().clone();
     let render_app = app.get_sub_app_mut(RenderApp)?;
+    crate::scene_target::install_formats(render_app);
     if !render_app.world().contains_resource::<WarmupRegistry>() {
         render_app
             .insert_resource(shared)

@@ -68,7 +68,6 @@ mod tests {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
-            compositing_space: None,
         }
     }
 
@@ -101,7 +100,6 @@ mod tests {
                 view::{
                     ExtractedView, Msaa, RetainedViewEntity, ViewTargetAttachments,
                     cleanup_view_targets_for_resize, prepare_view_targets,
-                    window::ExtractedWindows,
                 },
             },
         };
@@ -136,7 +134,6 @@ mod tests {
         world.insert_resource(TextureCache::default());
         world.insert_resource(ClearColor::default());
         world.insert_resource(attachments);
-        world.insert_resource(ExtractedWindows::default());
         let mut camera = camera();
         camera.target = Some(target);
         camera.physical_target_size = Some(UVec2::splat(SIDE));

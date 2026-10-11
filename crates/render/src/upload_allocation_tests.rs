@@ -8,7 +8,7 @@ use bevy::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
         render_resource::PipelineCache,
-        renderer::{RenderAdapter, RenderDevice, RenderGraph, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderGraph, RenderQueue},
     },
 };
 use std::sync::Arc;
@@ -47,12 +47,12 @@ pub(crate) fn app(plugin: impl Plugin) -> Option<App> {
     );
     drop(probe);
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+
     let mut render_app = SubApp::new();
     render_app
-        .insert_resource(PipelineCache::new(device.clone(), adapter, true))
+        .insert_resource(PipelineCache::new(device.clone(), true))
         .insert_resource(device)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .add_schedule(RenderGraph::base_schedule())
         .init_resource::<DrawFunctions<Transparent3d>>()
         .add_schedule(Schedule::new(RenderStartup))

@@ -1,6 +1,5 @@
-#define_import_path cinnabar::enhanced_caster
 
-#import cinnabar::enhanced_common::{FEATURE_WAVING, wave_offset}
+import render::enhanced::common::{FEATURE_WAVING, wave_offset};
 
 // Mirrors `CasterUniformGpu` in enhanced/gpu.rs; one 256-byte slot per cascade.
 struct CasterUniform {

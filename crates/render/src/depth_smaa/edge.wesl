@@ -1,8 +1,7 @@
-#ifdef MULTISAMPLED
+@if(MULTISAMPLED)
 @group(0) @binding(0) var scene_depth: texture_depth_multisampled_2d;
-#else
+@if(!MULTISAMPLED)
 @group(0) @binding(0) var scene_depth: texture_depth_2d;
-#endif
 
 // A full-screen triangle avoids a diagonal seam between primitives.
 @vertex
@@ -14,15 +13,16 @@ fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
 // Reverse-Z selects the nearest covered surface without inspecting colour texels.
 fn depth_at(pixel: vec2<i32>) -> f32 {
     let point = clamp(pixel, vec2(0), vec2<i32>(textureDimensions(scene_depth)) - vec2(1));
-#ifdef MULTISAMPLED
+    @if(MULTISAMPLED)
     var depth = 0.0;
+    @if(MULTISAMPLED)
     for (var sample = 0u; sample < textureNumSamples(scene_depth); sample++) {
         depth = max(depth, textureLoad(scene_depth, point, i32(sample)));
     }
+    @if(MULTISAMPLED)
     return depth;
-#else
+    @if(!MULTISAMPLED)
     return textureLoad(scene_depth, point, 0);
-#endif
 }
 
 // Depth jumps mark silhouettes; continuous slopes cannot smear authored texture edges.

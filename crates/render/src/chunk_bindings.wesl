@@ -1,7 +1,6 @@
-#define_import_path cinnabar::chunk_bindings
 // Group 0 of the packed chunk layout, shared by the liquid and model programs so one composed
 // shader can draw both without binding the same slot twice.
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 // ANIMATION_GPU_LAYOUT

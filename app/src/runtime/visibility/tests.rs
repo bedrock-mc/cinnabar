@@ -30,7 +30,7 @@ fn a_box_is_hidden_only_when_all_its_known_sub_chunks_are_invisible() {
 
 #[test]
 fn actor_frustum_crossing_a_camera_cell_never_uses_the_previous_cave_result() {
-    use bevy::math::{Mat4, Vec3};
+    use bevy::math::Vec3;
 
     let before = Vec3::new(15.9, 65.0, 3.0);
     let after = Vec3::new(16.1, 65.0, 3.0);
@@ -46,11 +46,15 @@ fn actor_frustum_crossing_a_camera_cell_never_uses_the_previous_cave_result() {
     let feet = [17.0, 64.0, 4.0];
     let (low, high) = bounds.at(feet, 1.0);
     let view = render::ActorCullView {
-        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             std::f32::consts::FRAC_PI_2,
             1.0,
             0.1,
-        ) * Mat4::look_at_rh(after, Vec3::from_array(feet) + Vec3::Y, Vec3::Y),
+        ) * glam::camera::rh::view::look_at_mat4(
+            after,
+            Vec3::from_array(feet) + Vec3::Y,
+            Vec3::Y,
+        ),
         camera_position: after,
         max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
     };

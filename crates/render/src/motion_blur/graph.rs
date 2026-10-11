@@ -5,7 +5,7 @@ use bevy::{
     render::{
         render_resource::*,
         renderer::RenderContext,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -82,7 +82,7 @@ type MotionBlurQuery = (
     &'static BlurView,
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
 );
 
 /// Applies camera exposure to scene colour before sharp text and hands.
@@ -100,7 +100,10 @@ pub(super) fn motion_blur(
     let Some(pipeline) = cache.get_render_pipeline(state.pipeline) else {
         return Ok(());
     };
-    let Some(binding) = state.binding(target.main_texture_view().id(), depth.view().id()) else {
+    let Some(binding) = state.binding(
+        target.main_texture_view().id(),
+        crate::scene_sampling::view_depth(depth).id(),
+    ) else {
         return Ok(());
     };
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.

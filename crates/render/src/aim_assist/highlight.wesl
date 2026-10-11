@@ -1,4 +1,4 @@
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 struct Highlight {
     center: vec3<f32>,

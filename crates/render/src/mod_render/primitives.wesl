@@ -1,4 +1,4 @@
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 // Mirrors `mod_render::geometry::ModVertex`; style ids match its constants.
 struct ModVertex {

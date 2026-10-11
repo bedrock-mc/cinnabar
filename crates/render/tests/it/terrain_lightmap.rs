@@ -102,12 +102,12 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
     for (kind, shader, fragments) in [
         (
             "model",
-            include_str!("../../src/model.wgsl"),
+            include_str!("../../src/model.wesl"),
             &["fragment", "fragment_blend"][..],
         ),
         (
             "cube",
-            include_str!("../../src/chunk.wgsl"),
+            include_str!("../../src/chunk.wesl"),
             &["fragment"][..],
         ),
     ] {

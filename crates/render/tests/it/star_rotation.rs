@@ -3,7 +3,7 @@ use crate::shader_source;
 
 #[test]
 fn star_vertex_stage_reads_the_celestial_frame() {
-    let source = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let source = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     let module = naga::front::wgsl::parse_str(&source).unwrap();
     let vertex = module
         .entry_points
@@ -26,7 +26,7 @@ fn celestial_time_moves_the_star_mesh_on_the_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
     let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
-    let mut source = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let mut source = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     source.push_str("\n@fragment fn star_probe(input: VertexOutput) -> @location(0) vec4<f32> { return vec4(vec3(input.star_alpha), 1.0); }");
     let uniform = gpu.buffer(
         &gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),

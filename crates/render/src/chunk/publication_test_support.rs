@@ -2,7 +2,7 @@ use crate::chunk::*;
 
 use bevy::render::{
     RenderApp, RenderPlugin,
-    renderer::{RenderAdapterInfo, RenderInstance, WgpuWrapper},
+    renderer::{RenderAdapterInfo, RenderInstance},
     settings::RenderCreation,
 };
 
@@ -29,7 +29,10 @@ pub fn publication_noop_render_plugin() -> RenderPlugin {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -51,10 +54,10 @@ pub fn publication_noop_render_plugin() -> RenderPlugin {
     RenderPlugin {
         render_creation: RenderCreation::manual(
             RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-            RenderAdapterInfo(WgpuWrapper::new(adapter_info)),
-            RenderAdapter(Arc::new(WgpuWrapper::new(adapter))),
-            RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+            RenderQueue::new(queue),
+            RenderAdapterInfo::new(adapter_info),
+            RenderAdapter::new(adapter),
+            RenderInstance::new(instance),
         ),
         synchronous_pipeline_compilation: true,
         ..Default::default()

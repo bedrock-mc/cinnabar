@@ -161,6 +161,7 @@ impl Raster {
         readback
             .slice(..)
             .get_mapped_range()
+            .expect("readback buffer is mapped")
             .chunks_exact(stride as usize)
             .flat_map(|row| row[..width as usize * 4].iter().copied())
             .collect()

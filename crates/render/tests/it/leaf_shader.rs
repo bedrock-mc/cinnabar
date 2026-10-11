@@ -3,13 +3,13 @@ use crate::shader_source;
 
 #[test]
 fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
-    let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let material = material_shader::source(include_str!("../../src/material.wesl"));
     assert!(material.contains(&format!(
         "const TWO_SIDED: u32 = {}u;",
         assets::MATERIAL_FLAG_TWO_SIDED
     )));
     assert!(material.contains("return front || (flags & TWO_SIDED) != 0u;"));
-    let chunk = include_str!("../../src/chunk.wgsl");
+    let chunk = include_str!("../../src/chunk.wesl");
     assert_eq!(
         chunk.matches("@builtin(front_facing) front: bool").count(),
         2
@@ -52,13 +52,13 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
 
 #[test]
 fn native_leaf_colour_is_world_material_gated_and_enhanced_keeps_its_existing_path() {
-    let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let material = material_shader::source(include_str!("../../src/material.wesl"));
     assert!(material.contains(&format!(
         "const NATIVE_LEAF_COLOUR: u32 = {}u;",
         assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR
     )));
     assert!(material.contains("return (flags & NATIVE_LEAF_COLOUR) != 0u;"));
-    let chunk = include_str!("../../src/chunk.wgsl");
+    let chunk = include_str!("../../src/chunk.wesl");
     let ordinary = shader_source::preprocess(chunk, &[]);
     let enhanced = shader_source::preprocess(chunk, &["ENHANCED"]);
     assert!(ordinary.contains("let native_colour = native_cube_colour("));

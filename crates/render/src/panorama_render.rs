@@ -391,7 +391,7 @@ fn queue_panorama(
                 slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
+                asset_id: AssetId::<Mesh>::default().untyped(),
             },
             (view_entity, *main_entity),
             InputUniformIndex::default(),

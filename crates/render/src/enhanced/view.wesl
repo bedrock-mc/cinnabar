@@ -1,12 +1,11 @@
-#define_import_path cinnabar::enhanced_view
 
-#import cinnabar::lighting::lit_colour
+import render::lighting::lit_colour;
 
-#import cinnabar::enhanced_common::{
+import render::enhanced::common::{
     EnhancedFrame, CLASS_EMISSION_MASK, CLASS_LEAVES, CLASS_PLANT, FEATURE_SHADOWS,
     FEATURE_WATER, FEATURE_WAVING, interleaved_gradient_noise, wave_offset,
     water_surface_offset,
-}
+};
 
 // Main-pass bind group appended as group 2 only on Enhanced pipelines.
 @group(2) @binding(0) var<uniform> enhanced_frame: EnhancedFrame;

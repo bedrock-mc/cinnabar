@@ -462,7 +462,11 @@ impl Gpu {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        readback.slice(..).get_mapped_range().to_vec()
+        readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped")
+            .to_vec()
     }
 }
 

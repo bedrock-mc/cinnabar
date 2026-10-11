@@ -72,7 +72,7 @@ fn gpu_app(camera: Transform) -> App {
         RenderTarget::Image(image.into()),
         support.msaa(ui::DEFAULT_ANTI_ALIASING_SAMPLES),
         Hdr,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Bloom::default(),
         render::EnhancedRendering::default(),
         camera,

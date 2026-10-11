@@ -3,7 +3,6 @@ use super::*;
 use crate::chunk::transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws,
 };
-use bevy::render::renderer::WgpuWrapper;
 
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
@@ -79,7 +78,7 @@ fn publish(
 fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut app = App::new();
     app.insert_resource(ChunkGpuArena::new(&device));
     let old_buffer = app
@@ -151,7 +150,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
 fn reload_seeds_the_live_sort_inputs() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut app = App::new();
     app.insert_resource(ChunkGpuArena::new(&device));
     let tint = ChunkBiomeTintIdentity::new(4, 7);
@@ -207,7 +206,7 @@ fn reload_sorts_flat_water_for_views_that_displace_it() {
             &[water(ChunkBiomeTintIdentity::default())],
             ChunkTextureAssets::default(),
             RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
+            RenderQueue::new(queue),
             Some(ResourceView {
                 entity: Entity::PLACEHOLDER,
                 transform: GlobalTransform::IDENTITY,
@@ -228,7 +227,7 @@ fn reload_sorts_flat_water_for_views_that_displace_it() {
 fn review_render_stale_resource_geometry_preserves_active_arena() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut app = App::new();
     app.insert_resource(ChunkGpuArena::new(&device));
     let old_buffer = app
@@ -280,7 +279,7 @@ fn review_render_fairness_overflow_keeps_unchanged_uploads_discoverable() {
     let mut app = App::new();
     app.insert_resource(ChunkGpuArena::new(&device))
         .insert_resource(device)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(ChunkTextureAssets::default())
         .insert_resource(ChunkUploadBudget::new(0, 0))
         .init_resource::<ChunkGpuUploadStats>()
@@ -314,7 +313,7 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         &[shore(ChunkBiomeTintIdentity::default())],
         assets,
         RenderDevice::from(device),
-        RenderQueue(Arc::new(WgpuWrapper::new(queue))),
+        RenderQueue::new(queue),
         Some(ResourceView {
             entity: Entity::PLACEHOLDER,
             transform: GlobalTransform::IDENTITY,
@@ -351,7 +350,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     let mut arena = ChunkGpuArena::new(&device);
     arena.geometry_stream_buffer = create_storage_buffer(&device, "test model stream", 1024);
     app.insert_resource(arena)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .init_resource::<ChunkTextureAssets>()
         .init_resource::<TransparentSortRuntime>()
         .init_resource::<TransparentUploadBudget>()
@@ -414,7 +413,6 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
-            compositing_space: None,
         },
         visible,
     ));

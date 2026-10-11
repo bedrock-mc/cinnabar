@@ -5,12 +5,11 @@ use bevy::{
     render::{
         render_phase::{DrawFunctions, ViewSortedRenderPhases},
         render_resource::{CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor},
-        renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
         view::{ExtractedView, RetainedViewEntity},
     },
 };
-use std::sync::Arc;
 
 /// Processes queued descriptors before reading one, without requiring loaded shader assets.
 pub(crate) fn queued_descriptor(
@@ -28,7 +27,10 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -45,11 +47,11 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
     }))
     .unwrap();
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+
     let mut app = App::new();
-    app.insert_resource(PipelineCache::new(device.clone(), adapter, false))
+    app.insert_resource(PipelineCache::new(device.clone(), false))
         .insert_resource(device)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .init_resource::<DrawFunctions<Transparent3d>>()
         .init_resource::<ViewSortedRenderPhases<Transparent3d>>();
     let view = app.world_mut().spawn_empty().id();

@@ -37,8 +37,8 @@ pub(crate) fn install_lightning_render(app: &mut App) {
     load_internal_asset!(
         app,
         LIGHTNING_SHADER_HANDLE,
-        "lightning.wgsl",
-        crate::shader_safety::from_wgsl
+        "lightning.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)

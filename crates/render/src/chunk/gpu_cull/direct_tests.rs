@@ -13,7 +13,10 @@ fn view(eye: [f32; 3], world: u64) -> OcclusionBasis {
     OcclusionBasis {
         eye,
         view_rotation: Mat3::IDENTITY.to_cols_array(),
-        clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05).to_cols_array(),
+        clip_from_view: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            1.2, 1.0, 0.05,
+        )
+        .to_cols_array(),
         viewport: [0, 0, 256, 256],
         depth_size: [256, 256],
         depth_samples: 1,
@@ -328,7 +331,11 @@ fn a_resized_viewport_voids_old_verdicts() {
             None,
             0,
         ),
-        clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05),
+        clip_from_view: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            1.2,
+            16.0 / 9.0,
+            0.05,
+        ),
         world_from_view: GlobalTransform::from_translation(Vec3::from_array(EYE)),
         clip_from_world: None,
         target_format: crate::SCENE_COLOR_FORMAT,

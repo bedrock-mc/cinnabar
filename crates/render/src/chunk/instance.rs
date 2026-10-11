@@ -2,6 +2,7 @@ use crate::chunk::*;
 
 /// Extracted packed geometry for one visible, frustum-cullable sub-chunk.
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 #[extract_component_filter(Changed<ChunkRenderInstance>)]
 #[require(VisibilityClass)]
 #[component(on_add = visibility::add_visibility_class::<ChunkRenderInstance>)]

@@ -65,7 +65,7 @@ fn app() -> App {
         Camera::default(),
         RenderTarget::Image(image.clone().into()),
         Msaa::Off,
-        Tonemapping::None,
+        Tonemapping::Linear,
     ));
     app.init_resource::<Captured>();
     app.world_mut().spawn(Readback::texture(image)).observe(

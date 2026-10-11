@@ -90,11 +90,10 @@ fn buffer_id(world: &World, entity: Entity) -> BufferId {
 
 #[test]
 fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
-    use bevy::render::renderer::WgpuWrapper;
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<crate::AtmosphereViewInputs>();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
     world.insert_resource(frame);

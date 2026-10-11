@@ -3,7 +3,8 @@
 use bevy::{
     camera::{MainPassResolutionOverride, primitives::Frustum},
     render::{
-        Extract, render_resource::TextureViewId, sync_world::RenderEntity, view::ViewDepthTexture,
+        Extract, render_resource::TextureViewId, sync_world::RenderEntity,
+        view::ViewDepthStencilTexture,
     },
 };
 
@@ -124,7 +125,7 @@ pub(super) fn extract_hidden_chunks(
 pub(super) type CullViewComponents = (
     &'static ExtractedView,
     &'static Frustum,
-    Option<&'static ViewDepthTexture>,
+    Option<&'static ViewDepthStencilTexture>,
     &'static Msaa,
     Option<&'static MainPassResolutionOverride>,
 );
@@ -246,13 +247,13 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
 
 /// The view's depth when a pyramid can seed from it at full resolution.
 pub(super) fn sampleable_depth<'a>(
-    depth: Option<&'a ViewDepthTexture>,
+    depth: Option<&'a ViewDepthStencilTexture>,
     resolution_override: Option<&MainPassResolutionOverride>,
-) -> Option<&'a ViewDepthTexture> {
+) -> Option<&'a ViewDepthStencilTexture> {
     depth.filter(|depth| {
         resolution_override.is_none()
             && depth
-                .texture
+                .texture()
                 .usage()
                 .contains(TextureUsages::TEXTURE_BINDING)
     })
@@ -290,16 +291,16 @@ pub(super) fn prepare_pyramid(
     prepared: &mut Option<PreparedPyramid>,
     kernels: &CullKernels,
     device: &RenderDevice,
-    depth: Option<&ViewDepthTexture>,
+    depth: Option<&ViewDepthStencilTexture>,
     msaa: Msaa,
 ) {
     let Some(depth) = depth else {
         *prepared = None;
         return;
     };
-    let size = depth.texture.size();
+    let size = depth.texture().size();
     let depth_size = [size.width, size.height];
-    let view = depth.view();
+    let view = crate::scene_sampling::view_depth(depth);
     if prepared.as_ref().is_some_and(|prepared| {
         prepared.depth == view.id() && prepared.pyramid.depth_size == depth_size
     }) {

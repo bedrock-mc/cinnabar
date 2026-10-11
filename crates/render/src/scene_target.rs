@@ -189,18 +189,38 @@ impl SceneTarget {
 /// Registers the retained main attachment before any consumer prepares its view resources.
 pub(crate) fn install(app: &mut App) {
     app.add_systems(Last, admit_copy_destination);
+    install_formats(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WithheldSamples>()
         .add_systems(Render, render_systems());
+}
+
+#[derive(Resource)]
+struct SceneFormatsInstalled;
+
+/// Gives every custom renderer the same scene formats, even without retained terrain attachments.
+pub(crate) fn install_formats(render_app: &mut SubApp) {
+    if render_app
+        .world()
+        .contains_resource::<SceneFormatsInstalled>()
+    {
+        return;
+    }
+    render_app
+        .insert_resource(SceneFormatsInstalled)
+        .init_resource::<CameraMainPassTextureFormats>()
+        .add_systems(
+            Render,
+            prepare_scene_formats
+                .in_set(RenderSystems::PrepareViews)
+                .before(bevy::render::view::prepare_view_targets),
+        );
 }
 
 /// Allocates the shared attachment in place of Bevy's multisampled colour target.
 fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     use bevy::render::view::prepare_view_targets;
     (
-        prepare_scene_formats
-            .in_set(RenderSystems::PrepareViews)
-            .before(prepare_view_targets),
         withhold_view_samples
             .in_set(RenderSystems::PrepareViews)
             .before(prepare_view_targets),
@@ -298,6 +318,12 @@ pub(crate) enum ScenePass {
 #[derive(Resource)]
 struct PassesInstalled;
 
+/// Orders GPU submissions even when their systems only read ECS components.
+pub(crate) fn order_camera_stages(schedule: &mut bevy::ecs::schedule::Schedule) {
+    use Core3dSystems::*;
+    schedule.configure_sets((Prepass, MainPass, EarlyPostProcess, PostProcess).chain());
+}
+
 /// Replaces the stock opaque pass and resolves shared samples before post-processing.
 pub(crate) fn install_graph(world: &mut World) {
     if world.contains_resource::<PassesInstalled>() {
@@ -305,6 +331,7 @@ pub(crate) fn install_graph(world: &mut World) {
     }
     let installed = world
         .try_schedule_scope(Core3d, |world, schedule| {
+            order_camera_stages(schedule);
             use bevy::ecs::schedule::ScheduleCleanupPolicy;
             schedule
                 .remove_systems_in_set(

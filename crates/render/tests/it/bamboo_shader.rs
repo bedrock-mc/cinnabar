@@ -5,7 +5,7 @@ use crate::{
 };
 
 fn source() -> String {
-    let source = shader_source::standalone(include_str!("../../src/model.wgsl"), &["ENHANCED"])
+    let source = shader_source::standalone(include_str!("../../src/model.wesl"), &["ENHANCED"])
         .replace("@group(1) @binding(0)", "@group(0) @binding(30)");
     let source = (0..7).fold(source, |source, binding| {
         source.replace(
@@ -114,8 +114,13 @@ fn bamboo_offsets_do_not_rotate_enhanced_surface_normals() {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
-    let values: Vec<[f32; 4]> =
-        bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
+    let values: Vec<[f32; 4]> = bytemuck::cast_slice(
+        &readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped"),
+    )
+    .to_vec();
     if let Some(path) = std::env::var_os("CINNABAR_BAMBOO_SHADER_CAPTURE") {
         let bindings: Vec<_> = bindings
             .into_iter()

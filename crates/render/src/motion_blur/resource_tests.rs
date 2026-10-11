@@ -15,7 +15,7 @@ use bevy::{
         render_resource::*,
         renderer::RenderDevice,
         texture::{CachedTexture, OutputColorAttachment, TextureCache},
-        view::{ViewDepthTexture, ViewTarget, ViewTargetAttachments, prepare_view_targets},
+        view::{ViewDepthStencilTexture, ViewTarget, ViewTargetAttachments, prepare_view_targets},
     },
 };
 
@@ -78,14 +78,14 @@ pub(super) fn fixture() -> (App, Entity) {
             sorted_camera_index_for_target: 0,
             exposure: 1.0,
             hdr: false,
-            compositing_space: None,
         },
-        ViewDepthTexture::new(
+        ViewDepthStencilTexture::new(
             CachedTexture {
                 texture: depth,
                 default_view: depth_view,
             },
             Some(0.0),
+            None,
         ),
     ));
     world.run_system_once(prepare_view_targets).unwrap();
@@ -117,7 +117,9 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
         .unwrap()
         .main_texture_view()
         .id();
-    let depth = world.get::<ViewDepthTexture>(entity).unwrap().view().id();
+    let depth =
+        crate::scene_sampling::view_depth(world.get::<ViewDepthStencilTexture>(entity).unwrap())
+            .id();
     let binding = world
         .get::<BlurView>(entity)
         .unwrap()
@@ -165,7 +167,9 @@ fn motion_blur_prepares_both_scene_colours_before_smaa_flips() {
         target.main_texture_view().id(),
         target.main_texture_other_view().id(),
     ];
-    let depth = world.get::<ViewDepthTexture>(entity).unwrap().view().id();
+    let depth =
+        crate::scene_sampling::view_depth(world.get::<ViewDepthStencilTexture>(entity).unwrap())
+            .id();
     let state = world.get::<BlurView>(entity).unwrap();
     for source in views {
         assert!(state.binding(source, depth).is_some());

@@ -351,7 +351,10 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
 
 #[test]
 fn packed_chunk_shader_parses_and_validates() {
-    let shader = standalone_world_shader(include_str!("../../../src/chunk.wgsl"));
+    let shader = standalone_world_shader(include_str!("../../../src/chunk.wesl"))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let module = naga::front::wgsl::parse_str(&shader).expect("parse packed chunk WGSL");
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -391,7 +394,7 @@ fn packed_chunk_shader_parses_and_validates() {
     );
     assert!(shader.contains("fn sample_texture_ref("));
     assert!(shader.contains("texture_ref >> 31u"));
-    assert!(shader.contains("texture_ref & 0x7ffu"));
+    assert!(shader.contains("texture_ref & 2047u"));
     assert!(shader.contains("let uv_dx = dpdx(in.uv);"));
     assert!(shader.contains("let uv_dy = dpdy(in.uv);"));
     assert!(shader.contains("if (frame_blend > 0.0)"));
@@ -413,7 +416,7 @@ fn packed_chunk_shader_parses_and_validates() {
         Some(0.5)
     );
     assert_eq!(shader.matches("discard;").count(), 2);
-    assert!(shader.contains("material_flags & 0x30u"));
+    assert!(shader.contains("material_flags & 48u"));
     assert!(shader.contains("fn material_uses_overlay_mask(flags: u32)"));
     assert!(shader.contains("return (flags & OVERLAY_MASK) != 0u;"));
     assert!(shader.contains(&format!(
@@ -430,17 +433,17 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("(coordinate.x << 8u) | (coordinate.z << 4u) | coordinate.y"));
     assert!(shader.contains("fn packed_biome_tint_index"));
     assert!(shader.contains("fn unpack_linear_rgb10"));
-    assert!(shader.contains("if (tint_kind == 0x10u)"));
-    assert!(shader.contains("if (tint_kind == 0x30u)"));
-    assert!(shader.contains("switch material_flags & 0x600u"));
-    assert!(shader.contains("case 0x200u"));
-    assert!(shader.contains("case 0x400u"));
-    assert!(shader.contains("case 0x600u"));
+    assert!(shader.contains("if (tint_kind == 16u)"));
+    assert!(shader.contains("if (tint_kind == 48u)"));
+    assert!(shader.contains("switch material_flags & 1536u"));
+    assert!(shader.contains("case 512u"));
+    assert!(shader.contains("case 1024u"));
+    assert!(shader.contains("case 1536u"));
     assert!(shader.contains("clock.tick / animation.ticks_per_frame"));
     assert!(shader.contains("clock.tick % animation.ticks_per_frame"));
     assert!(shader.contains("(current_index + 1u) % animation.frame_count"));
     assert!(shader.contains("animation.flags & 1u"));
-    assert!(shader.contains("material.animation == 0xffffffffu"));
+    assert!(shader.contains("material.animation == 4294967295u"));
     assert!(shader.contains("var block_textures_page_0: texture_2d_array<f32>"));
     assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
     assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
@@ -451,15 +454,15 @@ fn packed_chunk_shader_parses_and_validates() {
 
 #[test]
 fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
-    let lighting = include_str!("../../../src/lighting.wgsl");
+    let lighting = include_str!("../../../src/lighting.wesl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
     for (shader, liquid) in [
-        (include_str!("../../../src/chunk.wgsl"), false),
-        (include_str!("../../../src/model.wgsl"), false),
-        (include_str!("../../../src/liquid.wgsl"), true),
+        (include_str!("../../../src/chunk.wesl"), false),
+        (include_str!("../../../src/model.wesl"), false),
+        (include_str!("../../../src/liquid.wesl"), true),
     ] {
-        assert!(shader.contains("#import cinnabar::lighting::{"));
+        assert!(shader.contains("import render::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
         assert!(!shader.contains("fn lit_colour("));
         assert!(shader.contains("lighting: vec3<f32>"));
@@ -516,7 +519,7 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
 
 #[test]
 fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
-    let shader = include_str!("../../../src/chunk.wgsl");
+    let shader = include_str!("../../../src/chunk.wesl");
     assert!(shader.contains("struct ChunkOrigin"));
     assert!(shader.contains("cube_bases: vec4<u32>"));
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
@@ -691,16 +694,13 @@ fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
 
 #[test]
 fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
-    use bevy::{
-        camera::primitives::{Aabb, Frustum},
-        math::Mat4,
-    };
+    use bevy::camera::primitives::{Aabb, Frustum};
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(ChunkRenderPlugin::new(1));
     let key = SubChunkKey::new(0, 0, 0, 0);
-    let frustum = Frustum(bevy::math::primitives::ViewFrustum::from_clip_from_world(
-        &Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
+    let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+        &glam::camera::rh::proj::directx::orthographic(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
     ));
     for models in [false, true, false, true] {
         let cube = solid_mesh(1);

@@ -51,11 +51,11 @@ fn pipeline(
         descriptor
     };
     let buffer = &base.vertex.buffers[0];
-    let buffers = [wgpu::VertexBufferLayout {
+    let buffers = [Some(wgpu::VertexBufferLayout {
         array_stride: buffer.array_stride,
         step_mode: buffer.step_mode,
         attributes: &buffer.attributes,
-    }];
+    })];
     gpu.device
         .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("UI damage parity"),

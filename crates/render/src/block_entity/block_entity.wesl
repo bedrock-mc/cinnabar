@@ -1,9 +1,8 @@
-#import bevy_render::view::View
-#import cinnabar::world_projection::{camera_offset_clip, world_clip}
-#import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
-#ifdef ALPHA_TO_COVERAGE
-#import cinnabar::lighting::{cutout_alpha_2d}
-#endif
+import bevy_render::view::View;
+import render::world_projection::{camera_offset_clip, world_clip};
+import render::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear};
+@if(ALPHA_TO_COVERAGE)
+import render::lighting::{cutout_alpha_2d};
 
 // Packed Rust BlockEntityVertex: position, atlas UV, RGBA, world normal, actor light.
 const BLOCK_ENTITY_ALPHA_THRESHOLD: f32 = 0.5;
@@ -125,16 +124,18 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
     var texel = textureSample(atlas, atlas_sampler, input.uv);
-#ifdef ALPHA_TO_COVERAGE
+    @if(ALPHA_TO_COVERAGE)
     let cutout = cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel, BLOCK_ENTITY_ALPHA_THRESHOLD);
+    @if(ALPHA_TO_COVERAGE)
     let coverage = cutout.coverage;
+    @if(ALPHA_TO_COVERAGE)
     if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD && coverage > 0.0) { texel = cutout.colour; }
-#else
+    @if(!ALPHA_TO_COVERAGE)
     if (texel.a < BLOCK_ENTITY_ALPHA_THRESHOLD) {
         discard;
     }
+    @if(!ALPHA_TO_COVERAGE)
     let coverage = 1.0;
-#endif
     if (input.actor_light != 0u) {
         // Native mob_head:entity_alphatest uses Fancy world-normal shading and
         // the shared lightmap, composed in gamma before the output transfer.

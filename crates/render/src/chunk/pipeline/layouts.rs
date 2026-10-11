@@ -49,7 +49,7 @@ impl FromWorld for ChunkPipeline {
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: CHUNK_SHADER_HANDLE,
-                // Opaque terrain fetches its vertex index and first instance; see `chunk.wgsl`.
+                // Opaque terrain fetches its vertex index and first instance; see `chunk.wesl`.
                 buffers: vec![draw_offsets_layout()],
                 ..default()
             },

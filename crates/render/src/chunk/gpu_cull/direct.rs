@@ -15,7 +15,7 @@ use bevy::{
         render_phase::DrawFunctionId,
         render_resource::{CachedRenderPipelineId, RenderPassDescriptor, StoreOp, TextureViewId},
         renderer::RenderContext,
-        view::ViewDepthTexture,
+        view::ViewDepthStencilTexture,
     },
 };
 
@@ -346,7 +346,12 @@ impl DirectOcclusion {
             let buffer = &readbacks[slot];
             history.apply(
                 tag,
-                bytemuck::cast_slice(&buffer.slice(..).get_mapped_range()),
+                bytemuck::cast_slice(
+                    &buffer
+                        .slice(..)
+                        .get_mapped_range()
+                        .expect("readback buffer is mapped"),
+                ),
             );
             buffer.unmap();
             stats.verdicts_applied += 1;
@@ -410,7 +415,7 @@ pub(super) fn prepare_direct_occlusion(
         return;
     };
     let depth = sampleable_depth(depth, resolution_override);
-    let size = depth.map(|depth| depth.texture.size());
+    let size = depth.map(|depth| depth.texture().size());
     let current = OcclusionBasis {
         depth_size: size.map_or([0; 2], |size| [size.width, size.height]),
         world: occlusion.history.world(),
@@ -583,7 +588,7 @@ type TerrainQuery = (
     &'static ExtractedCamera,
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     Option<&'static MainPassResolutionOverride>,
 );
 
@@ -641,7 +646,7 @@ pub(crate) fn terrain_pass(
                         slabs: default(),
                     },
                     Opaque3dBinKey {
-                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                        asset_id: AssetId::<Mesh>::default().untyped(),
                     },
                     (entity, main),
                     0..1,

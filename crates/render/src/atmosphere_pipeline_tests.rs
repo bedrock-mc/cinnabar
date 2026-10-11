@@ -6,7 +6,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipeline = AtmospherePipeline::from_world(&mut World::new());
     crate::shader_test_support::assert_binding_visibility(
-        &crate::shader_source::standalone(include_str!("atmosphere.wgsl"), &[]),
+        &crate::shader_source::standalone(include_str!("atmosphere.wesl"), &[]),
         0,
         &pipeline.bind_group_layout,
     );

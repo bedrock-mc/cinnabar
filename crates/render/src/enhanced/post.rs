@@ -13,7 +13,7 @@ use bevy::{
             TextureView,
         },
         renderer::{RenderContext, RenderDevice},
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -157,7 +157,7 @@ fn fullscreen_pass(
 
 type EnhancedPostQuery = (
     &'static ViewTarget,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     &'static crate::scene_target::SceneTarget,
     &'static EnhancedRendering,
     &'static bevy::render::camera::ExtractedCamera,

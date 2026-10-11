@@ -31,7 +31,7 @@ use bevy::{
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::{
-            ExtractedView, ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset,
+            ExtractedView, ViewDepthStencilTexture, ViewTarget, ViewUniform, ViewUniformOffset,
             ViewUniforms,
         },
     },
@@ -48,6 +48,7 @@ const INSTANCE_BYTES: u64 = size_of::<EntityShadow>() as u64;
 
 /// Main-world holder of this frame's casters, cloned into the render world.
 #[derive(Resource, ExtractResource, Clone, Default, Debug)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct EntityShadowScene(pub EntityShadowFrame);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -62,8 +63,8 @@ impl Plugin for EntityShadowRenderPlugin {
         load_internal_asset!(
             app,
             SHADER,
-            "entity_shadow.wgsl",
-            crate::shader_safety::from_wgsl
+            "entity_shadow.wesl",
+            crate::shader_safety::from_wesl
         );
         app.init_resource::<EntityShadowScene>()
             .add_plugins(ExtractResourcePlugin::<EntityShadowScene>::default())

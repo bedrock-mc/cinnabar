@@ -80,12 +80,12 @@ fn apply(rows: &[[f32; 4]; 3], point: [f32; 3]) -> Vec3 {
 
 /// Renders the player's base and animated skin layers from published meshes, poses and artwork.
 fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize, usize) {
-    let clip = Mat4::perspective_rh(
+    let clip = glam::camera::rh::proj::directx::perspective(
         45f32.to_radians(),
         WIDTH as f32 / HEIGHT as f32,
         0.05,
         100.0,
-    ) * Mat4::look_at_rh(
+    ) * glam::camera::rh::view::look_at_mat4(
         Vec3::new(2.7, 1.7, -4.5),
         Vec3::new(0.0, 0.95, 0.0),
         Vec3::Y,

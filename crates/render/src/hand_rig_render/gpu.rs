@@ -140,8 +140,11 @@ pub(super) fn prepare(
     upload_atlas(&mut gpu, &device, &queue, frame);
     ensure_depth(&mut gpu, &device, size, samples);
     let aspect = viewport.z as f32 / viewport.w as f32;
-    let projection =
-        Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, CAMERA_NEAR_PLANE_BLOCKS);
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        frame.fov_radians,
+        aspect,
+        CAMERA_NEAR_PLANE_BLOCKS,
+    );
     upload_uniforms(
         &mut gpu,
         &device,

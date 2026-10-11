@@ -12,7 +12,7 @@ fn settings() -> CameraMotionBlur {
 fn history(position: Vec3, yaw: f32, epoch: u64) -> CameraHistory {
     let pose = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), position);
     CameraHistory::new(
-        Mat4::perspective_infinite_reverse_rh(1.2, 2.0, 0.1),
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 2.0, 0.1),
         pose,
         UVec4::new(0, 0, 640, 320),
         epoch,

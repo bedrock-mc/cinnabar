@@ -11,7 +11,7 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
     },
 };
 
@@ -306,7 +306,7 @@ fn app_with_noop_render_sub_app() -> App {
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(DrawFunctions::<Opaque3d>::default())
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))
@@ -319,13 +319,13 @@ fn app_with_noop_render_sub_app() -> App {
 }
 
 fn standalone_actor_shader_source() -> String {
-    let shader = crate::shader_safety::from_actor_wgsl(
+    let shader = crate::shader_safety::from_actor_wesl(
         ACTOR_SHADER_SOURCE,
-        "actor.wgsl",
+        "actor.wesl",
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("actor source is WGSL");
     };
     shader_source::standalone(&source, &[])
@@ -556,7 +556,7 @@ fn publish_and_sync(
 fn skin_arrays_upload_only_newly_admitted_skins() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut gpu = super::GpuSkinArrays::new(&device);
     let mut scene = crate::actor::ActorRenderScene::default();
     let skins: Vec<_> = (0..6).map(|seed| upscaled_skin(seed, 64)).collect();

@@ -141,8 +141,9 @@ fn opaque_sunrise_replaces_the_sky_tint() {
 
 #[test]
 fn screen_rect_bounds_visible_volumes_and_covers_the_viewport_at_the_camera() {
-    let clip_from_view = glam::Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05);
-    let view_from_world = glam::Mat4::look_at_rh(
+    let clip_from_view =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 1.0, 0.05);
+    let view_from_world = glam::camera::rh::view::look_at_mat4(
         glam::Vec3::new(0.0, 70.0, 10.0),
         glam::Vec3::new(0.0, 64.0, 0.0),
         glam::Vec3::Y,

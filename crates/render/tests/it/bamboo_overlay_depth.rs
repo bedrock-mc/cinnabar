@@ -83,13 +83,13 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         .chain(cracks.iter())
         .copied()
         .collect();
-    let shader = shader_safety::from_block_entity_wgsl(
-        include_str!("../../src/block_entity/block_entity.wgsl"),
-        "bamboo-overlay-depth.wgsl",
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "bamboo-overlay-depth.wesl",
         render::BLOCK_ENTITY_VERTEX_WORDS,
         render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("block overlay shader must retain WGSL");
     };
     let source = shader_source::standalone(&source, &[])
@@ -173,8 +173,13 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         gpu.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
-        let positions: Vec<[f32; 4]> =
-            bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
+        let positions: Vec<[f32; 4]> = bytemuck::cast_slice(
+            &readback
+                .slice(..)
+                .get_mapped_range()
+                .expect("readback buffer is mapped"),
+        )
+        .to_vec();
         readback.unmap();
         for (path, position) in ["highlight", "crack"].into_iter().zip(positions) {
             assert!(

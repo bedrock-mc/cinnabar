@@ -8,7 +8,7 @@ use crate::shader_source;
 use meshing::cloud_viewport::{CLOUD_FADE_START, shader_source as cloud_source};
 
 fn shader() -> String {
-    shader_source::standalone(&cloud_source(include_str!("../../src/cloud.wgsl")), &[])
+    shader_source::standalone(&cloud_source(include_str!("../../src/cloud.wesl")), &[])
 }
 
 fn compact(source: &str) -> String {
@@ -50,7 +50,7 @@ fn one_sorted_item_draws_exact_quad_vertices_and_one_window_instance() {
 
 #[test]
 fn cloud_colour_and_fade_are_native_vertex_work_not_reinvented_fragment_weather() {
-    let source = include_str!("../../src/cloud.wgsl");
+    let source = include_str!("../../src/cloud.wesl");
     let fragment = source.split("fn cloud_fragment").nth(1).unwrap();
     assert!(!fragment.contains("distance_fade"));
     assert!(!fragment.contains("cloud_colour"));

@@ -292,7 +292,7 @@ fn app(assets: Arc<assets::RuntimeAssets>) -> (App, Entity) {
             RenderTarget::Image(image.clone().into()),
             Msaa::Off,
             Hdr,
-            Tonemapping::None,
+            Tonemapping::Linear,
             Bloom::default(),
             render::EnhancedRendering::bounded_diagnostic(),
             Transform::from_xyz(12.0, 8.0, 14.0).looking_at(Vec3::new(5.0, 2.0, 5.0), Vec3::Y),

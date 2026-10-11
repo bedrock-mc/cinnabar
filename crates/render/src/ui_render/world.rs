@@ -6,7 +6,7 @@ type UiViewQuery = (
     &'static crate::scene_target::SceneTarget,
     &'static MainEntity,
     &'static ExtractedCamera,
-    Option<&'static ViewDepthTexture>,
+    Option<&'static ViewDepthStencilTexture>,
     Option<&'static MainPassResolutionOverride>,
 );
 
@@ -96,7 +96,7 @@ fn draw_ui_view(
             color_attachments: &attachments,
             depth_stencil_attachment: if depth_test || depth_write {
                 depth.map(|depth| RenderPassDepthStencilAttachment {
-                    view: depth.view(),
+                    view: depth.attachment.depth_stencil_views().attachment_view(),
                     depth_ops: depth_write.then_some(Operations {
                         load: LoadOp::Load,
                         store: StoreOp::Store,
@@ -161,11 +161,11 @@ fn draw_ui_view(
 
 /// Only bind depth with the owning color target's dimensions and sample count.
 fn world_depth_compatible(
-    depth: &ViewDepthTexture,
+    depth: &ViewDepthStencilTexture,
     target: &crate::scene_target::SceneTarget,
 ) -> bool {
     let color = &target.texture;
-    depth.texture.format() == CORE_3D_DEPTH_FORMAT
-        && depth.texture.sample_count() == color.sample_count()
-        && depth.texture.size() == color.size()
+    depth.texture().format() == CORE_3D_DEPTH_FORMAT
+        && depth.texture().sample_count() == color.sample_count()
+        && depth.texture().size() == color.size()
 }

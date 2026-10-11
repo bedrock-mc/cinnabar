@@ -9,7 +9,7 @@ use bevy::{
         render_phase::ViewBinnedRenderPhases,
         render_resource::{RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -18,7 +18,7 @@ type SceneOpaqueQuery = (
     &'static ExtractedView,
     &'static ViewTarget,
     Option<&'static SceneTarget>,
-    &'static ViewDepthTexture,
+    &'static ViewDepthStencilTexture,
     Option<&'static MainPassResolutionOverride>,
     Option<&'static bevy::core_pipeline::skybox::SkyboxPipelineId>,
     Option<&'static bevy::core_pipeline::skybox::SkyboxBindGroup>,

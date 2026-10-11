@@ -1,5 +1,4 @@
-#define_import_path cinnabar::biome_tint
-#import cinnabar::lighting::{tint_to_gamma, tint_to_linear}
+import render::lighting::{tint_to_gamma, tint_to_linear};
 
 // The CPU packs vanilla's 27-sample biome counts at each 3D lattice point.
 // BIOME_CONSTANTS

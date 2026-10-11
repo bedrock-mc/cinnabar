@@ -1,4 +1,3 @@
-#define_import_path cinnabar::material
 
 struct MaterialGpu {
     texture: u32,

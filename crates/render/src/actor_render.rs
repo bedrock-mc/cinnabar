@@ -56,7 +56,7 @@ use render_model::ActorRigVertex;
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
-const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wgsl");
+const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wesl");
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ActorRenderPlugin;
@@ -99,8 +99,8 @@ fn install_actor_render(app: &mut App) {
     load_internal_asset!(
         app,
         ACTOR_SHADER_HANDLE,
-        "actor.wgsl",
-        crate::shader_safety::from_actor_wgsl,
+        "actor.wesl",
+        crate::shader_safety::from_actor_wesl,
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS
     );

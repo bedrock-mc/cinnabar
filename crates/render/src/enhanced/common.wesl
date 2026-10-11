@@ -1,4 +1,3 @@
-#define_import_path cinnabar::enhanced_common
 
 // Mirrors `EnhancedFrameGpu` in enhanced/frame.rs.
 struct EnhancedFrame {

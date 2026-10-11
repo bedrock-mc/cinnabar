@@ -4,9 +4,9 @@
 // sorted refs or direct records as `liquid_draw_ref` selects; any other draw shades model draw
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
-#import cinnabar::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG
-#import cinnabar::liquid::{VertexOutput as LiquidOutput, liquid_draw_ref, vertex_for_ref, shade_liquid}
-#import cinnabar::model::{VertexOutput as ModelOutput, model_vertex, shade_blend}
+import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
+import render::liquid::{VertexOutput as LiquidOutput, liquid_draw_ref, vertex_for_ref, shade_liquid};
+import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
 struct VertexOutput {
     // Invariant like both families' outputs, so shared edges keep identical positions.
@@ -20,13 +20,14 @@ struct VertexOutput {
     @location(6) world_position: vec3<f32>,
     @location(7) lighting: vec3<f32>,
     @location(8) normal: vec3<f32>,
-#ifdef ENHANCED
+    @if(ENHANCED)
     @location(9) sky_ao: vec2<f32>,
+    @if(ENHANCED)
     @location(10) @interpolate(flat) surface_class: u32,
-#else
+    @if(!ENHANCED)
     @location(9) native_light_ao: vec3<f32>,
+    @if(!ENHANCED)
     @location(10) @interpolate(flat) tint_gamma: vec3<f32>,
-#endif
     @location(11) liquid_uv: vec2<f32>,
     @location(12) water_tint: vec4<f32>,
     // Centroid sampling stays separate from the liquid's ordinary UV interpolation.
@@ -50,14 +51,16 @@ fn vertex(
         out.routing.y = liquid.two_sided;
         out.world_position = liquid.world_position;
         out.lighting = liquid.lighting;
-#ifdef ENHANCED
+        @if(ENHANCED)
         out.normal = liquid.normal;
+        @if(ENHANCED)
         out.sky_ao.x = liquid.sky_light;
+        @if(ENHANCED)
         out.sky_ao.y = liquid.ambient_occlusion;
+        @if(ENHANCED)
         out.surface_class = liquid.surface_class;
-#else
+        @if(!ENHANCED)
         out.native_light_ao = vec3(liquid.native_light_levels, 0.0);
-#endif
         out.liquid_uv = liquid.uv;
         out.water_tint = liquid.water_tint;
         out.routing.z = liquid.depth_write_route;
@@ -74,14 +77,16 @@ fn vertex(
     out.world_position = model.world_position;
     out.lighting = model.lighting;
     out.normal = model.normal;
-#ifdef ENHANCED
+    @if(ENHANCED)
     out.sky_ao.x = model.sky_light;
+    @if(ENHANCED)
     out.sky_ao.y = model.ambient_occlusion;
+    @if(ENHANCED)
     out.surface_class = model.surface_class;
-#else
+    @if(!ENHANCED)
     out.native_light_ao = vec3(model.native_light_levels, model.native_ao_face);
+    @if(!ENHANCED)
     out.tint_gamma = model.tint_gamma;
-#endif
     out.model_uv = model.uv;
     out.material_biome.x = model.material_flags;
     out.local_position = model.local_position;
@@ -100,14 +105,16 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
     liquid.lighting = in.lighting;
-#ifdef ENHANCED
+    @if(ENHANCED)
     liquid.sky_light = in.sky_ao.x;
+    @if(ENHANCED)
     liquid.ambient_occlusion = in.sky_ao.y;
+    @if(ENHANCED)
     liquid.normal = in.normal;
+    @if(ENHANCED)
     liquid.surface_class = in.surface_class;
-#else
+    @if(!ENHANCED)
     liquid.native_light_levels = in.native_light_ao.xy;
-#endif
     liquid.depth_write_route = in.routing.z;
     liquid.world_position = in.world_position;
     liquid.native_face_shade = in.frame_face.y;
@@ -128,15 +135,18 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     model.frame_blend = in.frame_face.x;
     model.visibility.x = in.routing.w;
     model.lighting = in.lighting;
-#ifdef ENHANCED
+    @if(ENHANCED)
     model.sky_light = in.sky_ao.x;
+    @if(ENHANCED)
     model.ambient_occlusion = in.sky_ao.y;
+    @if(ENHANCED)
     model.surface_class = in.surface_class;
-#else
+    @if(!ENHANCED)
     model.native_light_levels = in.native_light_ao.xy;
+    @if(!ENHANCED)
     model.native_ao_face = in.native_light_ao.z;
+    @if(!ENHANCED)
     model.tint_gamma = in.tint_gamma;
-#endif
     model.world_origin = in.world_origin;
     model.visibility.y = in.routing.y;
     model.world_position = in.world_position;

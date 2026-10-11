@@ -235,13 +235,13 @@ impl Shaders {
             .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         };
         Self {
-            cube: prepare(include_str!("../../src/chunk.wgsl"), CUBE_ENTRIES),
+            cube: prepare(include_str!("../../src/chunk.wesl"), CUBE_ENTRIES),
             model: prepare(
-                include_str!("../../src/model.wgsl"),
+                include_str!("../../src/model.wesl"),
                 &MODEL_ENTRIES.replace("SECTIONS", &format!("{}u", streams.model_sections)),
             ),
             liquid: prepare(
-                include_str!("../../src/liquid.wgsl"),
+                include_str!("../../src/liquid.wesl"),
                 &LIQUID_ENTRIES.replace("SECTIONS", &format!("{}u", streams.liquid_sections)),
             ),
         }

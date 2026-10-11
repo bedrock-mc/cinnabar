@@ -262,12 +262,20 @@ impl Raster {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        readback.slice(..).get_mapped_range().to_vec()
+        readback
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback buffer is mapped")
+            .to_vec()
     }
 }
 
 fn projection() -> Mat4 {
-    Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1)
+    glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_2,
+        1.0,
+        0.1,
+    )
 }
 
 fn exposure(world_from_view: Mat4) -> ExposureUniform {

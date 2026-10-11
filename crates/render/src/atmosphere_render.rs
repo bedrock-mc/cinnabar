@@ -99,8 +99,8 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     load_internal_asset!(
         app,
         ATMOSPHERE_SHADER_HANDLE,
-        "atmosphere.wgsl",
-        crate::shader_safety::from_wgsl
+        "atmosphere.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::lighting::install(app);
     install_cloud_render(app);
@@ -618,7 +618,7 @@ fn queue_atmosphere(
                 slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
+                asset_id: AssetId::<Mesh>::default().untyped(),
             },
             (view_entity, *main_entity),
             InputUniformIndex::default(),
@@ -704,7 +704,7 @@ mod tests {
         render::{
             ExtractSchedule, Render, RenderApp, RenderStartup,
             render_phase::DrawFunctions,
-            renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+            renderer::{RenderDevice, RenderQueue},
         },
     };
     use sha2::{Digest, Sha256};
@@ -754,7 +754,7 @@ mod tests {
         let mut render_app = SubApp::new();
         render_app
             .insert_resource(RenderDevice::from(device))
-            .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+            .insert_resource(RenderQueue::new(queue))
             .insert_resource(DrawFunctions::<Opaque3d>::default())
             .insert_resource(DrawFunctions::<Transparent3d>::default())
             .add_schedule(Schedule::new(RenderStartup))

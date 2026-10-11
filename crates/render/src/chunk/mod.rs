@@ -62,7 +62,7 @@ use bevy::{
         sync_world::MainEntity,
         view::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms, window::ExtractedWindows,
+            ViewUniforms, window::ExtractedWindow,
         },
     },
 };

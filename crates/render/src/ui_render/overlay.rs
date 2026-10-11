@@ -18,7 +18,7 @@ use bevy::{
             LoadOp, Operations, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp,
         },
         renderer::RenderContext,
-        view::ViewDepthTexture,
+        view::ViewDepthStencilTexture,
     },
 };
 use render_model::UI_BLEND_ALPHA;
@@ -174,7 +174,7 @@ type UiOverlayView = (
     &'static ExtractedView,
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
-    Option<&'static ViewDepthTexture>,
+    Option<&'static ViewDepthStencilTexture>,
     Option<&'static super::composite::UiLayerTexture>,
     Option<&'static ViewTarget>,
 );

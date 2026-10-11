@@ -158,6 +158,7 @@ pub(super) fn pipeline_descriptor(
         label: Some("entity shadow pipeline".into()),
         layout: vec![layout],
         vertex: VertexState {
+            constants: Default::default(),
             shader: SHADER,
             shader_defs: shader_defs.clone(),
             entry_point: Some("shadow_vertex".into()),
@@ -172,6 +173,7 @@ pub(super) fn pipeline_descriptor(
             }],
         },
         fragment: Some(FragmentState {
+            constants: Default::default(),
             shader: SHADER,
             shader_defs,
             entry_point: Some("shadow_fragment".into()),

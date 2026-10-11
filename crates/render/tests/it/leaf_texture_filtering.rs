@@ -166,7 +166,7 @@ fn terrain_unorm_views_filter_both_pages_layers_and_frame_mix() {
         words.extend([uv, uv, gradient, case.blend]);
     }
     let data = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
-    let chunk = material_shader::source(include_str!("../../src/chunk.wgsl"));
+    let chunk = material_shader::source(include_str!("../../src/chunk.wesl"));
     let source = format!("{}\n{FIXTURE}", shader_source::standalone(&chunk, &[]));
     let pixels = gpu.render_srgb(
         &source,
@@ -285,7 +285,7 @@ fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() 
     let native_sampler = gpu
         .device
         .create_sampler(&material_shader::native_leaf_sampler_descriptor());
-    let chunk = material_shader::source(include_str!("../../src/chunk.wgsl"));
+    let chunk = material_shader::source(include_str!("../../src/chunk.wesl"));
     let source = format!("{}\n{MIP_FIXTURE}", shader_source::standalone(&chunk, &[]));
     let pixels = gpu.render(
         &source,

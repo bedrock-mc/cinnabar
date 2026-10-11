@@ -22,7 +22,7 @@ use bevy::{
             TextureSampleType, TextureUsages, TextureView, TextureViewDimension, TextureViewId,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use mod_render::shader::{FRAGMENT_ENTRY, FRAME_UNIFORM_BYTES, VERTEX_ENTRY};
@@ -316,7 +316,7 @@ fn prepare(
         Entity,
         &ExtractedView,
         &ViewTarget,
-        Option<&ViewDepthTexture>,
+        Option<&ViewDepthStencilTexture>,
     )>,
 ) {
     let (Some(scene), Some(mut gpu)) = (scene, gpu) else {
@@ -369,13 +369,13 @@ fn prepare(
                         .or_else(|| {
                             depth
                                 .filter(|depth| {
-                                    depth.texture.sample_count() == 1
+                                    depth.texture().sample_count() == 1
                                         && depth
-                                            .texture
+                                            .texture()
                                             .usage()
                                             .contains(TextureUsages::TEXTURE_BINDING)
                                 })
-                                .map(|depth| depth.view().id())
+                                .map(|depth| crate::scene_sampling::view_depth(depth).id())
                         })
                         .unwrap_or(dummy_depth);
                     (key.source == target.main_texture_view().id()
@@ -417,10 +417,10 @@ fn prepare(
 }
 
 /// Multisampled depth is sampled into a separate target before a mod consumes it.
-fn multisample_depth(depth: &ViewDepthTexture) -> bool {
-    depth.texture.sample_count() > 1
+fn multisample_depth(depth: &ViewDepthStencilTexture) -> bool {
+    depth.texture().sample_count() > 1
         && depth
-            .texture
+            .texture()
             .usage()
             .contains(TextureUsages::TEXTURE_BINDING)
 }
@@ -448,7 +448,10 @@ pub(crate) fn install_graph(world: &mut World) {
 #[derive(Resource)]
 struct ModPassInstalled;
 
-type ModQuery = (&'static ViewTarget, Option<&'static ViewDepthTexture>);
+type ModQuery = (
+    &'static ViewTarget,
+    Option<&'static ViewDepthStencilTexture>,
+);
 
 /// Applies enabled mod passes in their authored order before the HUD.
 pub(crate) fn mod_passes(
@@ -485,12 +488,12 @@ pub(crate) fn mod_passes(
             depth
                 .filter(|depth| {
                     depth
-                        .texture
+                        .texture()
                         .usage()
                         .contains(TextureUsages::TEXTURE_BINDING)
-                        && depth.texture.sample_count() == 1
+                        && depth.texture().sample_count() == 1
                 })
-                .map(ViewDepthTexture::view)
+                .map(crate::scene_sampling::view_depth)
         })
         .unwrap_or(&gpu.dummy_depth_view);
     for (slot, pass) in scene.passes.iter().enumerate() {

@@ -81,7 +81,9 @@ fn frame_uniform_packs_view_and_params() {
             None,
             0,
         ),
-        clip_from_view: Mat4::perspective_infinite_reverse_rh(1.0, 2.0, 0.1),
+        clip_from_view: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            1.0, 2.0, 0.1,
+        ),
         world_from_view: GlobalTransform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
         clip_from_world: None,
         target_format: crate::SCENE_COLOR_FORMAT,
@@ -178,7 +180,7 @@ fn primitives_queue_one_late_transparent_item_only_when_present() {
 
 #[test]
 fn primitive_shader_resources_match_the_layout() {
-    let source = crate::shader_source::standalone(include_str!("primitives.wgsl"), &[]);
+    let source = crate::shader_source::standalone(include_str!("primitives.wesl"), &[]);
     let pipeline = primitives::PrimitivePipeline::from_world(&mut World::new());
     crate::shader_test_support::assert_binding_visibility(&source, 0, &pipeline.layout);
 }

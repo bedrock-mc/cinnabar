@@ -10,10 +10,7 @@ use bevy::{
     render::{
         RenderPlugin,
         render_asset::RenderAssets,
-        renderer::{
-            RenderAdapter, RenderAdapterInfo, RenderContext, RenderInstance, RenderQueue,
-            WgpuWrapper,
-        },
+        renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderInstance, RenderQueue},
         settings::RenderCreation,
         texture::GpuImage,
     },
@@ -43,7 +40,7 @@ fn fixture_opaque(
     query: bevy::render::renderer::ViewQuery<(
         &'static ViewTarget,
         &'static crate::scene_target::SceneTarget,
-        &'static ViewDepthTexture,
+        &'static ViewDepthStencilTexture,
     )>,
     mut context: RenderContext,
 ) {
@@ -93,10 +90,10 @@ fn renderer() -> Option<RenderPlugin> {
     Some(RenderPlugin {
         render_creation: RenderCreation::manual(
             RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-            RenderAdapterInfo(WgpuWrapper::new(info)),
-            RenderAdapter(Arc::new(WgpuWrapper::new(adapter))),
-            RenderInstance(Arc::new(WgpuWrapper::new(instance))),
+            RenderQueue::new(queue),
+            RenderAdapterInfo::new(info),
+            RenderAdapter::new(adapter),
+            RenderInstance::new(instance),
         ),
         synchronous_pipeline_compilation: true,
         ..default()
@@ -215,7 +212,7 @@ fn app_with_effects(
             RenderTarget::Image(image.clone().into()),
             Msaa::Off,
             Transform::default(),
-            Tonemapping::None,
+            Tonemapping::Linear,
         ))
         .id();
     setup(&mut app);
@@ -323,7 +320,11 @@ fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    buffer.slice(..).get_mapped_range().to_vec()
+    buffer
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")
+        .to_vec()
 }
 
 /// Saves optional native fixture evidence outside the checkout when capture is requested.

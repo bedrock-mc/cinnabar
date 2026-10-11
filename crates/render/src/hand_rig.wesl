@@ -1,4 +1,4 @@
-#import cinnabar::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear}
+import render::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear};
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
 // (Rust-strided instances and vertices, bones as 3x vec4 rows) so the

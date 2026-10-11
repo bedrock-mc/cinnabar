@@ -42,13 +42,14 @@ use crate::media::MediaTexture;
 
 const MEDIA_SCREEN_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("5b8e2f4a-3c71-4d09-a6e2-91f0c7d3b852");
-/// Matches `Screen` in media_screen.wgsl: centre+flag, right axis, up axis.
+/// Matches `Screen` in media_screen.wesl: centre+flag, right axis, up axis.
 const RECORD_BYTES: u64 = 48;
 
 pub const MAX_MEDIA_SCREENS: usize = 4;
 
 /// Screens to draw this frame; at most `MAX_MEDIA_SCREENS` are used, in order.
 #[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct MediaScreenScene {
     pub screens: Vec<MediaScreen>,
     /// Texture bytes all screens together may allocate.
@@ -93,8 +94,8 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
     load_internal_asset!(
         app,
         MEDIA_SCREEN_SHADER_HANDLE,
-        "media_screen.wgsl",
-        crate::shader_safety::from_wgsl
+        "media_screen.wesl",
+        crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -814,7 +815,7 @@ mod tests {
         let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
         let mut pipeline = MediaScreenPipeline::from_world(&mut World::new());
         crate::shader_test_support::assert_binding_visibility(
-            &crate::shader_source::standalone(include_str!("media_screen.wgsl"), &[]),
+            &crate::shader_source::standalone(include_str!("media_screen.wesl"), &[]),
             0,
             &pipeline.bind_group_layout,
         );
