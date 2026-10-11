@@ -105,6 +105,8 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
     prepared.0 = None;
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    runtime.advance_item_activation(now_millis);
     runtime.set_toast_lifetime(menu_runtime.settings_snapshot().0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
         *glint_settings = menu_runtime.ui_glint_settings();
@@ -128,7 +130,6 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(

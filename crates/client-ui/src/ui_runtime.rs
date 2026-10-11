@@ -178,6 +178,7 @@ pub struct UiRuntime {
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
     item_activation: Option<item_activation::ItemActivation>,
+    activation_clock: item_activation::ActivationClock,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
     credits: credits::CreditsState,
@@ -277,6 +278,7 @@ impl UiRuntime {
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
             item_activation: None,
+            activation_clock: item_activation::ActivationClock::default(),
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
@@ -660,6 +662,7 @@ impl UiRuntime {
         self.sign_editor = sign_editor::SignEditor::default();
         self.gameplay_hud.clear();
         self.item_activation = None;
+        self.activation_clock = item_activation::ActivationClock::default();
         self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
         self.credits = credits::CreditsState::default();

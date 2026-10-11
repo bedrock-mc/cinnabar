@@ -13,20 +13,52 @@ pub(super) const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 pub(super) struct ItemActivation {
     pub identifier: Arc<str>,
     pub metadata: u32,
-    pub started_millis: u64,
+    pub elapsed_millis: u64,
+    pub started_clock_millis: u64,
     pub offsets: [i32; 2],
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct ActivationClock {
+    last_frame_millis: Option<u64>,
+    elapsed_millis: u64,
 }
 
 impl ItemActivation {
     /// Fraction of the forty client ticks, including the current partial tick.
-    pub fn progress(&self, now_millis: u64) -> Option<f32> {
-        let age = now_millis.saturating_sub(self.started_millis);
+    pub fn progress(&self) -> Option<f32> {
+        let age = self.elapsed_millis;
         let duration = ACTIVATION_TICKS * MILLIS_PER_SERVER_TICK;
         (age < duration).then_some(age as f32 / duration as f32)
     }
 }
 
 impl UiRuntime {
+    /// Advances the retained camera effect on bounded client time, including under menus.
+    pub fn advance_item_activation(&mut self, now_millis: u64) {
+        let clock = &mut self.activation_clock;
+        let delta = clock
+            .last_frame_millis
+            .map_or(0, |last| now_millis.saturating_sub(last));
+        clock.last_frame_millis = Some(
+            clock
+                .last_frame_millis
+                .unwrap_or(now_millis)
+                .max(now_millis),
+        );
+        clock.elapsed_millis = clock
+            .elapsed_millis
+            .saturating_add(delta.min(world::MAX_FRAME_ELAPSED.as_millis() as u64));
+        if let Some(activation) = self.item_activation.as_mut() {
+            activation.elapsed_millis = clock
+                .elapsed_millis
+                .saturating_sub(activation.started_clock_millis);
+            if activation.progress().is_none() {
+                self.item_activation = None;
+            }
+        }
+    }
+
     /// Snapshots the equipped totem before subsequent inventory packets consume it.
     /// A new activation replaces the preceding one, including when no totem is equipped.
     pub fn activate_totem(
@@ -38,6 +70,11 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         self.validate_identity(session, sequence, now_millis, None)?;
         self.drain_inventory_prefix(player, Some(sequence));
+        self.activation_clock
+            .last_frame_millis
+            .get_or_insert(now_millis);
+        let started_clock_millis =
+            self.activation_clock.elapsed_millis / MILLIS_PER_SERVER_TICK * MILLIS_PER_SERVER_TICK;
         let ledger = player.inventory.ledger();
         let is_totem = |stack: &&protocol::NetworkItemStack| {
             stack.count > 0
@@ -61,7 +98,8 @@ impl UiRuntime {
             .map(|stack| ItemActivation {
                 identifier: Arc::from(TOTEM_IDENTIFIER),
                 metadata: stack.metadata,
-                started_millis: now_millis,
+                elapsed_millis: self.activation_clock.elapsed_millis - started_clock_millis,
+                started_clock_millis,
                 offsets,
             });
         self.last_fifo_sequence = Some(sequence);

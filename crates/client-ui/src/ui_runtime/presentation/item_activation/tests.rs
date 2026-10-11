@@ -48,13 +48,15 @@ fn activation_draws_the_session_texture_through_all_phases_and_then_disappears()
     runtime.item_activation = Some(ItemActivation {
         identifier: TOTEM_IDENTIFIER.into(),
         metadata: 7,
-        started_millis: 100,
+        elapsed_millis: 0,
+        started_clock_millis: 0,
         offsets: [0; 2],
     });
     for age in [0, 100, 500, 1_000, 1_500, 1_999] {
+        runtime.item_activation.as_mut().unwrap().elapsed_millis = age;
         let mut nodes = Vec::new();
         presentation
-            .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], 100 + age)
+            .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], [0.0; 2])
             .unwrap();
         let UiVisual::Mesh(mesh) = nodes[0].visual() else {
             panic!("activation must be textured geometry");
@@ -65,9 +67,10 @@ fn activation_draws_the_session_texture_through_all_phases_and_then_disappears()
             [f32::from(icon.uv[0]), f32::from(icon.uv[1])]
         );
     }
+    runtime.item_activation.as_mut().unwrap().elapsed_millis = 2_000;
     let mut nodes = Vec::new();
     presentation
-        .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], 2_100)
+        .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], [0.0; 2])
         .unwrap();
     assert!(nodes.is_empty());
 }
@@ -100,11 +103,13 @@ fn active_totem_follows_pack_replacement_and_removal() {
         catalog,
     )
     .unwrap();
+    presentation.hud_frame_mut().first_person = true;
     let mut runtime = UiRuntime::new(1);
     runtime.item_activation = Some(ItemActivation {
         identifier: TOTEM_IDENTIFIER.into(),
         metadata: 7,
-        started_millis: 100,
+        elapsed_millis: 0,
+        started_clock_millis: 0,
         offsets: [0; 2],
     });
     for pixels in [vec![255, 0, 255, 255], vec![0, 255, 0, 255]] {
@@ -128,7 +133,7 @@ fn active_totem_follows_pack_replacement_and_removal() {
         );
         let mut nodes = Vec::new();
         presentation
-            .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], 600)
+            .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], [0.0; 2])
             .unwrap();
         let UiVisual::Mesh(mesh) = nodes[0].visual() else {
             panic!("missing active item");
@@ -146,4 +151,76 @@ fn active_totem_follows_pack_replacement_and_removal() {
             .rgba8,
         base_pixels
     );
+}
+
+#[test]
+fn camera_activation_keeps_full_viewport_coordinates_below_screen_overlays() {
+    let icons = Arc::new(
+        RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog(
+                [0; 32],
+                &[assets::IconSprite {
+                    width: 1,
+                    height: 1,
+                    rgba8: vec![20, 40, 220, 255].into(),
+                }],
+                &[assets::IconEntry {
+                    identifier: TOTEM_IDENTIFIER.into(),
+                    metadata: 0,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        super::super::tests::fixture_font(),
+        super::super::tests::fixture_hud(),
+        icons,
+    )
+    .unwrap();
+    presentation.hud_frame_mut().first_person = true;
+    presentation.hud_frame_mut().sleep.observe(true, 0);
+    let mut runtime = UiRuntime::new(1);
+    runtime.item_activation = Some(ItemActivation {
+        identifier: TOTEM_IDENTIFIER.into(),
+        metadata: 0,
+        elapsed_millis: 1_000,
+        started_clock_millis: 0,
+        offsets: [0; 2],
+    });
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let icon = presentation.item_icon(TOTEM_IDENTIFIER, 0).unwrap();
+    let plain = presentation
+        .build(
+            &player,
+            &runtime,
+            1_000,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(plain.batches[0].texture_page, u32::from(icon.page));
+    assert!(
+        plain
+            .batches
+            .iter()
+            .skip(1)
+            .any(|batch| batch.texture_page != u32::from(icon.page))
+    );
+    presentation.set_safe_area(ui::SafeArea::new(70.0, 40.0, 30.0, 20.0).unwrap());
+    let inset = presentation
+        .build(
+            &player,
+            &runtime,
+            1_000,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(&plain.vertices[..6], &inset.vertices[..6]);
 }

@@ -10,6 +10,50 @@ fn totem_motion_offsets_preserve_rounded_random_endpoints() {
     assert_eq!(sampled_offset(u32::MAX / 2), 0);
 }
 
+#[test]
+fn totem_stall_advances_only_bounded_client_time_and_backward_time_is_inert() {
+    let (mut runtime, mut player, _) = queued_player();
+    runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
+    runtime.advance_item_activation(3_100);
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.05)
+    );
+    runtime.advance_item_activation(100);
+    runtime.advance_item_activation(3_100);
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.05)
+    );
+    runtime.advance_item_activation(3_125);
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.0625)
+    );
+}
+
+#[test]
+fn totem_uses_the_current_client_partial_tick_when_triggered_between_ticks() {
+    let (mut runtime, mut player, _) = queued_player();
+    runtime.advance_item_activation(100);
+    runtime.advance_item_activation(125);
+    runtime.activate_totem(&mut player, 1, 4, 125).unwrap();
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.0125)
+    );
+    runtime.advance_item_activation(150);
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.025)
+    );
+    runtime.activate_totem(&mut player, 1, 6, 150).unwrap();
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.0)
+    );
+}
+
 /// Establishes an item and a later consumption in the same ingress drain.
 fn queued_player() -> (UiRuntime, player_state::PlayerState, i32) {
     let mut player = player_state::PlayerState::new(1);
@@ -79,10 +123,28 @@ fn totem_snapshots_offhand_before_consumption_and_survives_inventory_removal() {
     );
     let activation = runtime.item_activation.as_ref().unwrap();
     assert_eq!(activation.metadata, 7);
-    assert_eq!(activation.progress(100), Some(0.0));
-    assert_eq!(activation.progress(1_100), Some(0.5));
-    assert!(activation.progress(2_099).is_some());
-    assert_eq!(activation.progress(2_100), None);
+    assert_eq!(activation.progress(), Some(0.0));
+    for now in (200..=1_100).step_by(100) {
+        runtime.advance_item_activation(now);
+    }
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().progress(),
+        Some(0.5)
+    );
+    for now in (1_200..=2_000).step_by(100) {
+        runtime.advance_item_activation(now);
+    }
+    runtime.advance_item_activation(2_099);
+    assert!(
+        runtime
+            .item_activation
+            .as_ref()
+            .unwrap()
+            .progress()
+            .is_some()
+    );
+    runtime.advance_item_activation(2_100);
+    assert!(runtime.item_activation.is_none());
 }
 
 #[test]
@@ -92,7 +154,7 @@ fn totem_retrigger_uses_main_hand_and_session_replacement_retires_it() {
     runtime.activate_totem(&mut player, 1, 6, 1_000).unwrap();
     let activation = runtime.item_activation.as_ref().unwrap();
     assert_eq!(activation.metadata, 3);
-    assert_eq!(activation.progress(1_000), Some(0.0));
+    assert_eq!(activation.progress(), Some(0.0));
     runtime.begin_session(2);
     assert!(runtime.item_activation.is_none());
 }

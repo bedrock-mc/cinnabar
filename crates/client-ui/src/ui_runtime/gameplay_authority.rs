@@ -12,7 +12,7 @@ use ui::BoundedStat;
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
-pub(super) const MILLIS_PER_SERVER_TICK: u64 = 50;
+pub(super) const MILLIS_PER_SERVER_TICK: u64 = world::TICK_DURATION.as_millis() as u64;
 
 /// The reference charges the mount jump bar from empty to full over half a
 /// second of held jump input; pinned in milliseconds as a bounded recorded

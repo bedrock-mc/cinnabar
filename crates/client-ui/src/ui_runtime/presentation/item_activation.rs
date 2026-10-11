@@ -11,12 +11,12 @@ impl UiPresentationRuntime {
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
         viewport: [f32; 2],
-        now_millis: u64,
+        origin: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         let Some(activation) = runtime.item_activation.as_ref() else {
             return Ok(());
         };
-        let Some(progress) = activation.progress(now_millis) else {
+        let Some(progress) = activation.progress() else {
             return Ok(());
         };
         let Some(icon) = self.item_icon(&activation.identifier, activation.metadata) else {
@@ -31,7 +31,12 @@ impl UiPresentationRuntime {
             UiNode::new(
                 UiNodeId::new(*next),
                 None,
-                rect(0.0, 0.0, viewport[0], viewport[1])?,
+                rect(
+                    origin[0],
+                    origin[1],
+                    origin[0] + viewport[0],
+                    origin[1] + viewport[1],
+                )?,
             )
             .with_visual(UiVisual::Mesh(Arc::new(mesh))),
         );

@@ -99,6 +99,15 @@ impl UiPresentationRuntime {
             let host = self.scene_host();
             let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
             let scenes = stack.visible(false);
+            if host.over_world {
+                self.append_item_activation(
+                    runtime,
+                    &mut nodes,
+                    &mut next_id,
+                    [logical_width, logical_height],
+                    [-safe_area.left(), -safe_area.top()],
+                )?;
+            }
             self.begin_form_frame();
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
             self.scene_clocks.observe(&open, self.menu_seconds);
@@ -311,7 +320,6 @@ impl UiPresentationRuntime {
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
             self.apply_gui_models(&mut nodes);
-            self.append_item_activation(runtime, &mut nodes, &mut next_id, content, now_millis)?;
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),
