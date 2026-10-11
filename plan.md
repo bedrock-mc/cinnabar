@@ -127,8 +127,9 @@ moves do not change the open behavior or performance acceptance gates.
 
 ## Login identity
 
-- New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
-  existing install device ID. Unchanged inputs produce the same identifier across joins.
+- New core-owned logins pass the full stored ClientRandomId and existing install device
+  ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
+  identifier across joins.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
 
