@@ -109,3 +109,29 @@ fn replacing_a_registry_replaces_its_typed_facts_without_reusing_old_ids() {
         Some(false)
     );
 }
+
+#[test]
+fn admitted_portal_axis_lookup_allocates_nothing() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let record = records
+        .iter()
+        .find(|record| record.name.as_ref() == crate::NETHER_PORTAL_IDENTIFIER)
+        .unwrap();
+    let states = crate::pinned_block_presentation_states();
+    let (old, old_allocations) = super::test_allocations::measure(|| {
+        serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()
+    });
+    let (state, new_allocations) = super::test_allocations::measure(|| {
+        states.get(crate::NetworkIdMode::Sequential, record.sequential_id)
+    });
+    assert!(state.portal_axis.is_some());
+    assert!(old.get("portal_axis").is_some());
+    assert_eq!(new_allocations, 0);
+    println!(
+        "portal state allocations: parse={old_allocations}, admitted lookup={new_allocations}"
+    );
+}

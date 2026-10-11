@@ -104,3 +104,6 @@ pub fn pinned_block_presentation_states() -> &'static BlockPresentationStates {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod test_allocations;

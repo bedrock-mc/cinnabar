@@ -69,32 +69,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn admitted_portal_axis_lookup_allocates_nothing() {
-        let records = assets::read_registry_for_protocol(
-            assets::pinned_block_registry_bytes(),
-            assets::active_content_registry_protocol(),
-        )
-        .unwrap();
-        let record = records
-            .iter()
-            .find(|record| record.name.as_ref() == assets::NETHER_PORTAL_IDENTIFIER)
-            .unwrap();
-        let states = assets::pinned_block_presentation_states();
-        let before = crate::tests::alloc_count::thread_allocations();
-        let old: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
-        let old_allocations = crate::tests::alloc_count::thread_allocations() - before;
-        let before = crate::tests::alloc_count::thread_allocations();
-        let state = states.get(assets::NetworkIdMode::Sequential, record.sequential_id);
-        let new_allocations = crate::tests::alloc_count::thread_allocations() - before;
-        assert!(state.portal_axis.is_some());
-        assert!(old.get("portal_axis").is_some());
-        assert_eq!(new_allocations, 0);
-        println!(
-            "portal state allocations: parse={old_allocations}, admitted lookup={new_allocations}"
-        );
-    }
-
-    #[test]
     fn portal_axis_routes_keep_the_cross_plane_effect_names() {
         assert_eq!(effect_for_axis(assets::PortalAxis::X), NORTH_SOUTH);
         assert_eq!(effect_for_axis(assets::PortalAxis::Z), EAST_WEST);
