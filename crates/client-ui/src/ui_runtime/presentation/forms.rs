@@ -54,6 +54,7 @@ pub mod oreui;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
+mod skybox_setting;
 pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]

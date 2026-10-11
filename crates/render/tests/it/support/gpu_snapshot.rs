@@ -239,13 +239,24 @@ impl Gpu {
 
     /// Exercises the same hardware transfer as Bevy's ordinary sRGB target.
     pub fn render_srgb(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
+        self.render_srgb_with_state(source, vertex, draws, RasterState::default())
+    }
+
+    /// Renders sRGB fixtures with the production colour mask and depth state.
+    pub fn render_srgb_with_state(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        state: RasterState,
+    ) -> Vec<u8> {
         self.render_to_format(
             source,
             vertex,
             draws,
             wgpu::TextureFormat::Rgba8UnormSrgb,
             RasterConfiguration {
-                state: RasterState::default(),
+                state,
                 pipelines: &[],
                 sources: &[],
             },

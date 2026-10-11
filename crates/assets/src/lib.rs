@@ -52,6 +52,7 @@ mod seasonal_foliage;
 mod server_lang;
 mod session_entities;
 mod skin_geometry;
+mod skybox;
 mod sound_bank;
 mod sound_events;
 mod stair;
@@ -273,6 +274,9 @@ pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
     SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
     parse_skin_geometry_layer, skin_geometry_name,
+};
+pub use skybox::{
+    DEFAULT_NATIVE_SKYBOX_OFFSET, PackSkybox, SKYBOX_FACE_COUNT, SkyboxDimension, SkyboxFace,
 };
 pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,

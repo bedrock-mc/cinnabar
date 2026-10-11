@@ -146,6 +146,62 @@ fn absent_fallback_read_detects_a_new_override() {
 }
 
 #[test]
+fn unreadable_winning_skybox_layers_invalidate_addition_removal_and_reordering() {
+    let path = format!(
+        "{}0.png",
+        assets::SkyboxDimension::Overworld.texture_prefix()
+    );
+    let mut png = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([7, 11, 13, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let readable = stack(&[(&path, png.get_ref())]);
+    let oversized = vec![0; resource_pack::MAX_PACK_TEXTURE_BYTES as usize + 1];
+    let rejected = stack(&[(&path, &oversized)]);
+    let blocked = Arc::new(ValidatedPackStack::compose(&readable, &rejected).unwrap());
+    let reordered = Arc::new(ValidatedPackStack::compose(&rejected, &readable).unwrap());
+    for (before, after, expected_mask) in [
+        (&readable, &blocked, 1),
+        (&blocked, &readable, 0),
+        (&blocked, &reordered, 0),
+    ] {
+        let mut dependencies = Dependencies::default();
+        let skyboxes = compile(
+            Subscriber::Atmosphere,
+            before,
+            &mut dependencies,
+            client_session::pack_skybox::prepare_pack_skyboxes,
+        );
+        assert_eq!(
+            skyboxes[assets::SkyboxDimension::Overworld as usize].face_mask(),
+            expected_mask
+        );
+        let previous = PackApplication {
+            dependencies,
+            admission: PackAdmission::Validated(before.clone()),
+            ..Default::default()
+        };
+        assert!(Changes::between(after, Some(&previous)).atmosphere);
+    }
+
+    let unrelated = stack(&[("textures/unrelated.png", &oversized)]);
+    let after = ValidatedPackStack::compose(&readable, &unrelated).unwrap();
+    let mut dependencies = Dependencies::default();
+    compile(
+        Subscriber::Atmosphere,
+        &readable,
+        &mut dependencies,
+        client_session::pack_skybox::prepare_pack_skyboxes,
+    );
+    let previous = PackApplication {
+        dependencies,
+        admission: PackAdmission::Validated(readable),
+        ..Default::default()
+    };
+    assert!(!Changes::between(&after, Some(&previous)).atmosphere);
+}
+
+#[test]
 fn directory_discovery_tracks_names_without_consuming_unread_pixels() {
     let before = stack(&[("textures/unread.png", b"old")]);
     let bytes_only = stack(&[("textures/unread.png", b"new")]);

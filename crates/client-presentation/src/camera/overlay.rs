@@ -344,6 +344,8 @@ impl PortalProgress {
 /// Continuous vision-effect strengths for the fog/lighting owners, each `0..=1`.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct VisionEffects {
+    /// Active blindness or darkness suppresses the custom sky independently of fading.
+    pub sky_hidden: bool,
     pub blindness: f32,
     pub darkness: f32,
     pub night_vision: f32,
