@@ -436,6 +436,11 @@ impl NativeSheets {
         self.failed.insert(key);
     }
 
+    /// A terminal failure permits the ordinary sprite lookup to reveal valid lower-layer pixels.
+    pub(super) fn failed(&self, key: &str) -> bool {
+        self.failed.contains(key)
+    }
+
     /// The loaded sheet and its first reserved logical page, independent of ordinary atlas residency.
     pub(super) fn get(&self, key: &str) -> Option<(&Sheet, usize)> {
         let mut first = 0;

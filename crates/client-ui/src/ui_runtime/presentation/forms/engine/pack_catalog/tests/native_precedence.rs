@@ -150,6 +150,29 @@ fn large_local_fallbacks_preserve_carrier_and_icon_pixels_below_server_overrides
         let rendered = pixels(&mut presentation, &runtime);
         rendered.get_pixel(48, 48).0 == RED && rendered.get_pixel(136, 48).0 == RED
     });
+    let mut broken = large_png(RED);
+    broken[41] ^= 0xff;
+    assert_eq!(
+        image::ImageReader::new(std::io::Cursor::new(&broken))
+            .with_guessed_format()
+            .unwrap()
+            .into_dimensions()
+            .unwrap(),
+        (2048, 8),
+    );
+    assert!(image::load_from_memory(&broken).is_err());
+    let mut broken_pack = pack.clone();
+    broken_pack.textures = [CARRIER, ICON]
+        .map(|key| (format!("{key}.png"), broken.clone()))
+        .into();
+    runtime.set_server_ui(Some(Arc::new(broken_pack)));
+    test_time::eventually(
+        "failed server images reveal carrier and icon pixels",
+        || {
+            let rendered = pixels(&mut presentation, &runtime);
+            rendered.get_pixel(48, 48).0 == BLUE && rendered.get_pixel(136, 48).0 == [255; 4]
+        },
+    );
     runtime.set_server_ui(Some(Arc::new(pack)));
     let restored = pixels(&mut presentation, &runtime);
     assert_eq!(restored.get_pixel(48, 48).0, BLUE);

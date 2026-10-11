@@ -26,6 +26,7 @@ mod frame_sidecars;
 pub(super) mod native_sheets;
 mod prepared_settings;
 mod preread;
+mod source_reads;
 pub use prepared_settings::PreparedScreenSettings;
 pub use preread::PrereadTextures;
 
@@ -97,6 +98,7 @@ struct PackTextures {
     images: BTreeMap<String, String>,
     sidecars: BTreeMap<String, String>,
     loaded: RefCell<BTreeMap<String, Option<Source>>>,
+    reads: source_reads::SourceReads,
     loaded_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
 }
 
@@ -123,24 +125,91 @@ impl PackTextures {
             images,
             sidecars,
             loaded: RefCell::default(),
+            reads: source_reads::SourceReads::default(),
             loaded_sidecars: RefCell::default(),
         }
     }
 
+    /// Resolves small sources inline and queues large archive entries using only indexed sizes.
     fn image(&self, key: &str) -> Option<Source> {
         if let Some(found) = self.loaded.borrow().get(key) {
             return found.clone();
         }
-        #[cfg(test)]
-        PACK_READS.with(|reads| reads.borrow_mut().push(key.to_owned()));
+        let path = self.images.get(key)?;
+        let size = self
+            .view
+            .layers()
+            .filter_map(|layer| layer.file_size(path))
+            .max()?;
+        if size > MAX_PACK_TEXTURE_BYTES {
+            if !self.admit_large_source(key, size) {
+                return None;
+            }
+            self.reads.request(key, path, &self.view);
+            return None;
+        }
+        self.read_image(key)
+    }
+
+    /// Bounds large encoded-source residency independently of decoded tile residency.
+    fn admit_large_source(&self, key: &str, size: u64) -> bool {
+        let bytes: usize = self
+            .loaded
+            .borrow()
+            .values()
+            .flatten()
+            .filter(|source| source.bytes.len() as u64 > MAX_PACK_TEXTURE_BYTES)
+            .map(|source| source.bytes.len())
+            .sum();
+        if size > render_model::MAX_UI_NATIVE_SHEET_BYTES.saturating_sub(bytes) as u64 {
+            bevy::log::warn!(texture = key, "skipping over-budget encoded UI image");
+            self.loaded.borrow_mut().insert(key.to_owned(), None);
+            return false;
+        }
+        true
+    }
+
+    /// Reads on the reload worker or for a small first-use entry, retaining the result once.
+    fn read_image(&self, key: &str) -> Option<Source> {
+        if let Some(found) = self.loaded.borrow().get(key) {
+            return found.clone();
+        }
         let found = self.images.get(key).and_then(|path| {
-            let bytes = self.view.read_capped(path, resource_pack::MAX_FILE_BYTES)?;
-            source(std::sync::Arc::from(bytes))
+            let size = self
+                .view
+                .layers()
+                .filter_map(|layer| layer.file_size(path))
+                .max()?;
+            if size > MAX_PACK_TEXTURE_BYTES && !self.admit_large_source(key, size) {
+                return None;
+            }
+            read_source(&self.view, key, path)
         });
         self.loaded
             .borrow_mut()
             .insert(key.to_owned(), found.clone());
         found
+    }
+
+    /// A large declared override keeps its draw pending until its header read completes.
+    fn read_pending(&self, key: &str) -> bool {
+        !self.loaded.borrow().contains_key(key)
+            && self.images.get(key).is_some_and(|path| {
+                self.view.layers().any(|layer| {
+                    layer
+                        .file_size(path)
+                        .is_some_and(|size| size > MAX_PACK_TEXTURE_BYTES)
+                })
+            })
+    }
+
+    /// Admits worker-read metadata once so retained frames can be invalidated before painting.
+    fn collect(&self) -> bool {
+        let Some((key, source)) = self.reads.collect() else {
+            return false;
+        };
+        self.loaded.borrow_mut().insert(key, source);
+        true
     }
 
     fn sidecar(&self, key: &str) -> Option<TextureMeta> {
@@ -157,6 +226,17 @@ impl PackTextures {
             .insert(key.to_owned(), found);
         found
     }
+}
+
+/// Reads one admitted image and its header on the source worker or a bounded small-image path.
+fn read_source(view: &resource_pack::LayeredPackView, key: &str, path: &str) -> Option<Source> {
+    #[cfg(test)]
+    PACK_READS.with(|reads| reads.borrow_mut().push(key.to_owned()));
+    #[cfg(not(test))]
+    let _ = key;
+    source(Arc::from(
+        view.read_capped(path, resource_pack::MAX_FILE_BYTES)?,
+    ))
 }
 
 /// Where a resident server texture sits: its page (relative to the first
@@ -400,14 +480,17 @@ impl ServerAtlas {
     /// Whether this source requires original tiles instead of a fitted artwork image.
     pub(super) fn is_native_sheet(&self, key: &str) -> bool {
         self.native_enabled
-            && self
-                .image(key)
-                .or_else(|| self.fallback(key))
-                .is_some_and(|source| {
-                    source.size.into_iter().any(|side| {
-                        side > crate::ui_runtime::presentation::menu_artwork::WHOLE_PAGE
-                    })
-                })
+            && !self.native.failed(key)
+            && match self.native_source(key) {
+                Some(source) => source
+                    .size
+                    .into_iter()
+                    .any(|side| side > crate::ui_runtime::presentation::menu_artwork::WHOLE_PAGE),
+                None => self
+                    .pack
+                    .as_ref()
+                    .is_some_and(|pack| pack.read_pending(key)),
+            }
     }
 
     /// Whether an original virtual image has finished its one-time decode.
@@ -433,7 +516,8 @@ impl ServerAtlas {
 
     /// Collects image completions before a retained menu can reuse its saved frame.
     pub(super) fn poll_native_images(&mut self) -> bool {
-        self.native.collect()
+        let ready = self.pack.as_ref().is_some_and(|pack| pack.collect());
+        ready | self.native.collect()
     }
 
     /// Original virtual-image pages, separate from the ordinary small atlas.
@@ -455,6 +539,15 @@ impl ServerAtlas {
         match self.sources.get(key) {
             Some(source) => Some(source.clone()),
             None => self.pack.as_ref()?.image(key),
+        }
+    }
+
+    /// A declared server source waits for its read instead of caching a lower layer under its key.
+    fn native_source(&self, key: &str) -> Option<Source> {
+        if self.has_image(key) {
+            self.image(key)
+        } else {
+            self.fallback(key)
         }
     }
 
@@ -587,20 +680,20 @@ impl ServerAtlas {
     pub(super) fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
         self.decodes.collect();
-        self.native.collect();
+        self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.
         let mut missing = Vec::new();
         for key in keys {
             if self.is_native_sheet(key) {
-                if let Some(source) = self.image(key).or_else(|| self.fallback(key)) {
-                    self.native.request(key, &source);
-                    // One-sprite consumers share original pages when possible and retain their
-                    // bounded fitted artwork fallback for images spanning multiple tiles.
-                    if native_sheets::fits_single_tile(source.size) || !preview_allowed(source.size)
-                    {
-                        continue;
-                    }
+                let Some(source) = self.native_source(key) else {
+                    continue;
+                };
+                self.native.request(key, &source);
+                // One-sprite consumers share original pages when possible and retain their
+                // bounded fitted artwork fallback for images spanning multiple tiles.
+                if native_sheets::fits_single_tile(source.size) || !preview_allowed(source.size) {
+                    continue;
                 }
             }
             match self.resident.get(key) {
@@ -659,6 +752,7 @@ impl ServerAtlas {
                 .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
         }
         let size = source.packed;
+        let inline = inline && source.bytes.len() as u64 <= MAX_PACK_TEXTURE_BYTES;
         let rgba = self.decodes.get(key, &source, inline)?;
         let (index, origin) = self.slot(size)?;
         let page = &mut self.pages[index];

@@ -308,7 +308,51 @@ fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
     let encoded = encoded.into_inner();
     assert!(encoded.len() as u64 > resource_pack::MAX_PACK_TEXTURE_BYTES);
     let key = "textures/ui/original_noise";
+    let expected = pixels.get_pixel(0, 0).0;
     let view = super::external_paths_tests::view(&[(format!("{key}.png"), encoded)]);
-    let atlas = ServerAtlas::new(&[], Some(view), 1);
+    let atlas = ServerAtlas::new(&[], Some(view.clone()), 1).with_native_sheets(true);
+    PACK_READS.with(|reads| reads.borrow_mut().clear());
+    atlas.image_size(key);
+    assert!(
+        PACK_READS.with(|reads| reads.borrow().is_empty()),
+        "large archive entries must not inflate on the requesting presentation thread",
+    );
+    let mut atlas = atlas;
+    test_time::eventually(
+        "large original image pixels arrive from their workers",
+        || {
+            atlas.require([key]);
+            atlas.poll_native_images();
+            atlas
+                .native_pages()
+                .iter()
+                .any(|page| page.dimensions() == [1536, 1024] && page.pixels()[..4] == expected)
+        },
+    );
     assert_eq!(atlas.image_size(key), Some([1536.0, 1024.0]));
+    assert!(PACK_READS.with(|reads| reads.borrow().is_empty()));
+
+    let departing = ServerAtlas::new(&[], Some(view), 1).with_native_sheets(true);
+    departing.image_size(key);
+    drop(departing);
+    let replacement = [190, 40, 90, 255];
+    pixels.put_pixel(0, 0, image::Rgba(replacement));
+    let mut encoded = Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let view = super::external_paths_tests::view(&[(format!("{key}.png"), encoded.into_inner())]);
+    let mut reloaded = ServerAtlas::new(&[], Some(view), 1).with_native_sheets(true);
+    test_time::eventually(
+        "replacement image never publishes the departing pack's source",
+        || {
+            reloaded.require([key]);
+            reloaded.poll_native_images();
+            reloaded
+                .native_pages()
+                .iter()
+                .any(|page| page.pixels()[..4] == replacement)
+        },
+    );
+    assert!(PACK_READS.with(|reads| reads.borrow().is_empty()));
 }
