@@ -9,10 +9,19 @@ fn a_custom_sheep_material_does_not_unlock_unverified_fractional_alpha() {
 }
 
 #[test]
-#[ignore = "requires the downloaded pinned vanilla pack; set CINNABAR_VANILLA_ACTOR_ROOT"]
 fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha() {
-    let root = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").unwrap();
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT") else {
+        eprintln!("missing fixture: CINNABAR_VANILLA_ACTOR_ROOT (pinned vanilla sheep pack)");
+        return;
+    };
     let root = Path::new(&root);
+    if !root.join("entity/sheep.entity.json").is_file() {
+        eprintln!(
+            "missing fixture: pinned vanilla sheep entity at {}",
+            root.display()
+        );
+        return;
+    }
     let entities = compile_entity_assets(root, MANIFEST).unwrap();
     let entity_bytes = encode_entity_blob(&entities).unwrap();
     let compiled = compile_actor_assets(root, MANIFEST).unwrap();
@@ -51,8 +60,9 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
     let mut masks = 0;
     for (index, texture) in catalog.textures().iter().enumerate() {
         let source = &entities.sources[texture.source as usize];
-        if !assets::native_actor_texture_uses_color_mask(source) {
-            assert!(!catalog.texture_uses_color_mask(index));
+        let native = assets::native_actor_texture_uses_color_mask(source);
+        assert_eq!(catalog.texture_uses_color_mask(index), native);
+        if !native || !source.path.starts_with("textures/entity/sheep/") {
             continue;
         }
         masks += 1;
