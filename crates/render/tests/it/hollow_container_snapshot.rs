@@ -1,29 +1,9 @@
 //! Account-free production terrain-shader captures for every hollow-container state.
 use crate::{
-    end_rod_snapshot::render_at,
     gpu_snapshot::{self, Gpu},
+    rod_snapshot::{fixture, render_at},
 };
 use {assets::NetworkIdMode, bevy::math::Vec3};
-
-/// Loads an explicitly provided carrier without using installed game assets or user state.
-fn fixture() -> Option<(assets::RuntimeAssets, Vec<assets::RegistryRecord>)> {
-    let Some(path) = std::env::var_os("CINNABAR_HOLLOW_CARRIER") else {
-        eprintln!("skipping hollow_container_snapshot: missing CINNABAR_HOLLOW_CARRIER fixture");
-        return None;
-    };
-    let target: serde_json::Value =
-        serde_json::from_slice(include_bytes!("../../../../assets/bedrock-target.json")).unwrap();
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let registry = assets::read_registry_for_protocol(
-        &std::fs::read(root.join(target["artifacts"]["block_registry"].as_str().unwrap())).unwrap(),
-        target["wire_protocol"].as_u64().unwrap() as u32,
-    )
-    .unwrap();
-    Some((
-        assets::RuntimeAssets::decode(&std::fs::read(path).unwrap()).unwrap(),
-        registry.into_vec(),
-    ))
-}
 
 /// Meshes the selected container on a bright support with optional solid neighbours.
 fn mesh(
@@ -59,7 +39,7 @@ fn mesh(
 
 #[test]
 fn hollow_container_states_render_open_rims_closed_interiors_and_contents() {
-    let Some((assets, records)) = fixture() else {
+    let Some((assets, records)) = fixture("CINNABAR_HOLLOW_CARRIER") else {
         return;
     };
     let Some(gpu) = Gpu::for_fixture("hollow-container terrain snapshot") else {

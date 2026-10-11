@@ -114,6 +114,7 @@ struct VisualCompiler {
     anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
     end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
     end_rod_templates: BTreeMap<(u32, usize), u32>,
+    lightning_rod_templates: BTreeMap<(u32, usize), u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,
     slab_templates: BTreeMap<[u32; 7], u32>,
     stair_templates: BTreeMap<[u32; 7], u32>,
@@ -231,6 +232,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.end_portal_frame_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::lightning_rod::compile_rule(
+            record,
+            inputs,
+            &mut self.lightning_rod_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
