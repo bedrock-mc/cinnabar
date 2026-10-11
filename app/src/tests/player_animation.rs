@@ -6,11 +6,11 @@ use client_presentation::presentation::actors::rig_world_from_actor;
 use client_world::{BoneTransform, LocalPlayerFeed};
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, CapeImage, ItemActorEvent,
-    MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    SkinGeometrySource, StandardSkin, WorldBootstrap, WorldEvent,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, ItemActorEvent, MovePlayerEvent,
+    MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
 use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
+use render_api::{CapeImage, SkinGeometrySource, StandardSkin};
 use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -976,8 +976,8 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         panic!("standard skin fixture");
     };
     Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
-        Arc::from([protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Body32,
+        Arc::from([render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Body32,
             width: 24,
             height: 512,
             rgba8: vec![255; 24 * 512 * 4].into(),
@@ -1034,7 +1034,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
     assert_eq!(frame.rig.manifest.len(), 2);
     assert_eq!(
         frame.rig.manifest[1].identity.layer,
-        skin_layers::SKIN_LAYER_BASE + protocol::SkinAnimationKind::Body32.slot() as u8
+        skin_layers::SKIN_LAYER_BASE + render_api::SkinAnimationKind::Body32.slot() as u8
     );
     assert_eq!(frame.rig.manifest[1].bone_count, 2);
     assert_ne!(frame.instance_pages()[1], 0);
@@ -1085,8 +1085,8 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
         panic!("standard skin fixture");
     };
     Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
-        Arc::from([protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Face,
+        Arc::from([render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
             width: 32,
             height: 64,
             rgba8: vec![255; 32 * 64 * 4].into(),
@@ -1129,9 +1129,9 @@ fn selected_custom_local_model_shares_preparation_in_first_and_third_person() {
     }]}).to_string();
     let geometry = launcher::skin_import::parse_skin_geometry(model.as_bytes(), None).unwrap();
     let skin = StandardSkin {
-        width: protocol::CLASSIC_SKIN_SIDE as u32,
-        height: protocol::CLASSIC_SKIN_SIDE as u32,
-        rgba8: vec![200; protocol::CLASSIC_SKIN_SIDE * protocol::CLASSIC_SKIN_SIDE * 4].into(),
+        width: render_api::CLASSIC_SKIN_SIDE as u32,
+        height: render_api::CLASSIC_SKIN_SIDE as u32,
+        rgba8: vec![200; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4].into(),
         cape: None,
         geometry: Some(geometry.clone()),
     };

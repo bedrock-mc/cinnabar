@@ -73,7 +73,8 @@ impl ActorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::{ActorRemoveEvent, CLASSIC_SKIN_SIDE, PlayerListUpdateEvent, StandardSkin};
+    use protocol::{ActorRemoveEvent, PlayerListUpdateEvent};
+    use render_api::{CLASSIC_SKIN_SIDE, StandardSkin};
     use std::sync::Arc;
 
     /// Lists a player with an identifiable skin and a retained custom-model source.
@@ -89,7 +90,7 @@ mod tests {
                     height: CLASSIC_SKIN_SIDE as u32,
                     rgba8: vec![byte; CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4].into(),
                     cape: None,
-                    geometry: Some(Arc::new(protocol::SkinGeometrySource {
+                    geometry: Some(Arc::new(render_api::SkinGeometrySource {
                         resource_patch: "patch".into(),
                         geometry_data: "model".into(),
                         animations: Arc::from([]),

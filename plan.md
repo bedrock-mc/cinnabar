@@ -8,6 +8,17 @@ Full transport parity remains incomplete. Host-resolver timing and address admis
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
 
+## Launcher crate ownership
+
+- `launcher` owns menu models and settings definitions. Control types come directly from
+  `bridge`; shared skin data lives in `render-api`.
+- `launcher-host` owns authentication and core processes, account and artwork workers,
+  server-list storage, storage scans, persistent login IDs, video persistence and process lifecycle services.
+  `app` supplies the Bevy resources and systems that drive those services.
+- `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
+  live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
+- Startup carrier selection remains in `app/src/asset_startup`.
+
 ## Login identity
 
 - New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
@@ -6011,7 +6022,7 @@ first-run experience.
 **Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
 AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, local crash
 records (never uploaded), signed-manifest update checks, and the core log/backoff helpers are in
-`app/src/{first_run,lifecycle}` and `crates/update-manifest`. Unverified until compiled and run on a clean machine: every
+`crates/{first-run,launcher-host,update-manifest}` and the app lifecycle entry point. Unverified until compiled and run on a clean machine: every
 recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).

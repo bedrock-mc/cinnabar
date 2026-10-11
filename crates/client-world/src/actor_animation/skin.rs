@@ -1,6 +1,6 @@
 //! Player skins that carry their own model: the player's animations drive the skin's bones by
 //! name, so the rig poses the skin geometry instead of the default humanoid.
-use protocol::SkinGeometrySource;
+use render_api::SkinGeometrySource;
 
 use super::{pose::LocalDelta, *};
 

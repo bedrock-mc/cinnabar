@@ -1,7 +1,7 @@
 //! Local-world control intents and their model inputs.
 use super::{LocalWorldCard, MenuField};
 use crate::local_worlds::{Input, PromptButton, Tab, game_mode_label, world_type_label};
-use protocol::world_control::{Backend, Difficulty, GameMode, World};
+use bridge::{Backend, Difficulty, GameMode, World};
 
 /// A press on a local-world screen or modal; the menu forwards it to the module.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,4 +1,6 @@
+use launcher_host::video_settings::{FILE_NAME, MAX_FILE_BYTES, load};
 use std::{
+    fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -27,7 +29,7 @@ impl ConfigRoot {
     }
 
     fn menu(&self) -> MenuRuntime {
-        let mut layout = crate::install_layout::checkout();
+        let mut layout = launcher::test_support::checkout();
         layout.user_config_root = self.0.clone();
         let skin = crate::player_skin::LocalPlayerSkin::generated_default("Steve");
         MenuRuntime::new_with_layout(true, Some(2), "Steve".to_owned(), layout, skin)

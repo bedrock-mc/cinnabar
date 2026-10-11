@@ -20,7 +20,7 @@ fn a_full_store_page_packs_every_card_thumbnail() {
             std::fs::write(&path, &jpeg).unwrap();
             let url = format!("https://cdn.example.test/{index}.jpg");
             images.insert(url.clone(), path.to_string_lossy().into_owned());
-            protocol::store_control::StoreOffer {
+            bridge::StoreOffer {
                 id: index.to_string(),
                 title: index.to_string(),
                 creator: None,
@@ -34,14 +34,12 @@ fn a_full_store_page_packs_every_card_thumbnail() {
             }
         })
         .collect();
-    let row = |role: &'static str, offers: &[protocol::store_control::StoreOffer]| {
-        launcher::store::DisplayRow {
-            id: None,
-            title: String::new(),
-            role,
-            offers: offers.to_vec(),
-            continuation: None,
-        }
+    let row = |role: &'static str, offers: &[bridge::StoreOffer]| launcher::store::DisplayRow {
+        id: None,
+        title: String::new(),
+        role,
+        offers: offers.to_vec(),
+        continuation: None,
     };
     // A plain page, and pages whose hero feature tile, decoded larger, leads or follows other rows.
     let layouts = [

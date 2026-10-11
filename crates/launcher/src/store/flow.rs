@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use protocol::store_control::{
+use bridge::{
     ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance, StoreOffer,
     StorePrice,
 };

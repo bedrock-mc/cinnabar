@@ -138,7 +138,7 @@ fn cache_path(layout: &InstallLayout, hash: &str) -> PathBuf {
         .join(format!("{hash}.png"))
 }
 
-fn validated(hash: &str, bytes: &[u8]) -> Result<protocol::CapeImage, String> {
+fn validated(hash: &str, bytes: &[u8]) -> Result<render_api::CapeImage, String> {
     if format!("{:x}", Sha256::digest(bytes)) != hash {
         return Err("The cape image does not match its texture identity.".to_owned());
     }
@@ -150,7 +150,7 @@ mod tests {
     use super::*;
     #[test]
     fn official_cache_rejects_changed_texels_even_when_dimensions_are_valid() {
-        let size = protocol::CAPE_DIMENSIONS[0];
+        let size = render_api::CAPE_DIMENSIONS[0];
         let png = image::RgbaImage::from_pixel(size.0, size.1, image::Rgba([20, 50, 100, 255]));
         let mut bytes = Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(png)
@@ -164,8 +164,8 @@ mod tests {
 
     #[test]
     fn refreshing_defaults_preserves_imported_indices_selected_cape_and_drafts() {
-        let size = protocol::CAPE_DIMENSIONS[0];
-        let cape = protocol::CapeImage {
+        let size = render_api::CAPE_DIMENSIONS[0];
+        let cape = render_api::CapeImage {
             width: size.0,
             height: size.1,
             rgba8: vec![255; (size.0 * size.1 * 4) as usize].into(),

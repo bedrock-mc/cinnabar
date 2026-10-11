@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use protocol::launcher_control::Person;
+use bridge::Person;
 
 /// The vanilla screen the pause menu's invite button opens.
 pub const SCREEN: &str = "invite.invite_screen";

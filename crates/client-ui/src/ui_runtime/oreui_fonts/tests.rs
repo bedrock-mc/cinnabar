@@ -1,5 +1,6 @@
 use super::*;
-use crate::{oreui_theme as theme, test_support::fixture_font};
+use crate::test_support::fixture_font;
+use ui::oreui_theme as theme;
 
 /// Writes a small valid carrier bound to the selected shipped manifest.
 fn write_face(directory: &Path, face: OreUiFont) {

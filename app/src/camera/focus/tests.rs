@@ -661,7 +661,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             assert_eq!(menu.take_local_world_request(), Some(0));
             MenuAction::PlayLocalWorld(0)
         } else {
-            crate::menu::servers::save_servers(
+            launcher_host::servers::save_servers(
                 &menu.layout().server_file(),
                 &[launcher::menu::view::SavedServer {
                     name: "local fixture".into(),

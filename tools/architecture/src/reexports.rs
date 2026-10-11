@@ -16,6 +16,9 @@ use crate::{
 type Name = Vec<String>;
 type ModuleFile = (PathBuf, Name, Condition);
 
+#[cfg(test)]
+mod tests;
+
 struct Import {
     condition: Condition,
     module: Name,
@@ -557,13 +560,14 @@ fn use_paths(tree: &UseTree, prefix: &mut Name, output: &mut Vec<(Name, String)>
     }
 }
 
-/// Resolves local forwarding chains while allowing a module to shadow a dependency name.
+/// Resolves forwarding chains, considering only type bindings when looking up a namespace.
 fn resolve(
     module: &[String],
     path: &[String],
     symbols: &Symbols,
     seen: &mut BTreeSet<Name>,
     configuration: &Configuration,
+    namespace_only: bool,
 ) -> Result<Name, String> {
     let mut absolute = module.to_vec();
     let mut index = 0;
@@ -593,6 +597,10 @@ fn resolve(
                 _ => break,
             }
             index += 1;
+        }
+        // Bare self and super name lexical modules, independently of their imports.
+        if index == path.len() {
+            return Ok(absolute);
         }
     } else if let Some(first) = path.first() {
         let mut local = module.to_vec();
@@ -626,6 +634,7 @@ fn resolve(
                         symbols,
                         &mut branch_seen,
                         configuration,
+                        true,
                     )?;
                     has_type_import |= !value_only(&target, symbols, configuration)?;
                 }
@@ -637,12 +646,19 @@ fn resolve(
                 let mut branch_seen = seen.clone();
                 if branch_seen.insert(local.clone()) {
                     let mut target =
-                        resolve_globs(local, symbols, &mut branch_seen, configuration)?;
+                        resolve_globs(local, symbols, &mut branch_seen, configuration, true)?;
                     if known_local(&target, symbols, configuration)?
                         && !value_only(&target, symbols, configuration)?
                     {
                         target.extend_from_slice(&path[1..]);
-                        return resolve(module, &target, symbols, &mut branch_seen, configuration);
+                        return resolve(
+                            module,
+                            &target,
+                            symbols,
+                            &mut branch_seen,
+                            configuration,
+                            namespace_only,
+                        );
                     }
                 }
                 absolute.clear();
@@ -653,14 +669,25 @@ fn resolve(
         }
     }
     absolute.extend_from_slice(&path[index..]);
+    if namespace_only
+        && (active_name(&symbols.modules, &absolute, configuration)?
+            || active_name(&symbols.type_definitions, &absolute, configuration)?)
+    {
+        return Ok(absolute);
+    }
     for length in (2..=absolute.len()).rev() {
         let prefix = absolute[..length].to_vec();
         if let Some(imports) = symbols.imports.get(&prefix) {
             if length == absolute.len() && !seen.contains(&prefix) {
                 let mut glob_seen = seen.clone();
                 glob_seen.insert(prefix.clone());
-                let from_globs =
-                    resolve_globs(absolute.clone(), symbols, &mut glob_seen, configuration)?;
+                let from_globs = resolve_globs(
+                    absolute.clone(),
+                    symbols,
+                    &mut glob_seen,
+                    configuration,
+                    namespace_only,
+                )?;
                 if from_globs.first().is_some_and(|name| name != "crate") {
                     return Ok(from_globs);
                 }
@@ -678,12 +705,19 @@ fn resolve(
                         symbols,
                         &mut branch_seen,
                         configuration,
+                        namespace_only || length < absolute.len(),
                     )?;
                     target.extend_from_slice(&absolute[length..]);
                     if length < absolute.len() && target.first().is_some_and(|name| name == "crate")
                     {
-                        target =
-                            resolve(module, &target, symbols, &mut branch_seen, configuration)?;
+                        target = resolve(
+                            module,
+                            &target,
+                            symbols,
+                            &mut branch_seen,
+                            configuration,
+                            namespace_only,
+                        )?;
                     }
                     if target.first().is_some_and(|name| name != "crate") {
                         return Ok(target);
@@ -696,7 +730,7 @@ fn resolve(
             }
         }
     }
-    resolve_globs(absolute, symbols, seen, configuration)
+    resolve_globs(absolute, symbols, seen, configuration, namespace_only)
 }
 
 /// Rejects uncertain namespace ownership instead of guessing what external globs contain.
@@ -705,6 +739,7 @@ fn resolve_globs(
     symbols: &Symbols,
     seen: &mut BTreeSet<Name>,
     configuration: &Configuration,
+    namespace_only: bool,
 ) -> Result<Name, String> {
     if absolute.first().is_none_or(|name| name != "crate") {
         return Ok(absolute);
@@ -740,6 +775,7 @@ fn resolve_globs(
                     symbols,
                     &mut namespace_seen,
                     configuration,
+                    true,
                 )?;
                 if namespace.first().is_some_and(|name| name == "crate")
                     && !visible_glob_binding(
@@ -753,7 +789,14 @@ fn resolve_globs(
                 {
                     continue;
                 }
-                let resolved = resolve(module, &target, symbols, &mut branch_seen, configuration)?;
+                let resolved = resolve(
+                    module,
+                    &target,
+                    symbols,
+                    &mut branch_seen,
+                    configuration,
+                    namespace_only,
+                )?;
                 if resolved.first().is_some_and(|name| name != "crate") {
                     return Ok(resolved);
                 } else if known_local(&resolved, symbols, configuration)? {
@@ -846,6 +889,7 @@ fn visible_glob_binding(
                 symbols,
                 &mut branch_seen,
                 configuration,
+                true,
             )?;
             if target.first().is_some_and(|name| name != "crate")
                 || visible_glob_binding(
@@ -879,6 +923,7 @@ fn external_target(export: &Export, symbols: &Symbols) -> Option<Name> {
                         symbols,
                         &mut BTreeSet::new(),
                         &configuration,
+                        false,
                     )
                     .map(Some)
                 } else {

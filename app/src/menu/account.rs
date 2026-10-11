@@ -1,22 +1,7 @@
-use std::process::{Command, Stdio};
-
 use launcher::menu::auth::select_auth;
 use launcher::menu::view::MenuProfile;
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen};
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::auth::AuthState};
-
-/// Waits for an exiting helper on a thread so the frame never blocks on it; it
-/// stays tracked, so the exit sweep still covers it.
-fn reap(child: crate::lifecycle::children::Spawned) {
-    let spawned = std::thread::Builder::new()
-        .name("catalog-reaper".to_owned())
-        .spawn(move || {
-            child.wait();
-        });
-    if let Err(error) = spawned {
-        bevy::log::warn!("catalog helper left unreaped: {error}");
-    }
-}
 
 pub(super) fn validated_auth_cache(
     layout: &InstallLayout,
@@ -47,33 +32,8 @@ impl MenuRuntime {
             return;
         }
         self.catalog_started = true;
-        let _ = fs::remove_file(&self.catalog_path);
-        let Some(auth_cache) = auth_cache_path(&self.layout) else {
-            self.catalog_message =
-                Some("Sign in to load Realms, Friends, and featured servers.".to_owned());
-            return;
-        };
-        let Some(executable) = core_executable(&self.layout) else {
-            self.catalog_message = Some(
-                "bedrock-core executable was not found; server catalog unavailable.".to_owned(),
-            );
-            return;
-        };
-        let mut command = Command::new(executable);
-        command
-            .arg("-catalog-file")
-            .arg(&self.catalog_path)
-            .arg("-auth-cache")
-            .arg(auth_cache)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        match crate::lifecycle::children::spawn(&mut command) {
-            Ok(child) => self.catalog_process = Some(child),
-            Err(_) => {
-                self.catalog_message =
-                    Some("Reopen Cinnabar to retry the account catalog.".to_owned());
-            }
+        if let Err(message) = self.catalog.start(&self.layout) {
+            self.catalog_message = Some(message);
         }
     }
 
@@ -98,38 +58,18 @@ impl MenuRuntime {
         }
         if self.screen == MenuScreen::Profile && !self.feeds.profile.loaded {
             self.feeds.profile = MenuProfile::unavailable();
-            launcher_account::profile_worker::log_unavailable("worker_unavailable");
+            launcher_host::launcher_account::profile_worker::log_unavailable("worker_unavailable");
         }
         self.start_catalog();
-        let Some(child) = self.catalog_process.as_ref() else {
-            return;
-        };
-        if let Ok(bytes) = fs::read(&self.catalog_path) {
-            match serde_json::from_slice::<CatalogFile>(&bytes) {
-                Ok(catalog) => {
-                    if let Some(child) = self.catalog_process.take() {
-                        reap(child);
-                    }
-                    self.apply_catalog(catalog);
-                    let _ = fs::remove_file(&self.catalog_path);
-                }
-                Err(_) => self.catalog_message = Some("Social: Refresh to try again.".to_owned()),
-            }
-            return;
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            self.catalog_process = None;
-            if !status.success() {
-                self.catalog_message = Some("The account catalog could not be loaded.".to_owned());
-            }
+        match self.catalog.poll() {
+            Ok(Some(catalog)) => self.apply_catalog(catalog),
+            Ok(None) => {}
+            Err(message) => self.catalog_message = Some(message),
         }
     }
 
     pub(super) fn stop_catalog(&mut self) {
-        if let Some(child) = self.catalog_process.take() {
-            child.kill();
-            reap(child);
-        }
+        self.catalog.stop();
     }
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
@@ -209,7 +149,7 @@ impl MenuRuntime {
         if state.awaiting_browser() {
             #[cfg(not(test))]
             self.sign_in_browser
-                .open(state, explicit, crate::desktop::open_sign_in_link);
+                .open(state, explicit, launcher_host::desktop::open_sign_in_link);
             #[cfg(test)]
             self.sign_in_browser.open(state, explicit, |_| true);
         }
@@ -396,5 +336,10 @@ impl MenuRuntime {
     }
 }
 
+#[cfg(all(test, unix))]
+mod profile_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod auth_tests;

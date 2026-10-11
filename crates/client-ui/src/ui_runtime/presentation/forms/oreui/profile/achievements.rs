@@ -2,7 +2,7 @@
 use super::super::theme::{
     BODY, BORDER, CAPTION, INFORMATIVE_TINT, NEUTRAL, SUCCESS_TINT, TEXT_DARK, TEXT_DIMMER,
 };
-use protocol::launcher_control::ProfileAchievement;
+use bridge::ProfileAchievement;
 use std::collections::HashMap;
 use {super::*, launcher::menu::MenuView, ui::IconRef};
 

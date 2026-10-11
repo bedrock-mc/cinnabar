@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use protocol::store_control::{StoreOffer, StoreOfferDetail};
+use bridge::{StoreOffer, StoreOfferDetail};
 
 use super::flow::{PurchaseDialog, PurchaseFlow};
 use super::worker::StoreError;

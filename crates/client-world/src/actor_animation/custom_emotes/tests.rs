@@ -266,8 +266,8 @@ fn owned_custom_emote_named_channels_preserve_hierarchy_and_reordered_models() {
 fn owned_custom_emote_persona_layer_follows_body_and_keeps_artwork() {
     let f = Fixture::new();
     let layer = SkinRenderLayer {
-        image: protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Face,
+        image: render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
             width: 16,
             height: 16,
             rgba8: Arc::from([]),

@@ -6,11 +6,12 @@ use client_world::{
     ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
     PlayerProfile,
 };
-use protocol::{ActorKind, PlayerSkin, StandardSkin};
+use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission,
 };
+use render_api::StandardSkin;
 use render_model::{
     EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_SKIN_BYTES,

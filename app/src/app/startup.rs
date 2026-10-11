@@ -1,16 +1,17 @@
 //! Startup carrier loading and required registry verification.
 use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
+use crate::args;
 use crate::asset_startup::{
     self, AssetSelection, AssetStartupError, LoadTimes, LoadedAssets, LoadedHudAssets,
     LoadedIconAssets, LoadedLangAssets, join,
 };
 use crate::movement::PhysicsCollisionRegistries;
-use crate::{args, session_cleanup::ScopedSessionDirectory};
 use anyhow::{Context, Result, bail};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
     RuntimeEquipmentCatalog, RuntimeParticleAssets, RuntimeUiAssets,
 };
+use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, sync::Arc, time::Instant};
 

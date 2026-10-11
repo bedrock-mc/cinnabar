@@ -4,11 +4,12 @@ use super::{ACTOR_LAYER_CAPE, apply_capes, tests::fixture_cape};
 use crate::presentation::{actors::ActorPresentationBatch, equipment::ELYTRA_LAYER};
 use assets::EntityRenderMaterial;
 use client_world::PlayerProfile;
-use protocol::{CapeImage, PlayerSkin, StandardSkin};
+use protocol::PlayerSkin;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorGlint, ActorMaterial, ActorRenderIdentity,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EquipmentRaster,
 };
+use render_api::{CapeImage, StandardSkin};
 use render_model::{EntityRigId, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 use std::{collections::HashMap, sync::Arc};
 

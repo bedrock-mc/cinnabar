@@ -142,7 +142,7 @@ impl AccountControl for ChangingAccount {
     fn sign_out(&mut self) -> bool {
         false
     }
-    fn poll_event(&mut self) -> Option<super::super::account_control::AccountEvent> {
+    fn poll_event(&mut self) -> Option<launcher_host::account_control::AccountEvent> {
         None
     }
     fn request_realm_membership(&mut self, _: u64, _: String, _: bool) -> bool {

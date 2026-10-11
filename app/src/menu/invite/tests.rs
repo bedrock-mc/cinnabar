@@ -5,11 +5,11 @@ use {
     launcher::menu::{MenuAction, MenuScreen},
 };
 use {
-    crate::menu::account_control::AccountEvent,
     launcher::menu::{
         auth::AuthState,
         view::{MenuFriendCard, MenuRealmCard},
     },
+    launcher_host::account_control::AccountEvent,
 };
 
 /// A core that records what the menu asks of it and answers the friends list when told.

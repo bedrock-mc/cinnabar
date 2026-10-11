@@ -18,7 +18,7 @@ fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
     let local = LocalPlayerSkin::generated_default("cropped cape");
     let mut view = super::super::load(&layout, &local);
     let source = layout.user_data_root.join("cropped-cape.png");
-    let scale = protocol::CAPE_DIMENSIONS[1].0 / protocol::CAPE_DIMENSIONS[0].0;
+    let scale = render_api::CAPE_DIMENSIONS[1].0 / render_api::CAPE_DIMENSIONS[0].0;
     let pixels = image::RgbaImage::from_fn(
         CROPPED_CAPE_DIMENSIONS.0 * scale,
         CROPPED_CAPE_DIMENSIONS.1 * scale,
@@ -30,7 +30,7 @@ fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
     let selected = view.selected_cape().unwrap().clone();
     assert_eq!(
         (selected.cape.width, selected.cape.height),
-        protocol::CAPE_DIMENSIONS[1]
+        render_api::CAPE_DIMENSIONS[1]
     );
     for (index, texel) in selected.cape.rgba8.as_chunks::<4>().0.iter().enumerate() {
         let x = index as u32 % selected.cape.width;
@@ -61,8 +61,8 @@ fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
 
 #[test]
 fn cropped_cape_decode_only_accepts_matching_supported_scales() {
-    for (width, height) in protocol::CAPE_DIMENSIONS {
-        let scale = width / protocol::CAPE_DIMENSIONS[0].0;
+    for (width, height) in render_api::CAPE_DIMENSIONS {
+        let scale = width / render_api::CAPE_DIMENSIONS[0].0;
         let pixels = image::RgbaImage::from_pixel(
             CROPPED_CAPE_DIMENSIONS.0 * scale,
             CROPPED_CAPE_DIMENSIONS.1 * scale,
@@ -77,7 +77,7 @@ fn cropped_cape_decode_only_accepts_matching_supported_scales() {
         assert!(cape.is_valid());
     }
     let (width, height) = CROPPED_CAPE_DIMENSIONS;
-    let skin_side = protocol::CLASSIC_SKIN_SIDE as u32;
+    let skin_side = render_api::CLASSIC_SKIN_SIDE as u32;
     for (width, height) in [
         (width, height + 1),
         (width * 2, height * 2 - 1),
@@ -101,7 +101,7 @@ fn imported_cape_retains_texels_and_persists_independently_of_skin_choice() {
     let local = LocalPlayerSkin::generated_default("cape fixture");
     let mut view = super::super::load(&layout, &local);
     let source = layout.user_data_root.join("cape.png");
-    let size = protocol::CAPE_DIMENSIONS[1];
+    let size = render_api::CAPE_DIMENSIONS[1];
     png(&source, size, [12, 41, 203, 56]);
     import_cape(&layout, &mut view, &source).unwrap();
     let selected = view.selected_cape().unwrap().clone();
@@ -151,8 +151,8 @@ fn cape_rename_delete_remap_selection_and_preserve_originals() {
     let mut view = super::super::load(&layout, &local);
     let first = layout.user_data_root.join("first-cape.png");
     let second = layout.user_data_root.join("second-cape.png");
-    png(&first, protocol::CAPE_DIMENSIONS[0], [1, 2, 3, 255]);
-    png(&second, protocol::CAPE_DIMENSIONS[0], [3, 2, 1, 255]);
+    png(&first, render_api::CAPE_DIMENSIONS[0], [1, 2, 3, 255]);
+    png(&second, render_api::CAPE_DIMENSIONS[0], [3, 2, 1, 255]);
     import_cape(&layout, &mut view, &first).unwrap();
     let private_first = view.selected_cape().unwrap().path.clone();
     import_cape(&layout, &mut view, &second).unwrap();
@@ -179,15 +179,15 @@ fn invalid_cape_and_failed_delete_leave_saved_library_unchanged() {
     let local = LocalPlayerSkin::generated_default("cape validation");
     let mut view = super::super::load(&layout, &local);
     let source = layout.user_data_root.join("cape.png");
-    png(&source, protocol::CAPE_DIMENSIONS[0], [0, 1, 2, 255]);
+    png(&source, render_api::CAPE_DIMENSIONS[0], [0, 1, 2, 255]);
     import_cape(&layout, &mut view, &source).unwrap();
     let old = view.clone();
     let bad = layout.user_data_root.join("skin-is-not-cape.png");
     png(
         &bad,
         (
-            protocol::CLASSIC_SKIN_SIDE as u32,
-            protocol::CLASSIC_SKIN_SIDE as u32,
+            render_api::CLASSIC_SKIN_SIDE as u32,
+            render_api::CLASSIC_SKIN_SIDE as u32,
         ),
         [255; 4],
     );
@@ -212,7 +212,7 @@ fn cape_import_capacity_allows_duplicates_but_never_unrestorable_additions() {
     let local = LocalPlayerSkin::generated_default("cape capacity");
     let mut view = super::super::load(&layout, &local);
     let source = layout.user_data_root.join("cape.png");
-    png(&source, protocol::CAPE_DIMENSIONS[0], [10, 20, 30, 255]);
+    png(&source, render_api::CAPE_DIMENSIONS[0], [10, 20, 30, 255]);
     import_cape(&layout, &mut view, &source).unwrap();
     let entry = view.selected_cape().unwrap().clone();
     let mut capes = vec![entry.clone(); MAX_IMPORTED_ITEMS];
@@ -222,7 +222,7 @@ fn cape_import_capacity_allows_duplicates_but_never_unrestorable_additions() {
     view.capes = capes.into();
     import_cape(&layout, &mut view, &source).unwrap();
     let next = layout.user_data_root.join("next.png");
-    png(&next, protocol::CAPE_DIMENSIONS[0], [30, 20, 10, 255]);
+    png(&next, render_api::CAPE_DIMENSIONS[0], [30, 20, 10, 255]);
     assert!(import_cape(&layout, &mut view, &next).is_err());
     assert_eq!(view.capes.len(), MAX_IMPORTED_ITEMS);
     assert_eq!(

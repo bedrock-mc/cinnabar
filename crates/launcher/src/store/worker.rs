@@ -1,6 +1,6 @@
 //! Requests and replies exchanged with the host's store workers.
 
-use protocol::store_control::{
+use bridge::{
     BridgeError, ConfirmedPurchase, PurchaseOutcome, StoreBalance, StoreEntitlements,
     StoreOfferDetail, StorePage, StoreRowMore, StoreSearch, StoreSearchResults,
 };

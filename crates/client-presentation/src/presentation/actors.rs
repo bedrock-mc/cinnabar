@@ -2,12 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin, SkinRgba8};
+use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
 };
+use render_api::SkinRgba8;
 use render_model::{
     ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,

@@ -1,4 +1,4 @@
-//! Frame-safe polling of launcher-owned persistent login state.
+//! Frame-safe polling of launcher-host persistent login state.
 
 use super::SessionController;
 use launcher::install_layout::InstallLayout;
@@ -19,8 +19,7 @@ impl SessionController {
     ) -> Result<(), String> {
         if self.client_random_id.is_none() && self.client_id_load.is_none() {
             self.client_id_load = Some(
-                layout
-                    .load_client_random_id_async()
+                launcher_host::client_random_id::load_async(layout.user_data_root.clone())
                     .map(std::sync::Mutex::new)
                     .map_err(|error| format!("Could not load login client ID: {error}"))?,
             );

@@ -12,7 +12,7 @@ pub(super) struct GalleryRequest {
     selected_cape: Option<usize>,
     skin_indices: Vec<usize>,
     cape_indices: Vec<usize>,
-    cape: Option<protocol::CapeImage>,
+    cape: Option<render_api::CapeImage>,
 }
 
 impl GalleryRequest {
