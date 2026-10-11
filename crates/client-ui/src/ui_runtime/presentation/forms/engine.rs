@@ -48,7 +48,9 @@ use crate::ui_runtime::{
     forms::{EditText, EngineFrame},
 };
 use text_paint::{Measure, TextPaint};
-pub(super) use text_paint::{UNWRAPPED_LOGICAL, active_codes, painted_label_request, width_64};
+pub(super) use text_paint::{
+    UNWRAPPED_LOGICAL, active_codes, label_origin, painted_label_request, width_64,
+};
 
 pub struct FormEngine {
     assets: Arc<RuntimeUiAssets>,

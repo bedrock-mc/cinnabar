@@ -12,6 +12,8 @@ use json_ui::{
     hud_data_source, parse_texture_meta, render_screen,
 };
 
+mod world_text;
+
 fn pack() -> Option<PathBuf> {
     let dir = support::vanilla_pack();
     dir.join("ui").is_dir().then_some(dir)

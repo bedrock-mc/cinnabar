@@ -311,7 +311,7 @@ fn larger_row_text_rebuilds_the_catalog_and_fits_stacked_and_right_icon_bands() 
 }
 
 #[test]
-fn right_icon_values_stay_centered_when_text_and_hud_are_scaled() {
+fn right_icon_value_label_boxes_stay_centered_when_text_and_hud_are_scaled() {
     for scale in [0.5, 0.75, 1., 1.5, 2.] {
         for text_scale in [1., 1.75] {
             let mut p = presentation(false);
@@ -335,8 +335,11 @@ fn right_icon_values_stay_centered_when_text_and_hud_are_scaled() {
             let surface = rendered_card_surface(nodes);
             let (bounds, layout) = contained_row_text(nodes, surface, [255, 0, 0, 255]);
             assert_eq!(layout.line_count(), 1);
-            let text_center = (bounds.min().y() + bounds.max().y()) * 0.5;
             let pixels_per_unit = (surface.max().x() - surface.min().x()) / (72. * scale);
+            let label = authored_label_bounds(bounds, &p.font, pixels_per_unit);
+            // The template centers the measured label box. Its native paint inset and
+            // glyph ink are distinct from that authored layout rectangle.
+            let text_center = (label.min().y() + label.max().y()) * 0.5;
             let row_center = surface.min().y() + 14. * scale * pixels_per_unit;
             assert!(
                 // Text and icon origins snap independently to whole output pixels.
@@ -516,6 +519,45 @@ fn composed_bounds(nodes: &[ui::UiNode], node: &ui::UiNode) -> ui::UiRect {
     .unwrap()
 }
 
+/// Recovers the authored measured label rectangle from the retained default-font paint node.
+/// Native paint adds an unscaled GUI-pixel inset without moving the authored layout box.
+fn authored_label_bounds(
+    painted: ui::UiRect,
+    font: &assets::RuntimeFontCatalog,
+    px: f32,
+) -> ui::UiRect {
+    let [left, top] = super::super::engine::label_origin([0.0; 4], font, &Default::default(), px);
+    ui::UiRect::new(
+        ui::UiPoint::new(painted.min().x() - left, painted.min().y() - top).unwrap(),
+        ui::UiPoint::new(painted.max().x() - left, painted.max().y() - top).unwrap(),
+    )
+    .unwrap()
+}
+
+/// The actual glyph quad extents in world coordinates, independently of the nominal line box.
+fn rendered_text_ink(painted: ui::UiRect, layout: &ui::TextLayout) -> ui::UiRect {
+    let mut ink = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    for glyph in layout.glyphs() {
+        let [left, top, right, bottom] = glyph.bounds_64.map(|edge| edge as f32 / 64.0);
+        ink = [
+            ink[0].min(left),
+            ink[1].min(top),
+            ink[2].max(right),
+            ink[3].max(bottom),
+        ];
+    }
+    ui::UiRect::new(
+        ui::UiPoint::new(painted.min().x() + ink[0], painted.min().y() + ink[1]).unwrap(),
+        ui::UiPoint::new(painted.min().x() + ink[2], painted.min().y() + ink[3]).unwrap(),
+    )
+    .unwrap()
+}
+
 #[test]
 fn compact_inline_rows_keep_progress_separate_from_rendered_text() {
     for layout in [
@@ -578,22 +620,36 @@ fn compact_inline_rows_keep_progress_separate_from_rendered_text() {
             let row_end = surface.min().y() + height as f32 * unit;
             assert!(progress.max().y() <= row_end - 2. * unit + 0.01);
             assert!((progress.max().y() - progress.min().y() - 2. * unit).abs() < 0.01);
-            let text: Vec<_> = nodes.iter().filter_map(|node| {
-                matches!(node.visual(), ui::UiVisual::Text {color,..} if *color == [255;4] || *color == [255,0,0,255])
-                    .then(|| world_bounds(node))
-                    .filter(|bounds| bounds.min().y() >= surface.min().y() && bounds.max().y() <= surface.max().y())
-            }).collect();
+            let text: Vec<_> = nodes
+                .iter()
+                .filter_map(|node| {
+                    let ui::UiVisual::Text { color, layout, .. } = node.visual() else {
+                        return None;
+                    };
+                    let bounds = world_bounds(node);
+                    ((*color == [255; 4] || *color == [255, 0, 0, 255])
+                        && bounds.min().y() >= surface.min().y()
+                        && bounds.max().y() <= surface.max().y())
+                    .then(|| (bounds, rendered_text_ink(bounds, layout)))
+                })
+                .collect();
             assert_eq!(text.len(), 2);
             let legacy = layout == ui::mod_hud::RowLayout::Standard && height == 20;
             let gap = if legacy { 0. } else { 2. * unit };
-            for bounds in text {
+            for (bounds, ink) in text {
                 assert!(bounds.min().y() >= surface.min().y() + 2. * unit - 0.01);
                 assert!(
                     bounds.max().y() <= progress.min().y() - gap + 0.01,
                     "layout={layout:?}, row_height={height}, text={bounds:?}, progress={progress:?}"
                 );
+                assert!(ink.min().y() >= surface.min().y() + 2. * unit - 0.01);
+                assert!(
+                    ink.max().y() <= progress.min().y() - gap + 0.01,
+                    "layout={layout:?}, row_height={height}, ink={ink:?}, progress={progress:?}"
+                );
                 if legacy {
-                    assert!((bounds.min().y() - surface.min().y() - 2. * unit).abs() < 0.01);
+                    let label = authored_label_bounds(bounds, &p.font, unit);
+                    assert!((label.min().y() - surface.min().y() - 2. * unit).abs() < 0.01);
                 }
             }
             if legacy {

@@ -308,7 +308,7 @@ pub(crate) fn prepare_ui_runtime(
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.
     presentation.hud_frame_mut().player_block = local_frame.snapshot().map(|frame| {
-        let feet = frame.pose().translation;
+        let feet = frame.feet();
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
