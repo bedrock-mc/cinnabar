@@ -446,6 +446,12 @@ type dialerDownstream interface {
 	Proto() minecraft.Protocol
 }
 
+// maxUpstreamDecompressedBatch bounds one decompressed batch from the upstream. A
+// server may batch a whole pack transfer into a single batch, so the default 16 MiB
+// ceiling would reject the join that vanilla accepts; the acquisition budget's own
+// transfer ceiling still bounds what those bytes can amount to.
+const maxUpstreamDecompressedBatch = 256 * 1024 * 1024
+
 func newUpstreamDialerForAdmission(
 	downstream dialerDownstream,
 	tokenSource oauth2.TokenSource,
@@ -458,6 +464,7 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
+		MaxDecompressedLen:   maxUpstreamDecompressedBatch,
 		FlushRate:            -1, // the relay's packet readers own flushing
 		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
 		Handoff: minecraft.HandoffAtStartGame,
@@ -490,9 +497,18 @@ func newUpstreamDialerForAdmission(
 // continues even when the upstream required bit is set.
 func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 
+// resourcePackRequestWindow is how many chunk requests a pack's download may hold
+// outstanding. A pack with more chunks than this window would otherwise defer its
+// overflow to one request per response, so a 123-chunk pack requested through a
+// 100-chunk window tricksles its last 23 chunks one at a time.
+const resourcePackRequestWindow = 1024
+
+// boundedResourcePackDownload keeps every chunk of a pack in flight at once: a pack's
+// chunk count is bounded by the server's own declaration, so the window only has to
+// stay large enough that no pack's requests are serialized behind its data.
 func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 	return minecraft.ResourcePackDownloadConfig{
-		MaxInFlightChunks: minecraft.DefaultResourcePackMaxInFlightChunks,
+		MaxInFlightChunks: max(resourcePackRequestWindow, minecraft.DefaultResourcePackMaxInFlightChunks),
 	}
 }
 

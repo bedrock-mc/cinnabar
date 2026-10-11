@@ -33,7 +33,10 @@ use packet_trace::PacketIdTraceState;
 #[cfg(test)]
 use packet_trace::{MAX_PACKET_ID_TRACE_ENTRIES, PACKET_ID_TRACE_DURATION};
 
-const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
+/// A server may batch a whole pack transfer, or a large item registry, into one batch,
+/// so the local leg accepts batches far larger than a typical client's 16 MiB default.
+/// The core already bounds pack transfers before they reach this hop.
+const MAX_DECOMPRESSED_BATCH_SIZE: usize = 256 * 1024 * 1024;
 
 /// Entry point for the offline local-core login sequence.
 pub struct LoginSequence;
