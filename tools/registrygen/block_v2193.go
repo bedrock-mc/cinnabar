@@ -375,12 +375,12 @@ func writeV2193Fingerprint(hash io.Writer, identity Record, key string) {
 }
 
 func decodeBREGRecords(data []byte, expectedProtocol uint32) (RegistryMetadata, []Record, error) {
-	const headerBytes = 8 + 7*4
-	const prefixBytes = 24 + 8*4
+	const headerBytes = registryHeaderBytes
+	const prefixBytes = recordHeaderBytes
 	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != expectedProtocol {
 		return RegistryMetadata{}, nil, fmt.Errorf("input is not protocol-%d BREG1003", expectedProtocol)
 	}
-	metadata := RegistryMetadata{Protocol: expectedProtocol, CanonicalNames: binary.LittleEndian.Uint32(data[12:16]), CanonicalStates: binary.LittleEndian.Uint32(data[16:20]), ValentineNames: binary.LittleEndian.Uint32(data[20:24]), ValentineStates: binary.LittleEndian.Uint32(data[24:28]), ValentineGapNames: binary.LittleEndian.Uint32(data[28:32]), ValentineGapStates: binary.LittleEndian.Uint32(data[32:36])}
+	metadata := decodeRegistryMetadata(data[len(registryHeader):headerBytes])
 	if metadata.CanonicalStates > maxRecordCount {
 		return RegistryMetadata{}, nil, errors.New("BREG record count exceeds limit")
 	}
@@ -390,24 +390,28 @@ func decodeBREGRecords(data []byte, expectedProtocol uint32) (RegistryMetadata, 
 		if len(data)-cursor < prefixBytes {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d is truncated", index)
 		}
-		p := data[cursor : cursor+prefixBytes]
-		boxCount := int(p[15])
-		nameLen, stateLen := int(binary.LittleEndian.Uint16(p[18:20])), int(binary.LittleEndian.Uint32(p[20:24]))
+		p := decodeRecordHeader(data[cursor : cursor+prefixBytes])
+		boxCount := int(p.BoxCount)
+		nameLen, stateLen := int(p.NameLen), int(p.StateLen)
 		if boxCount > maxCollisionBoxesPerRecord || stateLen > maxStateBytes {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d exceeds bounds", index)
 		}
-		payload := cursor + prefixBytes + boxCount*24
+		payload := cursor + prefixBytes + boxCount*collisionBoxBytes
 		end := payload + nameLen + stateLen
 		if payload < cursor || end < payload || end > len(data) {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d payload is truncated", index)
 		}
-		record := Record{SequentialID: binary.LittleEndian.Uint32(p[:4]), NetworkHash: binary.LittleEndian.Uint32(p[4:8]), Flags: p[8], ModelFamily: ModelFamily(p[9]), ContributorRole: ContributorRole(p[10]), ModelState: ModelState{Mask: p[11]}, FaceCoverage: p[12], CollisionSeed: CollisionSeed{Confidence: CollisionConfidence(p[13]), ShapeID: binary.LittleEndian.Uint16(p[16:18])}, Provenance: p[14], Name: string(data[payload : payload+nameLen]), StateJSON: append([]byte(nil), data[payload+nameLen:end]...)}
-		for field := range record.ModelState.Values {
-			record.ModelState.Values[field] = binary.LittleEndian.Uint32(p[24+field*4 : 28+field*4])
+		record := Record{
+			SequentialID: p.SequentialID, NetworkHash: p.NetworkHash, Flags: p.RawFlags,
+			ModelFamily: ModelFamily(p.ModelFamily), ContributorRole: ContributorRole(p.ContributorRole),
+			ModelState: ModelState{Mask: p.ModelMask, Values: p.Values}, FaceCoverage: p.FaceCoverage,
+			CollisionSeed: CollisionSeed{Confidence: CollisionConfidence(p.Confidence), ShapeID: p.ShapeID},
+			Provenance:    p.RawProvenance, Name: string(data[payload : payload+nameLen]),
+			StateJSON: append([]byte(nil), data[payload+nameLen:end]...),
 		}
 		for boxIndex := 0; boxIndex < boxCount; boxIndex++ {
-			b := data[cursor+prefixBytes+boxIndex*24 : cursor+prefixBytes+(boxIndex+1)*24]
-			record.CollisionSeed.Boxes = append(record.CollisionSeed.Boxes, CollisionBox{MinX: int32(binary.LittleEndian.Uint32(b[0:4])), MinY: int32(binary.LittleEndian.Uint32(b[4:8])), MinZ: int32(binary.LittleEndian.Uint32(b[8:12])), MaxX: int32(binary.LittleEndian.Uint32(b[12:16])), MaxY: int32(binary.LittleEndian.Uint32(b[16:20])), MaxZ: int32(binary.LittleEndian.Uint32(b[20:24]))})
+			start := cursor + prefixBytes + boxIndex*collisionBoxBytes
+			record.CollisionSeed.Boxes = append(record.CollisionSeed.Boxes, decodeCollisionBox(data[start:start+collisionBoxBytes]))
 		}
 		records = append(records, record)
 		cursor = end

@@ -263,9 +263,19 @@ fn custom_color_composition_is_not_claimed_as_an_untinted_sprite() {
 }
 
 #[test]
-#[ignore = "requires PINNED_BEDROCK_SAMPLES_PACK pointing at the pinned full sample resource_pack"]
 fn exact_pinned_pack_renders_every_retail_spawn_egg() {
-    let pack = std::path::PathBuf::from(std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK").unwrap());
+    let Some(pack) = std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: PINNED_BEDROCK_SAMPLES_PACK is not set");
+        return;
+    };
+    if !pack.exists() {
+        eprintln!(
+            "skipping missing fixture: PINNED_BEDROCK_SAMPLES_PACK at {}",
+            pack.display()
+        );
+        return;
+    }
     let compiled = compile_entity_assets(&pack, MANIFEST).unwrap();
     let icons = compile_icon_assets(&pack, MANIFEST).unwrap();
     let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();

@@ -23,7 +23,7 @@ const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
-const SECONDS_PER_TICK: f32 = 0.05;
+const SECONDS_PER_TICK: f32 = world::TICK_DURATION.as_secs_f32();
 
 const DRINKS: [&str; 3] = [
     "minecraft:potion",
