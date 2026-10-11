@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 /// Select the last document defining each geometry identifier in low-to-high source order.
 /// Keep each selected definition in its original document, including legacy inheritance keys.
+/// Retained layers keep their authored paths; the compiler assigns distinct source keys.
 pub fn select_entity_geometry(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<(Box<str>, Vec<u8>)> {
     let mut candidates = Vec::new();
     let mut winners = BTreeMap::new();
@@ -50,29 +51,10 @@ pub fn select_entity_geometry(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<(Box<str>,
             object.keys().any(|key| key.starts_with("geometry."))
         };
         if kept && let Ok(bytes) = serde_json::to_vec(&root) {
-            selected.push((index, path, bytes));
+            selected.push((path, bytes));
         }
     }
-    let mut counts = BTreeMap::new();
-    for (_, path, _) in &selected {
-        *counts.entry(path.clone()).or_insert(0) += 1;
-    }
     selected
-        .into_iter()
-        .map(|(index, path, bytes)| {
-            // Distinct retained layers cannot share a compiler source key.
-            let path = if counts[&path] > 1 {
-                format!(
-                    "models/entity/_layers/{index}/{}",
-                    path.strip_prefix("models/").unwrap_or(&path)
-                )
-                .into()
-            } else {
-                path
-            };
-            (path, bytes)
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -89,55 +71,122 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
-    fn partial_shadowing_keeps_both_rigs_and_the_replacement_bone() {
-        for upper_path in ["models/entity/upper.json", "models/entity/lower.json"] {
-            let mut files = select_entity_geometry(vec![
-                (
-                    "models/entity/lower.json".into(),
-                    document(&[("geometry.a", "old"), ("geometry.b", "retained")]),
-                ),
-                (
-                    upper_path.into(),
-                    document(&[("geometry.a", "replacement")]),
-                ),
-            ]);
-            for (name, geometry) in [("fixture:a", "geometry.a"), ("fixture:b", "geometry.b")] {
-                files.push((
-                    format!("entity/{}.json", &name[8..]).into(),
-                    serde_json::to_vec(&json!({
-                        "format_version":"1.10.0", "minecraft:client_entity":{"description":{
-                            "identifier":name,"geometry":{"default":geometry}, "render_controllers":["controller.render.fixture"]
-                        }}
-                    }))
-                    .unwrap(),
-                ));
-            }
+    /// Compile selected documents with one entity rig for each expected geometry.
+    fn assert_rigs(files: Vec<(Box<str>, Vec<u8>)>, expected: &[(&str, &str)]) {
+        let mut files = select_entity_geometry(files);
+        for (index, (geometry, _)) in expected.iter().enumerate() {
             files.push((
-                "render_controllers/fixture.json".into(),
+                format!("entity/{index}.json").into(),
                 serde_json::to_vec(&json!({
-                    "format_version":"1.8.0", "render_controllers":{
-                        "controller.render.fixture":{"geometry":"Geometry.default"}
-                    }
+                    "format_version":"1.10.0", "minecraft:client_entity":{"description":{
+                        "identifier":format!("fixture:{index}"), "geometry":{"default":geometry},
+                        "render_controllers":["controller.render.fixture"]
+                    }}
                 }))
                 .unwrap(),
             ));
-            let compiled = super::super::compile_entity_pack(files).unwrap().unwrap();
-            let runtime = assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap();
-            assert_eq!(
-                runtime.rig_bindings().len(),
-                2,
-                "both entity rigs must be admitted"
+        }
+        files.push((
+            "render_controllers/fixture.json".into(),
+            serde_json::to_vec(&json!({
+                "format_version":"1.8.0", "render_controllers":{
+                    "controller.render.fixture":{"geometry":"Geometry.default"}
+                }
+            }))
+            .unwrap(),
+        ));
+        let compiled = super::super::compile_entity_pack(files.clone())
+            .unwrap()
+            .unwrap();
+        let repeated = super::super::compile_entity_pack(files).unwrap().unwrap();
+        assert_eq!(
+            compiled.assets, repeated.assets,
+            "source identities must be stable"
+        );
+        assert_eq!(compiled.skipped, super::super::EntityPackSkips::default());
+        let runtime = assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap();
+        assert_eq!(runtime.rig_bindings().len(), expected.len());
+        assert_eq!(runtime.geometries().len(), expected.len());
+        for (id, bone) in expected {
+            let geometry = runtime
+                .geometries()
+                .iter()
+                .find(|geometry| geometry.identifier.as_ref() == *id)
+                .unwrap();
+            assert_eq!(geometry.bones[0].name.as_ref(), *bone);
+        }
+    }
+
+    #[test]
+    fn retained_layers_cannot_hide_an_authored_source() {
+        assert_rigs(
+            vec![
+                (
+                    "models/entity/shared.json".into(),
+                    document(&[("geometry.a", "old"), ("geometry.b", "retained")]),
+                ),
+                (
+                    "models/entity/shared.json".into(),
+                    document(&[("geometry.a", "replacement")]),
+                ),
+                (
+                    "models/entity/_layers/0/entity/shared.json".into(),
+                    document(&[("geometry.c", "authored")]),
+                ),
+                (
+                    format!(
+                        "{}0.json",
+                        super::super::pack::RETAINED_GEOMETRY_SOURCE_PREFIX
+                    )
+                    .into(),
+                    document(&[("geometry.d", "reserved")]),
+                ),
+            ],
+            &[
+                ("geometry.a", "replacement"),
+                ("geometry.b", "retained"),
+                ("geometry.c", "authored"),
+                ("geometry.d", "reserved"),
+            ],
+        );
+    }
+
+    #[test]
+    fn retained_layers_keep_long_paths_loadable() {
+        let prefix = "models/entity/";
+        let suffix = ".json";
+        let path = format!(
+            "{prefix}{}{suffix}",
+            "a".repeat(assets::MAX_ENTITY_ASSET_PATH_BYTES - prefix.len() - suffix.len())
+        );
+        assert_rigs(
+            vec![
+                (
+                    path.clone().into(),
+                    document(&[("geometry.a", "old"), ("geometry.b", "retained")]),
+                ),
+                (path.into(), document(&[("geometry.a", "replacement")])),
+            ],
+            &[("geometry.a", "replacement"), ("geometry.b", "retained")],
+        );
+    }
+
+    #[test]
+    fn partial_shadowing_keeps_both_rigs_and_the_replacement_bone() {
+        for upper_path in ["models/entity/upper.json", "models/entity/lower.json"] {
+            assert_rigs(
+                vec![
+                    (
+                        "models/entity/lower.json".into(),
+                        document(&[("geometry.a", "old"), ("geometry.b", "retained")]),
+                    ),
+                    (
+                        upper_path.into(),
+                        document(&[("geometry.a", "replacement")]),
+                    ),
+                ],
+                &[("geometry.a", "replacement"), ("geometry.b", "retained")],
             );
-            assert_eq!(runtime.geometries().len(), 2);
-            for (id, bone) in [("geometry.a", "replacement"), ("geometry.b", "retained")] {
-                let geometry = runtime
-                    .geometries()
-                    .iter()
-                    .find(|geometry| geometry.identifier.as_ref() == id)
-                    .unwrap();
-                assert_eq!(geometry.bones[0].name.as_ref(), bone);
-            }
         }
     }
 
