@@ -34,6 +34,7 @@ pub(super) fn descriptor_for(
     if visuals::shelf::is_record(record)
         || visuals::end_portal_frame::is_record(record)
         || visuals::end_rod::is_record(record)
+        || visuals::lightning_rod::is_record(record)
         || visuals::bamboo::is_record(record)
         || matches!(
             record.name.as_ref(),

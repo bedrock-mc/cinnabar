@@ -382,6 +382,7 @@ fn hud_grid_editor_snapshot_with_real_carrier() {
         anchor: Anchor::TopRight,
         offset: [-8., 30.],
         rows: vec![ui::mod_hud::Row {
+            formatted: false,
             label: "Speed II".into(),
             value: "1:42".into(),
             item: None,

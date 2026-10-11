@@ -75,6 +75,13 @@ pub(crate) fn drive_chat_ui_actions(
     for position in presses {
         let hit = presentation.hit_test_chat(position);
         match hit {
+            Some(ChatHit::ExtensionAction(index)) => {
+                presentation.request_chat_extension_action(index);
+                runtime.close_chat();
+                if let Some(focus) = focus.as_deref_mut() {
+                    focus.authorize_screen_return();
+                }
+            }
             Some(ChatHit::Link(index)) => presentation.request_chat_link(index),
             Some(ChatHit::LinkOpen) => {
                 if let Some(url) = presentation.take_confirmed_chat_link() {

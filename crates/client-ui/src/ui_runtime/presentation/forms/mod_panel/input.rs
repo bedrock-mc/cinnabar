@@ -16,6 +16,7 @@ impl ModPanel {
     /// Releases captured movement and visual pointer states without closing the panel.
     fn cancel_pointer_input(&mut self) {
         self.drag = None;
+        self.vector_drag = None;
         self.scroll_drag = None;
         self.pointer = None;
         self.held = false;
@@ -52,8 +53,12 @@ impl ModPanel {
         ];
         if self.scroll_pointer(point, pressed, held) {
             self.drag = None;
+            self.vector_drag = None;
             self.view.pressed = None;
             return Vec::new();
+        }
+        if let Some(events) = self.vector_pointer(point, pressed, held) {
+            return events;
         }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();

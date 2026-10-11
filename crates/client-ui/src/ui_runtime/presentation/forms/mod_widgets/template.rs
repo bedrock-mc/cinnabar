@@ -6,7 +6,8 @@ const HEADER: f64 = 18.;
 
 /// Rebuilds only when card geometry, row font or icon topology changes.
 pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
-    a.cards.len() == b.cards.len()
+    super::world_labels::same_shape(&a.world_labels, &b.world_labels)
+        && a.cards.len() == b.cards.len()
         && a.cards.iter().zip(&b.cards).all(|(left, right)| {
             left.id == right.id
                 && left.scale == right.scale
@@ -32,10 +33,10 @@ pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
                 })
         })
 }
-fn named(name: &str, node: Value) -> Value {
+pub(super) fn named(name: &str, node: Value) -> Value {
     json!({name: node})
 }
-fn rounded(size: [f64; 2], offset: [f64; 2], radius: f64, color: [f32; 4]) -> Value {
+pub(super) fn rounded(size: [f64; 2], offset: [f64; 2], radius: f64, color: [f32; 4]) -> Value {
     json!({"type":"custom","renderer":"cinnabar_rounded_rectangle","size":size,"offset":offset,
         "anchor_from":"top_left","anchor_to":"top_left","radius":radius,"color":color})
 }
@@ -231,12 +232,18 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
 }
 pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
     let mut index = 0;
-    let controls: Vec<_> = hud
+    let mut controls: Vec<_> = hud
         .cards
         .iter()
         .enumerate()
         .map(|(n, c)| named(&c.id, card(c, n, &mut index)))
         .collect();
+    controls.extend(
+        hud.world_labels
+            .iter()
+            .enumerate()
+            .map(|(n, label)| super::world_labels::control(n, label)),
+    );
     let definition = json!({"namespace":"cinnabar_personal_hud","cards":{"type":"panel","size":["100%","100%"],"controls":controls}}).to_string();
     Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),

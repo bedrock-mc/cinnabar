@@ -260,11 +260,16 @@ fn drive_mod(
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
-    watcher: Option<Res<registration::Watcher>>,
-    render_scene: Option<ResMut<::render::ModRenderScene>>,
     mut outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
+    observation: (
+        Option<Res<registration::Watcher>>,
+        Option<ResMut<::render::ModRenderScene>>,
+        Query<(&GlobalTransform, &Projection), With<client_presentation::camera::FlyCamera>>,
+        Local<presentation_facts::FrameRate>,
+    ),
 ) {
+    let (watcher, render_scene, cameras, mut frame_rate) = observation;
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = crate::screen_policy::absorbs_input(
         &player_runtime,
@@ -335,6 +340,23 @@ fn drive_mod(
         &player_runtime,
         &ui,
     );
+    let world_observation = gameplay.world_observation(&ui);
+    let chat = if world_observation.is_some() {
+        presentation_facts::chat_snapshot(&ui)
+    } else {
+        Vec::new()
+    };
+    let fps = frame_rate.sample(std::time::Instant::now());
+    let sidebar = world_observation
+        .as_ref()
+        .and_then(|_| presentation.sidebar_snapshot(&ui))
+        .map(|(title, rows)| mod_host::SidebarSnapshot {
+            title,
+            rows: rows
+                .into_iter()
+                .map(|(label, score)| mod_host::SidebarRow { label, score })
+                .collect(),
+        });
     let mut callback_failed = false;
     let merged = multi::run_frame(
         &mut extension.hosts,
@@ -343,6 +365,10 @@ fn drive_mod(
             controls: &controls,
             previous_cues: &previous_cues,
             player_state: player_state.as_ref(),
+            world_observation: world_observation.as_ref(),
+            fps,
+            sidebar: sidebar.as_ref(),
+            chat: &chat,
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
@@ -400,6 +426,9 @@ fn drive_mod(
     if let Err(error) = presentation.set_mod_hud(hud) {
         eprintln!("Cinnabar extension HUD cards rejected: {error}");
     }
+    presentation.set_mod_world_projection(cameras.single().ok().map(|(transform, projection)| {
+        (projection.get_clip_from_view() * transform.to_matrix().inverse()).to_cols_array()
+    }));
     let crosshair_owner = extension.hosts.crosshair_owner();
     let crosshair = crosshair_owner.and_then(|owner| extension.hosts.host(owner).crosshair());
     if let Err(error) = presentation.set_mod_crosshair(crosshair) {
@@ -505,9 +534,9 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
-                1,
-            )))
+            .insert_resource(client_state::PlayerRuntime(
+                ::player_state::PlayerState::new(1),
+            ))
             .insert_resource(ButtonInput::<KeyCode>::default());
         let window = app
             .world_mut()
@@ -576,3 +605,6 @@ pub(crate) mod packet_delay;
 mod render;
 #[cfg(feature = "local-mods")]
 mod screens;
+
+#[cfg(feature = "local-mods")]
+mod presentation_facts;

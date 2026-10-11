@@ -13,6 +13,7 @@ mod biome;
 mod block_entity;
 pub mod block_geometry;
 mod compiler;
+mod lightning_rod;
 mod entity;
 mod fadpcm;
 mod font;

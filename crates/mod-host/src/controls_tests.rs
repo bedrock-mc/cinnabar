@@ -395,3 +395,22 @@ fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
     });
     assert!(validate_frame(&frame).is_err());
 }
+
+#[test]
+fn opening_panel_is_granted_transactional_and_requires_content() {
+    use cinnabar::extension::panel::Host as _;
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
+    assert!(state.set_open(true).unwrap().is_err());
+    state.grants.controls = true;
+    assert!(state.set_open(true).unwrap().is_err());
+    state.set_content(panel()).unwrap().unwrap();
+    assert!(state.set_open(true).unwrap().is_ok());
+    assert!(!state.controls.open);
+    state.controls.commit();
+    assert!(state.controls.open);
+    state.set_open(false).unwrap().unwrap();
+    assert!(state.controls.open);
+    state.controls.revoke();
+    state.controls.commit();
+    assert!(!state.controls.open);
+}
