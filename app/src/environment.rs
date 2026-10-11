@@ -10,7 +10,7 @@ pub(crate) use diagnostics::log_world_lighting;
 mod time_override;
 pub(crate) use time_override::VisualTimeOverride;
 mod fog;
-pub(crate) use fog::{FogPrecipitationSamples, fog_biome_samples};
+pub(crate) use fog::{FogBindings, FogPrecipitationSamples, fog_biome_samples};
 mod numeric;
 mod profile_lookup;
 mod renderer_clock;
@@ -32,9 +32,14 @@ pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
 #[derive(Resource, Debug, Clone, Default, PartialEq)]
 pub(crate) struct EnvironmentContext {
     pub(crate) dimension: i32,
-    pub(crate) camera_biome_identifier: Option<Box<str>>,
+    pub(crate) camera_biome_identifier: Option<std::sync::Arc<str>>,
     pub(crate) camera_biome_temperature: Option<f32>,
-    pub(crate) fog_biomes: Vec<Option<Box<str>>>,
+    pub(crate) fog_biomes:
+        Option<[Option<fog::FogProfileIndex>; render::PRECIPITATION_SAMPLE_OFFSETS.len()]>,
+    pub(crate) camera_fog: Option<fog::FogProfileIndex>,
+    pub(crate) camera_profile: Option<fog::BiomeProfileIndex>,
+    pub(crate) profile_route: Option<std::sync::Arc<EnvironmentProfileRoute>>,
+    pub(crate) default_fog: Option<fog::FogProfileIndex>,
     /// Known precipitation-admitting cells in the native weather/fog lattice.
     pub(crate) precipitation_sample_count: Option<usize>,
     pub(crate) render_distance_blocks: Option<f32>,
@@ -44,10 +49,10 @@ pub(crate) struct EnvironmentContext {
 /// current provisional scalar shader until native RGB calibration is available.
 #[derive(Resource, Debug, Clone, Default, Eq, PartialEq)]
 pub(crate) struct EnvironmentProfileRoute {
-    pub(crate) biome_identifier: Option<Box<str>>,
-    pub(crate) fog_identifier: Option<Box<str>>,
-    pub(crate) atmosphere_identifier: Option<Box<str>>,
-    pub(crate) provisional_lighting_identifier: Option<Box<str>>,
+    pub(crate) biome_identifier: Option<std::sync::Arc<str>>,
+    pub(crate) fog_identifier: Option<std::sync::Arc<str>>,
+    pub(crate) atmosphere_identifier: Option<std::sync::Arc<str>>,
+    pub(crate) provisional_lighting_identifier: Option<std::sync::Arc<str>>,
 }
 
 /// Server-authored world-clock snapshot for the active StartGame session.

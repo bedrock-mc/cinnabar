@@ -1,3 +1,5 @@
+mod bindings;
+pub(crate) use bindings::{BiomeProfileIndex, FogBindings, FogProfileIndex};
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{BiomeRule, RuntimeAssets};
@@ -15,23 +17,11 @@ fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSE
 /// Samples the current client's 27-position biome layer.
 pub(crate) fn fog_biome_samples(
     stream: &WorldStream,
-    assets: &RuntimeAssets,
     position: [f32; 3],
-) -> Vec<Option<Box<str>>> {
-    let rules = &assets.biome_assets().rules;
+    bindings: &FogBindings,
+) -> [Option<FogProfileIndex>; PRECIPITATION_SAMPLE_OFFSETS.len()] {
     sample_positions(position)
-        .into_iter()
-        .map(|position| {
-            stream
-                .camera_biome_id(position)
-                .and_then(|id| rules.binary_search_by_key(&id, |rule| rule.id).ok())
-                .map(|index| rules[index].name.clone())
-                .or_else(|| {
-                    super::profile_lookup::dimension_fallback_biome(stream.current_dimension())
-                        .map(Into::into)
-                })
-        })
-        .collect()
+        .map(|position| bindings.fog(stream.camera_biome_id(position), stream.current_dimension()))
 }
 
 /// Biome precipitation starts enabled, and climate application

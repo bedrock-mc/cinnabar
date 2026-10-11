@@ -505,7 +505,11 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
     set_time(&mut clock, &mut weather, 18_000, 10.0);
     let context = EnvironmentContext {
         dimension: 2,
-        fog_biomes: Vec::new(),
+        fog_biomes: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
         precipitation_sample_count: None,
         camera_biome_identifier: None,
         camera_biome_temperature: None,
@@ -547,7 +551,11 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
 fn known_camera_biome_takes_precedence_over_dimension_fallback() {
     let context = EnvironmentContext {
         dimension: 1,
-        fog_biomes: Vec::new(),
+        fog_biomes: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
         precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
@@ -571,7 +579,11 @@ fn known_camera_biome_takes_precedence_over_dimension_fallback() {
 fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
     let context = EnvironmentContext {
         dimension: 0,
-        fog_biomes: Vec::new(),
+        fog_biomes: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
         precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
@@ -595,7 +607,11 @@ fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
 fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
     let context = EnvironmentContext {
         dimension: 0,
-        fog_biomes: Vec::new(),
+        fog_biomes: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
         precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
@@ -637,7 +653,11 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
     );
     let context = EnvironmentContext {
         dimension: 0,
-        fog_biomes: Vec::new(),
+        fog_biomes: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
         precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
@@ -658,7 +678,7 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
     assert_eq!(frame.fog_end(), 179.2);
 }
 
-fn profiles() -> Vec<BiomeVisualProfile> {
+pub(super) fn profiles() -> Vec<BiomeVisualProfile> {
     vec![
         BiomeVisualProfile {
             biome_identifier: "minecraft:hell".into(),
@@ -684,7 +704,7 @@ fn profiles() -> Vec<BiomeVisualProfile> {
     ]
 }
 
-fn fog_profiles() -> Vec<FogProfile> {
+pub(super) fn fog_profiles() -> Vec<FogProfile> {
     let mut profiles = vec![
         FogProfile {
             identifier: "minecraft:fog_default".into(),

@@ -218,6 +218,7 @@ pub(crate) fn update_camera_medium(
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
     mut precipitation: Local<environment::FogPrecipitationSamples>,
+    fog_bindings: Res<environment::FogBindings>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;
@@ -225,6 +226,8 @@ pub(crate) fn update_camera_medium(
         return;
     };
     let position = camera.translation.to_array();
+    let (camera_profile, profile_route, camera_fog) =
+        fog_bindings.camera(stream.camera_biome_id(position), stream.current_dimension());
     medium.0 = stream.camera_medium(position);
     let camera_biome = stream
         .camera_biome_id(camera.translation.to_array())
@@ -237,13 +240,24 @@ pub(crate) fn update_camera_medium(
         });
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
-        fog_biomes: environment::fog_biome_samples(stream, &client_world.runtime_assets, position),
+        fog_biomes: Some(environment::fog_biome_samples(
+            stream,
+            position,
+            &fog_bindings,
+        )),
+        camera_fog,
+        camera_profile,
+        camera_biome_identifier: profile_route
+            .as_ref()
+            .and_then(|route| route.biome_identifier.clone())
+            .or_else(|| camera_biome.map(|rule| Arc::from(rule.name.as_ref()))),
+        profile_route,
+        default_fog: fog_bindings.default_fog,
         precipitation_sample_count: precipitation.count(
             stream,
             &client_world.runtime_assets,
             position,
         ),
-        camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
         camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),
     };
