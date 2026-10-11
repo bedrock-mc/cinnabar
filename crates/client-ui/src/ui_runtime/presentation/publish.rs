@@ -309,7 +309,7 @@ pub fn capture_hud_frame(
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
                 runtime.inventory_ledger(player_runtime),
-                runtime.screen_state(),
+                runtime,
             );
             let first = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS;
             for (cell, item) in entries
@@ -650,10 +650,8 @@ pub fn hovered_stack(
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
                     + usize::from(index);
-                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                    ledger,
-                    runtime.screen_state(),
-                );
+                let entries =
+                    crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
                 (entries.get(position).map(|item| &item.stack), None)
             }
             Hit::Widget(super::screens::Widget::BookRecipe(index)) => {

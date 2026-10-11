@@ -142,6 +142,10 @@ impl ActorAnimationStore {
             }
             if !refresh_view {
                 advance_motion(state, actor, &context, reset_motion_history);
+            } else if let Some(ticks) = super::tick::local_use_counter(actor, &context)
+                && let Some(input) = state.history.back_mut()
+            {
+                input.item_use_ticks = ticks;
             }
             let view_changed = state
                 .view_context

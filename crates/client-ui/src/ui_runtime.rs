@@ -206,6 +206,8 @@ pub struct UiRuntime {
     session_icons: Option<Arc<presentation::SessionIcons>>,
     session_items: Option<Arc<item_facts::SessionItemComponents>>,
     stack_facts: protocol::ItemStackFactsCache,
+    /// Invalidates names when components or any translation table changes.
+    item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
     session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
     /// Authoritative display names of real player/entity score owners,
@@ -296,6 +298,7 @@ impl UiRuntime {
             session_icons: None,
             session_items: None,
             stack_facts: Default::default(),
+            item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
         }
@@ -611,6 +614,7 @@ impl UiRuntime {
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;
+        self.item_name_generation = self.item_name_generation.wrapping_add(1);
         self.server_ui = None;
         self.session_glyphs = None;
         self.last_fifo_sequence = None;

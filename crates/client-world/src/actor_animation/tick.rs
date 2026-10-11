@@ -34,6 +34,10 @@ pub(crate) struct ActorTickContext {
     pub(crate) hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
     pub(crate) main_hand_max_use_ticks: u32,
+    /// Selected-stack gameplay clock for the local rig; remote actors retain their own ticks.
+    pub(crate) local_item_use_ticks: Option<u32>,
+    /// Maximum duration of the owner's offhand stack for explicitly selected-slot queries.
+    pub(crate) off_hand_max_use_ticks: u32,
     /// Selected kinetic weapon component timings used by its authored pose.
     pub(crate) main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
@@ -143,7 +147,9 @@ pub(super) fn advance_motion(
     } else {
         1.0
     };
-    let item_use_ticks = if query::actor_flag(actor, query::FLAG_USING_ITEM) {
+    let item_use_ticks = if let Some(ticks) = local_use_counter(actor, context) {
+        ticks
+    } else if query::actor_flag(actor, query::FLAG_USING_ITEM) {
         state
             .history
             .back()
@@ -241,6 +247,17 @@ pub(super) fn advance_motion(
         attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+/// Converts the local elapsed clock to the existing one-based hand and spear counter.
+pub(super) fn local_use_counter(actor: &ActorSnapshot, context: &ActorTickContext) -> Option<u32> {
+    context.local_item_use_ticks.map(|elapsed| {
+        if actor.is_using_item() {
+            elapsed.saturating_add(1)
+        } else {
+            0
+        }
+    })
 }
 
 /// Identifier changes request the native lowering transition. Item-specific stack
