@@ -154,6 +154,9 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         ("#hud_visible_centered", true),
         ("#hud_visible_centered_gui_elements", true),
         ("#show_survival_ui", model.survival_ui),
+        // Older pack HUDs gate both their status rows and hotbar on these names.
+        ("#is_not_creative_mode", model.survival_ui),
+        ("#is_creative_mode", !model.survival_ui && !model.spectator),
         (
             "#is_armor_visible",
             model.armor_visible && model.survival_ui,

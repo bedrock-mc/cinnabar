@@ -21,3 +21,6 @@ tempfile = "3"
 [[bench]]
 name = "chunk_costs"
 harness = false
+
+[lints]
+workspace = true

@@ -19,16 +19,17 @@ use ui::{
 };
 
 use super::super::super::menu_scroll::ScrollArea;
-use super::super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect,
-};
 use super::super::menu_caret::TextSpot;
 use super::theme::{
     Appearance, BODY, Bundle, EDGE, LETTER_SPACING, Rgba, Role, TEXT_DIMMEST, TEXT_SHADOW, Type,
 };
-use crate::menu::{
+use launcher::menu::{
     MenuAction,
     view::{SettingsFocusLandmark, SettingsFocusTarget},
+};
+use {
+    super::super::super::{TextMetrics, UiPresentationError, rect},
+    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
 };
 
 /// `style`'s text scale over the frame metrics: the open font's default line is the
@@ -157,7 +158,7 @@ impl<'a> Canvas<'a> {
 
     pub(super) fn interaction(
         &mut self,
-        view: &crate::menu::MenuView,
+        view: &launcher::menu::MenuView,
         action: Option<MenuAction>,
     ) -> super::widgets::Interaction {
         let mut state = super::widgets::Interaction::of(view, action);
@@ -169,7 +170,7 @@ impl<'a> Canvas<'a> {
 
     pub(super) fn switch_interaction(
         &mut self,
-        view: &crate::menu::MenuView,
+        view: &launcher::menu::MenuView,
         action: Option<MenuAction>,
     ) -> super::widgets::Interaction {
         let Some(action) = action else {
@@ -490,6 +491,8 @@ impl<'a> Canvas<'a> {
         );
         let mut request = self.metrics.request(value, width_64, font);
         if let Some(source) = font.line_metrics() {
+            request.wrap.snap_glyphs_to_device_pixels =
+                font.rendering() == assets::FontRendering::Coverage && !font.linear_sampling();
             request.scale = UiScale::new_display(self.r(style.size) * 64.0 / source.em_64 as f32)
                 .map_err(UiPresentationError::Geometry)?;
             let line = source.em_64 as f32 * style.line / style.size;

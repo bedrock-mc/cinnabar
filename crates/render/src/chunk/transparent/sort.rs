@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
 
 /// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
 pub const MAX_TRANSPARENT_DRAW_REFS: usize = 2_097_152;
@@ -32,7 +33,8 @@ pub(in crate::chunk) fn transparent_draw_args(
     transparent_draw_range_args(buffer_slot, slot_refs, 0..u32::try_from(ref_count).ok()?)
 }
 
-/// `slot_refs` is the arena's current per-slot capacity, the stride between the two slots.
+/// `slot_refs` is the arena's current per-slot capacity, the stride between the two slots. The
+/// first instance carries [`TRANSPARENT_WATER_DRAW_FLAG`], which the transparent pipeline reads.
 pub(in crate::chunk) fn transparent_draw_range_args(
     buffer_slot: u8,
     slot_refs: usize,
@@ -48,12 +50,15 @@ pub(in crate::chunk) fn transparent_draw_range_args(
     let first_instance = u32::from(buffer_slot)
         .checked_mul(u32::try_from(slot_refs).ok()?)?
         .checked_add(ref_range.start)?;
+    if first_instance & TRANSPARENT_WATER_DRAW_FLAG != 0 {
+        return None;
+    }
     Some(TransparentDrawArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
         instance_count,
         first_index: 0,
         base_vertex: 0,
-        first_instance,
+        first_instance: first_instance | TRANSPARENT_WATER_DRAW_FLAG,
     })
 }
 
@@ -156,8 +161,8 @@ pub(in crate::chunk) struct TransparentLiquidPhaseGroup {
 pub(in crate::chunk) fn transparent_liquid_phase_groups(
     snapshot: &TransparentOrderedSnapshot,
 ) -> Option<Vec<TransparentLiquidPhaseGroup>> {
-    let mut identities = HashMap::with_capacity(snapshot.key.visible_allocations.len());
-    for identity in snapshot.key.visible_allocations.iter() {
+    let mut identities = HashMap::with_capacity(snapshot.key.sorted_allocations.len());
+    for identity in snapshot.key.sorted_allocations.iter() {
         if !identity.liquid_range.start.is_multiple_of(4)
             || !identity.liquid_range.end.is_multiple_of(4)
             || identities
@@ -241,27 +246,34 @@ impl PackedTransparentDrawRef {
     }
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
+const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
 mod groups;
+mod layout;
+mod manifest;
 mod prepare;
 mod state;
 
 pub(in crate::chunk) use groups::{
-    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, build_transparent_group,
-    distinct_tint_count, sort_transparent_groups, spawn_transparent_sort,
+    TransparentGroupInput, TransparentGroups, build_transparent_group, distinct_tint_count,
+    sort_group, spawn_transparent_sort,
 };
+pub(in crate::chunk) use layout::{
+    TransparentLayoutBase, TransparentRefPatch, TransparentSnapshotLayout, TransparentSortOutput,
+    plan_transparent_slot,
+};
+pub(in crate::chunk) use manifest::view_displaces_water;
 pub(in crate::chunk) use prepare::{
     prepare_transparent_sorts, transparent_snapshot_addresses_are_resident,
-};
-pub(in crate::chunk) use state::{
-    TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRuntime,
-    TransparentSortWork, TransparentStagedSnapshot, TransparentWorkerResult, changed_ref_spans,
 };
 pub use state::{
     TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
     TransparentSortJobGate, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
     ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
+};
+pub(in crate::chunk) use state::{
+    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    TransparentWorkerResult, changed_ref_spans,
 };
 
 #[cfg(test)]
@@ -332,7 +344,7 @@ mod growth_tests {
         let args = transparent_draw_args(1, arena.transparent_slot_refs, 3).unwrap();
         assert_eq!(
             args.first_instance,
-            INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2
+            (INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2) | TRANSPARENT_WATER_DRAW_FLAG
         );
 
         ensure_transparent_ref_capacity(&mut arena, &device, &queue, usize::MAX, &state);

@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    render_api::{PublicationAllowance, PublicationServiceConfig},
+};
 #[test]
 fn removing_waiter_target_has_face_bounded_work_and_exact_graph_effect() {
     for target in [
@@ -278,7 +281,7 @@ fn urgent_known_air_removal_uses_reserved_permit_after_ordinary_saturation() {
 #[ignore = "release-only Phase 2 full-view lighting completion gate"]
 fn release_full_view_known_air_lighting_completes_within_two_seconds() {
     let mut stream = lit_stream(0);
-    let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
+    let radius = super::super::MAX_VIEW_RADIUS_CHUNKS;
     let keys = (-radius..=radius)
         .flat_map(|x| {
             (-radius..=radius)

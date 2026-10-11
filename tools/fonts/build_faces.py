@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Derive Cinnangles Ten and Seven from Cinnangles Sans on its pixel grid.
+"""Build Cinnangles faces from original pixel drawings and the pinned Sans fallback.
 
-Sans is rectilinear on a 64-unit texel grid, and its Latin set uses 2-texel design pixels.
-Caps faces embolden Sans bitmaps and draw lowercase with capitals. Seven only changes
-the em and line metrics. The 1280 em makes cap height 0.7 em. Reference faces supply only vertical metrics and target stroke weight.
-Needs Python 3.14 (Unicode 16.0.0), numpy, scipy and fontTools. Regenerate the shipped faces with:
+The 64-unit grid and 1280-unit em give exactly one texel at the 20-pixel raster em.
+ASCII advances are declared separately from the artwork. References supply scalar
+metrics only; no reference font is loaded by this generator.
+Needs Python 3.14 (Unicode 16.0.0), numpy, scipy and fontTools. Regenerate with:
 python3 tools/fonts/build_faces.py --sans assets/fonts/CinnanglesSans.ttf \
-    --out assets/fonts --manifests assets ten seven
-The source manifests pin the Sans SHA-256.
+    --out assets/fonts --manifests assets ten seven five five-bold
 """
 import argparse
 import hashlib
@@ -20,6 +19,9 @@ from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from scipy.ndimage import label
+
+import face_art
+from face_metrics import advance_units
 
 T = 64  # texel, in Sans font units
 DESIGN = 2  # texels per Latin design pixel
@@ -39,10 +41,19 @@ FACES = {
         condense=True,
         hhea=(990, -250), typo=(750, -250), win=(990, 250), reference="Minecraft Ten v2",
     ),
-
+    "five": dict(
+        family="Cinnangles Five", style="Regular", file="CinnanglesFive.ttf", ps="CinnanglesFive-Regular",
+        weight=400, bold=False, latin_bold=False, latin_v=False, texel_h=False, texel_v=False, space=None,
+        hhea=(1120, -280), typo=(750, -250), win=(1120, 280), reference="Minecraft Five v2",
+    ),
+    "five-bold": dict(
+        family="Cinnangles Five", style="Bold", file="CinnanglesFive-Bold.ttf", ps="CinnanglesFive-Bold",
+        weight=700, bold=True, latin_bold=True, latin_v=False, texel_h=True, texel_v=False, space=None,
+        hhea=(1138, -306), typo=(750, -250), win=(1138, 306), reference="Minecraft Five v2 Bold",
+    ),
 }
 
-# Sans outlines unchanged; only the em and line metrics move to Minecraft Seven v2's.
+# Seven keeps the Sans fallback and uses original body-text drawings for ASCII.
 SEVEN = dict(family="Cinnangles Seven", style="Regular", file="CinnanglesSeven.ttf",
              ps="CinnanglesSeven-Regular", hhea=(800, -100), typo=(800, -100), win=(800, 100),
              reference="Minecraft Seven v2")
@@ -466,12 +477,116 @@ def outline(bitmap):
     return loops
 
 
+def pixel_rows(text):
+    """Decode a rectangular authored grid, rejecting invalid cells and empty rows."""
+    rows = text.split("/")
+    if not rows[0] or any(len(row) != len(rows[0]) or set(row) - {".", "#"} for row in rows):
+        raise ValueError("artwork must be a rectangular grid of dots and hashes")
+    return np.array([[cell == "#" for cell in row] for row in rows])
+
+
+def fit_drawing(a, width, height):
+    """Fit our own drawing to whole texels, keeping both boundary cells."""
+    ys = np.minimum(((np.arange(height) * 2 + 1) * a.shape[0] // (height * 2)), a.shape[0] - 1)
+    xs = np.minimum(((np.arange(width) * 2 + 1) * a.shape[1] // (width * 2)), a.shape[1] - 1)
+    return a[np.ix_(ys, xs)]
+
+
+def placed(a, top=CAP // T, left=0):
+    """Place ink in the raster window with space for accent composition."""
+    start = BASE_ROW - top
+    if start < 0 or start + a.shape[0] > ROWS:
+        raise ValueError("authored ink falls outside the raster window")
+    out = np.zeros((ROWS, left + a.shape[1] + 4), bool)
+    out[start:start + a.shape[0], left:left + a.shape[1]] = a
+    return out
+
+
+def fixed_bold(a, max_run):
+    """Grow short strokes inward while keeping the ink box and counters open."""
+    return thicken_bars(thicken_bars(a, max_run).T, max_run).T
+
+
+def face_drawings(face):
+    """Return authored ASCII bitmaps on the common raster grid."""
+    if face == "seven":
+        return {ch: placed(np.repeat(np.repeat(pixel_rows(text), DESIGN, 0), DESIGN, 1),
+                           CAP // T - top * DESIGN)
+                for ch, (top, text) in face_art.SEVEN.items()}
+    ten = face == "ten"
+    artwork = face_art.TEN if ten else face_art.FIVE
+    out = {}
+    for ch, text in artwork.items():
+        a = pixel_rows(text)
+        if not ten:
+            width = (9 if face == "five-bold" else 8) if ch in "I1" else 14
+            a = fit_drawing(a, width, CAP // T)
+            if face == "five-bold":
+                a = fixed_bold(a, 3)
+        out[ch] = placed(a, left=0 if ten else 1)
+    boxes = (face_art.TEN_SYMBOL_BOXES if ten else face_art.FIVE_BOLD_SYMBOL_BOXES
+             if face == "five-bold" else face_art.FIVE_SYMBOL_BOXES)
+    for ch, (width, top, bottom) in boxes.items():
+        a = fit_drawing(pixel_rows(face_art.PUNCTUATION[ch]), width, top - bottom)
+        if ten or face == "five-bold":
+            a = fixed_bold(a, 2 if ten else 3)
+        out[ch] = placed(a, top, 0 if ten else 1)
+    return out
+
+
+def apply_drawings(face, done, cmap, latin):
+    """Install original drawings and give related capitals the same proportions."""
+    for ch, bitmap in face_drawings(face).items():
+        g = cmap[ord(ch)]
+        done[g] = bitmap, advance_units(face, ch, UPEM)
+        latin.add(g)
+    for cp, rows in DRAWN.items():
+        g = cmap.get(cp)
+        if g not in done:
+            continue
+        wide = chr(cp) in "ЖШЩЮЉЊΨ"
+        width = (14 if wide else 10) if face == "ten" else (20 if wide else 14)
+        a = fit_drawing(pixel_rows("/".join(rows)), width, len(rows) * DESIGN)
+        if face == "ten":
+            a = fixed_bold(fixed_bold(a, 2), 3)
+        elif face == "five-bold":
+            a = fixed_bold(a, 3)
+        spacing = 105 if face == "ten" else 140
+        done[g] = placed(a, left=0 if face == "ten" else 1), round(width * T + spacing * UPEM / 1000)
+    for cp, ch in HOMOGLYPHS.items():
+        if cmap.get(cp) in done:
+            a, advance = done[cmap[ord(ch)]]
+            done[cmap[cp]] = a.copy(), advance
+    for cp, (ch, shift, pixels) in OVERLAYS.items():
+        if cmap.get(cp) not in done:
+            continue
+        a, advance = done[cmap[ord(ch)]]
+        a = np.pad(a, ((0, 0), (shift * DESIGN, 0)))
+        for r, c in pixels:
+            y, x = CAP_ROW + r * DESIGN, c * DESIGN
+            a[y:y + DESIGN, x:x + DESIGN] = True
+        done[cmap[cp]] = a, advance + shift * DESIGN * T
+
+
+def glyph_from_bitmap(bitmap):
+    """Build one TrueType glyph without changing any authored texel edges."""
+    pen = TTGlyphPen(None)
+    for loop in outline(bitmap):
+        pen.moveTo(loop[0])
+        for point in loop[1:]:
+            pen.lineTo(point)
+        pen.closePath()
+    glyph = pen.glyph()
+    glyph.recalcBounds(None)
+    return glyph
+
+
 def build(face, sans_path, out_dir):
     """Write a caps face derived from the pinned Sans pixel grid."""
     cfg = dict(FACES[face])
     if cfg["texel_v"]:
         cfg["texel_v"] = "cased"
-    f = TTFont(sans_path)
+    f = TTFont(sans_path, recalcTimestamp=False)
     gs = f.getGlyphSet()
     glyf, hmtx = f["glyf"], f["hmtx"]
     cmap = f.getBestCmap()
@@ -535,6 +650,7 @@ def build(face, sans_path, out_dir):
             tcfg = dict(cfg, texel_v=False)
         bitmap, added = transform(src[g], kind, tcfg)
         done[g] = bitmap, advance[g] + added * T
+    apply_drawings(face, done, cmap, latin)
     composed = 0
     for g in list(src):
         for cp in rev.get(g, ()):
@@ -548,22 +664,19 @@ def build(face, sans_path, out_dir):
     for g in order:
         if g not in used:
             continue
-        adv = hmtx[g][0]
+        declared = next((value for cp in rev.get(g, ())
+                         if (value := advance_units(face, chr(cp), UPEM)) is not None), None)
+        adv = hmtx[g][0] if declared is None else declared
         if g not in done:
-            if g == cmap.get(0x20) and cfg["space"]:
+            if declared is None and g == cmap.get(0x20) and cfg["space"]:
                 adv = cfg["space"]
             glyphs[g] = TTGlyphPen(None).glyph()
             metrics[g] = (adv, 0)
             continue
         bitmap, adv = done[g]
-        pen = TTGlyphPen(None)
-        for loop in outline(bitmap):
-            pen.moveTo(loop[0])
-            for p in loop[1:]:
-                pen.lineTo(p)
-            pen.closePath()
-        glyph = pen.glyph()
-        glyph.recalcBounds(None)
+        if declared is not None:
+            adv = declared
+        glyph = glyph_from_bitmap(bitmap)
         glyphs[g] = glyph
         metrics[g] = (adv, getattr(glyph, "xMin", 0))
 
@@ -601,12 +714,12 @@ def build(face, sans_path, out_dir):
     out = Path(out_dir) / cfg["file"]
     f.save(out)
     # Windows clips ink outside the win metrics, so they must cover the bounding box.
-    f = TTFont(out)
+    f = TTFont(out, recalcTimestamp=False)
     os2 = f["OS/2"]
     os2.usWinAscent = max(os2.usWinAscent, f["head"].yMax)
     os2.usWinDescent = max(os2.usWinDescent, -f["head"].yMin)
     f.save(out)
-    assert TTFont(out).getBestCmap().keys() == new_cmap.keys()
+    assert TTFont(out, recalcTimestamp=False).getBestCmap().keys() == new_cmap.keys()
     return out, len(new_cmap), len(new_order), composed
 
 
@@ -623,8 +736,19 @@ def set_names(f, cfg):
 
 
 def build_seven(sans_path, out_dir):
-    """Sans with a 1280 em: cap height, x-height, line height and Latin advances match Seven."""
-    f = TTFont(sans_path)
+    """Build the body face with authored lowercase and the complete Sans fallback."""
+    f = TTFont(sans_path, recalcTimestamp=False)
+    cmap = f.getBestCmap()
+    for ch, bitmap in face_drawings("seven").items():
+        g = cmap[ord(ch)]
+        f["glyf"][g] = glyph_from_bitmap(bitmap)
+    for cp, g in cmap.items():
+        advance = advance_units("seven", chr(cp), UPEM)
+        if advance is not None:
+            f["hmtx"][g] = (advance, getattr(f["glyf"][g], "xMin", 0))
+    f["OS/2"].sxHeight = 5 * DESIGN * T
+    f["OS/2"].sCapHeight = CAP
+    f["OS/2"].recalcAvgCharWidth(f)
     scale = UPEM / 1000
     f["head"].unitsPerEm = UPEM
     hhea, os2 = f["hhea"], f["OS/2"]
@@ -655,13 +779,29 @@ def write_manifest(face, font_path, sans_path, out_path):
             "font_file": Path(sans_path).name,
             "font_sha256": hashlib.sha256(Path(sans_path).read_bytes()).hexdigest(),
         },
+        "drawing_source": "tools/fonts/face_art.py",
+        "advance_source": "tools/fonts/face_metrics.py",
         "metrics_reference": {
             "family": cfg["reference"],
-            "use": ("em size and vertical metrics only; outlines unchanged from Sans" if face == "seven"
-                    else "vertical metrics, cap height and stroke weight only; no outlines"),
+            "use": "advance and ink widths, vertical metrics and stroke weight; no reference outlines or bitmaps",
         },
     }
     Path(out_path).write_text(json.dumps(doc, indent=2) + "\n")
+
+
+def preserve_reviewed_metadata(font_path, reviewed):
+    """Keep reviewed names and timestamps without changing any generated glyph or metric table."""
+    generated = TTFont(font_path, recalcTimestamp=False)
+    generated["name"] = reviewed["name"]
+    for field in ("created", "modified"):
+        setattr(generated["head"], field, getattr(reviewed["head"], field))
+    generated.save(font_path)
+    checked = TTFont(font_path, recalcTimestamp=False)
+    tags = (set(checked.keys()) | set(reviewed.keys())) - {"GlyphOrder"}
+    differences = [tag for tag in sorted(tags) if tag not in checked or tag not in reviewed
+                   or checked.getTableData(tag) != reviewed.getTableData(tag)]
+    if differences:
+        raise ValueError(f"regenerated tables differ from reviewed face: {differences}")
 
 
 def main():
@@ -670,11 +810,14 @@ def main():
     ap.add_argument("--sans", required=True)
     ap.add_argument("--out", required=True, help="directory for the .ttf files")
     ap.add_argument("--manifests", help="directory for source manifests")
+    ap.add_argument("--reviewed", help="preserve and verify metadata from existing reviewed faces")
     ap.add_argument("faces", nargs="*", default=[*FACES, "seven"])
     args = ap.parse_args()
     if unicodedata.unidata_version != "16.0.0":
         ap.error("regeneration requires Unicode 16.0.0 (Python 3.14) for the pinned caps mappings")
     for face in args.faces:
+        cfg = SEVEN if face == "seven" else FACES[face]
+        reviewed = TTFont(Path(args.reviewed) / cfg["file"], recalcTimestamp=False) if args.reviewed else None
         if face == "seven":
             path = build_seven(args.sans, args.out)
             print(f"seven: {path} bytes={path.stat().st_size}")
@@ -682,6 +825,9 @@ def main():
             path, cps, glyphs, composed = build(face, args.sans, args.out)
             print(f"{face}: {path} codepoints={cps} glyphs={glyphs} composed={composed} "
                   f"bytes={path.stat().st_size}")
+        if reviewed is not None:
+            preserve_reviewed_metadata(path, reviewed)
+            print(f"{face}: every table matches the reviewed face")
         if args.manifests:
             stem = (SEVEN if face == "seven" else FACES[face])["file"].removesuffix(".ttf").removeprefix("Cinnangles").lower()
             write_manifest(face, path, args.sans, Path(args.manifests) / f"cinnangles-{stem}-source.json")

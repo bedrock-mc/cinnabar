@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionBox, CollisionConfidence, ContributorRole,
+        DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ROTATE_UV, ModelFamily, ModelStateField, NetworkIdMode,
+        RegistryRecord, RuntimeAssets, VisualKind, encode_blob, read_registry,
+    },
+    std::{collections::HashSet, fs, path::Path, process::Command},
+    tempfile::TempDir,
+};
 
 /// The full block collision box shared by the reviewed solid cube families.
 const FULL_CUBE_COLLISION: [CollisionBox; 1] = [CollisionBox {
@@ -791,11 +800,10 @@ fn compiler_emits_exact_selector_alias_cube_faces_aliases_and_uv_rotations() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_selector_alias_cube_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
-        .map(PathBuf::from)
-        .expect("set PINNED_VANILLA_PACK");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let records = remapped_selector_alias_cube_records();
     let first = compile_pack(&pack, &records).expect("compile pinned selector aliases");
     assert!(records.iter().all(|record| {

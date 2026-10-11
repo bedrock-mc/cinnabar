@@ -14,26 +14,27 @@ use protocol::{ItemUseTrigger, PlayerGameMode, PlayerInputMode};
 use semantic_input::Action;
 use sim::PaletteWorld;
 
-use crate::{
-    interaction_authority::FrozenBlockObservation,
-    local_player::{InteractionOriginSnapshot, LocalViewPose},
-    melee::{MeleeRuntime, SwingTracker, obstructs_placement},
-    menu::MenuRuntime,
-    mining::{
-        FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
-        verified_selection,
-    },
-    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        melee::{MeleeRuntime, SwingTracker},
+        menu::MenuRuntime,
+        mining::verified_selection,
+        movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+        runtime::{network::NetworkHandle, world::ClientWorld},
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},
+    gameplay::{
+        interaction_authority::FrozenBlockObservation,
+        melee::obstructs_placement,
+        mining::{FrozenMiningSelection, protocol_input_mode},
+    },
+};
 
 mod actor_use;
 
-pub(crate) use gameplay::block_use::{
-    LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets,
-};
+use gameplay::block_use::{LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets};
 
 mod prediction_frames;
 
@@ -116,7 +117,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
-    audio_cues: bevy::prelude::MessageWriter<'w, crate::audio::LocalBlockCue>,
+    audio_cues: bevy::prelude::MessageWriter<'w, client_presentation::audio::LocalBlockCue>,
 }
 
 pub(crate) fn produce_block_use(
@@ -239,6 +240,7 @@ pub(crate) fn produce_block_use(
             movement.interaction_authority_identity().1,
             &runtime,
             pick,
+            trigger,
             &state,
         ),
         context.client_world.stream.as_ref(),
@@ -391,7 +393,7 @@ pub(crate) fn produce_block_use(
         let position = destination;
         context
             .audio_cues
-            .write(crate::audio::LocalBlockCue::Place {
+            .write(client_presentation::audio::LocalBlockCue::Place {
                 position,
                 block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
                     observed.selection.item.block_runtime_id().to_ne_bytes(),

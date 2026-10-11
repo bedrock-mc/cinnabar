@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use bevy::prelude::{
     Local, Message, MessageReader, NonSendMut, Query, Res, ResMut, Time, Transform, With,
 };
-use render::{ParticleSimulation, PrecipitationMix};
+use render::ParticleSimulation;
 use sim::PaletteWorld;
 
 use super::{
@@ -30,7 +30,6 @@ const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
-pub use client_ui::sound_requests::{ui_control_sound, ui_sound};
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
 /// using the named interface sound queue.
@@ -538,7 +537,6 @@ pub fn drive_weather_and_particles(
     time: Res<Time>,
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
-    mix: Option<Res<PrecipitationMix>>,
     particles: Option<ResMut<ParticleSimulation>>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
@@ -548,7 +546,6 @@ pub fn drive_weather_and_particles(
     let mut particles = particles;
     let mut inbox = inbox;
     let Some(stream) = world.stream.as_ref() else {
-        engine.set_loop("rain", None);
         seen_bolts.clear();
         pending_bolts.clear();
         return;
@@ -556,15 +553,6 @@ pub fn drive_weather_and_particles(
     if !engine.has_bank() {
         return;
     }
-    let rain = mix.as_deref().map_or(0.0, |mix| mix.rain.clamp(0.0, 1.0));
-    engine.set_loop(
-        "rain",
-        (rain > 0.01).then(|| LoopSpec {
-            name: "ambient.weather.rain".into(),
-            volume: rain,
-        }),
-    );
-
     let bolts = stream.authority().lightning_bolts();
     seen_bolts.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
     for bolt in &bolts {
@@ -649,15 +637,18 @@ pub fn pump_audio(
     settings: Res<AudioSettings>,
     mut engine: ResMut<AudioEngine>,
     mut device: Option<NonSendMut<AudioDevice>>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     engine.poll_server();
     let listener = super::listener::camera_listener(
         &view,
         camera.single().ok(),
         server_camera
             .as_deref()
-            .and_then(|camera| camera.active_listener())
-            == Some(1),
+            .and_then(|camera| camera.active_listener()),
     );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {
@@ -696,6 +687,30 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    /// Audio is timed inside its own systems; a span opened around the chain also counted every
+    /// system the single-threaded executor ran between its first and last system.
+    #[test]
+    fn pump_attributes_its_own_work_to_the_audio_stage() {
+        use bevy::prelude::{App, Update};
+        let profiler = render::RuntimeStageProfiler::new(true);
+        let mut app = App::new();
+        app.insert_resource(profiler.clone())
+            .init_resource::<Time>()
+            .init_resource::<LocalViewPose>()
+            .init_resource::<AudioSettings>()
+            .init_resource::<AudioEngine>()
+            .add_systems(Update, pump_audio);
+        app.update();
+        app.update();
+        let snapshot = profiler
+            .take_snapshot_if_due(std::time::Duration::ZERO)
+            .expect("enabled profiler");
+        assert_eq!(
+            snapshot.samples[render::RuntimeStage::Audio as usize].count,
+            2
+        );
     }
 
     #[test]

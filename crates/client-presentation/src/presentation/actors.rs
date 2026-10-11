@@ -19,7 +19,7 @@ pub(crate) use admission::{actor_within_render_distance, sample_candidate_scale}
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
-pub(crate) use tick_cache::convert_bones;
+pub(crate) use tick_cache::{convert_bones, convert_bones_with};
 
 /// Damage tint blended over a hurt or dying actor.
 const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
@@ -64,14 +64,14 @@ pub fn update_actor_rig_scene(
     )
 }
 
-/// Whether a rig can pass this frame's culling, judged before its presentation is built: non-player
-/// actors must lie within vanilla's candidate cube, and no actor may be hidden by `occluded`
-/// (given its culling box's low and high corners).
+/// Checks distance and frustum bounds before building a rig's presentation.
+/// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     partial_tick: f32,
     view: Option<ActorCullView>,
+    frame: Option<&mut client_world::ActorRenderFrame<'_>>,
     occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
     if !actor_within_render_distance(actor, partial_tick, view) {
@@ -95,6 +95,14 @@ pub fn rig_may_be_visible(
     }
     let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
+        || frame.map_or_else(
+            || {
+                rig.render
+                    .iter()
+                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+            },
+            |frame| frame.has_always_depth_material(rig.actor.runtime_id),
+        )
 }
 
 #[cfg(any(test, feature = "test-support"))]

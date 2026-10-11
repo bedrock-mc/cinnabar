@@ -21,9 +21,12 @@ use render::{
 
 use super::actors::{ActorParticleCommand, queue_actor_particles, route_actor_particles};
 use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
-use crate::{
-    camera::FlyCamera, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
-    survival_mining::SurvivalMiningRuntime,
+use {
+    crate::{
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
+        survival_mining::SurvivalMiningRuntime,
+    },
+    client_presentation::camera::FlyCamera,
 };
 
 #[cfg(test)]
@@ -95,13 +98,8 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
-        (
-            render::begin_stage_span::<{ render::RuntimeStage::Particles as usize }>,
-            drive_particles,
-            render::end_stage_span::<{ render::RuntimeStage::Particles as usize }>,
-        )
-            .chain()
-            .after(crate::camera::FlyCameraUpdateSet)
+        drive_particles
+            .after(client_presentation::camera::FlyCameraUpdateSet)
             .after(crate::app::ClientFrameSet::ActorPreparation)
             .after(crate::environment::update_seasonal_foliage),
     );
@@ -367,10 +365,15 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
-    mut block_cues: MessageReader<crate::audio::LocalBlockCue>,
-    mut break_echoes: Local<crate::audio::EchoLedger>,
+    mut block_cues: MessageReader<client_presentation::audio::LocalBlockCue>,
+    mut break_echoes: Local<client_presentation::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
+    // Timed inside the system: a span around it would also count systems ordered in between.
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::Particles));
     let Some(stream) = client_world.stream.as_mut() else {
         if system.emitter_count() > 0 {
             system.clear();
@@ -392,7 +395,7 @@ fn drive_particles(
     );
     if *session != identity {
         *session = identity;
-        *break_echoes = crate::audio::EchoLedger::default();
+        *break_echoes = client_presentation::audio::EchoLedger::default();
         system.clear();
         inbox.actor_commands.clear();
         ambient.reset();
@@ -420,15 +423,15 @@ fn drive_particles(
     // Vanilla emits local destruction effects before a server echo.
     // The cue carries the destroyed id because the world already predicts air.
     for cue in block_cues.read() {
-        if let crate::audio::LocalBlockCue::Break {
+        if let client_presentation::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         } = *cue
             && break_echoes.admit(
-                crate::audio::EchoOrigin::Client,
+                client_presentation::audio::EchoOrigin::Client,
                 "break",
-                crate::audio::EchoSubject::Cell(position),
-                crate::audio::BLOCK_ECHO_SECONDS,
+                client_presentation::audio::EchoSubject::Cell(position),
+                client_presentation::audio::BLOCK_ECHO_SECONDS,
                 time.elapsed_secs_f64(),
             )
         {
@@ -444,10 +447,10 @@ fn drive_particles(
                 );
                 if !breaking
                     || break_echoes.admit(
-                        crate::audio::EchoOrigin::Packet,
+                        client_presentation::audio::EchoOrigin::Packet,
                         "break",
-                        crate::audio::EchoSubject::Cell(floor_cell(level.position)),
-                        crate::audio::BLOCK_ECHO_SECONDS,
+                        client_presentation::audio::EchoSubject::Cell(floor_cell(level.position)),
+                        client_presentation::audio::BLOCK_ECHO_SECONDS,
                         time.elapsed_secs_f64(),
                     )
                 {

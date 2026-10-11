@@ -1,7 +1,11 @@
 use super::super::review_tests::{paint, solids};
 use super::super::theme::{NEUTRAL, NEUTRAL80, PRIMARY_ROLE, SECONDARY};
-use super::*;
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font};
+use {
+    super::*,
+    launcher::local_worlds::{Screen, Tab},
+    launcher::menu::{LocalWorldAction as A, MenuAction, MenuView},
+};
 
 fn contains(outer: Bounds, inner: Bounds) -> bool {
     outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3]
@@ -92,7 +96,7 @@ fn installed_create_world_draws_its_preview_and_native_category_art() {
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     runtime.enable_oreui_originals(images).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::Play;
+    view.screen = launcher::menu::MenuScreen::Play;
     view.local.screen = Screen::Create;
     let metrics = TextMetrics::for_viewport([1280, 900], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let mut nodes = Vec::new();
@@ -118,7 +122,7 @@ fn installed_create_world_draws_its_preview_and_native_category_art() {
 fn create_world_keeps_sidebar_scroll_independent_and_reveals_keyboard_choices() {
     let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::Play;
+    view.screen = launcher::menu::MenuScreen::Play;
     view.local.screen = Screen::Create;
     view.focused_action = Some(local(A::Difficulty(Difficulty::Hard)));
     view.navigation_focus_visible = true;
@@ -213,7 +217,9 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
         ];
         let visible = draw
             .vertices
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter_map(|quad| {
                 let left = quad
                     .iter()

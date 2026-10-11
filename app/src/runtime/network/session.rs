@@ -20,6 +20,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     pub client_blob_cache: protocol::ClientBlobCache,
     pub player_skin: crate::player_skin::LocalPlayerSkin,
+    /// The player's language, input mode and GUI scale, reported at login.
+    pub login_settings: protocol::LoginSettings,
     /// Rechecked against live artwork before presentation publication.
     pub actor_artwork: Option<render::ActorArtworkPages>,
     /// The carrier catalog initial server UI resolves against on the worker.
@@ -131,27 +133,23 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             display_name: config.display_name,
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
-            resource_pack_store: super::resource_packs::compile_cache().map(|cache| {
-                std::sync::Arc::new(cache.clone())
-                    as std::sync::Arc<dyn protocol::ResourcePackStore>
-            }),
+            login_settings: config.login_settings,
             physical_memory_bytes: crate::global_resources::memory::physical_bytes(),
         },
         move |preparation, game_data, cancelled| {
-            let packs = super::resource_packs::prepare_session_presentation(
+            super::resource_packs::prepare_join(
                 preparation,
                 game_data,
                 cancelled,
-            )?;
-            Some(packs.map(|mut packs| {
-                packs.prepare_actor_artwork(actor_artwork.as_ref());
-                packs.prepare_ui_catalog(ui_catalog.as_ref());
-                packs
-            }))
+                super::resource_packs::JoinBases {
+                    actor_artwork: actor_artwork.as_ref(),
+                    ui_catalog: ui_catalog.as_ref(),
+                },
+            )
         },
         client_session::SessionTrace {
-            movement_line: crate::movement::pending_trace_line,
-            write_movement: crate::movement::write_trace_line,
+            movement_line: gameplay::movement::pending_trace_line,
+            write_movement: gameplay::movement::write_trace_line,
             packet_trace: emit_packet_trace,
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
@@ -165,11 +163,11 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.
 fn emit_packet_trace(trace: &str) {
-    crate::acceptance::mutation::write_stdout_marker(
-        &mut std::io::stdout().lock(),
+    diagnostics::write_stdout_marker(
+        &mut diagnostics::console::stdout(),
         &format!(
             "{}={trace}",
-            crate::acceptance::markers::FAST_TRANSFER_PACKET_TRACE
+            diagnostics::markers::FAST_TRANSFER_PACKET_TRACE
         ),
     );
 }

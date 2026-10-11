@@ -10,7 +10,11 @@ pub const MAX_FOV_DEGREES: i32 = 110;
 
 /// Desktop vanilla starts with two coverage samples per pixel.
 pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
-pub const DEFAULT_RENDER_DISTANCE_CHUNKS: u8 = 16;
+#[path = "settings/render_distance.rs"]
+mod render_distance;
+pub use render_distance::{
+    MIN_RENDER_DISTANCE_CHUNKS, RenderDistanceDefaults, RenderDistanceDevice,
+};
 /// Sample counts represented by the rendering backend's camera settings.
 pub const ANTI_ALIASING_SAMPLE_COUNTS: [u32; 4] = [1, 2, 4, 8];
 
@@ -199,14 +203,14 @@ impl Default for VideoSettings {
         Self {
             horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
-            frame_rate_limit: FrameRateLimit::Automatic,
+            frame_rate_limit: FrameRateLimit::Unlimited,
             vsync: true,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
-            render_distance_chunks: DEFAULT_RENDER_DISTANCE_CHUNKS,
+            render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
             fov_effects_scale: 1.0,

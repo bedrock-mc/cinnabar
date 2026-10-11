@@ -1,5 +1,5 @@
 //! Pure UI rasterization, layout and publication after input enqueue.
-use super::*;
+use {super::*, ui::IconRef};
 
 pub struct PreviewCapture {
     pub skin: Option<Arc<[u8]>>,
@@ -106,7 +106,7 @@ pub fn refresh_hud_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, ui::IconRef};
 
     #[test]
     fn switching_hotbar_icons_does_not_rasterize_or_replace_textures_under_the_hand_rig() {

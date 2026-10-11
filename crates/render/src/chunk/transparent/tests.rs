@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::layout::transparent_geometry_update_requires_cow;
 use crate::chunk::transparent::retirement::transparent_view_key_satisfies_witness;
 
 pub(super) fn resident_transparent_allocation(
@@ -21,6 +22,7 @@ pub(super) fn resident_transparent_allocation(
         has_depth_liquid: false,
         has_transparent_liquid: true,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: identity.metadata_index,
     }
 }
@@ -51,7 +53,7 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
         resident_transparent_allocation(&c, tint_identity),
     ];
     assert!(transparent_snapshot_addresses_are_resident(
-        &old_snapshot,
+        old_snapshot.key(),
         resident.iter(),
         std::iter::empty(),
         texture_identity,
@@ -63,7 +65,7 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
     // still safe to draw while the replacement sort runs.
     let next_key =
         ViewSortKey::try_new([1.0, 0.0, 0.0], vec![a, c], texture_identity, tint_identity).unwrap();
-    let next_generation = state.request_retaining_resident_snapshot(&next_key, true);
+    let next_generation = state.request_retaining_resident_snapshot(&next_key, true, false);
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_draw = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
@@ -120,13 +122,13 @@ fn missing_or_reallocated_snapshot_identity_clears_absolute_refs_immediately() {
         let mut state =
             committed_transparent_state(&key, vec![PackedTransparentDrawRef::new(2, 1)]);
         assert!(!transparent_snapshot_addresses_are_resident(
-            state.committed().unwrap(),
+            state.committed().unwrap().key(),
             resident.iter(),
             std::iter::empty(),
             texture_identity,
             tint_identity,
         ));
-        state.request_retaining_resident_snapshot(&changed_key, false);
+        state.request_retaining_resident_snapshot(&changed_key, false, false);
         assert!(state.committed().is_none());
     }
 }
@@ -154,7 +156,7 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
     let mut resident = resident_transparent_allocation(&old_identity, tint_identity);
     resident.generation += 1;
     assert!(transparent_snapshot_addresses_are_resident(
-        &old_snapshot,
+        old_snapshot.key(),
         [&resident],
         std::iter::empty(),
         texture_identity,
@@ -175,7 +177,7 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
         tint_identity,
     )
     .unwrap();
-    let generation = state.request_retaining_resident_snapshot(&next_key, true);
+    let generation = state.request_retaining_resident_snapshot(&next_key, true, false);
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_args = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
@@ -528,7 +530,7 @@ fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address(
     .unwrap()
     .clone();
     assert!(transparent_snapshot_addresses_are_resident(
-        &snapshot,
+        snapshot.key(),
         std::iter::empty(),
         [&old.gpu],
         texture_identity,
@@ -537,7 +539,7 @@ fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address(
     let mut unrelated = old.gpu;
     unrelated.generation += 1;
     assert!(!transparent_snapshot_addresses_are_resident(
-        &snapshot,
+        snapshot.key(),
         std::iter::empty(),
         [&unrelated],
         texture_identity,
@@ -566,8 +568,8 @@ fn removal_to_empty_arms_only_after_snapshot_no_longer_references_retired_identi
     .committed()
     .unwrap()
     .clone();
-    assert!(!transparent_retirement_can_arm(Some(&snapshot), &old.gpu));
-    assert!(transparent_retirement_can_arm(None, &old.gpu));
+    assert!(!transparent_retirement_can_arm([snapshot.key()], &old.gpu));
+    assert!(transparent_retirement_can_arm([], &old.gpu));
 }
 
 #[test]
@@ -591,7 +593,7 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
         let mut state =
             committed_transparent_state(&old_key, vec![PackedTransparentDrawRef::new(2, 1)]);
         assert!(!transparent_snapshot_addresses_are_resident(
-            state.committed().unwrap(),
+            state.committed().unwrap().key(),
             resident.iter(),
             std::iter::empty(),
             next_texture,
@@ -604,7 +606,7 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
             next_tint,
         )
         .unwrap();
-        state.request_retaining_resident_snapshot(&next_key, false);
+        state.request_retaining_resident_snapshot(&next_key, false, false);
         assert!(state.committed().is_none());
     }
 }
@@ -652,9 +654,8 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
         key: key.clone(),
         camera: Vec3::ZERO,
         groups: Arc::from([]),
-        cached: Vec::new(),
         base: None,
-        distinct_tint_count: 0,
+        upload_cap: usize::MAX,
     };
     assert!(runtime.gate.submit(pending_generation, work).is_some());
     runtime
@@ -741,9 +742,8 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         key: moved,
         camera: Vec3::ZERO,
         groups: Arc::from([]),
-        cached: Vec::new(),
         base: None,
-        distinct_tint_count: 0,
+        upload_cap: usize::MAX,
     };
     assert!(runtime.gate.submit(pending, work).is_some());
     runtime.requested_at.insert(staged, Instant::now());
@@ -798,70 +798,6 @@ fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
         ),
         Duration::from_millis(5)
     );
-}
-
-#[test]
-fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failure() {
-    let identity =
-        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 16..20, 32..36, 5);
-    let key = |camera: [f32; 3], assets: usize| {
-        ViewSortKey::try_new(
-            camera,
-            vec![identity.clone()],
-            ChunkTextureAssetIdentity::new(assets, 1),
-            ChunkBiomeTintIdentity::new(1, 1),
-        )
-        .unwrap()
-    };
-    let group = |identity: &TransparentAllocationIdentity| {
-        Ok(TransparentGroupInput {
-            identity: identity.clone(),
-            tint_identity: ChunkBiomeTintIdentity::new(1, 1),
-            centroids: Box::new([Vec3::splat(0.5)]),
-            tint_colors: Box::new([[1, 2, 3], [4, 5, 6]]),
-        })
-    };
-    let mut runtime = TransparentSortRuntime::default();
-    let (first, first_tints) = runtime
-        .resolve_candidate_cache(&key([0.0; 3], 1), group)
-        .unwrap();
-    let (camera_reuse, camera_tints) = runtime
-        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 1), |_| {
-            panic!("camera-only key rebuilt candidates")
-        })
-        .unwrap();
-    assert!(Arc::ptr_eq(&first, &camera_reuse));
-    assert_eq!((first_tints, camera_tints), (2, 2));
-
-    // A new address set reuses the unchanged group's input instead of rebuilding it.
-    let (rebuilt, _) = runtime
-        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 2), |_| {
-            panic!("unchanged group rebuilt")
-        })
-        .unwrap();
-    assert!(!Arc::ptr_eq(&first, &rebuilt));
-    assert!(Arc::ptr_eq(&first[0], &rebuilt[0]));
-
-    let mut moved = identity.clone();
-    moved.mesh_generation += 1;
-    let failed = ViewSortKey::try_new(
-        [0.0; 3],
-        vec![moved],
-        ChunkTextureAssetIdentity::new(3, 1),
-        ChunkBiomeTintIdentity::new(1, 1),
-    )
-    .unwrap();
-    let ceiling = TransparentSortError::ReferenceCeiling {
-        requested: MAX_TRANSPARENT_DRAW_REFS + 1,
-        ceiling: MAX_TRANSPARENT_DRAW_REFS,
-    };
-    assert_eq!(
-        runtime
-            .resolve_candidate_cache(&failed, |_| Err(ceiling))
-            .err(),
-        Some(ceiling)
-    );
-    assert!(runtime.candidate_cache.is_none());
 }
 
 #[test]

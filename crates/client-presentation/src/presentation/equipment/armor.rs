@@ -2,8 +2,6 @@
 
 use render_model::RenderBoneTransform;
 
-pub(super) use assets::DEFAULT_LEATHER_RGB;
-
 /// The zero-scale pose vanilla uses to hide a bone.
 pub(super) fn hidden_bone() -> RenderBoneTransform {
     RenderBoneTransform {

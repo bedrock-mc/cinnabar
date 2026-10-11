@@ -42,6 +42,8 @@ pub struct DrawPipeline<'a> {
 struct RasterConfiguration<'a> {
     state: RasterState,
     pipelines: &'a [DrawPipeline<'a>],
+    /// Per-draw shader sources; empty when every draw shares the one source.
+    sources: &'a [&'a str],
 }
 
 impl Default for RasterState {
@@ -91,6 +93,15 @@ impl Gpu {
 
     /// As [`Self::for_fixture`], enabling whichever of `features` the adapter offers.
     pub fn for_fixture_with(name: &str, features: wgpu::Features) -> Option<Self> {
+        Self::for_fixture_with_limits(name, features, wgpu::Limits::default())
+    }
+
+    /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
+    pub fn for_fixture_with_limits(
+        name: &str,
+        features: wgpu::Features,
+        limits: wgpu::Limits,
+    ) -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
         let adapter = fixture_adapter(
             name,
@@ -102,6 +113,7 @@ impl Gpu {
         }
         let descriptor = wgpu::DeviceDescriptor {
             required_features: adapter.features() & features,
+            required_limits: limits,
             ..Default::default()
         };
         let (device, queue) = finish(adapter.request_device(&descriptor))
@@ -175,6 +187,7 @@ impl Gpu {
             RasterConfiguration {
                 state,
                 pipelines: &[],
+                sources: &[],
             },
         )
     }
@@ -195,6 +208,31 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines,
+                sources: &[],
+            },
+        )
+    }
+
+    /// Renders each draw through its own shader source and vertex entry point
+    /// into one shared colour and depth target, as separate world passes do.
+    pub fn render_sources(
+        &self,
+        sources: &[&str],
+        draws: &[Draw<'_>],
+        pipelines: &[DrawPipeline<'_>],
+        state: RasterState,
+    ) -> Vec<u8> {
+        assert_eq!(draws.len(), sources.len());
+        assert_eq!(draws.len(), pipelines.len());
+        self.render_to_format(
+            "",
+            "",
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            RasterConfiguration {
+                state,
+                pipelines,
+                sources,
             },
         )
     }
@@ -209,6 +247,7 @@ impl Gpu {
             RasterConfiguration {
                 state: RasterState::default(),
                 pipelines: &[],
+                sources: &[],
             },
         )
     }
@@ -235,6 +274,7 @@ impl Gpu {
                     ..Default::default()
                 },
                 pipelines: &[],
+                sources: &[],
             },
         )
     }
@@ -247,13 +287,23 @@ impl Gpu {
         target_format: wgpu::TextureFormat,
         configuration: RasterConfiguration<'_>,
     ) -> Vec<u8> {
-        let RasterConfiguration { state, pipelines } = configuration;
-        let shader = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-            });
+        let RasterConfiguration {
+            state,
+            pipelines,
+            sources,
+        } = configuration;
+        let module = |source: &str| {
+            self.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(Cow::Owned(source.to_owned())),
+                })
+        };
+        let shared = sources.is_empty().then(|| module(source));
+        let modules = sources
+            .iter()
+            .map(|source| module(source))
+            .collect::<Vec<_>>();
         let size = wgpu::Extent3d {
             width: SNAPSHOT_SIDE,
             height: SNAPSHOT_SIDE,
@@ -296,6 +346,7 @@ impl Gpu {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         for (index, draw) in draws.iter().enumerate() {
             let entry = pipelines.get(index);
+            let shader = shared.as_ref().unwrap_or_else(|| &modules[index]);
             let mut primitive = state.primitive;
             if let Some(entry) = entry {
                 primitive.topology = entry.topology;
@@ -306,7 +357,7 @@ impl Gpu {
                     label: None,
                     layout: None,
                     vertex: wgpu::VertexState {
-                        module: &shader,
+                        module: shader,
                         entry_point: Some(entry.map_or(vertex, |entry| entry.vertex)),
                         compilation_options: Default::default(),
                         buffers: &[],
@@ -321,7 +372,7 @@ impl Gpu {
                     }),
                     multisample: state.multisample,
                     fragment: Some(wgpu::FragmentState {
-                        module: &shader,
+                        module: shader,
                         entry_point: Some(draw.fragment),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {

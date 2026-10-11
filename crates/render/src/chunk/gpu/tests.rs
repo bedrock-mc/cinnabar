@@ -299,6 +299,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
         has_depth_liquid: false,
         has_transparent_liquid: true,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 0,
     };
 
@@ -394,6 +395,7 @@ fn realizable_packed_model_upload_addresses_are_identical_for_direct_and_mdi() {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 3,
     };
 
@@ -590,6 +592,7 @@ fn transparent_model_draw_uses_only_its_exact_partitioned_range() {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 3,
     };
 
@@ -684,7 +687,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
             instance_count: 2,
             first_index: 0,
             base_vertex: 0,
-            first_instance: 0,
+            first_instance: meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG,
         })
     );
 
@@ -706,7 +709,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
     assert!(transparent_draw_range_args(0, 4, 0..5).is_none());
     assert_eq!(
         transparent_draw_range_args(1, 4, 1..3).map(|args| args.first_instance),
-        Some(5)
+        Some(5 | meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG)
     );
 }
 
@@ -863,6 +866,7 @@ fn direct_and_mdi_cube_lighting_addresses_resolve_identical_sentinels() {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 4,
     };
     let direct = direct_stream_addresses(&allocation);
@@ -924,6 +928,7 @@ fn cube_draws_reject_missing_odd_mismatched_and_overlapping_lighting_ranges() {
         has_depth_liquid: false,
         has_transparent_liquid: false,
         depth_liquid_range: None,
+        order_independent_liquid: false,
         metadata_index: 4,
     };
     assert!(cutout_indirect_command(&valid).is_some());

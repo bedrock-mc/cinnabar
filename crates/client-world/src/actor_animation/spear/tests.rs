@@ -1,5 +1,5 @@
 use super::super::evaluation::MolangValue;
-use super::*;
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 /// Easing curves retain their small endpoint residuals; poses agree within 0.05 model units/degrees.
 fn close(actual: f32, expected: f32) {
@@ -141,6 +141,7 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
                 swell_amount: None,
                 life_tick: 0,
                 finished: (false, false),
+                state_time: 0.0,
                 bones: &[],
                 bone_names: &[],
             },

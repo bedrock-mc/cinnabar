@@ -50,10 +50,6 @@ func main() {
 		ParentGone: lifeline.WatchParent(lifeline.ParentFromEnv(), parentPollInterval),
 		Grace:      shutdownGrace,
 	})
-	if handled, code := helperMode(ctx, args, os.Stdout, os.Stderr); handled {
-		stop()
-		os.Exit(code)
-	}
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
 	stop()
 	if exitCode != 0 {
@@ -72,12 +68,9 @@ func configureRuntime(getenv func(string) string) {
 	}
 }
 
-// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
-// update helpers run with a null stdin.
+// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in
+// helper runs with a null stdin.
 func bindsStdin(args []string) bool {
-	if len(args) > 0 && args[0] == "check-update" {
-		return false
-	}
 	for _, arg := range args {
 		if arg == "-auth-events" || strings.HasPrefix(arg, "-auth-events=") {
 			return false
@@ -90,6 +83,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	deviceFile                string
 	language                  string
 	catalogFile               string
 	authEvents                bool
@@ -97,6 +91,7 @@ type options struct {
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
 	controlStatus             bool
+	xboxPresence              bool
 	upstreamClientCache       bool
 	localWorldsDir            string
 	localServerBin            string
@@ -119,12 +114,14 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.deviceFile, "device-file", "", "the install's persisted login device profile (default: device.json beside -auth-cache)")
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
+	flags.BoolVar(&opts.xboxPresence, "xbox-presence", false, "own Xbox title presence for the account (requires -control-status)")
 	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
@@ -154,6 +151,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.localWorldsDir != "" && !opts.controlStatus {
 		return options{}, errors.New("local-worlds-dir requires -control-status")
+	}
+	if opts.xboxPresence && !opts.controlStatus {
+		return options{}, errors.New("xbox-presence requires -control-status")
 	}
 	if opts.serverTrustFile != "" && !opts.controlStatus {
 		return options{}, errors.New("server-trust-file requires -control-status")
@@ -266,6 +266,7 @@ func runWithResourcePackCacheFactory(
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
 	var account *authcache.Account
+	closeCredentials := context.CancelFunc(func() {})
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
 	}
@@ -276,16 +277,28 @@ func runWithResourcePackCacheFactory(
 		if statusStore != nil {
 			authConfig.Request = launcher.DeviceRequest(statusStore)
 		}
-		tokenSource, err = source(ctx, authConfig)
+		credentialCtx, cancelCredentials := context.WithCancel(context.WithoutCancel(ctx))
+		closeCredentials = cancelCredentials
+		cancelAuthentication := context.AfterFunc(ctx, closeCredentials)
+		defer func() { cancelAuthentication(); closeCredentials() }()
+		tokenSource, err = source(credentialCtx, authConfig)
 		if err != nil {
 			if statusStore != nil && statusStore.Auth().State != control.AuthFailed {
 				statusStore.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: "Could not validate the saved account."})
 			}
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
-		if account = authcache.NewAccount(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
 			tokenSource = account
-			defer func() { _ = account.Close() }()
+			defer func() { closeCredentials(); _ = account.Close() }()
+		}
+		// Initialization follows shutdown; afterward credentials survive title cleanup.
+		cancelAuthentication()
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})
@@ -313,6 +326,7 @@ func runWithResourcePackCacheFactory(
 			keepAccountFresh(account, ctx)
 		}()
 		defer func() {
+			closeCredentials()
 			_ = account.Close()
 			<-refreshed
 		}()
@@ -348,6 +362,7 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var sessionTarget func(context.Context, string, string) (string, error)
 	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
@@ -381,10 +396,15 @@ func runWithResourcePackCacheFactory(
 			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
-			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
+		if opts.xboxPresence {
+			presence := service.StartPresence(ctx)
+			defer presence.Close()
+			controlServer.SetPresence(presence.Set)
+		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
+		sessionTarget = service.SessionTarget
 		controlServer.SetMarketplace(service.Marketplace())
 		if account != nil {
 			go service.PublishSignedIn(ctx)
@@ -404,6 +424,11 @@ func runWithResourcePackCacheFactory(
 				Log:     logger,
 			}
 		}
+	}
+	// One device per install, consistent with the platform the account signs in as.
+	deviceProfile, deviceErr := authcache.LoadDevice(opts.devicePath())
+	if deviceErr != nil {
+		logger.Warn("device profile not saved; using it for this run only")
 	}
 	serveErr := serve(ctx, proxy.Config{
 		PacketDelay:         packetDelay,
@@ -436,6 +461,8 @@ func runWithResourcePackCacheFactory(
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 		ConnectProgress:             connectProgress,
 		ServerTrust:                 serverTrust,
+		SessionTarget:               sessionTarget,
+		Device:                      &deviceProfile,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())
@@ -454,6 +481,14 @@ func runWithResourcePackCacheFactory(
 
 func newLifecycleLogger(writer io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(writer, nil))
+}
+
+// devicePath is the install's device profile, independent of which account's token the core holds.
+func (opts options) devicePath() string {
+	if opts.deviceFile != "" {
+		return opts.deviceFile
+	}
+	return authSibling(opts.authCache, "device.json")
 }
 
 // authSibling is the persistent per-install directory called name beside the auth cache; empty without one.

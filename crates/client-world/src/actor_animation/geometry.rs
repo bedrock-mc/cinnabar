@@ -84,6 +84,7 @@ pub(super) fn resolve_binding(
         query_history: None,
         life_tick: 0,
         finished: (false, false),
+        state_time: 0.0,
         bones: &[],
         bone_names: &[],
     };
@@ -154,6 +155,10 @@ pub(super) fn resolve_binding(
         bones,
         bone_names,
         render: Vec::new(),
+        may_use_always_depth_material: assets
+            .render_layers(rig_binding)
+            .iter()
+            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always)),
         scale: None,
         layer_skeletons: BTreeMap::new(),
         controllers,
@@ -174,6 +179,7 @@ pub(super) fn resolve_binding(
         completed_tick,
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
+        query_context: ActorTickContext::default(),
         equipped_main: None,
         equipped_off: None,
         // Vanilla starts both offhand observations at zero.
@@ -480,6 +486,7 @@ fn reselect_geometry_with_checkpoint(
         query_history: None,
         life_tick: 0,
         finished: (false, false),
+        state_time: 0.0,
         bones: &state.bones,
         bone_names: &state.bone_names,
     };

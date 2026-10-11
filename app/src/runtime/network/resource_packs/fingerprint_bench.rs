@@ -50,6 +50,7 @@ fn shared_stack_fingerprint_timing() {
         black_box(super::super::entity_pack::compile_session_entities(
             &fingerprint,
             &view,
+            &|| false,
         ));
         samples.push(started.elapsed().as_secs_f64() * 1000.0);
     }
@@ -123,13 +124,9 @@ fn join_icon_keys(view: &LayeredPackView) -> Vec<(Arc<str>, Arc<str>)> {
         .collect()
 }
 
-/// Times a join's preparation, then a rejoin, on a local server stack. `CINNABAR_JOIN_SERIAL`
-/// compiles on one thread; `CINNABAR_JOIN_CACHE` names a disk cache that a second run reads.
-#[test]
-#[ignore = "offline join timing; CINNABAR_JOIN_PACKS names cached unencrypted archives"]
-fn join_preparation_timing() {
-    use std::time::Instant;
-    let paths = std::env::var_os("CINNABAR_JOIN_PACKS").expect("pack archives");
+/// Installs the carrier tables a session compile reads, as startup does, from the compiled
+/// carriers in `CINNABAR_JOIN_CARRIERS` and the vanilla layer in `CINNABAR_JOIN_VANILLA_PACK`.
+fn install_join_carriers() {
     if let Some(compiled) = std::env::var_os("CINNABAR_JOIN_CARRIERS") {
         let path = std::path::Path::new(&compiled).join(
             std::path::Path::new(crate::asset_startup::DEFAULT_ASSET_PATH)
@@ -147,32 +144,73 @@ fn join_preparation_timing() {
                 .unwrap(),
             loaded.entities.runtime(),
         );
+        super::super::set_vanilla_item_paths(loaded.entities.runtime());
         super::super::set_base_actor_artwork(artwork, Arc::clone(loaded.entities.runtime()));
+    }
+    if let Some(dir) = std::env::var_os("CINNABAR_JOIN_VANILLA_PACK") {
+        super::super::entity_pack::set_vanilla_pack_dir(dir.into());
     }
     if let Some(dir) = std::env::var_os("CINNABAR_JOIN_CACHE") {
         set_compile_cache_dir(dir.into());
     }
-    let stack = join_stack(&paths);
-    let view = LayeredPackView::new(Arc::clone(&stack));
-    let inputs = Arc::new(super::super::pack_reload::PackInputs {
-        icons: join_icon_keys(&view),
-        ..Default::default()
-    });
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(if std::env::var_os("CINNABAR_JOIN_SERIAL").is_some() {
-            1
-        } else {
-            0
-        })
-        .build()
-        .unwrap();
-    for round in ["join", "rejoin"] {
+}
+
+/// The archives `CINNABAR_JOIN_PACKS` names, or `None` after naming the missing fixture.
+fn join_fixture(test: &str) -> Option<std::ffi::OsString> {
+    let paths = std::env::var_os("CINNABAR_JOIN_PACKS");
+    if paths.is_none() {
+        eprintln!(
+            "{test} skipped: missing fixture CINNABAR_JOIN_PACKS (unencrypted server pack archives)"
+        );
+    }
+    paths
+}
+
+/// Times a first join and same-pack transfer from CINNABAR_JOIN_PACKS.
+/// CINNABAR_JOIN_THREADS selects a pool width; CINNABAR_JOIN_NO_REUSE disables retention.
+#[test]
+fn join_preparation_timing() {
+    use std::time::Instant;
+    let Some(paths) = join_fixture("join_preparation_timing") else {
+        return;
+    };
+    install_join_carriers();
+    let threads = std::env::var("CINNABAR_JOIN_THREADS")
+        .ok()
+        .and_then(|threads| threads.parse::<usize>().ok());
+    let reuse_kept = std::env::var_os("CINNABAR_JOIN_NO_REUSE").is_none();
+    let mut kept = reuse::CompiledStacks::new();
+    let environment = reuse::CompileEnvironment::current();
+    for round in ["join", "transfer"] {
+        if !reuse_kept {
+            kept = reuse::CompiledStacks::new();
+        }
+        let stack = join_stack(&paths);
+        let inputs = Arc::new(super::super::pack_reload::PackInputs {
+            icons: join_icon_keys(&LayeredPackView::new(Arc::clone(&stack))),
+            ..Default::default()
+        });
         let started = Instant::now();
-        let application =
-            pool.install(|| prepare_validated_application(Arc::clone(&stack), Arc::clone(&inputs)));
+        let compile = || reuse::compile_reusing(&kept, stack, inputs, &environment, &|| false);
+        let application = match threads {
+            Some(threads) => rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(compile),
+            None => chunk_pipeline::on_idle_world_cores(compile),
+        }
+        .unwrap();
+        let elapsed = started.elapsed();
+        kept.remember(
+            environment.clone(),
+            &application,
+            application.server_ui.clone(),
+            &|| false,
+        );
         println!(
-            "JOIN_PREPARE {round} ms={:.1} icons={} glyphs={} entities={} ui={} sounds={}",
-            started.elapsed().as_secs_f64() * 1e3,
+            "JOIN_PREPARE {round} threads={threads:?} ms={:.1} icons={} glyphs={} entities={} ui={} sounds={}",
+            elapsed.as_secs_f64() * 1e3,
             application.item_icons.is_some(),
             application.glyph_sheets.is_some(),
             application.entities.is_some(),
@@ -180,4 +218,67 @@ fn join_preparation_timing() {
             application.server_sounds.is_some(),
         );
     }
+}
+
+/// Times each part of a join's compile of `CINNABAR_JOIN_PACKS` alone, on one thread.
+#[test]
+fn join_part_timing() {
+    use std::time::Instant;
+    let Some(paths) = join_fixture("join_part_timing") else {
+        return;
+    };
+    install_join_carriers();
+    let started = Instant::now();
+    let stack = join_stack(&paths);
+    println!(
+        "JOIN_PART validate ms={:.1}",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    let icon_keys = join_icon_keys(&LayeredPackView::new(Arc::clone(&stack)));
+    let time = |part: &str, compile: &dyn Fn(&LayeredPackView)| {
+        let view = LayeredPackView::tracked(Arc::clone(&stack));
+        let started = Instant::now();
+        compile(&view);
+        println!(
+            "JOIN_PART {part} ms={:.1}",
+            started.elapsed().as_secs_f64() * 1e3
+        );
+    };
+    time("fingerprint", &|_| {
+        stack_fingerprint(&stack);
+    });
+    time("aim_assist", &|view| {
+        crate::camera::aim_highlight::prepare_pack_textures(view);
+    });
+    time("blocks", &|view| {
+        compile_block_overlay(view, &Default::default(), false, BASE_MATERIAL_KEYS.get());
+    });
+    time("icons", &|view| {
+        compile_session_icons(view, &icon_keys, Default::default());
+    });
+    time("language", &|view| {
+        merged_server_lang(view);
+    });
+    time("glyphs", &|view| {
+        compile_session_glyphs(view);
+    });
+    time("entities", &|view| {
+        super::super::entity_pack::compile_session_entities(
+            &stack_fingerprint(&stack),
+            view,
+            &|| false,
+        );
+    });
+    time("artwork", &|view| {
+        super::super::entity_texture_reload::prepare(view);
+    });
+    time("ui", &|view| {
+        collect_server_ui(view);
+    });
+    time("sounds", &|view| {
+        client_presentation::audio::ServerSoundPack::from_view(view);
+    });
+    time("property_defaults", &|view| {
+        super::super::entity_pack::pack_property_defaults(view);
+    });
 }

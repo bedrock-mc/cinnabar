@@ -1,4 +1,5 @@
 use super::*;
+use bevy::color::ColorToPacked;
 
 #[test]
 fn biome_tint_table_is_revisioned_and_keeps_a_fallback_entry() {
@@ -229,6 +230,7 @@ fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
                     has_depth_liquid: false,
                     has_transparent_liquid: false,
                     depth_liquid_range: None,
+                    order_independent_liquid: false,
                     metadata_index: index as u32,
                 },
             )

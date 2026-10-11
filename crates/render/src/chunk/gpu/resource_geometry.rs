@@ -116,6 +116,12 @@ impl PreparedResourceGeometry {
                 commands.entity(entity).remove::<GpuChunkAllocation>();
             }
         }
+        self.arena.transparent_liquids.rebuild(
+            self.arena
+                .allocations
+                .iter()
+                .map(|(&entity, allocation)| (entity, &allocation.gpu)),
+        );
         let keys: HashMap<_, _> = instances
             .iter()
             .map(|(entity, instance)| (instance.key, entity))

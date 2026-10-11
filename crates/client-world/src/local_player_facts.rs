@@ -141,6 +141,12 @@ impl LocalPlayerFacts {
         self.player_game_mode
     }
 
+    /// Returns the committed world default used for world activity reporting.
+    #[must_use]
+    pub const fn world_default_game_mode(&self) -> Option<PlayerGameMode> {
+        self.world_default_game_mode
+    }
+
     /// Resolves known mode defaults against the latest accepted ability evidence.
     #[must_use]
     pub fn game_mode_capabilities(&self) -> Option<GameModeCapabilities> {

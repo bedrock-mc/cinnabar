@@ -1,5 +1,3 @@
-use super::*;
-use crate::menu::MenuScreen;
 use crate::ui_runtime::{
     oreui_assets::{
         OreUiImages, OreUiPage, OreUiSprite, SETTINGS_ICON_HIGHLIGHT_IMAGE,
@@ -7,7 +5,12 @@ use crate::ui_runtime::{
     },
     presentation::{TextMetrics, UiPresentationRuntime, tests::fixture_font},
 };
+use launcher::menu::MenuScreen;
 use std::{collections::HashMap, sync::Arc};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 #[test]
 fn installed_settings_categories_use_their_full_native_icon_cells() {
@@ -311,7 +314,9 @@ fn visible_color(draw: &ui::UiDrawList, point: [f32; 2]) -> Option<[u8; 4]> {
         .filter(|batch| batch.clip.contains(hit))
         .flat_map(|batch| {
             draw.indices[batch.index_range.start as usize..batch.index_range.end as usize]
-                .chunks_exact(6)
+                .as_chunks::<6>()
+                .0
+                .iter()
         })
         .rfind(|quad| {
             let min = std::array::from_fn::<_, 2, _>(|axis| {

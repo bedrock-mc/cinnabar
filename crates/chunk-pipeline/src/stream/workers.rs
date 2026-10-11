@@ -1,9 +1,12 @@
 mod priority;
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::Sender;
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
@@ -12,6 +15,9 @@ const MIN_WORLD_THREADS: usize = 3;
 /// sustained mesh load cannot starve the decode and light work that mesh depends on.
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
+/// Windows lowers workers only during jobs so queue locks retain normal priority.
+/// Other platforms keep workers lowered because they cannot restore their niceness.
+const LOWER_PER_JOB: bool = cfg!(windows);
 
 /// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,12 +96,20 @@ impl Queues {
 struct Shared {
     queues: Mutex<Queues>,
     ready: Condvar,
+    /// Queue locks taken by a thread running below normal priority.
+    #[cfg(all(test, windows))]
+    lowered_locks: std::sync::atomic::AtomicUsize,
 }
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, Queues> {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.queue_lock").entered();
+        #[cfg(all(test, windows))]
+        if priority::is_lowered() {
+            self.lowered_locks
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         self.queues
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -107,6 +121,25 @@ impl Shared {
 pub(super) struct WorldPool {
     shared: Arc<Shared>,
     size: PoolSize,
+}
+
+/// Threads the world pool runs on a machine with `cores` logical processors.
+pub fn world_worker_threads(cores: usize) -> usize {
+    PoolSize::for_cores(cores).threads()
+}
+
+/// Runs pre-stream work on a temporary normal-priority pool sized like the world pool.
+/// Falls back to the caller pool if worker threads cannot start.
+pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(world_worker_threads(cores))
+        .thread_name(|index| format!("world-borrowed-{index}"))
+        .build()
+    {
+        Ok(pool) => pool.install(work),
+        Err(_) => work(),
+    }
 }
 
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
@@ -201,7 +234,10 @@ impl Drop for WorldPool {
 }
 
 fn work(shared: &Shared, name: &str, background: bool) {
-    if background && let Err(error) = priority::lower() {
+    if background
+        && !LOWER_PER_JOB
+        && let Err(error) = priority::lower()
+    {
         eprintln!("{name}: could not lower worker priority: {error}");
     }
     let mut scratch = world::LightSolverScratch::default();
@@ -220,12 +256,36 @@ fn work(shared: &Shared, name: &str, background: bool) {
             continue;
         };
         drop(queues);
+        LOWERED_FOR_JOB.set(background && LOWER_PER_JOB && priority::lower().is_ok());
         // Matches rayon's default: a panicking world job aborts rather than losing its permits.
         if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
             std::process::abort();
         }
+        restore_lowered_job();
         queues = shared.lock();
     }
+}
+
+thread_local! {
+    /// Whether this worker runs its current job lowered and must restore normal priority.
+    static LOWERED_FOR_JOB: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Returns a worker lowered for its job to normal priority; does nothing otherwise.
+fn restore_lowered_job() {
+    if LOWERED_FOR_JOB.replace(false)
+        && let Err(error) = priority::restore()
+    {
+        let name = std::thread::current().name().unwrap_or("world").to_owned();
+        eprintln!("{name}: could not restore worker priority: {error}");
+    }
+}
+
+/// Restores normal job priority before reserving a result-channel slot.
+/// This prevents the receiving frame from spinning on a preempted, lowered sender.
+pub(super) fn send_result<T>(tx: &Sender<T>, result: T) {
+    restore_lowered_job();
+    let _ = tx.send(result);
 }
 
 #[cfg(test)]

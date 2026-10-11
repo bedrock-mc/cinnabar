@@ -1,10 +1,10 @@
-use super::*;
 use assets::gui_item::{
     SHIELD_GUI_MODEL_SCALE as GUI_MODEL_SCALE, SHIELD_GUI_ROTATION_RADIANS as GUI_ROTATION_RADIANS,
     SHIELD_GUI_TRANSLATION as GUI_TRANSLATION, SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT,
     SHIELD_MODEL_UNIT as MODEL_UNIT,
 };
 use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 fn scalar(value: f32) -> Scalar {
     Scalar::new(value).unwrap()
@@ -93,7 +93,7 @@ fn gui_mesh_uses_bound_sheet_white_color_alpha_test_and_no_depth() {
             .iter()
             .all(|vertex| vertex.color == [255; 4] && vertex.alpha_test)
     );
-    for triangle in mesh.indices().chunks_exact(3) {
+    for triangle in mesh.indices().as_chunks::<3>().0 {
         let points: [[f32; 2]; 3] =
             std::array::from_fn(|index| mesh.vertices()[triangle[index] as usize].position);
         assert!(signed_area(points[0], points[1], points[2]) > 0.0);

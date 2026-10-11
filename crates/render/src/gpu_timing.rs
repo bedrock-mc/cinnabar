@@ -7,6 +7,8 @@ mod categories;
 mod health;
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
+#[cfg(feature = "tracy")]
+mod nodes;
 mod opaque;
 mod overdraw;
 mod pass;
@@ -20,7 +22,9 @@ use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::system::{SystemParamItem, lifetimeless::SRes},
-    prelude::*,
+    prelude::{
+        App, Commands, IntoScheduleConfigs, Plugin, Res, ResMut, Resource, Result, World, info,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -42,7 +46,42 @@ use std::{
     },
 };
 
+#[cfg(feature = "tracy")]
+pub(crate) use nodes::SectionSpan;
 pub(crate) use pass::{render_pass_timestamps, ui_pass_timestamps, ui_profiling_requested};
+
+/// Records `record` into `encoder` between `span`'s marks when one was claimed. Claim spans
+/// while the node runs, so deferred command-buffer tasks still land in the frame's resolve.
+pub(crate) fn within_span<R>(
+    span: Option<&SectionSpan<'_>>,
+    encoder: &mut wgpu::CommandEncoder,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> R,
+) -> R {
+    if let Some(span) = span {
+        span.begin(encoder);
+    }
+    let result = record(encoder);
+    if let Some(span) = span {
+        span.end(encoder);
+    }
+    result
+}
+
+/// Without Tracy, no section span is ever claimed; see `nodes::SectionSpan`.
+#[cfg(not(feature = "tracy"))]
+#[derive(Clone, Copy)]
+pub(crate) struct SectionSpan<'w>(PhantomData<&'w ()>);
+
+#[cfg(not(feature = "tracy"))]
+impl SectionSpan<'_> {
+    pub(crate) fn claim<'w>(_: &'w World, _: &'static str) -> Option<SectionSpan<'w>> {
+        None
+    }
+
+    pub(crate) fn begin(&self, _: &mut wgpu::CommandEncoder) {}
+
+    pub(crate) fn end(&self, _: &mut wgpu::CommandEncoder) {}
+}
 pub use readback::GpuFrameTimes;
 pub(crate) use readback::decode_spans;
 
@@ -55,11 +94,16 @@ const SLOT_BYTES: u64 = SLOT_SPANS as u64 * 2 * TIMESTAMP_BYTES;
 const TIMESTAMP_BYTES: u64 = 8;
 const NO_SLOT: u32 = u32::MAX;
 const NO_SPAN: u32 = u32::MAX;
-const NOT_RESOLVED: u64 = u64::MAX;
+const NOT_RECORDED: u64 = u64::MAX;
 
+/// The slot awaits GPU completion or buffer mapping.
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
 const FAILED: u8 = 2;
+/// Metal samples are complete and may be copied by a later frame.
+const WRITTEN: u8 = 3;
+/// A later frame encoded the copy; mapping starts after that frame's submission.
+const RESOLVED: u8 = 4;
 
 /// Feeds `gpu_*` stages into the [`RuntimeStageProfiler`] already present in the app.
 pub struct GpuTimingPlugin;
@@ -97,7 +141,12 @@ impl Plugin for GpuTimingPlugin {
                 ),
             );
         #[cfg(feature = "tracy")]
-        tracy::install(render_app);
+        {
+            tracy::install(render_app);
+            if nodes::requested() {
+                nodes::install(render_app);
+            }
+        }
     }
 }
 
@@ -169,7 +218,7 @@ fn wrap_timed_nodes(world: &mut World) {
     }
 }
 
-/// Resolves the frame's spans at the end of its own graph, after every camera.
+/// Captures query ranges and copies ready samples after every camera.
 fn add_readback_node(world: &mut World) {
     let Some(mut graph) = world.get_resource_mut::<RenderGraph>() else {
         return;
@@ -194,7 +243,11 @@ impl Node for ReadbackNode {
         world: &'w World,
     ) -> Result<(), NodeRunError> {
         if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
-            && timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+            && (timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+                || timestamps
+                    .slots
+                    .iter()
+                    .any(|slot| slot.state.load(Ordering::Acquire) == WRITTEN))
         {
             if cfg!(target_os = "macos")
                 || timestamps.draw_spans
@@ -327,8 +380,8 @@ struct FrameSpans {
     started: AtomicBool,
     /// Begin query of a whole-frame span that [`GpuTimestamps::encode_readback`] still has to close.
     open_frame: AtomicU32,
-    /// Pass and draw span counts copied for readback, packed high and low, or `NOT_RESOLVED`.
-    resolved: AtomicU64,
+    /// Pass and draw span counts retained for readback, packed high and low, or `NOT_RECORDED`.
+    recorded: AtomicU64,
 }
 
 struct ReadbackSlot {
@@ -405,7 +458,7 @@ impl GpuTimestamps {
                 stages: std::array::from_fn(|_| AtomicU8::new(0)),
                 started: AtomicBool::new(false),
                 open_frame: AtomicU32::new(NO_SPAN),
-                resolved: AtomicU64::new(NOT_RESOLVED),
+                recorded: AtomicU64::new(NOT_RECORDED),
             },
             health: health::QueryHealth::requested(),
         })
@@ -468,7 +521,7 @@ impl GpuTimestamps {
         while let Some(index) = self.ring.oldest_in_flight() {
             let slot = &self.slots[index];
             match slot.state.load(Ordering::Acquire) {
-                PENDING => break,
+                PENDING | WRITTEN | RESOLVED => break,
                 MAPPED => {
                     if let Some(health) = &mut self.health {
                         health.readback();
@@ -519,15 +572,23 @@ impl GpuTimestamps {
         self.frame.draws.store(0, Ordering::Relaxed);
         self.frame.started.store(false, Ordering::Relaxed);
         self.frame.open_frame.store(NO_SPAN, Ordering::Relaxed);
-        self.frame.resolved.store(NOT_RESOLVED, Ordering::Relaxed);
+        self.frame.recorded.store(NOT_RECORDED, Ordering::Relaxed);
         self.frame.slot.store(slot, Ordering::Release);
     }
 
-    /// Closes the whole-frame span and copies the frame's spans into its readback slot, inside the
-    /// frame's own submission so timing adds no queue submission.
+    /// Records this frame's query ranges and copies readable spans without an extra submission.
+    /// Metal counter resolves can overtake fragment samples, so only completed frames are copied.
     fn encode_readback(&self, encoder: &mut wgpu::CommandEncoder) {
         #[cfg(feature = "tracy")]
         let _zone = bevy::log::info_span!("gpu.timestamps.resolve").entered();
+        if cfg!(target_os = "macos") {
+            for (index, target) in self.slots.iter().enumerate() {
+                if target.state.load(Ordering::Acquire) == WRITTEN {
+                    self.resolve_slot(encoder, index, target.passes, target.draws);
+                    target.state.store(RESOLVED, Ordering::Release);
+                }
+            }
+        }
         let slot = self.frame.slot.load(Ordering::Acquire);
         if slot == NO_SLOT {
             return;
@@ -542,7 +603,24 @@ impl GpuTimestamps {
         if open_frame != NO_SPAN {
             mark(encoder, &self.queries, open_frame + 1);
         }
-        let base = slot * SLOT_SPANS * 2;
+        if !cfg!(target_os = "macos") {
+            self.resolve_slot(encoder, slot as usize, passes, draws);
+        }
+        self.frame.recorded.store(
+            u64::from(passes) << 32 | u64::from(draws),
+            Ordering::Release,
+        );
+    }
+
+    /// Copies one slot's retained query ranges into its own readback buffer.
+    fn resolve_slot(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: usize,
+        passes: u32,
+        draws: u32,
+    ) {
+        let base = slot as u32 * SLOT_SPANS * 2;
         if passes > 0 {
             encoder.resolve_query_set(&self.queries, base..base + passes * 2, &self.resolve, 0);
         }
@@ -555,28 +633,31 @@ impl GpuTimestamps {
                 u64::from(PASS_SPANS) * 2 * TIMESTAMP_BYTES,
             );
         }
-        let target = &self.slots[slot as usize];
+        let target = &self.slots[slot];
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &target.buffer, 0, SLOT_BYTES);
-        self.frame.resolved.store(
-            u64::from(passes) << 32 | u64::from(draws),
-            Ordering::Release,
-        );
     }
 
-    /// Maps the slot the submitted frame resolved into; nothing waits on the GPU. A frame whose
-    /// graph resolved nothing gives its slot back.
-    fn request_readback(&mut self) {
+    /// Maps submitted copies and retains Metal query slots until their writing submission completes.
+    /// A frame that recorded no queries gives its slot back; rendering never waits on the GPU.
+    fn request_readback(&mut self, queue: &RenderQueue) {
+        if cfg!(target_os = "macos") {
+            for target in &self.slots {
+                if target.state.load(Ordering::Acquire) == RESOLVED {
+                    map_readback(target);
+                }
+            }
+        }
         let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
         if slot == NO_SLOT {
             return;
         }
         let index = slot as usize;
-        let resolved = self.frame.resolved.swap(NOT_RESOLVED, Ordering::AcqRel);
-        if resolved == NOT_RESOLVED {
+        let recorded = self.frame.recorded.swap(NOT_RECORDED, Ordering::AcqRel);
+        if recorded == NOT_RECORDED {
             self.ring.release(index);
             return;
         }
-        let (passes, draws) = ((resolved >> 32) as u32, resolved as u32);
+        let (passes, draws) = ((recorded >> 32) as u32, recorded as u32);
         let target = &mut self.slots[index];
         target.passes = passes;
         target.draws = draws;
@@ -584,20 +665,34 @@ impl GpuTimestamps {
             let stage = self.frame.stages[span as usize].load(Ordering::Relaxed);
             target.stages[span as usize] = RuntimeStage::ALL[stage as usize];
         }
-        let state = target.state.clone();
-        let slice = target.buffer.slice(..);
-        {
-            #[cfg(feature = "tracy")]
-            let _zone = bevy::log::info_span!("gpu.timestamps.map_request", slot).entered();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                state.store(
-                    if result.is_ok() { MAPPED } else { FAILED },
-                    Ordering::Release,
-                );
+        if cfg!(target_os = "macos") {
+            target.state.store(PENDING, Ordering::Relaxed);
+            let state = target.state.clone();
+            crate::device_poll::on_frame_complete(queue, move || {
+                state.store(WRITTEN, Ordering::Release);
             });
+        } else {
+            map_readback(target);
         }
         self.ring.submit(index);
     }
+}
+
+/// Maps a submitted copy and publishes completion only after its bytes are readable.
+fn map_readback(target: &ReadbackSlot) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!("gpu.timestamps.map_request").entered();
+    target.state.store(PENDING, Ordering::Relaxed);
+    let state = target.state.clone();
+    target
+        .buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            state.store(
+                if result.is_ok() { MAPPED } else { FAILED },
+                Ordering::Release,
+            );
+        });
 }
 
 fn init_gpu_timestamps(
@@ -634,8 +729,8 @@ fn begin_gpu_frame(
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 
-fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>) {
+fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>, queue: Res<RenderQueue>) {
     if let Some(mut timestamps) = timestamps {
-        timestamps.request_readback();
+        timestamps.request_readback(&queue);
     }
 }

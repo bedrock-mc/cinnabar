@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "family": "Cinnangles Five",
+  "style": "Regular",
+  "font_file": "CinnanglesFive.ttf",
+  "font_size_bytes": 11071196,
+  "font_sha256": "e2c70ad940a4136ccefc422429361c5455c3594114167141d0d4e4d9e7df8e2d",
+  "glyph_source": {
+    "family": "Cinnangles Sans",
+    "font_file": "CinnanglesSans.ttf",
+    "font_sha256": "348391b6c4eeabc28e36717f6bcc149ad655efa98b9854155d9d60a48d452f0a"
+  },
+  "drawing_source": "tools/fonts/face_art.py",
+  "advance_source": "tools/fonts/face_metrics.py",
+  "metrics_reference": {
+    "family": "Minecraft Five v2",
+    "use": "advance and ink widths, vertical metrics and stroke weight; no reference outlines or bitmaps"
+  }
+}

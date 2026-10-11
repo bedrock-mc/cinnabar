@@ -7,14 +7,12 @@ use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
     NO_MODEL_TEMPLATE, NetworkIdMode, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
 };
-use bevy::{
-    prelude::*,
-    render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
-};
+use bevy::render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures};
 use render_model::VisibilityKeyDigest;
 use world::{RawBlockIds, SubChunk};
 
 use super::*;
+use crate::chunk::gpu::arena::plan_chunk_range_update;
 
 fn target_expectation(
     now: Instant,
@@ -157,6 +155,7 @@ fn retirement_test_allocation() -> ArenaAllocation {
             has_depth_liquid: false,
             has_transparent_liquid: true,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 3,
         },
     }
@@ -188,10 +187,18 @@ mod presentation_required_columns;
 mod transparent;
 #[path = "transparent/incremental_tests.rs"]
 mod transparent_incremental;
+#[path = "transparent/manifest_tests.rs"]
+mod transparent_manifest;
 #[path = "transparent/residency_tests.rs"]
 mod transparent_residency;
+#[path = "transparent/scale_tests.rs"]
+mod transparent_scale;
 #[path = "transparent/strafe_tests.rs"]
 mod transparent_strafe;
+#[path = "transparent/streaming_tests.rs"]
+mod transparent_streaming;
+#[path = "transparent/turn_tests.rs"]
+mod transparent_turn;
 
 #[path = "resource_geometry_queue_tests.rs"]
 mod resource_geometry_review;

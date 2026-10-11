@@ -234,3 +234,43 @@ fn absorption_native_hearts_are_gated_by_survival_ui_and_keep_their_renderer() {
         assert_eq!(bound.properties["renderer"], json!("heart_renderer"));
     }
 }
+
+#[test]
+fn legacy_game_mode_bindings_keep_pack_hotbars_and_status_rows_visible() {
+    let mut catalog = crate::Catalog::default();
+    catalog.overlay_text(
+        "ui/legacy_hud.json",
+        r##"{"namespace":"test","hud":{"type":"panel","controls":[
+            {"survival":{"type":"panel","bindings":[
+                {"binding_name":"#is_not_creative_mode","binding_name_override":"#visible"}
+            ]}},
+            {"creative":{"type":"panel","bindings":[
+                {"binding_name":"#is_creative_mode","binding_name_override":"#visible"}
+            ]}}
+        ]}}"##,
+    );
+    let root = Arc::new(
+        crate::resolve(&catalog, "test.hud", &crate::Context::desktop())
+            .control
+            .unwrap(),
+    );
+    let mut state = BindState::new();
+    for (survival_ui, spectator, shown) in [
+        (true, false, [true, false]),
+        (false, false, [false, true]),
+        (false, true, [false, false]),
+        (true, false, [true, false]),
+    ] {
+        let model = HudModel {
+            survival_ui,
+            spectator,
+            ..Default::default()
+        };
+        let (bound, notes) =
+            bind_stateful(&root, &hud_data_source(&model), &EmptyLibrary, &mut state);
+        assert!(notes.is_empty(), "{notes:?}");
+        for (child, shown) in bound.children.iter().zip(shown) {
+            assert_eq!(child.properties.get("visible"), Some(&json!(shown)));
+        }
+    }
+}

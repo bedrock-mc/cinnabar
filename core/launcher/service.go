@@ -22,6 +22,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
+	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
@@ -34,12 +35,10 @@ type Config struct {
 	Store      *control.Store
 	Selector   *proxy.UpstreamSelector
 	Transfers  *proxy.TransferState
-	ArtworkDir string // screen artwork cache; empty skips caching
+	ArtworkDir string // rendered persona art; empty skips it
 	CacheFile  string // last good catalog; empty keeps it in memory only
 	Logger     *slog.Logger
 	Language   string // active UI locale used by messaging
-	// StoreImageDir holds cached Marketplace images; empty disables them.
-	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
 	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
@@ -54,7 +53,6 @@ type Config struct {
 	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
 	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
 	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
-	CacheArt                  func(ctx context.Context, directory string, images []*catalog.Image)
 	Ping                      func(ctx context.Context, addresses []string) []catalog.PingResult
 	Home                      func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
 	Report                    func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
@@ -65,6 +63,7 @@ type Config struct {
 type Service struct {
 	cfg       Config
 	logger    *slog.Logger
+	presence  *xboxpresence.Worker
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
@@ -74,8 +73,7 @@ type Service struct {
 	attempted    [2]time.Time
 	profileLogMu sync.Mutex
 	profileLogs  map[string]time.Time
-	profileArt   []string   // current avatar and achievement art pruning must keep
-	gamerpic     string     // profile artwork pruning must keep
+	profileArt   string     // current avatar that pruning must keep
 	disk         sync.Mutex // orders cache rewrites
 }
 
@@ -113,9 +111,6 @@ func New(cfg Config) *Service {
 	}
 	if cfg.ProfileAvatar == nil {
 		cfg.ProfileAvatar = catalog.ProfileAvatar
-	}
-	if cfg.CacheArt == nil {
-		cfg.CacheArt = catalog.CacheImages
 	}
 	if cfg.Ping == nil {
 		cfg.Ping = catalog.PingServers
@@ -162,7 +157,7 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 	return s.cfg.Friends(ctx, src)
 }
 
-// FeaturedServers lists the featured servers with their artwork cached, from the last good fetch.
+// FeaturedServers lists the featured servers from the last good fetch.
 func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
 	return cached(ctx, s, featuredFeed)
 }
@@ -187,7 +182,7 @@ func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.Feat
 	return withExperienceCounts(servers, counts), nil
 }
 
-// Home returns the start screen's service data with its artwork cached, from the last good fetch.
+// Home returns the start screen's service data from the last good fetch.
 func (s *Service) Home(ctx context.Context) (catalog.Home, error) {
 	return cached(ctx, s, homeFeed)
 }
@@ -206,40 +201,61 @@ func (s *Service) Ping(ctx context.Context, addresses []string) []catalog.PingRe
 	return s.cfg.Ping(ctx, addresses)
 }
 
-func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
-	if s.cfg.ArtworkDir != "" {
-		s.cfg.CacheArt(ctx, s.cfg.ArtworkDir, images)
-	}
-}
-
 // Connect selects the upstream for the next client connection and drops any pending transfer.
-// A gathering is joined now, so its server assignment is fresh.
 func (s *Service) Connect(ctx context.Context, kind, value string) error {
-	target, err := upstreamTarget(kind, value)
+	target, err := s.Target(ctx, kind, value)
 	if err != nil {
 		return err
-	}
-	if kind != control.TargetRakNet {
-		account, err := s.source()
-		if err != nil {
-			return err
-		}
-		if kind == control.TargetGathering {
-			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
-				return err
-			}
-		}
 	}
 	if s.cfg.Selector != nil {
 		s.cfg.Selector.Set(target)
 	}
+	s.clearTransfer()
+	return nil
+}
+
+// SessionTarget returns the proxy target for one session's explicit Connect and, like Connect, drops
+// any pending transfer; it leaves the shared selection alone. A cancelled resolution changes nothing.
+func (s *Service) SessionTarget(ctx context.Context, kind, value string) (string, error) {
+	target, err := s.Target(ctx, kind, value)
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		return "", err
+	}
+	s.clearTransfer()
+	return target, nil
+}
+
+func (s *Service) clearTransfer() {
 	if s.cfg.Transfers != nil {
 		s.cfg.Transfers.Clear()
 	}
 	if s.cfg.Store != nil {
 		s.cfg.Store.ClearTransfer()
 	}
-	return nil
+}
+
+// Target returns the proxy target for a connect.v1 target without selecting it. A gathering is
+// joined now, so its server assignment is fresh.
+func (s *Service) Target(ctx context.Context, kind, value string) (string, error) {
+	target, err := upstreamTarget(kind, value)
+	if err != nil {
+		return "", err
+	}
+	if kind != control.TargetRakNet {
+		account, err := s.source()
+		if err != nil {
+			return "", err
+		}
+		if kind == control.TargetGathering {
+			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
+				return "", err
+			}
+		}
+	}
+	return target, nil
 }
 
 // upstreamTarget maps a connect.v1 target to the proxy's target syntax.
@@ -318,6 +334,9 @@ func (s *Service) SignOut() error {
 	s.signedOut.Store(true)
 	s.snap = snapshot{}
 	s.mu.Unlock()
+	if s.presence != nil {
+		s.presence.Close()
+	}
 	_ = s.cfg.Account.Close()
 	s.disk.Lock()
 	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)

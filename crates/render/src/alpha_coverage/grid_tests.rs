@@ -2,6 +2,8 @@ use super::*;
 
 const COLUMNS: u32 = 4;
 const CELL_SIDE: u32 = SNAPSHOT_SIDE / COLUMNS;
+// Past every production group-0 binding, which the composed shader also declares.
+const GRID_CASES_BINDING: u32 = 23;
 
 struct GridCase {
     reference: u32,
@@ -52,7 +54,9 @@ fn grid_cases(model: bool) -> Vec<GridCase> {
                 (1, 0.75, 0.0, 1.0, 0),
                 (1, 0.375, 0.0, 0.0, 0),
                 (1, 1.75, 0.0, if model { 0.0 } else { 1.0 }, 0),
-                (1, 0.5, 1.0 / 32.0, 0.5, 0),
+                // Keep the nearest sample inside the opaque texel while its footprint
+                // still crosses the contour; exact texel ties vary between GPU backends.
+                (1, 0.50001, 1.0 / 32.0, 0.5, 0),
                 (2, 1.5, 0.0, if model { 1.0 } else { 0.0 }, 0),
                 (2, 1.25, 0.0, if model { 1.0 } else { 0.0 }, 0),
                 (0, 0.25, 1.0 / 32.0, 0.5, 0),
@@ -121,7 +125,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
         });
     }
     bindings.push(wgpu::BindGroupEntry {
-        binding: 19,
+        binding: GRID_CASES_BINDING,
         resource: data.as_entire_binding(),
     });
     let production = if model {
@@ -155,7 +159,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     };
     source.push_str(&format!(
         r#"
-@group(0) @binding(19) var<storage, read> grid_cases: array<vec4<u32>>;
+@group(0) @binding({GRID_CASES_BINDING}) var<storage, read> grid_cases: array<vec4<u32>>;
 @vertex fn grid_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
     return vec4(uv * 2.0 - vec2(1.0), 0.5, 1.0);

@@ -1,23 +1,22 @@
 //! Publishes the current gameplay pick to the native outline/highlight overlay passes.
 use bevy::{ecs::system::SystemParam, prelude::*};
+use gameplay::melee::{Crosshair, classify, pick_actor};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 use sim::PaletteWorld;
 
-use crate::{
-    app::ClientFrameSet,
-    interaction_authority::ray_is_current,
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{creative_reach, protocol_input_mode, survival_reach},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-    settings_runtime::RuntimeSettings,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        app::ClientFrameSet, interaction_authority::ray_is_current, menu::MenuRuntime,
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
+        semantic_controls::SemanticInputSnapshot, settings_runtime::RuntimeSettings,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
+};
 
 #[derive(SystemParam)]
-struct SelectionContext<'w> {
+pub(crate) struct SelectionContext<'w> {
     player: Res<'w, crate::player_runtime::PlayerRuntime>,
     world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -35,7 +34,7 @@ pub(crate) fn configure(app: &mut App) {
 }
 
 /// A missing, stale or menu-owned ray clears last frame's target immediately.
-fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
+pub(crate) fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
     let target = target(&context.player, &context);
     frame.update(
         target.as_ref(),
@@ -86,9 +85,27 @@ fn target(
         stream.current_dimension(),
     );
     let vector = |value: Vec3| sim::Vec3::new(value.x as f64, value.y as f64, value.z as f64);
-    let hit = world
+    let direct = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
-        .ok()??;
+        .ok()?;
+    let hit = match direct {
+        Some(hit) => hit,
+        None => {
+            let actor = pick_actor(
+                stream.authority().remote_actors(),
+                context.ui.gameplay_hud().mount_unique_id(),
+                ray.origin().to_array(),
+                ray.direction().to_array(),
+                reach,
+            );
+            if matches!(classify(actor, None, reach), Crosshair::Actor(_)) {
+                return None;
+            }
+            world
+                .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
+                .ok()??
+        }
+    };
     if !context.collisions.selection_overlay_visible(
         stream.network_id_mode(),
         hit.runtime_id,

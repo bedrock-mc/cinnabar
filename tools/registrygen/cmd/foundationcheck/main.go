@@ -6,10 +6,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"io"
 	"os"
 	"strings"
+
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
 const maxManifestBytes = 16 * 1024
@@ -39,15 +41,14 @@ type outputs struct {
 }
 
 type sources struct {
-	Dragonfly dragonflySource `json:"dragonfly"`
-	BDS       bdsSource       `json:"bds"`
+	Protocolgen sharedFoundationSource `json:"protocolgen"`
+	BDS         bdsSource              `json:"bds"`
 }
 
-type dragonflySource struct {
-	Commit string `json:"commit"`
-	Blob   string `json:"blob"`
-	SHA256 string `json:"sha256"`
-	Size   uint64 `json:"size"`
+type sharedFoundationSource struct {
+	Module           string `json:"module"`
+	SourceLockSHA256 string `json:"source_lock_sha256"`
+	CloudburstRef    string `json:"cloudburst_ref"`
 }
 
 type bdsSource struct {
@@ -208,15 +209,9 @@ func validate(value manifest) error {
 }
 
 func validateSources(value sources) error {
-	dragonfly := value.Dragonfly
-	if dragonfly.Commit != "4c7b5074be94fa83a1cd98e9c752083ad04a6e21" ||
-		dragonfly.Blob != "ee29e5e039086c10bdfb964621a8e146b4f7af19" ||
-		dragonfly.SHA256 != "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6" ||
-		dragonfly.Size != 3102889 {
-		return errors.New("unexpected Dragonfly source identity")
-	}
-	if !lowerHex(dragonfly.Commit, 20) || !lowerHex(dragonfly.Blob, 20) || !lowerHex(dragonfly.SHA256, 32) {
-		return errors.New("Dragonfly hashes must be lowercase hexadecimal")
+	catalog := value.Protocolgen
+	if catalog.Module != "github.com/bedrock-mc/protocolgen/generated/data" || catalog.SourceLockSHA256 != shared.SourceLockSHA256 || catalog.CloudburstRef != shared.CloudburstRef {
+		return errors.New("registry foundation shared catalog identity does not match the pinned module")
 	}
 	bds := value.BDS
 	if bds.ArchiveSHA256 != "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825" ||

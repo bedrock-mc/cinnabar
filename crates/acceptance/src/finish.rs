@@ -1,13 +1,15 @@
 //! Terminal evidence decides when to request an ordinary runtime stop.
-use crate::{
-    AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
-    TRANSPARENT_PRESENTATION_EXIT_GRACE,
-    mutation::write_stdout_marker,
-    phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentity},
-};
 use bevy::{log::error, prelude::AppExit};
 use diagnostics::metrics::{MetricsCollector, TransparentSortMetricsSnapshot};
 use std::time::Instant;
+use {
+    crate::{
+        AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,
+        TRANSPARENT_PRESENTATION_EXIT_GRACE,
+        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceIdentity},
+    },
+    diagnostics::write_stdout_marker,
+};
 
 /// Immutable movement facts observed at the terminal evidence boundary.
 pub struct TerminalMovementObservation {
@@ -72,7 +74,7 @@ pub fn finish_acceptance_run(
             phase3.pending_count,
             phase3.outbox_reconciliation,
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in markers {
             write_stdout_marker(&mut stdout, &marker);
         }

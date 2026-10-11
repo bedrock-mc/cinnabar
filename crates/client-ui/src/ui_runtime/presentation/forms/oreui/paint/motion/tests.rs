@@ -23,7 +23,7 @@ fn entrances_move_clipped_content_once_and_keep_hit_geometry_and_backdrops_stabl
     let viewport = [100.0, 100.0, 400.0, 300.0];
     let scroll = canvas.begin_scroll("test", viewport).unwrap();
     let button = [120.0, 120.0, 300.0, 164.0];
-    let view = crate::menu::MenuView::new(true, "Player".into());
+    let view = launcher::menu::MenuView::new(true, "Player".into());
     widgets::button(
         &mut canvas,
         &view,
@@ -75,7 +75,7 @@ fn disabled_motion_keeps_the_complete_face_and_hit_area_immediate() {
     let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
     canvas.transitions = Some(&mut transitions);
     let scope = canvas.begin_entrance(Surface::Screen(MenuScreen::Pause));
-    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    let mut view = launcher::menu::MenuView::new(true, "Player".into());
     view.pressed = Some(MenuAction::PauseResume);
     let button = [100.0, 100.0, 400.0, 164.0];
     let expected_top = button[1] + canvas.r(0.4);
@@ -98,4 +98,4 @@ fn disabled_motion_keeps_the_complete_face_and_hit_area_immediate() {
     );
 }
 
-use crate::menu::{MenuAction, MenuScreen};
+use launcher::menu::{MenuAction, MenuScreen};

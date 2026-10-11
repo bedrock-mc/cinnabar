@@ -8,7 +8,7 @@ use bevy::{
     mesh::MeshPlugin,
     render::{
         RenderPlugin,
-        renderer::{RenderAdapterInfo, WgpuWrapper},
+        renderer::{RenderAdapterInfo, RenderInstance, WgpuWrapper},
         settings::RenderCreation,
     },
     window::WindowPlugin,
@@ -212,14 +212,17 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
     assert_eq!(cull.slot_count(), 1);
 }
 
-/// DX12 cannot consume compacted draw counts without losing base vertex/instance constants.
-/// Cleared fixed-size indirect regions preserve those constants and still run the same Hi-Z cull.
+/// DX12 consumes compacted counts through culled pipelines and runs the Hi-Z cull on the real
+/// driver. The cleared fixed-size fallback is rasterised on both backends by the integration
+/// tests; DX12 always offers count draws.
 #[cfg(all(target_os = "windows", debug_assertions))]
 #[test]
-fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
-    let Some(render) = render_plugin(wgpu::Backends::DX12, WgpuFeatures::INDIRECT_FIRST_INSTANCE)
-    else {
-        eprintln!("skipping DX12 fixed-count cull app: missing compatible native adapter");
+fn dx12_debug_runs_two_phase_count_gpu_culling() {
+    let Some(render) = render_plugin(
+        wgpu::Backends::DX12,
+        WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT,
+    ) else {
+        eprintln!("skipping DX12 count cull app: missing compatible native adapter");
         return;
     };
     let (mut app, _) = chunk_app(render, Msaa::Off, camera_transform());
@@ -239,11 +242,31 @@ fn dx12_debug_runs_two_phase_fixed_count_gpu_culling() {
         "DX12 MDI must not regress to per-section direct draws"
     );
     let cull = render_world.resource::<GpuCull>();
-    assert_eq!(cull.submission, GpuCullSubmission::Fixed);
+    assert_eq!(cull.submission, GpuCullSubmission::Count);
     assert_eq!(cull.slot_count(), 2);
     assert!(cull.bind_groups.is_some(), "the culled view was prepared");
     assert!(
         cull.pyramid.is_some(),
         "the DX12 depth target admits the late Hi-Z phase"
     );
+}
+
+/// Every terrain variant must compile with vertex offsets on a real backend.
+#[test]
+fn native_devices_compile_opaque_and_transparent_terrain_variants() {
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        let Some(render) = render_plugin(wgpu::Backends::PRIMARY, WgpuFeatures::empty()) else {
+            eprintln!("skipping terrain pipeline compilation: missing native GPU adapter fixture");
+            return;
+        };
+        let (mut app, _) = chunk_app(render, msaa, camera_transform());
+        for _ in 0..4 {
+            frame(&mut app);
+        }
+        assert!(
+            app.world()
+                .resource::<crate::PipelineWarmupReadiness>()
+                .is_ready()
+        );
+    }
 }

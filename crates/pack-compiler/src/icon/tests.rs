@@ -196,7 +196,7 @@ fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
                 (120.0 * shade).round() as u8,
                 255,
             ];
-            !raster.rgba8.chunks_exact(4).any(|sample| sample == color)
+            !raster.rgba8.as_chunks::<4>().0.contains(&color)
         })
         .expect("the thin thumbnail leaves some source texels unsampled");
     source.texture_pages[0].texture.mips[0].rgba8[(2 * side * side + unseen) * 4] = 255;

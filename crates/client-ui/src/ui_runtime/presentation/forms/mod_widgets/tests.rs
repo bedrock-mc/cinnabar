@@ -49,7 +49,7 @@ pub(in super::super) fn installed_hud_presentation() -> Option<UiPresentationRun
         .textures
         .set_fallbacks(
             Default::default(),
-            root.join(crate::install_layout::vanilla_pack_relative()),
+            root.join(launcher::install_layout::vanilla_pack_relative()),
         );
     Some(presentation)
 }
@@ -622,8 +622,8 @@ fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() 
             2 => runtime.chat_focused = true,
             3 => p.loading_stage = Some(super::super::LoadingStage::Connecting),
             4 => {
-                let mut options = crate::menu::settings_options::SettingsOptions::default();
-                let index = crate::menu::settings_options::SETTINGS_OPTIONS
+                let mut options = launcher::menu::settings_options::SettingsOptions::default();
+                let index = launcher::menu::settings_options::SETTINGS_OPTIONS
                     .iter()
                     .position(|option| option.name == "hide_hud")
                     .unwrap();
@@ -830,7 +830,7 @@ fn personal_hud_snapshot_with_real_carrier() {
 
 #[test]
 fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
-    use crate::menu::settings_options::{
+    use launcher::menu::settings_options::{
         SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
     };
     use protocol::PlayerGameMode;
@@ -890,7 +890,7 @@ fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
             }
         }
     }
-    p.set_menu_view(Some(crate::menu::MenuView::new(true, "Fixture".into())));
+    p.set_menu_view(Some(launcher::menu::MenuView::new(true, "Fixture".into())));
     assert!(!p.mod_hud_visible(&player, &runtime));
 }
 
@@ -944,4 +944,53 @@ fn progress_fill_stays_within_its_track_for_icon_rows_and_each_card_scale() {
             }
         }
     }
+}
+
+#[test]
+fn rectangular_cells_center_text_resize_and_update_without_rebuilding() {
+    use ui::mod_hud::Cell;
+    let mut p = presentation(false);
+    let runtime = UiRuntime::new(1);
+    let mut hud = Hud {
+        cards: vec![Card {
+            id: "buttons".into(),
+            width: 56.,
+            cells: vec![
+                Cell {
+                    rect: [19., 0., 18., 18.],
+                    label: "W".into(),
+                    background: [0., 0., 0., 0.44],
+                    ..Default::default()
+                },
+                Cell {
+                    rect: [0., 19., 27.5, 18.],
+                    label: "LMB".into(),
+                    value: "0 CPS".into(),
+                    background: [0., 0., 0., 0.44],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    p.set_mod_hud(Some(&hud)).unwrap();
+    let before = frame(&mut p, &runtime, [1280, 720], 1.);
+    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    hud.cards[0].cells[0].background = [1., 1., 1., 0.44];
+    hud.cards[0].cells[0].color = [0., 0., 0., 1.];
+    hud.cards[0].cells[1].value = "9 CPS".into();
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert!(Arc::ptr_eq(
+        &catalog,
+        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+    ));
+    let after = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
+    assert_eq!(template::dimensions(&hud.cards[0]), [56., 37.]);
+    hud.cards[0].scale = 2.;
+    p.set_mod_hud(Some(&hud)).unwrap();
+    assert_eq!(template::dimensions(&hud.cards[0]), [112., 74.]);
+    let scaled = frame(&mut p, &runtime, [1280, 720], 1.);
+    assert_ne!(snapshot::rasterize(&after), snapshot::rasterize(&scaled));
 }

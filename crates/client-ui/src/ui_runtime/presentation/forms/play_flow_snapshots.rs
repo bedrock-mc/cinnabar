@@ -5,9 +5,9 @@
 use ui::{DpiScale, UiVisual};
 
 use super::pack_harness::engine_presentation;
-use crate::menu::MenuAction;
-use crate::menu::{MenuScreen, auth::AuthState};
 use crate::ui_runtime::UiRuntime;
+use launcher::menu::MenuAction;
+use launcher::menu::{MenuScreen, auth::AuthState};
 
 /// Captures the shipped menu routes without account or server fixtures.
 #[test]
@@ -20,7 +20,7 @@ fn snapshot_shipped_font_routes() {
         (MenuScreen::Profile, "fonts-profile"),
         (MenuScreen::Pause, "fonts-pause"),
     ] {
-        let mut view = crate::menu::MenuView::new(true, "Player".into());
+        let mut view = launcher::menu::MenuView::new(true, "Player".into());
         view.screen = screen;
         view.over_world = screen == MenuScreen::Pause;
         snapshot(&player, &view, name);
@@ -52,7 +52,7 @@ fn snapshot_play_flow() {
     snapshot(&player_runtime, &servers, "flow-play-servers-featured");
     servers.feeds.select_saved(0);
     snapshot(&player_runtime, &servers, "flow-play-servers-saved");
-    servers.dialog = Some(crate::menu::MenuDialog::RemoveSaved(0));
+    servers.dialog = Some(launcher::menu::MenuDialog::RemoveSaved(0));
     snapshot(&player_runtime, &servers, "flow-remove-server");
     snapshot(&player_runtime, &at(MenuScreen::Friends), "flow-friends");
     let mut add = at(MenuScreen::AddServer);
@@ -125,7 +125,7 @@ fn the_connecting_loader_animates_over_its_cached_layout() {
         .expect("installed loading animation has distinct frames");
     let page = presentation.textures.dynamic_start() as u16;
     presentation.enable_oreui_originals(images).unwrap();
-    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.connecting = true;
     view.message = Some("Connecting...".to_owned());
     let runtime = UiRuntime::new(1);
@@ -236,7 +236,7 @@ fn the_disconnect_screen_has_a_way_back() {
         .unwrap();
     assert!(
         hits.iter()
-            .any(|(action, _)| *action == crate::menu::MenuAction::DismissDialog),
+            .any(|(action, _)| *action == launcher::menu::MenuAction::DismissDialog),
         "{hits:?}"
     );
     let texts = super::pack_harness::drawn_texts(&nodes);
@@ -341,7 +341,7 @@ fn the_settings_panes_take_the_wheel() {
 fn snapshot_local_worlds() {
     let player_runtime = player_state::PlayerState::new(1);
 
-    use crate::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
+    use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
         World, WorldState, WorldStatus,
@@ -457,3 +457,89 @@ pub(super) use crate::test_support::{
 
 pub(super) use crate::test_support::fixture_view;
 use crate::test_support::play_flow::{art, server};
+
+/// Captures matched font fixtures at desktop scales without contacting services.
+#[test]
+fn snapshot_shipped_font_routes_parity() {
+    if std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_none() {
+        eprintln!("skipping font parity snapshots: missing CINNABAR_FORM_SNAPSHOT_DIR");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let base = fixture_view(dir.path());
+    for (physical, dpi, suffix) in [
+        ([2560, 1440], 2.0, ""),
+        ([1280, 720], 1.0, "-scale2"),
+        ([3024, 1964], 2.0, "-scale7"),
+    ] {
+        for (screen, name) in [
+            (MenuScreen::Home, "home"),
+            (MenuScreen::Play, "play"),
+            (MenuScreen::Servers, "servers"),
+            (MenuScreen::Settings, "settings"),
+            (MenuScreen::Pause, "pause"),
+        ] {
+            let mut view = base.clone();
+            view.screen = screen;
+            view.over_world = screen == MenuScreen::Pause;
+            if screen == MenuScreen::Servers {
+                view.feeds.selected_featured = Some(0);
+            }
+            font_grid_snapshot(&view, physical, dpi, &format!("grid-{name}{suffix}"));
+        }
+    }
+}
+
+/// Captures supplied discovery text without loading account data or contacting a server.
+#[test]
+fn snapshot_shipped_font_motds() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = fixture_view(dir.path());
+    let Ok(path) = std::env::var("CINNABAR_FONT_MOTD_FIXTURE") else {
+        eprintln!("skipping font MOTD snapshot: missing CINNABAR_FONT_MOTD_FIXTURE");
+        return;
+    };
+    let rows: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let mut view = base;
+    view.screen = MenuScreen::Servers;
+    view.feeds.pings.clear();
+    view.featured = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            crate::test_support::play_flow::server(
+                row["name"].as_str().unwrap(),
+                &format!("fixture-{index}.invalid"),
+                row["motd"].as_str().unwrap(),
+                String::new(),
+            )
+        })
+        .collect();
+    font_grid_snapshot(&view, [2560, 1440], 2.0, "grid-motds");
+}
+
+/// Publishes and rasterizes a fixed offline screen at its physical size and DPI.
+fn font_grid_snapshot(view: &launcher::menu::MenuView, physical: [u32; 2], dpi: f32, name: &str) {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let runtime = super::pack_harness::menu_runtime();
+    let player = player_state::PlayerState::new(1);
+    presentation.sync_menu_artwork(crate::ui_runtime::presentation::menu_artwork::view_paths(
+        view,
+    ));
+    presentation.finish_menu_artwork();
+    let dpi = DpiScale::new(dpi).unwrap();
+    for _ in 0..2 {
+        presentation.set_menu_view(Some(view.clone()));
+        presentation
+            .build(&player, &runtime, 0, physical, dpi)
+            .unwrap();
+    }
+    let input = presentation
+        .build(&player, &runtime, 0, physical, dpi)
+        .unwrap();
+    super::snapshot::write(&input, name);
+}

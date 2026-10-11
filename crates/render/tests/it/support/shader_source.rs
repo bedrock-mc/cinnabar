@@ -11,14 +11,22 @@ const FULLSCREEN: &str = "struct FullscreenVertexOutput { @builtin(position) pos
 const FULLSCREEN_VERTEX: &str = "@vertex fn fullscreen(@builtin(vertex_index) index: u32) -> FullscreenVertexOutput { var out: FullscreenVertexOutput; out.uv = vec2(f32((index << 1u) & 2u), f32(index & 2u)); out.position = vec4(out.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0); return out; }";
 
 /// Reads the alpha cutoff guarding a fragment discard, including named WGSL constants.
-pub fn alpha_discard_threshold(source: &str, entry: &str) -> Option<f32> {
+pub fn alpha_discard_threshold(source: &str, function: &str) -> Option<f32> {
     let module = naga::front::wgsl::parse_str(&standalone(source, &[])).expect("shader parses");
-    let function = &module
+    // An entry point, or the shading function an entry point delegates to.
+    let function = module
         .entry_points
         .iter()
-        .find(|point| point.name == entry)
-        .expect("fragment entry exists")
-        .function;
+        .find(|point| point.name == function)
+        .map(|point| &point.function)
+        .or_else(|| {
+            module
+                .functions
+                .iter()
+                .map(|(_, candidate)| candidate)
+                .find(|candidate| candidate.name.as_deref() == Some(function))
+        })
+        .expect("fragment function exists");
     discard_threshold(&module, function, &function.body)
 }
 
@@ -120,6 +128,7 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
     ));
     let material = material_shader::source(include_str!("../../../src/material.wgsl"));
     let lighting = material_shader::source(include_str!("../../../src/lighting.wgsl"));
+    let bindings = material_shader::source(include_str!("../../../src/chunk_bindings.wgsl"));
     while let Some(line) = lines.next() {
         let directive = line.trim();
         if directive.starts_with("#define_import_path") {
@@ -144,6 +153,13 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
                 ("lighting", lighting.as_str())
             } else if module.starts_with("cinnabar::biome_tint") {
                 ("biome", biome.as_str())
+            } else if module.starts_with("cinnabar::world_projection") {
+                (
+                    "world_projection",
+                    include_str!("../../../src/world_projection.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::chunk_bindings") {
+                ("chunk_bindings", bindings.as_str())
             } else if module.starts_with("cinnabar::enhanced_common") {
                 ("common", include_str!("../../../src/enhanced/common.wgsl"))
             } else if module.starts_with("cinnabar::enhanced_view") {
@@ -196,6 +212,10 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
             )),
         ),
         (
+            "cinnabar::world_projection",
+            include_str!("../../../src/world_projection.wgsl").to_owned(),
+        ),
+        (
             "cinnabar::enhanced_common",
             include_str!("../../../src/enhanced/common.wgsl").to_owned(),
         ),
@@ -206,6 +226,18 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
         (
             "cinnabar::enhanced_caster",
             include_str!("../../../src/enhanced/caster.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::chunk_bindings",
+            material_shader::source(include_str!("../../../src/chunk_bindings.wgsl")),
+        ),
+        (
+            "cinnabar::liquid",
+            material_shader::source(include_str!("../../../src/liquid.wgsl")),
+        ),
+        (
+            "cinnabar::model",
+            material_shader::source(include_str!("../../../src/model.wgsl")),
         ),
     ] {
         composer

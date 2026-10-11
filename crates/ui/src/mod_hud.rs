@@ -78,7 +78,7 @@ pub struct Card {
     pub background_opacity: f32,
     #[serde(default)]
     pub row_layout: RowLayout,
-    /// Unscaled GUI-pixel width, bounded to 48 through 512.
+    /// Unscaled GUI-pixel width: 48–512 for rows, 1–512 for cells.
     #[serde(default = "card_width")]
     pub width: f32,
     /// Unscaled GUI-pixel row height, bounded to 12 through 64.
@@ -99,6 +99,9 @@ pub struct Card {
     #[serde(default)]
     pub reset_scale: Option<f32>,
     pub rows: Vec<Row>,
+    /// Optional rectangular text cells instead of linear rows.
+    #[serde(default)]
+    pub cells: Vec<Cell>,
 }
 
 impl Default for Card {
@@ -121,6 +124,31 @@ impl Default for Card {
             reset_offset: None,
             reset_scale: None,
             rows: Vec::new(),
+            cells: Vec::new(),
+        }
+    }
+}
+
+/// Bounded GUI-pixel rectangle with centered text and an optional smaller second line.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Cell {
+    pub rect: [f32; 4],
+    pub label: String,
+    pub value: String,
+    pub background: [f32; 4],
+    pub color: [f32; 4],
+    pub shadow: bool,
+}
+impl Default for Cell {
+    fn default() -> Self {
+        Self {
+            rect: [0., 0., 1., 1.],
+            label: String::new(),
+            value: String::new(),
+            background: [0.; 4],
+            color: white(),
+            shadow: false,
         }
     }
 }
@@ -258,7 +286,12 @@ impl Hud {
             }
         }
         if self.cards.len() > MAX_HUD_CARDS
-            || self.cards.iter().map(|c| c.rows.len()).sum::<usize>() > MAX_HUD_ROWS
+            || self
+                .cards
+                .iter()
+                .map(|c| c.rows.len() + c.cells.len())
+                .sum::<usize>()
+                > MAX_HUD_ROWS
         {
             return Err("HUD has too many cards or rows".into());
         }
@@ -285,17 +318,18 @@ impl Hud {
                     .offset
                     .into_iter()
                     .any(|v| !v.is_finite() || v.abs() > 2048.)
-                || card.rows.len() > MAX_CARD_ROWS
+                || card.rows.len() + card.cells.len() > MAX_CARD_ROWS
+                || !card.rows.is_empty() && !card.cells.is_empty()
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
                 || !card.width.is_finite()
-                || !(48. ..=512.).contains(&card.width)
+                || !(if card.cells.is_empty() { 48. } else { 1. }..=512.).contains(&card.width)
                 || !card.row_height.is_finite()
                 || !(12. ..=64.).contains(&card.row_height)
                 || !card.icon_size.is_finite()
                 || !(4. ..=48.).contains(&card.icon_size)
-                || card.icon_size > card.row_height
-                || card.icon_size > card.width - 12.
+                || card.cells.is_empty()
+                    && (card.icon_size > card.row_height || card.icon_size > card.width - 12.)
                 || !card.text_scale.is_finite()
                 || !(0.5..=2.).contains(&card.text_scale)
                 || card.position.is_some_and(|p| {
@@ -307,6 +341,23 @@ impl Hud {
                     .is_some_and(|p| p.into_iter().any(|v| !v.is_finite() || v.abs() > 2048.))
             {
                 return Err("HUD card geometry exceeds its bounds".into());
+            }
+            for cell in &card.cells {
+                text(&cell.label)?;
+                text(&cell.value)?;
+                color(cell.color)?;
+                color(cell.background)?;
+                let [x, y, width, height] = cell.rect;
+                if cell.rect.iter().any(|v| !v.is_finite())
+                    || x < 0.
+                    || y < 0.
+                    || width <= 0.
+                    || height <= 0.
+                    || x + width > card.width
+                    || y + height > 1024.
+                {
+                    return Err("HUD cell rectangle exceeds its card bounds".into());
+                }
             }
             for row in &card.rows {
                 text(&row.label)?;
@@ -511,12 +562,17 @@ mod tests {
     fn editor_autosave_is_opt_in_and_custom_actions_remain_bounded() {
         let mut hud: Hud = serde_json::from_str(r#"{"cards":[]}"#).unwrap();
         assert!(!hud.autosave && hud.surface.is_none());
+        let done_last = format!("hud.done:{}", crate::mod_panel::MAX_PANEL_CONTROLS - 1);
+        let done_excess = format!("hud.done:{}", crate::mod_panel::MAX_PANEL_CONTROLS);
+        let card_last = format!("hud.card:{}", MAX_HUD_CARDS - 1);
+        let card_excess = format!("hud.card:{}", MAX_HUD_CARDS);
         for (action, valid) in [
             ("hud.close", true),
             ("hud.done:0", true),
-            ("hud.done:64", false),
-            ("hud.card:7", true),
-            ("hud.card:8", false),
+            (done_last.as_str(), true),
+            (done_excess.as_str(), false),
+            (card_last.as_str(), true),
+            (card_excess.as_str(), false),
             ("mod.control:0", false),
             ("button.resume_game", false),
         ] {
@@ -598,6 +654,37 @@ mod tests {
         assert!(hud.validate().is_err());
         hud.cards[0].rows[0].progress = None;
         hud.cards[0].title = "§khidden".into();
+        assert!(hud.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod cell_tests {
+    use super::*;
+
+    #[test]
+    fn rectangular_cells_are_optional_and_bounded() {
+        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"input","width":56,"rows":[],"cells":[{"rect":[19,0,18,18],"label":"W"}]}]}"#).unwrap();
+        assert!(hud.validate().is_ok());
+        hud.cards[0].width = 32.;
+        hud.cards[0].cells[0].rect = [11., 0., 10., 10.];
+        assert!(hud.validate().is_ok());
+        hud.cards[0].width = 56.;
+        for rect in [
+            [40., 0., 18., 18.],
+            [0., 1010., 18., 18.],
+            [0., 0., 0., 18.],
+            [-1., 0., 18., 18.],
+            [0., 0., f32::NAN, 18.],
+        ] {
+            hud.cards[0].cells[0].rect = rect;
+            assert!(hud.validate().is_err(), "accepted {rect:?}");
+        }
+        hud.cards[0].cells[0].rect = [0., 0., 18., 18.];
+        hud.cards[0].cells[0].background = [0., 0., 0., 2.];
+        assert!(hud.validate().is_err());
+        hud.cards[0].cells[0].background = [0.; 4];
+        hud.cards[0].cells = vec![Cell::default(); MAX_CARD_ROWS + 1];
         assert!(hud.validate().is_err());
     }
 }

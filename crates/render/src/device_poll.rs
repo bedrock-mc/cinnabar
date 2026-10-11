@@ -9,11 +9,11 @@ use bevy::{
     render::{
         Render, RenderSystems,
         render_resource::PollType,
-        renderer::{RenderDevice, render_system},
+        renderer::{RenderDevice, RenderQueue, render_system},
     },
 };
 
-/// Owners whose systems submit completion sentinels or readbacks after the graph.
+/// Owners whose systems register completion callbacks or request readbacks after the graph.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct FrameSubmissions;
 
@@ -40,6 +40,24 @@ pub(crate) fn install(render_app: &mut SubApp) {
                 .in_set(RenderSystems::Render)
                 .after(FrameSubmissions),
         );
+}
+
+/// Runs callback from a device poll after all submissions so far, including this frame, complete.
+/// Call from a FrameSubmissions system; registering it requires no extra submit.
+pub(crate) fn on_frame_complete(queue: &RenderQueue, callback: impl FnOnce() + Send + 'static) {
+    queue.on_submitted_work_done(callback);
+}
+
+/// Counts the queue's submissions so far by making an empty one, which tests subtract.
+#[cfg(test)]
+pub(crate) fn submissions_so_far(queue: &RenderQueue) -> u64 {
+    let index = format!("{:?}", queue.submit([]));
+    index
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .expect("submission index")
 }
 
 fn poll_device(device: Res<RenderDevice>, mut polls: ResMut<DevicePolls>) {

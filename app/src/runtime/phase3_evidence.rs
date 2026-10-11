@@ -1,23 +1,20 @@
 //! Converts gameplay observations into the optional evidence plugin's input records.
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 #[cfg(test)]
-use crate::movement::{MovementOutboxReconciliation, MovementSource};
-use crate::{
-    acceptance::{AcceptanceRun, mutation::write_stdout_marker},
-    movement::{
-        MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault, PhysicsAuthorityFaultRecord,
-        PhysicsCollisionRegistries, PhysicsCorrectionOutcome, PhysicsTickEvidence,
+use acceptance::phase3_evidence::Phase3EvidenceIdentity;
+use acceptance::phase3_evidence::{Phase3EvidenceFrame, Phase3EvidenceIdentityError};
+use bevy::prelude::{Res, ResMut, Resource};
+#[cfg(test)]
+use gameplay::movement::{MovementOutboxReconciliation, MovementSource};
+use semantic_input::InputMode;
+use {
+    crate::movement::{MovementTicker, PhysicsAuthorityFaultRecord, PhysicsCollisionRegistries},
+    diagnostics::write_stdout_marker,
+    gameplay::movement::{
+        OUTBOX_CAPACITY, PhysicsAuthorityFault, PhysicsCorrectionOutcome, PhysicsTickEvidence,
     },
 };
-#[cfg(test)]
-pub(crate) use acceptance::phase3_evidence::{
-    MAX_PHASE3_EVENT_RECORDS, MAX_PHASE3_FAULT_RECORDS, MAX_PHASE3_FRAME_RECORDS,
-    Phase3EvidenceIdentity, validate_phase3_build_source,
-};
-pub(crate) use acceptance::phase3_evidence::{
-    Phase3EvidenceEventKind, Phase3EvidenceFrame, Phase3EvidenceIdentityError,
-};
-use bevy::prelude::{Res, ResMut, Resource};
-use semantic_input::InputMode;
 
 /// Owns the emitter while translating gameplay's existing domain records at the boundary.
 #[derive(Resource, Default)]
@@ -149,6 +146,7 @@ impl Phase3EvidenceIdentitySource {
         .map(Self)
     }
 }
+
 /// Converts the gameplay fault into evidence fields without extending the gameplay type.
 fn authority_fault_observation(
     record: PhysicsAuthorityFaultRecord,
@@ -282,14 +280,14 @@ pub(crate) fn emit_phase3_evidence(
         debug_assert_eq!(retained, fault);
         let mut markers = evidence.observe_identity(identity);
         markers.extend(evidence.observe_authority_fault(retained));
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in markers {
             write_stdout_marker(&mut stdout, &marker);
         }
     }
     let pending_violations = evidence.take_violation_marker();
     if !pending_violations.is_empty() {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         for marker in pending_violations {
             write_stdout_marker(&mut stdout, &marker);
         }
@@ -303,7 +301,7 @@ pub(crate) fn emit_phase3_evidence(
     if markers.is_empty() {
         return;
     }
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = diagnostics::console::stdout();
     for marker in markers {
         write_stdout_marker(&mut stdout, &marker);
     }

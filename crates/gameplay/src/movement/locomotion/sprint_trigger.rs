@@ -41,7 +41,7 @@ impl SprintTrigger {
         if !was_sprinting
             && admission
             && !observed.sprint_down
-            && (observed.on_ground || observed.in_water || intent.can_fly)
+            && (observed.on_ground || observed.in_water || intent.can_fly || intent.spectator)
             && !self.previous_forward
             && !self.previous_sneak
         {

@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 /// Distinct colored variants let packing tests detect accidental key collapse.
 fn sprite(metadata: u32) -> SessionIcon {
@@ -8,6 +8,18 @@ fn sprite(metadata: u32) -> SessionIcon {
         width: 16,
         height: 16,
         rgba8: vec![metadata as u8; 16 * 16 * 4].into(),
+    }
+}
+
+/// Observes `icons` and, when they pack on a worker, waits for its page and installs it on the
+/// next observed frame.
+fn install_landed(presentation: &mut UiPresentationRuntime, icons: &Arc<SessionIcons>) {
+    observe(presentation, Some(icons));
+    if let Some(packing) = presentation.session_icons.packing.take() {
+        let (landed, done) = crossbeam_channel::bounded(1);
+        landed.send(packing.done.recv().unwrap()).unwrap();
+        presentation.session_icons.packing = Some(Packing { done, ..packing });
+        observe(presentation, Some(icons));
     }
 }
 
@@ -101,7 +113,7 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
         misses: HashMap::new(),
         ..Default::default()
     });
-    observe(&mut presentation, Some(&icons));
+    install_landed(&mut presentation, &icons);
     let icon = presentation.item_icon("test:variant", 599).unwrap();
     let page = &presentation.textures.pages()[usize::from(icon.page)];
     assert_eq!(
@@ -182,6 +194,45 @@ fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
         ),
         ("minecraft:stone", 2),
     );
+}
+
+// A registry's worth of icons packs on a worker: the frame keeps the installed set, then installs
+// the same placements an inline pack makes once the page lands.
+#[test]
+fn a_large_icon_set_packs_off_the_frame() {
+    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let small = Arc::new(SessionIcons {
+        icons: vec![sprite(0)],
+        ..Default::default()
+    });
+    observe(&mut presentation, Some(&small));
+    let installed = presentation.item_icon("test:variant", 0).unwrap();
+    let large = Arc::new(SessionIcons {
+        icons: (0..700).map(sprite).collect(),
+        ..Default::default()
+    });
+    let packs = PACKS.with(std::cell::Cell::get);
+    observe(&mut presentation, Some(&large));
+    assert_eq!(
+        PACKS.with(std::cell::Cell::get),
+        packs,
+        "the frame packed no page"
+    );
+    assert_eq!(
+        presentation.item_icon("test:variant", 0),
+        Some(installed),
+        "the installed set draws until the page lands"
+    );
+    install_landed(&mut presentation, &large);
+    assert!(Arc::ptr_eq(
+        presentation.session_icons.source.as_ref().unwrap(),
+        &large
+    ));
+    assert_eq!(PACKS.with(std::cell::Cell::get), packs);
+    let page = (presentation.textures.dynamic_start() + dynamic_textures::SESSION_ICON_PAGE) as u16;
+    let expected = pack(&large, page).unwrap();
+    assert_eq!(presentation.session_icons.refs, expected.refs);
+    assert_eq!(presentation.session_icons.page, Some(expected.page));
 }
 
 #[test]

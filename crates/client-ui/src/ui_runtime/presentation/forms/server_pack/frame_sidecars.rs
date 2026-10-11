@@ -4,9 +4,12 @@ use std::{cell::RefCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use json_ui::{AsepriteFrame, parse_aseprite_frames};
 
-use super::{MAX_EXTRA, MAX_PACK_TEXTURE_BYTES, VANILLA_IN_PACKAGE, exact_case, vanilla_path};
+use {
+    super::{MAX_EXTRA, VANILLA_IN_PACKAGE, exact_case, vanilla_path},
+    resource_pack::MAX_PACK_TEXTURE_BYTES,
+};
 
-type Frames = Arc<[AsepriteFrame]>;
+pub(super) type Frames = Arc<[AsepriteFrame]>;
 
 #[derive(Default)]
 pub(super) struct FrameSidecars {
@@ -38,6 +41,15 @@ impl FrameSidecars {
             self.vanilla = vanilla;
             self.loaded.get_mut().clear();
         }
+    }
+
+    /// Starts from frames a worker already read from this stack's pack.
+    pub(super) fn seed(&mut self, frames: &BTreeMap<String, Frames>) {
+        self.loaded.get_mut().extend(
+            frames
+                .iter()
+                .map(|(key, frames)| (key.clone(), Some(Arc::clone(frames)))),
+        );
     }
 
     pub(super) fn get(&self, key: &str) -> Option<Frames> {

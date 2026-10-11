@@ -167,7 +167,9 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
         images.push(pixels);
     }
     let black = images[1]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| p[..3] == [0; 3])
         .count();
     assert!(
@@ -221,7 +223,12 @@ fn selection_strokes_keep_visible_pixel_coverage_across_angles_and_depths() {
                     write_depth: true,
                 }],
             );
-            let black = pixels.chunks_exact(4).filter(|p| p[..3] == [0; 3]).count();
+            let black = pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[..3] == [0; 3])
+                .count();
             assert!(
                 black >= 240,
                 "stroke coverage must survive rasterization: {end:?}, {black}"

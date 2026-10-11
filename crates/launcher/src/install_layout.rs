@@ -150,7 +150,12 @@ impl InstallLayout {
         let layout = Self::resolve(
             platform,
             &InstallEnvironment {
-                executable: std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                executable: cargo_artifact_path(
+                    std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                    std::env::var_os("CARGO_MANIFEST_DIR")
+                        .map(PathBuf::from)
+                        .as_deref(),
+                ),
                 user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
@@ -247,6 +252,26 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// The install's one login device profile, whichever account's token the core holds.
+    #[must_use]
+    pub fn device_profile_file(&self) -> PathBuf {
+        self.auth_cache().with_file_name("device.json")
+    }
+
+    /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
+    #[must_use]
+    pub fn launcher_artwork_dir(&self) -> PathBuf {
+        self.auth_cache()
+            .with_file_name("catalog-cache")
+            .join("artwork")
+    }
+
+    /// Downloaded Marketplace offer art.
+    #[must_use]
+    pub fn store_images_dir(&self) -> PathBuf {
+        self.auth_cache().with_file_name("store-images")
+    }
+
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {
@@ -327,6 +352,23 @@ impl InstallLayout {
     pub fn connect_socket_dir(&self, process_id: u32, generation: u64) -> PathBuf {
         self.transient_runtime_root
             .join(format!("connect-{process_id}-{generation}"))
+    }
+}
+
+/// Cargo runs tests from its build directory, which `build-dir` puts outside the
+/// checkout; such a binary resolves as if it ran from its workspace's `target/debug`.
+fn cargo_artifact_path(executable: PathBuf, manifest_dir: Option<&Path>) -> PathBuf {
+    if development_root(&executable).is_some() {
+        return executable;
+    }
+    let workspace = manifest_dir.and_then(|manifest| {
+        manifest
+            .ancestors()
+            .find(|directory| directory.join("Cargo.lock").is_file())
+    });
+    match (workspace, executable.file_name()) {
+        (Some(root), Some(name)) => root.join("target/debug/deps").join(name),
+        _ => executable,
     }
 }
 
@@ -514,8 +556,26 @@ const fn current_platform() -> Platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform};
-    use std::path::PathBuf;
+    use super::{InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path};
+    use std::path::{Path, PathBuf};
+
+    /// A test binary in a build dir outside the checkout still resolves the checkout.
+    #[test]
+    fn external_build_dir_tests_resolve_their_workspace() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest.ancestors().nth(2).unwrap();
+        let shared = PathBuf::from("/cache/build/cinnabar/debug/deps/launcher-0123");
+        assert_eq!(
+            cargo_artifact_path(shared.clone(), Some(manifest)),
+            root.join("target/debug/deps/launcher-0123")
+        );
+        assert_eq!(cargo_artifact_path(shared.clone(), None), shared);
+        let checkout = PathBuf::from("/work/cinnabar/target/debug/bedrock-client");
+        assert_eq!(
+            cargo_artifact_path(checkout.clone(), Some(manifest)),
+            checkout
+        );
+    }
 
     fn environment(executable: &str, home: &str) -> InstallEnvironment {
         InstallEnvironment {
@@ -661,6 +721,15 @@ mod tests {
         assert_eq!(
             layout.auth_cache(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/microsoft-token.json")
+        );
+        // Downloaded art stays where earlier cores cached it, so upgrades keep their cache.
+        assert_eq!(
+            layout.launcher_artwork_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/catalog-cache/artwork")
+        );
+        assert_eq!(
+            layout.store_images_dir(),
+            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/store-images")
         );
         assert_eq!(
             layout.resource_pack_cache_dir(),

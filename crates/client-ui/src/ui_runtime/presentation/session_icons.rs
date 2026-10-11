@@ -8,10 +8,13 @@ use std::{
 use render_model::UiTexturePage;
 use ui::UiMesh;
 
-use super::{
-    IconRef, UiPresentationRuntime, dynamic_textures,
-    gui_models::{IconKey, icon_key, ordinary_cube_sheet, sheet_faces},
-    item_gui,
+use {
+    super::{
+        UiPresentationRuntime, dynamic_textures,
+        gui_models::{IconKey, icon_key, ordinary_cube_sheet, sheet_faces},
+        item_gui,
+    },
+    ui::IconRef,
 };
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.
@@ -52,7 +55,19 @@ pub(super) struct SessionIconPage {
     pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
     pub(super) page: Option<UiTexturePage>,
     generation: u64,
+    /// A newer set packing on a worker; the installed set draws until it lands.
+    packing: Option<Packing>,
 }
+
+/// An icon set packing off the frame, and where its page lands.
+struct Packing {
+    source: Arc<SessionIcons>,
+    done: crossbeam_channel::Receiver<Option<PackedIcons>>,
+}
+
+/// Icons whose padded area fits one minimal page pack inline; larger sets pack on a worker,
+/// since one pass cannot stop at a frame budget.
+const MAX_INLINE_PACK_TEXELS: u64 = MIN_PAGE_SIDE as u64 * MIN_PAGE_SIDE as u64;
 
 impl UiPresentationRuntime {
     /// Changes whenever session icons are replaced; pixels copied from them are stale after.
@@ -151,7 +166,8 @@ impl UiPresentationRuntime {
     }
 }
 
-/// Repacks the page when the runtime's icon set changes identity.
+/// Repacks the page when the runtime's icon set changes identity. A large set packs on a
+/// worker while the installed set keeps drawing, and installs on the frame it lands.
 pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<SessionIcons>>) {
     let unchanged = match (&runtime.session_icons.source, icons) {
         (Some(current), Some(next)) => Arc::ptr_eq(current, next),
@@ -159,11 +175,52 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         _ => false,
     };
     if unchanged {
+        runtime.session_icons.packing = None;
         return;
     }
+    let Some(icons) = icons else {
+        install(runtime, None, None);
+        return;
+    };
+    if packed_texels(icons) <= MAX_INLINE_PACK_TEXELS {
+        install(runtime, Some(icons), pack(icons, 0));
+        return;
+    }
+    let packing = match runtime.session_icons.packing.take() {
+        Some(packing) if Arc::ptr_eq(&packing.source, icons) => packing,
+        _ => {
+            let (sender, done) = crossbeam_channel::bounded(1);
+            let source = Arc::clone(icons);
+            rayon::spawn(move || {
+                let _ = sender.send(pack(&source, 0));
+            });
+            Packing {
+                source: Arc::clone(icons),
+                done,
+            }
+        }
+    };
+    match packing.done.try_recv() {
+        Ok(packed) => install(runtime, Some(icons), packed),
+        Err(crossbeam_channel::TryRecvError::Empty) => {
+            runtime.session_icons.packing = Some(packing)
+        }
+        // A worker that died packed nothing; the set installs without a page.
+        Err(crossbeam_channel::TryRecvError::Disconnected) => install(runtime, Some(icons), None),
+    }
+}
+
+/// Installs `icons` with their page packed at relative page 0, onto the session icon page.
+fn install(
+    runtime: &mut UiPresentationRuntime,
+    icons: Option<&Arc<SessionIcons>>,
+    packed: Option<PackedIcons>,
+) {
     let page_index =
         (runtime.textures.dynamic_start() + dynamic_textures::SESSION_ICON_PAGE) as u16;
-    let packed = icons.and_then(|icons| Some((icons, pack(icons, page_index)?)));
+    let packed = icons
+        .zip(packed)
+        .map(|(icons, packed)| (icons, packed.on_page(page_index)));
     let models = packed
         .as_ref()
         .map(|(icons, packed)| block_cubes(icons, packed))
@@ -177,8 +234,20 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         models,
         page,
         generation: runtime.session_icons.generation.wrapping_add(1),
+        packing: None,
     };
     dynamic_textures::rebuild(runtime);
+}
+
+/// Texels the set's valid icons and sheets cover with their gutters.
+fn packed_texels(icons: &SessionIcons) -> u64 {
+    icons
+        .icons
+        .iter()
+        .chain(&icons.block_sheets)
+        .filter(|icon| icon.width <= MAX_SESSION_ICON_SIDE && icon.height <= MAX_SESSION_ICON_SIDE)
+        .map(|icon| u64::from(icon.width + GUTTER * 2) * u64::from(icon.height + GUTTER * 2))
+        .sum()
 }
 
 /// The session page's pixels and where each icon and block sheet landed on it.
@@ -186,6 +255,21 @@ struct PackedIcons {
     page: UiTexturePage,
     refs: IconRefs,
     sheets: HashMap<Arc<str>, IconRef>,
+}
+
+impl PackedIcons {
+    /// The same placements on UI page `page`.
+    fn on_page(mut self, page: u16) -> Self {
+        for icon in self
+            .refs
+            .values_mut()
+            .flat_map(BTreeMap::values_mut)
+            .chain(self.sheets.values_mut())
+        {
+            icon.page = page;
+        }
+        self
+    }
 }
 
 /// Each placed opaque block sheet's GUI cube, keyed by its item's flat thumbnail: the cube
@@ -215,6 +299,8 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
 /// Shelf-packs icons and block sheets with a replicated gutter; those that do not fit, and
 /// sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are left out.
 fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
+    #[cfg(test)]
+    PACKS.with(|packs| packs.set(packs.get() + 1));
     let sheet_size = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     // Tallest first keeps shelves dense; ties keep input order.
     // Invalid entries and later duplicates are dropped before sorting so they cannot size the page.
@@ -326,6 +412,12 @@ fn page_side<'a>(icons: impl Iterator<Item = &'a SessionIcon> + Clone) -> u32 {
         }
         side = (side * 2).min(render_model::MAX_UI_TEXTURE_SIDE);
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Icon pages packed on this thread, so tests can tell the frame from a worker.
+    static PACKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

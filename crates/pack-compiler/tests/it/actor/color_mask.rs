@@ -9,9 +9,19 @@ fn a_custom_sheep_material_does_not_unlock_unverified_fractional_alpha() {
 }
 
 #[test]
-#[ignore = "requires the downloaded pinned vanilla pack; set CINNABAR_VANILLA_ACTOR_ROOT"]
 fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha() {
-    let root = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").unwrap();
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT is not set");
+        return;
+    };
+    if !root.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT at {}",
+            root.display()
+        );
+        return;
+    }
     let root = Path::new(&root);
     let entities = compile_entity_assets(root, MANIFEST).unwrap();
     let entity_bytes = encode_entity_blob(&entities).unwrap();
@@ -68,7 +78,9 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
         );
         assert!(
             raster
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| !matches!(pixel[3], 0 | 255))
         );
     }

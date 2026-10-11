@@ -1,4 +1,7 @@
-use super::{evaluation::MolangValue, *};
+use {
+    super::{evaluation::MolangValue, *},
+    world::TICK_DURATION as ACTOR_TICK_DURATION,
+};
 
 mod potion;
 mod wolf;
@@ -88,10 +91,11 @@ pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 const FLAG_TAMED: u32 = 28;
 
-const INTEGER_QUERIES: [(&str, u32); 8] = [
+const INTEGER_QUERIES: [(&str, u32); 9] = [
     ("fuse_time", 55),
     ("invulnerable_ticks", 48),
     ("mark_variant", 43),
+    ("max_trade_tier", 102),
     ("skin_id", 104),
     ("structural_integrity", 1),
     ("swelling_dir", 21),
@@ -127,11 +131,8 @@ const AQUATIC: [&str; 10] = [
     "axolotl",
 ];
 
-// First-person and use-item queries the pack reads but the client has no timing, equipment, or
-// game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
-// (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
-// Wiring the real sources later replaces the entry, not the query name.
-const IDLE_QUERIES: [(&str, f32); 2] = [("has_head_gear", 0.0), ("is_spectator", 0.0)];
+// Equipment queries without a committed source retain their idle value.
+const IDLE_QUERIES: [(&str, f32); 1] = [("has_head_gear", 0.0)];
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -148,6 +149,8 @@ pub(super) struct QueryInputs<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// Seconds since the controller state being evaluated was entered.
+    pub(super) state_time: f32,
     pub(super) bones: &'a [RuntimeBone],
     pub(super) bone_names: &'a [Box<str>],
 }
@@ -162,6 +165,15 @@ pub(super) fn query(
     let name = identifier.strip_prefix("query.").unwrap_or(identifier);
     let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
     match name {
+        "is_spectator" => MolangValue::Number(truth(match evaluator.actor.player_game_mode {
+            Some(protocol::GameModeUpdate::Explicit(mode)) => {
+                mode == protocol::PlayerGameMode::Spectator
+            }
+            Some(protocol::GameModeUpdate::WorldDefault) => {
+                evaluator.context.world_game_mode == Some(protocol::PlayerGameMode::Spectator)
+            }
+            _ => false,
+        })),
         "get_equipped_item_name" => {
             text(hand_item(evaluator.context, arguments.first()).map(item_name))
         }
@@ -373,6 +385,14 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
+        // Native actor-state position, before the actor store removes collision offsets.
+        "position" if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
+            0 => input.position[0],
+            1 => input.position[1] + actor.network_position_offset(),
+            2 => input.position[2],
+            _ => 0.0,
+        }),
+        "position" => 0.0,
         "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
         }),
@@ -493,6 +513,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Only the one-argument forms carry a value; the bare forms read as zero.
         "head_y_rotation" => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         "head_x_rotation" => argument(0).map_or(0.0, |_| input.pitch),
+        "state_time" => evaluator.state_time,
         "all_animations_finished" => truth(evaluator.finished.0),
         "any_animation_finished" => truth(evaluator.finished.1),
         "is_item_equipped" => truth(hand_item(context, arguments.first()).is_some()),

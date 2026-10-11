@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -63,7 +62,7 @@ func (h Home) Refill(previous Home) Home {
 	return h
 }
 
-// HomeImages lists the artwork of home for CacheImages.
+// HomeImages lists the artwork of home.
 func HomeImages(home *Home) []*Image {
 	var images []*Image
 	for index := range home.Messages {
@@ -126,7 +125,6 @@ type InboxCategory struct {
 
 // MessagingSession holds the account's messaging session across home refreshes and reports.
 type MessagingSession struct {
-	art      messageArt
 	mu       sync.Mutex
 	client   *playermessaging.Client
 	language string
@@ -150,11 +148,6 @@ func (s *MessagingSession) get(discovery *service.Discovery, tokens service.Toke
 		if env.Language == "" {
 			env.Language = locale.Default
 		}
-		base := http.DefaultClient.Transport
-		if base == nil {
-			base = http.DefaultTransport
-		}
-		env.HTTPClient = &http.Client{Transport: messageArtTransport{RoundTripper: base, art: &s.art}}
 		s.client = env.New(tokens)
 	}
 	return s.client, nil
@@ -233,7 +226,6 @@ func messages(ctx context.Context, discovery *service.Discovery, account *authca
 		return err
 	}
 	home.Messages, home.Inbox = flatten(refreshed)
-	session.art.apply(home.Messages)
 	return nil
 }
 
@@ -261,8 +253,14 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 			ID: wire.ID, InstanceID: wire.InstanceID, ReportID: wire.ReportID,
 			Surface: wire.Surface, Template: wire.Template, Category: wire.InboxCategory,
 			Status: wire.Status, Received: wire.DateReceived, Sender: wire.Sender,
-			Header: wire.Text.Header, Body: wire.Text.Body,
+			Header: wire.Text.Header, Body: wire.Text.Body, Banner: wire.Text.Banner,
 			Images: []MessageImage{}, Buttons: []MessageButton{},
+		}
+		if len(wire.Colors) != 0 {
+			message.Colors = make(map[string][3]uint8, len(wire.Colors))
+			for name, color := range wire.Colors {
+				message.Colors[name] = [3]uint8{color.RGB.R, color.RGB.G, color.RGB.B}
+			}
 		}
 		for id, image := range wire.Images {
 			if validArtworkURL(image.URL) {

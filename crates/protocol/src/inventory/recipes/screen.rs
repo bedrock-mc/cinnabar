@@ -2,6 +2,7 @@
 //! anvil names in its requests.
 
 use std::sync::Arc;
+use valentine::bedrock::codec::BedrockCodec;
 
 use super::crafting::RecipeOutput;
 
@@ -45,12 +46,14 @@ pub struct MultiRecipe {
     pub id: u32,
 }
 
+/// Exact identifier of the item-repair multi recipe.
+const REPAIR_MULTI_UUID: uuid::Uuid = uuid::Uuid::from_u128(1);
+
 impl MultiRecipe {
-    /// Whether this is the item-repair recipe (UUID ...0001); the wire's byte
-    /// order is not relied on, only that a single byte holds the value one.
+    /// Decode the wire's little-endian UUID halves and match the exact repair identifier.
     #[must_use]
     pub fn is_repair(&self) -> bool {
-        self.uuid.iter().filter(|byte| **byte != 0).count() == 1 && self.uuid.contains(&1)
+        uuid::Uuid::decode(&mut &self.uuid[..], ()).is_ok_and(|uuid| uuid == REPAIR_MULTI_UUID)
     }
 }
 
@@ -59,4 +62,27 @@ impl MultiRecipe {
 pub struct ScreenRecipes {
     pub recipes: Vec<ScreenRecipe>,
     pub multi: Vec<MultiRecipe>,
+    /// Station recipes skipped because their inputs or output cannot be represented.
+    pub skipped: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_exact_wire_uuid_is_repair() {
+        for position in 0..16 {
+            let mut uuid = [0; 16];
+            uuid[position] = 1;
+            assert_eq!(MultiRecipe { uuid, id: 1 }.is_repair(), position == 8);
+        }
+        assert!(
+            !MultiRecipe {
+                uuid: [0; 16],
+                id: 1
+            }
+            .is_repair()
+        );
+    }
 }

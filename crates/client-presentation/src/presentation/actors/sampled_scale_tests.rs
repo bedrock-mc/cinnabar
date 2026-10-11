@@ -7,10 +7,27 @@ use protocol::{
 
 /// A compiled creeper whose scale crosses an admission boundary within one tick.
 fn world(scale: &str, axis: bool, position: [f32; 3]) -> client_world::WorldAuthority {
+    world_with_frame_layer(scale, axis, position, false)
+}
+
+/// Builds the same actor with an optional depth layer selected only between completed ticks.
+fn world_with_frame_layer(
+    scale: &str,
+    axis: bool,
+    position: [f32; 3],
+    frame_layer: bool,
+) -> client_world::WorldAuthority {
     let slot = if axis { "scaleX" } else { "scale" };
     let entity = format!(
         r#"{{"format_version":"1.10.0","minecraft:client_entity":{{"description":{{"identifier":"minecraft:creeper","materials":{{"default":"entity"}},"textures":{{"default":"textures/entity/test"}},"geometry":{{"default":"geometry.test"}},"animations":{{"swell":"animation.test.swell"}},"scripts":{{"{slot}":"{scale}","animate":["swell"]}},"render_controllers":["controller.render.test"]}}}}}}"#
     );
+    let mut entity: serde_json::Value = serde_json::from_str(&entity).unwrap();
+    if frame_layer {
+        let description = &mut entity["minecraft:client_entity"]["description"];
+        description["materials"]["default"] = "test_depth_marker".into();
+        description["render_controllers"] =
+            serde_json::json!([{"controller.render.test": "query.frame_alpha > 0.25"}]);
+    }
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64,"visible_bounds_width":2,"visible_bounds_height":2,"visible_bounds_offset":[0,1,0]},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#;
     let animation = br#"{"format_version":"1.8.0","animations":{"animation.test.swell":{"loop":true,"bones":{"body":{"scale":["1 + query.swell_amount",1,1]}}}}}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
@@ -18,15 +35,25 @@ fn world(scale: &str, axis: bool, position: [f32; 3]) -> client_world::WorldAuth
     image::codecs::png::PngEncoder::new(&mut texture)
         .write_image(&[255; 4], 1, 1, image::ExtendedColorType::Rgba8)
         .unwrap();
-    let compiled = pack_compiler::compile_entity_pack(vec![
-        ("entity/creeper.json".into(), entity.into_bytes()),
+    let mut resources = vec![
+        (
+            "entity/creeper.json".into(),
+            serde_json::to_vec(&entity).unwrap(),
+        ),
         ("models/entity/test.geo.json".into(), geometry.to_vec()),
         ("animations/test.animation.json".into(), animation.to_vec()),
         ("render_controllers/test.json".into(), controller.to_vec()),
         ("textures/entity/test.png".into(), texture),
-    ])
-    .unwrap()
-    .unwrap();
+    ];
+    if frame_layer {
+        resources.push((
+            "materials/depth.material".into(),
+            br#"{"materials":{"version":"1.0.0","test_depth_marker:entity":{"depthFunc":"Always"}}}"#.to_vec(),
+        ));
+    }
+    let compiled = pack_compiler::compile_entity_pack(resources)
+        .unwrap()
+        .unwrap();
     let mut world = client_world::WorldAuthority::new(
         WorldBootstrap {
             dimension: 0,
@@ -138,6 +165,95 @@ fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
     }
 }
 
+#[test]
+fn always_depth_materials_bypass_terrain_occlusion_but_keep_view_culling() {
+    let camera = Vec3::new(0.0, 1.0, 0.0);
+    let view = ActorCullView {
+        camera_position: camera,
+        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+            90_f32.to_radians(),
+            1.0,
+            render_api::CAMERA_NEAR_PLANE_BLOCKS,
+        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        max_distance: 100.0,
+    };
+    for (feet, maximum, visible) in [
+        ([0.0, 0.0, -5.0], 100.0, true),
+        ([30.0, 0.0, -5.0], 100.0, false),
+        ([0.0, 0.0, -5.0], 4.0, false),
+    ] {
+        let world = world("1", false, feet);
+        let actor = world.actor(1).unwrap();
+        let rig = world.actor_rig(1).unwrap();
+        let view = Some(ActorCullView {
+            max_distance: maximum,
+            ..view
+        });
+        assert!(!rig_may_be_visible(&rig, actor, 0.5, view, None, |_, _| {
+            true
+        }));
+        let mut layers = rig.render.to_vec();
+        assert!(!layers.is_empty(), "the fixture selects a material layer");
+        layers[0].material_state = Some(assets::EntityRenderMaterialState {
+            depth_always: true,
+            ..Default::default()
+        });
+        let always = ActorRigSnapshot {
+            render: &layers,
+            ..rig
+        };
+        assert_eq!(
+            rig_may_be_visible(&always, actor, 0.5, view, None, |_, _| true),
+            visible,
+            "through-wall materials retain distance and frustum checks: {feet:?}, {maximum}"
+        );
+    }
+}
+
+#[test]
+fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
+    let world = world_with_frame_layer("1", false, [0.0, 0.0, -5.0], true);
+    let actor = world.actor(1).unwrap();
+    let rig = world.actor_rig(1).unwrap();
+    assert!(
+        rig.render.is_empty(),
+        "the layer is inactive at the completed tick"
+    );
+    let camera = Vec3::new(0.0, 1.0, 0.0);
+    let view = Some(ActorCullView {
+        camera_position: camera,
+        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+            90_f32.to_radians(),
+            1.0,
+            render_api::CAMERA_NEAR_PLANE_BLOCKS,
+        ) * Mat4::look_to_rh(camera, -Vec3::Z, Vec3::Y),
+        max_distance: 100.0,
+    });
+    let through_wall = |layers: &[client_world::RenderTextureLayer]| {
+        layers
+            .iter()
+            .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+    };
+    let mut probe = world.actor_render_frame(0.5);
+    assert!(
+        through_wall(&probe.layers(1).unwrap()),
+        "the frame selects the depth layer"
+    );
+    let mut frame = world.actor_render_frame(0.5);
+    assert!(rig_may_be_visible(
+        &rig,
+        actor,
+        0.5,
+        view,
+        Some(&mut frame),
+        |_, _| true
+    ));
+    assert!(
+        through_wall(&frame.layers(1).unwrap()),
+        "the draw uses the admitted frame's layers"
+    );
+}
+
 /// Exercises scale sampling, both culling stages and body construction on compiled scripts.
 fn assert_sampled_admission(cull_completed_tick: bool) {
     let camera = Vec3::new(0.0, 1.0, 0.0);
@@ -189,13 +305,14 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
                 actor,
                 0.5,
                 Some(view),
+                None,
                 |_, _| false
             ));
         }
         let mut frame = world.actor_render_frame(0.5);
         let sampled = frame.sample_rig_scale(tick);
         assert!(
-            rig_may_be_visible(&sampled, actor, 0.5, Some(view), |_, _| false),
+            rig_may_be_visible(&sampled, actor, 0.5, Some(view), None, |_, _| false),
             "sampled expanding bounds must survive early culling: {sampled:?}"
         );
         let mut presentation = entity_rig_presentation_cached(&sampled, actor, &artwork, 0.5, None)

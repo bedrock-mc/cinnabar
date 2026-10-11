@@ -14,27 +14,26 @@
     "biome": "crates/assets/data/biome-registry-v2193.bin"
   },
   "sources": {
-    "dragonfly": {
-      "commit": "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
-      "blob": "ee29e5e039086c10bdfb964621a8e146b4f7af19",
-      "sha256": "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6",
-      "size": 3102889
-    },
     "bds": {
       "archive_sha256": "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825",
       "executable_sha256": "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443",
       "overlay_sha256": "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339"
+    },
+    "protocolgen": {
+      "module": "github.com/bedrock-mc/protocolgen/generated/data",
+      "source_lock_sha256": "7672d394035aade326e9f36edb00d6414911e1f841137bc2eef871781a088f97",
+      "cloudburst_ref": "659ce1e2eee3a67045693f4fd5515c6ccf571953"
     }
   },
   "projection_bindings": {
     "block": {
-      "sha256": "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88"
+      "sha256": "59652a994463dd367986788bc7456fb524174ad60d471ca2655c36d43961eaf3"
     },
     "biome": {
       "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
     },
     "light": {
-      "sha256": "e05ef98925e897ae7db738214cfb805420d36b83ca9bb16e80f260829b6fc679"
+      "sha256": "85dfd646431a06bc4b2015435e4c3711611d65b18b9ce00a64839aacc40aebd2"
     }
   }
 }

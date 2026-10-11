@@ -1,42 +1,21 @@
 use std::{collections::HashSet, str};
 
-use bitflags::bitflags;
-
 use crate::AssetError;
 
-const REGISTRY_MAGIC: &[u8; 8] = b"BREG1003";
-const LEGACY_REGISTRY_PROTOCOL: u32 = 1001;
-const RECORD_HEADER_BYTES: usize = 24 + 8 * 4;
-const MAX_REGISTRY_RECORDS: usize = 65_536;
-const MAX_REGISTRY_STATE_BYTES: usize = 1024 * 1024;
-const MAX_COLLISION_BOXES: usize = 7;
+mod schema;
 
-bitflags! {
-    /// Geometry, occlusion and source-backed seasonal shelter facts.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-    pub struct BlockFlags: u8 {
-        const AIR = 1 << 0;
-        const CUBE_GEOMETRY = 1 << 1;
-        const OCCLUDES_FULL_FACE = 1 << 2;
-        const LEAF_MODEL = 1 << 3;
-        /// Vanilla's replaceable-block admission used by the seasonal scan.
-        /// This is not inferred from crossed geometry or lack of collision.
-        const SEASONAL_REPLACEABLE = 1 << 4;
-        /// Effective Vanilla catch chance is nonzero.
-        const FIRE_FLAMMABLE = 1 << 5;
-        /// Native support component/type accepts full support on the top face.
-        const FIRE_TOP_SUPPORT = 1 << 6;
-    }
+#[cfg(test)]
+mod wire_tests;
 
-    /// Pinned sources that proved the identity of a canonical state.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-    pub struct RegistryProvenance: u8 {
-        const PMMP = 1 << 0;
-        const DRAGONFLY = 1 << 1;
-        const PRISMARINE = 1 << 2;
-        const VALENTINE = 1 << 3;
-    }
-}
+pub use schema::{
+    BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
+    ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
+};
+use schema::{
+    LEGACY_REGISTRY_PROTOCOL, MAX_COLLISION_BOXES, MAX_REGISTRY_RECORDS, MAX_REGISTRY_STATE_BYTES,
+    RECORD_HEADER_BYTES, REGISTRY_MAGIC, RecordHeader, read_collision_box, read_record_header,
+    read_registry_metadata,
+};
 
 impl BlockFlags {
     #[must_use]
@@ -46,94 +25,6 @@ impl BlockFlags {
         let leaf = self.contains(Self::LEAF_MODEL);
         (!air || self.bits() == Self::AIR.bits())
             && (!leaf || (cube && !self.contains(Self::OCCLUDES_FULL_FACE)))
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum ModelFamily {
-    #[default]
-    Unknown = 0,
-    Air = 1,
-    Cube = 2,
-    Leaves = 3,
-    Cross = 4,
-    Crop = 5,
-    Liquid = 6,
-    Slab = 7,
-    Stair = 8,
-    Door = 9,
-    Trapdoor = 10,
-    Pane = 11,
-    Fence = 12,
-    Gate = 13,
-    Chest = 14,
-    Sign = 15,
-    Wall = 16,
-    Bed = 17,
-    Rail = 18,
-    Torch = 19,
-    Button = 20,
-    PressurePlate = 21,
-    Carpet = 22,
-    Layer = 23,
-    Decorative = 24,
-    Statue = 25,
-    Cuboid = 26,
-    Aquatic = 27,
-    Cocoa = 28,
-    Lever = 29,
-    Invisible = 30,
-    FlowerBed = 31,
-    Vine = 32,
-    GlowLichen = 33,
-    SculkVein = 34,
-    ChiseledBookshelf = 35,
-    ResinClump = 36,
-}
-
-impl ModelFamily {
-    fn read(raw: u8) -> Result<Self, AssetError> {
-        Ok(match raw {
-            0 => Self::Unknown,
-            1 => Self::Air,
-            2 => Self::Cube,
-            3 => Self::Leaves,
-            4 => Self::Cross,
-            5 => Self::Crop,
-            6 => Self::Liquid,
-            7 => Self::Slab,
-            8 => Self::Stair,
-            9 => Self::Door,
-            10 => Self::Trapdoor,
-            11 => Self::Pane,
-            12 => Self::Fence,
-            13 => Self::Gate,
-            14 => Self::Chest,
-            15 => Self::Sign,
-            16 => Self::Wall,
-            17 => Self::Bed,
-            18 => Self::Rail,
-            19 => Self::Torch,
-            20 => Self::Button,
-            21 => Self::PressurePlate,
-            22 => Self::Carpet,
-            23 => Self::Layer,
-            24 => Self::Decorative,
-            25 => Self::Statue,
-            26 => Self::Cuboid,
-            27 => Self::Aquatic,
-            28 => Self::Cocoa,
-            29 => Self::Lever,
-            30 => Self::Invisible,
-            31 => Self::FlowerBed,
-            32 => Self::Vine,
-            33 => Self::GlowLichen,
-            34 => Self::SculkVein,
-            35 => Self::ChiseledBookshelf,
-            36 => Self::ResinClump,
-            _ => return Err(AssetError::InvalidRegistryFlags(raw)),
-        })
     }
 }
 
@@ -158,45 +49,6 @@ mod model_family_tests {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum ContributorRole {
-    #[default]
-    Primary = 0,
-    LiquidAdditional = 1,
-    Air = 2,
-}
-
-impl ContributorRole {
-    pub(crate) fn read(raw: u8) -> Result<Self, AssetError> {
-        match raw {
-            0 => Ok(Self::Primary),
-            1 => Ok(Self::LiquidAdditional),
-            2 => Ok(Self::Air),
-            _ => Err(AssetError::InvalidRegistryFlags(raw)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum ModelStateField {
-    Orientation = 1,
-    Half = 2,
-    Open = 3,
-    Hinge = 4,
-    Connections = 5,
-    Growth = 6,
-    LiquidDepth = 7,
-    Flags = 8,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct ModelState {
-    mask: u8,
-    values: [u32; 8],
-}
-
 impl ModelState {
     #[must_use]
     pub fn get(self, field: ModelStateField) -> Option<u32> {
@@ -208,61 +60,6 @@ impl ModelState {
     pub const fn mask(self) -> u8 {
         self.mask
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum CollisionConfidence {
-    #[default]
-    None = 0,
-    CollisionOnly = 1,
-    ReviewedVisibleBounds = 2,
-}
-
-impl CollisionConfidence {
-    fn read(raw: u8) -> Result<Self, AssetError> {
-        match raw {
-            0 => Ok(Self::None),
-            1 => Ok(Self::CollisionOnly),
-            2 => Ok(Self::ReviewedVisibleBounds),
-            _ => Err(AssetError::InvalidRegistryFlags(raw)),
-        }
-    }
-}
-
-/// Signed 1/100,000,000-block coordinates copied deterministically from the
-/// pinned Prismarine collision-shape source.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct CollisionBox {
-    pub min_x: i32,
-    pub min_y: i32,
-    pub min_z: i32,
-    pub max_x: i32,
-    pub max_y: i32,
-    pub max_z: i32,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CollisionSeed {
-    pub shape_id: u16,
-    pub confidence: CollisionConfidence,
-    pub boxes: Box<[CollisionBox]>,
-}
-
-/// One canonical state from the deterministic BREG1003 export.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistryRecord {
-    pub sequential_id: u32,
-    pub network_hash: u32,
-    pub name: Box<str>,
-    pub canonical_state: Box<str>,
-    pub flags: BlockFlags,
-    pub model_family: ModelFamily,
-    pub contributor_role: ContributorRole,
-    pub model_state: ModelState,
-    pub face_coverage: u8,
-    pub collision_seed: CollisionSeed,
-    pub provenance: RegistryProvenance,
 }
 
 /// Reads the bounded protocol-1001 BREG1003 block registry.
@@ -289,22 +86,25 @@ pub fn read_registry_for_protocol(
     bytes: &[u8],
     expected_protocol: u32,
 ) -> Result<Box<[RegistryRecord]>, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2193) {
+    if expected_protocol != LEGACY_REGISTRY_PROTOCOL
+        && expected_protocol != crate::active_content_registry_protocol()
+    {
         return Err(AssetError::InvalidRegistryMagic);
     }
     let mut reader = Reader::new(bytes);
     if reader.read_exact(REGISTRY_MAGIC.len(), "registry magic")? != REGISTRY_MAGIC {
         return Err(AssetError::InvalidRegistryMagic);
     }
-    if reader.read_u32("registry protocol")? != expected_protocol {
+    let metadata = read_registry_metadata(&mut reader)?;
+    if metadata.protocol != expected_protocol {
         return Err(AssetError::InvalidRegistryMagic);
     }
-    let name_count = reader.read_u32("canonical name count")? as usize;
-    let count = reader.read_u32("canonical state count")? as usize;
-    let valentine_names = reader.read_u32("Valentine name count")? as usize;
-    let valentine_states = reader.read_u32("Valentine state count")? as usize;
-    let gap_names = reader.read_u32("Valentine name gap")? as usize;
-    let gap_states = reader.read_u32("Valentine state gap")? as usize;
+    let name_count = metadata.canonical_names as usize;
+    let count = metadata.canonical_states as usize;
+    let valentine_names = metadata.valentine_names as usize;
+    let valentine_states = metadata.valentine_states as usize;
+    let gap_names = metadata.valentine_gap_names as usize;
+    let gap_states = metadata.valentine_gap_states as usize;
     if count > MAX_REGISTRY_RECORDS {
         return Err(AssetError::TooManyRegistryRecords {
             count,
@@ -339,23 +139,28 @@ pub fn read_registry_for_protocol(
     let mut valentine_name_set = HashSet::with_capacity(valentine_names);
     let mut valentine_overlap = 0usize;
     for _ in 0..count {
-        let sequential_id = reader.read_u32("record sequential ID")?;
-        let network_hash = reader.read_u32("record network hash")?;
-        let raw_flags = reader.read_u8("record flags")?;
-        let model_family = ModelFamily::read(reader.read_u8("record model family")?)?;
-        let contributor_role = ContributorRole::read(reader.read_u8("record contributor role")?)?;
-        let model_mask = reader.read_u8("record model-state mask")?;
-        let face_coverage = reader.read_u8("record face coverage")?;
-        let confidence = CollisionConfidence::read(reader.read_u8("record collision confidence")?)?;
-        let raw_provenance = reader.read_u8("record provenance")?;
-        let box_count = reader.read_u8("record collision box count")? as usize;
-        let shape_id = reader.read_u16("record collision shape ID")?;
-        let name_len = reader.read_u16("record name length")? as usize;
-        let state_len = reader.read_u32("record state length")? as usize;
-        let mut values = [0u32; 8];
-        for value in &mut values {
-            *value = reader.read_u32("record model-state value")?;
-        }
+        let RecordHeader {
+            sequential_id,
+            network_hash,
+            raw_flags,
+            model_family,
+            contributor_role,
+            model_mask,
+            face_coverage,
+            confidence,
+            raw_provenance,
+            box_count,
+            shape_id,
+            name_len,
+            state_len,
+            values,
+        } = read_record_header(&mut reader)?;
+        let model_family = ModelFamily::read(model_family)?;
+        let contributor_role = ContributorRole::read(contributor_role)?;
+        let confidence = CollisionConfidence::read(confidence)?;
+        let box_count = usize::from(box_count);
+        let name_len = usize::from(name_len);
+        let state_len = state_len as usize;
 
         if !sequential_ids.insert(sequential_id) {
             return Err(AssetError::DuplicateSequentialId(sequential_id));
@@ -394,14 +199,7 @@ pub fn read_registry_for_protocol(
         }
         let mut boxes = Vec::with_capacity(box_count);
         for _ in 0..box_count {
-            let collision_box = CollisionBox {
-                min_x: reader.read_i32("collision min x")?,
-                min_y: reader.read_i32("collision min y")?,
-                min_z: reader.read_i32("collision min z")?,
-                max_x: reader.read_i32("collision max x")?,
-                max_y: reader.read_i32("collision max y")?,
-                max_z: reader.read_i32("collision max z")?,
-            };
+            let collision_box = read_collision_box(&mut reader)?;
             if collision_box.min_x > collision_box.max_x
                 || collision_box.min_y > collision_box.max_y
                 || collision_box.min_z > collision_box.max_z

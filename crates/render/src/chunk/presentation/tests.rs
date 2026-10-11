@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::graphics_metadata::adapter_metadata_field;
 use crate::chunk::gpu::types::build_indexed_indirect_commands;
 
 #[test]
@@ -904,6 +905,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 4,
         },
         GpuChunkAllocation {
@@ -922,6 +924,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             has_depth_liquid: false,
             has_transparent_liquid: false,
             depth_liquid_range: None,
+            order_independent_liquid: false,
             metadata_index: 1,
         },
     ];

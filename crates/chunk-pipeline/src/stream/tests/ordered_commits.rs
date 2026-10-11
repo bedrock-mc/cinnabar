@@ -333,12 +333,12 @@ fn speed_attribute_burst_behind_a_pending_decode_commits_one_control_per_update(
     assert!(matches!(
         controls.last(),
         Some(super::CommittedControlEvent::LocalMovementSpeed {
-            current: Some(current),
+            movement: Some(movement),
             underwater: Some(underwater),
             lava: Some(lava),
             air_drag_modifier: Some(air_drag),
             ..
-        }) if *current == f64::from(last)
+        }) if movement.current == f64::from(last)
             && *underwater == f64::from(last / 2.0)
             && *lava == f64::from(last / 4.0)
             && *air_drag == last * 2.0

@@ -65,7 +65,9 @@ fn matches(witnesses: &[Source], source: &EntityAssetSource) -> bool {
             && witness
                 .source_sha256
                 .as_bytes()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .zip(source.source_sha256)
                 .all(|(hex, byte)| {
                     let digit = |value: u8| match value {

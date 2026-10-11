@@ -14,7 +14,10 @@ use particles::{
 };
 
 use super::world_adapter::StreamParticleWorld;
-use crate::movement::{MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, PhysicsCollisionRegistries};
+use {
+    crate::movement::PhysicsCollisionRegistries,
+    gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
+};
 
 mod color;
 mod diagnostics;
@@ -182,7 +185,7 @@ mod tests {
     use std::time::Duration;
 
     use super::AmbientParticles;
-    use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
+    use gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
 
     #[test]
     fn ambient_leaf_cadence_is_fixed_tick_not_render_frame_and_resets_without_a_backlog() {

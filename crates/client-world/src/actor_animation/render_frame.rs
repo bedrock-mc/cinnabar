@@ -21,7 +21,7 @@ pub struct ActorRenderFrame<'a> {
     store: &'a crate::actor_store::ActorStore,
     alpha: f32,
     remaining_ops: usize,
-    scale_layers: HashMap<u64, Option<Cow<'a, [RenderTextureLayer]>>>,
+    sampled_layers: HashMap<u64, Option<Cow<'a, [RenderTextureLayer]>>>,
 }
 
 impl<'a> ActorRenderFrame<'a> {
@@ -34,7 +34,7 @@ impl<'a> ActorRenderFrame<'a> {
                 0.0
             },
             remaining_ops: MAX_MOLANG_OPS_PER_RENDER_FRAME,
-            scale_layers: HashMap::new(),
+            sampled_layers: HashMap::new(),
         }
     }
 
@@ -43,7 +43,7 @@ impl<'a> ActorRenderFrame<'a> {
     pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {
         let id = rig.actor.runtime_id;
         if self.store.samples_rig_scale(id) {
-            let layers = self.scale_layers.entry(id).or_insert_with(|| {
+            let layers = self.sampled_layers.entry(id).or_insert_with(|| {
                 self.store
                     .render_layers(id, self.alpha, &mut self.remaining_ops, false)
                     .map(|layers| layers.render)
@@ -62,12 +62,33 @@ impl<'a> ActorRenderFrame<'a> {
     /// Samples authored frame queries without committing variables, clocks or poses.
     /// Unsupported or exhausted evaluations retain the completed tick's layers.
     pub fn layers(&mut self, runtime_id: u64) -> Option<Cow<'a, [RenderTextureLayer]>> {
-        if let Some(layers) = self.scale_layers.remove(&runtime_id) {
+        if let Some(layers) = self.sampled_layers.remove(&runtime_id) {
             return layers;
         }
         self.store
             .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
             .map(|layers| layers.render)
+    }
+
+    /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
+    /// Ordinary materials do not spend the shared frame budget during occlusion checks.
+    pub fn has_always_depth_material(&mut self, runtime_id: u64) -> bool {
+        if !self.store.may_use_always_depth_material(runtime_id) {
+            return false;
+        }
+        self.sampled_layers
+            .entry(runtime_id)
+            .or_insert_with(|| {
+                self.store
+                    .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
+                    .map(|layers| layers.render)
+            })
+            .as_ref()
+            .is_some_and(|layers| {
+                layers
+                    .iter()
+                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+            })
     }
 
     /// Samples the native body and its persona skeletons once under the same frame budget.
@@ -250,6 +271,15 @@ impl SwellPoses {
 }
 
 impl ActorAnimationStore {
+    /// Checks the resolved rig's compiled layers, including inactive controller branches.
+    pub(crate) fn may_use_always_depth_material(&self, actor: &ActorSnapshot) -> bool {
+        self.runtime_to_lifetime
+            .get(&actor.runtime_id)
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+            .is_some_and(|state| state.may_use_always_depth_material)
+    }
+
     /// Whether admission needs a frame scale rather than the completed tick's scale.
     pub(crate) fn samples_rig_scale(&self, actor: &ActorSnapshot) -> bool {
         self.runtime_to_lifetime
@@ -330,6 +360,7 @@ impl ActorAnimationStore {
             query_history: None,
             life_tick: self.completed_tick.saturating_sub(state.lifetime_epoch),
             finished: (false, false),
+            state_time: 0.0,
             bones: state.posed_bones(),
             bone_names: state.posed_bone_names(),
         };

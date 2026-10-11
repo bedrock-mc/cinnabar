@@ -4,12 +4,12 @@ use bevy::{
 };
 use ui::{DpiScale, UiPoint};
 
-use super::{engine_hud_tests::engine_presentation, fixture_font, fixture_hud};
-use crate::{
-    menu::{MenuAction, MenuRuntime, MenuScreen},
-    ui_runtime::presentation::apply_gui_scale_setting,
-};
+use client_ui::test_support::{engine_presentation, fixture_font, fixture_hud};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{menu::MenuRuntime, ui_runtime::presentation::apply_gui_scale_setting},
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let mut menu = MenuRuntime::new(visible, 2, "Player".to_owned());
@@ -69,14 +69,18 @@ fn largest_font_quad_height(input: &render_model::UiRenderInput) -> f32 {
         .flat_map(|batch| {
             let start = batch.first_index as usize;
             let end = start + batch.index_count as usize;
-            input.indices[start..end].chunks_exact(6).map(|indices| {
-                let positions = indices
-                    .iter()
-                    .map(|index| input.vertices[*index as usize].position[1]);
-                let bottom = positions.clone().fold(f32::NEG_INFINITY, f32::max);
-                let top = positions.fold(f32::INFINITY, f32::min);
-                bottom - top
-            })
+            input.indices[start..end]
+                .as_chunks::<6>()
+                .0
+                .iter()
+                .map(|indices| {
+                    let positions = indices
+                        .iter()
+                        .map(|index| input.vertices[*index as usize].position[1]);
+                    let bottom = positions.clone().fold(f32::NEG_INFINITY, f32::max);
+                    let top = positions.fold(f32::INFINITY, f32::min);
+                    bottom - top
+                })
         })
         .fold(0.0, f32::max)
 }
@@ -87,8 +91,8 @@ fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
         .iter()
         .find(|(action, _)| {
             matches!(action, MenuAction::SettingsOption(index, _)
-            if matches!(crate::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
-                crate::menu::settings_options::SettingKind::Toggle))
+            if matches!(launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
+                launcher::menu::settings_options::SettingKind::Toggle))
         })
         .expect("the initial native Settings category renders a toggle");
     let physical_centre = [
@@ -317,7 +321,9 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
 fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2], scale: u8) {
     let crosshair = input
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| {
             quad.iter().fold(
                 [

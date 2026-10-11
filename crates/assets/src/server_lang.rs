@@ -20,7 +20,7 @@ struct Credits(AtomicUsize);
 impl Credits {
     fn reserve(self: &Arc<Self>, bytes: usize) -> Option<Permit> {
         self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes).filter(|next| *next <= POOL_BYTES)
             })
             .ok()?;

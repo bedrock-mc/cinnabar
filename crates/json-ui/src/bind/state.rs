@@ -70,6 +70,11 @@ pub struct BindState {
     pub(super) data: Option<std::sync::Arc<super::DataSource>>,
     /// Keys of the controls the last bind built rather than reused.
     pub(super) built: Vec<u64>,
+    /// Whether the last bind's views reached a fixed point, so a view whose control and
+    /// source both stand unchanged would observe what it last did.
+    pub(super) views_settled: bool,
+    /// View notifications the last bind ran.
+    pub(super) views_run: usize,
 }
 
 /// Allocate an opaque lifetime identity only when a custom control is created.
@@ -96,6 +101,8 @@ pub(super) struct Retained {
     pub(super) seen: BTreeMap<usize, bool>,
     /// Last source value each registered view observed.
     pub(super) views: BTreeMap<usize, Option<Scalar>>,
+    /// The source control each view last ran against, by key; `None` when it did not resolve.
+    pub(super) view_sources: BTreeMap<usize, Option<u64>>,
     /// The parent's key hash.
     pub(super) parent: u64,
     /// The refresh that last built this control.
@@ -176,6 +183,11 @@ impl BindState {
     /// Controls the last bind built rather than carried over unchanged.
     pub fn rebuilt(&self) -> usize {
         self.built.len()
+    }
+
+    /// View bindings the last bind ran rather than left standing.
+    pub fn views_run(&self) -> usize {
+        self.views_run
     }
 
     /// The `/`-joined name paths of the controls the last bind built.

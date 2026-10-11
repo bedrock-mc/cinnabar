@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	cacheVersion   = 2
-	listTTL        = 5 * time.Minute
-	homeTTL        = 15 * time.Minute
-	refreshTimeout = 2 * time.Minute
+	cacheVersion       = 2
+	legacyCacheVersion = 1
+	listTTL            = 5 * time.Minute
+	homeTTL            = 15 * time.Minute
+	refreshTimeout     = 40 * time.Second
 )
 
 // snapshot is the last good catalog, persisted as CacheFile.
@@ -44,7 +45,7 @@ type flight struct {
 	err  error
 }
 
-// feedSpec binds one cached feed; fetch caches the artwork and gets the cached value, if any.
+// feedSpec binds one cached feed; fetch gets the cached value, if any.
 type feedSpec[T any] struct {
 	name  string
 	index int
@@ -57,11 +58,7 @@ var featuredFeed = feedSpec[[]catalog.FeaturedServer]{
 	name: "featured", index: 0, ttl: listTTL,
 	slot: func(snap *snapshot) *feed[[]catalog.FeaturedServer] { return &snap.Featured },
 	fetch: func(s *Service, ctx context.Context, src *authcache.Account, _ *[]catalog.FeaturedServer) ([]catalog.FeaturedServer, error) {
-		servers, err := s.cfg.Featured(ctx, src)
-		if err == nil {
-			s.cacheArt(ctx, catalog.FeaturedImages(servers))
-		}
-		return servers, err
+		return s.cfg.Featured(ctx, src)
 	},
 }
 
@@ -80,7 +77,6 @@ var homeFeed = feedSpec[catalog.Home]{
 			}
 			s.logger.Warn("launcher feed partly failed", "feed", "home", "error", control.RedactError(partial))
 		}
-		s.cacheArt(ctx, catalog.HomeImages(&home))
 		if previous != nil {
 			home = home.Refill(*previous)
 		}
@@ -186,9 +182,17 @@ func (s *Service) load() {
 		return
 	}
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil || snap.Version != cacheVersion {
+	if err := json.Unmarshal(data, &snap); err != nil || (snap.Version != cacheVersion && snap.Version != legacyCacheVersion) {
 		s.logger.Warn("launcher catalog cache discarded", "version", snap.Version)
 		return
+	}
+	legacy := snap.Version == legacyCacheVersion
+	if legacy {
+		for i := range snap.Featured.Value {
+			if snap.Featured.Value[i].Group == "" {
+				snap.Featured.Value[i].Group = "featured"
+			}
+		}
 	}
 	for _, image := range snap.images() {
 		if image.Path != "" {
@@ -198,6 +202,9 @@ func (s *Service) load() {
 		}
 	}
 	s.snap = snap
+	if legacy {
+		s.persist()
+	}
 }
 
 // persist atomically rewrites CacheFile with the current snapshot.
@@ -242,8 +249,8 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(temporary.Name(), path)
 }
 
-// prune deletes cached artwork that neither the snapshot nor the profile references. Files used
-// within refreshTimeout are spared: an in-flight fetch may not have stored its paths yet.
+// prune deletes persona art that neither the snapshot nor the profile references; other files belong
+// to the client's image cache. Files used within refreshTimeout are spared for in-flight fetches.
 func (s *Service) prune() {
 	if s.cfg.ArtworkDir == "" {
 		return
@@ -257,18 +264,20 @@ func (s *Service) prune() {
 	for _, image := range s.snap.images() {
 		keep[image.Path] = true
 	}
-	keep[s.gamerpic] = true
-	for _, path := range s.profileArt {
-		keep[path] = true
-	}
+	keep[s.profileArt] = true
 	s.mu.Unlock()
 	for _, entry := range entries {
 		path := filepath.Join(s.cfg.ArtworkDir, entry.Name())
-		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".img") || keep[path] {
+		if !entry.Type().IsRegular() || !personaArt(entry.Name()) || keep[path] {
 			continue
 		}
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) >= refreshTimeout {
 			_ = os.Remove(path)
 		}
 	}
+}
+
+// personaArt reports whether name is persona art the core rendered into the artwork directory.
+func personaArt(name string) bool {
+	return strings.HasPrefix(name, "persona-") && strings.HasSuffix(name, ".img")
 }

@@ -89,8 +89,8 @@ fn tiny_launcher_text_keeps_rendering_after_resize() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let player = player_state::PlayerState::new(0);
     let runtime = UiRuntime::new(0);
-    let mut view = crate::menu::MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::Settings;
+    let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
+    view.screen = launcher::menu::MenuScreen::Settings;
     presentation.set_menu_view(Some(view));
     for physical in [[1280, 720], [254, 124], [1, 1], [1280, 720]] {
         let result = presentation.build(
@@ -202,8 +202,8 @@ fn installed_launcher_text_snapshot() {
     };
     let runtime = super::super::forms::pack_harness::menu_runtime();
     let player = player_state::PlayerState::new(0);
-    let mut view = crate::menu::MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::Settings;
+    let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
+    view.screen = launcher::menu::MenuScreen::Settings;
     presentation.set_menu_view(Some(view));
     let input = presentation
         .build(

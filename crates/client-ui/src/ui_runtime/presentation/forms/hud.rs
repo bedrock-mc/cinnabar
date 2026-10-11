@@ -15,15 +15,19 @@ use json_ui::{
 };
 use ui::{TimedText, UiNode};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, HudFrame, IconRef, TextMetrics, UiPresentationError,
-    UiPresentationRuntime, bounded_visible_text, hud_layout, resolve_chat_line,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{
+        HudFrame, TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text,
+        hud_layout, resolve_chat_line,
+    },
+    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
+};
 
 #[cfg(test)]
 mod hunger_control_tests;
+pub(super) mod prepared;
 #[cfg(test)]
 mod visibility_tests;
 
@@ -78,6 +82,9 @@ pub(super) struct CachedScreen {
     measures: json_ui::MeasureCache,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
+    /// Screens resolved on the frame rather than found prepared.
+    #[cfg(test)]
+    pub(super) resolves: usize,
 }
 
 struct ResolvedScreen {
@@ -192,7 +199,14 @@ impl CachedScreen {
                     && resolved.context == *context
             });
             if !current {
-                let tree = resolve(catalog, reference, context).control.map(Arc::new);
+                let found = prepared::find(catalog, reference, context);
+                let tree = found.unwrap_or_else(|| {
+                    #[cfg(test)]
+                    {
+                        self.resolves += 1;
+                    }
+                    resolve(catalog, reference, context).control.map(Arc::new)
+                });
                 self.resolved = Some(ResolvedScreen {
                     reference: reference.to_owned(),
                     catalog: Arc::clone(catalog),
@@ -375,6 +389,16 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.form_presentation.chat.settings.options,
         );
+        // Packs may replace the native cursor renderer with ordinary image controls.
+        // Gate the whole overlay so these controls obey the same camera and HUD settings.
+        if crosshair && paint.crosshair.is_none() {
+            return Ok(true);
+        }
+        if !crosshair {
+            // Legacy HUDs embed this renderer; the separate overlay already draws it.
+            // Inverting the same pixels twice restores the world behind the cursor.
+            paint.crosshair = None;
+        }
         if self.mod_effect_icons_hidden() {
             paint.effects.clear();
         }
@@ -442,7 +466,7 @@ fn hud_model(
     frame: &HudFrame,
     sidebar: Option<Sidebar>,
     icons: &mut Vec<IconRef>,
-    settings: &crate::menu::settings_options::SettingsOptions,
+    settings: &launcher::menu::settings_options::SettingsOptions,
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;

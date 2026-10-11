@@ -1,7 +1,10 @@
 //! Modal editing shares the launcher's bounded text editor and focus ownership.
 
-use super::*;
 use launcher::dressing_room::{SkinEditor, SkinEditorMode, SkinEditorTarget};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuField},
+};
 
 impl MenuRuntime {
     pub(in crate::menu) fn skin_editor_blocks(&self, action: MenuAction) -> bool {

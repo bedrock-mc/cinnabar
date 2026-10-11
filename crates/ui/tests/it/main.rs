@@ -11,11 +11,13 @@ mod geometry_gui_scale;
 mod hud;
 mod model;
 mod model_mesh;
+mod model_retained;
 mod scoreboard;
 #[path = "../../src/settings.rs"]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod settings;
 mod standing_toast;
 mod text;
+mod text_device_pixels;
 mod text_style;
 mod text_wrap;

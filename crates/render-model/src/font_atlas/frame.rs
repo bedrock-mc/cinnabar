@@ -79,7 +79,9 @@ impl FontAtlasFrame {
             let page = &mut self.pages[index];
             for triangle in input.indices
                 [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
             {
                 let rect = triangle_rect(input, triangle, source.dimensions())?;
                 page.requests.push(rect);
@@ -107,7 +109,9 @@ impl FontAtlasFrame {
             let page = &self.pages[index];
             for triangle in input.indices
                 [batch.first_index as usize..(batch.first_index + batch.index_count) as usize]
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
             {
                 let rect = triangle_rect(input, triangle, source.dimensions())?;
                 let origin = page

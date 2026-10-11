@@ -5,7 +5,9 @@ use super::*;
 #[derive(Resource, Default)]
 pub struct ActorFrameState {
     pub(super) published_session: Option<u64>,
-    pub(super) published_pack: Option<Arc<crate::session_assets::SessionEntityPack>>,
+    /// The session the read seat layouts were last given to.
+    seated_session: Option<u64>,
+    pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
     pub(super) pack_geometry_ready: SessionGeometryReady,
     pub(super) published_items: Option<Arc<crate::session_assets::SessionItems>>,
     pub(super) actor_clock: ActorFrameClock,
@@ -17,6 +19,7 @@ pub struct ActorFrameState {
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
+    pub(super) java_poses: java::PoseScratch,
     pub(super) input: Option<ActorFrameInput>,
     pub(super) step: Option<crate::actor_clock::ActorFrameStep>,
     motion_step: Option<crate::actor_clock::ActorFrameStep>, // Taken by early remote motion.
@@ -95,12 +98,14 @@ pub fn advance_actor_frame(
         published_items,
         actor_clock,
         motion_step,
+        seated_session,
         session_artwork,
         skin_rigs,
         skin_layers,
         poses,
         layer_poses,
         java_hand,
+        java_poses,
         hand_source,
         hand_key,
         hand_ready,
@@ -138,9 +143,14 @@ pub fn advance_actor_frame(
         }
         *skin_layers = Default::default();
         *published_session = session_id;
-        if let Some(stream) = client_world.stream.as_mut() {
-            stream.set_actor_seat_defaults(crate::seat_defaults::seat_defaults());
-        }
+    }
+    // Layouts are read off the frame; a session takes them in the first frame they are ready.
+    if *seated_session != session_id
+        && let Some(stream) = client_world.stream.as_mut()
+        && let Some(defaults) = crate::seat_defaults::seat_defaults()
+    {
+        stream.set_actor_seat_defaults(defaults);
+        *seated_session = session_id;
     }
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
     let items = session_id.and_then(|_| client_world.session_items.clone());
@@ -194,6 +204,7 @@ pub fn advance_actor_frame(
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     poses.begin_frame();
+    java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();
     }

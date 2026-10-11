@@ -5,12 +5,9 @@ use std::sync::Arc;
 
 pub(super) mod body;
 use body::{HEAD_SOFT_LIMIT_SQUARED, HEAD_SOFT_PULL};
+pub(super) mod retarget;
 
-use super::{
-    BoneTransform, RuntimeBone,
-    pose::{quat_multiply, rotate_vector, total_scale, with_scale},
-    query::wrap_degrees,
-};
+use super::query::wrap_degrees;
 
 /// Previous and current tick values of Java's player motion.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -297,138 +294,6 @@ impl JavaMotionState {
     pub(super) fn equipped(&self) -> Option<&JavaHeldItem> {
         self.equipped.as_ref()
     }
-}
-
-/// The pose at `alpha` with `targets` (model-space bones by index) replacing their joints;
-/// every other bone keeps its animated transform relative to its parent.
-pub(super) fn retarget(
-    bones: &[RuntimeBone],
-    previous: &[BoneTransform],
-    current: &[BoneTransform],
-    alpha: f32,
-    targets: &[Option<BoneTransform>],
-) -> Option<Vec<BoneTransform>> {
-    if previous.len() != bones.len() || current.len() != bones.len() {
-        return None;
-    }
-    let mut posed: Vec<Option<BoneTransform>> = vec![None; bones.len()];
-    for index in 0..bones.len() {
-        retarget_bone(
-            index, bones, previous, current, alpha, targets, &mut posed, 0,
-        )?;
-    }
-    posed.into_iter().collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn retarget_bone(
-    index: usize,
-    bones: &[RuntimeBone],
-    previous: &[BoneTransform],
-    current: &[BoneTransform],
-    alpha: f32,
-    targets: &[Option<BoneTransform>],
-    posed: &mut [Option<BoneTransform>],
-    depth: usize,
-) -> Option<BoneTransform> {
-    if let Some(done) = posed[index] {
-        return Some(done);
-    }
-    if depth > bones.len() {
-        return None;
-    }
-    let bone = match (targets.get(index).copied().flatten(), bones[index].parent) {
-        (Some(target), _) => target,
-        (None, None) => blend(previous[index], current[index], alpha),
-        (None, Some(parent)) => {
-            let local = blend(
-                relative(previous[parent], previous[index]),
-                relative(current[parent], current[index]),
-                alpha,
-            );
-            let parent = retarget_bone(
-                parent,
-                bones,
-                previous,
-                current,
-                alpha,
-                targets,
-                posed,
-                depth + 1,
-            )?;
-            compose(parent, local)
-        }
-    };
-    posed[index] = Some(bone);
-    Some(bone)
-}
-
-fn translation(bone: BoneTransform) -> [f32; 3] {
-    [
-        bone.translation_scale[0],
-        bone.translation_scale[1],
-        bone.translation_scale[2],
-    ]
-}
-
-/// `child` in `parent`'s frame, matching the pose composer's scale handling.
-fn relative(parent: BoneTransform, child: BoneTransform) -> BoneTransform {
-    let inverse = conjugate(parent.rotation);
-    // A parent hidden by a zero scale leaves its children's offsets unscaled.
-    let parent_scale = total_scale(&parent).map(|scale| {
-        if scale.abs() > f32::EPSILON {
-            scale
-        } else {
-            1.0
-        }
-    });
-    let offset: [f32; 3] =
-        std::array::from_fn(|axis| translation(child)[axis] - translation(parent)[axis]);
-    let local = rotate_vector(inverse, offset);
-    let child_scale = total_scale(&child);
-    with_scale(
-        quat_multiply(inverse, child.rotation),
-        std::array::from_fn(|axis| local[axis] / parent_scale[axis]),
-        std::array::from_fn(|axis| child_scale[axis] / parent_scale[axis]),
-    )
-}
-
-fn compose(parent: BoneTransform, local: BoneTransform) -> BoneTransform {
-    let parent_scale = total_scale(&parent);
-    let scaled = std::array::from_fn(|axis| translation(local)[axis] * parent_scale[axis]);
-    let offset = rotate_vector(parent.rotation, scaled);
-    let local_scale = total_scale(&local);
-    with_scale(
-        quat_multiply(parent.rotation, local.rotation),
-        std::array::from_fn(|axis| translation(parent)[axis] + offset[axis]),
-        std::array::from_fn(|axis| parent_scale[axis] * local_scale[axis]),
-    )
-}
-
-fn conjugate([x, y, z, w]: [f32; 4]) -> [f32; 4] {
-    [-x, -y, -z, w]
-}
-
-fn blend(from: BoneTransform, to: BoneTransform, alpha: f32) -> BoneTransform {
-    let lerp = |a: f32, b: f32| a + (b - a) * alpha;
-    let mut end = to.rotation;
-    let dot: f32 = (0..4).map(|i| from.rotation[i] * end[i]).sum();
-    if dot < 0.0 {
-        end = end.map(|value| -value);
-    }
-    let mixed: [f32; 4] = std::array::from_fn(|i| lerp(from.rotation[i], end[i]));
-    let length = mixed.iter().map(|value| value * value).sum::<f32>().sqrt();
-    let rotation = if length > f32::EPSILON {
-        mixed.map(|value| value / length)
-    } else {
-        to.rotation
-    };
-    let (from_scale, to_scale) = (total_scale(&from), total_scale(&to));
-    with_scale(
-        rotation,
-        std::array::from_fn(|axis| lerp(translation(from)[axis], translation(to)[axis])),
-        std::array::from_fn(|axis| lerp(from_scale[axis], to_scale[axis])),
-    )
 }
 
 #[cfg(test)]
@@ -936,48 +801,5 @@ mod tests {
         state.motion.walked = [0.1002; 2];
         state.advance(&tick([-0.034_368_105, 0.0, 0.074_893_28], 0.0));
         assert_eq!(state.motion.walked[1].to_bits(), 0x3e19_3b9e);
-    }
-
-    fn root(rotation: [f32; 4], translation: [f32; 3]) -> BoneTransform {
-        with_scale(rotation, translation, [1.0; 3])
-    }
-
-    /// A child of a zero-scaled parent still retargets to finite transforms.
-    #[test]
-    fn retarget_survives_a_zero_scaled_parent() {
-        let bones = vec![
-            RuntimeBone::default(),
-            RuntimeBone {
-                parent: Some(0),
-                ..Default::default()
-            },
-        ];
-        let hidden = with_scale([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 0.0], [0.0; 3]);
-        let pose = vec![hidden, root([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 3.0])];
-        let target = root([0.0, 0.0, 0.0, 1.0], [1.0, 20.0, 0.0]);
-        let posed = retarget(&bones, &pose, &pose, 0.0, &[Some(target), None]).unwrap();
-        assert_eq!(translation(posed[1]), [1.0, 20.0, 3.0]);
-    }
-
-    /// Untargeted children keep their animated offset from the parent under its new transform.
-    #[test]
-    fn retarget_carries_children_with_their_animated_offsets() {
-        let bones = vec![
-            RuntimeBone::default(),
-            RuntimeBone {
-                parent: Some(0),
-                ..Default::default()
-            },
-        ];
-        let half_turn = [0.0, 0.0, 1.0, 0.0];
-        let pose = vec![
-            root([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 0.0]),
-            root([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 3.0]),
-        ];
-        let target = root(half_turn, [1.0, 20.0, 0.0]);
-        let posed = retarget(&bones, &pose, &pose, 0.5, &[Some(target), None]).unwrap();
-        assert_eq!(posed[0], target);
-        assert_eq!(translation(posed[1]), [1.0, 20.0, 3.0]);
-        assert_eq!(posed[1].rotation, half_turn);
     }
 }

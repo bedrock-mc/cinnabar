@@ -378,3 +378,20 @@ fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
     );
     assert!(!instance.active);
 }
+
+#[test]
+fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
+    let mut frame = empty_controls();
+    frame.events = (0..ui::mod_panel::MAX_PANEL_EVENTS)
+        .map(|index| crate::ControlEvent {
+            id: format!("setting_{index}"),
+            value: 1.0,
+        })
+        .collect();
+    assert!(validate_frame(&frame).is_ok());
+    frame.events.push(crate::ControlEvent {
+        id: "overflow".into(),
+        value: 1.,
+    });
+    assert!(validate_frame(&frame).is_err());
+}

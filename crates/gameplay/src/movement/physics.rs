@@ -1,11 +1,14 @@
 use std::{collections::VecDeque, time::Duration};
 
 use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode};
-use sim::{
-    CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
-    TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
-};
 use thiserror::Error;
+use {
+    sim::{
+        CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
+        Vec3, WorldCollisionIdentity,
+    },
+    world::TICKS_PER_SECOND,
+};
 
 mod aim_pose;
 mod controller_frame;
@@ -34,7 +37,7 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
 /// Vanilla's per-frame tick cap; excess whole ticks are discarded.
-pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 10;
+pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = world::MAX_TICKS_PER_FRAME as usize;
 
 pub trait MovementEffectSource {
     fn snapshot(&self) -> sim::MovementEffects;
@@ -538,6 +541,7 @@ impl LocalPhysicsController {
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
         input.creative_flight = context.mode_intent.creative_flight;
+        input.spectator = context.mode_intent.spectator;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
@@ -545,9 +549,11 @@ impl LocalPhysicsController {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !input.immobile && self.modes.mode() == sim::MovementMode::Riding
+            if tick_index == 0
+                && !input.immobile
+                && (input.spectator || self.modes.mode() == sim::MovementMode::Riding)
             {
-                // A rider's position is its seat, not a body to depenetrate.
+                // Riders retain their seat; spectators may remain inside solids.
                 self.anchor_state.reset();
             } else if tick_index == 0 && !input.immobile {
                 match self.anchor_state.before_tick(

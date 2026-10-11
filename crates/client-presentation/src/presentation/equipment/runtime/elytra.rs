@@ -14,6 +14,7 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     additive: false,
     additive_alpha: false,
     disable_overlay: false,
+    depth_always: false,
 };
 
 impl EquipmentRuntime {
@@ -47,7 +48,9 @@ impl EquipmentRuntime {
         let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
         let input = equipment.attachable_input(AttachableAnimationInput {
             worn: true,
+            worn_slot: ArmorSlot::Chestplate as u8,
             frame_alpha: animation.frame_alpha,
+            delta_seconds: Some(animation.delta_seconds),
             owner_variables: &variables,
             ..Default::default()
         });
@@ -114,7 +117,7 @@ impl EquipmentRuntime {
                 state: Some(state.unwrap_or(WING_MATERIAL_STATE)),
                 glint: render::ActorGlint {
                     time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
-                        * client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                        * world::TICK_DURATION.as_secs_f32(),
                     ..Default::default()
                 },
                 ..Default::default()

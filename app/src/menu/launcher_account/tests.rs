@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::menu::auth::AuthState};
 
 #[test]
 fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {

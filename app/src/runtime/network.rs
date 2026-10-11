@@ -1,18 +1,23 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::{
-    AcceptanceRun,
-    model_witness::ModelWitnessFileSource,
-    mutation::{
-        accepted_move_player_ingress_marker, move_player_ingress_marker,
-        write_move_player_ingress_before_source_capture, write_stdout_marker,
-    },
-};
-#[cfg(feature = "acceptance")]
-use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
-#[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(feature = "acceptance")]
+use {
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    acceptance::phase3_evidence::Phase3EvidenceEventKind,
+};
+#[cfg(feature = "acceptance")]
+use {
+    acceptance::model_witness::ModelWitnessFileSource,
+    acceptance::mutation::{
+        accepted_move_player_ingress_marker, move_player_ingress_marker,
+        write_move_player_ingress_before_source_capture,
+    },
+    diagnostics::write_stdout_marker,
+};
 
 use bevy::{
     ecs::system::SystemParam,
@@ -24,24 +29,29 @@ use client_world::SAFE_SERVER_HEIGHT;
 use protocol::WorldEvent;
 use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
-use crate::{
-    camera::{AutoFly, CameraSettingsAuthority},
-    environment::{bind_session_generation, replace_session},
-    local_player::{
-        InteractionOriginSnapshot, LocalAvatarPresentation, LocalPlayerFrameCarrier,
-        LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+use {
+    crate::{
+        environment::{bind_session_generation, replace_session},
+        movement::PhysicsAuthorityGate,
+        runtime::{
+            publication::PublicationController,
+            shutdown::record_fatal_error,
+            world::{AppWorldState, TransferNotice},
+        },
+        session::quiesce_local_player,
     },
-    movement::{MovementSource, PhysicsAuthorityGate, reset_start_game_prediction},
-    runtime::{
-        publication::PublicationController,
-        shutdown::record_fatal_error,
-        world::{AppWorldState, TransferNotice},
+    client_presentation::{
+        camera::{AutoFly, CameraSettingsAuthority},
+        local_player::{
+            InteractionOriginSnapshot, LocalAvatarPresentation, LocalPlayerFrameCarrier,
+            LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
+        },
     },
-    session::quiesce_local_player,
+    gameplay::movement::{MovementSource, reset_start_game_prediction},
 };
-use client_ui::ui_runtime::{
-    UiRuntime,
-    inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
+use {
+    ::inventory::inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
+    client_ui::ui_runtime::UiRuntime,
 };
 
 #[cfg(test)]
@@ -52,10 +62,11 @@ pub(crate) use inventory::{
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::reuse::CompiledStacks;
 pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
-    classify_bootstrap_generation, set_active_language, set_base_material_keys,
+    classify_bootstrap_generation, compiled_stacks, set_active_language, set_base_material_keys,
     set_base_terrain_catalog, set_compile_cache_dir,
 };
 pub(crate) use session::{
@@ -79,11 +90,6 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
     authority: Res<'w, PhysicsAuthorityGate>,
     auto_fly: Res<'w, AutoFly>,
 }
-
-#[cfg(test)]
-pub(crate) use client_presentation::actor_clock::{
-    ActorFrameClock, authoritative_local_actor_eye, publish_local_actor_visibility,
-};
 
 /// Why a network session ended; each reason latches its own follow-up.
 enum SessionEnd {
@@ -264,6 +270,7 @@ pub(crate) fn receive_network_events(
                 interaction.invalidate();
                 #[cfg(feature = "acceptance")]
                 evidence.note_event(Phase3EvidenceEventKind::Session);
+                let mut timings = bootstrap_timing::BootstrapTimings::start();
                 info!(
                     runtime_id = bootstrap.local_player_runtime_id,
                     position = ?bootstrap.player_position,
@@ -326,6 +333,7 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
+                timings.mark(bootstrap_timing::BootstrapPhase::Session);
                 let hashed_ids = bootstrap.block_network_ids_are_hashes;
                 let mut id_remap = assets::SequentialIdRemap::default();
                 let custom_block_ids = if hashed_ids {
@@ -360,14 +368,16 @@ pub(crate) fn receive_network_events(
                 } else {
                     custom_block_ids.clone()
                 };
+                timings.mark(bootstrap_timing::BootstrapPhase::CustomBlocks);
                 let session_assets = resource_packs::session_runtime_assets(
                     &client_world.runtime_assets,
                     overlay_ids.as_ref(),
-                    packs.block_overlay.as_deref(),
+                    packs.block_overlay.as_ref(),
                 );
                 if let Some(textures) = chunk_textures.as_mut() {
                     resource_packs::install_chunk_textures(textures, &session_assets);
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::BlockAssets);
                 let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
                     WorldStream::new_with_asset_sets(
                         bootstrap,
@@ -412,10 +422,12 @@ pub(crate) fn receive_network_events(
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
                 client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
-                client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
-                    components: packs.item_components.clone().unwrap_or_default(),
-                    icons: packs.item_icons.clone(),
-                }));
+                client_world.session_items = Some(Arc::new(
+                    client_presentation::session_assets::SessionItems {
+                        components: packs.item_components.clone().unwrap_or_default(),
+                        icons: packs.item_icons.clone(),
+                    },
+                ));
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {
@@ -459,6 +471,7 @@ pub(crate) fn receive_network_events(
                 }
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
+                timings.mark(bootstrap_timing::BootstrapPhase::WorldStream);
                 let routed = match publish_equipment_identity(
                     &mut player_runtime,
                     &mut ui_runtime,
@@ -497,6 +510,7 @@ pub(crate) fn receive_network_events(
                         break;
                     }
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::Equipment);
                 resource_packs::install_server_language(
                     &mut ui_runtime,
                     session_generation,
@@ -522,7 +536,7 @@ pub(crate) fn receive_network_events(
                     packs.glyph_sheets,
                     client_world.fatal_error.is_none(),
                 );
-                crate::audio::publish_server_sounds(packs.server_sounds);
+                client_presentation::audio::publish_server_sounds(packs.server_sounds);
                 player_runtime.facts.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
@@ -536,6 +550,8 @@ pub(crate) fn receive_network_events(
                         client_world.fatal_error.is_none(),
                     );
                 }
+                timings.mark(bootstrap_timing::BootstrapPhase::Presentation);
+                timings.log();
                 continue;
             }
             NetworkControlEvent::SubChunkRequestSent {
@@ -866,7 +882,7 @@ pub(crate) fn receive_network_events(
             && let protocol::WorldEvent::MovePlayer(movement) = &sequenced.event
             && let Some(marker) = move_player_ingress_marker(sequenced.sequence, movement.position)
         {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
         #[cfg(feature = "acceptance")]
@@ -886,7 +902,7 @@ pub(crate) fn receive_network_events(
                 sequenced.sequence,
                 &sequenced.event,
             ) {
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 write_move_player_ingress_before_source_capture(
                     &mut stdout,
                     &ingress_marker,
@@ -908,14 +924,13 @@ pub(crate) fn receive_network_events(
 }
 
 #[cfg(test)]
-pub(crate) use client_presentation::actor_publication::PreparedActorPublication;
-#[cfg(test)]
 mod actor_test_support;
 #[cfg(test)]
 pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
 
 mod actor_publication;
 mod block_overlay;
+mod bootstrap_timing;
 mod drain;
 pub(crate) mod entity_pack;
 mod entity_texture_reload;
@@ -939,8 +954,7 @@ pub(crate) mod reload_environment;
 mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, advance_actor_frame, advance_actor_motion,
-    prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
     publish_local_actor_damage,
 };
 
@@ -949,4 +963,4 @@ pub(crate) use drain::drain_network_ingress;
 pub(crate) use drain::{WorldIngressDrain, drain_network_controls};
 
 #[cfg(feature = "acceptance")]
-pub(crate) use acceptance::committed_control::acceptance_surface_anchor;
+use acceptance::committed_control::acceptance_surface_anchor;

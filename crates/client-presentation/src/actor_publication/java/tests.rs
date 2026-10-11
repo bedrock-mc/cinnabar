@@ -38,6 +38,7 @@ pub(super) fn head_stream() -> WorldStream {
 /// Starts the local player with a stationary, empty-handed pose.
 pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
         username: Arc::from("Player"),
@@ -115,12 +116,32 @@ fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
     assert!(!render_model::is_pack_rig_id(render_model::EntityRigId(
         rig.rig.0
     )));
-    assert!(third_person(&stream, &rig, actor, Some(&equipment), 0.5).is_some());
+    assert!(
+        third_person(
+            &stream,
+            &rig,
+            actor,
+            Some(&equipment),
+            0.5,
+            &mut PoseScratch::default()
+        )
+        .is_some()
+    );
     let authored = ActorRigSnapshot {
         rig: client_world::EntityRigId(assets::PACK_RIG_ID_BASE),
         ..rig
     };
-    assert!(third_person(&stream, &authored, actor, Some(&equipment), 0.5).is_none());
+    assert!(
+        third_person(
+            &stream,
+            &authored,
+            actor,
+            Some(&equipment),
+            0.5,
+            &mut PoseScratch::default()
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -658,4 +679,118 @@ fn outgoing_metadata_variant_keeps_its_own_idle_use_clock() {
     assert_eq!(outgoing.animation_frame, 0);
     let off = super::super::hand::attachable_hand_input(&rendered, &owner, timing, true);
     assert_eq!(off.use_elapsed_ticks, timing.use_elapsed_ticks);
+}
+
+/// Bit patterns of every float in a pose, so `-0.0` and NaN payloads compare exactly.
+fn bits<'a>(values: impl IntoIterator<Item = &'a f32>) -> Vec<u32> {
+    values.into_iter().map(|value| value.to_bits()).collect()
+}
+
+/// Flattens render transforms into float bits for exact cached-pose comparisons.
+fn render_bits(pose: &[RenderBoneTransform]) -> Vec<u32> {
+    bits(pose.iter().flat_map(|bone| {
+        bone.rotation
+            .iter()
+            .chain(&bone.translation_scale)
+            .chain(&bone.axis_scale)
+    }))
+}
+
+/// Flattens world transforms into float bits for exact cached-pose comparisons.
+fn world_bits(pose: &[BoneTransform]) -> Vec<u32> {
+    bits(pose.iter().flat_map(|bone| {
+        bone.rotation
+            .iter()
+            .chain(&bone.translation_scale)
+            .chain(&bone.axis_scale)
+    }))
+}
+
+/// The Java pose and persona layers published through retained tick transforms equal a fresh
+/// retarget of the same frame, bit for bit, across ticks that move and turn the player.
+#[test]
+fn retained_java_poses_match_fresh_retargeting_across_ticks() {
+    let mut stream = head_stream();
+    let mut feed = uploaded_skin_feed(true);
+    let equipment = ActorEquipmentInput::default();
+    let mut scratch = PoseScratch::default();
+    let parts = [0, 1, 2, 3, 4, 5];
+    let mut compared = 0;
+    for tick in 0..6 {
+        feed.position[0] += 0.15;
+        feed.velocity[0] = 0.15;
+        feed.head_yaw = 170.0 - tick as f32 * 25.0;
+        feed.pitch = tick as f32 * 7.0 - 20.0;
+        stream.sync_local_player_pose(&feed);
+        stream.prepare_actor_appearance_fixture();
+        stream.advance_actor_interpolation_frame(1);
+        for alpha in [0.0, 0.2, 0.55, 0.9, 1.0] {
+            scratch.begin_frame();
+            let rig = stream.authority().actor_rig(1).unwrap();
+            let actor = stream.authority().actor(1).unwrap();
+            let posed =
+                third_person(&stream, &rig, actor, Some(&equipment), alpha, &mut scratch).unwrap();
+            let pose = java::java_biped(&third_person_input(&posed.rig, actor, None, alpha, true));
+            let fresh = retargeted(&stream, &posed.rig, &pose, &parts, alpha).unwrap();
+            assert_eq!(
+                render_bits(&posed.bones),
+                render_bits(&fresh),
+                "{tick} at {alpha}"
+            );
+            let fresh_layers = stream
+                .authority()
+                .actor_retargeted_layers(
+                    1,
+                    alpha,
+                    |names, rest, targets| targets_into(names, rest, &pose, &parts, true, targets),
+                    &mut client_world::JavaRetargetCache::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                posed.posed.skin_layers.len(),
+                1,
+                "the persona layer is posed"
+            );
+            assert_eq!(posed.posed.skin_layers.len(), fresh_layers.len());
+            for (published, fresh) in posed.posed.skin_layers.iter().zip(&fresh_layers) {
+                assert!(Arc::ptr_eq(&published.previous, &published.current));
+                assert_eq!(world_bits(&published.current), world_bits(&fresh.current));
+                compared += 1;
+            }
+        }
+    }
+    assert_eq!(compared, 30);
+}
+
+/// A frame between ticks poses a Java player with no allocation beyond what it publishes: the
+/// body's pose, and with persona layers their list and one pose each.
+#[test]
+fn java_frames_between_ticks_allocate_only_published_poses() {
+    for animated in [false, true] {
+        let mut stream = head_stream();
+        stream.sync_local_player_pose(&uploaded_skin_feed(animated));
+        stream.prepare_actor_appearance_fixture();
+        stream.advance_actor_interpolation_frame(1);
+        let rig = stream.authority().actor_rig(1).unwrap();
+        let actor = stream.authority().actor(1).unwrap();
+        let equipment = ActorEquipmentInput::default();
+        let mut scratch = PoseScratch::default();
+        scratch.begin_frame();
+        drop(third_person(
+            &stream,
+            &rig,
+            actor,
+            Some(&equipment),
+            0.25,
+            &mut scratch,
+        ));
+        scratch.begin_frame();
+        let before = crate::test_allocations::count();
+        let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.5, &mut scratch);
+        let allocations = crate::test_allocations::count() - before;
+        let layers = posed.unwrap().posed.skin_layers.len() as u64;
+        assert_eq!(layers, u64::from(animated));
+        let published = 1 + if layers > 0 { 1 + layers } else { 0 };
+        assert_eq!(allocations, published, "{layers} persona layers");
+    }
 }

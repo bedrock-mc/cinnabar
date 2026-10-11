@@ -131,9 +131,11 @@ pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
     (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
 );
 
-/// Frame-rate slider stops: Automatic, whole caps in frames per second, then Unlimited.
-pub const FRAME_RATE_AUTOMATIC: i32 = 0;
+/// Lowest selectable frame-rate cap, in frames per second.
+pub const MIN_FIXED_FRAME_RATE: i32 = 1;
+/// Highest selectable frame-rate cap, in frames per second.
 pub const MAX_FIXED_FRAME_RATE: i32 = 240;
+/// Unlimited follows the numeric caps on the frame-rate slider.
 pub const FRAME_RATE_UNLIMITED: i32 = MAX_FIXED_FRAME_RATE + 1;
 
 /// Defines one boolean binding with an integral persisted value.
@@ -323,16 +325,16 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider(
         "render_distance",
         "options.renderDistance",
-        4,
-        render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
-        ui::DEFAULT_RENDER_DISTANCE_CHUNKS as i32,
+        ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
+        render_api::MAX_VIEW_RADIUS_CHUNKS,
+        ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
     ),
     slider(
         "max_framerate",
         "options.framerateLimit",
-        FRAME_RATE_AUTOMATIC,
+        MIN_FIXED_FRAME_RATE,
         FRAME_RATE_UNLIMITED,
-        FRAME_RATE_AUTOMATIC,
+        FRAME_RATE_UNLIMITED,
     ),
     slider(
         "msaa",

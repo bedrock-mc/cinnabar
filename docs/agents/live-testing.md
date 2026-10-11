@@ -89,9 +89,12 @@ GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
 Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
 exhausting the collector’s source-location table.
 
-Install the capture tools with `brew install tracy` if missing. Match their Tracy
-protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
-[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+Install the capture tools from the Tracy release whose protocol matches
+`tracy-client-sys` in `Cargo.lock`: `brew install tracy` on macOS when Homebrew has
+that release, or the release's `windows-*.zip` on Windows. The
+[rust_tracy_client table](https://github.com/nagisa/rust_tracy_client#readme) maps each
+`tracy-client-sys` version to its Tracy release; mismatched tools refuse the connection.
+With the hidden local scene settled:
 
 ```sh
 TRACE_DIR="$(mktemp -d)"
@@ -149,8 +152,10 @@ suppressed slow frames and the violated budgets. `main_ms` covers frame-start ti
 `Last`; `between_updates_ms` covers the rest of the preceding start-to-start
 interval. `main_stages` lists spans completed during that update, and
 `window_stages` includes the intervening render work, both in descending
-milliseconds. These are overlapping wall-time spans, not additive CPU or GPU
-time. A worker span can begin in an earlier frame; its full duration appears in
+milliseconds. `main_pre_update`, `main_fixed_update`, `main_update` and
+`main_post_update` split `main_frame` by schedule phase, so work no named stage
+covers still shows which phase spent it. These are overlapping wall-time spans,
+not additive CPU or GPU time. A worker span can begin in an earlier frame; its full duration appears in
 the window where it completes. `surface_preparation` includes drawable
 acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
@@ -199,6 +204,15 @@ terrain coverage in a separate raster target. Both are diagnostic workloads;
 keep them out of ordinary performance captures. See the
 [opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
+
+With the `tracy` feature, `RUST_MCBE_GPU_NODES=1` times every render-graph node with
+encoder timestamps and plots each as `gpu node <graph>/<label> ms`, plus named sections
+inside the late GPU-cull node as `gpu section <name> ms`; it adds a timestamp pair per node, so
+take frame-time numbers from a capture without it. Tracy builds also enable wgpu's own
+zones (`CommandEncoder::finish`, `Queue::submit`, `RenderPassInfo::start`, the DX12 present
+and barrier calls), which is where the render thread's encoding time shows: wgpu records
+passes and encodes them at `finish`, and the opaque, late-cull and transparent passes
+finish on worker tasks.
 
 `RUST_MCBE_GPU_UI=1` replaces the aggregate UI timestamp category with
 `gpu_ui_raster`, `gpu_ui_model`, `gpu_ui_composite` and `gpu_ui_invert` on

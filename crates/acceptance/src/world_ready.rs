@@ -7,22 +7,27 @@ use bevy::{
 use chunk_pipeline::ViewCohortStatus;
 use render::{ChunkRenderQueue, PresentedFrameAck, PresentedFrameGate, TargetRenderExpectation};
 
-use super::{
-    AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
-    markers::GALLERY_ANCHOR_READY,
-    mutation::{MutationTracker, world_ready_markers, write_stdout_marker},
-    proofs::{
-        forced_remesh_proof, forced_remesh_settled_marker, teleport_proof, teleport_settled_marker,
-    },
-    remesh::FullViewRemeshTracker,
-    teleport::{
-        FullViewTeleportTracker, TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
-        teleport_global_stage_diagnostic_marker,
-    },
-};
 use crate::world_observation::{WorldReadyCommands, WorldReadyObservation};
 use client_presentation::camera;
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use {
+    super::{
+        AcceptanceRun,
+        mutation::{MutationTracker, world_ready_markers},
+        proofs::{
+            forced_remesh_proof, forced_remesh_settled_marker, teleport_proof,
+            teleport_settled_marker,
+        },
+        remesh::FullViewRemeshTracker,
+        teleport::{
+            FullViewTeleportTracker, TeleportReadySnapshot, presented_ack_matches,
+            render_view_cohort, teleport_global_stage_diagnostic_marker,
+        },
+    },
+    diagnostics::{
+        PHASE0_REQUESTED_RADIUS_CHUNKS, markers::GALLERY_ANCHOR_READY, write_stdout_marker,
+    },
+};
 
 pub const WORLD_READY_QUIET_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const WORLD_READY_DIAGNOSTIC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
@@ -475,7 +480,7 @@ pub fn observe_world_ready(
             }
             let proof = teleport_proof(cohort, &teleport);
             metrics.record_teleport_proof(proof.clone());
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             let _ = writeln!(stdout, "{}", teleport_settled_marker(&proof));
             let _ = writeln!(
                 stdout,
@@ -494,7 +499,7 @@ pub fn observe_world_ready(
                 observed_at,
             )
         {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             let _ = writeln!(stdout, "{marker}");
             let _ = stdout.flush();
         }
@@ -572,7 +577,7 @@ pub fn observe_world_ready(
                     error!("target mutation armed without complete manifest-comparable evidence");
                     return;
                 };
-                let mut stdout = std::io::stdout().lock();
+                let mut stdout = diagnostics::console::stdout();
                 let _ = writeln!(stdout, "{}", forced_remesh_settled_marker(&proof));
                 let _ = writeln!(stdout, "{mutation_marker}");
                 let _ = stdout.flush();
@@ -682,7 +687,7 @@ pub fn observe_world_ready(
         .gallery_anchor
         .observe(model_witness_configured, snapshot)
     {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
     let Some(markers) = acceptance.world_ready_settler.observe(snapshot, ready_at) else {
@@ -700,7 +705,7 @@ pub fn observe_world_ready(
     let asset_marker = metrics
         .asset_metrics()
         .world_ready_marker(snapshot.resident_sub_chunks, snapshot.visible_sub_chunks);
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = diagnostics::console::stdout();
     for marker in markers {
         let _ = writeln!(stdout, "{marker}");
     }

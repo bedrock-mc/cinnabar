@@ -76,7 +76,7 @@ impl ChunkSource for HttpsChunks {
         ensure!(!self.cancelled.load(Ordering::Acquire), "media cancelled");
         ensure!(
             self.data_budget
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining
                     .checked_sub(length))
                 .is_ok(),
             "media data allowance exhausted"

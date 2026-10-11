@@ -80,6 +80,15 @@ impl Changes {
     fn add(&mut self, kind: Data, name: &str, index: Option<usize>) {
         self.0.push(data_hash(kind, name, index));
     }
+
+    /// Whether any of `names`, read as screen-controller globals, may have changed.
+    pub(super) fn globals<'a>(&self, names: impl Iterator<Item = &'a str>) -> bool {
+        let mut reads = Reads::default();
+        for name in names {
+            reads.add(Data::Global, name, None);
+        }
+        reads.meets(self)
+    }
 }
 
 /// Per-control reuse bookkeeping, carried with the retained tree.

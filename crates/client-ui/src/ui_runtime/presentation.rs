@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use ui::{
     DpiScale, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, UiNode, UiNodeId, UiPoint,
-    UiRect, UiScale, UiTree, UiVisual,
+    UiRect, UiScale, UiVisual,
 };
 
 use super::scene_stack::Scene;
@@ -46,26 +46,19 @@ pub mod retained_hud;
 pub mod screens;
 pub mod session_glyphs;
 pub mod session_icons;
-pub use forms::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
+pub use forms::ServerUiPack;
+
 pub use session_glyphs::SessionGlyphSheets;
 pub use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 pub mod startup;
 pub mod text_metrics;
 pub mod texture_atlas;
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "dormant until presentation owns an exact walk-distance query cadence"
-    )
-)]
-pub mod viewmodel_bob;
 
-use crate::menu::{MenuAction, MenuView};
 pub use debug_overlay::DebugLines;
 pub use forms::{BedHit, ChatHit, ExperienceModal, LoadingStage, ModScreensInput, ModalEdits};
 pub use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout, gui_scale};
+use hud_layout::{HudGeometry, HudLayout};
+use launcher::menu::{MenuAction, MenuView};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
@@ -76,15 +69,12 @@ pub use publish::{
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::StartupPresentationState;
-use text_metrics::{
-    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
-    TextMetrics,
-};
-pub use texture_atlas::IconRef;
+use text_metrics::TextMetrics;
 use texture_atlas::{
     HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
+use ui::IconRef;
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -133,6 +123,9 @@ pub struct UiPresentationRuntime {
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
+    /// Nodes emitted again by frames drawn from the last frame's draw list.
+    #[cfg(test)]
+    redrawn_nodes: usize,
     #[cfg(test)]
     oreui_paints: usize,
     scoreboard: PresentedScoreboardCache,
@@ -157,6 +150,8 @@ pub struct UiPresentationRuntime {
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
+    /// The pose the software rasters were drawn at; with model geometry only the hands read it.
+    player_preview_raster_pose: Option<player_preview::PlayerPreviewPose>,
     /// How the UI last asked to show the model, and the idle sway it was drawn at.
     player_preview_view: player_preview::PreviewView,
     menu_preview_model: player_preview::model::MenuPreviewModel,

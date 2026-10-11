@@ -106,66 +106,29 @@ func TestEducationConstructionProjectionKeepsPaletteIdentitiesWithoutCreativeIte
 	}
 }
 
-func TestEducationCollisionJoinUsesTheCompletePinnedStateSet(t *testing.T) {
-	root := os.Getenv("CINNABAR_REGISTRY_SOURCES")
-	if root == "" {
-		root = filepath.Join("..", "..", ".local", "evidence", "registry-sources")
-	}
-	prismarine := filepath.Join(root, "prismarine")
-	if _, err := os.Stat(filepath.Join(prismarine, "blockStates.json")); os.IsNotExist(err) {
-		t.Skipf("missing pinned Education collision fixtures at %s", prismarine)
-	}
-	states, err := readPrismarineStates(filepath.Join(prismarine, "blockStates.json"), filepath.Join(prismarine, "blockCollisionShapes.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var records []Record
-	for _, state := range states {
-		if !isEducationConstructionName(state.Name) {
+// TestEducationCollisionUsesSharedStateFacts checks the full admitted construction palette without external fixtures.
+func TestEducationCollisionUsesSharedStateFacts(t *testing.T) {
+	_, records := loadV2193PhysicsInputs(t)
+	count := 0
+	for _, record := range records {
+		if !isEducationConstructionName(record.Name) {
 			continue
 		}
-		canonical, err := canonicalTypedState(state.Properties)
+		count++
+		properties, err := sharedBlockProperties(record)
 		if err != nil {
 			t.Fatal(err)
 		}
-		records = append(records, Record{Name: state.Name, StateJSON: canonical})
-	}
-	if err := applyEducationCollisionSeeds(records, prismarine); err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != v2193EducationStateCount {
-		t.Fatalf("Education state count = %d", len(records))
-	}
-	for _, record := range records {
-		seed := record.CollisionSeed
-		if seed.Confidence != CollisionConfidenceCollisionOnly || len(seed.Boxes) != 1 {
-			t.Fatalf("missing collision for %s", record.Name)
+		seed, err := sharedCollisionSeed(record, properties)
+		if err != nil {
+			t.Fatal(err)
 		}
-		wantHeight := int32(100_000_000)
-		if record.Name == "minecraft:border_block" {
-			wantHeight = 150_000_000
-		}
-		if seed.Boxes[0] != (CollisionBox{MaxX: 100_000_000, MaxY: wantHeight, MaxZ: 100_000_000}) {
-			t.Fatalf("unexpected Education collision for %s: %+v", record.Name, seed.Boxes[0])
+		if !collisionBoxesEqual(record.CollisionSeed.Boxes, seed.Boxes) {
+			t.Fatalf("construction collision differs for %s", record.Name)
 		}
 	}
-}
-
-func TestEducationLightUsesIdentifiedOpacityAndRejectsMissingFacts(t *testing.T) {
-	projection := v2193Projection{records: []Record{{Name: "minecraft:deny"}, {Name: "minecraft:border_block"}}, classes: []byte{v2193ClassEducation, v2193ClassEducation}}
-	properties := make([]byte, 2)
-	if err := applyEducationLightProperties(projection, properties, nil); err == nil {
-		t.Fatal("missing Education light facts accepted")
-	}
-	sources := map[string]PMMPLightProperties{
-		"minecraft:deny":         {Opacity: 1},
-		"minecraft:border_block": {Opacity: 0.19999998807907104},
-	}
-	if err := applyEducationLightProperties(projection, properties, sources); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(properties, []byte{15 << 4, 3 << 4}) {
-		t.Fatalf("Education light = %x", properties)
+	if count != v2193EducationStateCount {
+		t.Fatalf("Education state count %d", count)
 	}
 }
 

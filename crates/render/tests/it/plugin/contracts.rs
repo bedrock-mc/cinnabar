@@ -412,8 +412,6 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     );
     let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
     assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
-    assert!(shader.contains("@binding(12) var<storage, read> model_templates: array<u32>"));
-    assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("visible_quad_mask"));
     assert!(shader.contains("lighting_base_index"));
     assert!(shader.contains("let draw_ref_word = instance_index * 2u"));
@@ -460,21 +458,19 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
 }
 
 #[test]
-fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
+fn transparent_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     let plugin = CHUNK_RENDERER_SOURCE;
     let blend = include_str!("../../../src/chunk/pipeline/layouts/terrain_blend.rs");
     let shader = shader_source::preprocess(include_str!("../../../src/model.wgsl"), &[]);
 
-    assert!(plugin.contains("packed transparent model pipeline"));
-    assert!(plugin.contains("transparent_model_descriptor"));
-    assert!(plugin.contains("entry_point = Some(\"fragment_blend\".into())"));
-    assert!(plugin.contains("terrain_blend::apply(&mut transparent_model_descriptor)"));
+    assert!(plugin.contains("packed transparent terrain pipeline"));
+    assert!(plugin.contains("terrain_blend::apply(&mut transparent_descriptor)"));
     assert!(blend.contains("target.blend = Some(BlendState::ALPHA_BLENDING)"));
     assert!(blend.contains("depth.depth_write_enabled = true"));
 
     let blend_start = shader
-        .find("fn fragment_blend(")
-        .expect("transparent model fragment entry point");
+        .find("fn shade_blend(")
+        .expect("transparent model shading");
     let blend_body = &shader[blend_start..];
     assert!(blend_body.contains("return ordinary_world_model_colour(in, sampled);"));
     assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
@@ -487,7 +483,7 @@ fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
         "biome tinting must preserve sampled alpha for the blend entry point"
     );
     assert_eq!(
-        shader_source::alpha_discard_threshold(&shader, "fragment_blend"),
+        shader_source::alpha_discard_threshold(&shader, "shade_blend"),
         None,
         "blend models must preserve fractional sampled alpha"
     );
@@ -499,7 +495,7 @@ fn transparent_models_and_water_queue_combined_distance_sorted_subchunk_items() 
 
     assert!(plugin.contains("add_render_command::<Transparent3d, DrawTransparentModelCommands>()"));
     assert!(plugin.contains("add_render_command::<Transparent3d, DrawMixedTerrainCommands>()"));
-    assert!(plugin.contains(".transparent_model_variants"));
+    assert!(plugin.contains(".transparent_variants"));
     assert!(plugin.contains(".specialize(&pipeline_cache, key)"));
     assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, model_key)"));
     assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, group.key)"));

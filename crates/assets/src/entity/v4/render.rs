@@ -47,6 +47,10 @@ pub struct EntityRenderMaterialState {
     /// Absent in older carriers, which retain their overlay behavior.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub disable_overlay: bool,
+    /// `depthFunc: Always`: the depth test always passes, so the material draws through
+    /// geometry rendered before it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub depth_always: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -60,6 +64,7 @@ impl Default for EntityRenderMaterialState {
             additive: false,
             additive_alpha: false,
             disable_overlay: false,
+            depth_always: false,
         }
     }
 }
@@ -75,6 +80,7 @@ impl EntityRenderMaterialState {
     pub const ADDITIVE: u32 = 1 << 14;
     pub const ADDITIVE_ALPHA: u32 = 1 << 15;
     pub const DISABLE_OVERLAY: u32 = 1 << 16;
+    pub const DEPTH_ALWAYS: u32 = 1 << 17;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -86,6 +92,7 @@ impl EntityRenderMaterialState {
             additive: word & Self::ADDITIVE != 0,
             additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
+            depth_always: word & Self::DEPTH_ALWAYS != 0,
         })
     }
 }
@@ -135,6 +142,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.disable_overlay {
                         EntityRenderMaterialState::DISABLE_OVERLAY
+                    } else {
+                        0
+                    }
+                    | if state.depth_always {
+                        EntityRenderMaterialState::DEPTH_ALWAYS
                     } else {
                         0
                     }

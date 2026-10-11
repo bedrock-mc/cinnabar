@@ -44,11 +44,11 @@ impl HudLayout<'_> {
                 text,
                 style: TextStyle::default(),
                 width_64: (width * scale * 64.0) as u32,
-                line_height_64: super::super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::super::TEXT_BASELINE_64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
                 scale: self.text_scale(9.0),
                 font: self.font,
-                wrap: Default::default(),
+                wrap: self.geometry.text_wrap(),
             })
             .map_err(UiPresentationError::Text)?;
         self.text_gui(layout, position, color)

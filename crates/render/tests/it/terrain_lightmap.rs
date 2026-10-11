@@ -80,7 +80,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
         &meshing::biome_lattice::query_table_words(),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 36];
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let mut table = render::LightmapInputs::default().build();

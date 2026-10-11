@@ -13,6 +13,7 @@ wire-test-support = []
 block-transform = { path = "../block-transform" }
 render-api = { path = "../render-api" }
 anyhow.workspace = true
+base64 = "0.22"
 bridge = { path = "../bridge" }
 bytes.workspace = true
 futures.workspace = true
@@ -28,9 +29,11 @@ jolyne = { path = "vendor/jolyne", default-features = false, features = ["client
 
 [dev-dependencies]
 aes = "0.8"
-base64 = "0.22"
 ctr = "0.9"
 flate2 = "1"
 jsonwebtoken = "9.3"
 p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
 snap = "1.1"
+
+[lints]
+workspace = true

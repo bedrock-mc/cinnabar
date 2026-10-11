@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use render_model::UiTexturePage;
 use sha2::{Digest, Sha256};
 
-use super::super::{IconRef, UiPresentationError};
+use {super::super::UiPresentationError, ui::IconRef};
 
 const SIDE: usize = render_model::UI_MODEL_ATLAS_SIDE as usize;
 const GUTTER: usize = 1;
@@ -38,6 +38,8 @@ impl Atlas {
         }
     }
 
+    /// Places full-resolution texels. Each side keeps a one-texel edge gutter where the page has
+    /// room; a side as long as the page fills it, its page border clamping instead.
     pub(super) fn insert(
         &mut self,
         size: [u16; 2],
@@ -46,8 +48,8 @@ impl Atlas {
         let [width, height] = size.map(usize::from);
         if width == 0
             || height == 0
-            || width + 2 * GUTTER > SIDE
-            || height + 2 * GUTTER > SIDE
+            || width > SIDE
+            || height > SIDE
             || pixels.len() != width * height * 4
         {
             return Err(UiPresentationError::InvalidFontTexture);
@@ -56,7 +58,8 @@ impl Atlas {
         if let Some(icon) = self.refs.get(&key) {
             return Ok(*icon);
         }
-        let padded = [width + 2 * GUTTER, height + 2 * GUTTER];
+        let lead = [width, height].map(|side| if side + 2 * GUTTER <= SIDE { GUTTER } else { 0 });
+        let padded = [width, height].map(|side| (side + 2 * GUTTER).min(SIDE));
         if self.cursor[0] + padded[0] > SIDE {
             self.cursor = [0, self.cursor[1] + self.row];
             self.row = 0;
@@ -74,15 +77,15 @@ impl Atlas {
             .last_mut()
             .ok_or(UiPresentationError::InvalidFontTexture)?;
         for y in 0..padded[1] {
-            let sy = y.saturating_sub(GUTTER).min(height - 1);
+            let sy = y.saturating_sub(lead[1]).min(height - 1);
             for x in 0..padded[0] {
-                let sx = x.saturating_sub(GUTTER).min(width - 1);
+                let sx = x.saturating_sub(lead[0]).min(width - 1);
                 let source = (sy * width + sx) * 4;
                 let dest = ((self.cursor[1] + y) * SIDE + self.cursor[0] + x) * 4;
                 image[dest..dest + 4].copy_from_slice(&pixels[source..source + 4]);
             }
         }
-        let [left, top] = self.cursor.map(|value| value + GUTTER);
+        let [left, top] = [0, 1].map(|axis| self.cursor[axis] + lead[axis]);
         let icon = IconRef {
             page: self
                 .first
@@ -100,6 +103,31 @@ impl Atlas {
         self.row = self.row.max(padded[1]);
         self.refs.insert(key, icon);
         Ok(icon)
+    }
+
+    /// Places full-resolution texels or box-filters by powers of two when size or budget requires it.
+    /// Returns the stored region and size; returns None if even one texel cannot fit.
+    pub(super) fn insert_fitted(
+        &mut self,
+        size: [u16; 2],
+        pixels: &[u8],
+        shrink: bool,
+    ) -> Option<(IconRef, [u16; 2])> {
+        let mut limit = SIDE as u32;
+        loop {
+            let fitted = render_model::fit_rgba_within(size[0], size[1], pixels, limit);
+            let (size, pixels) = fitted
+                .as_ref()
+                .map_or((size, pixels), |(size, pixels)| (*size, pixels.as_slice()));
+            if let Some(icon) = self.try_insert([(size, pixels)], |icons| icons.first().copied()) {
+                return Some((icon, size));
+            }
+            let longest = u32::from(size[0].max(size[1]));
+            if !shrink || longest <= 1 {
+                return None;
+            }
+            limit = longest / 2;
+        }
     }
 
     /// Inserts optional mesh textures, restoring atlas capacity when insertion or mesh building fails.

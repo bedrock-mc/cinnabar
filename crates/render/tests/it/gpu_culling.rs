@@ -7,6 +7,7 @@ mod kernels;
 mod model;
 #[path = "../../src/chunk/gpu_cull/occlusion.rs"]
 mod occlusion;
+mod raster;
 
 use std::collections::BTreeSet;
 
@@ -22,7 +23,8 @@ use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
 use kernels::{CullKernels, CullStorage, HizPyramid};
 use model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullRecordSource, CullStream, CullViewInput,
-    CullViewUniform, STREAM_COUNT, args_region, count_index, frustum_slack, reference_args,
+    CullViewUniform, OFFSET_CORNERS, STREAM_COUNT, args_region, count_index, frustum_slack,
+    reference_args, resolve_culled_args,
 };
 
 const SIDE: f32 = world::SUB_CHUNK_SIDE as f32;
@@ -198,18 +200,39 @@ impl<'a> Culler<'a> {
         self.args(phase)
     }
 
+    /// The draws each compacted command performs, resolved through its offset entries.
     fn args(&self, phase: CullPhase) -> Args {
         let counts = read_buffer(self.gpu, &self.storage.draw_counts, 32);
         let counts = bytemuck::cast_slice::<u8, u32>(&counts).to_vec();
         let words = read_buffer(self.gpu, &self.storage.args, self.storage.args.size());
         let words = bytemuck::cast_slice::<u8, u32>(&words);
+        let offsets = read_buffer(
+            self.gpu,
+            &self.storage.draw_offsets,
+            self.storage.draw_offsets.size(),
+        );
+        let offsets = bytemuck::cast_slice::<u8, u32>(&offsets)
+            .as_chunks::<2>()
+            .0
+            .to_vec();
         CullStream::ALL.map(|stream| {
             let start = args_region(self.storage.capacity, phase, stream) as usize;
             let count = counts[count_index(phase, stream) as usize] as usize;
             assert!(count as u32 <= stream.draws_per_record() * self.slots);
             words[start..start + count * ARGS_WORDS as usize]
-                .chunks_exact(ARGS_WORDS as usize)
-                .map(|chunk| chunk.try_into().unwrap())
+                .as_chunks::<{ ARGS_WORDS as usize }>()
+                .0
+                .iter()
+                .map(|chunk| {
+                    let command = *chunk;
+                    // Builtins see neither offset on DX12 count draws, so both stay zero.
+                    assert_eq!((command[2], command[4]), (0, 0));
+                    let entries = &offsets[command[3] as usize..][..OFFSET_CORNERS as usize];
+                    for (corner, entry) in (0..).zip(entries) {
+                        assert_eq!(*entry, [entries[0][0] + corner, entries[0][1]]);
+                    }
+                    resolve_culled_args(command, &offsets)
+                })
                 .collect()
         })
     }
@@ -651,11 +674,20 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
         .collect()
 }
 
+/// Uses unsealed block-grid quads so different culling draw orders compare identical pixels.
+/// Sealed coplanar edges can overlap by a sliver and legitimately depend on draw order. Like
+/// production's `vertex`, it fetches its offsets from vertex buffer 0.
+const UNSEALED_VERTEX: &str = "@vertex fn unsealed_vertex(\
+    @location(0) offsets: vec2<u32>, @builtin(instance_index) instance_index: u32,\
+) -> VertexOutput { return sealed_cube_vertex(offsets.x, offsets.y + instance_index, 0.0); }";
+
 struct Raster {
     solid: wgpu::RenderPipeline,
     cutout: wgpu::RenderPipeline,
     solid_group: wgpu::BindGroup,
     cutout_group: wgpu::BindGroup,
+    /// Vertex buffer 0 of CPU-planned draws: entry `i` is `(i, 0)` for every slot's corners.
+    identity: wgpu::Buffer,
     indices: wgpu::Buffer,
     view: wgpu::Buffer,
 }
@@ -673,14 +705,35 @@ impl Raster {
         write_depth: bool,
         color: wgpu::TextureFormat,
     ) -> Self {
-        let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
-            .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
+        Self::through(gpu, terrain, camera, write_depth, color, "unsealed_vertex")
+    }
+
+    /// Draws through the named vertex entry: `vertex` for production sealed
+    /// quads, or `unsealed_vertex` for quads exactly on the block grid.
+    fn through(
+        gpu: &Gpu,
+        terrain: &Terrain,
+        camera: &Camera,
+        write_depth: bool,
+        color: wgpu::TextureFormat,
+        vertex: &str,
+    ) -> Self {
+        let source = format!(
+            "{}\n{UNSEALED_VERTEX}",
+            shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
+        )
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
         let module = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             });
+        let offsets = [wgpu::VertexBufferLayout {
+            array_stride: model::OFFSET_ENTRY_BYTES,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Uint32x2],
+        }];
         let pipeline = |fragment, cull_mode| {
             gpu.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -688,9 +741,9 @@ impl Raster {
                     layout: None,
                     vertex: wgpu::VertexState {
                         module: &module,
-                        entry_point: Some("vertex"),
+                        entry_point: Some(vertex),
                         compilation_options: Default::default(),
-                        buffers: &[],
+                        buffers: &offsets,
                     },
                     primitive: wgpu::PrimitiveState {
                         cull_mode,
@@ -802,11 +855,15 @@ impl Raster {
                 entries: &entries,
             })
         };
+        let identity = (0..terrain.chunks.len() as u32 * model::OFFSET_CORNERS)
+            .flat_map(|vertex| [vertex, 0])
+            .collect::<Vec<_>>();
         Self {
             solid_group: group(&solid),
             cutout_group: group(&cutout),
             solid,
             cutout,
+            identity: gpu.words(&identity, wgpu::BufferUsages::VERTEX),
             indices: gpu.words(
                 &chunk_constants::STATIC_QUAD_INDICES,
                 wgpu::BufferUsages::INDEX,
@@ -821,7 +878,8 @@ impl Raster {
             .write_buffer(&self.view, 0, bytemuck::cast_slice(&words));
     }
 
-    fn bind(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream) {
+    /// Binds `stream`'s pipeline with vertex buffer 0 reading `offsets`.
+    fn bind(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream, offsets: &wgpu::Buffer) {
         let (pipeline, group) = match stream {
             CullStream::Solid => (&self.solid, &self.solid_group),
             _ => (&self.cutout, &self.cutout_group),
@@ -829,10 +887,12 @@ impl Raster {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, group, &[]);
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, offsets.slice(..));
     }
 
+    /// Draws CPU-planned `args` through the identity offsets, as the renderer's planned paths do.
     fn draw(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream, args: &[[u32; 5]]) {
-        self.bind(pass, stream);
+        self.bind(pass, stream, &self.identity);
         for &[count, instances, first_index, base_vertex, first_instance] in args {
             pass.draw_indexed(
                 first_index..first_index + count,
@@ -841,135 +901,4 @@ impl Raster {
             );
         }
     }
-}
-
-/// The two-phase GPU path, from any stale history, draws exactly the CPU path's pixels.
-#[test]
-fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
-    // Fixed-count args address quads through a non-zero `first_instance`, as production does.
-    let features = wgpu::Features::INDIRECT_FIRST_INSTANCE;
-    let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", features) else {
-        return;
-    };
-    let indirect = gpu.device.features().contains(features);
-    let terrain = terrain();
-    let slots = terrain.records.len();
-    let enabled = enabled_words(|slot| slot != 7, slots);
-    let culler = Culler::new(&gpu, &terrain.records, &enabled);
-    let mut random = Lcg(3);
-    let mut history = (0..slots)
-        .filter(|_| random.next(2) == 0)
-        .collect::<BTreeSet<_>>();
-    let cameras = [
-        camera(Vec3::new(8.25, 72.5, 8.75), Vec3::new(10.0, 70.0, -40.0)),
-        camera(Vec3::new(20.5, 75.0, 2.0), Vec3::new(0.0, 68.0, -60.0)),
-        camera(Vec3::new(-30.0, 90.0, -8.0), Vec3::new(10.0, 60.0, -70.0)),
-    ];
-    let mut occluded_any = false;
-    for (index, camera) in cameras.iter().enumerate() {
-        let raster = Raster::new(&gpu, &terrain, camera);
-        let eye = camera.eye.as_dvec3().to_array();
-        let visible = (0..slots)
-            .filter(|&slot| {
-                model::slot_enabled(&enabled, slot)
-                    && bevy_visible(&camera.frustum, terrain.chunks[slot].0)
-            })
-            .collect::<Vec<_>>();
-        let mut front_to_back = visible.clone();
-        let depth = |slot: usize| {
-            (Vec3::from_array(terrain.chunks[slot].0.map(|v| v as f32)) - camera.eye).length()
-        };
-        front_to_back.sort_by(|&a, &b| depth(a).total_cmp(&depth(b)));
-
-        // CPU path: facing solid runs front to back, then the cutout tails.
-        let cpu = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        let mut cpu_draws = 0;
-        {
-            let mut pass = cpu.pass(&mut encoder, true);
-            for (stream, draws) in [CullStream::Solid, CullStream::Cutout].map(|stream| {
-                let draws = front_to_back
-                    .iter()
-                    .flat_map(|&slot| slot_draws(&terrain, slot, eye, stream))
-                    .collect::<Vec<_>>();
-                (stream, draws)
-            }) {
-                cpu_draws += draws.len();
-                raster.draw(&mut pass, stream, &draws);
-            }
-        }
-        gpu.queue.submit([encoder.finish()]);
-
-        // GPU path: early from the stale history, Hi-Z from that depth, then late.
-        culler.set_history(&bits_of(&history, slots));
-        let gpu_target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
-        let mut gpu_draws = 0;
-        let mut pyramid_mips = 0;
-        for phase in CullPhase::ALL {
-            let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            if indirect && phase == CullPhase::Early {
-                encoder.clear_buffer(&culler.storage.args, 0, None);
-            }
-            let pyramid = (phase == CullPhase::Late)
-                .then(|| gpu_target.pyramid(&gpu, &culler.kernels, &mut encoder));
-            if let Some(pyramid) = &pyramid {
-                pyramid_mips = pyramid.mip_count();
-            }
-            let input = view_input(camera, pyramid_mips);
-            culler.encode(&mut encoder, &input, phase, pyramid.as_ref());
-            if indirect {
-                let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
-                for stream in [CullStream::Solid, CullStream::Cutout] {
-                    raster.bind(&mut pass, stream);
-                    pass.multi_draw_indexed_indirect(
-                        &culler.storage.args,
-                        u64::from(args_region(culler.storage.capacity, phase, stream)) * 4,
-                        slots as u32 * stream.draws_per_record(),
-                    );
-                }
-                drop(pass);
-                gpu.queue.submit([encoder.finish()]);
-                let args = culler.args(phase);
-                gpu_draws += args.iter().map(Vec::len).sum::<usize>();
-            } else {
-                gpu.queue.submit([encoder.finish()]);
-                let args = culler.args(phase);
-                gpu_draws += args.iter().map(Vec::len).sum::<usize>();
-                let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                {
-                    let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
-                    for stream in [CullStream::Solid, CullStream::Cutout] {
-                        raster.draw(&mut pass, stream, &args[stream as usize]);
-                    }
-                }
-                gpu.queue.submit([encoder.finish()]);
-            }
-        }
-        let next = culler.history();
-        assert!(next.iter().all(|slot| visible.contains(slot)));
-        occluded_any |= next.len() < visible.len();
-        history = next;
-
-        let expected = read_texture(&gpu, &cpu.color, 0);
-        let actual = read_texture(&gpu, &gpu_target.color, 0);
-        gpu_snapshot::save(&format!("gpu_cull_cpu_{index}"), &expected);
-        gpu_snapshot::save(&format!("gpu_cull_gpu_{index}"), &actual);
-        let background = &expected[..4];
-        assert!(
-            expected.chunks_exact(4).any(|pixel| pixel != background),
-            "camera {index} sees terrain"
-        );
-        let mismatched = expected
-            .chunks_exact(4)
-            .zip(actual.chunks_exact(4))
-            .filter(|(a, b)| a != b)
-            .count();
-        assert_eq!(mismatched, 0, "camera {index}");
-        eprintln!(
-            "gpu cull camera {index}: cpu path {cpu_draws} draws over {} sub-chunks, gpu path {gpu_draws} draws ({} sub-chunks pass Hi-Z)",
-            visible.len(),
-            history.len()
-        );
-    }
-    assert!(occluded_any, "the wall must occlude some sub-chunks");
 }

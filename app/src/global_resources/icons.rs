@@ -1,6 +1,6 @@
 //! Installed pack artwork is decoded on the import worker and uses the menu atlas.
 
-use super::Snapshot;
+use launcher::global_resources::Snapshot;
 use resource_pack::GlobalPackLibrary;
 use std::{
     hash::{Hash, Hasher},

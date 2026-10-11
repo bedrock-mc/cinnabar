@@ -43,23 +43,23 @@ members = [
     "crates/sim",
     "crates/ui",
     "crates/world",
-    "tools/visualcoverage",
+    "crates/update-manifest",
     "tools/architecture",
     "tools/devtool",
     "tools/dist",
-    "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
     "tools/mcp-stdio",
     "tools/cinnabar-mcp",
     "tools/cxb",
+    "tools/release-manifest",
 ]
 resolver = "3"
 
 [workspace.package]
 version = "0.1.12"
 edition = "2024"
-rust-version = "1.93.1"
+rust-version = "1.99.0"
 
 [workspace.dependencies]
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
@@ -108,6 +108,15 @@ wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"
 
 
+# Pin the wgpu family to bedrock-mc/wgpu cinnabar-v27, based on upstream af91efa9, with one shared wgpu-types.
+# This adds FIFO-only Windows acquire waits, batched indirect validation and lazy trace arguments; remove when Bevy supports them upstream.
+[patch.crates-io]
+naga = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-core = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-hal = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+wgpu-types = { git = "https://github.com/bedrock-mc/wgpu", rev = "295bf25607db043b5f8b2c8123e3ab6149a12e3e" }
+
 [profile.dev]
 opt-level = 1
 
@@ -138,3 +147,5 @@ inherits = "release"
 codegen-units = 16
 lto = false
 incremental = true
+
+[workspace.lints.clippy]

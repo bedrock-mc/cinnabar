@@ -123,11 +123,18 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
         let bottom = pixel(&pixels, SNAPSHOT_SIDE / 2, SNAPSHOT_SIDE - 1);
         assert_eq!(bottom[..3], rgb);
         assert!((i16::from(bottom[3]) - 230).abs() <= 1);
-        let covered = pixels.chunks_exact(4).filter(|pixel| pixel[3] != 0).count();
+        let covered = pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] != 0)
+            .count();
         assert!(covered > 0 && covered < pixels.len() / 4);
         assert!(
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| pixel[3] == 0 || pixel[..3] == rgb)
         );
     }

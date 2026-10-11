@@ -784,7 +784,12 @@ fn custom_block_items_draw_their_default_state() {
     assert_eq!(icons.misses[0].0.as_ref(), "test:missing");
     let lucky = &icons.icons[0];
     assert_eq!((lucky.width, lucky.height), (32, 32));
-    let opaque = lucky.rgba8.chunks_exact(4).filter(|pixel| pixel[3] == 255);
+    let opaque = lucky
+        .rgba8
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] == 255);
     assert!(opaque.clone().count() > 300, "a filled cube silhouette");
     assert!(
         opaque.clone().all(|pixel| pixel[2] == 0),

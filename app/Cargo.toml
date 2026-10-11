@@ -22,19 +22,24 @@ acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
-local-mods = ["mod-host/execution"]
+local-mods = ["mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
-# Live CPU attribution through Bevy and the owned streaming/render hot paths.
-tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
+# Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
+# streaming/render hot paths.
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
 [dependencies]
+experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"], optional = true }
+mod-api = { path = "../crates/mod-api", optional = true }
+mod-render = { path = "../crates/mod-render", optional = true }
 block-transform = { path = "../crates/block-transform" }
-tracing-tracy = { version = "=0.11.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+profiling = { version = "=1.0.18", default-features = false, features = ["profile-with-tracing"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
 diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
@@ -79,6 +84,7 @@ thiserror.workspace = true
 url = "2"
 tokio.workspace = true
 ui = { path = "../crates/ui" }
+update-manifest = { path = "../crates/update-manifest" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
@@ -90,6 +96,9 @@ rustix = { version = "1", default-features = false, features = ["fs", "process",
 libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+ash = "0.38"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-io = "2"
@@ -122,3 +131,6 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 pack-compiler = { path = "../crates/pack-compiler" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
+
+[lints]
+workspace = true

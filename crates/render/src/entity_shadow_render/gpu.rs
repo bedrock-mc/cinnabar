@@ -66,7 +66,7 @@ impl EntityShadowGpu {
                     ),
                     entry(
                         4,
-                        fragment,
+                        ShaderStages::VERTEX_FRAGMENT,
                         BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
                             has_dynamic_offset: false,

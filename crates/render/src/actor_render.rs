@@ -1,5 +1,6 @@
 use std::mem::size_of;
 mod artwork;
+mod dissolve;
 pub(crate) mod phase;
 mod pipeline;
 mod skins;
@@ -13,6 +14,7 @@ use crate::actor::{
     ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRuntimeWitness,
     ActorSubmitWitness, gpu::ActorDrawTracker,
 };
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{
@@ -23,7 +25,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Local, Msaa,
+        Plugin, Query, Res, ResMut, Resource, Result, Shader, Vec3, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
@@ -140,6 +145,7 @@ pub(crate) struct ActorGpu {
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
     artwork_identity: [u8; 32],
@@ -211,6 +217,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM,
         }),
         spans: Vec::new(),
+        sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         artwork_identity: [0; 32],
@@ -333,6 +340,7 @@ fn prepare_actor_resources(
             tracker.clear();
         }
         if structurally_valid {
+            let instances = dissolve::instances(&rig.instances, &rig.manifest);
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!(
                 "actor.frame_upload",
@@ -347,7 +355,7 @@ fn prepare_actor_resources(
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
-                bytemuck::cast_slice::<ActorGpuInstance, u8>(&rig.instances),
+                bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
             );
             render_queue.write_buffer(
                 &gpu.previous_bone_buffer,
@@ -364,13 +372,21 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
-            gpu.instances = std::sync::Arc::clone(&rig.instances);
+            gpu.spans = draw_spans(&frame.instance_pages, &instances, &rig.geometry_spans);
+            gpu.instances = instances;
+            let ActorGpu {
+                sorted,
+                spans,
+                manifest,
+                ..
+            } = &mut *gpu;
+            sorted.prepare(spans, manifest);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
             gate.clear();
             tracker.clear();
@@ -592,7 +608,6 @@ fn prepare_actor_bind_group(
 }
 
 fn submit_actor_presented_frame(
-    render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     tracker: Res<ActorDrawTracker>,
     gate: Res<ActorPresentationGate>,
@@ -624,13 +639,9 @@ fn submit_actor_presented_frame(
         acknowledged: false,
     });
     let present_returned_at = std::time::Instant::now();
-    let encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("actor presented-frame completion sentinel"),
-    });
-    let command_buffer = encoder.finish();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
-    command_buffer.on_submitted_work_done(move || {
+    crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
@@ -642,9 +653,6 @@ fn submit_actor_presented_frame(
             acknowledged,
         });
     });
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("actor.completion_submit").entered();
-    render_queue.submit([command_buffer]);
 }
 
 #[cfg(test)]

@@ -53,16 +53,21 @@ func dialTransport(ctx context.Context, network minecraft.Network, address strin
 	return dialTransportWithin(ctx, network, address, rakNetConnectBudget)
 }
 
+// dialTransportWithin applies a connect deadline to RakNet, including probed fallbacks.
 func dialTransportWithin(ctx context.Context, network minecraft.Network, address string, budget time.Duration) (net.Conn, error) {
-	switch network.(type) {
-	case minecraft.RakNet, *minecraft.RakNet:
-	default:
+	if !minecraft.IsRakNet(network) {
 		return network.DialContext(ctx, address)
 	}
+	budgetDeadline := time.Now().Add(budget)
 	bounded, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	started := time.Now()
 	conn, err := network.DialContext(bounded, address)
-	if err != nil && ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+	if err == nil {
+		// Separates a transport stall from a login stall when a join hangs.
+		slog.Info("upstream transport connected", "target", address, "elapsed_ms", time.Since(started).Milliseconds())
+	}
+	if err != nil && ctx.Err() == nil && !time.Now().Before(budgetDeadline) {
 		err = fmt.Errorf("proxy: %s did not accept the connection within %s (%w): %w", address, budget, context.DeadlineExceeded, err)
 	}
 	return conn, err

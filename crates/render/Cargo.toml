@@ -15,7 +15,7 @@ enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics"]
 
 [dependencies]
 block-transform = { path = "../block-transform" }
-tracy-client = { version = "=0.18.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+tracy-client = { version = "=0.19.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
@@ -49,3 +49,6 @@ image.workspace = true
 naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }
 naga_oil = "0.20"
 tempfile = "3"
+
+[lints]
+workspace = true

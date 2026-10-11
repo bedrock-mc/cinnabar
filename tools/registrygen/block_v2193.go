@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 
+	shared "github.com/bedrock-mc/protocolgen/generated/data"
+	"github.com/bedrock-mc/protocolgen/generated/data/registry"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 	"github.com/segmentio/fasthash/fnv1"
@@ -25,14 +27,8 @@ const (
 	v2193BlockProtocol       = 2193
 	v2193GameVersion         = "1.26.50"
 	v2193BlockStateCount     = 22_091
-	v2193BlockSourceSHA256   = "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6"
-	v2193BlockSourceSize     = 3_102_889
-	v2193BlockSourceCommit   = "4c7b5074be94fa83a1cd98e9c752083ad04a6e21"
-	v2193BlockSourceBlob     = "ee29e5e039086c10bdfb964621a8e146b4f7af19"
 	v2193RetailItemsPath     = "crates/protocol/data/retail_items_1_26_50.tsv"
 	v2193RetailItemsSHA256   = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
-	v2193DragonflyVersion    = dragonflyVersion
-	v2193DragonflyModuleSum  = dragonflyModuleSum
 	v2193BlockOutputPath     = "crates/assets/data/block-registry-v2193.bin"
 	v2193LightOutputPath     = "crates/assets/data/block-light-registry-v2193.bin"
 	v2193BlockManifestSchema = "cinnabar.block-projection.v2"
@@ -43,13 +39,9 @@ type v2193BlockProjectionManifest struct {
 	GameVersion string `json:"game_version"`
 	Protocol    uint32 `json:"protocol"`
 	Source      struct {
-		Module    string `json:"module"`
-		Version   string `json:"version"`
-		ModuleSum string `json:"module_sum"`
-		Commit    string `json:"commit"`
-		Blob      string `json:"blob"`
-		SHA256    string `json:"sha256"`
-		Size      int    `json:"size"`
+		Module           string `json:"module"`
+		SourceLockSHA256 string `json:"source_lock_sha256"`
+		CloudburstRef    string `json:"cloudburst_ref"`
 	} `json:"source"`
 	Allowlist struct {
 		Path   string `json:"path"`
@@ -100,26 +92,23 @@ func orderV2193BlockStates(states []world.BlockState) []v2193SourceEntry {
 	return ordered
 }
 
-func readV2193BlockStates(path string) ([]world.BlockState, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read pinned block states: %w", err)
+// readV2193BlockStates reads the palette from the shared authenticated catalog.
+func readV2193BlockStates() ([]world.BlockState, error) {
+	if err := validateSharedTarget(); err != nil {
+		return nil, err
 	}
-	if len(data) != v2193BlockSourceSize || fmt.Sprintf("%x", sha256.Sum256(data)) != v2193BlockSourceSHA256 {
-		return nil, errors.New("pinned block-state source identity does not match")
-	}
-	decoder := nbt.NewDecoder(bytes.NewReader(data))
+	return decodeSharedBlockStates(registry.BlockStatesNBT())
+}
+
+// decodeSharedBlockStates rejects truncated compounds and unexpected palette sizes.
+func decodeSharedBlockStates(data []byte) ([]world.BlockState, error) {
+	reader := bytes.NewReader(data)
+	decoder := nbt.NewDecoder(reader)
 	states := make([]world.BlockState, 0, v2193BlockStateCount)
-	for {
+	for reader.Len() != 0 {
 		var state world.BlockState
 		err := decoder.Decode(&state)
-		if errors.Is(err, io.EOF) {
-			break
-		}
 		if err != nil {
-			if len(states) == v2193BlockStateCount {
-				break
-			}
 			return nil, fmt.Errorf("decode pinned block state %d: %w", len(states), err)
 		}
 		states = append(states, state)
@@ -130,8 +119,9 @@ func readV2193BlockStates(path string) ([]world.BlockState, error) {
 	return states, nil
 }
 
-func v2193SourceRecords(path string) ([]Record, error) {
-	states, err := readV2193BlockStates(path)
+// v2193SourceRecords converts shared palette states to the client carrier identity format.
+func v2193SourceRecords() ([]Record, error) {
+	states, err := readV2193BlockStates()
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +276,6 @@ type v2193Projection struct {
 	records []Record
 	classes []byte
 	facts   []int
-	twins   []string
 }
 
 func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v2193Projection, v2193ProjectionStats, error) {
@@ -302,7 +291,7 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 	}
 	projection := v2193Projection{
 		records: make([]Record, len(source)), classes: make([]byte, len(source)),
-		facts: make([]int, len(source)), twins: make([]string, len(source)),
+		facts: make([]int, len(source)),
 	}
 	projected := projection.records
 	deniedHash := sha256.New()
@@ -363,7 +352,6 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 				return v2193Projection{}, v2193ProjectionStats{}, fmt.Errorf("reviewed twin %s has no protocol-1001 state for %s %s", twin.twin, identity.Name, reduced)
 			}
 			adopt(index, identity, old, v2193ClassTwin)
-			projection.twins[index] = twin.twin
 			stats.twins++
 			continue
 		}
@@ -387,12 +375,12 @@ func writeV2193Fingerprint(hash io.Writer, identity Record, key string) {
 }
 
 func decodeBREGRecords(data []byte, expectedProtocol uint32) (RegistryMetadata, []Record, error) {
-	const headerBytes = 8 + 7*4
-	const prefixBytes = 24 + 8*4
+	const headerBytes = registryHeaderBytes
+	const prefixBytes = recordHeaderBytes
 	if len(data) < headerBytes || string(data[:8]) != registryHeader || binary.LittleEndian.Uint32(data[8:12]) != expectedProtocol {
 		return RegistryMetadata{}, nil, fmt.Errorf("input is not protocol-%d BREG1003", expectedProtocol)
 	}
-	metadata := RegistryMetadata{Protocol: expectedProtocol, CanonicalNames: binary.LittleEndian.Uint32(data[12:16]), CanonicalStates: binary.LittleEndian.Uint32(data[16:20]), ValentineNames: binary.LittleEndian.Uint32(data[20:24]), ValentineStates: binary.LittleEndian.Uint32(data[24:28]), ValentineGapNames: binary.LittleEndian.Uint32(data[28:32]), ValentineGapStates: binary.LittleEndian.Uint32(data[32:36])}
+	metadata := decodeRegistryMetadata(data[len(registryHeader):headerBytes])
 	if metadata.CanonicalStates > maxRecordCount {
 		return RegistryMetadata{}, nil, errors.New("BREG record count exceeds limit")
 	}
@@ -402,24 +390,28 @@ func decodeBREGRecords(data []byte, expectedProtocol uint32) (RegistryMetadata, 
 		if len(data)-cursor < prefixBytes {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d is truncated", index)
 		}
-		p := data[cursor : cursor+prefixBytes]
-		boxCount := int(p[15])
-		nameLen, stateLen := int(binary.LittleEndian.Uint16(p[18:20])), int(binary.LittleEndian.Uint32(p[20:24]))
+		p := decodeRecordHeader(data[cursor : cursor+prefixBytes])
+		boxCount := int(p.BoxCount)
+		nameLen, stateLen := int(p.NameLen), int(p.StateLen)
 		if boxCount > maxCollisionBoxesPerRecord || stateLen > maxStateBytes {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d exceeds bounds", index)
 		}
-		payload := cursor + prefixBytes + boxCount*24
+		payload := cursor + prefixBytes + boxCount*collisionBoxBytes
 		end := payload + nameLen + stateLen
 		if payload < cursor || end < payload || end > len(data) {
 			return RegistryMetadata{}, nil, fmt.Errorf("BREG record %d payload is truncated", index)
 		}
-		record := Record{SequentialID: binary.LittleEndian.Uint32(p[:4]), NetworkHash: binary.LittleEndian.Uint32(p[4:8]), Flags: p[8], ModelFamily: ModelFamily(p[9]), ContributorRole: ContributorRole(p[10]), ModelState: ModelState{Mask: p[11]}, FaceCoverage: p[12], CollisionSeed: CollisionSeed{Confidence: CollisionConfidence(p[13]), ShapeID: binary.LittleEndian.Uint16(p[16:18])}, Provenance: p[14], Name: string(data[payload : payload+nameLen]), StateJSON: append([]byte(nil), data[payload+nameLen:end]...)}
-		for field := range record.ModelState.Values {
-			record.ModelState.Values[field] = binary.LittleEndian.Uint32(p[24+field*4 : 28+field*4])
+		record := Record{
+			SequentialID: p.SequentialID, NetworkHash: p.NetworkHash, Flags: p.RawFlags,
+			ModelFamily: ModelFamily(p.ModelFamily), ContributorRole: ContributorRole(p.ContributorRole),
+			ModelState: ModelState{Mask: p.ModelMask, Values: p.Values}, FaceCoverage: p.FaceCoverage,
+			CollisionSeed: CollisionSeed{Confidence: CollisionConfidence(p.Confidence), ShapeID: p.ShapeID},
+			Provenance:    p.RawProvenance, Name: string(data[payload : payload+nameLen]),
+			StateJSON: append([]byte(nil), data[payload+nameLen:end]...),
 		}
 		for boxIndex := 0; boxIndex < boxCount; boxIndex++ {
-			b := data[cursor+prefixBytes+boxIndex*24 : cursor+prefixBytes+(boxIndex+1)*24]
-			record.CollisionSeed.Boxes = append(record.CollisionSeed.Boxes, CollisionBox{MinX: int32(binary.LittleEndian.Uint32(b[0:4])), MinY: int32(binary.LittleEndian.Uint32(b[4:8])), MinZ: int32(binary.LittleEndian.Uint32(b[8:12])), MaxX: int32(binary.LittleEndian.Uint32(b[12:16])), MaxY: int32(binary.LittleEndian.Uint32(b[16:20])), MaxZ: int32(binary.LittleEndian.Uint32(b[20:24]))})
+			start := cursor + prefixBytes + boxIndex*collisionBoxBytes
+			record.CollisionSeed.Boxes = append(record.CollisionSeed.Boxes, decodeCollisionBox(data[start:start+collisionBoxBytes]))
 		}
 		records = append(records, record)
 		cursor = end
@@ -446,41 +438,6 @@ func decodeLREGProperties(data, breg []byte, expectedProtocol uint32, expectedCo
 	return append([]byte(nil), data[48:payloadEnd]...), nil
 }
 
-// resolveV2193Lights copies each retained state's light from the protocol-1001
-// record that supplied its facts; reserved states are dark and non-filtering.
-func resolveV2193Lights(projection v2193Projection, legacyProperties []byte) ([]byte, int, error) {
-	properties := make([]byte, len(projection.records))
-	unresolved := 0
-	for index := range projection.records {
-		switch projection.classes[index] {
-		case v2193ClassDenied:
-		case v2193ClassEducation:
-		case v2193ClassAddition:
-			unresolved++
-		default:
-			legacyIndex := projection.facts[index]
-			if legacyIndex < 0 || legacyIndex >= len(legacyProperties) {
-				return nil, 0, fmt.Errorf("runtime ID %d has no protocol-1001 light source", index)
-			}
-			properties[index] = legacyProperties[legacyIndex]
-		}
-	}
-	return properties, unresolved, nil
-}
-
-// applyV2193RetailLightCorrections applies native corrections and retail
-// defaults, looking twins up under the twin whose facts they carry.
-func applyV2193RetailLightCorrections(projection v2193Projection, properties []byte, retail map[string]PMMPLightProperties) (int, error) {
-	lookup := make([]Record, len(projection.records))
-	for index, record := range projection.records {
-		lookup[index] = record
-		if twin := projection.twins[index]; twin != "" {
-			lookup[index].Name = twin
-		}
-	}
-	return applyRetailLightCorrections(lookup, properties, retail)
-}
-
 func encodeResolvedLightRegistryForProtocol(protocol uint32, breg []byte, records []Record, properties []byte) ([]byte, error) {
 	if len(records) != len(properties) {
 		return nil, errors.New("light property count does not match BREG")
@@ -495,11 +452,12 @@ func encodeResolvedLightRegistryForProtocol(protocol uint32, breg []byte, record
 	return append(encoded, payloadDigest[:]...), nil
 }
 
-func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allowlistPath, outputPath, lightOutputPath, manifestPath, retailLightPath, educationRoot string) error {
-	if lightOutputPath == "" || retailLightPath == "" {
-		return errors.New("v2193 block projection requires -light-out and -block-v2193-retail-light")
+// writeV2193BlockProjection combines shared facts with the client's reviewed rendering and retail admission policy.
+func writeV2193BlockProjection(legacyBREGPath, allowlistPath, outputPath, lightOutputPath, manifestPath string) error {
+	if lightOutputPath == "" {
+		return errors.New("v2193 block projection requires -light-out")
 	}
-	source, err := v2193SourceRecords(sourcePath)
+	source, err := v2193SourceRecords()
 	if err != nil {
 		return err
 	}
@@ -526,7 +484,8 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount)
 	}
 	projected := projection.records
-	if err := applyEducationCollisionSeeds(projected, educationRoot); err != nil {
+	properties, err := applySharedBlockFacts(projected)
+	if err != nil {
 		return err
 	}
 	metadata := metadataForRecords(projected)
@@ -536,31 +495,6 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 		return err
 	}
 
-	legacyLightBytes, err := os.ReadFile(legacyLightPath)
-	if err != nil {
-		return fmt.Errorf("read legacy LREG: %w", err)
-	}
-	legacyProperties, err := decodeLREGProperties(legacyLightBytes, legacyBytes, registryProtocol, len(legacy))
-	if err != nil {
-		return err
-	}
-	properties, unresolved, err := resolveV2193Lights(projection, legacyProperties)
-	if err != nil {
-		return err
-	}
-	if unresolved != 0 {
-		return fmt.Errorf("v2193 light projection has %d unresolved retained states", unresolved)
-	}
-	retail, err := readPMMPLightProperties(retailLightPath)
-	if err != nil {
-		return err
-	}
-	if err := applyEducationLightProperties(projection, properties, retail); err != nil {
-		return err
-	}
-	if _, err := applyV2193RetailLightCorrections(projection, properties, retail); err != nil {
-		return err
-	}
 	light, err := encodeResolvedLightRegistryForProtocol(v2193BlockProtocol, encoded, projected, properties)
 	if err != nil {
 		return err
@@ -576,8 +510,8 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 		fmt.Fprintf(twinHash, "%s\x00%s\x00%s\x00", name, v2193Twins[name].twin, v2193Twins[name].item)
 	}
 	manifest := v2193BlockProjectionManifest{Schema: v2193BlockManifestSchema, GameVersion: v2193GameVersion, Protocol: v2193BlockProtocol}
-	manifest.Source.Module, manifest.Source.Version, manifest.Source.ModuleSum = dragonflyModule, v2193DragonflyVersion, v2193DragonflyModuleSum
-	manifest.Source.Commit, manifest.Source.Blob, manifest.Source.SHA256, manifest.Source.Size = v2193BlockSourceCommit, v2193BlockSourceBlob, v2193BlockSourceSHA256, v2193BlockSourceSize
+	manifest.Source.Module = "github.com/bedrock-mc/protocolgen/generated/data"
+	manifest.Source.SourceLockSHA256, manifest.Source.CloudburstRef = shared.SourceLockSHA256, shared.CloudburstRef
 	manifest.Allowlist.Path, manifest.Allowlist.SHA256 = v2193RetailItemsPath, v2193RetailItemsSHA256
 	manifest.Projection.States, manifest.Projection.LegacyExactStates = len(projected), stats.legacy
 	manifest.Projection.LegacyReducedStates, manifest.Projection.TwinStates = stats.reduced, stats.twins

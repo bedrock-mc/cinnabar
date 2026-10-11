@@ -114,7 +114,9 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
             state.cull = name.ends_with("_one_sided");
         }
         "experience_orb" => state.alpha_test = true,
-        "entity_alphablend" | "slime_outer" => state.blend = true,
+        "entity_alphablend" | "entity_alphablend_nocolor" | "player_spectator" | "slime_outer" => {
+            state.blend = true;
+        }
         "breeze_wind" => {
             state.alpha_test = true;
             state.blend = true;
@@ -178,6 +180,13 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
                 _ => {}
             }
         }
+    }
+    // Only the always-passing comparison is admitted; the default LessEqual restores normal
+    // testing, and other functions keep the inherited state.
+    match fields.get("depthFunc").and_then(Value::as_str) {
+        Some("Always") => state.depth_always = true,
+        Some("LessEqual") => state.depth_always = false,
+        _ => {}
     }
     let source = fields.get("blendSrc").and_then(Value::as_str);
     let destination = fields.get("blendDst").and_then(Value::as_str);

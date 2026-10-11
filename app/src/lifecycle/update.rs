@@ -1,40 +1,29 @@
-//! Update availability check: the core verifies the signed manifest; the client only records the verdict.
+//! Update availability check: fetches the signed release manifest, verifies it against the
+//! trusted keys baked into this build, and records the verdict at most daily.
 
 use std::{
     fs,
-    io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const URL_ENV: &str = "CINNABAR_UPDATE_URL";
 const DISABLE_ENV: &str = "CINNABAR_UPDATE_CHECK";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_RESULT_BYTES: u64 = 16 * 1024;
+const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+const CHANNEL: &str = "stable";
+/// `id:base64[,...]` public keys trusted for manifests, set at build time by `UPDATE_TRUSTED_KEYS`.
+const TRUSTED_KEYS: &str = match option_env!("UPDATE_TRUSTED_KEYS") {
+    Some(keys) => keys,
+    None => "",
+};
 
-/// Verdict published for whatever UI surfaces updates; mirrors the core's check result.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct UpdateNotice {
-    pub available: bool,
-    pub current: String,
-    pub latest: String,
-    #[serde(default)]
-    pub notes_url: Option<String>,
-    #[serde(default)]
-    pub artifact: Option<Artifact>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct Artifact {
-    pub url: String,
-    pub sha256: String,
-    pub size: u64,
-}
+/// Verdict published for whatever UI surfaces updates.
+pub(crate) type UpdateNotice = update_manifest::Verdict;
 
 #[derive(Deserialize, Serialize)]
 struct Stamp {
@@ -92,12 +81,18 @@ fn manifest_url(layout: &InstallLayout) -> Option<String> {
         .filter(|url| !url.is_empty())
 }
 
-/// Starts a background check at most once a day; silent when no manifest URL is configured.
+/// Starts a background check at most once a day; silent without a manifest URL or trusted keys.
 pub(crate) fn check_in_background(layout: &InstallLayout) {
     if !layout.is_installed() || std::env::var(DISABLE_ENV).is_ok_and(|value| value == "0") {
         return;
     }
-    let Some(url) = manifest_url(layout) else {
+    let Some(keys) = update_manifest::parse_keys(TRUSTED_KEYS)
+        .ok()
+        .filter(|keys| !keys.is_empty())
+    else {
+        return;
+    };
+    let Some(url) = manifest_url(layout).filter(|url| https(url)) else {
         return;
     };
     let Some(platform) = platform_key(std::env::consts::OS, std::env::consts::ARCH) else {
@@ -112,37 +107,48 @@ pub(crate) fn check_in_background(layout: &InstallLayout) {
     if !due(last, now_secs()) {
         return;
     }
-    let core = layout.core_executable.clone();
     let directory = layout.user_data_root.join("update");
     std::thread::spawn(move || {
-        if let Some(notice) = run_check(&core, &url, &platform) {
+        let verdict = fetch(&url).and_then(|body| {
+            update_manifest::check(&body, &keys, CHANNEL, &platform, env!("CARGO_PKG_VERSION")).ok()
+        });
+        if let Some(notice) = verdict {
             record(&directory, &notice);
         }
     });
 }
 
-fn run_check(core: &Path, url: &str, platform: &str) -> Option<UpdateNotice> {
-    let child = super::children::spawn(
-        Command::new(core)
-            .args(["check-update", "-manifest-url", url, "-platform", platform])
-            .args(["-current", env!("CARGO_PKG_VERSION")])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null()),
-    )
-    .ok()?;
-    let mut output = Vec::new();
-    child
-        .take_stdout()?
-        .take(MAX_RESULT_BYTES)
-        .read_to_end(&mut output)
-        .ok()?;
-    child.wait()?.success().then_some(())?;
-    parse_notice(&output)
+/// Manifests are only ever fetched over HTTPS.
+fn https(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
 }
 
-fn parse_notice(bytes: &[u8]) -> Option<UpdateNotice> {
-    serde_json::from_slice(bytes).ok()
+/// The served envelope, refused when it is not a 200 or exceeds the envelope bound.
+fn fetch(url: &str) -> Option<Vec<u8>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    // Refuses plain HTTP, redirects included, so a downgrade cannot serve the manifest.
+    let client = reqwest::Client::builder()
+        .timeout(FETCH_TIMEOUT)
+        .https_only(true)
+        .build()
+        .ok()?;
+    runtime.block_on(async {
+        let mut response = client.get(url).send().await.ok()?;
+        if response.status() != reqwest::StatusCode::OK {
+            return None;
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.ok()? {
+            if body.len() + chunk.len() > update_manifest::MAX_ENVELOPE_BYTES {
+                return None;
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Some(body)
+    })
 }
 
 fn record(directory: &Path, notice: &UpdateNotice) {
@@ -209,11 +215,37 @@ mod tests {
     }
 
     #[test]
-    fn core_result_json_parses_with_and_without_an_artifact() {
+    fn recorded_verdicts_parse_with_and_without_an_artifact() {
         let with = br#"{"available":true,"current":"0.1.0","latest":"0.2.0","artifact":{"url":"https://x/y","sha256":"ab","size":9}}"#;
-        assert_eq!(parse_notice(with).unwrap().artifact.unwrap().size, 9);
+        let notice: UpdateNotice = serde_json::from_slice(with).unwrap();
+        assert_eq!(notice.artifact.unwrap().size, 9);
         let without = br#"{"available":false,"current":"0.2.0","latest":"0.2.0"}"#;
-        assert!(!parse_notice(without).unwrap().available);
-        assert!(parse_notice(b"nope").is_none());
+        assert!(
+            !serde_json::from_slice::<UpdateNotice>(without)
+                .unwrap()
+                .available
+        );
+        assert!(serde_json::from_slice::<UpdateNotice>(b"nope").is_err());
+    }
+
+    #[test]
+    fn manifests_are_fetched_only_over_https() {
+        assert!(https("https://example.test/update-stable.json"));
+        for url in ["http://example.test/m", "file:///m", "not a url", ""] {
+            assert!(!https(url), "{url} accepted");
+        }
+    }
+
+    // The default redirect policy followed an HTTPS manifest URL down to plain HTTP.
+    #[test]
+    fn fetching_never_opens_plain_http() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/update-stable.json",
+            listener.local_addr().unwrap()
+        );
+        assert!(fetch(&url).is_none());
+        listener.set_nonblocking(true).unwrap();
+        assert!(listener.accept().is_err(), "connected over plain HTTP");
     }
 }

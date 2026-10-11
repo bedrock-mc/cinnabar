@@ -3,7 +3,7 @@
 use assets::ParticleTexture;
 
 use super::{MODEL_PAGE, MODEL_PAGES, UiPresentationError, UiPresentationRuntime, atlas};
-use crate::ui_runtime::presentation::{IconRef, player_preview};
+use {crate::ui_runtime::presentation::player_preview, ui::IconRef};
 
 #[derive(Default)]
 pub(super) struct FireAtlas {
@@ -51,13 +51,7 @@ impl UiPresentationRuntime {
         }
         self.gui_models.fire.source = texture.filter(|texture| valid(texture)).cloned();
         self.install_gui_fire()?;
-        let pack = self.gui_models.pack_equipment.source.clone();
-        self.gui_models.pack_equipment = Default::default();
-        if pack.is_some() {
-            self.set_preview_pack_equipment(pack);
-        } else {
-            self.rebuild_dynamic_textures();
-        }
+        self.place_pack_armor();
         Ok(())
     }
 

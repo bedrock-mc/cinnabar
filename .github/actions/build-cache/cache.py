@@ -92,8 +92,9 @@ def verify_inputs(root):
 
 def plan(root, language, lane, env):
     """Separate incompatible compilers and profiles, with a new save key per commit."""
-    bucket = f"build-v1-{language}-{env['RUNNER_OS']}-{env['RUNNER_ARCH']}-{lane}-"
+    target = ""
     if language == "rust":
+        target = env.get("CARGO_BUILD_TARGET", "")
         compiler = command("rustc", "-vV", cwd=root)
         settings = {name: value for name, value in env.items() if name.startswith(
             ("CARGO_", "RUST", "CC", "CXX", "CFLAGS", "CPPFLAGS", "LDFLAGS", "CMAKE_")
@@ -105,12 +106,22 @@ def plan(root, language, lane, env):
         paths = [root / "target" / profile, root / "target/.ci-inputs.json",
                  cargo_home / "registry/index", cargo_home / "registry/cache",
                  cargo_home / "registry/src/*/*-sys-*", cargo_home / "git"]
+        if target:
+            # The first path keeps native build scripts and proc-macros too.
+            paths.append(root / "target" / target / profile)
     elif language == "go":
+        if env.get("GOOS") and env.get("GOARCH"):
+            target = f"{env['GOOS']}-{env['GOARCH']}"
         compiler = command("go", "version", cwd=root)
-        settings = {}
+        settings = {name: value for name, value in env.items() if name.startswith(
+            ("GO", "CGO_", "CC", "CXX")
+        )}
         paths = command("go", "env", "GOCACHE", "GOMODCACHE", cwd=root).splitlines()
     else:
         raise ValueError(f"Unknown cache language: {language}")
+    # Put the target before the lane so native buckets cannot prune cross-target caches.
+    platform = f"build-v1-{language}-{env['RUNNER_OS']}-{env['RUNNER_ARCH']}-"
+    bucket = platform + (target + "-" if target else "") + lane + "-"
     settings["runner-image"] = env.get("ImageOS", "")
     identity = hashlib.sha256((compiler + json.dumps(settings, sort_keys=True)).encode()).hexdigest()[:16]
     prefix = bucket + identity + "-"

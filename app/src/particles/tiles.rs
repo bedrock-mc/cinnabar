@@ -48,8 +48,8 @@ mod tests {
         let bytes = std::fs::read(crate::asset_startup::DEFAULT_ASSET_PATH).unwrap();
         let assets = RuntimeAssets::decode(&bytes).unwrap();
         let records = assets::read_registry_for_protocol(
-            crate::asset_startup::pinned_block_registry_bytes(),
-            crate::asset_startup::active_content_registry_protocol(),
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
         )
         .unwrap();
         for name in [
@@ -76,12 +76,7 @@ mod tests {
                     (u64::from(down.texture.page()) << 32) | u64::from(down.texture.layer())
                 );
                 assert_ne!(down.texture, TextureRef::DIAGNOSTIC);
-                assert!(
-                    !tile
-                        .pixels
-                        .chunks_exact(4)
-                        .any(|rgba| rgba == [255, 0, 255, 255])
-                );
+                assert!(!tile.pixels.as_chunks::<4>().0.contains(&[255, 0, 255, 255]));
                 if name == "minecraft:grass_block" {
                     assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
                 }

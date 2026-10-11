@@ -1,10 +1,10 @@
 //! Renderer witness evidence generated from read-only observations.
-use crate::{
+use diagnostics::{
     markers::{
         MODEL_WITNESS_COMPLETE, TRANSPARENT_WITNESS_COMPLETE, TRANSPARENT_WITNESS_INCOMPLETE,
         TRANSPARENT_WITNESS_STAGE,
     },
-    mutation::write_stdout_marker,
+    write_stdout_marker,
 };
 use render::{ModelWitnessEvidence, ModelWitnessManifestRecord, TransparentWitnessEvidence};
 use sha2::{Digest, Sha256};
@@ -40,7 +40,7 @@ pub fn emit_witness_observations(
             "{TRANSPARENT_WITNESS_COMPLETE} revision={} sequence={} generation={} key_count={} consecutive={}",
             event.revision, event.sequence, event.generation, event.key_count, event.consecutive,
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
     for event in model_witness.drain_events() {
@@ -62,7 +62,7 @@ pub fn emit_witness_observations(
             acknowledgement.draw_mismatch_count,
             event.consecutive,
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
     for event in transparent_witness.drain_incomplete_events() {
@@ -79,7 +79,7 @@ pub fn emit_witness_observations(
             event.generation,
             event.missing_keys.len(),
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
     for event in transparent_witness.drain_stage_events() {
@@ -113,7 +113,7 @@ pub fn emit_witness_observations(
             "{TRANSPARENT_WITNESS_STAGE} revision={} committed_generation={} records={records}",
             event.revision, event.committed_generation,
         );
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = diagnostics::console::stdout();
         write_stdout_marker(&mut stdout, &marker);
     }
 }

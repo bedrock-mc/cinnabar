@@ -4,12 +4,15 @@ use crate::{
     player_runtime::PlayerRuntime,
     runtime::world::ClientWorld,
 };
+#[cfg(test)]
+use bevy::prelude::{App, IntoScheduleConfigs, Mut, Resource, Update};
 use bevy::time::Real;
-use bevy::{ecs::system::SystemParam, prelude::*};
-use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
-pub(crate) use client_presentation::actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Local, Projection, Query, Res, ResMut, Time, Transform, Vec3, With},
 };
+use client_presentation::actor_publication::ActorFramePartialTick;
+use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
@@ -34,9 +37,9 @@ pub(crate) struct ActorObservations<'w> {
     world: ResMut<'w, ClientWorld>,
     player: Res<'w, PlayerRuntime>,
     physics: Res<'w, LocalPhysicsController>,
-    view: Res<'w, crate::local_player::LocalViewPose>,
+    view: Res<'w, client_presentation::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
-    settings: Res<'w, crate::camera::CameraSettingsAuthority>,
+    settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
@@ -134,6 +137,7 @@ pub(crate) fn advance_actor_frame(
         local_use,
     );
     if let Some(feed) = &mut local_feed {
+        feed.game_mode = player.facts.player_game_mode();
         #[cfg(feature = "developer-control")]
         {
             feed.prefer_client_skin = skin.recording_cape_enabled();
@@ -155,12 +159,18 @@ pub(crate) fn advance_actor_frame(
         predicted_feet: physics.render_feet_position(),
         local_equipment,
         swing_progress: None,
-        renders_game: crate::screen_policy::renders_game(
-            &player,
-            ui.as_deref(),
-            menu.as_deref(),
-            ui_presentation.as_deref(),
-        ),
+        // Resolving the screen policy is UI work, attributed as such inside actor publication.
+        renders_game: {
+            let _ui = profiler
+                .as_deref()
+                .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
+            crate::screen_policy::renders_game(
+                &player,
+                ui.as_deref(),
+                menu.as_deref(),
+                ui_presentation.as_deref(),
+            )
+        },
         custom_emote: ui
             .as_deref()
             .and_then(|ui| ui.emotes().playback())
@@ -173,6 +183,7 @@ pub(crate) fn advance_actor_frame(
             !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
                 settings.value("hide_hud") != 0,
                 settings.value("hide_hand") != 0,
+                player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
             )
             .hand
         }),
@@ -348,8 +359,8 @@ pub(crate) fn publish_entity_shadows(
     world: Res<ClientWorld>,
     player: Res<PlayerRuntime>,
     partial_tick: Res<ActorFramePartialTick>,
-    local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
-    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    local: Res<client_presentation::local_player::LocalAvatarVisibilityCarrier>,
+    camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
     frame: Res<render::ActorRenderFrame>,
     mut drawn: Local<Vec<u64>>,
     mut staging: Local<Vec<render_model::EntityShadow>>,

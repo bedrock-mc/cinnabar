@@ -1,4 +1,8 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{BlobProvenance, BlockFace, BlockFlags, RuntimeAssets, encode_blob},
+    tempfile::TempDir,
+};
 
 #[test]
 fn weighted_paths_survive_compilation_and_carrier_round_trip() {

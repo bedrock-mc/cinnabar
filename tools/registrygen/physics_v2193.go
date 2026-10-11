@@ -8,22 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
-	"github.com/df-mc/dragonfly/server/world"
 	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 )
 
-// The protocol-2193 physics projection reuses the reviewed protocol-1001
-// physics pipeline: the checked-in v2193 block registry carries the complete
-// fact payloads of the protocol-1001 record each state was projected from,
-// including verbatim collision seeds. Legacy and connection-reduced states keep
-// their protocol-1001 name and its pinned PMMP friction row; reviewed twins
-// read the row of the twin whose facts they carry. Reserved identities stay
-// collision-free passables with default factors and no fluid, but carry the
-// vanilla default block friction every reserved block uses, so a friction probe
-// that lands on one does not slide.
+// The active physics carrier combines shared state facts with client movement rules.
 
 const (
 	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-v2193.bin"
@@ -31,7 +21,8 @@ const (
 	v2193PhysicsReservedCount = 662 - v2193EducationStateCount
 )
 
-func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath, shaOutputPath, manifestPath string) error {
+// writeV2193PhysicsProjection binds shared physics facts to the selected block carrier.
+func writeV2193PhysicsProjection(bregPath, outputPath, shaOutputPath, manifestPath string) error {
 	if bregPath == "" || outputPath == "" {
 		return errors.New("v2193 physics projection requires a binding BREG and an output path")
 	}
@@ -49,18 +40,11 @@ func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath,
 	if actual := fmt.Sprintf("%x", sha256.Sum256(data)); actual != blockHash {
 		return fmt.Errorf("pinned protocol-2193 block registry SHA-256 %s does not match %s", actual, blockHash)
 	}
-	if pmmpRoot == "" || prismarineRoot == "" {
-		return errors.New("v2193 physics projection requires the pinned PMMP and Prismarine sources")
-	}
 	_, records, err := decodeBREGRecords(data, v2193BlockProtocol)
 	if err != nil {
 		return err
 	}
-	sources, err := loadPinnedPhysicsSources(pmmpRoot, prismarineRoot, world.DefaultBlockRegistry)
-	if err != nil {
-		return err
-	}
-	physics, err := projectV2193PhysicsRecords(records, sources)
+	physics, err := projectV2193PhysicsRecords(records)
 	if err != nil {
 		return err
 	}
@@ -93,68 +77,59 @@ func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath,
 	return nil
 }
 
-// projectV2193PhysicsRecords derives one physics record per checked-in v2193
-// block state through the shared reviewed pipeline: collision boxes from the
-// registry's verbatim seeds, pinned PMMP friction normalized to Q1E8 by name,
-// default speed factors, fluid heights from liquid depth, and the same
-// reviewed override families cross-checked against the supplied states with
-// production coverage required. It fails closed naming every non-reserved name
-// that lacks a PMMP row, so future class-2 additions cannot silently inherit
-// guessed movement facts.
-func projectV2193PhysicsRecords(records []Record, sources PhysicsSourceCatalog) ([]PhysicsRecord, error) {
+// projectV2193PhysicsRecords uses exact shared state friction and collisions, with local movement behavior.
+func projectV2193PhysicsRecords(records []Record) ([]PhysicsRecord, error) {
+	if err := validateSharedTarget(); err != nil {
+		return nil, err
+	}
 	if len(records) != v2193BlockStateCount {
 		return nil, fmt.Errorf("v2193 physics record count %d does not match %d", len(records), v2193BlockStateCount)
 	}
-	build := make([]Record, 0, len(records))
-	missing := make(map[string]struct{})
-	reservedCount := 0
-	for index, record := range records {
-		if record.SequentialID != uint32(index) {
-			return nil, fmt.Errorf("v2193 physics record %d has sequential ID %d", index, record.SequentialID)
-		}
-		if record.Name == retailReservedName {
-			reservedCount++
-			continue
-		}
-		if twin, ok := v2193TwinFor(record.Name); ok {
-			record.Name = twin.twin
-		}
-		if _, ok := sources.PMMP[record.Name]; !ok {
-			missing[record.Name] = struct{}{}
-		}
-		build = append(build, record)
-	}
-	if len(missing) > 0 {
-		names := make([]string, 0, len(missing))
-		for name := range missing {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		return nil, fmt.Errorf("v2193 physics projection fails closed: %d non-reserved names have no pinned PMMP friction row (future class-2 additions require reviewed rows before this projection): %s", len(names), strings.Join(names, ", "))
-	}
-	if reservedCount != v2193PhysicsReservedCount {
-		return nil, fmt.Errorf("v2193 physics projection found %d cinnabar:reserved states, want exactly %d", reservedCount, v2193PhysicsReservedCount)
-	}
-	built, err := buildPhysicsRecords(build, sources)
-	if err != nil {
-		return nil, err
-	}
 	physics := make([]PhysicsRecord, len(records))
-	cursor := 0
-	for index, record := range records {
+	counts := make(map[string]int)
+	reserved := 0
+	for i, record := range records {
+		if record.SequentialID != uint32(i) {
+			return nil, fmt.Errorf("v2193 physics record %d has sequential ID %d", i, record.SequentialID)
+		}
+		entry := PhysicsRecord{SequentialID: record.SequentialID, NetworkHash: record.NetworkHash, FrictionQ1E8: defaultFrictionQ1E8, HorizontalSpeedQ1E8: defaultSpeedQ1E8, VerticalSpeedQ1E8: defaultSpeedQ1E8}
 		if record.Name == retailReservedName {
-			physics[index] = PhysicsRecord{
-				SequentialID:        record.SequentialID,
-				NetworkHash:         record.NetworkHash,
-				FrictionQ1E8:        defaultFrictionQ1E8,
-				HorizontalSpeedQ1E8: defaultSpeedQ1E8,
-				VerticalSpeedQ1E8:   defaultSpeedQ1E8,
-				Flags:               physicsFlagPassable,
-			}
+			reserved++
+			entry.Flags = physicsFlagPassable
+			physics[i] = entry
 			continue
 		}
-		physics[index] = built[cursor]
-		cursor++
+		counts[record.Name]++
+		properties, err := sharedBlockProperties(record)
+		if err != nil {
+			return nil, err
+		}
+		seed, err := sharedCollisionSeed(record, properties)
+		if err != nil {
+			return nil, err
+		}
+		entry.Boxes = seed.Boxes
+		entry.FrictionQ1E8, err = fixedPhysicsScalar(float64(properties.Friction))
+		if err != nil {
+			return nil, fmt.Errorf("shared friction for %s: %w", record.Name, err)
+		}
+		if len(entry.Boxes) == 0 {
+			entry.Flags |= physicsFlagPassable
+		}
+		if override, ok := reviewedPhysicsOverrideFor(record.Name); ok {
+			if err := applyPhysicsOverride(record, override, &entry); err != nil {
+				return nil, err
+			}
+		}
+		physics[i] = entry
+	}
+	if reserved != v2193PhysicsReservedCount {
+		return nil, fmt.Errorf("v2193 physics projection found %d cinnabar:reserved states, want exactly %d", reserved, v2193PhysicsReservedCount)
+	}
+	for _, override := range reviewedPhysicsOverrides {
+		if counts[override.Name] != override.StateCount {
+			return nil, fmt.Errorf("reviewed physics override %s has %d states, want %d", override.Name, counts[override.Name], override.StateCount)
+		}
 	}
 	return physics, nil
 }

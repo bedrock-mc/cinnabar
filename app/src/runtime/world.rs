@@ -1,13 +1,17 @@
 #[cfg(feature = "acceptance")]
-use crate::acceptance::{
-    AcceptanceRun,
-    model_witness::ModelWitnessFileSource,
-    mutation::{deterministic_mutation_coordinate, write_stdout_marker},
+use crate::runtime::visibility::AppMetrics;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use {
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    acceptance::phase3_evidence::Phase3EvidenceEventKind,
 };
 #[cfg(feature = "acceptance")]
-use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
-#[cfg(feature = "acceptance")]
-use crate::runtime::visibility::AppMetrics;
+use {
+    acceptance::model_witness::ModelWitnessFileSource,
+    acceptance::mutation::deterministic_mutation_coordinate, diagnostics::write_stdout_marker,
+};
 mod committed_ui;
 mod control_apply;
 mod dimension;
@@ -43,7 +47,9 @@ use bevy::{
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::{Real, Virtual},
 };
-use chunk_pipeline::{ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll};
+use chunk_pipeline::{
+    CohortProgress, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
+};
 use client_world::CommittedControlEvent;
 
 use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
@@ -57,24 +63,29 @@ use render::{
     VisibilityDiagnosticsInput,
 };
 
-use crate::{
-    camera::{CameraSettingsAuthority, FlyCamera},
-    environment::{self, WeatherState, WorldClock, apply_environment_control},
-    local_player::{
-        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
+use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        environment::{self, WeatherState, WorldClock, apply_environment_control},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            MovementTicker, PhysicsCollisionRegistries,
+        },
+        runtime::{
+            network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
+            publication::{PublicationController, PublicationFrameWork},
+            shutdown::record_fatal_error,
+            visibility::{CaveVisibilityCache, DiagnosticQuads},
+        },
     },
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    runtime::{
-        network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        publication::{PublicationController, PublicationFrameWork},
-        shutdown::record_fatal_error,
-        visibility::{CaveVisibilityCache, DiagnosticQuads},
+    client_presentation::{
+        camera::{CameraSettingsAuthority, FlyCamera},
+        local_player::{
+            InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+            LocalViewPose,
+        },
     },
 };
-use client_ui::ui_runtime::UiRuntime;
 
 #[cfg(feature = "acceptance")]
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
@@ -85,6 +96,9 @@ fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct WorldStreamFramePoll {
     pub(crate) report: WorldStreamPoll,
+    /// Committed-view readiness while startup or diagnostics watch it.
+    pub(crate) cohort_progress: Option<CohortProgress>,
+    /// The full committed-view witness, only while acceptance or metrics consume it.
     pub(crate) cohort: Option<ViewCohortStatus>,
 }
 
@@ -102,12 +116,12 @@ pub(crate) struct ClientWorld {
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
-    pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
+    pub(crate) pack_entities: Option<Arc<assets::SessionEntityPack>>,
     /// Worker-built pack pages, reused only while their base artwork and pack remain current.
     pub(crate) prepared_actor_artwork:
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
-    pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
+    pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -235,13 +249,13 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// Full-world cohort witness for startup, acceptance and metrics. Normal play
-/// stops scanning retained columns and sub-chunks once startup releases.
+/// Computes startup readiness from required columns and full diagnostics only when enabled.
+/// Once startup releases, ordinary play scans neither.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,
     startup_probe_enabled: bool,
-) -> Option<ViewCohortStatus> {
+) -> (Option<CohortProgress>, Option<ViewCohortStatus>) {
     let diagnostics_enabled = {
         #[cfg(feature = "acceptance")]
         {
@@ -252,12 +266,17 @@ pub(crate) fn frame_cohort_status(
             false
         }
     };
-    if !startup_probe_enabled && !diagnostics_enabled {
-        return None;
+    let Some(target) = stream.committed_view_cohort() else {
+        return (None, None);
+    };
+    if diagnostics_enabled {
+        let status = stream.cohort_status(target);
+        (Some(status.into()), Some(status))
+    } else if startup_probe_enabled {
+        (Some(stream.cohort_progress(target)), None)
+    } else {
+        (None, None)
     }
-    stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target))
 }
 
 pub(crate) fn world_stream_fatal_message(error: chunk_pipeline::WorldStreamFatalError) -> String {
@@ -290,7 +309,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
-    mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
+    mut camera_hurt: Option<ResMut<client_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
     (visibility_diagnostics, profiler, mut player_runtime): (
         Option<Res<VisibilityDiagnosticsInput>>,
@@ -334,7 +353,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     ));
-    frame_poll.cohort = frame_cohort_status(
+    (frame_poll.cohort_progress, frame_poll.cohort) = frame_cohort_status(
         stream,
         #[cfg(feature = "acceptance")]
         &acceptance,
@@ -396,7 +415,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             match network.send_latency_reply(creation_time) {
                 Ok(()) => {
                     movement.set_control_fence_pending(network.has_pending_latency_reply());
-                    crate::movement::trace_server_control(&movement, &local_physics, &control)
+                    gameplay::movement::trace_server_control(&movement, &local_physics, &control)
                 }
                 Err(super::network::BatchSendError::Full) => {
                     movement.set_control_fence_pending(true);
@@ -407,7 +426,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             continue;
         }
-        crate::movement::trace_server_control(&movement, &local_physics, &control);
+        gameplay::movement::trace_server_control(&movement, &local_physics, &control);
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             let previous = player_runtime.facts.is_immobile();
             player_runtime
@@ -473,7 +492,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             match observation {
                 ControlObservation::Hurt { source_direction } => {
                     if let Some(hurt) = camera_hurt.as_deref_mut() {
-                        hurt.register(crate::camera::LocalHurtEvent {
+                        hurt.register(client_presentation::camera::LocalHurtEvent {
                             source_direction,
                             ..Default::default()
                         });
@@ -541,7 +560,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {
-            let mut stdout = std::io::stdout().lock();
+            let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
         }
     }

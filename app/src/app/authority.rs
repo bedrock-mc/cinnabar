@@ -27,6 +27,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
+    app.add_systems(
+        bevy::prelude::Startup,
+        crate::settings_runtime::initialize_render_distance,
+    );
     app.add_plugins(client_presentation::ClientPresentationPlugin)
         .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()

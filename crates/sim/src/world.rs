@@ -23,7 +23,7 @@ mod raycast;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
-pub use raycast::{BlockHit, CameraBlockHit};
+pub use raycast::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit};
 use validate::{validate_facts, validate_shapes};
 
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;
@@ -887,10 +887,6 @@ pub(crate) fn validate_collision_query(query: Aabb) -> Result<(), WorldQueryErro
 
 fn block_floor(value: Vec3) -> Result<[i32; 3], WorldQueryError> {
     convert_block_coords(value, f64::floor)
-}
-
-fn block_ceil(value: Vec3) -> Result<[i32; 3], WorldQueryError> {
-    convert_block_coords(value, f64::ceil)
 }
 
 fn convert_block_coords(

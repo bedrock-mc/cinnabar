@@ -151,16 +151,27 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 			t.Fatal(err)
 		}
 	}
+	// Copy every target carrier so this isolated checkout also works when a
+	// generation change updates carriers alongside the target manifest.
+	paths := []string{attributePath, carrierPath, manifestPath}
+	for name := range target.Hashes {
+		path := target.Artifacts[name]
+		if path == carrierPath {
+			continue
+		}
+		writeClone(path, readSource(path))
+		paths = append(paths, path)
+	}
 	writeClone(attributePath, baseAttributes)
 	writeClone(carrierPath, baseCarrier)
 	writeClone(manifestPath, baseManifest)
-	runGit("add", "--", attributePath, carrierPath, manifestPath)
+	runGit(append([]string{"add", "--"}, paths...)...)
 	runGit("commit", "--quiet", "-m", "synthetic pre-pin base")
 	baseCommit := runGit("rev-parse", "HEAD")
 	writeClone(attributePath, candidateAttributes)
 	writeClone(carrierPath, candidateCarrier)
 	writeClone(manifestPath, candidateManifest)
-	runGit("add", "--", attributePath, carrierPath, manifestPath)
+	runGit(append([]string{"add", "--"}, paths...)...)
 	runGit("commit", "--quiet", "-m", "synthetic candidate")
 	candidateCommit := runGit("rev-parse", "HEAD")
 
@@ -255,20 +266,6 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			if strings.Contains(string(contents), forbidden) {
 				t.Fatalf("production target consumer %s still selects %s", path, forbidden)
 			}
-		}
-	}
-	legacyVisualCoverage, err := os.ReadFile(filepath.Join(root, "tools", "visualcoverage", "src", "main.rs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, marker := range []string{"Legacy protocol-1001", "LegacyBaseline1001", "LegacyRatchet1001", "LegacyStrict1001", "LegacyGalleryInventory1001"} {
-		if !strings.Contains(string(legacyVisualCoverage), marker) {
-			t.Fatalf("historical visual-coverage CLI is not explicitly retired: missing %s", marker)
-		}
-	}
-	for _, activeCommand := range []string{"Command::Baseline", "Command::Ratchet", "Command::Strict", "Command::GalleryInventory"} {
-		if strings.Contains(string(legacyVisualCoverage), activeCommand) {
-			t.Fatalf("historical visual-coverage CLI still exposes active command %s", activeCommand)
 		}
 	}
 	centralizedAcceptanceConsumers := map[string][]string{

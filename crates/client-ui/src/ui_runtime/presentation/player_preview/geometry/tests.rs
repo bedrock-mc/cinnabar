@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn skin(side: u16) -> IconRef {
     IconRef {
@@ -389,7 +389,9 @@ fn fancy_entity_material_keeps_float_directional_lighting_separate_from_tint() {
     .expect("fancy player model");
     // Each source cuboid has six faces, in east/front/west/back/top/bottom order.
     for (face, expected) in model.vertices()[..36]
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .zip([0.625, 0.825, 0.625, 0.825, 1.0, 0.45])
     {
         for vertex in face {
@@ -464,4 +466,43 @@ fn paperdoll_controller_does_not_apply_live_bob_sneak_or_holding_rotation() {
             crouched_held.project(vertex).world
         );
     }
+}
+
+/// Uses the pinned inventory player panel: a 52x70 background with a centred 30x30 renderer.
+/// The renderer sits 14 GUI pixels above the background centre.
+#[test]
+fn inventory_live_model_stands_centred_in_the_vanilla_black_panel() {
+    let panel = [0.0, 0.0, 52.0, 70.0];
+    let centre = [26.0, 35.0 - 14.0];
+    let control = [
+        centre[0] - 15.0,
+        centre[1] - 15.0,
+        centre[0] + 15.0,
+        centre[1] + 15.0,
+    ];
+    let (view, frame) = super::super::renderer_frame(
+        "live_player_renderer",
+        &Default::default(),
+        control,
+        1.0,
+        None,
+    );
+    let rows = bare(view, 64)
+        .vertices()
+        .iter()
+        .map(|vertex| frame[1] + vertex.position[1] * (frame[3] - frame[1]))
+        .collect::<Vec<_>>();
+    let top = rows.iter().copied().fold(f32::INFINITY, f32::min);
+    let bottom = rows.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    // The neck, the model-part origin, lands on the control's centre rather than the eyes.
+    assert!(
+        rows.iter().any(|row| (row - centre[1]).abs() < 1e-3),
+        "model-part origin at the control centre"
+    );
+    let (above, below) = (top - panel[1], panel[3] - bottom);
+    assert!(
+        above > 4.0 && below > 4.0,
+        "{top}..{bottom} clears the panel"
+    );
+    assert!((above - below).abs() < 1.0, "{top}..{bottom} is centred");
 }

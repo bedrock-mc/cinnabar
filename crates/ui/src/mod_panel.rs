@@ -8,7 +8,9 @@ mod surface;
 pub use surface::{Surface, SurfaceValue};
 
 pub const MAX_PANEL_BYTES: usize = 128 * 1024;
-pub const MAX_PANEL_CONTROLS: usize = 64;
+pub const MAX_PANEL_CONTROLS: usize = 128;
+/// Input batches remain bounded independently of the retained control catalog.
+pub const MAX_PANEL_EVENTS: usize = 64;
 pub const MAX_PANEL_TEXT_BYTES: usize = 96;
 pub const MAX_PANEL_ID_BYTES: usize = 48;
 pub const MAX_PANEL_CHOICES: usize = 8;

@@ -22,6 +22,8 @@ def build(repository, output):
     config["install_command"] = (
         f'curl -fsSL {config["download_base"]}{config["install_script"]} | sh'
     )
+    config["nightly_base"] = repository_url + "/releases/download/nightly/"
+    config["nightly_install_command"] = config["install_command"] + " -s -- --channel nightly"
     icon = (repository / "packaging/icons/cinnabar.svg").read_text()
     red = ET.fromstring(icon).find("{http://www.w3.org/2000/svg}rect").attrib["fill"]
     page = (HERE / "index.html.in").read_text()

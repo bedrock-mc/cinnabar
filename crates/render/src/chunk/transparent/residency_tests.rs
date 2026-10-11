@@ -26,7 +26,7 @@ fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
     resident.liquid_range = Some(8..24);
     resident.liquid_lighting_range = Some(40..48);
     assert!(transparent_snapshot_addresses_are_resident(
-        &snapshot,
+        snapshot.key(),
         [&resident],
         std::iter::empty(),
         texture_identity,
@@ -77,7 +77,7 @@ fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
         changed_key,
     ] {
         assert!(!transparent_snapshot_addresses_are_resident(
-            &snapshot,
+            snapshot.key(),
             [&resident],
             std::iter::empty(),
             texture_identity,
@@ -85,7 +85,7 @@ fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
         ));
     }
     assert!(!transparent_snapshot_addresses_are_resident(
-        &snapshot,
+        snapshot.key(),
         [&resident_transparent_allocation(&identity, tint_identity)],
         std::iter::empty(),
         ChunkTextureAssetIdentity::new(9, 9),
@@ -99,7 +99,7 @@ fn direct_scan_residency(
     retired: &[GpuChunkAllocation],
     tint_identity: ChunkBiomeTintIdentity,
 ) -> bool {
-    snapshot.key.visible_allocations.iter().all(|identity| {
+    snapshot.key.sorted_allocations.iter().all(|identity| {
         resident.iter().any(|allocation| {
             allocation.tint_identity == tint_identity
                 && transparent_resident_allocation_contains(identity, allocation)
@@ -166,7 +166,7 @@ fn keyed_residency_lookup_matches_direct_scan() {
     };
     let check = |snapshot: &TransparentOrderedSnapshot| {
         let keyed = transparent_snapshot_addresses_are_resident(
-            snapshot,
+            snapshot.key(),
             resident.iter(),
             retired.iter(),
             texture_identity,

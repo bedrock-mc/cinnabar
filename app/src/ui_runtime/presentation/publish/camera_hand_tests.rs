@@ -1,7 +1,7 @@
 use super::*;
-use crate::ui_runtime::presentation::tests::{fixture_font, fixture_hud};
 use bevy::prelude::Transform;
 use client_presentation::camera::{ServerCameraView, ViewContext};
+use client_ui::test_support::{fixture_font, fixture_hud};
 use client_ui::ui_runtime::presentation::refresh_hud_frame;
 use protocol::{CameraEvent, CameraInstructionEvent, CameraPreset, CameraSetInstruction};
 use semantic_input::PerspectiveMode;

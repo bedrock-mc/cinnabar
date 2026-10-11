@@ -10,7 +10,10 @@ use assets::{
     NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, encode_blob,
 };
-use client_world::{COMMITTED_UI_CAPACITY, ingestion::PreparedSubChunk};
+use client_world::{
+    COMMITTED_UI_CAPACITY,
+    ingestion::{PreparedSubChunk, WorldStreamError},
+};
 use protocol::{
     ActorAttribute, ActorAttributesUpdateEvent, ActorEvent, ActorKind, ActorLinkEvent,
     ActorLinkType, ActorMotionEvent, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent,
@@ -22,6 +25,7 @@ use protocol::{
     RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult,
     SubChunkUnavailable, UiEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
 };
+use render_api::{MAX_VIEW_RADIUS_CHUNKS, PublicationPermitStage, PublicationServiceConfig};
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,
     DecodedLevelChunk, MeshDependencyMask, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey,
@@ -961,6 +965,7 @@ mod cases_09;
 mod cases_10;
 mod cases_11;
 mod cases_12;
+mod cohort_progress;
 mod forced_remesh;
 mod inbound_lanes;
 mod inline_cohort;

@@ -5,6 +5,7 @@ use sim::{
 use world::{BlockUpdate, ChunkKey, ChunkStore, SubChunkKey};
 
 mod camera;
+mod placement;
 
 fn identity() -> CollisionRegistryIdentity {
     CollisionRegistryIdentity {

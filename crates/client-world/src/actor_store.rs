@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+#[cfg(test)]
+pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
@@ -397,7 +399,8 @@ impl ActorSnapshot {
         feet
     }
 
-    fn network_position_offset(&self) -> f32 {
+    /// Offset from stored collision feet to the native actor-state position.
+    pub(crate) fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
                 if self.player_is_sleeping() {
@@ -632,6 +635,8 @@ impl MovementFlagUpdate {
 /// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
+    /// Committed local mode used by authored player render controllers.
+    pub game_mode: Option<protocol::PlayerGameMode>,
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.

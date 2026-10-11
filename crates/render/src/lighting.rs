@@ -5,12 +5,16 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{App, Commands, Handle, IntoScheduleConfigs, Res, ResMut, Resource, Shader},
     render::{
         Render, RenderApp, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        render_resource::*,
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+            BindingType, Buffer, BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
+            PipelineCache, ShaderStages,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -88,6 +92,15 @@ pub(crate) fn install(app: &mut App) {
     load_internal_asset!(app, MATERIAL_SHADER, "material.wgsl", |source, path| {
         crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
     });
+    // Terrain, models, liquids and block overlays share one projection.
+    const WORLD_PROJECTION_SHADER: Handle<Shader> =
+        uuid_handle!("b6411dfb-6a07-4283-ab58-3aedb7cdb856");
+    load_internal_asset!(
+        app,
+        WORLD_PROJECTION_SHADER,
+        "world_projection.wgsl",
+        crate::shader_safety::from_wgsl
+    );
     app.sub_app_mut(RenderApp)
         .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources));
 }

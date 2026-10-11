@@ -1,6 +1,9 @@
-use sim::{
-    Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator,
-    TICKS_PER_SECOND, Vec3, WorldQueryError,
+use {
+    sim::{
+        Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, SimulationError,
+        Simulator, Vec3, WorldQueryError,
+    },
+    world::TICKS_PER_SECOND,
 };
 
 #[derive(Default)]

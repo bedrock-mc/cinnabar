@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use render_model::UiTexturePage;
 
-use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
+use {
+    super::{UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview},
+    ui::IconRef,
+};
 
 /// Dynamic page offset holding the session's server item icons.
 pub(super) const SESSION_ICON_PAGE: usize = render_model::UI_SESSION_ICON_PAGE_OFFSET;
@@ -35,6 +38,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     }
     runtime.player_preview_source_hash = None;
     runtime.player_preview_pose = None;
+    runtime.player_preview_raster_pose = None;
     runtime.player_preview_pixels = None;
     runtime.player_preview_drawn = None;
     runtime.gui_models.skin = None;
@@ -326,7 +330,7 @@ fn warn_rebuild_failed(reason: &render_model::UiRenderRejectReason) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, ui::IconRef};
 
     #[test]
     fn rejected_rebuild_keeps_pending_artwork_and_preview_for_retry() {

@@ -12,7 +12,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 use crate::actor_store::ActorSnapshot;
 
 /// Simulation tick duration used by actor clocks and Molang time queries.
-pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
+use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
@@ -229,6 +229,8 @@ struct ActorRigState {
     bone_names: Vec<Box<str>>,
     /// This tick's render-controller result.
     render: Vec<RenderTextureLayer>,
+    /// Includes dormant controller layers, so admission need not sample ordinary rigs.
+    may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
     scale: Option<[f32; 4]>,
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
@@ -253,6 +255,8 @@ struct ActorRigState {
     completed_tick: u64,
     fallback: EntityRigFallback,
     history: VecDeque<ActorTickInput>,
+    /// Latest owner query inputs, retained even when its pose does not need frame sampling.
+    query_context: ActorTickContext,
     /// Main-hand item the arm has finished equipping.
     equipped_main: Option<Arc<str>>,
     /// Offhand item accepted by the independent native equip clock.
@@ -707,67 +711,10 @@ impl ActorAnimationStore {
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
             )
             .with_input(state.history.back().copied())
-            .with_item_context(
-                state
-                    .render_frame
-                    .as_ref()
-                    .map(|frame| &frame.motion.context),
-                state.complete_spear_variables,
-            ),
+            .with_item_context(Some(&state.query_context), state.complete_spear_variables),
             java: state.java.motion,
             java_equipped: state.java.equipped(),
         })
-    }
-
-    /// The animated skin layers at `alpha`, each retargeted by the targets `targets` builds
-    /// from its skeleton's bone names and rest pose.
-    pub(crate) fn retargeted_layers(
-        &self,
-        runtime_id: u64,
-        alpha: f32,
-        targets: impl Fn(&[Box<str>], &[BoneTransform]) -> Option<Vec<Option<BoneTransform>>>,
-    ) -> Option<Vec<SkinRenderLayer>> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        let skeletons = state
-            .skin_skeleton()
-            .map_or(&[][..], |skin| &skin.prepared.layers);
-        state
-            .skin_layers
-            .iter()
-            .map(|layer| {
-                let skeleton = skeletons.iter().find(|skeleton| skeleton.poses(layer))?;
-                let pose: Arc<[BoneTransform]> = java::retarget(
-                    &skeleton.bones,
-                    &layer.previous,
-                    &layer.current,
-                    alpha.clamp(0.0, 1.0),
-                    &targets(&skeleton.names, &skeleton.rest)?,
-                )?
-                .into();
-                Some(SkinRenderLayer {
-                    previous: Arc::clone(&pose),
-                    current: pose,
-                    ..layer.clone()
-                })
-            })
-            .collect()
-    }
-
-    /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
-    pub(crate) fn retargeted_pose(
-        &self,
-        runtime_id: u64,
-        alpha: f32,
-        targets: &[Option<BoneTransform>],
-    ) -> Option<Vec<BoneTransform>> {
-        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
-        java::retarget(
-            state.posed_bones(),
-            &state.previous,
-            &state.current,
-            alpha.clamp(0.0, 1.0),
-            targets,
-        )
     }
 
     fn bump_generation(&mut self) {
@@ -835,6 +782,7 @@ mod horse;
 mod hud;
 mod java;
 mod spear;
+pub use java::retarget::JavaRetargetCache;
 pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
 mod particles;

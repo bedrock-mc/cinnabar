@@ -1,5 +1,5 @@
-use super::*;
 use bevy::{ecs::world::CommandQueue, prelude::World};
+use {super::*, launcher::menu::auth::AuthState};
 
 fn child_guard(exited: bool) -> CoreProcessGuard {
     #[cfg(windows)]
@@ -60,7 +60,10 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
     );
     menu.control_auth = Some(AuthState::SignedOut);
     let mut world = World::new();
-    world.insert_resource(LauncherAccount::new(socket_dir.clone()));
+    world.insert_resource(LauncherAccount::new(
+        socket_dir.clone(),
+        socket_dir.join("artwork"),
+    ));
     (slot, menu, world, socket_dir)
 }
 

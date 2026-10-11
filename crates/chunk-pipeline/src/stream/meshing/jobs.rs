@@ -63,7 +63,7 @@ impl WorldStream {
         } else {
             Vec::new()
         };
-        resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+        resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
         resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
         let mut removal_candidates = Vec::new();
         for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
@@ -162,7 +162,7 @@ impl WorldStream {
         let mut examined = false;
         let now = Instant::now();
         self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
-        resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+        resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
         for (candidate, pending, queued) in resident_candidates {
             let key = candidate.key;
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
@@ -283,7 +283,7 @@ impl WorldStream {
                 drop(_zone);
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("mesh.completion_send", key = ?completion.key, revision = completion.revision).entered();
-                let _ = tx.send(completion);
+                workers::send_result(&tx, completion);
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
             self.stats.phase2_stages.mesh_jobs_dispatched = self

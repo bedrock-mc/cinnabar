@@ -1,7 +1,10 @@
 use super::review_tests::{paint, solids};
 use super::theme::{MENU_DESTRUCTIVE, MENU_NEUTRAL};
-use super::*;
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 /// Finds the rendered label contained by an action's hit area.
 fn label(nodes: &[UiNode], bounds: UiRect) -> String {

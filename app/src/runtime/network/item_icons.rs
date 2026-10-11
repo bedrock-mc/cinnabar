@@ -8,13 +8,13 @@ use std::{
 
 mod catalog;
 mod vanilla;
-pub(crate) use vanilla::set_vanilla_item_paths;
+pub(crate) use vanilla::{set_vanilla_item_paths, vanilla_item_paths_installed};
 
 use resource_pack::LayeredPackView;
 
 use super::resource_packs::{DecodedTexture, decode_pack_texture};
-use crate::presentation::equipment::blocks::overlay_sheet;
 use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+use render_model::equipment::blocks::overlay_sheet;
 
 /// One icon per registry item, the most a session can name.
 const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;

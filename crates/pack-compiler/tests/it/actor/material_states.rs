@@ -85,6 +85,21 @@ fn skeleton_alias_uses_double_sided_alpha_test_without_material_definitions() {
 }
 
 #[test]
+fn spectator_material_blends_and_respects_authored_raster_overrides() {
+    assert_eq!(
+        state("player_spectator", None),
+        json!({"alpha_test":false,"cull":true,"blend":true,"depth_write":true})
+    );
+    let definitions = json!({"materials": {
+        "player_spectator:entity": {"+states":["DisableDepthWrite"],"+defines":["ALPHA_TEST"]}
+    }});
+    assert_eq!(
+        state("player_spectator", Some(&definitions)),
+        json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":false})
+    );
+}
+
+#[test]
 fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheritance() {
     assert_eq!(
         state("entity_emissive_alpha", None),
@@ -381,5 +396,29 @@ fn actor_material_states_replacement_excludes_add_remove_for_the_same_family() {
     assert_eq!(
         state("fixture", Some(&definitions)),
         json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":false,"disable_overlay":true})
+    );
+}
+
+#[test]
+fn always_passing_depth_function_is_inherited_and_restored_by_less_equal() {
+    let definitions = json!({"materials":{
+        "version":"1.0.0",
+        "fixture_marker:entity":{"depthFunc":"Always"},
+        "fixture_marker_cutout:fixture_marker":{"+defines":["ALPHA_TEST"]},
+        "fixture_marker_tested:fixture_marker":{"depthFunc":"LessEqual"}
+    }});
+    assert_eq!(
+        state("fixture_marker", Some(&definitions)),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,
+            "depth_always":true})
+    );
+    assert_eq!(
+        state("fixture_marker_cutout", Some(&definitions)),
+        json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":true,
+            "depth_always":true})
+    );
+    assert_eq!(
+        state("fixture_marker_tested", Some(&definitions)),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
     );
 }

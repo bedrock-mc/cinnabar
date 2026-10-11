@@ -70,6 +70,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(config["install_command"],
                          f'curl -fsSL {config["download_base"]}{self.config["install_script"]} | sh')
         self.assertNotIn(self.config["website"], config["install_command"])
+        self.assertEqual(config["nightly_base"],
+                         f'https://github.com/{self.config["repository"]}/releases/download/nightly/')
+        self.assertEqual(config["nightly_install_command"], config["install_command"] + " -s -- --channel nightly")
         self.assertEqual({path.name for path in self.output.iterdir()}, {
             "index.html", "downloads.js", "app.js", "title.png", "texture.svg",
         })
@@ -90,6 +93,10 @@ class RenderTests(unittest.TestCase):
         for selection in page.downloads:
             platform, architecture = selection.split("/")
             self.assertIn(architecture, config["assets"][platform])
+        self.assertIn('aria-haspopup="menu"', html)
+        self.assertEqual(html.count('role="menuitemradio"'), 2)
+        self.assertIn("Nightly (Unstable)", html)
+        self.assertIn("Built daily from dev and may break.", html)
         self.assertIn("If macOS blocks the first launch", html)
         self.assertIn('class="first-open"', html)
         self.assertEqual((self.output / "title.png").read_bytes(),

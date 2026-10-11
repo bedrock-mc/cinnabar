@@ -1,9 +1,9 @@
 use super::super::engine::FormEngine;
 use super::super::server_pack::ServerAtlas;
-use super::*;
 use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::SequencedLocalAttributes;
 use ui::{DpiScale, SafeArea, TextLayoutCache};
+use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 /// A server pack placing independently visible hunger controls on separate rows.
 fn engine() -> FormEngine {
@@ -208,7 +208,7 @@ fn repeated_zero_tick_food_updates_do_not_restart_hunger_motion() {
                 "packet restarted pulse at {update}"
             );
         }
-        for layers in rows[0].chunks_exact(2).take(9) {
+        for layers in rows[0].as_chunks::<2>().0.iter().take(9) {
             assert_eq!(layers[0], layers[1]);
         }
     }

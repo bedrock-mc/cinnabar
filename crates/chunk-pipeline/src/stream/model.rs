@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, render_api::PublicationPermit};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct PendingSubChunk {
@@ -36,7 +36,41 @@ pub struct ViewCohortStatus {
     pub known_air_hash: u64,
 }
 
+/// How much of one view's required terrain has loaded: the readiness half of
+/// [`ViewCohortStatus`], without its diagnostic scan of resident sub-chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CohortProgress {
+    pub target: ViewCohort,
+    pub committed: Option<ViewCohort>,
+    pub expected: usize,
+    pub loaded_target: usize,
+}
+
+impl CohortProgress {
+    /// Whether the committed view is `target` and every one of its required columns loaded,
+    /// exactly as [`ViewCohortStatus::target_is_complete`] decides it.
+    #[must_use]
+    pub fn target_is_complete(self) -> bool {
+        self.committed == Some(self.target)
+            && self.expected != 0
+            && self.loaded_target == self.expected
+    }
+}
+
+impl From<ViewCohortStatus> for CohortProgress {
+    /// Keeps the readiness fields without retaining the full diagnostic witness.
+    fn from(status: ViewCohortStatus) -> Self {
+        Self {
+            target: status.target,
+            committed: status.committed,
+            expected: status.expected,
+            loaded_target: status.loaded_target,
+        }
+    }
+}
+
 impl ViewCohortStatus {
+    /// Requires the target view to be committed with every required column loaded.
     #[must_use]
     pub fn target_is_complete(self) -> bool {
         self.committed == Some(self.target)

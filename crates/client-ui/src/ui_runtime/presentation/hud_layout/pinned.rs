@@ -5,8 +5,6 @@ use assets::HudTextureRole;
 
 use crate::ui_runtime::gameplay_hud::{HeartVariant, HudEffect};
 
-pub use ui::gui_scale;
-
 /// Vanilla survival hotbar width in GUI px (start cap + nine slots + end cap).
 pub(super) const HOTBAR_WIDTH: f32 = 182.0;
 /// Fixed height of the bottom-anchored HUD stack in GUI px, measured from the

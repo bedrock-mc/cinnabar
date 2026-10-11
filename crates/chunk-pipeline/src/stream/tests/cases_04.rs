@@ -879,8 +879,8 @@ fn starved_publication_tokens_still_dispatch_when_nothing_is_in_flight() {
 
     // Exhaust the frame publication window entirely: without the starved
     // dispatch floor this poll could never start meshing again.
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         config.minimum_items_per_second as usize,
@@ -928,8 +928,8 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
     // Exhaust the frame publication window exactly like the single-job
     // witness above: the starved floor is the only remaining admission
     // route through the real poll path.
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         config.minimum_items_per_second as usize,
@@ -974,8 +974,8 @@ fn starved_mesh_dispatch_floor_never_exceeds_the_callers_budget() {
     for key in &keys {
         stream.mark_dirty_exact(*key, Instant::now());
     }
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         config.minimum_items_per_second as usize,
@@ -1001,8 +1001,8 @@ fn starved_mesh_dispatch_floor_never_invents_work_with_an_empty_pending_queue() 
     });
     // Same exhausted publication window as the floor witness, but with no
     // pending mesh work anywhere: starvation must not fabricate dispatches.
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         config.minimum_items_per_second as usize,

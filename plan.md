@@ -1,3 +1,19 @@
+## Xbox Minecraft activity
+
+- The Rust client reports menus and the committed world default, Realm and experience
+  classification to the account core. Go publishes through the existing Xbox presence API;
+  offline accounts do no service work and failures never block joins or gameplay.
+- Fake-client tests cover joins, default-mode changes, leaving, cancellation and title
+  cleanup. The control regression failed on the previous implementation. Rust state
+  tests distinguish the world default from an individual player's mode.
+- Named `COM_Experience_*` IDs are intentionally not sent. Featured servers and
+  Experiences use `COM_Experience` without server-identity mappings.
+- Exact current-version game-mode input, update trigger ordering, heartbeat cadence,
+  platform-specific service configuration selection, server activity overrides and
+  permission gates remain incomplete. The current heartbeat
+  fallback is provisional. Signed-in friends-visible validation is incomplete, and no
+  Xbox presence parity gate closes. Discord presence is unchanged.
+
 ## Small-surface render safety
 
 - Explicit render scissors and viewports intersect their physical attachments; empty
@@ -118,6 +134,20 @@
 
 ## Movement and input audit fixes
 
+Spectator mode now keeps forced flight without the ordinary flight-toggle grant,
+passes through solid terrain without ground contact or anchor depenetration, and
+suppresses block interactions and first-person hands. Player render queries follow
+the committed mode; runtime skins receive authored visibility before equipment is
+attached, and authored blended layers multiply texture opacity by controller opacity.
+The inside-block overlay respects no-clip while server camera fades remain active.
+Owning regressions cover mode transitions, stale ability grants, solid and unloaded
+terrain, embedded anchors, render queries, hands, overlays, runtime skin visibility,
+authored material overrides, and GPU opacity. The built-in spectator blend fallback
+is provisional until the version-matched stock material contract is verified. Full
+spectator parity remains incomplete pending exact native trajectory and platform
+comparison, custom controller geometry, and persona coverage;
+these changes do not close the movement, camera, or actor parity gates.
+
 - Input packets retain digital buttons and raw jump/sneak events separately from
   requested controls and resulting actor state. Opposing keys remain visible,
   brief taps survive tickless frames, and retries and rewinds preserve the input
@@ -157,6 +187,14 @@
 
 ## Held block placement
 
+- A steep downward look past a ledge can acquire nearby support before a placement
+  line exists. Use and selection share the downward support and preserve its click
+  point; mining keeps the direct ray. The support selection shape is outlined.
+- Indirect support admits the first press, while unlined held repeats require a
+  direct hit. Locked lines still test the segment to the picked intercept.
+- Incomplete: the reported floating outline in an empty destination cell has not
+  been verified for the matched version and control settings.
+
 - Ordinary block holds now retain successful destinations, establish an adjacent
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
@@ -181,6 +219,10 @@
   120 Hz and an uncapped test bound tick flush delay and 20 Hz send jitter to 3 ms;
   manual recording clocks keep their requested steps. Live movement acceptance remains open.
 
+- Actor catch-up uses `world::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
+  advancement share one clock step, including server-defined interaction boxes after a stall.
+  Deterministic regression coverage does not close live animation or movement acceptance.
+
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
@@ -199,8 +241,22 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- UI publication re-emits only the nodes a frame changes into its retained draw list,
+  and HUD rebinds run only the view bindings a change reaches. The paper doll and the
+  inventory model turn as geometry without rebuilding a texture page. The pack worker
+  resolves server HUD screens and reads the pack textures they name, and large session
+  icon sets pack on a worker. Regression tests assert redrawn nodes, view runs, and
+  on-frame resolves, pack reads and icon packs.
+- Incomplete: the first in-world frame after joining (4.9 s), first server form opens
+  and chat-open freezes from live sessions did not reproduce offline at that size, and
+  large server art still decodes on the frame within its budget. A tree-shape change,
+  such as blinking hearts, builds the frame in full, and the first two HUD rebinds after
+  a cold bind rebuild most controls. Release-build hardware captures remain open.
 - Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
   batches prepare custom models while replacements retain the last complete profile.
+  Ready appearances publish within a frame budget, with the local player first; normal
+  ready joins remain visible in their arrival frame. Distant block-entity rescans rotate
+  within their budget, while nearby edits remain immediate.
   Prepared meshes retain validation and vertex fingerprints across catalog publication.
   Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
   see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
@@ -243,6 +299,8 @@
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
   The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Sprint transitions recalculate movement speed from attribute defaults and other
+  modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
@@ -351,6 +409,27 @@
   build passes, and the inspection client is running after the requested
   relaunch. Changes are local and uncommitted; nothing is pushed.
 
+## Always-passing entity depth materials
+
+- Server-pack entity materials with `depthFunc: Always` (through-wall markers)
+  compile to an always-passing depth test. `LessEqual` restores normal testing,
+  and children inherit the setting. These spans draw in the sorted pass after
+  opaque terrain, so terrain cannot overwrite them. Every admitted raster state
+  prewarms both normal and always-passing depth variants, including blending and
+  disabled depth writes.
+- Sorted instances retain separate positions. A sorted dissolve mask carries its
+  own color layer into one draw item in that pass, so another actor cannot split
+  the dependent passes. Ordinary pairs finish before transparent terrain.
+  An explicit always-passing test overrides the color pass's default.
+  Rigs with always-passing depth layers bypass terrain occlusion while retaining
+  the candidate distance and frustum bounds. Admission checks the same sampled
+  frame layers that the draw consumes, including frame-conditioned controllers.
+  A capability cached from all compiled layers keeps ordinary occluded rigs from
+  consuming the shared frame-evaluation budget.
+- Incomplete: `depthBias`, other depth functions, `InvertCulling` and stencil
+  states are ignored. The sorted-pass order approximates native entity order and
+  is unverified against a native capture.
+
 ## Empty boss-text HUD slots
 
 - A captured server HUD uses eight fixed boss-text slots. Missing collection
@@ -365,6 +444,20 @@
   Incomplete: live acceptance remains pending. The updated inspection client is
   running after the requested restart. Changes are local and uncommitted;
   nothing is pushed.
+
+## Worn server-pack armour textures
+
+- Worn armour from server packs runs its attachable scripts with the wearer as
+  `context.owning_entity` and draws the texture its render controller selects,
+  such as owner-driven team variants. Each worn slot keeps its own retained state
+  and native model binding name. Owner item-use timing and frame delta are passed
+  to the worn scripts. Equipment, properties and local-player identity also
+  remain available to owner queries when the body pose is static.
+  Attachable timing is independent of owner tick batching, and elytra scripts
+  receive the actual render delta.
+- Incomplete: worn armour still uses the binding's default geometry on remapped
+  body bones. Attachable animations and controller-selected geometry or
+  materials are not applied, and vanilla armour keeps its static binding.
 
 ## Tip text slot
 
@@ -411,6 +504,17 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## Controller state time and pack queries
+
+- `query.state_time`, `query.max_trade_tier` and `query.position` now compile.
+  Unsupported queries had dropped whole controller transitions and script
+  statements, leaving looping weapon recoil states and misplacing scripted markers.
+- Controller weights, clip clocks and bone channels read the elapsed time of
+  their own state, including separate outgoing and incoming epochs during blends.
+  Position queries require one axis and read the native actor origin.
+- Incomplete: `query.state_time` advances in actor ticks, like the existing
+  finished-animation queries, rather than per rendered frame.
+
 ## OreUI Settings
 
 - Global Resources is an owner-requested design exception using expandable OreUI pack cards,
@@ -549,9 +653,10 @@
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
 - Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
-  drawn; the breathing point, item and local volume culling and
-  camera-inside behaviour are provisional. Native side-by-side
-  comparison is pending.
+  drawn; the breathing point, item and local volume culling remain provisional.
+- Volumes containing the camera draw no shadow. Camera-inside and ordinary outside
+  footprints have GPU regression coverage. Exact near-plane clipping and depth-bias
+  edges remain incomplete parity checks.
 
 ## Configured inventory hotbar swaps
 
@@ -622,8 +727,39 @@
   frames keep the CPU path.
 - Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
   against rendered ids, and the CPU path's pixels from a stale history.
-- Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
-  as is a GPU pass-time measurement once per-pass timestamps land.
+- Live visual pass: on Vulkan and DX12, GPU-culled and CPU-planned frames at the aeris.land
+  spawn match at four headings apart from moving entities, nametags and chat. GPU pass times
+  come from `RUST_MCBE_GPU_NODES=1` (below).
+
+## Render frame time
+
+- Culled terrain commands carry no builtin-visible offsets: each command's base vertex
+  addresses its own entries in a draw-offset vertex buffer the cull kernel writes, so DX12 uses
+  count draws like Vulkan. The fixed-count path, which submitted every slot's worst case and
+  had wgpu validate and patch each command, is now the fallback for devices without count
+  draws. The GPU test draws both submissions pixel-identical to the CPU path on DX12 and
+  Vulkan.
+- CPU-planned draws bind the arena's identity offset buffer, so both paths share one pipeline
+  per terrain family. DX12 compiles shaders with FXC at every launch, about 0.5 to 1.7 s per
+  pipeline here, so a culled variant per family would lengthen the loading screen.
+- The Hi-Z pyramid builds only texels that cover a depth pixel, `ceil(depth / 2^(level + 1))`
+  per axis, passed per level in a bounds uniform; the cull reads no other texel.
+- The cull kernels skip wgpu's workgroup zero-fill. Each kernel writes its workgroup slots
+  before reading them, and the fill made FXC spend about 7.5 s per kernel, which held DX12
+  launch-to-HUD at about 23 s; it is now about 4 s.
+- The opaque, late-cull and transparent passes record and encode on worker tasks; each
+  transparent colour-space range is its own task.
+- Sorted and direct water and model draws share one transparent pipeline
+  (`transparent_terrain.wgsl`, composing the liquid and model modules over
+  `chunk_bindings.wgsl`); every water draw's first instance carries
+  `TRANSPARENT_WATER_DRAW_FLAG`, and `liquid_draw_ref` tells sorted refs from direct records.
+  On an RX 6600 XT the program switch between the two families cost more than the drawing. An
+  offscreen GPU test matches the shared pipeline's pixels, for sorted refs and direct records,
+  against both programs through their own pipelines.
+- `RUST_MCBE_GPU_NODES=1` plots per-node and per-section GPU times under Tracy, and Tracy
+  builds expose wgpu's encode and submit zones; see the live-testing guide.
+- Evidence: [render frame time](docs/evidence/render-frame-time.md), measured on DX12 before
+  Windows defaulted to Vulkan; `WGPU_BACKEND=dx12` selects that backend.
 
 ## Compact font carriers and glyph residency
 
@@ -657,6 +793,31 @@
   two-sided quads keep the cull-none discard pipeline.
 - An offscreen GPU test matches the culled path pixel-for-pixel against the discard path.
 - Incomplete live visual acceptance: a rendered-frame pass on the target platforms is pending.
+
+## Transparent water order across camera turns
+
+- The water sort covers every resident sub-chunk whose faces need an order, not the
+  frustum's, so turning never re-sorts; the frustum only picks which sorted groups draw.
+- Water whose faces share one plane and facing, one cell each (flat oceans and lakes),
+  blends the same in any order and draws from its records through the sorted path's
+  vertex program. Views that displace water (Enhanced) still sort it.
+- A staged sort that is still readable commits before the next request, so streaming
+  that changes residents every frame cannot starve it.
+- Each sorted sub-chunk owns a range of the committed slot. A new, changed or removed
+  sub-chunk patches only its own range, so one new shore uploads only its refs; the slot
+  is repacked only when fragmented. Removed water is released once no committed or
+  staged snapshot reads it.
+- The resident index keeps running ref totals, and the sort inputs are rebuilt only for
+  residents that changed. A pack reload seeds them, sorted for the view's water mode.
+- Visible water keeps last frame's key order and merges in only new entries; a key
+  visible under two entities draws the upload the resident index holds.
+- Past the 2,097,152-ref ceiling the nearest water is sorted. Farther water that needs an
+  order, and water awaiting its first sort, draws unsorted and is logged, never skipped.
+- Regression tests cover a turn, a rotation sweep, resident churn, streaming, the ceiling
+  through the live prepare step, and an ocean past the ceiling. An offscreen GPU test
+  matches flat water drawn from its records pixel-for-pixel against any sorted order.
+- Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
+  draws unsorted; transparent models still sort only the visible set.
 
 ## Held cube item consistency
 
@@ -720,10 +881,10 @@
   then Mailbox, then FIFO. Hidden developer surfaces present unpaced.
   Every choice comes from the primary surface's probed modes.
   `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
-- Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
-  vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
-  the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
-  variable refresh at 97% of its maximum in low-latency mode.
+- Max Framerate offers 1–240 FPS and Unlimited, which is the default. Missing or unsupported
+  saved FPS values use Unlimited. `--frame-cap` replaces the saved limit for the session.
+  VSync controls display pacing; confirmed variable refresh caps low-latency rendering at
+  97% of its maximum, including when Unlimited is selected.
 - Variable Refresh Rate offers Automatic / On / Off in both Video menus. Automatic uses the
   current macOS screen's refresh intervals and native fullscreen state; unsupported queries,
   Windows, and Linux remain Unknown. On declares VRR enabled by the player; it does not change
@@ -1226,9 +1387,9 @@ older test totals below are pre-sync evidence, not verification of this merge.
 
 Profile now has vanilla responsive card/tab geometry, independent scrolling,
 Overview friend/follower and Minecraft achievement summaries, completed achievement
-ordering, and populated Stats. The Go core builds the Xbox statistics and achievement
-requests, persona avatar and featured gallery requests; authored fixtures verify the
-contracts without owner-account requests. Missing values remain unavailable rather
+ordering, and populated Stats. The Go core maps shared service clients into profile
+statistics, achievements, persona avatar and featured gallery data. Authored fixtures
+verify the contracts without owner-account requests. Missing values remain unavailable rather
 than invented zeros. Exact references are in `docs/profile-parity.md`.
 
 Full 1:1 parity remains incomplete. Dressing Room has no persona destination or hanger
@@ -2169,6 +2330,15 @@ first intersection in server order within each actor. Aim assist considers each
 box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
+
+2026-10-10 actor use: a use press on an actor always sends the Interact
+transaction, then falls through to item use (a throw, for example) unless the
+target offers an interaction. Players offer one only while the server's interact
+text (actor data 100) on the local player is non-empty. Provisional, incomplete:
+other actors' component interactions (trading, taming, leashing, riding and so on)
+are not modelled, so a use on any non-player actor still consumes the press; the
+local can-ride-target flag and the target's prevent-default flag, which suppress
+the fall-through, are not modelled. Not live-accepted.
 
 2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
 without withdrawing its whole namespace. Regressions reproduce top-left chat and
@@ -4850,8 +5020,11 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   one-call/one-20-Hz fixed ticks, feet-origin player AABBs, bedsim-order swept collision and
   stepping, basic walk/sprint/jump/sneak forces, packed-palette `crates/world` collision queries,
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
-  collision shapes, and failed replay queries stop prediction instead of guessing. A generator
-  pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
+  collision shapes, and failed replay queries stop prediction instead of guessing.
+  Collision scans floor their inclusive upper bounds so fractional queries do not suspend
+  movement over an extra, unavailable cell. Required missing collision data still stops
+  prediction; full unloaded-boundary behavior remains incomplete.
+  A generator pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
   matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim
   movement strata, expanded terrain/correction traces, and live vanilla/Lunar verification
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and
@@ -5407,6 +5580,19 @@ pass yet; `font_size` steps and the text-background option default are
 unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
 0.3 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
 
+**Text on the device pixel grid (2026-10-09):** vanilla draws a font pixel over
+exactly GUI-scale device pixels and truncates text origins to whole device pixels.
+Text laid out at fractional display scales (Windows 125%, 150% and 175%) used to
+measure in logical 1/64 pixels with a rounded scale, so glyphs drifted off the
+device grid along a line. Nearest sampling then gave some letters' strokes one
+device pixel more or less than their neighbours'. Text from the frame's text
+metrics, and the Java-look book and window text, now measures in device pixels
+whenever each font texel spans whole half device pixels, as Cinnangles Sans does
+at every integer GUI scale. Display scales 1 and 2 lay out unchanged. Text at
+fractional font scales (`font_scale_factor` 0.8, `small` at odd GUI scales) and
+outline OreUI fonts keep logical-pixel layout. Incomplete: no live Windows
+rendered-frame pass at a fractional display scale yet.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
@@ -5685,6 +5871,13 @@ Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the 
 
 ## Phase 8 — Audio, polish, packaging
 
+**Rain ambience:** completed weather ticks now admit overlapping finite rain
+sounds from loaded warm precipitation columns. Sample density follows rain
+strength and the graphics setting; sheltered rain uses reduced volume and pitch.
+Clear weather stops admissions and lets existing samples finish. Precipitation
+height/material parity, native voice limits and retail timing/audio acceptance remain
+incomplete.
+
 **World-drop audio:** successful world-input single and whole-stack drops now
 emit one local `drop.slot` cue through the active pack, without waiting for or
 repeating server replies. Failed and inventory-screen drops stay silent on this
@@ -5712,7 +5905,7 @@ first-run experience.
 **Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
 AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, local crash
 records (never uploaded), signed-manifest update checks, and the core log/backoff helpers are in
-`app/src/{first_run,lifecycle}` and `core/update`. Unverified until compiled and run on a clean machine: every
+`app/src/{first_run,lifecycle}` and `crates/update-manifest`. Unverified until compiled and run on a clean machine: every
 recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).
@@ -6209,6 +6402,11 @@ limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
 
+Incremental recipe replacements now retire obsolete station and multi-recipe
+views. Station inputs outside the supported slot counts, or with quantities
+other than one, are explicitly counted and skipped. Support for those broader
+station shapes remains incomplete.
+
 ### Zeqa regression follow-up (incomplete visual/performance acceptance)
 
 Nametag phase traversal, omitted catalog plane backs, active player appearance
@@ -6285,6 +6483,16 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+
+2026-10-09 preview armor and inventory framing (implemented; parity incomplete): inventory,
+pause and HUD previews resolve armor as the world player does and apply `customColor` only
+through a leather material, so team-dyed diamond armor keeps its diamond art. Session pack
+armor takes GUI model pages only for the worn textures, each placed on its own, so a server
+stack with more attachable art than the model atlas no longer disables all of it. The live
+inventory renderer centers the model-part origin instead of the eyes, as the HUD doll does.
+Incomplete: pack attachables with their own geometry still draw on the humanoid armor boxes;
+worn art longer than a 512-texel model page is box-reduced in the GUI although the world draws
+it at full resolution; the inventory placement has no matched vanilla capture.
 ### Burning camera and HUD doll (accepted fix; overall parity incomplete)
 
 The camera effect now uses vanilla's open fire cube, down-face sprite,
@@ -6930,3 +7138,48 @@ Archive, geometry and library ceilings are Cinnabar resource limits. Pack minimu
 engine versions remain separate from geometry schema versions. Full native skin-pack
 import parity, animated imports, persona and Marketplace trust remain incomplete.
 No visual parity or hardware performance gate closes with this extension.
+
+
+### Shipped font grid and coverage (incomplete text parity)
+
+Shipped carriers include every mapped source scalar. Sans uses its 18-pixel raster em;
+Seven, Ten, Five and Five Bold use 20, with one atlas texel per source-grid unit.
+Semantic line and word-space metrics come from the carrier table. OreUI rounds final
+unrotated glyph edges onto the device grid while retaining semantic sizes and tracking.
+Five and Five Bold are available as roles; current screens still use Seven and Ten.
+Missing regular, bold, italic and monospace mathematical Latin letters and digits use
+original grid-based variants built from the shipped Latin artwork. This fixes the
+sampled styled MOTD boxes; unrestricted Unicode and native fallback shaping remain open.
+
+The display faces now use original ASCII pixel drawings and declared per-glyph
+advances. Ten has heavier stems and narrower I/i; Five and Five Bold use wider,
+five-row letterforms. Seven has revised lowercase letters, digits and descenders.
+Greek and Cyrillic display capitals follow the adjusted Latin proportions. The
+generator preserves the 64-unit outline grid, complete source coverage and fixed
+metadata, and reproduces the shipped fonts and manifests byte for byte.
+
+Full parity is incomplete. Advances round to the nearest font unit, while ink
+widths and stroke weights remain quantized to the source grid. The carrier compiler
+still rounds glyph advances to whole atlas texels, limiting runtime spacing precision. Ten's 0.052-em
+bearing is represented by 0.05 em on its 20-texel carrier. Five's fine weight and
+bearing differences cannot all fit that grid. Seven's accented fallback drawings
+have not all been revised to match the new ASCII letters. A few narrow accented
+Ten capitals retain their prior forms when a mark cannot fit the adjusted base.
+At GUI scale 7, Seven's
+14-texel capital height maps to 39.2 screen pixels; preserving this size cannot also
+give every texel a uniform integer width. Rounded edges and nearest sampling do
+not close that scale/weight gate. Source line metrics retain sub-unit rounding.
+Version-matched live text-raster evidence across all GUI scales, locale shaping,
+kerning, and the remaining per-glyph differences are open gates.
+
+## Device render-distance defaults
+
+Ordinary Video settings now choose their default from installed RAM and the
+selected GPU's dedicated memory. Explicit saved values win, and Video reset
+restores the device recommendation. Slider stops start at 5 and extend in
+one-chunk steps to the owner-chosen 255 maximum. See
+[the rules table](docs/reference/render-distance-default.md).
+
+Incomplete parity: experimental low-memory overrides, advanced graphics presets,
+and native VRAM probes on unsupported backends are not verified. These remain
+open and do not close a parity gate.

@@ -630,6 +630,27 @@ fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
     assert_eq!(runtime.gameplay_hud().freezing_strength(), 0.0);
 }
 
+/// The server's interact text is retained until an empty update withdraws it.
+#[test]
+fn interact_text_tracks_the_latest_server_value() {
+    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
+    let text = |value: &str| ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::String(value.into()),
+    };
+    assert!(!state.has_interact_text());
+    state.apply_metadata(&[text("action.interact.ride.horse")]);
+    assert!(state.has_interact_text());
+    state.apply_metadata(&[ActorMetadata {
+        key: 100,
+        value: ActorMetadataValue::Int(1),
+    }]);
+    assert!(state.has_interact_text());
+    assert_eq!(state.diagnostics().odd_metadata_values, 1);
+    state.apply_metadata(&[text("")]);
+    assert!(!state.has_interact_text());
+}
+
 #[test]
 fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -991,7 +1012,7 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
     assert_eq!(empty_snapshot.slot, 2);
     assert_eq!(
         empty_snapshot.state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+        inventory::inventory_ledger::PlayerInventorySlot::Empty
     );
     assert_eq!(player_runtime.selected_stack(), None);
     assert_eq!(player_runtime.presented_hotbar_stack(2), None);
@@ -1086,7 +1107,7 @@ fn non_forcing_server_selection_does_not_override_local_prediction() {
 fn toast_duration_setting_reaches_the_notification_queue() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()

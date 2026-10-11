@@ -10,8 +10,8 @@ use protocol::{ActorEvent, PlayerListEntry, PlayerSkin};
 use serde_json::{Value, json};
 
 use super::super::scene_report::{Frame, HEIGHT, WIDTH};
-use super::*;
 use crate::runtime::world::ClientWorld;
+use {super::*, client_presentation::actor_publication::publish_actor_render_frame};
 
 /// Gives players stable anonymous labels in first PlayerList appearance order.
 fn labels(capture: &Capture) -> BTreeMap<[u8; 16], String> {
@@ -101,7 +101,9 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
     {
         if entry.identity.runtime_id != runtime_id
             || (entry.identity.layer != render::ACTOR_LAYER_BODY
-                && !crate::presentation::skin_layers::is_skin_layer(entry.identity.layer))
+                && !client_presentation::presentation::skin_layers::is_skin_layer(
+                    entry.identity.layer,
+                ))
         {
             continue;
         }
@@ -145,7 +147,7 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
         };
         // Centre each body, keeping its actual published orientation and bone poses.
         let origin = Vec3::from_array(instance.world_from_actor.map(|row| row[3]));
-        for corners in vertices.chunks_exact(3) {
+        for corners in vertices.as_chunks::<3>().0 {
             let placed: [(Vec3, [f32; 2]); 3] = std::array::from_fn(|corner| {
                 let vertex = corners[corner];
                 let index = (instance.current_bone_base + vertex.bone_index) as usize;
@@ -226,8 +228,8 @@ fn report_states(
         let skin = match skin {
             Some(PlayerSkin::Standard(skin)) => json!({
                 "width": skin.width, "height": skin.height, "bytes": skin.rgba8.len(),
-                "opaque_pixels": skin.rgba8.chunks_exact(4).filter(|p| p[3] == 255).count(),
-                "transparent_pixels": skin.rgba8.chunks_exact(4).filter(|p| p[3] == 0).count(),
+                "opaque_pixels": skin.rgba8.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count(),
+                "transparent_pixels": skin.rgba8.as_chunks::<4>().0.iter().filter(|p| p[3] == 0).count(),
                 "geometry_bytes": skin.geometry.as_ref().map(|g| g.geometry_data.len()),
                 "resource_patch": skin.geometry.as_ref().map(|g| g.resource_patch.as_ref()),
             }),
@@ -263,7 +265,7 @@ fn lobby_player_report() {
     };
     let (mut world, _, mut replay) = build_world(&empty, Some(Path::new(&pack)), false);
     let cameras: Vec<Entity> = world
-        .query_filtered::<Entity, bevy::prelude::With<crate::camera::FlyCamera>>()
+        .query_filtered::<Entity, bevy::prelude::With<client_presentation::camera::FlyCamera>>()
         .iter(&world)
         .collect();
     for camera in cameras {

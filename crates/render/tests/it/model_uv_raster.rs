@@ -17,12 +17,16 @@ fn templates() -> Vec<u32> {
         let positions: [i16; 12] = [0, 240, 0, 0, 240, 256, 256, 240, 256, 256, 240, 0];
         words.extend(
             positions
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|p| u32::from(p[0] as u16) | (u32::from(p[1] as u16) << 16)),
         );
         let uvs: [u16; 8] = [512, 1024, 512, 3584, 3072, 3584, 3072, 1024];
         words.extend(
-            uvs.chunks_exact(2)
+            uvs.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|p| u32::from(p[0]) | (u32::from(p[1]) << 16)),
         );
         words.extend([index as u32, [2, 1, 6, 2][index / COLUMNS]]);
@@ -167,15 +171,6 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
     let source = shader_source::standalone(include_str!("../../src/model.wgsl"), &[])
-        .replace("@vertex\nfn vertex(", "fn model_vertex(")
-        .replace(
-            "@builtin(vertex_index) vertex_index: u32",
-            "vertex_index: u32",
-        )
-        .replace(
-            "@builtin(instance_index) instance_index: u32",
-            "instance_index: u32",
-        )
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let witness = WITNESS.replace(
         "INDICES",
@@ -201,8 +196,10 @@ fn world_model_uvs_rotate_top_and_bottom_by_position_and_preserve_side_and_stati
     let expected = gpu.render(&reference, "uv_vertex", &draws);
     let actual = gpu.render(&candidate, "uv_vertex", &draws);
     let mismatches = actual
-        .chunks_exact(4)
-        .zip(expected.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0.iter())
         .filter(|(a, b)| a != b)
         .count();
     assert_eq!(

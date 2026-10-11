@@ -13,7 +13,7 @@ use crate::ui::{
 };
 use crate::world::WorldPacketError;
 
-const BATCH_HEADER: u8 = 0xfe;
+pub(crate) const BATCH_HEADER: u8 = 0xfe;
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BATCH_PACKETS: usize = 1_600;
 

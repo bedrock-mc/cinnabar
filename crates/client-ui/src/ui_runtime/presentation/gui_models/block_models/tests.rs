@@ -89,11 +89,7 @@ fn a_stair_item_draws_its_template_quads_instead_of_the_thumbnail() {
     // The tile is the material's full-resolution texels, not projected thumbnail pixels.
     let (pages, _) = atlas.finish().unwrap();
     let texel = pages[0].pixels();
-    assert!(
-        texel
-            .chunks_exact(4)
-            .any(|pixel| pixel == [200, 200, 200, 255])
-    );
+    assert!(texel.as_chunks::<4>().0.contains(&[200, 200, 200, 255]));
 }
 
 #[test]
@@ -175,11 +171,13 @@ fn review_cutout_tiles_match_the_bakers_opaque_alpha() {
     let materials = [material(0), material(assets::MATERIAL_FLAG_ALPHA_CUTOUT)];
     let mut pixels = vec![200; (SIDE * SIDE * 4) as usize];
     let threshold = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD;
-    for (pixel, alpha) in
-        pixels
-            .chunks_exact_mut(4)
-            .zip([0, threshold - 1, threshold, u8::MAX - 1, u8::MAX])
-    {
+    for (pixel, alpha) in pixels.as_chunks_mut::<4>().0.iter_mut().zip([
+        0,
+        threshold - 1,
+        threshold,
+        u8::MAX - 1,
+        u8::MAX,
+    ]) {
         pixel[3] = alpha;
     }
     let pages = [TexturePage::new(TextureArray {
@@ -197,7 +195,9 @@ fn review_cutout_tiles_match_the_bakers_opaque_alpha() {
     let side = pages[0].dimensions()[0] as usize;
     let start = (usize::from(icon.uv[1]) * side + usize::from(icon.uv[0])) * 4;
     let actual: Vec<_> = pages[0].pixels()[start..start + 20]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| pixel[3])
         .collect();
     assert_eq!(actual, [0, 0, 255, 255, 255]);

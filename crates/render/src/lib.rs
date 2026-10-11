@@ -11,7 +11,6 @@ mod lightmap;
 mod shader_test_support;
 pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
-pub use render_api::fancy_actor_shade;
 
 mod aim_assist;
 pub use aim_assist::{
@@ -53,7 +52,8 @@ pub use media_screen::{
 };
 mod material_shader;
 mod mod_render;
-pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
+
+pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
 pub mod motion_blur;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
@@ -73,6 +73,7 @@ mod primitive_shapes;
 pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod render_bounds;
 mod runtime_profile;
+mod runtime_profile_phases;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
 mod scene_sampling;
@@ -131,6 +132,7 @@ pub use actor::{
     pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
+
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_ALPHA,
     CLOUD_SCROLL_BLOCKS_PER_TICK, CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile,
@@ -189,7 +191,7 @@ pub use chunk::{
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
-    CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
+    CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
 pub use dropped_item::{
@@ -215,6 +217,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
+pub use runtime_profile_phases::install_main_phase_spans;
 pub use runtime_profile_slow::{FrameBudgets, SlowFrameCounts};
 pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{

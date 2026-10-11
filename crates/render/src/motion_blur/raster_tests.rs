@@ -305,7 +305,7 @@ fn impulse() -> Vec<u8> {
 fn extent(bytes: &[u8]) -> [u32; 2] {
     let mut lower = [SIDE; 2];
     let mut upper = [0; 2];
-    for (index, pixel) in bytes.chunks_exact(4).enumerate() {
+    for (index, pixel) in bytes.as_chunks::<4>().0.iter().enumerate() {
         if pixel[0] > 8 {
             let position = [index as u32 % SIDE, index as u32 / SIDE];
             for axis in 0..2 {

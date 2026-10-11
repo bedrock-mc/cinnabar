@@ -2,6 +2,7 @@
 //! view the renderers draw from.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -228,6 +229,93 @@ pub struct JoinProgress {
     pub stage: JoinStage,
     /// The core reported this join, so its report vanishing means the handoff.
     reported: bool,
+    download: DownloadTracker,
+}
+
+/// Minimum download time before the rate steadies enough to show.
+const DOWNLOAD_RATE_MIN_ELAPSED: Duration = Duration::from_millis(500);
+/// How far back the rate averages, so a stall fades instead of sticking.
+const DOWNLOAD_WINDOW: Duration = Duration::from_secs(3);
+/// Minimum spacing between samples, independent of rendering frequency.
+const DOWNLOAD_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+/// Sample capacity, with room for the full averaging window.
+const DOWNLOAD_SAMPLES: usize = 16;
+
+/// Rolling average for the current pack download, owned by the join it measures.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DownloadTracker {
+    samples: [Option<(u64, Instant)>; DOWNLOAD_SAMPLES],
+    len: usize,
+    rate_bytes_per_sec: Option<u64>,
+    eta_secs: Option<u64>,
+}
+
+impl DownloadTracker {
+    /// Clears the sample history and estimates for a new download.
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Samples download progress at a bounded rate and updates its estimates.
+    fn observe(&mut self, received_bytes: u64, total_bytes: u64, now: Instant) {
+        if self.len > 0 {
+            let (last_bytes, last_time) = self.samples[self.len - 1].expect("tracked sample");
+            if received_bytes < last_bytes {
+                // A retry restarts its bytes, so the old window no longer applies.
+                self.reset();
+            } else if now.checked_duration_since(last_time).unwrap_or_default()
+                < DOWNLOAD_SAMPLE_INTERVAL
+            {
+                return;
+            }
+        }
+        if self.len < DOWNLOAD_SAMPLES {
+            self.samples[self.len] = Some((received_bytes, now));
+            self.len += 1;
+        } else {
+            self.samples.copy_within(1..DOWNLOAD_SAMPLES, 0);
+            self.samples[DOWNLOAD_SAMPLES - 1] = Some((received_bytes, now));
+        }
+        // Keep only the trailing window so a stall ages out instead of sticking.
+        while self.len > 1 {
+            let (_, oldest_time) = self.samples[0].expect("tracked sample");
+            if now.checked_duration_since(oldest_time).unwrap_or_default() <= DOWNLOAD_WINDOW {
+                break;
+            }
+            self.samples.copy_within(1..self.len, 0);
+            self.samples[self.len - 1] = None;
+            self.len -= 1;
+        }
+        let (oldest_bytes, oldest_time) = self.samples[0].expect("tracked sample");
+        let (newest_bytes, newest_time) = self.samples[self.len - 1].expect("tracked sample");
+        let elapsed = newest_time
+            .checked_duration_since(oldest_time)
+            .unwrap_or_default();
+        if elapsed < DOWNLOAD_RATE_MIN_ELAPSED {
+            self.rate_bytes_per_sec = None;
+            self.eta_secs = None;
+            return;
+        }
+        let elapsed_secs = elapsed.as_secs_f64();
+        if !elapsed_secs.is_finite() || elapsed_secs <= 0.0 {
+            return;
+        }
+        let delta = newest_bytes.saturating_sub(oldest_bytes);
+        if delta == 0 {
+            self.rate_bytes_per_sec = None;
+            self.eta_secs = None;
+            return;
+        }
+        let rate = (delta as f64 / elapsed_secs) as u64;
+        if rate == 0 {
+            self.rate_bytes_per_sec = None;
+            self.eta_secs = None;
+            return;
+        }
+        self.rate_bytes_per_sec = Some(rate);
+        let remaining = total_bytes.saturating_sub(received_bytes);
+        self.eta_secs = Some(remaining.div_ceil(rate));
+    }
 }
 
 impl JoinProgress {
@@ -240,14 +328,51 @@ impl JoinProgress {
 
     /// Folds in the core's latest report; `None` before its first or after the handoff.
     pub fn observe(&mut self, core: Option<JoinStage>) {
+        self.observe_at(core, Instant::now());
+    }
+
+    /// Folds in the core's report sampled at `now`, so tests can use fixed clocks.
+    pub fn observe_at(&mut self, core: Option<JoinStage>, now: Instant) {
         match core {
             Some(stage) => {
                 self.stage = stage;
                 self.reported = true;
+                self.observe_download(now);
             }
-            None if self.reported => self.stage = JoinStage::Generating,
+            None if self.reported => {
+                self.stage = JoinStage::Generating;
+                self.download.reset();
+            }
             None => {}
         }
+    }
+
+    /// Updates the download measurement or clears it when acquisition ends.
+    fn observe_download(&mut self, now: Instant) {
+        if let JoinStage::Packs {
+            received_bytes,
+            total_bytes,
+            ..
+        } = self.stage
+        {
+            if total_bytes == 0 {
+                self.download.reset();
+            } else {
+                self.download.observe(received_bytes, total_bytes, now);
+            }
+        } else {
+            self.download.reset();
+        }
+    }
+
+    /// Average pack download speed over the trailing window, once it steadies.
+    pub fn bytes_per_sec(&self) -> Option<u64> {
+        self.download.rate_bytes_per_sec
+    }
+
+    /// Estimated seconds until the pack download completes, once the rate steadies.
+    pub fn eta_secs(&self) -> Option<u64> {
+        self.download.eta_secs
     }
 
     /// Whether vanilla's handler for this stage lets the player cancel.
@@ -505,13 +630,35 @@ pub struct MenuCaret {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct CatalogFile {
     #[serde(default)]
-    pub featured: Vec<MenuServerCard>,
+    pub featured: Vec<CatalogServer>,
     #[serde(default)]
     pub realms: Vec<MenuRealmCard>,
     #[serde(default)]
     pub friends: Vec<CatalogFriend>,
     #[serde(default)]
     pub errors: Vec<String>,
+}
+
+/// A featured server as the one-shot catalog lists it; the client caches `image_url` itself.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CatalogServer {
+    pub name: String,
+    pub address: String,
+    pub caption: String,
+    #[serde(default)]
+    pub image_url: String,
+}
+
+impl From<CatalogServer> for MenuServerCard {
+    fn from(server: CatalogServer) -> Self {
+        Self {
+            name: server.name,
+            address: server.address,
+            caption: server.caption,
+            image_path: String::new(),
+            icon: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -663,6 +810,89 @@ impl MenuView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    const MIB: u64 = 1 << 20;
+
+    /// Builds a pack download report with the requested byte counts.
+    fn packs(received: u64, total: u64) -> JoinStage {
+        JoinStage::Packs {
+            done: 0,
+            total: 5,
+            received_bytes: received,
+            total_bytes: total,
+        }
+    }
+
+    // The download rate steadies after half a second and predicts the time left.
+    #[test]
+    fn pack_download_tracks_rate_and_eta() {
+        let mut join = JoinProgress::new(JoinKind::External);
+        let start = Instant::now();
+        join.observe_at(Some(packs(0, 20 * MIB)), start);
+        assert_eq!(join.bytes_per_sec(), None);
+        assert_eq!(join.eta_secs(), None);
+        // Too soon to steady: no rate yet.
+        join.observe_at(
+            Some(packs(MIB, 20 * MIB)),
+            start + Duration::from_millis(100),
+        );
+        assert_eq!(join.bytes_per_sec(), None);
+        // 5 MiB in 2 s averages 2.5 MiB/s, leaving 15 MiB (~6 s).
+        join.observe_at(
+            Some(packs(5 * MIB, 20 * MIB)),
+            start + Duration::from_secs(2),
+        );
+        assert_eq!(join.bytes_per_sec(), Some(5 * MIB / 2));
+        assert_eq!(join.eta_secs(), Some(6));
+    }
+
+    #[test]
+    fn pack_download_tracks_rate_at_render_frame_frequencies() {
+        for fps in [60_u64, 120] {
+            let mut join = JoinProgress::new(JoinKind::External);
+            let start = Instant::now();
+            for frame in 0..=fps * 8 {
+                let elapsed = Duration::from_nanos(frame * 1_000_000_000 / fps);
+                let received = (frame * 4 / fps) * (MIB / 4);
+                join.observe_at(Some(packs(received, 100 * MIB)), start + elapsed);
+                if elapsed >= Duration::from_secs(1) {
+                    let rate = join.bytes_per_sec().unwrap_or_else(|| {
+                        panic!("missing download rate at {fps} FPS, frame {frame}")
+                    });
+                    assert!(rate.abs_diff(MIB) < MIB / 10);
+                    assert!(join.eta_secs().is_some_and(|eta| eta > 0));
+                }
+            }
+        }
+    }
+
+    // A stalled or restarted download clears its rate rather than showing stale math.
+    #[test]
+    fn pack_download_resets_when_stalled_or_restarted() {
+        let mut join = JoinProgress::new(JoinKind::External);
+        let start = Instant::now();
+        join.observe_at(Some(packs(0, 20 * MIB)), start);
+        join.observe_at(
+            Some(packs(5 * MIB, 20 * MIB)),
+            start + Duration::from_secs(2),
+        );
+        assert!(join.bytes_per_sec().is_some());
+        // No new bytes past the 3 s window clears the rate.
+        join.observe_at(
+            Some(packs(5 * MIB, 20 * MIB)),
+            start + Duration::from_secs(6),
+        );
+        assert_eq!(join.bytes_per_sec(), None);
+        assert_eq!(join.eta_secs(), None);
+        // Fewer bytes means a new download, restarting the average.
+        join.observe_at(Some(packs(MIB, 20 * MIB)), start + Duration::from_secs(7));
+        assert_eq!(join.bytes_per_sec(), None);
+        // Leaving the download clears its rate for the next join.
+        join.observe_at(Some(JoinStage::Generating), start + Duration::from_secs(8));
+        assert_eq!(join.bytes_per_sec(), None);
+        assert_eq!(join.eta_secs(), None);
+    }
 
     #[test]
     fn standalone_sign_in_defers_join_requests_until_it_closes() {

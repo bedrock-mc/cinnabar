@@ -274,6 +274,12 @@ fn emit_text(
     // already-drawn neighbour.
     let scale = f32::from(layout.key().scale_1024) / 1_024.0;
     let layout_id = layout.id();
+    let wrap = layout.key().wrap;
+    let device_grid = (wrap.snap_glyphs_to_device_pixels
+        && wrap.device_scale_65536 != 0
+        && rotation.is_none()
+        && clip.projection.is_none())
+    .then_some(wrap.device_scale_65536 as f32 / 65_536.0);
     let shadow_pass = match shadow {
         TextShadow::None => None,
         TextShadow::Offset64(offset_64) => Some((scale * offset_64 as f32 / 64.0, true)),
@@ -323,6 +329,7 @@ fn emit_text(
                     | glyph.rendering.style_flags(),
                 shear,
                 bold_offset,
+                device_grid,
                 rotation,
                 clip,
                 vertices,
@@ -378,6 +385,7 @@ fn emit_text_glyph(
     style_flags: u8,
     shear: f32,
     bold_offset: Option<f32>,
+    device_grid: Option<f32>,
     rotation: Option<Rotation>,
     clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
@@ -401,7 +409,8 @@ fn emit_text_glyph(
             [x1 + dx, y1],
             [x0 + dx, y1],
         ]
-        .map(|point| rotation.map_or(point, |rotation| rotation.apply(point)));
+        .map(|point| rotation.map_or(point, |rotation| rotation.apply(point)))
+        .map(|point| device_grid.map_or(point, |dpi| point.map(|v| (v * dpi).round() / dpi)));
         emit_positioned_quad(
             positions,
             uv_corners,

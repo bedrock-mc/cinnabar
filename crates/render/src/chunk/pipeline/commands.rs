@@ -325,6 +325,15 @@ pub(in crate::chunk) type DrawTransparentLiquidCommands = crate::gpu_timing::Gpu
         DrawTransparentLiquid,
     ),
 >;
+pub(in crate::chunk) type DrawTransparentLiquidDirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquidDirect,
+    ),
+>;
 pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuTerrainTransparent as usize },
     (
@@ -395,6 +404,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquid {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             command.first_index..command.first_index + command.index_count,
             command.base_vertex,
@@ -432,7 +442,8 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         if runtime.view_entity != Some(item.entity()) {
             return RenderCommandResult::Skip;
         }
-        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        let (Some(bind_group), Some(snapshot)) =
+            (&arena.transparent_bind_group, runtime.state.committed())
         else {
             return RenderCommandResult::Skip;
         };
@@ -471,6 +482,60 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
     }
 }
 
+/// Draws one sub-chunk directly when water needs no ordering or awaits a committed sort.
+/// Visible water remains drawn when sorting or the ref ceiling leaves it out.
+pub(in crate::chunk) struct DrawTransparentLiquidDirect;
+
+impl RenderCommand<Transparent3d> for DrawTransparentLiquidDirect {
+    type Param = (
+        SRes<ChunkGpuArena>,
+        SRes<TransparentSortRuntime>,
+        SRes<TransparentSortMetrics>,
+        SRes<ActiveFrameProbe>,
+    );
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = Read<GpuChunkAllocation>;
+
+    fn render<'w>(
+        item: &Transparent3d,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        allocation: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (arena, runtime, metrics, frame_probe): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let arena = arena.into_inner();
+        let frame_probe = frame_probe.into_inner();
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation)
+        else {
+            return RenderCommandResult::Skip;
+        };
+        let identity = FrameAllocationIdentity {
+            entity: item.entity(),
+            key: allocation.key,
+            generation: allocation.generation,
+        };
+        if !frame_probe.accepts(item.entity(), identity) {
+            return RenderCommandResult::Skip;
+        }
+        let Some(command) = transparent_liquid_direct_draw_command(allocation) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.draw_indexed(
+            command.first_index..command.first_index + command.index_count,
+            command.base_vertex,
+            command.first_instance..command.first_instance + command.instance_count,
+        );
+        frame_probe.record_direct_streams(item.entity(), identity, ChunkStreamMask::LIQUID);
+        // Direct water is part of the committed transparent frame state.
+        if let Some(snapshot) = runtime.into_inner().state.committed() {
+            record_encoded_transparent_generation(metrics.into_inner(), snapshot.generation());
+        }
+        RenderCommandResult::Success
+    }
+}
+
 pub(in crate::chunk) struct DrawTransparentLiquidIndirect;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
@@ -495,7 +560,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
         if runtime.view_entity != Some(item.entity()) {
             return RenderCommandResult::Skip;
         }
-        let (Some(bind_group), Some(snapshot)) = (&arena.bind_group, runtime.state.committed())
+        let (Some(bind_group), Some(snapshot)) =
+            (&arena.transparent_bind_group, runtime.state.committed())
         else {
             return RenderCommandResult::Skip;
         };
@@ -552,6 +618,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunk {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             command.first_index..command.first_index + command.index_count,
             command.base_vertex,
@@ -603,6 +670,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModel {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.draw_indexed(
             draw.first_index..draw.first_index + draw.index_count,
             draw.base_vertex,
@@ -634,7 +702,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
     ) -> RenderCommandResult {
         let arena = arena.into_inner();
         let frame_probe = frame_probe.into_inner();
-        let (Some(bind_group), Some(allocation)) = (&arena.bind_group, allocation) else {
+        let (Some(bind_group), Some(allocation)) = (&arena.transparent_bind_group, allocation)
+        else {
             return RenderCommandResult::Skip;
         };
         let identity = FrameAllocationIdentity {
@@ -649,7 +718,8 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedTransparentModel {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
-        pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        // The transparent pipeline alternates with liquid draws, which bind this same buffer.
+        pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.draw_indexed(
             draw.first_index..draw.first_index + draw.index_count,
             draw.base_vertex,
@@ -702,6 +772,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedChunksIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         if let Some(batch) = batches.0.get(&item.entity()) {
             frame_probe.record_mdi_draws(batch.drawn_allocations.iter().copied());
@@ -750,6 +821,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedModelsIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(&arena.indirect_buffer, indirect_offset, command_count);
         frame_probe.record_mdi_streams(
             batch.drawn_allocations.iter().copied(),
@@ -800,6 +872,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawDepthLiquidsIndirect {
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
         pass.multi_draw_indexed_indirect(
             &arena.indirect_buffer,
             batch.indirect_offset,

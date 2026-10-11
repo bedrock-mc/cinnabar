@@ -3,7 +3,7 @@ name: JSON-UI editor site
 on:
   push:
     branches:
-      - main
+      - dev
     paths:
       - tools/jsonui-editor/**
       - crates/json-ui/**
@@ -13,6 +13,9 @@ on:
       - crates/asset-compiler/**
       - crates/pack-compiler/**
       - assets/ui-font-source.json
+      - assets/cinnangles-sans-source.json
+      - assets/fonts/CinnanglesSans.ttf
+      - assets/bedrock-target.json
       - scripts/fetch-ui-font.sh
       - Cargo.toml
       - Cargo.lock
@@ -35,12 +38,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           targets: wasm32-unknown-unknown
       - name: Cache Rust dependencies and build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -61,10 +64,18 @@ jobs:
         run: make jsonui-editor JSONUI_EDITOR_OUT=_site
       - name: Fail on any file outside the editor's own set
         run: bash tools/jsonui-editor/check-site.sh _site
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      # Keep the Pages tar payload, including .nojekyll, with the current uploader.
+      - name: Archive the Pages site
+        run: |
+          tar --dereference --hard-dereference --directory _site \
+            -cvf "$RUNNER_TEMP/artifact.tar" --exclude=.git --exclude=.github .
+      - uses: actions/upload-artifact@v7
         with:
-          path: _site
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
 
   deploy:
     needs: build
@@ -74,4 +85,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

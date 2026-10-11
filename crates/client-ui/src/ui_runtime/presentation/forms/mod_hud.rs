@@ -5,12 +5,15 @@ use std::sync::Arc;
 use json_ui::{Catalog, Context, DataSource, Scalar, ViewState};
 use ui::UiNode;
 
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
     engine::{EngineInputs, EngineOutput, ScreenArt},
     hud::CachedScreen,
 };
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{TextMetrics, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 const SCREEN: &str = "cinnabar_mod.label";
 // Vanilla hud_screen.json:3355 uses this corner anchor and inset for its label.

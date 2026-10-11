@@ -10,11 +10,11 @@ pub(super) use cache::BookCache;
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
-use super::super::{HudFrame, IconRef};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::inventory_actions::{BookEntry, recipe_book_entries};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 use crate::ui_runtime::presentation::screens::{SEARCH_TAB, Widget};
+use {super::super::HudFrame, ui::IconRef};
 
 /// The controller collection filled by the recipe book.
 const COLLECTION: &str = "recipe_book";

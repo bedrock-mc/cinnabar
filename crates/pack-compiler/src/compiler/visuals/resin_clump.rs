@@ -33,7 +33,6 @@ pub(in crate::compiler) fn is_resin_clump_record(record: &RegistryRecord) -> boo
         && record.contributor_role == ContributorRole::Primary
         && record.flags.is_empty()
         && record.face_coverage == 0
-        && record.collision_seed.shape_id == 0
         && record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
         && record.collision_seed.boxes.is_empty()
         && exact_resin_clump_state(record).is_some()

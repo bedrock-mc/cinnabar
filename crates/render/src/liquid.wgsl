@@ -1,5 +1,12 @@
+#define_import_path cinnabar::liquid
+#import cinnabar::chunk_bindings::{
+    view, chunk_origins, block_textures_page_0, block_textures_page_1, block_sampler,
+    terrain_gamma_page_0, terrain_gamma_page_1, animations, animation_frames, clock,
+    geometry_streams, atmosphere, transparent_refs, TransparentDrawRef,
+    LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
+}
 #import cinnabar::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale}
-#import bevy_render::view::View
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
@@ -7,18 +14,7 @@
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
 #endif
 
-struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
-// ANIMATION_GPU_LAYOUT
-struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
-struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
 struct FrameSample { current: u32, next: u32, blend: f32, uv_scale: f32 }
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
-    liquid_distance: vec4<f32>,
-}
 
 // These literal tables are the GPU half of the packed-liquid stream contract.
 // Four entries per face in Face's numeric order, then packed corner order.
@@ -45,27 +41,10 @@ const SIDE_HEIGHT_BIAS: f32 = 1.0;
 const SIDE_HEIGHT_SCALE: f32 = -1.0;
 const FLOW_FACE: u32 = 3u;
 const SIDE_FACE_MASK: u32 = 51u;
-// LIQUID_GEOMETRY_CONSTANTS
 const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT);
 
-@group(0) @binding(0) var<uniform> view: View;
-@group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
-@group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
-@group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
-@group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var terrain_gamma_page_0: texture_2d_array<f32>;
-@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
-@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
-@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
-@group(0) @binding(12) var<storage, read> model_templates: array<u32>;
-@group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
-@group(0) @binding(14) var<storage, read> transparent_refs: array<TransparentDrawRef>;
-@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
-
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
@@ -184,19 +163,27 @@ fn liquid_vertex_alpha(alpha: f32, camera_distance: f32, fade_distance: f32) -> 
     return alpha;
 }
 
-@vertex
-fn vertex(
-    @builtin(vertex_index) vertex_index: u32,
-    @builtin(instance_index) instance_index: u32,
-) -> VertexOutput {
-    return vertex_for_ref(transparent_refs[instance_index], vertex_index);
+/// Selects sorted refs at base vertex zero, or direct records at (metadata index + 1) * 4.
+/// Both paths share projection code so shared edges reach identical positions. Transparent
+/// liquid draws through `transparent_terrain.wgsl`, which calls this with the instance index
+/// stripped of `TRANSPARENT_WATER_DRAW_FLAG`.
+fn liquid_draw_ref(vertex_index: u32, instance_index: u32) -> TransparentDrawRef {
+    if (vertex_index < 4u) {
+        return transparent_refs[instance_index];
+    }
+    return TransparentDrawRef(instance_index, vertex_index / 4u - 1u);
 }
 
+// Fetches the vertex index and first instance from vertex buffer 0, as `chunk.wgsl` describes.
 @vertex
 fn vertex_depth(
-    @builtin(vertex_index) vertex_index: u32,
+    @location(0) offsets: vec2<u32>,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return depth_vertex(offsets.x, offsets.y + instance_index);
+}
+
+fn depth_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u);
     return vertex_for_ref(draw_ref, vertex_index);
 }
@@ -218,6 +205,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let local_position = liquid_corner(geometry, height_word, corner, packed_material);
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
+    let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let block_coordinate = vec3<u32>(
         geometry & 15u,
         (geometry >> 4u) & 15u,
@@ -228,7 +216,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let frame = animation_sample(material);
 
     var out: VertexOutput;
-    out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
     out.uv = liquid_uv(
         face,
         corner,
@@ -266,7 +254,11 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     if ((out.surface_class & CLASS_WATER) != 0u) {
         out.world_position = waved_water_position(world_position, out.normal.y > 0.5
             || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
-        out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+        out.clip_position = camera_offset_clip(
+            view.clip_from_world,
+            view.world_position,
+            camera_offset + (out.world_position - world_position),
+        );
     }
 #endif
     return out;
@@ -319,12 +311,16 @@ fn native_liquid_colour(sampled_gamma: vec3<f32>, tint_linear: vec3<f32>, in: Ve
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    return shade_liquid(in, front_facing, dpdx(in.uv), dpdy(in.uv));
+}
+
+// Ordinary transparent liquid colour; `front_facing` follows the packed clockwise winding and
+// `dx`/`dy` are the UV derivatives, taken by the caller in uniform control flow.
+fn shade_liquid(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     if (in.depth_write_route != 0u) { discard; }
     // Vanilla duplicates only faces marked by the liquid tessellator.
     // In particular, the bottom never has a reverse face at the ice surface.
     if (!front_facing && in.two_sided == 0u) { discard; }
-    let dx = dpdx(in.uv);
-    let dy = dpdy(in.uv);
     let current_sample = sample_texture_ref(in.current_texture, in.uv, dx, dy);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {

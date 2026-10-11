@@ -9,8 +9,8 @@ use ui::DpiScale;
 use super::super::UiPresentationRuntime;
 use super::pack_harness::engine_presentation;
 use super::play_flow_snapshots::fixture_view;
-use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 /// A Retina window, as the owner plays.
 const SIZE: [u32; 2] = [2560, 1440];
@@ -101,7 +101,7 @@ impl Bench {
 fn grow(view: &mut MenuView) {
     let saved = view.servers[0].clone();
     view.servers = (0..300)
-        .map(|index| crate::menu::SavedServer {
+        .map(|index| launcher::menu::SavedServer {
             name: format!("Server {index}"),
             address: format!("10.0.{}.{}:19132", index / 250, index % 250),
             ..saved.clone()
@@ -109,13 +109,13 @@ fn grow(view: &mut MenuView) {
         .collect();
     let friend = view.friends[0].clone();
     view.friends = (0..150)
-        .map(|index| crate::menu::MenuFriendCard {
+        .map(|index| launcher::menu::MenuFriendCard {
             gamertag: format!("Friend{index}"),
             ..friend.clone()
         })
         .collect();
     view.feeds.home.inbox = (0..200)
-        .map(|index| crate::menu::InboxItem {
+        .map(|index| launcher::menu::InboxItem {
             header: format!("Message {index}"),
             body: "A long message body that wraps across several lines of the row.".to_owned(),
             category: ["news", "realms", "store"][index % 3].to_owned(),
@@ -208,7 +208,7 @@ fn real_art(view: &mut MenuView) -> Option<()> {
     let mut next = files.iter().cycle().cloned();
     let card = view.featured[0].clone();
     view.featured = (0..14)
-        .map(|index| crate::menu::MenuServerCard {
+        .map(|index| launcher::menu::MenuServerCard {
             name: format!("Server {index}"),
             address: format!("server{index}.example.net:19132"),
             image_path: next.next().unwrap(),
@@ -384,7 +384,7 @@ fn menu_input_frames_cost_about_an_idle_frame() {
     let idle_friends = bench.idle(10);
     bench.after(to(MenuScreen::Inbox));
     let idle_inbox = bench.idle(10);
-    bench.view.server_tab = crate::menu::MenuServerTab::Saved;
+    bench.view.server_tab = launcher::menu::MenuServerTab::Saved;
     bench.after(to(MenuScreen::Servers));
     let idle_saved = bench.idle(10);
     report(&[

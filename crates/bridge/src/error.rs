@@ -64,6 +64,17 @@ pub enum BridgeError {
         maximum: usize,
     },
 
+    /// A session message violated the session endpoint contract.
+    #[error("invalid session message: {reason}")]
+    InvalidSessionMessage {
+        /// Contract violation detected by the client.
+        reason: &'static str,
+    },
+
+    /// A session message's JSON body did not match its schema.
+    #[error("invalid session JSON: {0}")]
+    SessionJson(#[source] serde_json::Error),
+
     /// EOF arrived after only part of a frame.
     #[error("truncated bridge frame: received {received} of {expected} bytes")]
     TruncatedFrame {

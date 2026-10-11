@@ -11,8 +11,8 @@ use bevy::{
     ecs::query::QueryItem,
     render::{
         render_graph::{NodeRunError, RenderGraph, RenderGraphContext, ViewNode, ViewNodeRunner},
-        render_phase::DrawFunctionId,
-        render_resource::{RenderPassDescriptor, StoreOp},
+        render_phase::{DrawFunctionId, TrackedRenderPass},
+        render_resource::{CommandEncoderDescriptor, RenderPassDescriptor, StoreOp},
         renderer::RenderContext,
         view::ViewDepthTexture,
     },
@@ -96,57 +96,106 @@ impl ViewNode for GammaTransparentPass {
         let nametag = filtered
             .then(|| crate::nametag_render::draw_function(world))
             .flatten();
-        for (range, (gamma, deferred)) in contiguous_ranges(&phase.items, |item| {
-            (
-                draws
-                    .as_ref()
-                    .is_some_and(|draws| draws.contains(&Some(item.draw_function()))),
-                crate::nametag_render::deferred_by_world_filter(
-                    filtered,
-                    nametag,
-                    item.draw_function(),
-                ),
-            )
-        }) {
-            if deferred != self.nametags_only {
-                continue;
+        let nametags_only = self.nametags_only;
+        // Each drawn range of equal colour space, in sorted order.
+        let ranges = move || {
+            contiguous_ranges(&phase.items, move |item| {
+                (
+                    draws
+                        .as_ref()
+                        .is_some_and(|draws| draws.contains(&Some(item.draw_function()))),
+                    crate::nametag_render::deferred_by_world_filter(
+                        filtered,
+                        nametag,
+                        item.draw_function(),
+                    ),
+                )
+            })
+            .filter(move |(_, (_, deferred))| *deferred == nametags_only)
+            .map(|(range, (gamma, _))| (range, gamma))
+        };
+        #[cfg(feature = "tracy")]
+        if !nametags_only && let Some(client) = tracy_client::Client::running() {
+            use tracy_client::plot_name;
+            let mut counts = [0_usize; 3];
+            for (range, gamma) in ranges() {
+                counts[usize::from(gamma)] += range.len();
+                counts[2] += 1;
             }
-            let colour = scene.color_attachment(target, gamma);
-            let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-                label: Some("sorted ordinary transparent colour-space range"),
-                color_attachments: &[Some(colour)],
-                depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                    world,
-                    crate::RuntimeStage::GpuTransparent,
-                ),
-                occlusion_query_set: None,
-            });
-            if let Some(viewport) =
-                Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
-            {
-                let Some(viewport) = crate::render_bounds::viewport(
+            let switches = phase
+                .items
+                .windows(2)
+                .filter(|pair| pair[0].pipeline != pair[1].pipeline)
+                .count();
+            client.plot(plot_name!("transparent linear items"), counts[0] as f64);
+            client.plot(plot_name!("transparent gamma items"), counts[1] as f64);
+            client.plot(plot_name!("transparent passes"), counts[2] as f64);
+            client.plot(plot_name!("transparent pipeline switches"), switches as f64);
+        }
+        let view_entity = graph.view_entity();
+        // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment.
+        let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+            .map(|viewport| {
+                crate::render_bounds::viewport(
                     &viewport,
                     crate::render_bounds::extent(scene.color_view(false)),
-                ) else {
-                    return Ok(());
+                )
+            });
+        // Each range is its own pass, so each encodes on its own task; attachments are taken
+        // here in graph order, as only a target's first use may clear it.
+        for (range, gamma) in ranges() {
+            let colour = scene.color_attachment(target, gamma);
+            let depth = depth.get_attachment(StoreOp::Store);
+            let task_viewport = viewport.clone();
+            render_context.add_command_buffer_generation_task(move |device| {
+                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("sorted ordinary transparency"),
+                });
+                let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("sorted ordinary transparent colour-space range"),
+                    color_attachments: &[Some(colour)],
+                    depth_stencil_attachment: Some(depth),
+                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                        world,
+                        crate::RuntimeStage::GpuTransparent,
+                    ),
+                    occlusion_query_set: None,
+                });
+                let mut pass = TrackedRenderPass::new(&device, pass);
+                let draw = match &task_viewport {
+                    Some(Some(viewport)) => {
+                        pass.set_camera_viewport(viewport);
+                        true
+                    }
+                    Some(None) => false,
+                    None => true,
                 };
-                pass.set_camera_viewport(&viewport);
+                if draw && let Err(error) = phase.render_range(&mut pass, world, view_entity, range)
+                {
+                    bevy::log::error!("Error rendering sorted transparency: {error:?}");
+                }
+                drop(pass);
+                encoder.finish()
+            });
+            // An empty clamped viewport draws nothing; like a single pass, only the first range
+            // begins, so a target's first use still clears it.
+            if matches!(viewport, Some(None)) {
+                break;
             }
-            phase.render_range(&mut pass, world, graph.view_entity(), range)?;
         }
         Ok(())
     }
 }
 
 /// Native transparent families output encoded colour and blend through the compatible UNORM view.
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 7] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 8] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
     let primitives = crate::primitive_shapes::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
         Some(draws.id::<DrawTransparentLiquidCommands>()),
+        Some(draws.id::<DrawTransparentLiquidDirectCommands>()),
         Some(draws.id::<DrawTransparentLiquidIndirectCommands>()),
         Some(draws.id::<DrawTransparentModelCommands>()),
         Some(draws.id::<DrawMixedTerrainCommands>()),

@@ -44,8 +44,7 @@ struct MixedTerrainDraw {
     water_slot: u8,
     /// Water segment ranges are relative to this snapshot range.
     water_range: Range<u32>,
-    water_pipeline: CachedRenderPipelineId,
-    model_pipeline: CachedRenderPipelineId,
+    pipeline: CachedRenderPipelineId,
     segments: Arc<[MixedTerrainSegment]>,
 }
 
@@ -118,8 +117,7 @@ impl MixedTerrainRuntime {
         assets: &ChunkTextureAssets,
         snapshot: &TransparentOrderedSnapshot,
         group: &TransparentLiquidPhaseGroup,
-        water_pipeline: CachedRenderPipelineId,
-        model_pipeline: CachedRenderPipelineId,
+        pipeline: CachedRenderPipelineId,
     ) -> Option<u32> {
         let budget_fallbacks =
             self.stats.reference_budget_fallbacks + self.stats.segment_budget_fallbacks;
@@ -133,8 +131,7 @@ impl MixedTerrainRuntime {
             assets,
             snapshot,
             group,
-            water_pipeline,
-            model_pipeline,
+            pipeline,
         );
         if result.is_none()
             && budget_fallbacks
@@ -157,14 +154,9 @@ impl MixedTerrainRuntime {
         assets: &ChunkTextureAssets,
         snapshot: &TransparentOrderedSnapshot,
         group: &TransparentLiquidPhaseGroup,
-        water_pipeline: CachedRenderPipelineId,
-        model_pipeline: CachedRenderPipelineId,
+        pipeline: CachedRenderPipelineId,
     ) -> Option<u32> {
-        let visible = &snapshot.key.visible_allocations;
-        let water = visible
-            .binary_search_by(|water| water.key.cmp(&group.key))
-            .ok()
-            .map(|index| &visible[index])?;
+        let water = snapshot.key.allocation(group.key)?;
         if water.mesh_generation != allocation.generation
             || water.metadata_index != allocation.metadata_index
             || !transparent_model_allocation_matches(instance, allocation)
@@ -244,8 +236,7 @@ impl MixedTerrainRuntime {
             water_generation: snapshot.generation(),
             water_slot: snapshot.buffer_slot(),
             water_range: group.ref_range.clone(),
-            water_pipeline,
-            model_pipeline,
+            pipeline,
             segments,
         });
         Some(index)

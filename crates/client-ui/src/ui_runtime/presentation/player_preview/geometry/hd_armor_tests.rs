@@ -1,5 +1,5 @@
 use super::super::PreviewTexture;
-use super::*;
+use {super::*, ui::IconRef};
 
 fn gear(scale: u16) -> PreviewEquipment {
     let (width, height) = (64 * scale, 32 * scale);

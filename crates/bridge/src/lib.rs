@@ -5,9 +5,12 @@ mod endpoint;
 mod error;
 mod framed;
 mod packet_delay;
+mod session;
 mod status;
 mod store;
 mod worlds;
+mod xbox_presence;
+pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
 
 use std::path::Path;
 
@@ -26,16 +29,20 @@ pub use framed::{FrameQueue, FramedReader};
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
 };
+pub use session::{
+    ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
+    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, batch_frame_body,
+    batch_frame_from_bedrock, connect_session, decode_core_message, encode_batch, encode_connect,
+};
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
 };
 pub use store::{
     ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance,
-    StoreEntitlements, StoreImage, StoreOffer, StoreOfferDetail, StorePage, StorePrice,
-    StoreRating, StoreRow, StoreRowMore, StoreSearch, StoreSearchResults, store_balance,
-    store_entitlements, store_home, store_image, store_offer, store_purchase, store_row_more,
-    store_search,
+    StoreEntitlements, StoreOffer, StoreOfferDetail, StorePage, StorePrice, StoreRating, StoreRow,
+    StoreRowMore, StoreSearch, StoreSearchResults, store_balance, store_entitlements, store_home,
+    store_offer, store_purchase, store_row_more, store_search,
 };
 pub use worlds::{
     Backend, CODE_EULA_REQUIRED, Difficulty, GameMode, Generator, NewWorld, Prefs, PrefsUpdate,
@@ -48,6 +55,12 @@ pub use worlds::{
 #[must_use]
 pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
     endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Game)
+}
+
+/// Returns the platform session endpoint used for the logical socket directory.
+#[must_use]
+pub fn session_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
+    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Session)
 }
 
 /// Returns the platform control endpoint used for the logical socket directory.

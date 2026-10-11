@@ -66,7 +66,7 @@ pub struct MenuScrolls {
     /// (an engine view: the pointer's last virtual position along its axis).
     drag: Option<(String, f32)>,
     screen: Option<String>,
-    focused: Option<crate::menu::MenuAction>,
+    focused: Option<launcher::menu::MenuAction>,
     smooth: bool,
     seconds: f64,
     motion: HashMap<String, ScrollTween>,
@@ -113,7 +113,7 @@ impl MenuScrolls {
     pub fn reveal_focus(
         &mut self,
         key: &str,
-        action: Option<crate::menu::MenuAction>,
+        action: Option<launcher::menu::MenuAction>,
         bounds: Option<UiRect>,
         viewport: UiRect,
         max: f32,
@@ -145,7 +145,7 @@ impl MenuScrolls {
     /// Reveals newly focused JSON-UI content without undoing later pointer scrolling.
     pub fn reveal_engine_focus(
         &mut self,
-        action: Option<crate::menu::MenuAction>,
+        action: Option<launcher::menu::MenuAction>,
         key: Option<&str>,
         frame: &crate::ui_runtime::forms::EngineFrame,
     ) {
@@ -190,7 +190,7 @@ impl MenuScrolls {
     }
 
     /// Records focus outside scroll views so returning to a view can reveal its control.
-    pub fn observe_focus(&mut self, action: Option<crate::menu::MenuAction>) {
+    pub fn observe_focus(&mut self, action: Option<launcher::menu::MenuAction>) {
         self.focused = action;
     }
 

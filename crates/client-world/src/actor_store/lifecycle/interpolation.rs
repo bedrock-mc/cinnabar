@@ -166,6 +166,7 @@ impl ActorStore {
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
             let local_flying = self.local_flying;
+            let world_game_mode = self.world_default_game_mode;
             let local_hands = self.local_hands.clone();
             let local_main_metadata = self.local_main_metadata;
             let local_main_slot = self.local_main_slot;
@@ -223,7 +224,7 @@ impl ActorStore {
                 let main_hand_is_spear = attack.is_some_and(|attack| attack.is_spear);
                 let main_hand_swing_seconds = attack
                     .and_then(|attack| attack.swing_duration_ticks)
-                    .map(|ticks| ticks as f32 * crate::ACTOR_TICK_DURATION.as_secs_f32());
+                    .map(|ticks| ticks as f32 * world::TICK_DURATION.as_secs_f32());
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)
@@ -286,6 +287,7 @@ impl ActorStore {
                     view_bobbing: is_local.then_some(local_view_bobbing),
                     is_local,
                     is_flying: is_local && local_flying,
+                    world_game_mode,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

@@ -140,7 +140,10 @@ pub(super) fn raster(
             return Ok(None);
         };
         if part.color != [255; 3] {
-            for pixel in std::sync::Arc::make_mut(&mut texture.rgba8).chunks_exact_mut(4) {
+            for pixel in std::sync::Arc::make_mut(&mut texture.rgba8)
+                .as_chunks_mut::<4>()
+                .0
+            {
                 for (value, tint) in pixel[..3].iter_mut().zip(part.color) {
                     *value = (u16::from(*value) * u16::from(tint) / 255) as u8;
                 }

@@ -1,8 +1,10 @@
 use super::*;
+use protocol::block_state_network_hash;
 
 /// Supplies a local pose without server-authored health attributes.
 fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [0; 16],
         username: "Player".into(),

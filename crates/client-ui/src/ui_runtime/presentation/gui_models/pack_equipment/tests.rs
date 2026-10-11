@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn catalog(color: [u8; 4]) -> Arc<assets::RuntimeEquipmentCatalog> {
     use assets::*;
@@ -38,6 +38,12 @@ fn catalog(color: [u8; 4]) -> Arc<assets::RuntimeEquipmentCatalog> {
     )
 }
 
+/// Dresses the preview in the fixture chestplate, which places its pack texture.
+fn wear_chestplate(presentation: &mut UiPresentationRuntime) {
+    presentation
+        .set_player_preview_gear([None, Some(("fixture:chestplate", None)), None, None], None);
+}
+
 #[test]
 fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
     let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
@@ -59,13 +65,7 @@ fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
             .rgba[..4],
         &[77, 88, 99, 255]
     );
-    let icon = *presentation
-        .gui_models
-        .pack_equipment
-        .textures
-        .values()
-        .next()
-        .unwrap();
+    let icon = presentation.gui_models.pack_equipment.region(1).unwrap();
     let mesh = presentation.gui_player_mesh().unwrap();
     assert!(
         mesh.batches()
@@ -88,7 +88,7 @@ fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
         &[22, 33, 44, 255]
     );
     assert!(presentation.gui_models.pack_equipment.pages.is_empty());
-    assert!(presentation.gui_models.pack_equipment.textures.is_empty());
+    assert!(presentation.gui_models.pack_equipment.regions.is_empty());
 }
 
 #[test]
@@ -107,12 +107,11 @@ fn actor_flame_reclamation_keeps_session_armor_texels_addressable() {
         .insert((first + 1, [0, 0, 16, 16]));
     let color = [77, 88, 99, 255];
     presentation.set_preview_pack_equipment(Some(catalog(color)));
+    wear_chestplate(&mut presentation);
     let previous = presentation
         .gui_models
         .pack_equipment
-        .textures
-        .values()
-        .next()
+        .region(1)
         .unwrap()
         .page;
     let frame_side = side / 2;
@@ -126,13 +125,7 @@ fn actor_flame_reclamation_keeps_session_armor_texels_addressable() {
             .into(),
     };
     presentation.set_gui_fire_texture(Some(&fire)).unwrap();
-    let icon = presentation
-        .gui_models
-        .pack_equipment
-        .textures
-        .values()
-        .next()
-        .unwrap();
+    let icon = presentation.gui_models.pack_equipment.region(1).unwrap();
     assert_ne!(icon.page, previous);
     let page = &presentation.textures.pages()[usize::from(icon.page)];
     let start = (usize::from(icon.uv[1]) * side as usize + usize::from(icon.uv[0])) * 4;
@@ -176,8 +169,9 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
     assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
     let color = [77, 88, 99, 255];
     presentation.set_preview_pack_equipment(Some(catalog(color)));
+    wear_chestplate(&mut presentation);
     assert!(
-        presentation.gui_models.pack_equipment.catalog().is_some(),
+        presentation.gui_models.pack_equipment.region(1).is_some(),
         "optional icons must not disable session armor"
     );
     assert!(
@@ -191,13 +185,7 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
     for (icon, expected) in [
         (presentation.gui_models.fire.frames[0], [11, 22, 33, 255]),
         (
-            *presentation
-                .gui_models
-                .pack_equipment
-                .textures
-                .values()
-                .next()
-                .unwrap(),
+            presentation.gui_models.pack_equipment.region(1).unwrap(),
             color,
         ),
     ] {

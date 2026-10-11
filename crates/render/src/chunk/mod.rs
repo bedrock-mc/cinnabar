@@ -12,8 +12,11 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
-#[cfg(any(test, feature = "publication-test-support"))]
-use bevy::render::renderer::RenderInstance;
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
+};
 use bevy::{
     asset::{AssetId, load_internal_asset},
     camera::visibility::{self, VisibilityClass},
@@ -26,7 +29,13 @@ use bevy::{
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
-    prelude::*,
+    prelude::{
+        App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
+        FromWorld, GlobalTransform, Has, InheritedVisibility, IntoScheduleConfigs, Last, Local,
+        Mat4, Msaa, ParamSet, Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result,
+        Schedule, SubApp, SystemSet, Time, Transform, Update, Vec3, Visibility, With, World,
+        default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,
@@ -106,14 +115,6 @@ mod textures;
 pub use texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;
 
-use constants::{
-    BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
-    FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
-    INDEXED_INDIRECT_BYTES, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE, PACKED_LIQUID_QUAD_BYTES,
-    PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES, PACKED_QUAD_BYTES,
-    PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
-};
-
 #[allow(unused_imports)]
 use api::{
     AcknowledgementSlot, AcknowledgementState, ChunkGpuRemovalQueue, CompletedFrameProbe,
@@ -133,10 +134,14 @@ pub use biome_tints::{
 };
 #[allow(unused_imports)]
 use biome_tints::{ChunkBiomeTintResourceIdentity, MATERIAL_UV_ROTATION_MASK};
-use draw::{queue_chunks, queue_transparent_chunks};
-use extract::install_chunk_extraction;
-#[cfg(test)]
-use gpu::arena::plan_chunk_range_update;
+use constants::{
+    BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_BINDINGS_SHADER_HANDLE, CHUNK_ORIGIN_BYTES,
+    CHUNK_SHADER_HANDLE, FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
+    INDEXED_INDIRECT_BYTES, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE, PACKED_LIQUID_QUAD_BYTES,
+    PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES, PACKED_QUAD_BYTES,
+    PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES, TRANSPARENT_REFS_BINDING,
+    TRANSPARENT_SHADER_HANDLE,
+};
 #[allow(unused_imports)]
 use gpu::arena::{
     ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
@@ -161,10 +166,6 @@ use gpu::bind_groups::{
     prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
 };
 #[allow(unused_imports)]
-use gpu::graphics_metadata::{adapter_metadata_field, publish_graphics_runtime_metadata};
-#[cfg(test)]
-use gpu::layout::transparent_geometry_update_requires_cow;
-#[allow(unused_imports)]
 use gpu::layout::{
     ARENA_MIGRATION_FRAME_BYTES, ArenaGrowthError, ArenaGrowthPlan, ArenaMigration,
     ArenaRequiredLengths, ArenaStream, GeometryStreamCounts, GeometryStreamLayout,
@@ -185,7 +186,7 @@ use gpu::types::{
     metadata_base_vertex, model_direct_draw_command, model_draw_command, model_mdi_draw_command,
     model_ref_count_for_witness, opaque_allocation_is_drawable, select_chunk_draw_mode,
     shared_stream_ranges_disjoint, solid_indirect_commands, summarize_model_workload,
-    transparent_model_direct_draw_command,
+    transparent_liquid_direct_draw_command, transparent_model_direct_draw_command,
 };
 #[allow(unused_imports)]
 use gpu::upload::{
@@ -200,7 +201,8 @@ use pipeline::commands::{
     DrawDepthLiquidIndirectCommands, DrawDepthLiquidsIndirect, DrawModelCommands,
     DrawModelIndirectCommands, DrawPackedChunk, DrawPackedChunksIndirect, DrawPackedModel,
     DrawPackedModelsIndirect, DrawPackedTransparentModel, DrawTransparentLiquid,
-    DrawTransparentLiquidCommands, DrawTransparentLiquidIndirect,
+    DrawTransparentLiquidCommands, DrawTransparentLiquidDirect,
+    DrawTransparentLiquidDirectCommands, DrawTransparentLiquidIndirect,
     DrawTransparentLiquidIndirectCommands, DrawTransparentModelCommands, OpaqueChunkViewQuery,
     drawable_allocation_identity, front_to_back_cube_entities, indirect_batch_draw_args,
     prepare_chunk_indirect_batches, prepare_depth_liquid_indirect_batch_draws,
@@ -208,7 +210,6 @@ use pipeline::commands::{
     record_visibility_direct_submission, record_visibility_mdi_submissions,
     sorted_visible_entities, upload_indirect_commands_if_changed,
 };
-use pipeline::install_chunk_commands;
 #[allow(unused_imports)]
 use pipeline::layouts::{ChunkPipeline, ChunkPipelineKey, ChunkPipelineSpecializer};
 use plugin::ChunkEntities;
@@ -263,13 +264,15 @@ use transparent::model::{
     transparent_model_draw_candidate, transparent_model_phase_distance,
     transparent_model_subchunk_center, transparent_request_to_commit_latency,
 };
+use transparent::planar::liquid_quads_are_order_independent;
+use transparent::residents::{TransparentLiquidResidents, select_sorted_residents};
 #[allow(unused_imports)]
 use transparent::retirement::{
     TransparentPresentationFence, TransparentRetirementBudget, TransparentRetirementFence,
-    TransparentRetirementFenceState, record_encoded_transparent_generation,
-    record_gpu_completed_transparent_generation, transparent_allocation_is_exact,
-    transparent_resident_allocation_contains, transparent_retirement_can_arm,
-    transparent_snapshot_references_allocation,
+    TransparentRetirementFenceState, arm_transparent_retirements,
+    record_encoded_transparent_generation, record_gpu_completed_transparent_generation,
+    transparent_allocation_is_exact, transparent_resident_allocation_contains,
+    transparent_retirement_can_arm, transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
 pub use transparent::sort::{
@@ -283,15 +286,15 @@ pub use transparent::sort::{
 #[allow(unused_imports)]
 use transparent::sort::{
     INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
-    MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
-    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, TransparentLiquidPhaseGroup,
-    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    MAX_TRANSPARENT_RETIRED_BYTES, TransparentGroupInput, TransparentGroups, TransparentLayoutBase,
+    TransparentLiquidPhaseGroup, TransparentRefPatch, TransparentSnapshotLayout,
+    TransparentSortOutput, TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
     TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
-    ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
+    ensure_transparent_ref_capacity, plan_transparent_slot, prepare_transparent_sorts, sort_group,
     spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
-    transparent_ref_offset, transparent_snapshot_addresses_are_resident,
+    transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,
 };
-
+use transparent::visible_order::{VisibleWater, VisibleWaterOrder, each_visible_key};
 #[cfg(test)]
 mod tests;

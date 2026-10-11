@@ -37,9 +37,18 @@ fn custom_fox_geometry_keeps_its_authored_defaults() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_VANILLA_ROOT pointing to the downloaded resource pack"]
 fn pinned_adult_fox_restores_native_cube_binds_without_moving_children_or_baby() {
-    let root = std::path::PathBuf::from(std::env::var_os("CINNABAR_VANILLA_ROOT").unwrap());
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ROOT").map(std::path::PathBuf::from) else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_ROOT is not set");
+        return;
+    };
+    if !root.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_VANILLA_ROOT at {}",
+            root.display()
+        );
+        return;
+    }
     let bytes = std::fs::read(root.join(FOX_PATH)).unwrap();
     let mut geometries = parse(FOX_PATH, &bytes);
     let before = geometries.clone();

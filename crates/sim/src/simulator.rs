@@ -10,6 +10,7 @@ mod mode;
 #[cfg(test)]
 mod numeric_tests;
 mod scaffolding;
+mod spectator;
 mod state;
 mod travel;
 mod water;
@@ -33,7 +34,6 @@ pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), Simulatio
     state::validate(state)
 }
 
-pub use world::TICKS_PER_SECOND;
 const DEFAULT_JUMP_HEIGHT: f64 = 0.42;
 const DEFAULT_AIR_FRICTION: f64 = 0.91;
 const NORMAL_GRAVITY_MULTIPLIER: f64 = 0.98;
@@ -171,6 +171,10 @@ impl Simulator {
             .ok_or(SimulationError::TickOverflow)?;
         if next.velocity.length_squared() < 1.0e-12 {
             next.velocity = Vec3::ZERO;
+        }
+
+        if input.spectator {
+            return spectator::tick(next, state, input, world.registry_identity());
         }
 
         if !input.jumping {

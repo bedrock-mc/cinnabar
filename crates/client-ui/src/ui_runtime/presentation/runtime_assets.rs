@@ -1,6 +1,6 @@
 //! Skin and menu artwork updates for retained presentation.
 
-use super::*;
+use {super::*, ui::IconRef};
 
 impl UiPresentationRuntime {
     /// Retains original UI skin pixels and compatibility hand rasters. Live model view/bob
@@ -9,6 +9,17 @@ impl UiPresentationRuntime {
         &mut self,
         skin: Option<&[u8]>,
         pose: player_preview::PlayerPreviewPose,
+    ) {
+        self.set_player_preview_poses(skin, pose, pose);
+    }
+
+    /// Poses model geometry separately from software hand rasters.
+    /// Geometry turns do not rebuild texture pages; hand rasters follow pitch and sneaking.
+    pub(super) fn set_player_preview_poses(
+        &mut self,
+        skin: Option<&[u8]>,
+        pose: player_preview::PlayerPreviewPose,
+        raster: player_preview::PlayerPreviewPose,
     ) {
         let default_skin = render_model::default_actor_skin_rgba8();
         let skin = skin
@@ -35,8 +46,14 @@ impl UiPresentationRuntime {
                 self.player_preview_gear.clone(),
             )
         };
+        let raster = if self.gui_models.enabled {
+            player_preview::PlayerPreviewPose::new(0.0, 0.0, raster.pitch_degrees, raster.sneaking)
+        } else {
+            raster
+        };
+        self.player_preview_pose = Some(pose);
         if self.player_preview_source_hash == Some(source_hash)
-            && self.player_preview_pose == Some(pose)
+            && self.player_preview_raster_pose == Some(raster)
             && self.player_preview_drawn.as_ref() == Some(&drawn)
         {
             return;
@@ -54,21 +71,21 @@ impl UiPresentationRuntime {
                     Some(body) => player_preview::render_body_with_cape(
                         body,
                         skin,
-                        pose,
+                        raster,
                         drawn.0,
                         drawn.1,
                         &drawn.2,
                         self.menu_preview_model.cape.as_ref(),
                     ),
-                    None => player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2),
+                    None => player_preview::render(skin, raster, drawn.0, drawn.1, &drawn.2),
                 }
             },
-            left_hand: player_preview::render_hand(skin, pose, true),
-            right_hand: player_preview::render_hand(skin, pose, false),
+            left_hand: player_preview::render_hand(skin, raster, true),
+            right_hand: player_preview::render_hand(skin, raster, false),
         });
         self.player_preview_drawn = Some(drawn);
         self.player_preview_source_hash = Some(source_hash);
-        self.player_preview_pose = Some(pose);
+        self.player_preview_raster_pose = Some(raster);
         self.preview_dirty = true;
         self.rebuild_dynamic_textures();
     }

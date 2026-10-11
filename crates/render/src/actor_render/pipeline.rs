@@ -128,7 +128,17 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             })
         })
     });
-    ordinary.chain(additive)
+    ordinary.chain(additive).flat_map(|material| {
+        [
+            Some(material),
+            Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
+            (material & assets::EntityRenderMaterialState::KIND_MASK
+                == assets::EntityRenderMaterial::DissolveColor as u32)
+                .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
+        ]
+        .into_iter()
+        .flatten()
+    })
 }
 
 pub(super) fn prepare_actor_pipelines(
@@ -340,6 +350,7 @@ pub(super) struct ActorPipelineContract {
     cull: bool,
     blend: bool,
     depth_write: bool,
+    depth_always: bool,
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
@@ -368,7 +379,7 @@ impl ActorPipelineKey {
         };
         let format = if self.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
-        } else if state.blend
+        } else if super::phase::sorted(self.material)
             && crate::chunk::transparent::gamma_pass::admitted(self.hdr, self.msaa, self.enhanced)
         {
             TextureFormat::bevy_default().remove_srgb_suffix()
@@ -382,6 +393,7 @@ impl ActorPipelineKey {
             cull: state.cull,
             blend: state.blend,
             depth_write: state.depth_write,
+            depth_always: state.depth_always,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
             alpha_to_coverage: self.msaa.samples() > 1
@@ -411,7 +423,8 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         let contract = key.contract();
         descriptor.multisample.count = contract.msaa.samples();
         crate::alpha_coverage::apply(descriptor, contract.alpha_to_coverage);
-        if let Some(state) = crate::actor::material::state(key.material) {
+        let state = crate::actor::material::state(key.material);
+        if let Some(state) = state {
             descriptor.primitive.cull_mode = state
                 .cull
                 .then_some(bevy::render::render_resource::Face::Back);
@@ -434,9 +447,13 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Equal;
         }
+        if state.is_some_and(|state| state.depth_always) {
+            descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Always;
+        }
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.targets[0].as_mut().unwrap().format = contract.format;
-        if contract.blend
+        // Sorted-pass spans share the transparent pass's gamma-encoded target.
+        if super::phase::sorted(key.material)
             && crate::chunk::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
         {
             fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(

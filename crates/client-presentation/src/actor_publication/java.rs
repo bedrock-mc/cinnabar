@@ -15,7 +15,7 @@ use render_model::{
 
 use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
 use crate::presentation::{
-    actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
+    actors::{ActorRigPresentation, convert_bones, convert_bones_with, lerp_degrees, wrap_degrees},
     equipment::{
         ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, FirstPersonHand, WornItem,
         java_draws_attachable, remote_input,
@@ -110,7 +110,22 @@ fn targets(
     parts: &[usize],
     partial: bool,
 ) -> Option<Vec<Option<BoneTransform>>> {
-    let mut targets = vec![None; rest.len()];
+    let mut targets = Vec::new();
+    targets_into(names, rest, pose, parts, partial, &mut targets)?;
+    Some(targets)
+}
+
+/// [`targets`] written into `targets`, which is cleared first.
+fn targets_into(
+    names: &[Box<str>],
+    rest: &[BoneTransform],
+    pose: &JavaBiped,
+    parts: &[usize],
+    partial: bool,
+    targets: &mut Vec<Option<BoneTransform>>,
+) -> Option<()> {
+    targets.clear();
+    targets.resize(rest.len(), None);
     let all = pose.parts();
     for &part in parts {
         let found = names
@@ -130,7 +145,7 @@ fn targets(
             axis_scale: [1.0; 3],
         });
     }
-    Some(targets)
+    Some(())
 }
 
 fn retargeted(
@@ -146,6 +161,47 @@ fn retargeted(
         alpha,
         &targets,
     )?)
+}
+
+/// Reusable buffers and retained tick transforms for posing Java players each frame.
+#[derive(Default)]
+pub(super) struct PoseScratch {
+    retarget: client_world::JavaRetargetCache,
+    targets: Vec<Option<BoneTransform>>,
+    render: Vec<RenderBoneTransform>,
+}
+
+impl PoseScratch {
+    /// Starts a frame, releasing transforms of players no longer posed.
+    pub(super) fn begin_frame(&mut self) {
+        self.retarget.begin_frame();
+    }
+
+    /// [`retargeted`] through the retained tick transforms, allocating only the pose.
+    fn retargeted(
+        &mut self,
+        stream: &WorldStream,
+        rig: &ActorRigSnapshot<'_>,
+        pose: &JavaBiped,
+        parts: &[usize],
+        alpha: f32,
+    ) -> Option<Arc<[RenderBoneTransform]>> {
+        targets_into(
+            rig.bone_names,
+            rig.rest,
+            pose,
+            parts,
+            false,
+            &mut self.targets,
+        )?;
+        let bones = stream.authority().actor_retargeted_pose_cached(
+            rig.actor.runtime_id,
+            alpha,
+            &self.targets,
+            &mut self.retarget,
+        )?;
+        convert_bones_with(bones, &mut self.render)
+    }
 }
 
 /// Java's body-yaw rig, pose and animated skin layers for a player at the frame, unless
@@ -169,6 +225,7 @@ pub(super) fn third_person<'a>(
     actor: &ActorSnapshot,
     local: Option<&ActorEquipmentInput>,
     alpha: f32,
+    scratch: &mut PoseScratch,
 ) -> Option<ThirdPerson<'a>> {
     if rig.java.vanilla_posture
         || render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0))
@@ -203,15 +260,16 @@ pub(super) fn third_person<'a>(
         local.is_some(),
     ));
     let parts = [0, 1, 2, 3, 4, 5];
-    let bones = retargeted(stream, &java_rig, &pose, &parts, alpha)?;
+    let bones = scratch.retargeted(stream, &java_rig, &pose, &parts, alpha)?;
     let skin_layers = if rig.skin_layers.is_empty() {
         Vec::new()
     } else {
-        stream
-            .authority()
-            .actor_retargeted_layers(actor.runtime_id, alpha, |names, rest| {
-                targets(names, rest, &pose, &parts, true)
-            })?
+        stream.authority().actor_retargeted_layers(
+            actor.runtime_id,
+            alpha,
+            |names, rest, targets| targets_into(names, rest, &pose, &parts, true, targets),
+            &mut scratch.retarget,
+        )?
     };
     let motion = rig.java;
     let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;

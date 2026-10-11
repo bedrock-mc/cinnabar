@@ -214,7 +214,10 @@ fn is_generator_source(path: &str) -> bool {
 }
 
 /// Paths outside crate roots that no crate compiles or reads; CI checks workflows and
-/// packaging runs its own tests.
+/// packaging runs its own tests. Crate owners and external readers are selected first.
+/// CI's standalone-doc classifier in `.github/workflows/ci.yml` is deliberately narrower:
+/// it skips Rust, Go and Platform jobs together, so reference docs, assets, workflows,
+/// packaging and unknown doc directories still run those jobs. This only selects Rust crates.
 fn is_rust_free(path: &str) -> bool {
     is_registry_manifest(path)
         || is_generator_source(path)

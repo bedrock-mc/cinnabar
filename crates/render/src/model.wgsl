@@ -1,8 +1,14 @@
+#define_import_path cinnabar::model
+#import cinnabar::chunk_bindings::{
+    view, chunk_origins, block_textures_page_0, block_textures_page_1, block_sampler,
+    terrain_gamma_page_0, terrain_gamma_page_1, model_sampler, animations, animation_frames,
+    clock, model_templates, geometry_streams, atmosphere,
+}
 #import cinnabar::material::{MaterialGpu, materials, positional_material, material_uv_flags, texture_model_uv, texture_gradient_scale}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
-#import bevy_render::view::View
+#import cinnabar::world_projection::{section_camera_offset, camera_offset_clip}
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ALPHA_TO_COVERAGE
@@ -14,35 +20,10 @@
 
 const MODEL_ALPHA_THRESHOLD: f32 = 0.5;
 
-struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 // BAMBOO_CONSTANTS
-// ANIMATION_GPU_LAYOUT
-struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
-struct AtmosphereUniform {
-    sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
-    sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
-    fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
-    sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
-}
-
-@group(0) @binding(0) var<uniform> view: View;
-@group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
-@group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
-@group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
-@group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var terrain_gamma_page_0: texture_2d_array<f32>;
-@group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
-@group(0) @binding(NATIVE_LEAF_SAMPLER_BINDING) var model_sampler: sampler;
-@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
-@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
-@group(0) @binding(12) var<storage, read> model_templates: array<u32>;
-@group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
-@group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @builtin(position) @invariant clip_position: vec4<f32>,
     // Partially covered MSAA pixels must sample inside the authored quad.
     @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
@@ -154,11 +135,16 @@ fn lily_pad_rotation(position: vec3<i32>) -> u32 {
     return (((h * 0x285b825u + 11u) * h) >> 16u) & 3u;
 }
 
+// Fetches the vertex index and first instance from vertex buffer 0, as `chunk.wgsl` describes.
 @vertex
 fn vertex(
-    @builtin(vertex_index) vertex_index: u32,
+    @location(0) offsets: vec2<u32>,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return model_vertex(offsets.x, offsets.y + instance_index);
+}
+
+fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let local_vertex = vertex_index & 3u;
     let metadata_index = vertex_index / 4u;
     let corner = local_vertex;
@@ -257,7 +243,8 @@ fn vertex(
     let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
     var out: VertexOutput;
     let world = vec3<f32>(origin.value.xyz) + local_position;
-    out.clip_position = view.clip_from_world * vec4(world, 1.0);
+    let camera_offset = section_camera_offset(origin.value.xyz, local_position, view.world_position);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
 #endif
@@ -319,7 +306,11 @@ fn vertex(
 #ifdef ENHANCED
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
-    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    out.clip_position = camera_offset_clip(
+        view.clip_from_world,
+        view.world_position,
+        camera_offset + (out.world_position - world),
+    );
     out.normal = template_quad_normal(template_quad_base, rotation);
 #endif
     return out;
@@ -507,10 +498,14 @@ fn fragment_blend(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
+    return shade_blend(in, front_facing, dpdx(in.uv), dpdy(in.uv));
+}
+
+// Blended transparent model colour; `dx`/`dy` are the UV derivatives, taken by the caller in
+// uniform control flow.
+fn shade_blend(in: VertexOutput, front_facing: bool, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     if (in.visible == 0u) { discard; }
     if (!front_facing && in.two_sided == 0u) { discard; }
-    let dx = dpdx(in.uv);
-    let dy = dpdy(in.uv);
     var sampled = sample_model_ref(in, in.current_texture, dx, dy);
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);

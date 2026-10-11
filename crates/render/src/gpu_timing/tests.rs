@@ -33,7 +33,58 @@ pub(super) fn finish_frame(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     timestamps.encode_readback(&mut encoder);
     queue.submit([encoder.finish()]);
-    timestamps.request_readback();
+    timestamps.request_readback(queue);
+}
+
+/// Completes pending samples and their readback copies before inspecting decoded frames.
+pub(super) fn complete_readback(
+    timestamps: &mut GpuTimestamps,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+) {
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    if cfg!(target_os = "macos") {
+        finish_frame(timestamps, device, queue);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn completed_metal_samples_drain_when_every_readback_slot_is_occupied() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    for _ in 0..SLOTS {
+        let index = timestamps.ring.acquire().unwrap();
+        timestamps.slots[index].passes = 1;
+        timestamps.slots[index].stages[0] = RuntimeStage::GpuOpaque;
+        timestamps.slots[index]
+            .state
+            .store(WRITTEN, Ordering::Release);
+        timestamps.ring.submit(index);
+    }
+    timestamps.begin(|_| panic!("completed samples still need a readback copy"));
+    assert!(timestamps.open_pass(RuntimeStage::GpuUi).is_none());
+    let mut world = World::new();
+    world.insert_resource(timestamps);
+    let mut context = RenderContext::new(device.clone(), None);
+    let submissions = crate::device_poll::submissions_so_far(&queue);
+    run_readback_node(&world, &mut context);
+    let buffers = context.finish().0;
+    assert_eq!(
+        crate::device_poll::submissions_so_far(&queue),
+        submissions + 1
+    );
+    queue.submit(buffers);
+    let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+    timestamps.request_readback(&queue);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let mut frames = Vec::new();
+    timestamps.begin(|frame| frames.push(*frame));
+    assert_eq!(frames.len(), SLOTS);
+    assert!(timestamps.ring.oldest_in_flight().is_none());
+    assert!(timestamps.open_pass(RuntimeStage::GpuUi).is_some());
 }
 
 /// Runs the production readback node while deferred recording is still queued.
@@ -84,7 +135,7 @@ fn readback_includes_queries_allocated_by_deferred_recording() {
         run_readback_node(&world, &mut context);
         queue.submit(context.finish().0);
         let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-        timestamps.request_readback();
+        timestamps.request_readback(&queue);
         let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
         let expected = if synchronous {
             vec![RuntimeStage::GpuUi, RuntimeStage::GpuOpaque]
@@ -94,7 +145,7 @@ fn readback_includes_queries_allocated_by_deferred_recording() {
         assert_eq!(slot.stages[..slot.passes as usize], expected);
         assert_eq!(slot.draws, 1);
         assert_eq!(slot.stages[PASS_SPANS as usize], RuntimeStage::GpuActors);
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        complete_readback(&mut timestamps, &device, &queue);
         let mut readbacks = 0;
         timestamps.begin(|_| readbacks += 1);
         assert_eq!(readbacks, 1);
@@ -190,7 +241,7 @@ fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
     assert!(timestamps.ring.oldest_in_flight().is_some());
     assert!(frames.is_empty());
 
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    complete_readback(&mut timestamps, &device, &queue);
     timestamps.begin(|frame| frames.push(*frame));
     assert_eq!(runs.load(Ordering::Relaxed), 1);
     assert_eq!(frames.len(), 1);
@@ -384,7 +435,7 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     timed(&world, &mut context, RuntimeStage::GpuOpaque, |_| {});
     queue.submit(context.finish().0);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback();
+    timestamps.request_readback(&queue);
     assert!(
         timestamps.ring.oldest_in_flight().is_none(),
         "an unresolved frame maps nothing"
@@ -402,7 +453,7 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     assert_eq!(buffers.len(), 1, "ordinary frames retain one encoder");
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback();
+    timestamps.request_readback(&queue);
     let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
     assert_eq!(
         slot.stages[..slot.passes as usize],

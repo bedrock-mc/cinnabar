@@ -65,7 +65,7 @@ pub struct SoundBank {
     ready_streams: HashMap<Box<str>, Arc<Pcm>>,
 }
 
-/// Where a sound's PCM stands; decoding never runs on the calling (main) thread.
+/// Where a sound's PCM stands; reading and decoding never run on the calling (main) thread.
 pub enum PcmLookup {
     Ready(Arc<Pcm>),
     Pending,
@@ -202,7 +202,7 @@ impl Decoder {
     /// Reserves encoded bytes until a worker finishes or discards the job.
     fn reserve(&self, bytes: usize) -> Option<EncodedPermit> {
         self.encoded_bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
                 held.checked_add(bytes)
                     .filter(|total| *total <= MAX_QUEUED_DECODE_BYTES)
             })
@@ -730,6 +730,40 @@ mod tests {
         }
         drop(bank);
         std::fs::remove_file(path).unwrap();
+    }
+
+    // A first play must not read its compressed file on the frame thread that asked for it.
+    #[test]
+    fn a_first_play_reads_its_file_on_a_decode_worker() {
+        const LARGE: usize = 4 * 1024 * 1024;
+        let mut large = tone();
+        large.resize(LARGE, 0);
+        let files = [
+            ("sounds/warm".to_owned(), tone()),
+            ("sounds/large".to_owned(), large),
+        ];
+        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-bank-caller-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).expect("write");
+        let mut bank = SoundBank::open(&path, None)
+            .expect("open")
+            .expect("present");
+        assert!(bank.pcm("sounds/warm", false).is_some(), "workers started");
+        let before = crate::test_allocations::bytes();
+        let lookup = bank.lookup("sounds/large", false);
+        let copied = crate::test_allocations::bytes() - before;
+        assert!(matches!(lookup, PcmLookup::Pending));
+        assert!(
+            copied < (LARGE / 16) as u64,
+            "the caller allocated {copied} bytes for a {LARGE}-byte file"
+        );
+        bank.pcm("sounds/large", false);
+        assert!(!bank.is_decoding("sounds/large"), "a worker finished it");
+        drop(bank);
+        let _ = std::fs::remove_file(&path);
     }
 
     // Distinct first plays must not queue every compressed file at once.

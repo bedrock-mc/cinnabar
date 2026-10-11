@@ -48,7 +48,7 @@ pub enum InventoryScreen {
 }
 
 impl InventoryScreen {
-    pub fn of(ledger: &crate::ui_runtime::inventory_ledger::PlayerInventoryLedger) -> Self {
+    pub fn of(ledger: &inventory::inventory_ledger::PlayerInventoryLedger) -> Self {
         let cells = ledger.storage_slot_count();
         match (ledger.window_kind(), cells) {
             (Some(WindowKind::Storage), Some(count))
@@ -357,7 +357,7 @@ mod tests {
             panic!("storage cell contract");
         };
         for &count in lengths {
-            let mut ledger = crate::ui_runtime::inventory_ledger::PlayerInventoryLedger::default();
+            let mut ledger = inventory::inventory_ledger::PlayerInventoryLedger::default();
             ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(7),
                 window_type: protocol::WINDOW_TYPE_CONTAINER,

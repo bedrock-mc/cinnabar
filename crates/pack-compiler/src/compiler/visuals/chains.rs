@@ -1,9 +1,9 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, ThinTemplateKey, diagnostic_visual, push_model_template,
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const FAMILY: u8 = 3;
 /// Half-width of each link plane in 1/256 block units (three pixels across).

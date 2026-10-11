@@ -150,7 +150,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let bounded_sampler = gpu
         .device
         .create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 36];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -233,7 +233,7 @@ fn check_edge(held: bool) {
             &pixels,
         );
         assert!(
-            pixels.chunks_exact(4).any(|pixel| pixel[1] > 200),
+            pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[1] > 200),
             "opaque interior must render"
         );
         let mut stray = 0;

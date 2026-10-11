@@ -1,9 +1,14 @@
 use crate::RuntimeStageProfiler;
 use crate::chunk::gpu::graphics_metadata::{
     GraphicsMetadataPublication, GraphicsMetadataPublicationState,
-    configure_graphics_metadata_publication,
+    configure_graphics_metadata_publication, publish_graphics_runtime_metadata,
 };
 use crate::chunk::*;
+use crate::chunk::{
+    draw::{queue_chunks, queue_transparent_chunks},
+    extract::install_chunk_extraction,
+    pipeline::install_chunk_commands,
+};
 
 mod publication_schedule;
 use publication_schedule::{ChunkPublicationStage, configure_chunk_publication};
@@ -92,6 +97,15 @@ impl Plugin for ChunkRenderPlugin {
             )
         );
         crate::enhanced::load_shader_imports(app);
+        load_internal_asset!(
+            app,
+            CHUNK_BINDINGS_SHADER_HANDLE,
+            "../chunk_bindings.wgsl",
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
+        );
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", |source, path| {
             crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
         });
@@ -102,6 +116,15 @@ impl Plugin for ChunkRenderPlugin {
             app,
             LIQUID_SHADER_HANDLE,
             "../liquid.wgsl",
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
+        );
+        load_internal_asset!(
+            app,
+            TRANSPARENT_SHADER_HANDLE,
+            "../transparent_terrain.wgsl",
             |source, path| crate::shader_safety::from_wgsl(
                 crate::material_shader::source(source),
                 path

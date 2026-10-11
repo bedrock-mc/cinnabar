@@ -1,5 +1,8 @@
 //! Clip time assignment before bone evaluation.
-use super::{tick::WeightedClip, *};
+use {
+    super::{tick::WeightedClip, *},
+    world::TICK_DURATION as ACTOR_TICK_DURATION,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Basis {
@@ -80,7 +83,11 @@ pub(super) fn prepare(
             let old_time = old.map_or(0.0, |c| c.time);
             let clock_evaluator = Evaluator {
                 anim_time: Some(old_time),
-                ..*evaluator
+                ..if weighted.clock == Basis::Controller {
+                    evaluator.for_controller_state(weighted.started_tick)
+                } else {
+                    *evaluator
+                }
             };
             clock_evaluator.number(expression as usize, variables, 0.0, budget)?
         } else if weighted.clock == Basis::Direct {
@@ -195,7 +202,11 @@ pub(super) fn sample_update(
                         }
                     }),
             ),
-            ..*evaluator
+            ..if weighted.clock == Basis::Controller {
+                evaluator.for_controller_state(weighted.started_tick)
+            } else {
+                *evaluator
+            }
         };
         let time = evaluator.number(expression as usize, variables, 0.0, budget)?;
         if !time.is_finite() {

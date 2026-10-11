@@ -21,7 +21,7 @@ const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
-pub(crate) use launcher::menu::auth::AuthState;
+use launcher::menu::auth::AuthState;
 
 #[cfg(test)]
 mod signup_tests;
@@ -462,7 +462,7 @@ mod tests {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
-    use super::*;
+    use {super::*, launcher::menu::auth::AuthState};
 
     fn channel() -> (Sender<ReaderMessage>, Receiver<ReaderMessage>) {
         bounded(EVENT_CAPACITY)
@@ -755,7 +755,7 @@ mod tests {
 
     #[test]
     fn retry_waits_for_helper_cleanup_with_a_preparing_prompt() {
-        use super::super::{MenuAction, MenuRuntime};
+        use {super::super::MenuRuntime, launcher::menu::MenuAction};
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Failed("Try again.".into());
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn a_failed_prompt_survives_stale_core_status_until_explicit_cancel() {
-        use super::super::{MenuAction, MenuRuntime};
+        use {super::super::MenuRuntime, launcher::menu::MenuAction};
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Failed("Your sign-in code expired. Try again.".into());
@@ -793,7 +793,10 @@ mod tests {
 
     #[test]
     fn cancelled_completed_add_account_does_not_validate_a_missing_main_cache() {
-        use super::super::{MenuAction, MenuDialog, MenuRuntime};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuDialog},
+        };
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Authenticated;
@@ -837,7 +840,10 @@ mod tests {
 
     #[test]
     fn profile_sign_in_focus_outranks_stale_control_auth() {
-        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuScreen},
+        };
 
         for state in [
             AuthState::Checking,
@@ -880,7 +886,7 @@ mod tests {
 
     #[test]
     fn profile_sign_in_focus_outranks_stale_control_auth_and_resets_transition() {
-        use super::super::{MenuRuntime, MenuScreen};
+        use {super::super::MenuRuntime, launcher::menu::MenuScreen};
 
         let (child, directory) = event_child_holding(&[]);
         let supervisor = AuthSupervisor::from_child(child).unwrap();
@@ -899,7 +905,10 @@ mod tests {
 
     #[test]
     fn signed_out_profile_exposes_sign_in_without_gating_offline_servers() {
-        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuScreen},
+        };
 
         let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
         menu.activate(MenuAction::Navigate(MenuScreen::Profile));

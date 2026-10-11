@@ -1,6 +1,8 @@
 use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind, molang_call};
 
-use super::*;
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+
+mod owner_variables;
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
@@ -236,121 +238,6 @@ pub struct ActorAnimationVariables<'a> {
     input: Option<ActorTickInput>,
     item_context: Option<&'a ActorTickContext>,
     complete_spear: bool,
-}
-
-impl<'a> ActorAnimationVariables<'a> {
-    pub(super) fn new(
-        assets: Option<&'a RuntimeEntityAssets>,
-        variables: &'a MolangVariables,
-        life_tick: u64,
-    ) -> Self {
-        Self {
-            assets,
-            variables: Some(variables),
-            life_tick,
-            input: None,
-            item_context: None,
-            complete_spear: false,
-        }
-    }
-
-    /// Equipment observes the same fixed-tick movement and swim blend as its owner.
-    pub(super) fn with_input(mut self, input: Option<ActorTickInput>) -> Self {
-        self.input = input;
-        self
-    }
-
-    /// Retains item component facts and whether the player needs native spear pose completion.
-    pub(super) fn with_item_context(
-        mut self,
-        context: Option<&'a ActorTickContext>,
-        complete_spear: bool,
-    ) -> Self {
-        self.item_context = context;
-        self.complete_spear = complete_spear;
-        self
-    }
-
-    /// Selected owner component facts also serve owning-entity queries on held attachables.
-    pub(super) fn item_timings(self) -> (Option<protocol::KineticWeaponTiming>, Option<f32>) {
-        self.item_context.map_or((None, None), |context| {
-            (context.main_hand_kinetic, context.main_hand_swing_seconds)
-        })
-    }
-
-    /// The owning item's explicit tag stays available to attachable query contexts.
-    pub(super) fn is_spear(self) -> bool {
-        self.item_context
-            .is_some_and(|context| context.main_hand_is_spear)
-    }
-
-    /// Samples the owner-provided spear variables at the held item's frame fraction.
-    pub(super) fn sample_spear_to(
-        self,
-        slots: &super::spear::Slots,
-        output: &mut MolangVariables,
-        actor: &ActorSnapshot,
-        input: &ActorTickInput,
-        alpha: f32,
-    ) {
-        if self.complete_spear
-            && let Some(context) = self.item_context
-        {
-            let mut context = context.clone();
-            context.frame_alpha = alpha;
-            slots.apply(output, actor, &context, input, input.attack_time);
-        }
-    }
-
-    /// Retains query inputs as well as script variables for worn animation clips.
-    pub(super) fn input(self) -> Option<ActorTickInput> {
-        self.input
-    }
-
-    pub(super) fn life_tick(self) -> u64 {
-        self.life_tick
-    }
-
-    /// Borrows one inherited value without constructing another variable layout.
-    pub(super) fn value(self, name: &str) -> Option<&'a MolangValue> {
-        let symbols = self.assets?.molang_symbols();
-        let first = symbols.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
-        let end = symbols.partition_point(|symbol| symbol.kind <= MolangSymbolKind::Variable);
-        let slot = symbols[first..end]
-            .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
-            .ok()?;
-        self.variables?.values.get(slot)?.as_ref()
-    }
-
-    /// The catalog that owns these retained rig script values.
-    pub(super) fn asset_catalog(self) -> Option<&'a RuntimeEntityAssets> {
-        self.assets
-    }
-
-    pub(super) fn copy_to(
-        self,
-        assets: &RuntimeEntityAssets,
-        layout: &VariableLayout,
-        output: &mut MolangVariables,
-    ) {
-        let (Some(owner_assets), Some(variables)) = (self.assets, self.variables) else {
-            return;
-        };
-        let owner_symbols = owner_assets.molang_symbols();
-        let first =
-            owner_symbols.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
-        for (offset, value) in variables.values.iter().enumerate() {
-            let Some(value) = value else {
-                continue;
-            };
-            let Some(symbol) = owner_symbols.get(first + offset) else {
-                break;
-            };
-            if let Some(slot) = layout.named_slot(assets, &symbol.identifier) {
-                output.values[slot] = Some(value.clone());
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -647,12 +534,23 @@ pub(super) struct Evaluator<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// Seconds since the controller state being evaluated was entered.
+    pub(super) state_time: f32,
     /// The posed skeleton's bones and lowercase names, for bone queries.
     pub(super) bones: &'a [RuntimeBone],
     pub(super) bone_names: &'a [Box<str>],
 }
 
 impl Evaluator<'_> {
+    /// Sets the elapsed time seen by expressions in one controller state.
+    pub(super) fn for_controller_state(self, entered_tick: u64) -> Self {
+        Self {
+            state_time: self.anim_tick.saturating_sub(entered_tick) as f32
+                * ACTOR_TICK_DURATION.as_secs_f32(),
+            ..self
+        }
+    }
+
     fn expressions(&self) -> &[assets::CompiledMolangExpression] {
         self.program.map_or_else(
             || self.assets.molang_expressions(),
@@ -935,6 +833,7 @@ impl Evaluator<'_> {
             swell_amount: self.swell_amount,
             life_tick: self.life_tick,
             finished: self.finished,
+            state_time: self.state_time,
             bones: self.bones,
             bone_names: self.bone_names,
         };

@@ -37,6 +37,8 @@ defaults:
 env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+  # The build cache saves target/; keep compiler intermediates there, not in the shared build-dir.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
@@ -55,13 +57,13 @@ jobs:
       ref: ${{ steps.release.outputs.ref }}
       commit: ${{ steps.release.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.branch || github.ref_name) || github.sha }}
           path: source
       - name: Check out release tooling from the workflow revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -83,21 +85,32 @@ jobs:
       actions: write
     name: macOS ${{ matrix.arch }}
     needs: prepare
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { arch: arm64, runner: macos-15 }
-          - { arch: x86_64, runner: macos-15-intel }
+          - { arch: arm64, target: aarch64-apple-darwin, goarch: arm64 }
+          - { arch: x86_64, target: x86_64-apple-darwin, goarch: amd64 }
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      GOOS: darwin
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "1"
+      CC: clang
+      CXX: clang++
+      # Keep Go's native cgo behavior when compiling the Intel helpers on arm64.
+      CGO_CFLAGS: -O2 -g -arch ${{ matrix.arch }}
+      CGO_CXXFLAGS: -O2 -g -arch ${{ matrix.arch }}
+      CGO_LDFLAGS: -O2 -g -arch ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -105,7 +118,9 @@ jobs:
       - name: Resolve the downloadable artifact name
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          rustup target add "$CARGO_BUILD_TARGET"
       - name: Restore Rust release build cache
         id: rust-cache
         uses: ./release-tools/.github/actions/build-cache
@@ -159,9 +174,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          make package-binaries
+          bin="$PWD/target/$CARGO_BUILD_TARGET/release"
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
+          for binary in bedrock-client bedrock-core bedrock-local-server assetc; do
+            lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
+          done
           tools="$GITHUB_WORKSPACE/release-tools/packaging/macos"
-          bash "$tools/build-app.sh"
+          CLIENT="$bin/bedrock-client" CORE="$bin/bedrock-core" \
+            LOCAL_SERVER="$bin/bedrock-local-server" ASSETC="$bin/assetc" bash "$tools/build-app.sh"
           bash "$tools/sign-notarize.sh" .local/dist/macos-release/Cinnabar.app
           version="${{ needs.prepare.outputs.version }}"
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
@@ -196,11 +216,19 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-macos-${{ matrix.arch }}
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
 
   windows:
     permissions:
@@ -214,12 +242,12 @@ jobs:
         shell: bash
         working-directory: source
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -262,7 +290,7 @@ jobs:
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
-          make package-binaries
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
@@ -308,13 +336,21 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
             ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-windows-x64
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
 
   linux:
     permissions:
@@ -331,12 +367,12 @@ jobs:
       APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
       APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
@@ -376,7 +412,7 @@ jobs:
           echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
       - name: Package
         run: |
-          make package-binaries
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings
           bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
           mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the AppImage against the payload allowlist
@@ -404,11 +440,19 @@ jobs:
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+
+      - name: Upload Rust build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-linux-x86_64
+          path: source/target/cargo-timings/cargo-timing.html
+          if-no-files-found: warn
 
   release:
     name: Publish
@@ -426,19 +470,21 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.ref }}
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: source/dist
+          # Timing reports are CI diagnostics, never release downloads.
+          pattern: "{macos-*,windows-x64,linux-x86_64}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env >> "$GITHUB_ENV"
@@ -466,11 +512,10 @@ jobs:
           git push -f origin refs/tags/nightly
           gh release edit nightly --title "$title" --notes-file "$RUNNER_TEMP/notes.md" \
             --prerelease --latest=false --draft=false
-      - uses: actions/setup-go@v6
+      - name: Install the release tooling Rust toolchain
         if: needs.prepare.outputs.channel == 'stable'
-        with:
-          go-version: 'stable'
-          cache: false
+        working-directory: release-tools
+        run: rustup toolchain install
       - name: Sign the update manifest
         if: needs.prepare.outputs.channel == 'stable'
         env:
@@ -485,8 +530,9 @@ jobs:
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
           done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-artifacts "$base" "$GITHUB_WORKSPACE/source/dist")
-          go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable "${args[@]}" \
-            > "$RUNNER_TEMP/$UPDATE_MANIFEST"
+          # The signer comes from the workflow revision, so older source branches still sign.
+          (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \
+            sign -version "$RELEASE_VERSION" -channel stable "${args[@]}") > "$RUNNER_TEMP/$UPDATE_MANIFEST"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST" "dist/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the stable release
         if: needs.prepare.outputs.channel == 'stable'

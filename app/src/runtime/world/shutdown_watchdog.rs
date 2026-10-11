@@ -6,6 +6,7 @@
 //! through the world-module re-export.
 
 use std::{
+    io::Write,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -19,7 +20,7 @@ use bevy::{
     prelude::{MessageReader, Res, Resource},
 };
 
-use crate::acceptance::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
+use diagnostics::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
 
 pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -86,15 +87,18 @@ impl ShutdownWatchdog {
                     )
                     .is_ok()
                 {
-                    eprintln!(
+                    let _ = writeln!(
+                        diagnostics::console::stderr(),
                         "{SHUTDOWN_WATCHDOG_FIRED_MARKER} timeout_ms={} exit_code={exit_code}",
                         timeout.as_millis()
                     );
+                    diagnostics::console::flush_before_exit();
                     terminate(exit_code);
                 }
             });
         if spawned.is_err() {
             self.state.store(SHUTDOWN_WATCHDOG_FIRED, Ordering::Release);
+            diagnostics::console::flush_before_exit();
             (self.terminate)(exit_code);
         }
         true
@@ -127,7 +131,8 @@ pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
 
 pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
     if watchdog.arm(exit.clone()) {
-        eprintln!(
+        let _ = writeln!(
+            diagnostics::console::stderr(),
             "{SHUTDOWN_WATCHDOG_ARMED_MARKER} timeout_ms={} exit_code={}",
             watchdog.timeout.as_millis(),
             app_exit_code(exit)

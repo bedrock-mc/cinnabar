@@ -187,6 +187,12 @@ impl ActorStore {
             .get(&runtime_id)
             .is_some_and(|actor| self.animation.samples_rig_scale(actor))
     }
+    /// Whether the actor's own compiled rig can draw an always-passing depth layer.
+    pub(crate) fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
+        self.actors
+            .get(&runtime_id)
+            .is_some_and(|actor| self.animation.may_use_always_depth_material(actor))
+    }
     pub(crate) fn render_layers(
         &self,
         runtime_id: u64,
@@ -215,16 +221,30 @@ impl ActorStore {
     ) -> Option<Vec<crate::BoneTransform>> {
         self.animation.retargeted_pose(runtime_id, alpha, targets)
     }
+    /// Borrows the retargeted pose while retaining tick transforms in the caller's cache.
+    pub(crate) fn actor_retargeted_pose_cached<'c>(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: &[Option<crate::BoneTransform>],
+        cache: &'c mut crate::JavaRetargetCache,
+    ) -> Option<&'c [crate::BoneTransform]> {
+        self.animation
+            .retargeted_pose_cached(runtime_id, alpha, targets, cache)
+    }
     pub(crate) fn actor_retargeted_layers(
         &self,
         runtime_id: u64,
         alpha: f32,
-        targets: impl Fn(
+        targets: impl FnMut(
             &[Box<str>],
             &[crate::BoneTransform],
-        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+            &mut Vec<Option<crate::BoneTransform>>,
+        ) -> Option<()>,
+        cache: &mut crate::JavaRetargetCache,
     ) -> Option<Vec<crate::SkinRenderLayer>> {
-        self.animation.retargeted_layers(runtime_id, alpha, targets)
+        self.animation
+            .retargeted_layers(runtime_id, alpha, targets, cache)
     }
     pub(crate) fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.animation.snapshots().filter(|rig| {

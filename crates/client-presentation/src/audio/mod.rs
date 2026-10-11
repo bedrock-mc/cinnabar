@@ -5,7 +5,7 @@ mod bank;
 pub mod echo;
 pub mod engine;
 pub mod inventory;
-mod listener;
+pub mod listener;
 pub mod local;
 pub mod media;
 mod music;
@@ -16,8 +16,10 @@ pub mod settings;
 pub mod systems;
 mod voice;
 mod water;
+pub mod weather;
 
 pub use bank::{SoundBank, sound_bank_path};
+
 pub use engine::AudioEngine;
 pub use predicted::LocalBlockCue;
 #[cfg(any(test, feature = "test-support"))]
@@ -26,7 +28,7 @@ pub use server::{ServerSoundPack, publish_server_sounds};
 #[allow(unused_imports)]
 pub use settings::{AudioCategory, AudioSettings};
 #[allow(unused_imports)]
-pub use systems::{UiSoundCue, ui_control_sound, ui_sound};
+pub use systems::UiSoundCue;
 pub use voice::OUTPUT_RATE;
 
 pub use echo::{EchoLedger, EchoOrigin, EchoSubject};

@@ -10,6 +10,7 @@ mod account;
 mod account_control;
 mod accounts;
 pub(crate) mod auth;
+mod catalog_art;
 mod construction;
 pub(crate) mod core_process;
 mod death;
@@ -26,7 +27,11 @@ mod realm_membership;
 pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
+mod services;
+mod xbox_presence;
 pub(crate) use launcher_core::target_for;
+#[cfg(test)]
+mod kept_packs_tests;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -52,22 +57,21 @@ pub(crate) mod video_settings;
 mod view;
 mod worlds_tab;
 
-use auth::{AuthState, AuthSupervisor};
 use ui::RenderMode;
+use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use launcher::menu::view::{InboxItem, JoinProgress, JoinStage, MenuHome};
-pub(crate) use launcher::menu::view::{
-    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+
+use launcher::menu::view::{
+    JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
 };
+
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
     fs,
@@ -77,12 +81,14 @@ use std::{
 
 use bevy::prelude::{Commands, Res, ResMut, Resource};
 
-use crate::{
-    install_layout::InstallLayout,
-    runtime::world::ClientWorld,
-    session::{JoinIntent, SessionStatus},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        runtime::world::ClientWorld,
+        session::{JoinIntent, SessionStatus},
+    },
+    launcher::install_layout::InstallLayout,
+};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -90,9 +96,9 @@ const MAX_SERVER_ADDRESS_BYTES: usize = 128;
 const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
 
-pub(crate) use launcher::menu::split_address;
+use launcher::menu::split_address;
 
-pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
+use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
 #[derive(Debug, Resource)]
 pub(crate) struct MenuRuntime {
@@ -149,6 +155,7 @@ pub(crate) struct MenuRuntime {
     catalog_started: bool,
     catalog_path: PathBuf,
     catalog_process: Option<crate::lifecycle::children::Spawned>,
+    catalog_art: Option<catalog_art::CatalogArt>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
@@ -188,13 +195,13 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
-    store_actions: Vec<crate::store::StoreAction>,
-    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
-    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    store_actions: Vec<launcher::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<launcher::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
-    settings_options: std::sync::Arc<settings_options::SettingsOptions>,
-    storage: std::sync::Arc<settings_storage::StorageView>,
+    settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
+    storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
     settings_scale_picker: bool,
     settings_dirty: bool,
@@ -319,7 +326,7 @@ impl MenuRuntime {
     }
 
     /// Marketplace actions queued since the last call, for the store driver.
-    pub(crate) fn take_store_actions(&mut self) -> Vec<crate::store::StoreAction> {
+    pub(crate) fn take_store_actions(&mut self) -> Vec<launcher::store::StoreAction> {
         std::mem::take(&mut self.store_actions)
     }
 
@@ -637,7 +644,7 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
+                    self.request_featured_connect(server.address.clone());
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
@@ -780,7 +787,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::Store(action) => {
-                if action == crate::store::StoreAction::Open {
+                if action == launcher::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
                 }
                 self.store_actions.push(action);
@@ -907,75 +914,7 @@ impl MenuRuntime {
     }
 }
 
-/// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn drive_menu_services(
-    mut commands: Commands,
-    mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    mut client_world: ResMut<ClientWorld>,
-    mut runtime: ResMut<UiRuntime>,
-    launcher: Option<ResMut<LauncherCoreSlot>>,
-    launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
-    mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
-    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
-    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
-    antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
-    mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
-    network: Option<Res<crate::runtime::network::NetworkHandle>>,
-) {
-    #[cfg(feature = "developer-control")]
-    if menu.fixture_active() {
-        return;
-    }
-    menu.poll_dressing_room(
-        local_skin.as_deref_mut(),
-        &mut client_world,
-        network.as_deref(),
-        runtime.session_id(),
-    );
-    menu.poll_catalog(launcher_account.is_some());
-    menu.poll_saves();
-    menu.poll_accounts();
-    menu.sync_audio_settings(audio_settings);
-    if let Some(support) = antialiasing {
-        menu.sync_anti_aliasing_support(support.0);
-    }
-    menu.sync_user_settings(settings);
-    menu.sync_language(&mut runtime);
-    let in_session = client_world.stream.is_some();
-    if let Some(mut slot) = launcher {
-        // Remote direct sessions have a separate game core. Local worlds use
-        // the account core, so sign-in must not restart it during local play.
-        let idle = launcher_core::account_core_idle(
-            menu.is_launcher(),
-            menu.is_connecting(),
-            in_session,
-            menu.local_world_joined,
-        );
-        slot.drive(
-            &mut commands,
-            &mut menu,
-            idle,
-            client_blob_cache.enables_upstream_client_cache(),
-            local_worlds.as_deref_mut(),
-        );
-    }
-    if std::mem::take(&mut menu.accounts.skip_control) {
-        menu.forget_launcher_trust();
-        return;
-    }
-    match launcher_account {
-        Some(mut account) => menu.sync_account_control(&mut *account),
-        None => {
-            menu.forget_launcher_trust();
-            menu.sign_out_locally();
-        }
-    }
-    if let Some(worlds) = local_worlds.as_deref_mut() {
-        menu.sync_local_worlds(worlds, in_session);
-    }
-}
+pub(crate) use services::drive_menu_services;
 
 impl Drop for MenuRuntime {
     fn drop(&mut self) {

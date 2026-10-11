@@ -17,6 +17,7 @@ fn read(
             anim_time: None,
             life_tick: 0,
             finished: (false, false),
+            state_time: 0.0,
             swell_amount: None,
             bones: &[],
             bone_names: &[],
@@ -25,6 +26,45 @@ fn read(
         args,
     )
     .number()
+}
+
+#[test]
+fn spectator_query_follows_the_players_committed_game_mode() {
+    let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let context = ActorTickContext::default();
+    for mode in [
+        protocol::PlayerGameMode::Survival,
+        protocol::PlayerGameMode::Spectator,
+        protocol::PlayerGameMode::Creative,
+    ] {
+        actor.player_game_mode = Some(protocol::GameModeUpdate::Explicit(mode));
+        assert_eq!(
+            read(&actor, &context, "query.is_spectator", &[]),
+            if mode == protocol::PlayerGameMode::Spectator {
+                1.0
+            } else {
+                0.0
+            }
+        );
+    }
+}
+
+#[test]
+fn spectator_query_resolves_the_level_default_without_treating_viewers_as_spectators() {
+    let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let mut context = ActorTickContext::default();
+    actor.player_game_mode = Some(protocol::GameModeUpdate::WorldDefault);
+    for (mode, expected) in [
+        (protocol::PlayerGameMode::Survival, 0.0),
+        (protocol::PlayerGameMode::Spectator, 1.0),
+        (protocol::PlayerGameMode::Creative, 0.0),
+    ] {
+        context.world_game_mode = Some(mode);
+        assert_eq!(read(&actor, &context, "query.is_spectator", &[]), expected);
+    }
+    actor.player_game_mode = Some(protocol::GameModeUpdate::LegacyViewer);
+    context.world_game_mode = Some(protocol::PlayerGameMode::Spectator);
+    assert_eq!(read(&actor, &context, "query.is_spectator", &[]), 0.0);
 }
 
 #[test]

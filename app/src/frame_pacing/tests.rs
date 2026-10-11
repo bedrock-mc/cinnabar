@@ -154,12 +154,12 @@ fn an_unchanged_cadence_is_not_republished() {
     assert!(!app.world().resource_ref::<FramePacing>().is_changed());
 }
 
-/// Automatic adds no application cadence; presentation or rendering determines the rate.
+/// Unlimited adds no application cadence; presentation or rendering determines the rate.
 #[test]
-fn automatic_limits_leave_pacing_to_the_display() {
-    let (app, _) = pacing_app((None, false), FrameRateLimit::Automatic);
+fn unlimited_limits_leave_pacing_to_the_display_or_rendering() {
+    let (app, _) = pacing_app((None, false), FrameRateLimit::Unlimited);
     assert_eq!(pacing(&app).rate, None);
-    let (app, _) = pacing_app_with((None, false), FrameRateLimit::Automatic, |video| {
+    let (app, _) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
         video.vsync = false
     });
     assert_eq!(pacing(&app).rate, None);
@@ -175,7 +175,7 @@ fn a_launch_cap_drives_both_the_present_mode_and_the_cadence() {
     for (launch_cap, saved, mode, rate) in [
         (
             Some(144),
-            FrameRateLimit::Automatic,
+            FrameRateLimit::Unlimited,
             PresentMode::Mailbox,
             hz(144),
         ),
@@ -225,7 +225,7 @@ fn vrr_preference_controls_low_latency_pacing_for_each_reported_state() {
             VrrPreference::On,
             VrrPreference::Off,
         ] {
-            let (mut app, _) = pacing_app_with((None, false), FrameRateLimit::Automatic, |video| {
+            let (mut app, _) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
                 video.vsync = false;
                 video.vrr = preference;
             });

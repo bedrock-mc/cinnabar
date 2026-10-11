@@ -8,6 +8,7 @@ pub mod emotes;
 pub mod keybindings;
 pub mod language;
 pub mod persistence;
+pub mod render_distance;
 pub mod reset;
 pub mod runtime;
 pub use chat::CHAT_POSITION_OPTION;
@@ -23,8 +24,8 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, FRAME_RATE_AUTOMATIC,
-    FRAME_RATE_UNLIMITED, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED,
+    INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
     MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION,
     SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, VRR_CHOICES, VRR_OPTION,
 };
@@ -39,12 +40,13 @@ pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SettingsOptions {
-    /// Stored layout version; files without one predate the frame-rate limit migration.
-    #[serde(default = "persistence::legacy_schema")]
+    /// Version of the stored settings format.
     schema: u32,
     values: BTreeMap<String, i32>,
     #[serde(skip)]
     anti_aliasing_support: ui::AntiAliasingSupport,
+    #[serde(skip)]
+    render_distance_defaults: ui::RenderDistanceDefaults,
     keys: BTreeMap<String, u16>,
     language: Option<String>,
     /// None means the original custom catalog supplies first-run defaults.
@@ -58,6 +60,7 @@ impl Default for SettingsOptions {
             schema: SETTINGS_SCHEMA,
             values: BTreeMap::new(),
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
+            render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
             language: None,
             emote_slots: None,
@@ -92,7 +95,7 @@ impl SettingsOptions {
             .values
             .get(definition.name)
             .copied()
-            .unwrap_or(definition.default);
+            .unwrap_or_else(|| self.option_default(definition));
         if definition.name == "msaa" {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
         } else {
@@ -127,8 +130,9 @@ impl SettingsOptions {
             .values
             .get(definition.name)
             .copied()
-            .unwrap_or(definition.default)
+            .unwrap_or_else(|| self.option_default(definition))
             == value
+            && (definition.name != "render_distance" || self.values.contains_key(definition.name))
         {
             return false;
         }

@@ -7,7 +7,7 @@ mod update;
 
 use anyhow::{Context, Result};
 
-use crate::{first_run, install_layout::InstallLayout};
+use {crate::first_run, launcher::install_layout::InstallLayout};
 
 /// Argument that turns this process into the first-run setup window.
 pub const FIRST_RUN_SETUP_FLAG: &str = first_run::SETUP_FLAG;

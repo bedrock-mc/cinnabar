@@ -65,6 +65,7 @@ fn nametag_draws_enter_the_encoded_phase_without_reordering() {
     render
         .init_resource::<DrawFunctions<Transparent3d>>()
         .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidDirectCommands>()
         .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
         .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
         .add_render_command::<Transparent3d, DrawMixedTerrainCommands>();

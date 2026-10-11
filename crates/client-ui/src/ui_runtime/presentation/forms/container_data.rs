@@ -7,12 +7,12 @@
 use json_ui::{CollectionItem, DataSource, HitKind, HitRegion, Scalar};
 use protocol::WindowKind;
 
-use super::super::{HudFrame, IconRef};
 use super::container_kinds::{MountBody, mount_slots};
 use crate::ui_runtime::UiRuntime;
-use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::screens::{BEACON_LEVEL_FOR, STONECUTTER_CELLS, Widget};
 use crate::ui_runtime::screen_recipes::LOOM_PATTERNS;
+use inventory::inventory_ledger::InventoryTarget;
+use {super::super::HudFrame, ui::IconRef};
 
 /// Beacon power buttons by collection: `(name, effect id, secondary)`.
 const BEACON_POWERS: [(&str, i32, bool); 6] = [

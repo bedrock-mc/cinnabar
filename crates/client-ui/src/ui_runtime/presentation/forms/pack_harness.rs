@@ -278,7 +278,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let mut presentation =
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
-    let vanilla = local(&crate::install_layout::vanilla_pack_relative());
+    let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
@@ -464,7 +464,7 @@ fn vanilla_form_button_images_resolve() {
     image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    let url = format!("{}/icon.png", super::remote_images::tests::serve(png));
+    let url = format!("{}/icon.png", crate::remote_images::tests::serve(png));
     let runtime = image_form(
         &mut player_runtime,
         "Shop",
@@ -478,7 +478,7 @@ fn vanilla_form_button_images_resolve() {
     let engine = presentation.form_presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    super::remote_images::tests::settle(&remote, &url);
+    crate::remote_images::tests::settle(&remote, &url);
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     let (drawn, missing) = presentation
         .form_presentation
@@ -772,7 +772,7 @@ fn start_screen_text_resolves_through_the_language_table() {
     };
     let mut runtime = UiRuntime::new(1);
     runtime.set_lang_catalog(Arc::new(lang));
-    let view = crate::menu::MenuView::new(true, "Player".to_owned());
+    let view = launcher::menu::MenuView::new(true, "Player".to_owned());
     presentation.set_menu_view(Some(view));
     let dpi = DpiScale::new(1.0).unwrap();
     let metrics = TextMetrics::for_viewport([1280, 720], dpi, None);

@@ -12,6 +12,10 @@ use render_model::{
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
+/// Subpixel steps per pixel that vertex positions snap to before rasterization: the
+/// eight bits of precision Direct3D, Vulkan and Metal rasterizers provide.
+const SUBPIXEL_STEPS: f32 = 256.0;
+
 /// Composes a known pack texel with the loading frame's published backdrop tint.
 pub fn loading_backdrop_texel(
     presentation: &super::super::UiPresentationRuntime,
@@ -79,7 +83,7 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let scissor = batch.scissor;
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
-        for triangle in indices.chunks_exact(3) {
+        for triangle in indices.as_chunks::<3>().0 {
             let corners: [UiRenderVertex; 3] =
                 std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
             let [du, dv] = offset(triangle[0] as usize);
@@ -145,16 +149,19 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-/// Fill one triangle, sampling premultiplied `shade(uv, color, overlay, x, y)` at
-/// each covered pixel centre and blending over the image. A centre on an edge belongs
-/// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
-/// so a quad's shared diagonal is never blended twice.
+/// Samples premultiplied shade at covered pixel centres and blends with the GPU top-left rule.
+/// Snaps vertices to the subpixel grid so shared edges have exactly one owner.
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
     shade: impl Fn([f32; 2], [u8; 4], [f32; 4], u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
+    for corner in &mut corners {
+        corner.position = corner
+            .position
+            .map(|value| (value * SUBPIXEL_STEPS).round() / SUBPIXEL_STEPS);
+    }
     let [a, b, c] = corners.map(|corner| corner.position);
     let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     if area.abs() < f32::EPSILON {
@@ -206,13 +213,13 @@ fn fill(
             let target = image.get_pixel_mut(x, y);
             let alpha = source[3];
             for channel in 0..3 {
-                let over = if invert {
-                    f32::from(255 - target[channel]) / 255.0 * alpha
+                let destination = f32::from(target[channel]) / 255.0;
+                let blended = if invert {
+                    source[channel] * (1.0 - destination) + destination * (1.0 - source[channel])
                 } else {
-                    source[channel]
+                    source[channel] + destination * (1.0 - alpha)
                 };
-                target[channel] =
-                    (over * 255.0 + f32::from(target[channel]) * (1.0 - alpha)).round() as u8;
+                target[channel] = (blended * 255.0).round() as u8;
             }
         }
     }
@@ -360,6 +367,26 @@ mod tests {
             alpha_cutoff: -1.0,
             model_light: 1.0,
             overlay_color: [0.0; 4],
+        }
+    }
+
+    #[test]
+    fn invert_uses_source_color_so_opaque_black_cursor_pixels_preserve_the_world() {
+        let background = [70, 90, 110, 255];
+        for (source, expected) in [
+            ([0, 0, 0, 255], background),
+            ([255; 4], [185, 165, 145, 255]),
+            ([255, 0, 0, 255], [185, 90, 110, 255]),
+            ([255, 255, 255, 0], background),
+        ] {
+            let mut image = RgbaImage::from_pixel(1, 1, Rgba(background));
+            fill(
+                &mut image,
+                [vertex(0., 0.), vertex(2., 0.), vertex(0., 2.)],
+                |_, _, _, _, _| Some(premultiply(source)),
+                true,
+            );
+            assert_eq!(image.get_pixel(0, 0).0, expected);
         }
     }
 

@@ -7,7 +7,7 @@ use launcher::menu::invite::{Action, Friend, InviteState, Section};
 use serde_json::Value;
 
 use super::menu_screens::{Translate, flags, text, translated};
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// One of vanilla's Xbox Live friend lists and the globals its category binds.
 struct List {

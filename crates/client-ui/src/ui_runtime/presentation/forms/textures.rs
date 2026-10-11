@@ -15,9 +15,9 @@ use std::{
 use assets::RuntimeUiAssets;
 use json_ui::{NineSlice, TextureMeta, TextureSource};
 
-use super::super::IconRef;
-use super::remote_images::{RemoteImages, is_remote};
 use super::server_pack::ServerAtlas;
+use crate::remote_images::{RemoteImages, is_remote};
+use ui::IconRef;
 
 /// Texture sources a form engine owns across frames.
 #[derive(Default)]
@@ -327,7 +327,7 @@ mod animation_tests;
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
+    use {super::*, ui::IconRef};
     #[test]
     fn review_texture_metadata_uses_the_drawn_artwork_dimensions() {
         let mut png = Vec::new();

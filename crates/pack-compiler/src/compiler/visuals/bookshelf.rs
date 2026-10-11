@@ -161,7 +161,6 @@ pub(in crate::compiler) fn is_chiseled_bookshelf_record(record: &RegistryRecord)
         || record.contributor_role != ContributorRole::Primary
         || record.flags != BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
         || record.face_coverage != 0x3f
-        || record.collision_seed.shape_id != 1
         || record.collision_seed.confidence != assets::CollisionConfidence::CollisionOnly
         || record.collision_seed.boxes.as_ref()
             != [assets::CollisionBox {

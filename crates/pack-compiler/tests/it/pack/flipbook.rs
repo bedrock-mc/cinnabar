@@ -1,4 +1,5 @@
-use super::support::*;
+use pack_compiler::{MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, read_pack};
+use {super::support::*, assets::AssetError};
 
 #[test]
 fn flipbook_preserves_complete_metadata_defaults_and_order() {

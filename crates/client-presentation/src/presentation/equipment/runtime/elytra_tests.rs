@@ -77,7 +77,7 @@ fn wing_pack() -> Vec<(Box<str>, Vec<u8>)> {
 }
 
 /// Produces a real player snapshot through the public event admission path.
-fn owner() -> ActorSnapshot {
+pub(super) fn owner() -> ActorSnapshot {
     let mut world = WorldAuthority::new(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -122,7 +122,11 @@ fn owner() -> ActorSnapshot {
 }
 
 /// Supplies tick-owned actor identity and body-name bindings to the authored attachable.
-fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> ActorRigSnapshot<'a> {
+pub(super) fn owner_rig<'a>(
+    owner: &ActorSnapshot,
+    names: &'a [Box<str>],
+    tick: u64,
+) -> ActorRigSnapshot<'a> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,
@@ -178,7 +182,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
 }
 
 /// Evaluates one full-alpha equipment frame for a controller's current owner state.
-fn layers(
+pub(super) fn layers(
     runtime: &mut EquipmentRuntime,
     body: &ActorRigSubmission,
     owner: &ActorSnapshot,
@@ -195,14 +199,14 @@ fn layers(
                 owner,
                 rig: &rig,
                 frame_alpha: 1.0,
-                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                delta_seconds: world::TICK_DURATION.as_secs_f32(),
             }),
         )
         .to_vec()
 }
 
 /// Resolves the selected artwork texel without depending on atlas page layout.
-fn selected_pixel(
+pub(super) fn selected_pixel(
     pages: &ActorArtworkPages,
     layer: &crate::presentation::equipment::runtime::EquipmentPresentation,
 ) -> [u8; 4] {

@@ -10,7 +10,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const LOG_TAIL_BYTES: u64 = 16 * 1024;
 const MAX_REPORTS: usize = 8;
@@ -33,6 +33,8 @@ pub(crate) fn install_panic_hook(layout: &InstallLayout) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         write_report(&crash_dir, &core_log, &info.to_string());
+        // Queued log lines precede the panic message.
+        diagnostics::console::flush_before_exit();
         previous(info);
     }));
 }

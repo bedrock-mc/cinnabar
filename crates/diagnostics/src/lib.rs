@@ -1,5 +1,6 @@
 //! Runtime metrics and shared diagnostic marker contracts.
 pub mod bounded_file;
+pub mod console;
 pub mod markers;
 pub mod metrics;
 

@@ -238,18 +238,32 @@ the panel and its reservations.
 same controls grant and shared read limit. Each optional pressed/held key list
 uses `none` for all keys, an empty list for none, or up to 64 physical names for
 exact matches in native order. Names follow the existing 32-byte alphanumeric
-key rule; repeated requested names do not duplicate observations. The `events`
+key rule; repeated requested names do not duplicate observations. The retained panel catalog accepts up to 128 controls, while each input batch
+still accepts at most 64 events. The `events`
 flag selects whether panel events are included; scalar flags are unchanged.
 Selection neither consumes input nor changes reservations or native sampling.
+The observed key lists also include `MouseLeft`, `MouseRight`, and `MouseMiddle`.
+Pressed entries are physical down edges rather than held repeats; held entries
+track the current window and clear on focus loss. Observing buttons does not
+cancel ordinary gameplay clicks.
 
 An optional `surface` replaces the built-in panel presentation with extension-owned
 JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containing
 that namespace and one root definition), and `bindings` (a map of `#name` to a
 boolean, finite number, bounded text or 2–4-number array). The private catalog
 accepts bounded screen, panel, button, label, stack-panel and rectangle/vector
-custom nodes; factories, inheritance and dynamic expansion are rejected. The
-whole panel is capped at 128 KiB; its document at 96 KiB, 1,024 nodes and depth 32.
-Bindings update without rebuilding unchanged catalog geometry. Host bindings
+custom nodes, scroll views and their track/box controls; factories, inheritance
+and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
+document at 96 KiB, 1,024 nodes and depth 32.
+Bindings update without rebuilding unchanged catalog geometry.
+
+Personal-panel surfaces support JSON-UI scroll views, including wheel input, track
+presses and scrollbar-box dragging. Wheel input stays within the view under the
+pointer; closing the panel or losing focus releases scrollbar capture. Changes
+to content bounds clamp the scroll offset to the visible range. Track mappings
+use `mod.scroll_track` with the view's `scrollbar_track_button` set to that action;
+these presses are consumed by the host without invoking an extension control.
+
 `#surface_width` and `#surface_height` report the current logical viewport.
 With a surface, the optional panel `reference_size` pair declares positive logical
 dimensions up to 1,000,000. Smaller viewports proportionally reduce rendering and
@@ -658,6 +672,17 @@ text, icons and progress bars. An optional normalized `position: [x, y]` in
 (viewport minus scaled card size), keeping moved cards visible across resizing.
 Legacy anchor/offset placement remains exact until a card is moved.
 
+Instead of rows, a card may provide `cells` with `rows: []`. Each cell has
+`rect: [x, y, width, height]` in unscaled GUI pixels, `label`, an optional smaller
+second-line `value`, RGBA `background` and `color`, and `shadow` (default false).
+Cell cards allow widths of 1–512 pixels and do not reserve icon padding.
+Rectangles must have positive finite sizes, stay within the card width, and end
+within 1024 pixels vertically. Cells share the row count and text limits; rows
+and cells cannot be mixed. Cell-card height is the largest rectangle bottom plus any title header;
+card scale, placement, editor dragging, resizing and snapping use that geometry.
+Cells have square corners, centered text and independent background colors;
+label/color updates retain the catalog while geometry changes rebuild it.
+
 Crosshair data supports `shape` (`cross`, `dot`, `circle`), `size` (cross arm
 length or circle/dot radius), `gap` (cross center clearance), `thickness`, `color`,
 `outline`, and `outline_color`. Dimensions use GUI pixels. The host renders the
@@ -671,7 +696,7 @@ keeps the old instance, and a successful reload starts with the new instance's
 published surfaces. Cards hide while a screen or personal panel owns input,
 during loading, and when the player or server hides the HUD. Text/value updates
 reuse the retained host JSON-UI template while its geometry is unchanged.
-The settings panel now accepts at most 64 controls; existing category and page
+The settings panel accepts at most 128 controls; existing category and page
 navigation keeps controls reachable when they exceed the viewport.
 
 With both `hud` and `controls` grants, `hud.open-editor(json)` opens a native

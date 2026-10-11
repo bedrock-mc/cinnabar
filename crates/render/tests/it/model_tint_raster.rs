@@ -117,12 +117,16 @@ fn template_words() -> Vec<u32> {
         let positions: [i16; 12] = [0, 0, 128, 256, 0, 128, 256, 512, 128, 0, 512, 128];
         words.extend(
             positions
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0] as u16) | (u32::from(pair[1] as u16) << 16)),
         );
         let uvs: [u16; 8] = [0, 4096, 4096, 4096, 4096, 0, 0, 0];
         words.extend(
-            uvs.chunks_exact(2)
+            uvs.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u32::from(pair[0]) | (u32::from(pair[1]) << 16)),
         );
         words.extend([
@@ -213,15 +217,6 @@ fn atlas(gpu: &Gpu) -> wgpu::TextureView {
 /// Calls the production vertex decoder with the renderer's actual indexed quad order.
 fn fixture_source(definitions: &[&str], reference: bool) -> String {
     let mut source = shader_source::standalone(include_str!("../../src/model.wgsl"), definitions)
-        .replace("@vertex\nfn vertex(", "fn model_vertex(")
-        .replace(
-            "@builtin(vertex_index) vertex_index: u32",
-            "vertex_index: u32",
-        )
-        .replace(
-            "@builtin(instance_index) instance_index: u32",
-            "instance_index: u32",
-        )
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     if reference {
         let start = source
@@ -393,7 +388,7 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     );
     let templates = gpu.words(&template_words(), storage);
     let geometry = gpu.words(&geometry_words(), storage);
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 36];
     atmosphere[16..19].copy_from_slice(&[0.24, 0.31, 0.47]);
     atmosphere[19] = 4.0;
     atmosphere[20] = 180.0;
@@ -462,8 +457,10 @@ fn model_tint_pixels_match_fragment_biome_reference() {
                 let actual = raster(&gpu, &candidate, "raster_model_vertex", &draws);
                 // The flat vertex tint and the per-fragment reference may round one unit apart.
                 let mismatch = expected
-                    .chunks_exact(4)
-                    .zip(actual.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(actual.as_chunks::<4>().0.iter())
                     .filter(|(left, right)| {
                         left.iter().zip(*right).any(|(l, r)| l.abs_diff(*r) > 1)
                     })

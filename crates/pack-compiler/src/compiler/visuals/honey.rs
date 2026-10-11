@@ -1,11 +1,11 @@
 //! Honey's inset core and full-size shell, as drawn by the native block tessellator.
 
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::vanilla_cuboid_quads;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,

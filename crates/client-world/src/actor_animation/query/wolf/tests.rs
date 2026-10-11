@@ -39,6 +39,7 @@ fn read_tail(actor: &ActorSnapshot, ticks: u64) -> f32 {
         swell_amount: None,
         life_tick: ticks,
         finished: (false, false),
+        state_time: 0.0,
         bones: &[],
         bone_names: &[],
     };

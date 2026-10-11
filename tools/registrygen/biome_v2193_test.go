@@ -2,167 +2,117 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	sharedbiome "github.com/bedrock-mc/protocolgen/generated/data/biome"
 )
 
-func TestV2193BiomeTableRejectsMalformedDuplicateRangeAndTrailingData(t *testing.T) {
-	table, names := syntheticV2193BiomeTable(t)
-	resolve := syntheticBiomeResolver(names)
+// TestV2193BiomeProjectionRejectsInvalidSharedIDs covers invalid or ambiguous shared records.
+func TestV2193BiomeProjectionRejectsInvalidSharedIDs(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func([]byte)
-		input   func([]byte) []byte
+		mutate  func([]sharedbiome.Biome)
 		wantErr string
 	}{
-		{name: "malformed name pointer", mutate: func(data []byte) { binary.LittleEndian.PutUint64(data[8:16], 1) }, wantErr: "resolve name"},
-		{name: "duplicate id", mutate: func(data []byte) { copy(data[24:32], data[0:8]) }, wantErr: "duplicate biome ID"},
-		{name: "duplicate name", mutate: func(data []byte) { copy(data[32:48], data[8:24]) }, wantErr: "duplicate biome name"},
-		{name: "id range", mutate: func(data []byte) { binary.LittleEndian.PutUint64(data[0:8], 1<<16) }, wantErr: "outside"},
-		{name: "trailing record data", input: func(data []byte) []byte { return append(data, 0) }, wantErr: "table size"},
+		{name: "missing ID", mutate: func(source []sharedbiome.Biome) { source[0].HasID = false }, wantErr: "no valid uint16 ID"},
+		{name: "negative ID", mutate: func(source []sharedbiome.Biome) { source[0].ID = -1 }, wantErr: "no valid uint16 ID"},
+		{name: "large ID", mutate: func(source []sharedbiome.Biome) { source[0].ID = 1 << 16 }, wantErr: "no valid uint16 ID"},
+		{name: "duplicate ID", mutate: func(source []sharedbiome.Biome) { source[1].ID = source[0].ID }, wantErr: "duplicate shared biome ID"},
+		{name: "duplicate name", mutate: func(source []sharedbiome.Biome) { source[1].Name = source[0].Name }, wantErr: "duplicate shared biome name"},
+		{name: "invalid name", mutate: func(source []sharedbiome.Biome) { source[0].Name = "minecraft:\xff" }, wantErr: "invalid name"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := append([]byte(nil), table...)
-			if test.mutate != nil {
-				test.mutate(input)
-			}
-			if test.input != nil {
-				input = test.input(input)
-			}
-			_, err := parseV2193BiomeRecords(input, resolve)
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+			source, allowed := syntheticV2193Projection()
+			test.mutate(source)
+			if _, _, err := projectV2193BiomeRecords(source, allowed); err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("error = %v, want %q", err, test.wantErr)
 			}
 		})
 	}
 }
 
-func TestV2193BiomeProjectionIsDefaultDenyAndRejectsMissingOrExtraScope(t *testing.T) {
-	records, allowed, pmmp, dragonfly := syntheticV2193Projection()
-	projected, stats, err := projectV2193BiomeRecords(records, allowed, pmmp, dragonfly)
+// TestV2193BiomeProjectionIsDefaultDeny keeps local admission separate from catalog coverage.
+func TestV2193BiomeProjectionIsDefaultDeny(t *testing.T) {
+	source, allowed := syntheticV2193Projection()
+	source = append(source, sharedbiome.Biome{Name: "minecraft:excluded", ID: 1000, HasID: true})
+	projected, stats, err := projectV2193BiomeRecords(source, allowed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projected) != v2193RetailBiomeCount || stats.IgnoredCount != 0 || len(stats.IgnoredFingerprint) != 64 {
-		t.Fatalf("projection=%d ignored=%d fingerprint=%q", len(projected), stats.IgnoredCount, stats.IgnoredFingerprint)
+	if len(projected) != v2193RetailBiomeCount || stats.SourceCount != len(source) || stats.IgnoredCount != 1 || len(stats.IgnoredFingerprint) != 64 {
+		t.Fatalf("projection=%d stats=%+v", len(projected), stats)
 	}
 	if !sort.SliceIsSorted(projected, func(i, j int) bool { return projected[i].ID < projected[j].ID }) {
 		t.Fatal("projection is not sorted by numeric ID")
 	}
-
-	missing := append([]BiomeRecord(nil), records...)
-	missing[0].Name = "example:second_ignored"
-	if _, _, err := projectV2193BiomeRecords(missing, allowed, pmmp, dragonfly); err == nil || !strings.Contains(err.Error(), "missing") {
+	for _, record := range projected {
+		if _, ok := allowed[record.Name]; !ok {
+			t.Fatalf("admitted biome %q outside the allowlist", record.Name)
+		}
+	}
+	source[0].Name = "minecraft:missing_retail_name"
+	if _, _, err := projectV2193BiomeRecords(source, allowed); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("missing retained name error = %v", err)
 	}
-	extra := append([]BiomeRecord(nil), records...)
-	extra[len(extra)-1].Name = extra[0].Name
-	if _, _, err := projectV2193BiomeRecords(extra, allowed, pmmp, dragonfly); err == nil {
-		t.Fatal("accepted scope record that entered the allowlist")
-	}
-	pmmp[records[0].Name]++
-	if _, _, err := projectV2193BiomeRecords(records, allowed, pmmp, dragonfly); err == nil || !strings.Contains(err.Error(), "PMMP") {
-		t.Fatalf("PMMP mismatch error = %v", err)
-	}
-	pmmp[records[0].Name]--
-	dragonfly["minecraft:dappled_forest"]++
-	if _, _, err := projectV2193BiomeRecords(records, allowed, pmmp, dragonfly); err == nil || !strings.Contains(err.Error(), "Dragonfly") {
-		t.Fatalf("newer-than-PMMP biome escaped the Dragonfly cross-check: %v", err)
+	delete(allowed, source[1].Name)
+	if _, _, err := projectV2193BiomeRecords(source, allowed); err == nil || !strings.Contains(err.Error(), "count") {
+		t.Fatalf("incorrect allowlist scope error = %v", err)
 	}
 }
 
-func TestV2193BiomeInputsRejectSourceHashAllowlistAndTrailingPMMPJSON(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "source.bin")
-	if err := os.WriteFile(path, []byte("drift"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyV2193FileSHA256(path, v2193BDSExecutableSHA256); err == nil || !strings.Contains(err.Error(), "SHA-256") {
-		t.Fatalf("source hash error = %v", err)
-	}
+// TestV2193BiomeAllowlistRejectsChanges protects the reviewed local retail scope.
+func TestV2193BiomeAllowlistRejectsChanges(t *testing.T) {
 	if _, err := parseV2193BiomeAllowlist([]byte("minecraft:only_one\n")); err == nil {
 		t.Fatal("accepted incomplete allowlist")
 	}
-	if _, err := decodeV2193PMMPBiomeMap([]byte(`{"test":1} {}`)); err == nil || !strings.Contains(err.Error(), "trailing") {
-		t.Fatalf("trailing PMMP JSON error = %v", err)
-	}
 }
 
-func TestV2193BiomeProjectionEncodingIsTwoRunIdentical(t *testing.T) {
-	records, allowed, pmmp, dragonfly := syntheticV2193Projection()
-	projected, stats, err := projectV2193BiomeRecords(records, allowed, pmmp, dragonfly)
-	if err != nil {
+// TestV2193BiomeSharedCatalogReproducesCarrier checks the full projection without external inputs.
+func TestV2193BiomeSharedCatalogReproducesCarrier(t *testing.T) {
+	root := filepath.Join("..", "..")
+	dir := t.TempDir()
+	output := filepath.Join(dir, "biomes.bin")
+	manifest := filepath.Join(dir, "biomes.json")
+	if err := writeV2193BiomeProjection(filepath.Join(root, v2193BiomeAllowlistPath), output, manifest); err != nil {
 		t.Fatal(err)
 	}
-	firstCarrier, firstManifest, err := encodeV2193BiomeProjection(projected, stats)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondCarrier, secondManifest, err := encodeV2193BiomeProjection(projected, stats)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(firstCarrier, secondCarrier) || !bytes.Equal(firstManifest, secondManifest) {
-		t.Fatal("identical v2193 biome generations differed")
-	}
-}
-
-func syntheticV2193BiomeTable(t *testing.T) ([]byte, map[uint64][]byte) {
-	t.Helper()
-	records, _, _, _ := syntheticV2193Projection()
-	table := make([]byte, len(records)*v2193BiomeRecordSize)
-	names := make(map[uint64][]byte, len(records))
-	for index, record := range records {
-		nameVA := uint64(0x140100000 + index*0x100)
-		start := index * v2193BiomeRecordSize
-		binary.LittleEndian.PutUint64(table[start:start+8], uint64(record.ID))
-		binary.LittleEndian.PutUint64(table[start+8:start+16], nameVA)
-		binary.LittleEndian.PutUint64(table[start+16:start+24], uint64(len(record.Name)))
-		names[nameVA] = []byte(record.Name)
-	}
-	return table, names
-}
-
-func syntheticBiomeResolver(names map[uint64][]byte) func(uint64, uint64) ([]byte, error) {
-	return func(address, length uint64) ([]byte, error) {
-		name, ok := names[address]
-		if !ok || uint64(len(name)) != length {
-			return nil, fmt.Errorf("unmapped name")
+	for generated, checkedIn := range map[string]string{
+		output: filepath.Join(root, v2193BiomeOutputPath),
+		strings.TrimSuffix(output, ".bin") + ".sha256": filepath.Join(root, strings.TrimSuffix(v2193BiomeOutputPath, ".bin")+".sha256"),
+		manifest: filepath.Join(root, v2193BiomeProjectionPath),
+	} {
+		got, err := os.ReadFile(generated)
+		if err != nil {
+			t.Fatal(err)
 		}
-		return append([]byte(nil), name...), nil
+		want, err := os.ReadFile(checkedIn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Normalize checkout line endings only for JSON, retaining exact carrier checks.
+		if strings.HasSuffix(checkedIn, ".json") {
+			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("shared biome projection differs from %s", checkedIn)
+		}
 	}
 }
 
-func syntheticV2193Projection() ([]BiomeRecord, map[string]struct{}, map[string]uint32, map[string]uint32) {
-	records := make([]BiomeRecord, 0, v2193BiomeSourceCount)
+// syntheticV2193Projection supplies unique IDs including zero in an unsorted retail scope.
+func syntheticV2193Projection() ([]sharedbiome.Biome, map[string]struct{}) {
+	source := make([]sharedbiome.Biome, 0, v2193RetailBiomeCount)
 	allowed := make(map[string]struct{}, v2193RetailBiomeCount)
-	pmmp := make(map[string]uint32, v2193PMMPBiomeCount)
-	dragonfly := make(map[string]uint32, v2193RetailBiomeCount)
-	for index := range v2193RetailBiomeCount - 1 {
+	for index := range v2193RetailBiomeCount {
 		name := fmt.Sprintf("minecraft:test_%03d", index)
-		id := uint32((index*37 + 11) % 194)
-		for mapContainsValue(pmmp, id) {
-			id = (id + 1) % 194
-		}
-		records = append(records, BiomeRecord{ID: id, Name: name})
-		allowed[name], pmmp[name], dragonfly[name] = struct{}{}, id, id
+		source = append(source, sharedbiome.Biome{Name: name, ID: int32(v2193RetailBiomeCount - index - 1), HasID: true})
+		allowed[name] = struct{}{}
 	}
-	newer := BiomeRecord{ID: 195, Name: "minecraft:dappled_forest"}
-	records = append(records, newer)
-	allowed[newer.Name], dragonfly[newer.Name] = struct{}{}, newer.ID
-	return records, allowed, pmmp, dragonfly
-}
-
-func mapContainsValue(values map[string]uint32, want uint32) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return source, allowed
 }

@@ -7,22 +7,26 @@ use bevy::{
     prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
 };
 
-use crate::{
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
-    menu::{
-        CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-        server_trust::SessionTrust, spawn_core_for_address,
-    },
-    movement::{LocalPhysicsController, MovementTicker},
-    player_runtime::PlayerRuntime,
-    runtime::{
-        network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
-        shutdown::record_fatal_error,
-        world::{ClientWorld, TransferNotice},
-    },
-    session_cleanup::SessionDirectoryGuard,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        menu::{
+            CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
+            server_trust::SessionTrust, spawn_core_for_address,
+        },
+        movement::{LocalPhysicsController, MovementTicker},
+        player_runtime::PlayerRuntime,
+        runtime::{
+            network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
+            shutdown::record_fatal_error,
+            world::{ClientWorld, TransferNotice},
+        },
+        session_cleanup::SessionDirectoryGuard,
+    },
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+    },
+};
 
 use std::{path::PathBuf, time::Instant};
 
@@ -68,6 +72,8 @@ pub(crate) struct SessionController {
     connecting: bool,
     /// Polls the per-session core this join started for its server trust question.
     trust: Option<SessionTrust>,
+    /// Server packs recent joins compiled; released once no join follows.
+    kept_packs: &'static CompiledStacks,
 }
 
 impl Default for SessionController {
@@ -88,7 +94,15 @@ impl SessionController {
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
+            kept_packs: crate::runtime::network::compiled_stacks(),
         }
+    }
+
+    /// A controller that releases `kept` instead of the stacks joins share.
+    #[cfg(test)]
+    pub(crate) fn with_kept_packs(mut self, kept: &'static CompiledStacks) -> Self {
+        self.kept_packs = kept;
+        self
     }
 
     /// Names a direct `--address` session's destination.
@@ -135,9 +149,11 @@ impl SessionController {
         true
     }
 
+    /// Returns a failed join to the menu, where no join follows to reuse the kept packs.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
         menu.show_join_failure(message);
         self.connecting = false;
+        self.kept_packs.release();
     }
 
     /// Spawns a per-session core that dials `address` directly.
@@ -314,9 +330,17 @@ pub(crate) struct SessionResources<'w> {
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
+    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
 }
 
 impl SessionResources<'_> {
+    /// Retires the live session with no join to follow, also releasing the
+    /// recently compiled server packs a following join would have reused.
+    fn leave(&mut self) {
+        self.retire();
+        self.controller.kept_packs.release();
+    }
+
     /// Ends the live session and fences a fresh generation. The core stops off
     /// the frame, and its directories go only once it has exited.
     fn retire(&mut self) -> u64 {
@@ -332,10 +356,12 @@ impl SessionResources<'_> {
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
-        self.client_world.stream = None;
-        self.client_world.pack_entities = None;
-        self.client_world.prepared_actor_artwork = None;
-        self.client_world.session_items = None;
+        release_off_frame((
+            self.client_world.stream.take(),
+            self.client_world.pack_entities.take(),
+            self.client_world.prepared_actor_artwork.take(),
+            self.client_world.session_items.take(),
+        ));
         self.client_world.pending_surface_spawn = None;
         self.client_world.fatal_error = None;
         self.client_world.transfer_notice = None;
@@ -346,6 +372,17 @@ impl SessionResources<'_> {
             &mut self.interaction,
         );
         generation
+    }
+}
+
+/// Drops retired world and pack snapshots on a worker to avoid frame-thread destruction.
+/// Falls back to dropping here only when the worker cannot start.
+fn release_off_frame(retired: impl Send + 'static) {
+    let spawned = std::thread::Builder::new()
+        .name("session-release".to_owned())
+        .spawn(move || drop(retired));
+    if let Err(error) = spawned {
+        bevy::log::warn!("session release thread unavailable, released on the frame: {error}");
     }
 }
 
@@ -463,12 +500,14 @@ fn poll_join(
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
             }
+            let login_settings = login_settings(menu, session.input.as_deref());
             if let Err(error) = start_network(
                 commands,
                 menu,
                 controller.generation,
                 cache,
                 socket_dir,
+                login_settings,
                 session.actor_artwork.as_deref(),
                 session.ui_catalog.as_deref(),
             ) {
@@ -488,6 +527,22 @@ fn poll_join(
     }
 }
 
+/// The language, input and GUI scale the player has as the join starts, as vanilla reports them.
+pub(crate) fn login_settings(
+    menu: &MenuRuntime,
+    input: Option<&crate::semantic_controls::SemanticInputSnapshot>,
+) -> protocol::LoginSettings {
+    protocol::LoginSettings {
+        language_code: client_session::pack_language::active_language_code(),
+        input_mode: input
+            .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
+            .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
+                gameplay::mining::protocol_input_mode(snapshot.input_mode)
+            }),
+        gui_scale_offset: menu.gui_scale_offset(),
+    }
+}
+
 /// Starts the network session against the core serving `socket_dir`.
 fn start_network(
     commands: &mut Commands,
@@ -495,6 +550,7 @@ fn start_network(
     session_generation: u64,
     cache: &BlobCache,
     socket_dir: PathBuf,
+    login_settings: protocol::LoginSettings,
     actor_artwork: Option<&render::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
@@ -504,6 +560,7 @@ fn start_network(
         display_name: menu.display_name().to_owned(),
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
+        login_settings,
         actor_artwork: actor_artwork.cloned(),
         ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
@@ -570,7 +627,7 @@ fn drive_intents(
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
-        session.retire();
+        session.leave();
         if cancelled_join {
             menu.cancel_join();
         } else {
@@ -605,7 +662,7 @@ pub(crate) fn recover_session_failure(
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    session.retire();
+    session.leave();
     session.controller.publish(&mut menu);
 }
 
@@ -640,7 +697,7 @@ fn follow_transfer(
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
-        session.retire();
+        session.leave();
         record_fatal_error(
             &mut session.client_world.fatal_error,
             format!(
@@ -697,13 +754,35 @@ fn end_transfer_without_follow(
     session: &mut SessionResources<'_>,
     reason: String,
 ) {
-    session.retire();
+    session.leave();
     menu.absorb_session_failure(&reason);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A hidden-menu direct launch must still report the player's saved GUI scale.
+    #[test]
+    fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
+        let layout = crate::install_layout::scratch("login-settings");
+        std::fs::create_dir_all(&layout.user_config_root).unwrap();
+        std::fs::write(
+            layout.user_config_root.join("video-settings.json"),
+            r#"{"gui_scale_offset":-1}"#,
+        )
+        .unwrap();
+        let menu = MenuRuntime::new_with_layout(
+            false,
+            None,
+            "Direct".to_owned(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+        );
+        let settings = login_settings(&menu, None);
+        assert_eq!(settings.gui_scale_offset, -1);
+        assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
+    }
 
     #[test]
     fn joinable_destinations_and_ids_stay_off_the_card() {
@@ -788,6 +867,23 @@ mod tests {
         );
         assert!(transfer_handoff_address("", 19132).is_none());
         assert!(transfer_handoff_address("   ", 19132).is_none());
+    }
+
+    /// A retired world is freed on another thread, never by the frame that leaves the server.
+    #[test]
+    fn a_retired_session_is_released_off_the_calling_thread() {
+        struct Probe(std::sync::mpsc::Sender<std::thread::ThreadId>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.0.send(std::thread::current().id());
+            }
+        }
+        let (dropped, dropper) = std::sync::mpsc::channel();
+        release_off_frame((Probe(dropped), vec![0_u8; 1024]));
+        let thread = dropper
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the retired session is released");
+        assert_ne!(thread, std::thread::current().id());
     }
 
     #[test]

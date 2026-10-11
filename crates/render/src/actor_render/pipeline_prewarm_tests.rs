@@ -34,6 +34,53 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
 }
 
 #[test]
+fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        let cache = world.resource::<PipelineCache>();
+        for msaa in [Msaa::Off, Msaa::Sample4] {
+            for hdr in [false, true] {
+                pipeline.prewarm(cache, msaa, hdr, false).unwrap();
+                for kind in [
+                    EntityRenderMaterial::Default,
+                    EntityRenderMaterial::DissolveDepth,
+                    EntityRenderMaterial::DissolveColor,
+                ] {
+                    for bits in 0..32 {
+                        let state = EntityRenderMaterialState {
+                            cull: bits & 1 != 0,
+                            blend: bits & 2 != 0,
+                            depth_write: bits & 4 != 0,
+                            additive: bits & 8 != 0,
+                            additive_alpha: bits & 16 != 0,
+                            depth_always: true,
+                            ..Default::default()
+                        };
+                        let material = kind.word(Some(state));
+                        assert!(
+                            pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                            "always-depth material must have a draw pipeline: {kind:?}, {bits}"
+                        );
+                        if kind == EntityRenderMaterial::DissolveColor {
+                            let paired = kind.word(Some(EntityRenderMaterialState {
+                                depth_always: false,
+                                ..state
+                            })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                            assert!(
+                                pipeline.draw_variant(msaa, hdr, false, paired).is_some(),
+                                "paired color must retain its depth contract: {bits}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

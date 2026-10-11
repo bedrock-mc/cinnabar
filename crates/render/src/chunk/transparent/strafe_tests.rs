@@ -1,5 +1,6 @@
 //! Strafing over an ocean drives the production transparent sort and queue systems.
 use super::*;
+use crate::chunk::draw::queue_transparent_chunks;
 use bevy::{
     core_pipeline::core_3d::{Transparent3d, graph::Core3d},
     ecs::system::RunSystemOnce,
@@ -14,26 +15,30 @@ use bevy::{
 };
 
 const OCEAN_RADIUS: i32 = 8;
-const SURFACE_SUBCHUNK_Y: i32 = 3;
+pub(super) const SURFACE_SUBCHUNK_Y: i32 = 3;
 const STRAFE_FRAMES: usize = 480;
 const STRAFE_STEP: f32 = 0.1;
+/// Flat water draws without a sort, so the strafe needs shores to have anything to sort.
+const STRAFE_SHORE_PERIOD: i32 = 3;
 
-fn ocean_surface(key: SubChunkKey) -> ChunkRenderInstance {
-    let mut quads = Vec::with_capacity(256);
+/// A flat 16x16 water surface, or with `shore` also one wall of side faces, which
+/// makes its faces overlap on screen and their order matter.
+pub(super) fn ocean_surface(key: SubChunkKey, shore: bool) -> ChunkRenderInstance {
+    let mut quads = Vec::with_capacity(272);
+    let mut push = |origin: [u8; 3], face: Face, heights: [u8; 4]| {
+        let index = quads.len() as u32;
+        quads.push(
+            PackedLiquidQuad::try_pack(origin, face, heights, 0, index, [0; 2], false).unwrap(),
+        );
+    };
     for z in 0..16 {
         for x in 0..16 {
-            quads.push(
-                PackedLiquidQuad::try_pack(
-                    [x, 15, z],
-                    Face::PositiveY,
-                    [224; 4],
-                    0,
-                    quads.len() as u32,
-                    [0; 2],
-                    false,
-                )
-                .unwrap(),
-            );
+            push([x, 15, z], Face::PositiveY, [224; 4]);
+        }
+    }
+    if shore {
+        for z in 0..16 {
+            push([0, 15, z], Face::NegativeX, [0, 224, 224, 0]);
         }
     }
     ChunkRenderInstance {
@@ -60,15 +65,12 @@ fn ocean_surface(key: SubChunkKey) -> ChunkRenderInstance {
     }
 }
 
-/// Coarse 90-degree frustum facing +Z, enough to churn membership while strafing.
-fn in_frustum(camera: Vec3, key: SubChunkKey) -> bool {
+/// Coarse 90-degree frustum around a horizontal `forward`, enough to churn membership.
+pub(super) fn in_frustum(camera: Vec3, forward: Vec3, key: SubChunkKey) -> bool {
     let min = Vec3::from_array(chunk_origin(key).map(|value| value as f32));
     let max = min + Vec3::splat(16.0);
-    let planes = [
-        Vec3::new(1.0, 0.0, 1.0),
-        Vec3::new(-1.0, 0.0, 1.0),
-        Vec3::new(0.0, 0.0, 1.0),
-    ];
+    let right = Vec3::new(forward.z, 0.0, -forward.x);
+    let planes = [forward + right, forward - right, forward];
     planes.iter().all(|normal| {
         let corner = Vec3::new(
             if normal.x >= 0.0 { max.x } else { min.x },
@@ -79,14 +81,28 @@ fn in_frustum(camera: Vec3, key: SubChunkKey) -> bool {
     })
 }
 
-struct Fixture {
-    app: App,
-    view: Entity,
-    retained: RetainedViewEntity,
-    surfaces: Vec<(Entity, SubChunkKey)>,
+pub(super) struct Fixture {
+    pub(super) app: App,
+    pub(super) view: Entity,
+    pub(super) retained: RetainedViewEntity,
+    pub(super) surfaces: Vec<(Entity, SubChunkKey)>,
+    /// Worker sort jobs that have finished, and the refs they sorted rather than reused.
+    pub(super) jobs: usize,
+    pub(super) sorted_refs: usize,
 }
 
-fn fixture() -> Fixture {
+/// Every `shore_period`th sub-chunk (by `x + z`) also has side faces; zero means none do.
+pub(super) fn is_shore(key: SubChunkKey, shore_period: i32) -> bool {
+    shore_period != 0 && (key.x + key.z).rem_euclid(shore_period) == 0
+}
+
+/// An ocean of flat surfaces, with shores placed as [`is_shore`] describes.
+pub(super) fn fixture_with(shore_period: i32) -> Fixture {
+    fixture_sized(OCEAN_RADIUS, shore_period)
+}
+
+/// A square ocean `radius` sub-chunks around the origin, uploaded and ready to draw.
+pub(super) fn fixture_sized(radius: i32, shore_period: i32) -> Fixture {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -134,13 +150,15 @@ fn fixture() -> Fixture {
         .init_resource::<DrawFunctions<Transparent3d>>()
         .init_resource::<ViewSortedRenderPhases<Transparent3d>>()
         .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidDirectCommands>()
         .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
         .add_render_command::<Transparent3d, crate::chunk::transparent::mixed::DrawMixedTerrainCommands>();
     let mut surfaces = Vec::new();
-    for z in -OCEAN_RADIUS..=OCEAN_RADIUS {
-        for x in -OCEAN_RADIUS..=OCEAN_RADIUS {
+    for z in -radius..=radius {
+        for x in -radius..=radius {
             let key = SubChunkKey::new(0, x, SURFACE_SUBCHUNK_Y, z);
-            surfaces.push((app.world_mut().spawn(ocean_surface(key)).id(), key));
+            let surface = ocean_surface(key, is_shore(key, shore_period));
+            surfaces.push((app.world_mut().spawn(surface).id(), key));
         }
     }
     while app.world().resource::<ChunkGpuArena>().allocations.len() < surfaces.len() {
@@ -182,21 +200,154 @@ fn fixture() -> Fixture {
         view,
         retained,
         surfaces,
+        jobs: 0,
+        sorted_refs: 0,
     }
+}
+
+/// How one sub-chunk's water reached the phase this frame.
+#[derive(Debug)]
+pub(super) enum Drawn {
+    /// Refs from the committed back-to-front snapshot.
+    Sorted(Vec<PackedTransparentDrawRef>),
+    /// The allocation's records in mesh order.
+    Direct,
+}
+
+/// Maps every queued water draw to its sub-chunk, failing on a sub-chunk drawn twice.
+pub(super) fn drawn_water(fixture: &Fixture) -> BTreeMap<SubChunkKey, Drawn> {
+    let world = fixture.app.world();
+    let sorted = world
+        .resource::<DrawFunctions<Transparent3d>>()
+        .read()
+        .id::<DrawTransparentLiquidCommands>();
+    let phase = world
+        .resource::<ViewSortedRenderPhases<Transparent3d>>()
+        .get(&fixture.retained)
+        .unwrap();
+    let snapshot = world.resource::<TransparentSortRuntime>().state.committed();
+    let by_metadata = world
+        .resource::<ChunkGpuArena>()
+        .allocations
+        .values()
+        .map(|allocation| (allocation.gpu.metadata_index, allocation.gpu.key))
+        .collect::<HashMap<_, _>>();
+    let mut drawn = BTreeMap::new();
+    for item in &phase.items {
+        let (key, water) = if item.draw_function == sorted {
+            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
+            else {
+                panic!("sorted water draw without a ref range");
+            };
+            let refs = snapshot.unwrap().refs()[range.start as usize..range.end as usize].to_vec();
+            (by_metadata[&refs[0].metadata_index()], Drawn::Sorted(refs))
+        } else if let Some(allocation) = world.get::<GpuChunkAllocation>(item.entity.0) {
+            (allocation.key, Drawn::Direct)
+        } else {
+            continue;
+        };
+        assert!(drawn.insert(key, water).is_none(), "{key:?} drawn twice");
+    }
+    drawn
 }
 
 impl Fixture {
     fn frame(&mut self, camera: Vec3) {
+        self.frame_looking(camera, Vec3::Z);
+    }
+
+    /// Streams one more water sub-chunk in and uploads it.
+    pub(super) fn spawn_surface(&mut self, key: SubChunkKey, shore: bool) {
+        let entity = self.app.world_mut().spawn(ocean_surface(key, shore)).id();
+        self.surfaces.push((entity, key));
+        while !self
+            .app
+            .world()
+            .resource::<ChunkGpuArena>()
+            .allocations
+            .contains_key(&entity)
+        {
+            self.app
+                .world_mut()
+                .run_system_once(prepare_gpu_chunks)
+                .unwrap();
+        }
+    }
+
+    /// Streams `out` away and `into` in through one upload pass, returning how many of the
+    /// new sub-chunks were admitted.
+    pub(super) fn stream(&mut self, out: &[SubChunkKey], into: &[(SubChunkKey, bool)]) -> usize {
+        for key in out {
+            let index = self
+                .surfaces
+                .iter()
+                .position(|(_, surface)| surface == key)
+                .unwrap();
+            let (entity, _) = self.surfaces.remove(index);
+            let world = self.app.world_mut();
+            world.despawn(entity);
+            world
+                .resource_mut::<ChunkGpuArena>()
+                .pending_removals
+                .insert(entity);
+        }
+        let spawned = into
+            .iter()
+            .map(|&(key, shore)| {
+                let entity = self.app.world_mut().spawn(ocean_surface(key, shore)).id();
+                self.surfaces.push((entity, key));
+                entity
+            })
+            .collect::<Vec<_>>();
+        self.app
+            .world_mut()
+            .run_system_once(prepare_gpu_chunks)
+            .unwrap();
+        let arena = self.app.world().resource::<ChunkGpuArena>();
+        spawned
+            .iter()
+            .filter(|entity| arena.allocations.contains_key(entity))
+            .count()
+    }
+
+    /// Arms the retirements no snapshot reads and completes their fence, as a frame the GPU
+    /// has finished does.
+    pub(super) fn complete_gpu_frame(&mut self) {
+        let world = self.app.world_mut();
+        let fence = world.resource::<TransparentRetirementFence>().clone();
+        world.resource_scope(|world, mut arena: Mut<ChunkGpuArena>| {
+            let state = &world.resource::<TransparentSortRuntime>().state;
+            if let Some(epoch) = arm_transparent_retirements(&mut arena, state, &fence) {
+                assert!(fence.complete(epoch));
+            }
+        });
+    }
+
+    /// Uploaded water sub-chunks the coarse frustum admits from `camera` looking along
+    /// `forward`.
+    pub(super) fn visible_water(&self, camera: Vec3, forward: Vec3) -> BTreeSet<SubChunkKey> {
+        let arena = self.app.world().resource::<ChunkGpuArena>();
+        self.surfaces
+            .iter()
+            .filter(|(entity, key)| {
+                in_frustum(camera, forward, *key) && arena.allocations.contains_key(entity)
+            })
+            .map(|&(_, key)| key)
+            .collect()
+    }
+
+    /// Runs one prepare and queue for the camera at `camera` looking along `forward`.
+    pub(super) fn frame_looking(&mut self, camera: Vec3, forward: Vec3) {
         let visible = self
             .surfaces
             .iter()
-            .filter(|(_, key)| in_frustum(camera, *key))
+            .filter(|(_, key)| in_frustum(camera, forward, *key))
             .map(|&(entity, _)| (entity, MainEntity::from(entity)))
             .collect();
         let world = self.app.world_mut();
         let mut entity = world.entity_mut(self.view);
         entity.get_mut::<ExtractedView>().unwrap().world_from_view =
-            GlobalTransform::from(Transform::from_translation(camera).looking_to(Vec3::Z, Vec3::Y));
+            GlobalTransform::from(Transform::from_translation(camera).looking_to(forward, Vec3::Y));
         entity
             .get_mut::<RenderVisibleEntities>()
             .unwrap()
@@ -211,20 +362,25 @@ impl Fixture {
         let runtime = world.resource::<TransparentSortRuntime>();
         if runtime.gate.in_flight_generation().is_some() {
             let result = runtime.result_receiver.lock().unwrap().recv().unwrap();
+            self.jobs += 1;
+            self.sorted_refs += result
+                .output
+                .as_ref()
+                .map_or(0, |output| output.sorted_refs);
             runtime.result_sender.send(result).unwrap();
         }
     }
 }
 
-const STAGES: [RuntimeStage; 3] = [
+pub(super) const STAGES: [RuntimeStage; 3] = [
     RuntimeStage::TransparentPreparation,
     RuntimeStage::TransparentWorker,
     RuntimeStage::TransparentQueue,
 ];
 
 /// Returns per-stage samples and transparent upload bytes for one strafe pass.
-fn strafe_pass() -> ([crate::runtime_profile::RuntimeStageSample; 3], u64, usize) {
-    let mut fixture = fixture();
+fn strafe_pass(shore_period: i32) -> ([crate::runtime_profile::RuntimeStageSample; 3], u64, usize) {
+    let mut fixture = fixture_with(shore_period);
     let start = Vec3::new(3.3, 64.62, -40.7);
     for _ in 0..8 {
         fixture.frame(start);
@@ -261,10 +417,11 @@ fn strafe_pass() -> ([crate::runtime_profile::RuntimeStageSample; 3], u64, usize
     )
 }
 
-/// Strafing re-sorts and re-uploads only what moved, not the whole visible water set.
-#[test]
-fn strafing_over_water_uploads_only_changed_order() {
-    let passes = (0..3).map(|_| strafe_pass()).collect::<Vec<_>>();
+/// Runs three strafe passes over the ocean and prints each stage's fastest total.
+fn report_strafe(label: &str, shore_period: i32) -> (u64, usize) {
+    let passes = (0..3)
+        .map(|_| strafe_pass(shore_period))
+        .collect::<Vec<_>>();
     for (index, stage) in STAGES.iter().enumerate() {
         let best = passes
             .iter()
@@ -272,7 +429,7 @@ fn strafing_over_water_uploads_only_changed_order() {
             .min_by_key(|sample| sample.total)
             .unwrap();
         println!(
-            "{}: count={} total={:.3}ms mean={:.1}us max={:.1}us",
+            "{label} {}: count={} total={:.3}ms mean={:.1}us max={:.1}us",
             stage.name(),
             best.count,
             best.total.as_secs_f64() * 1e3,
@@ -281,8 +438,17 @@ fn strafing_over_water_uploads_only_changed_order() {
         );
     }
     let (_, uploaded, refs) = passes[0];
+    println!("{label} upload_bytes={uploaded} over {STRAFE_FRAMES} frames, committed_refs={refs}");
+    (uploaded, refs)
+}
+
+/// Strafing re-sorts and re-uploads only what moved, not the whole visible water set.
+#[test]
+fn strafing_over_water_uploads_only_changed_order() {
+    // Flat water needs no sort at all, so strafing over it sorts and uploads nothing.
+    assert_eq!(report_strafe("flat ocean", 0), (0, 0));
+    let (uploaded, refs) = report_strafe("ocean with shores", STRAFE_SHORE_PERIOD);
     let snapshot_bytes = (refs * size_of::<PackedTransparentDrawRef>()) as u64;
-    println!("upload_bytes={uploaded} over {STRAFE_FRAMES} frames, snapshot={snapshot_bytes}");
     assert!(refs > 0);
     assert!(
         uploaded < 20 * snapshot_bytes,

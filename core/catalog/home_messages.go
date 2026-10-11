@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
@@ -14,7 +13,7 @@ func applyMessageItems(message *Message, items []playermessaging.MessageItem) {
 			message.SubTitle = item.SubTitle
 		}
 		if message.Banner == "" {
-			_ = json.Unmarshal(item.SaleBanner, &message.Banner)
+			message.Banner = item.SaleBannerText()
 		}
 		if validArtworkURL(item.Image.URL) {
 			message.Images = append(message.Images, MessageImage{ID: item.Image.ID, Image: Image{URL: item.Image.URL}})

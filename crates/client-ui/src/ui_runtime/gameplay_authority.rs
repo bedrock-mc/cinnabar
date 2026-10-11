@@ -11,8 +11,6 @@ use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
-pub use inventory::SelectedStackSnapshot;
-
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
 const MILLIS_PER_SERVER_TICK: u64 = 50;
 
@@ -159,7 +157,7 @@ impl UiRuntime {
         let identity = player_runtime
             .selected_stack_snapshot()
             .and_then(|snapshot| match snapshot.state {
-                super::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => {
                     Some((snapshot.slot, stack.network_id, stack.metadata))
                 }
                 _ => None,
@@ -190,13 +188,13 @@ impl UiRuntime {
     pub fn drain_pending_inventory(&mut self, player_runtime: &mut player_state::PlayerState) {
         while let Some(sequenced) = player_runtime.inventory.apply_next() {
             let event = match sequenced.event {
-                super::InventoryAuthorityEvent::Inventory(event) => event,
-                super::InventoryAuthorityEvent::Registry(registry) => {
+                inventory::InventoryAuthorityEvent::Inventory(event) => event,
+                inventory::InventoryAuthorityEvent::Registry(registry) => {
                     self.observe_use_on_identity(
                         player_runtime,
                         sequenced.session_generation,
                         sequenced.fifo_sequence,
-                        &super::InventoryAuthorityEvent::Registry(registry),
+                        &inventory::InventoryAuthorityEvent::Registry(registry),
                     );
                     continue;
                 }
@@ -264,7 +262,7 @@ impl UiRuntime {
                 player_runtime,
                 sequenced.session_generation,
                 sequenced.fifo_sequence,
-                &super::InventoryAuthorityEvent::Inventory(event),
+                &inventory::InventoryAuthorityEvent::Inventory(event),
             );
         }
         player_runtime.inventory.finish_drain();

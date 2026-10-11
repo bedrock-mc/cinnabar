@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -39,7 +40,6 @@ func (f *feedFixture) service() *Service {
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{}, errors.New("offline")
 		},
-		CacheArt: func(context.Context, string, []*catalog.Image) {},
 	})
 }
 
@@ -144,29 +144,32 @@ func TestFailedRefreshKeepsCache(t *testing.T) {
 	}
 }
 
-// Pruning removes unreferenced artwork only, sparing the profile's and files still in use.
-func TestPruneRemovesOnlyUnreferencedImages(t *testing.T) {
+// Pruning removes only unreferenced old persona art; the client's cache files and recent or
+// referenced persona art stay.
+func TestPruneRemovesOnlyUnreferencedPersonaArt(t *testing.T) {
 	f := newFeedFixture(t)
 	path := func(name string) string { return filepath.Join(f.art, name) }
 	old := time.Now().Add(-time.Hour)
-	for _, name := range []string{"logo.img", "gamerpic.img", "stale.img", "young.img", "notes.txt"} {
+	names := []string{"persona-head.img", "persona-avatar-a.img", "persona-avatar-stale.img", "persona-avatar-young.img", "0123abcd.img", "notes.txt"}
+	for _, name := range names {
 		if err := os.WriteFile(path(name), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if name != "young.img" {
+		if name != "persona-avatar-young.img" {
 			_ = os.Chtimes(path(name), old, old)
 		}
 	}
-	f.featured = func() ([]catalog.FeaturedServer, error) {
-		return []catalog.FeaturedServer{{Name: "S", Logo: catalog.Image{Path: path("logo.img")}}}, nil
-	}
+	f.featured = func() ([]catalog.FeaturedServer, error) { return []catalog.FeaturedServer{{Name: "S"}}, nil }
 	service := f.service()
-	service.gamerpic = path("gamerpic.img")
+	service.snap.Home.Value.PersonaHead = catalog.Image{Path: path("persona-head.img")}
+	service.profileArt = path("persona-avatar-a.img")
 	if _, err := service.FeaturedServers(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	settle(service)
 	for name, want := range map[string]bool{
-		"logo.img": true, "gamerpic.img": true, "stale.img": false, "young.img": true, "notes.txt": true,
+		"persona-head.img": true, "persona-avatar-a.img": true, "persona-avatar-stale.img": false,
+		"persona-avatar-young.img": true, "0123abcd.img": true, "notes.txt": true,
 	} {
 		if _, err := os.Stat(path(name)); (err == nil) != want {
 			t.Fatalf("%s exists = %v, want %v", name, err == nil, want)
@@ -185,4 +188,88 @@ func TestLoadDropsMissingImagePaths(t *testing.T) {
 	if servers[0].Logo.Path != "" || servers[0].Logo.URL == "" {
 		t.Fatalf("logo = %+v", servers[0].Logo)
 	}
+}
+
+// A version-one cache survives a failed refresh, migrates on disk, and loads after restart.
+func TestVersionOneCacheSurvivesRefreshFailureAndRestart(t *testing.T) {
+	f := newFeedFixture(t)
+	f.writeCache(t, "Cached", "")
+	data, err := os.ReadFile(f.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.Version = 1
+	data, err = json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.featured = func() ([]catalog.FeaturedServer, error) { return nil, errors.New("offline") }
+	for range 2 {
+		service := f.service()
+		servers, err := service.FeaturedServers(context.Background())
+		settle(service)
+		if err != nil || len(servers) != 1 || servers[0].Name != "Cached" || servers[0].Group != "featured" {
+			t.Fatalf("servers = %+v, err = %v", servers, err)
+		}
+		home, err := service.Home(context.Background())
+		settle(service)
+		if err != nil || home.RealmInvites != 3 {
+			t.Fatalf("home = %+v, err = %v", home, err)
+		}
+	}
+	data, err = os.ReadFile(f.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &snap); err != nil || snap.Version != cacheVersion {
+		t.Fatalf("persisted version = %d, err = %v", snap.Version, err)
+	}
+}
+
+// Cached data stays available even when a refresh stalls beyond the requester's lifetime.
+func TestCachedFeaturedSurvivesStalledRefresh(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFeedFixture(t)
+		f.writeCache(t, "Cached", "")
+		release := make(chan struct{})
+		f.featured = func() ([]catalog.FeaturedServer, error) { <-release; return nil, errors.New("offline") }
+		service := f.service()
+		service.Prefetch()
+		synctest.Wait()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		servers, err := service.FeaturedServers(ctx)
+		close(release)
+		settle(service)
+		if err != nil || len(servers) != 1 || servers[0].Name != "Cached" {
+			t.Fatalf("servers = %+v, err = %v", servers, err)
+		}
+		if f.cachedFeatured(t) != "Cached" {
+			t.Fatal("failed refresh lost persisted data")
+		}
+	})
+}
+
+// A stalled cold fetch finishes before the caller's longer deadline expires.
+func TestStalledFeaturedFetchIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		service := New(Config{Account: testAccount(), Featured: func(ctx context.Context, _ *authcache.Account) ([]catalog.FeaturedServer, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, err := service.FeaturedServers(ctx)
+		settle(service)
+		if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			t.Fatalf("fetch err = %v, caller err = %v", err, ctx.Err())
+		}
+	})
 }

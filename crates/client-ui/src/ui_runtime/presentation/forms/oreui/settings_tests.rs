@@ -1,10 +1,13 @@
 //! Settings navigation and editing through the OreUI host without installed carriers.
 
-use super::*;
-use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingKind, SettingsGroup};
 use crate::ui_runtime::presentation::menu_scroll::{MenuScrolls, ScrollArea};
 use crate::ui_runtime::presentation::tests::fixture_font;
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind, SettingsGroup};
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 struct Frame {
     areas: Vec<ScrollArea>,
@@ -48,7 +51,7 @@ fn settings_view(section: &str) -> MenuView {
 
 #[test]
 fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
-    use crate::menu::settings_options::{
+    use launcher::menu::settings_options::{
         ANIMATIONS_OPTION, INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION,
     };
 
@@ -86,7 +89,7 @@ fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
 
 #[test]
 fn native_video_settings_exposes_smaa_and_supported_msaa_stops_together() {
-    use crate::menu::settings_options::SMAA_OPTION;
+    use launcher::menu::settings_options::SMAA_OPTION;
     let mut view = settings_view("video_forced_index");
     Arc::make_mut(&mut view.settings_options)
         .set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4]));
@@ -156,7 +159,7 @@ fn centre(bounds: UiRect) -> UiPoint {
 
 #[test]
 fn video_chat_position_choices_are_clickable_in_both_saved_states() {
-    use crate::menu::settings_options::CHAT_POSITION_OPTION;
+    use launcher::menu::settings_options::CHAT_POSITION_OPTION;
 
     let index = SETTINGS_OPTIONS
         .iter()
@@ -313,8 +316,8 @@ fn settings_small_text_selects_native_rasters_by_physical_size() {
 
 #[test]
 fn settings_native_font_keeps_css_line_boxes_and_pointer_caret_in_sync() {
-    use crate::menu::MenuField;
     use crate::ui_runtime::oreui_fonts::OreUiFont;
+    use launcher::menu::MenuField;
 
     let base = fixture_font();
     let native = base
@@ -885,7 +888,7 @@ fn settings_choice_rows_select_their_own_values() {
 
 #[test]
 fn native_video_settings_exposes_motion_blur_and_edits_all_presets() {
-    use crate::menu::settings_options::MOTION_BLUR_OPTION;
+    use launcher::menu::settings_options::MOTION_BLUR_OPTION;
 
     for size in [[640.0, 720.0], [1280.0, 720.0]] {
         let mut view = settings_view("video_forced_index");
@@ -1026,7 +1029,7 @@ fn settings_language_scroll_reveals_the_last_language() {
 
 #[test]
 fn native_video_settings_exposes_all_vrr_choices() {
-    use crate::menu::settings_options::VRR_OPTION;
+    use launcher::menu::settings_options::VRR_OPTION;
     let view = settings_view("video_forced_index");
     let index = SETTINGS_OPTIONS
         .iter()

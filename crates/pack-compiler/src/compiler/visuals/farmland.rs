@@ -36,8 +36,7 @@ pub(in crate::compiler) fn exact_farmland_moisture(record: &RegistryRecord) -> O
 }
 
 pub(in crate::compiler) fn farmland_collision_is_exact(record: &RegistryRecord) -> bool {
-    record.collision_seed.shape_id == 43
-        && record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
+    record.collision_seed.confidence == assets::CollisionConfidence::CollisionOnly
         && record.collision_seed.boxes.as_ref()
             == [assets::CollisionBox {
                 min_x: 0,
@@ -153,6 +152,10 @@ pub(in crate::compiler) fn farmland_source_alpha_is_exact(root: &Path, pack: &Pa
         let Ok(rgba8) = decode_static_texture(&path, key) else {
             return false;
         };
-        rgba8.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX)
+        rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == u8::MAX)
     })
 }

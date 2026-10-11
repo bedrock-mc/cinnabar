@@ -6,8 +6,8 @@ use render_model::equipment::{BoneChannels, attach};
 use std::sync::Arc;
 
 /// Creates one deterministic icon reference for geometry assertions.
-pub(crate) fn source(page: u16) -> super::super::super::IconRef {
-    super::super::super::IconRef {
+pub(crate) fn source(page: u16) -> ui::IconRef {
+    ui::IconRef {
         page,
         uv: [10, 20, 26, 36],
         glint: false,
@@ -104,7 +104,7 @@ pub fn assert_installed_shield(
         }
     });
     let shield = PreviewHeldModel {
-        source: super::super::super::IconRef {
+        source: ui::IconRef {
             uv: [0, 0, texture.width, texture.height],
             ..source(8)
         },
