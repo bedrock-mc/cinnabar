@@ -7209,3 +7209,7 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+Crack surfaces now follow the admitted runtime asset identity as well as block
+identity, transform, and column displacement. Resource reload replaces cached
+surfaces in the current session; unchanged assets keep shared geometry.
