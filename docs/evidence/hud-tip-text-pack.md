@@ -19,6 +19,12 @@ Build, version, scenario and scale: `cargo test -p client-ui` in this
 checkout, 1920x1080 at `DpiScale 1.0`, a populated session (stats, hotbar,
 sidebar, boss bar, title, chat) plus a four-line tip text.
 
+The dump builds its presentation through `pack_harness::font()`, which is the
+installed Cinnangles Sans carrier when `.local/assets/compiled` has been built
+(`make assets`). The stub font every other engine fixture uses fills each glyph
+with a solid white texel, so a frame drawn on it shows text as flat blocks and
+carries no ink information.
+
 ## Without the pack
 
 The tip text's own `hud_tip_text` template draws it just above the status
@@ -50,7 +56,6 @@ array list.
 
 ## Limitations
 
-The CPU raster draws text as coverage-font quads without glyph ink, so the
-frames show block geometry rather than legible glyphs. Geometry, anchoring
-and layering are what the frames verify; the GPU path on the target
-platform has not been run, so no native parity or frame-budget gate closes.
+The frames come from the offline CPU raster of the real pack, not the GPU
+path on the target platform. Geometry, anchoring, layering and glyph ink are
+what they verify; no native parity or frame-budget gate closes.

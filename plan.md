@@ -381,10 +381,14 @@
   earlier lines above it; and a pack retargeting `hud_tip_text` moving it to the
   top right. Text routing and localization tests assert the tip's own slot.
 - A captured offline frame pass renders a real HUD frame at 1920x1080 under the
-  Lumine UI pack and without it. Without the pack the multi-line tip sits just
-  above the status row, its last line on the tip position; with the pack the
-  same block moves to the screen's top right, right-aligned, exactly where
-  vanilla draws it. See `docs/evidence/hud-tip-text-pack.md`.
+  Lumine UI pack and without it, on the installed Cinnangles Sans carrier so the
+  glyph ink is legible. Without the pack the multi-line tip sits just above the
+  status row, its last line on the tip position; with the pack the same block
+  moves to the screen's top right, right-aligned, exactly where vanilla draws
+  it. `server_pack_stack_hud_dump` builds its presentation through
+  `pack_harness::font()`, which the fixture stub font cannot substitute for: the
+  stub fills every glyph with a solid white texel, so frames drawn on it show
+  text as flat blocks. See `docs/evidence/hud-tip-text-pack.md`.
 - Incomplete: the frame pass uses the offline CPU raster of the real pack, not
   the GPU path on the target platform; no native parity or frame-budget gate
   closes. Two pre-existing failures are unrelated:

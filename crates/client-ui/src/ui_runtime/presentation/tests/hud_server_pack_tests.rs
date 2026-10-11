@@ -5,9 +5,9 @@
 use json_ui::{Draw, DrawNode};
 use protocol::{PlayerGameMode, ScoreIdentity as ProtocolScoreIdentity};
 
-use super::engine_hud_tests::engine_presentation;
+use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
-use crate::ui_runtime::presentation::forms::pack_harness::dir_pack;
+use crate::ui_runtime::presentation::forms::pack_harness::{dir_pack, font};
 
 const PACK_ENV: &str = "CINNABAR_HUD_PACK_DIRS";
 
@@ -229,7 +229,7 @@ fn server_pack_stack_hud_dump() {
         );
         return;
     };
-    let Some(mut presentation) = engine_presentation() else {
+    let Some(mut presentation) = engine_presentation_with(font()) else {
         eprintln!(
             "skipping server_pack_stack_hud_dump: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
         );
