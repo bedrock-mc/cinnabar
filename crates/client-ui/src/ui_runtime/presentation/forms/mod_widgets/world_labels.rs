@@ -173,7 +173,7 @@ mod tests {
     }
     #[test]
     fn labels_hide_without_camera_behind_it_and_outside_frustum() {
-        let matrix = bevy::math::Mat4::perspective_rh(1.0, 16. / 9., 0.1, 1000.).to_cols_array();
+        let matrix = bevy::math::proj::perspective(1.0, 16. / 9., 0.1, 1000.).to_cols_array();
         assert!(!visible([0., 0., -10.], None));
         assert!(visible([0., 0., -10.], Some(matrix)));
         assert!(!visible([0., 0., 10.], Some(matrix)));

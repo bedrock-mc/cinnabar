@@ -350,7 +350,7 @@ fn drive_mod(
     observation: (
         Option<Res<registration::Watcher>>,
         Option<ResMut<::render::ModRenderScene>>,
-        Query<(&GlobalTransform, &Projection), With<crate::camera::FlyCamera>>,
+        Query<(&GlobalTransform, &Projection), With<client_presentation::camera::FlyCamera>>,
         Local<presentation_facts::FrameRate>,
     ),
 ) {
@@ -618,9 +618,9 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
-            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
-                1,
-            )))
+            .insert_resource(client_state::PlayerRuntime(
+                ::player_state::PlayerState::new(1),
+            ))
             .insert_resource(ButtonInput::<KeyCode>::default());
         let window = app
             .world_mut()
