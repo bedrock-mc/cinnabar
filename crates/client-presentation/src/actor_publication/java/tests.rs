@@ -38,6 +38,7 @@ pub(super) fn head_stream() -> WorldStream {
 /// Starts the local player with a stationary, empty-handed pose.
 pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
         username: Arc::from("Player"),

@@ -598,6 +598,31 @@ pub fn prepare_actor_render_frame(
         crate::presentation::actors::light_bodies(&mut batch, stream);
     }
     let selected_count = batch.submissions.len();
+    if let (Some(stream), Some(render_frame)) =
+        (client_world.stream.as_ref(), render_frame.as_mut())
+    {
+        crate::presentation::entity_layers::apply_render_layers_cached(
+            &mut batch,
+            |runtime_id| {
+                if !stream
+                    .authority()
+                    .actor(runtime_id)
+                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }))
+                {
+                    return None;
+                }
+                if runtime_id == local_runtime_id
+                    && let Some(pose) = &local_emote_pose
+                {
+                    Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
+                } else {
+                    render_frame.layers(runtime_id)
+                }
+            },
+            artwork,
+            layer_poses,
+        );
+    }
     if let (Some(equipment), Some(stream)) =
         (equipment.as_deref_mut(), client_world.stream.as_ref())
     {
@@ -653,11 +678,18 @@ pub fn prepare_actor_render_frame(
         );
     }
 
-    // After equipment, which rides the rig's own model even when a controller draws another.
+    // Entity equipment rides the original rig even when a controller draws another model.
     if let Some(render_frame) = render_frame.as_mut() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
+                if client_world.stream.as_ref().is_some_and(|stream| {
+                    stream.authority().actor(runtime_id).is_some_and(|actor| {
+                        matches!(actor.kind, protocol::ActorKind::Player { .. })
+                    })
+                }) {
+                    return None;
+                }
                 if runtime_id == local_runtime_id
                     && let Some(pose) = &local_emote_pose
                 {

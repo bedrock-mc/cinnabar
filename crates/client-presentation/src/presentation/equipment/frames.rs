@@ -184,6 +184,7 @@ enum Held {
 
 fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),

@@ -5,6 +5,9 @@ use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementInput {
+    /// Spectator travel ignores terrain collision and block contact effects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spectator: bool,
     pub strafe: f64,
     pub forward: f64,
     pub yaw_degrees: f64,

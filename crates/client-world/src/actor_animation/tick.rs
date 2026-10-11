@@ -54,6 +54,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local: bool,
     /// The client's own player is flying.
     pub(crate) is_flying: bool,
+    /// The committed level default resolves players that use the default mode.
+    pub(crate) world_game_mode: Option<protocol::PlayerGameMode>,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
