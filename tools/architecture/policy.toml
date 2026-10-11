@@ -59,7 +59,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["block-transform", "world"]
+allowed_dependencies = ["block-transform"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 
 [[crates]]
