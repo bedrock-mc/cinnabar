@@ -41,6 +41,8 @@ github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca h1:C1HG
 github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261007123404-36c6931b92ac h1:eYEoGfA3HltuMYyjyS/m45dvo6U5qJ8Et3hZpsRva5g=
 github.com/hashimthearab/gophertunnel v1.25.3-0.20261007123404-36c6931b92ac/go.mod h1:IUEh1CfJyWrcEvD8z/Zsp4Lo/v6jG30iz4NXUijEI7M=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261011201053-169f954bbe81 h1:LH+kRsaj9OQaA+pueHYMkPFVBAJiX1RCnsIMtoUnnxU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261011201053-169f954bbe81/go.mod h1:IUEh1CfJyWrcEvD8z/Zsp4Lo/v6jG30iz4NXUijEI7M=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=

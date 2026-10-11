@@ -4,7 +4,7 @@ use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
 
 use client_world::CommittedControlEvent;
 
-mod atmosphere;
+pub(crate) mod atmosphere;
 mod diagnostics;
 pub(crate) use diagnostics::log_world_lighting;
 mod time_override;

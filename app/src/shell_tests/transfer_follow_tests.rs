@@ -1,5 +1,6 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
+use client_shell::menu::test_support as menu_fixture;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -101,7 +102,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         missing_core_layout(root.path()),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
-    menu.suppress_catalog_for_test();
+    menu_fixture::suppress_catalog(&mut menu);
     menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
@@ -213,7 +214,7 @@ fn cancellation_precedes_a_ready_join_response() {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.activate(MenuAction::Navigate(MenuScreen::Play));
         menu.show_connecting();
-        menu.request_disconnect_for_test();
+        menu_fixture::request_disconnect(&mut menu);
     }
     app.update();
     let menu = app.world().resource::<MenuRuntime>();
@@ -250,9 +251,7 @@ fn a_join_frame_does_not_wait_for_the_core() {
     assert!(menu.is_connecting() && joining);
     assert!(menu.view().connecting);
 
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .request_disconnect_for_test();
+    menu_fixture::request_disconnect(&mut app.world_mut().resource_mut::<MenuRuntime>());
     app.update();
     let menu = app.world().resource::<MenuRuntime>();
     assert!(!menu.is_connecting());
@@ -336,7 +335,7 @@ fn failed_automatic_replacement(
         menu.request_local_world_join("Local world".into(), true);
         menu.sync_local_worlds(&mut local_worlds, false);
         menu.take_join_intent().unwrap();
-        assert!(menu.local_world_state_for_test() == (true, true));
+        assert!(menu_fixture::local_world_state(&menu) == (true, true));
     }
     menu.show_world();
     if from_settings {
@@ -401,7 +400,7 @@ fn failed_automatic_replacement(
             "local teardown must finish first"
         );
         menu.sync_local_worlds(&mut local_worlds, false);
-        assert!(menu.local_world_state_for_test() == (false, false));
+        assert!(menu_fixture::local_world_state(&menu) == (false, false));
     }
     assert!(menu.view().can_reconnect);
     menu.activate(MenuAction::Reconnect);

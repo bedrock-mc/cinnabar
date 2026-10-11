@@ -11,9 +11,28 @@ use crate::{
     shader_source,
 };
 
+#[derive(Clone, Copy)]
+struct FrameCase {
+    glow: bool,
+    item: bool,
+    support: bool,
+    light: f32,
+}
+
+impl Default for FrameCase {
+    fn default() -> Self {
+        Self {
+            glow: false,
+            item: true,
+            support: true,
+            light: 1.0,
+        }
+    }
+}
+
 /// Creates a brown frame and an asymmetric item entirely from original diagnostic pixels.
 fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
-    let mut atlas = vec![0; 32 * 16 * 4];
+    let mut atlas = vec![0; 64 * 16 * 4];
     let mut item = vec![0; 16 * 16 * 4];
     for y in 0..16 {
         for x in 0..16 {
@@ -23,7 +42,15 @@ fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
             } else {
                 [193, 130, 57, 255]
             };
-            atlas[(y * 32 + x) * 4..(y * 32 + x + 1) * 4].copy_from_slice(&color);
+            atlas[(y * 64 + x) * 4..(y * 64 + x + 1) * 4].copy_from_slice(&color);
+            let wood = if y % 4 == 0 {
+                [210, 155, 65, 255]
+            } else {
+                [240, 200, 100, 255]
+            };
+            atlas[(y * 64 + x + 32) * 4..(y * 64 + x + 33) * 4].copy_from_slice(&wood);
+            atlas[(y * 64 + x + 48) * 4..(y * 64 + x + 49) * 4]
+                .copy_from_slice(&[24, 220, 255, 255]);
             let color = if (5..11).contains(&x) && (2..8).contains(&y) {
                 [32, 255, 32, 255]
             } else if (6..10).contains(&x) && (8..14).contains(&y) {
@@ -32,17 +59,22 @@ fn artwork() -> (assets::RuntimeBlockEntityAssets, Vec<u8>) {
                 [0; 4]
             };
             item[(y * 16 + x) * 4..(y * 16 + x + 1) * 4].copy_from_slice(&color);
-            atlas[(y * 32 + x + 16) * 4..(y * 32 + x + 17) * 4].copy_from_slice(&color);
+            atlas[(y * 64 + x + 16) * 4..(y * 64 + x + 17) * 4].copy_from_slice(&color);
         }
     }
-    let placement = assets::BlockEntityPlacement {
-        name: "textures/blocks/itemframe_background".into(),
-        x: 0,
-        y: 0,
-        width: 16,
-        height: 16,
-    };
-    let bytes = assets::encode_block_entity_catalog(b"{}", 32, 16, &atlas, &[placement]).unwrap();
+    let mut placements: Vec<_> = assets::block_entity_geometry::ITEM_FRAME_TEXTURES
+        .into_iter()
+        .zip([32, 0, 48])
+        .map(|(name, x)| assets::BlockEntityPlacement {
+            name: name.into(),
+            x,
+            y: 0,
+            width: 16,
+            height: 16,
+        })
+        .collect();
+    placements.sort_by(|a, b| a.name.cmp(&b.name));
+    let bytes = assets::encode_block_entity_catalog(b"{}", 64, 16, &atlas, &placements).unwrap();
     (
         assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap(),
         item,
@@ -54,6 +86,7 @@ fn geometry(
     outward: u8,
     support_normal: Vec3,
     rotation: u8,
+    case: FrameCase,
 ) -> (Vec<BlockEntityVertex>, Vec<u8>, [u32; 2], u32) {
     let (assets, item) = artwork();
     let mut scene = BlockEntityScene::default();
@@ -63,9 +96,9 @@ fn geometry(
         &[],
         &[BlockEntitySubmission {
             block: [0; 3],
-            light: 1.0.into(),
+            light: case.light.into(),
             kind: BlockEntityKind::ItemFrame(ItemFrameModel {
-                glow: false,
+                glow: case.glow,
                 outward,
                 map: None,
             }),
@@ -86,6 +119,9 @@ fn geometry(
     for vertex in
         render_model::extruded_sprite_vertices(16, 16, &item, [0.0, 0.0, 1.0, 1.0]).unwrap()
     {
+        if !case.item {
+            break;
+        }
         vertices.push(BlockEntityVertex {
             position: transform(vertex.position, 1.0),
             normal: transform(vertex.normal, 0.0),
@@ -114,6 +150,9 @@ fn geometry(
         color: [0.58, 0.67, 0.75, 1.0],
         ..*vertex
     }));
+    if !case.support {
+        vertices.truncate(textured_end as usize);
+    }
     (vertices, pixels, atlas.size, textured_end)
 }
 
@@ -122,12 +161,13 @@ fn render_face(
     gpu: &Gpu,
     source: &str,
     outward: u8,
-    normal: Vec3,
-    up: Vec3,
+    basis: (Vec3, Vec3),
     oblique: bool,
     rotation: u8,
+    case: FrameCase,
 ) -> Vec<u8> {
-    let (vertices, pixels, size, textured_end) = geometry(outward, normal, rotation);
+    let (normal, up) = basis;
+    let (vertices, pixels, size, textured_end) = geometry(outward, normal, rotation, case);
     let center = Vec3::splat(0.5) - normal * (ITEM_FRAME_PANEL_FRONT_PIXELS / 16.0);
     let eye = center
         + normal * 2.3
@@ -269,7 +309,15 @@ fn every_mount_shows_a_centered_upright_item_in_front_of_its_support() {
     let mut coverage = Vec::new();
     for (index, (name, normal, up)) in faces.into_iter().enumerate() {
         for oblique in [false, true] {
-            let pixels = render_face(&gpu, &source, facings[index], normal, up, oblique, 0);
+            let pixels = render_face(
+                &gpu,
+                &source,
+                facings[index],
+                (normal, up),
+                oblique,
+                0,
+                FrameCase::default(),
+            );
             gpu_snapshot::save(
                 &format!(
                     "item-frame-{name}-{}",
@@ -287,7 +335,15 @@ fn every_mount_shows_a_centered_upright_item_in_front_of_its_support() {
     for index in [0, 2] {
         let (name, normal, up) = faces[index];
         for step in 0..8 {
-            let pixels = render_face(&gpu, &source, facings[index], normal, up, false, step);
+            let pixels = render_face(
+                &gpu,
+                &source,
+                facings[index],
+                (normal, up),
+                false,
+                step,
+                FrameCase::default(),
+            );
             gpu_snapshot::save(&format!("item-frame-{name}-rotation-{step}"), &pixels);
             let (count, center) = green_centroid(&pixels);
             let midpoint = (gpu_snapshot::SNAPSHOT_SIDE as f32 - 1.0) / 2.0;
@@ -318,6 +374,90 @@ fn every_mount_shows_a_centered_upright_item_in_front_of_its_support() {
         assert!(
             forward > 8.0 && sideways.abs() < 2.0,
             "{name} rotation {step}: item must turn clockwise about its center ({forward}, {sideways})"
+        );
+    }
+}
+
+#[test]
+fn frame_artwork_has_a_wooden_rim_and_a_distinct_backing() {
+    let Some(gpu) = Gpu::for_fixture("item frame artwork") else {
+        return;
+    };
+    eprintln!("frame artwork backend: {:?}", gpu.backend);
+    let source = shader_source::standalone(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        &[],
+    )
+    .replace(
+        "BLOCK_ENTITY_VERTEX_WORDS",
+        &format!("{BLOCK_ENTITY_VERTEX_WORDS}u"),
+    )
+    .replace(
+        "BLOCK_SELECTION_VERTICES_PER_EDGE",
+        &format!("{}u", render::BLOCK_SELECTION_VERTICES_PER_EDGE),
+    )
+    .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
+    .replace("@group(1) @binding(1)", "@group(0) @binding(6)");
+    let faces = [
+        ("down", Vec3::NEG_Y, Vec3::Z),
+        ("up", Vec3::Y, Vec3::NEG_Z),
+        ("north", Vec3::NEG_Z, Vec3::Y),
+        ("south", Vec3::Z, Vec3::Y),
+        ("west", Vec3::NEG_X, Vec3::Y),
+        ("east", Vec3::X, Vec3::Y),
+    ];
+    let mut rim_counts = Vec::new();
+    for glow in [false, true] {
+        let case = FrameCase {
+            glow,
+            item: false,
+            support: false,
+            light: 1.0,
+        };
+        let name = if glow { "glow" } else { "normal" };
+        for (outward, (face, normal, up)) in faces.into_iter().enumerate() {
+            for oblique in [false, true] {
+                let pixels =
+                    render_face(&gpu, &source, outward as u8, (normal, up), oblique, 0, case);
+                gpu_snapshot::save(
+                    &format!(
+                        "frame-artwork-{name}-{face}-{}",
+                        if oblique { "side" } else { "front" }
+                    ),
+                    &pixels,
+                );
+                if !oblique && outward == 2 {
+                    let count = pixels
+                        .chunks_exact(4)
+                        .filter(|p| p[0] > 160 && p[1] > 100 && p[2] < 100)
+                        .count();
+                    rim_counts.push((name, count));
+                }
+            }
+        }
+        let pixels = render_face(&gpu, &source, 2, (Vec3::Z, Vec3::Y), true, 0, case);
+        gpu_snapshot::save(&format!("frame-artwork-{name}-back"), &pixels);
+        let dark = FrameCase { light: 0.1, ..case };
+        let pixels = render_face(&gpu, &source, 2, (Vec3::NEG_Z, Vec3::Y), false, 0, dark);
+        gpu_snapshot::save(&format!("frame-artwork-{name}-dark"), &pixels);
+        let center = gpu_snapshot::SNAPSHOT_SIDE as usize / 2;
+        let pixel = &pixels[(center * gpu_snapshot::SNAPSHOT_SIDE as usize + center) * 4..][..4];
+        if glow {
+            assert!(
+                pixel[1] > 150 && pixel[2] > 180,
+                "glow backing retains light in darkness: {pixel:?}"
+            );
+        } else {
+            assert!(
+                pixel[0] < 50,
+                "ordinary backing retains world light: {pixel:?}"
+            );
+        }
+    }
+    for (name, count) in rim_counts {
+        assert!(
+            count > 100,
+            "{name}: distinct wooden rim must be visible ({count})"
         );
     }
 }
