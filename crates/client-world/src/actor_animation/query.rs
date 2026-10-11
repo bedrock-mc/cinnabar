@@ -1,3 +1,4 @@
+use assets::{MolangQuery as Q, MolangQueryHandler};
 use {
     super::{evaluation::MolangValue, *},
     world::TICK_DURATION as ACTOR_TICK_DURATION,
@@ -12,6 +13,8 @@ mod player_tests;
 #[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
+mod manifest_tests;
+#[cfg(test)]
 mod pack_query_tests;
 #[cfg(test)]
 mod potion_tests;
@@ -21,66 +24,6 @@ mod tropical_fish_tests;
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
 // `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
 // zero); flag bits from 64 live in the overflow flag word.
-const FLAG_QUERIES: [(&str, u32); 57] = [
-    ("blocking", FLAG_BLOCKING),
-    ("can_damage_nearby_mobs", FLAG_DAMAGE_NEARBY_MOBS),
-    ("facing_target_to_range_attack", 88),
-    ("has_dash_cooldown", 108),
-    ("is_admiring", 94),
-    ("is_angry", FLAG_ANGRY),
-    ("is_baby", FLAG_BABY),
-    ("is_casting", 42),
-    ("is_celebrating", 93),
-    ("is_celebrating_special", 95),
-    ("is_charged", 27),
-    ("is_charging", 43),
-    ("is_chested", 36),
-    ("is_crawling", crate::actor_store::ACTOR_FLAG_CRAWLING),
-    ("is_croaking", 101),
-    ("is_dancing", 51),
-    ("is_delayed_attacking", 85),
-    ("is_digging", 106),
-    ("is_eating", 63),
-    ("is_eating_mob", 102),
-    ("is_elder", 33),
-    ("is_emerging", 104),
-    ("is_emoting", FLAG_EMOTING),
-    ("is_gliding", FLAG_GLIDING),
-    // Reads the eating flag; needs independent measurement against grazing animals.
-    ("is_grazing", 63),
-    ("is_in_ui", 90),
-    ("is_interested", 26),
-    ("is_invisible", 5),
-    ("is_jump_goal_jumping", 103),
-    ("is_laying_egg", 60),
-    ("is_leashed", 30),
-    ("is_playing_dead", 98),
-    ("is_powered", 9),
-    ("is_pregnant", 59),
-    ("is_resting", 23),
-    ("is_roaring", 84),
-    ("is_saddled", 8),
-    ("is_scared", 68),
-    ("is_searching", 113),
-    ("is_shaking", 40),
-    ("is_shaking_wetness", 40),
-    ("is_sheared", 31),
-    ("is_sitting", crate::actor_store::ACTOR_FLAG_SITTING),
-    ("is_sneaking", FLAG_SNEAKING),
-    ("is_sniffing", 105),
-    ("is_sonic_boom", 107),
-    ("is_sprinting", 3),
-    ("is_stalking", 91),
-    ("is_standing", FLAG_STANDING),
-    ("is_stunned", 83),
-    ("is_swimming", 57),
-    ("is_tamed", FLAG_TAMED),
-    ("is_using_item", FLAG_USING_ITEM),
-    ("show_bottom", 38),
-    ("timer_flag_1", 115),
-    ("timer_flag_2", 116),
-    ("timer_flag_3", 117),
-];
 pub(super) const FLAG_SNEAKING: u32 = 1;
 pub(super) const FLAG_USING_ITEM: u32 = 4;
 pub(super) use crate::actor_store::FLAG_BABY;
@@ -91,23 +34,7 @@ pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 use crate::actor_store::ACTOR_FLAG_TAMED as FLAG_TAMED;
 
-const INTEGER_QUERIES: [(&str, u32); 9] = [
-    ("fuse_time", 55),
-    ("invulnerable_ticks", 48),
-    ("mark_variant", 43),
-    ("max_trade_tier", 102),
-    ("skin_id", 104),
-    ("structural_integrity", 1),
-    ("swelling_dir", 21),
-    ("trade_tier", 101),
-    ("variant", crate::actor_store::VARIANT_METADATA_KEY),
-];
 const KEY_CARRY_BLOCK: u32 = 23;
-const FLOAT_QUERIES: [(&str, u32, f32); 3] = [
-    ("model_scale", 38, 1.0),
-    ("sit_amount", 89, 0.0),
-    ("lie_amount", 93, 0.0),
-];
 const KEY_NAME: u32 = 4;
 const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
@@ -130,9 +57,6 @@ const AQUATIC: [&str; 10] = [
     "dolphin",
     "axolotl",
 ];
-
-// Equipment queries without a committed source retain their idle value.
-const IDLE_QUERIES: [(&str, f32); 1] = [("has_head_gear", 0.0)];
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -159,13 +83,12 @@ pub(super) struct QueryInputs<'a> {
 /// reads its idle value (0.0, or `''` for names).
 pub(super) fn query(
     evaluator: &QueryInputs<'_>,
-    identifier: &str,
+    name: Q,
     arguments: &[MolangValue],
 ) -> MolangValue {
-    let name = identifier.strip_prefix("query.").unwrap_or(identifier);
     let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
     match name {
-        "is_spectator" => MolangValue::Number(truth(match evaluator.actor.player_game_mode {
+        Q::IsSpectator => MolangValue::Number(truth(match evaluator.actor.player_game_mode {
             Some(protocol::GameModeUpdate::Explicit(mode)) => {
                 mode == protocol::PlayerGameMode::Spectator
             }
@@ -174,21 +97,21 @@ pub(super) fn query(
             }
             _ => false,
         })),
-        "get_equipped_item_name" => {
+        Q::GetEquippedItemName => {
             text(hand_item(evaluator.context, arguments.first()).map(item_name))
         }
-        "get_name" => text(match evaluator.actor.metadata.get(&KEY_NAME) {
+        Q::GetName => text(match evaluator.actor.metadata.get(&KEY_NAME) {
             Some(ActorMetadataValue::String(name)) => Some(name.as_ref()),
             _ => None,
         }),
-        "owner_identifier" => text(evaluator.context.attachable.map(
+        Q::OwnerIdentifier => text(evaluator.context.attachable.map(
             |_| match &evaluator.actor.kind {
                 ActorKind::Player { .. } => "minecraft:player",
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
         // Native query requires a string argument; unknown names pass through.
-        "item_slot_to_bone_name" => text(evaluator.context.attachable.and_then(|_| {
+        Q::ItemSlotToBoneName => text(evaluator.context.attachable.and_then(|_| {
             let Some(MolangValue::String(slot)) = arguments.first() else {
                 return None;
             };
@@ -198,8 +121,8 @@ pub(super) fn query(
                 name => name,
             })
         })),
-        "property" => property(evaluator, arguments.first()),
-        "has_property" => MolangValue::Number(truth(match arguments {
+        Q::Property => property(evaluator, arguments.first()),
+        Q::HasProperty => MolangValue::Number(truth(match arguments {
             [MolangValue::String(name)] => {
                 evaluator
                     .context
@@ -213,7 +136,7 @@ pub(super) fn query(
             }
             _ => false,
         })),
-        "get_default_bone_pivot" => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
+        Q::GetDefaultBonePivot => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
 }
@@ -285,9 +208,9 @@ fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) ->
     }
 }
 
-fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> f32 {
+fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f32 {
     let (actor, input, context) = (evaluator.actor, evaluator.input, evaluator.context);
-    if name == "anim_time"
+    if name == Q::AnimTime
         && let Some(time) = evaluator.anim_time
     {
         return time;
@@ -297,47 +220,48 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             attachable.max_use_ticks.saturating_sub(elapsed)
         }) as f32;
         match name {
-            "frame_alpha" => return attachable.frame_alpha,
-            "get_animation_frame" => return attachable.animation_frame as f32,
-            "main_hand_item_use_duration" | "item_remaining_use_duration" => return remaining,
-            "main_hand_item_max_duration" => return attachable.max_use_ticks as f32,
-            "is_using_item" => return truth(attachable.use_elapsed_ticks.is_some()),
-            "anim_time" => return (evaluator.anim_tick as f32 + attachable.frame_alpha) * 0.05,
-            "life_time" => {
+            Q::FrameAlpha => return attachable.frame_alpha,
+            Q::GetAnimationFrame => return attachable.animation_frame as f32,
+            Q::MainHandItemUseDuration | Q::ItemRemainingUseDuration => return remaining,
+            Q::MainHandItemMaxDuration => return attachable.max_use_ticks as f32,
+            Q::IsUsingItem => return truth(attachable.use_elapsed_ticks.is_some()),
+            Q::AnimTime => return (evaluator.anim_tick as f32 + attachable.frame_alpha) * 0.05,
+            Q::LifeTime => {
                 return (attachable.owner_life_tick as f32 + attachable.frame_alpha) * 0.05;
             }
             _ => {}
         }
     }
     let argument = |index: usize| arguments.get(index).map(MolangValue::number);
-    if name == "is_in_ui" && evaluator.context.is_in_ui {
+    if name == Q::IsInUi && evaluator.context.is_in_ui {
         return 1.0;
     }
-    if name == "is_grazing" && actor.is_horse() {
+    if name == Q::IsGrazing && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
-    if name == "swelling_dir" && actor.is_creeper() {
+    if name == Q::SwellingDir && actor.is_creeper() {
         return actor.creeper_swelling_direction();
     }
-    if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
-        return truth(actor_flag(actor, *bit));
+    if let MolangQueryHandler::Flag(bit) = name.descriptor().handler {
+        return truth(actor_flag(actor, bit));
     }
-    if name == "variant"
+    if name == Q::Variant
         && let Some(variant) = potion::variant(actor)
     {
         return variant;
     }
-    if let Some(key) = integer_query_key(name) {
-        return metadata_number(actor, key).unwrap_or(0.0);
-    }
-    if let Some((_, key, idle)) = FLOAT_QUERIES.iter().find(|(query, ..)| *query == name) {
-        return metadata_number(actor, *key).unwrap_or(*idle);
-    }
-    if let Some((_, idle)) = IDLE_QUERIES.iter().find(|(query, _)| *query == name) {
-        return *idle;
+    match name.descriptor().handler {
+        MolangQueryHandler::IntegerMetadata(key) => {
+            return metadata_number(actor, key).unwrap_or(0.0);
+        }
+        MolangQueryHandler::FloatMetadata { key, idle } => {
+            return metadata_number(actor, key).unwrap_or(idle);
+        }
+        MolangQueryHandler::Unimplemented => return 0.0,
+        _ => {}
     }
     match name {
-        "approx_eq" => {
+        Q::ApproxEq => {
             let Some((first, rest)) = arguments.split_first().filter(|(_, rest)| !rest.is_empty())
             else {
                 return 0.0;
@@ -347,27 +271,27 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                     .all(|argument| first.number() == argument.number()),
             )
         }
-        "is_local_player" => truth(context.is_local_player),
-        "is_on_fire" => truth(actor.is_on_fire()),
-        "frame_alpha" => context.frame_alpha,
-        "anim_time" => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
-        "life_time" => {
+        Q::IsLocalPlayer => truth(context.is_local_player),
+        Q::IsOnFire => truth(actor.is_on_fire()),
+        Q::FrameAlpha => context.frame_alpha,
+        Q::AnimTime => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
+        Q::LifeTime => {
             (evaluator.life_tick as f32 + context.frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "delta_time" => delta_time(context),
-        "modified_distance_moved" => input.distance_moved,
-        "modified_move_speed" => input.move_speed,
-        "walk_distance" => input.walk_distance,
-        "ground_speed" => input.velocity[0].hypot(input.velocity[2]),
-        "vertical_speed" => input.velocity[1],
-        "wing_flap_position" => actor
+        Q::DeltaTime => delta_time(context),
+        Q::ModifiedDistanceMoved => input.distance_moved,
+        Q::ModifiedMoveSpeed => input.move_speed,
+        Q::WalkDistance => input.walk_distance,
+        Q::GroundSpeed => input.velocity[0].hypot(input.velocity[2]),
+        Q::VerticalSpeed => input.velocity[1],
+        Q::WingFlapPosition => actor
             .dragon_animation
             .as_ref()
             .map_or(0.0, |state| state.flap_phase),
-        "position_delta" => argument(0)
+        Q::PositionDelta => argument(0)
             .filter(|axis| (0.0..3.0).contains(axis))
             .map_or(0.0, |axis| input.position_delta[axis as usize]),
-        "movement_direction" => {
+        Q::MovementDirection => {
             let length = input
                 .position_delta
                 .iter()
@@ -380,24 +304,24 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 })
         }
         // Degrees; billboards turn to face the view, sampled at the last camera feed.
-        "camera_rotation" => argument(0).map_or(0.0, |axis| match axis as i32 {
+        Q::CameraRotation => argument(0).map_or(0.0, |axis| match axis as i32 {
             0 => context.camera_rotation[0],
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
         // Native actor-state position, before the actor store removes collision offsets.
-        "position" if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
+        Q::Position if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
             0 => input.position[0],
             1 => input.position[1] + actor.network_position_offset(),
             2 => input.position[2],
             _ => 0.0,
         }),
-        "position" => 0.0,
-        "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
+        Q::Position => 0.0,
+        Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
         }),
-        "distance_from_camera" => distance_from_camera(input, context),
-        "camera_distance_range_lerp" => match arguments {
+        Q::DistanceFromCamera => distance_from_camera(input, context),
+        Q::CameraDistanceRangeLerp => match arguments {
             [start, end] => camera_distance_range_lerp(
                 distance_from_camera(input, context),
                 start.number(),
@@ -405,51 +329,51 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             ),
             _ => 0.0,
         },
-        "texture_frame_index" => texture_frame_index(actor),
+        Q::TextureFrameIndex => texture_frame_index(actor),
         // Client-derived from the Hurt event; streamed metadata is not authoritative.
-        "overlay_alpha" => {
+        Q::OverlayAlpha => {
             if actor.hurt_overlay_active() {
                 crate::actor_store::HURT_OVERLAY_ALPHA
             } else {
                 0.0
             }
         }
-        "hurt_time" => f32::from(actor.status.hurt_time),
+        Q::HurtTime => f32::from(actor.status.hurt_time),
         // 26.50 returns the signed actor shake counter as float.
-        "shake_time" => actor.status.shake_time as f32,
-        "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
-        "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
-        "main_hand_item_use_duration" => {
+        Q::ShakeTime => actor.status.shake_time as f32,
+        Q::HurtDirection => actor.status.hurt_direction.unwrap_or(0.0),
+        Q::IsCarryingBlock => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
+        Q::MainHandItemUseDuration => {
             input.item_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "main_hand_item_max_duration" => {
+        Q::MainHandItemMaxDuration => {
             context.main_hand_max_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "item_remaining_use_duration" => {
+        Q::ItemRemainingUseDuration => {
             context
                 .main_hand_max_use_ticks
                 .saturating_sub(input.item_use_ticks) as f32
                 * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "base_swing_duration" if arguments.is_empty() => context
+        Q::BaseSwingDuration if arguments.is_empty() => context
             .main_hand_swing_seconds
             .unwrap_or(super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()),
-        "equipped_item_any_tag" => truth(context.main_hand_is_spear
+        Q::EquippedItemAnyTag => truth(context.main_hand_is_spear
             && matches!(arguments.first(), Some(MolangValue::String(slot)) if slot.as_ref() == "slot.weapon.mainhand")
             && arguments.iter().skip(1).any(|tag| matches!(tag, MolangValue::String(tag) if tag.as_ref() == "minecraft:is_spear"))),
-        "kinetic_weapon_delay" => context
+        Q::KineticWeaponDelay => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.delay_ticks as f32),
-        "kinetic_weapon_dismount_duration" => context
+        Q::KineticWeaponDismountDuration => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.dismount_ticks as f32),
-        "kinetic_weapon_knockback_duration" => context
+        Q::KineticWeaponKnockbackDuration => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.knockback_ticks as f32),
-        "kinetic_weapon_damage_duration" => context
+        Q::KineticWeaponDamageDuration => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.damage_ticks as f32),
-        "ticks_since_last_kinetic_weapon_hit" => {
+        Q::TicksSinceLastKineticWeaponHit => {
             if input.item_use_ticks > 0 {
                 actor
                     .status
@@ -459,51 +383,51 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 -1.0
             }
         }
-        "death_ticks" => f32::from(actor.status.death_ticks()),
+        Q::DeathTicks => f32::from(actor.status.death_ticks()),
         // Ticks stand in for the world clock; only the phase between actors differs.
-        "time_stamp" => evaluator.life_tick as f32,
-        "has_target" => truth(has_target(actor)),
-        "swell_amount" if actor.is_creeper() => evaluator
+        Q::TimeStamp => evaluator.life_tick as f32,
+        Q::HasTarget => truth(has_target(actor)),
+        Q::SwellAmount if actor.is_creeper() => evaluator
             .swell_amount
             .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
-        "swell_amount" => metadata_number(actor, KEY_SWELL)
+        Q::SwellAmount => metadata_number(actor, KEY_SWELL)
             .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
         // Wither armor shows below half health.
-        "is_shield_powered" => truth(
+        Q::IsShieldPowered => truth(
             actor
                 .attributes
                 .get("minecraft:health")
                 .is_some_and(|health| health.max > 0.0 && health.current <= health.max * 0.5),
         ),
-        "swim_amount" => input.swim_amount,
+        Q::SwimAmount => input.swim_amount,
         // Unsmoothed 0/1 stand-in for the pose blend.
-        "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
-        "is_in_water" => truth(in_water(actor, input)),
-        "sleep_rotation" => actor.status.sleep_rotation.unwrap_or(0.0),
+        Q::StandingScale => truth(actor_flag(actor, FLAG_STANDING)),
+        Q::IsInWater => truth(in_water(actor, input)),
+        Q::SleepRotation => actor.status.sleep_rotation.unwrap_or(0.0),
         // Grows with ground speed; the scale needs independent measurement.
-        "cape_flap_amount" => (input.velocity[0].hypot(input.velocity[2]) * 4.0).clamp(0.0, 1.0),
-        "has_cape" => truth(context.has_cape),
-        "item_is_charged" => truth(context.hand_charged),
-        "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
-        "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
-        "armor_color_slot" => armor_color_slot(context, argument(0), argument(1)),
-        "has_armor_slot" => truth(match arguments {
+        Q::CapeFlapAmount => (input.velocity[0].hypot(input.velocity[2]) * 4.0).clamp(0.0, 1.0),
+        Q::HasCape => truth(context.has_cape),
+        Q::ItemIsCharged => truth(context.hand_charged),
+        Q::IsInLava => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
+        Q::ArmorTextureSlot => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
+        Q::ArmorColorSlot => armor_color_slot(context, argument(0), argument(1)),
+        Q::HasArmorSlot => truth(match arguments {
             [slot] => {
                 let slot = slot.number().floor();
                 (0.0..4.0).contains(&slot) && worn_armor(context, slot).is_some()
             }
             _ => false,
         }),
-        "is_on_ground" => truth(input.on_ground),
-        "is_riding" => truth(input.is_riding),
-        "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
-        "is_alive" => truth(health(actor).is_none_or(|health| health > 0.0)),
-        "health" => health(actor).unwrap_or(0.0),
-        "tail_angle" => wolf::tail_angle(actor),
-        "is_sleeping" => truth(actor.player_is_sleeping()),
-        "body_y_rotation" => input.body_yaw,
-        "body_x_rotation" | "target_x_rotation" => input.pitch,
-        "target_y_rotation" => {
+        Q::IsOnGround => truth(input.on_ground),
+        Q::IsRiding => truth(input.is_riding),
+        Q::IsMoving => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
+        Q::IsAlive => truth(health(actor).is_none_or(|health| health > 0.0)),
+        Q::Health => health(actor).unwrap_or(0.0),
+        Q::TailAngle => wolf::tail_angle(actor),
+        Q::IsSleeping => truth(actor.player_is_sleeping()),
+        Q::BodyYRotation => input.body_yaw,
+        Q::BodyXRotation | Q::TargetXRotation => input.pitch,
+        Q::TargetYRotation => {
             if actor.target_rotation_is_absolute() {
                 input.yaw
             } else {
@@ -511,21 +435,24 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             }
         }
         // Only the one-argument forms carry a value; the bare forms read as zero.
-        "head_y_rotation" => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
-        "head_x_rotation" => argument(0).map_or(0.0, |_| input.pitch),
-        "state_time" => evaluator.state_time,
-        "all_animations_finished" => truth(evaluator.finished.0),
-        "any_animation_finished" => truth(evaluator.finished.1),
-        "is_item_equipped" => truth(hand_item(context, arguments.first()).is_some()),
-        "is_item_name_any" => truth(item_name_matches(context, arguments)),
-        "is_riding_any_entity_of_type" => truth(context.ridden.as_deref().is_some_and(|ridden| {
+        Q::HeadYRotation => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
+        Q::HeadXRotation => argument(0).map_or(0.0, |_| input.pitch),
+        Q::StateTime => evaluator.state_time,
+        Q::AllAnimationsFinished => truth(evaluator.finished.0),
+        Q::AnyAnimationFinished => truth(evaluator.finished.1),
+        Q::IsItemEquipped => truth(hand_item(context, arguments.first()).is_some()),
+        Q::IsItemNameAny => truth(item_name_matches(context, arguments)),
+        Q::IsRidingAnyEntityOfType => truth(context.ridden.as_deref().is_some_and(|ridden| {
             arguments
                 .iter()
                 .any(|name| matches!(name, MolangValue::String(name) if name.as_ref() == ridden))
         })),
-        "has_rider" => truth(context.has_rider),
-        "has_player_rider" => truth(context.has_player_rider),
-        _ => 0.0,
+        Q::HasRider => truth(context.has_rider),
+        Q::HasPlayerRider => truth(context.has_player_rider),
+        Q::GetAnimationFrame | Q::BaseSwingDuration => 0.0,
+        // Metadata and unresolved handlers have already returned above; string and property
+        // handlers are dispatched by `query`. A new evaluator must supply its own arm.
+        _ => unreachable!("query manifest evaluator has no dispatch arm"),
     }
 }
 
@@ -713,12 +640,6 @@ pub(super) fn tropical_fish_variables(actor: &ActorSnapshot) -> Option<[f32; 2]>
     ])
 }
 
-fn integer_query_key(name: &str) -> Option<u32> {
-    INTEGER_QUERIES
-        .iter()
-        .find_map(|(query, key)| (*query == name).then_some(*key))
-}
-
 /// Sampled fluid at the actor when available; otherwise the swimming flag or airborne fish.
 fn in_water(actor: &ActorSnapshot, input: &ActorTickInput) -> bool {
     if let Some((water, _)) = actor.status.fluid {
@@ -783,4 +704,14 @@ fn rotation_to_camera(actor: [f32; 3], camera: [f32; 3], axis: f32) -> f32 {
         1 => z.atan2(x).to_degrees() - 90.0,
         _ => 0.0,
     }
+}
+
+#[cfg(test)]
+/// Binds a test's named query through the same admission contract.
+fn named_query(inputs: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> MolangValue {
+    query(
+        inputs,
+        Q::from_name(name).expect("test query is admitted"),
+        arguments,
+    )
 }

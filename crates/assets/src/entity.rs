@@ -7,6 +7,12 @@ use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
 mod geometry;
 mod molang_program;
+mod query_manifest;
+pub use query_manifest::{
+    MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS, MOLANG_QUERY_MANIFEST_VERSION, MolangQuery,
+    MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler, MolangQueryOutput,
+    MolangQuerySupport, bind_molang_queries,
+};
 mod server_animation;
 pub use molang_program::MolangProgram;
 #[path = "entity/inherited_cubes.rs"]
@@ -44,9 +50,9 @@ pub use v4::{
     MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
-    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
-    MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, entity_render_pattern_matches, molang_call, molang_program_stack,
+    MAX_MOLANG_STRING_BYTES, MolangBranch, MolangCall, MolangCollection, MolangCollectionItem,
+    MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol, MolangSymbolKind,
+    entity_render_pattern_matches, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
@@ -322,6 +328,7 @@ pub struct RuntimeEntityAssets {
     animation_channels: Arc<[EntityAnimationChannel]>,
     animation_keyframes: Arc<[EntityAnimationKeyframe]>,
     molang_symbols: Arc<[MolangSymbol]>,
+    molang_query_bindings: Box<[Option<MolangQuery>]>,
     molang_expressions: Arc<[CompiledMolangExpression]>,
     molang_ops: Arc<[MolangOp]>,
     molang_collections: Arc<[MolangCollection]>,
@@ -464,6 +471,7 @@ impl RuntimeEntityAssets {
             animation_clips: Arc::from(compiled.animation_clips),
             animation_channels: Arc::from(compiled.animation_channels),
             animation_keyframes: Arc::from(compiled.animation_keyframes),
+            molang_query_bindings: bind_molang_queries(&compiled.molang_symbols),
             molang_symbols: Arc::from(compiled.molang_symbols),
             molang_expressions: Arc::from(compiled.molang_expressions),
             molang_ops: Arc::from(compiled.molang_ops),

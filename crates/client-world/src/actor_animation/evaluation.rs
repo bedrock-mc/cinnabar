@@ -835,11 +835,12 @@ impl Evaluator<'_> {
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
+        let binding = self.program.map_or_else(
+            || self.assets.molang_query_binding(symbol),
+            |program| program.query_binding(symbol),
+        );
         if let Some(alpha) = self.presentation_alpha
-            && self
-                .symbols()
-                .get(symbol as usize)
-                .is_some_and(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+            && binding == Some(assets::MolangQuery::FrameAlpha)
         {
             return MolangValue::Number(alpha);
         }
@@ -850,7 +851,7 @@ impl Evaluator<'_> {
         {
             return history[slot].1.clone();
         }
-        let Some(symbol) = self.symbols().get(symbol as usize) else {
+        let Some(binding) = binding else {
             return MolangValue::Number(0.0);
         };
         let inputs = query::QueryInputs {
@@ -866,7 +867,7 @@ impl Evaluator<'_> {
             bones: self.bones,
             bone_names: self.bone_names,
         };
-        query::query(&inputs, &symbol.identifier, arguments)
+        query::query(&inputs, binding, arguments)
     }
 
     /// Selects a collection item; indices wrap past the end and clamp below zero.

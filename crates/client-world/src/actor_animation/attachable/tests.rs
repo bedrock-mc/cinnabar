@@ -506,7 +506,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
     };
     let read_with_args =
         |context: &ActorTickContext, name: &str, arguments: &[evaluation::MolangValue]| {
-            query::query(
+            query::named_query(
                 &query::QueryInputs {
                     actor: &owner,
                     input: &input,

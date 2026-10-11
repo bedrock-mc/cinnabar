@@ -114,7 +114,7 @@ fn query_flag(name: &str) -> u64 {
                 bones: &[],
                 bone_names: &[],
             };
-            (query::query(&inputs, name, &[]).number() == 1.0).then_some(flag)
+            (query::named_query(&inputs, name, &[]).number() == 1.0).then_some(flag)
         })
         .collect();
     assert_eq!(flags.len(), 1, "{name} reads one actor flag");

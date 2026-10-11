@@ -143,11 +143,13 @@ pub use entity::{
     MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
     MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
-    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS,
+    MOLANG_QUERY_MANIFEST_VERSION, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram,
-    MolangSymbol, MolangSymbolKind, RuntimeEntityAssets, encode_entity_blob,
-    entity_render_pattern_matches, molang_call, molang_program_stack,
-    validate_entity_geometry_inheritance,
+    MolangQuery, MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler,
+    MolangQueryOutput, MolangQuerySupport, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
+    bind_molang_queries, encode_entity_blob, entity_render_pattern_matches, molang_call,
+    molang_program_stack, validate_entity_geometry_inheritance,
 };
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};

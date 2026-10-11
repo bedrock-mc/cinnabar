@@ -53,7 +53,7 @@ fn dragon_query_and_engine_history_read_the_completed_actor_tick() {
         bone_names: &[],
     };
     assert_eq!(
-        query::query(&inputs, "query.wing_flap_position", &[]).number(),
+        query::named_query(&inputs, "query.wing_flap_position", &[]).number(),
         0.2
     );
     let engine = EngineSlots {

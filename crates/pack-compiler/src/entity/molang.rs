@@ -255,13 +255,13 @@ impl MolangCompiler {
         if ops.len() > MAX_MOLANG_OPS {
             return Err(invalid("total Molang operation count exceeds bound"));
         }
-        Ok(MolangProgram {
-            symbols: symbols.into_boxed_slice(),
-            expressions: expressions.into_boxed_slice(),
-            ops: ops.into_boxed_slice(),
-            collections: Box::new([]),
-            collection_items: Box::new([]),
-        })
+        Ok(MolangProgram::new(
+            symbols.into_boxed_slice(),
+            expressions.into_boxed_slice(),
+            ops.into_boxed_slice(),
+            Box::new([]),
+            Box::new([]),
+        ))
     }
 }
 
@@ -360,4 +360,80 @@ pub fn compile_molang_expression(source: &str) -> Result<MolangProgram, AssetErr
     let mut compiler = MolangCompiler::default();
     compiler.compile(source)?;
     compiler.finish()
+}
+
+#[cfg(test)]
+mod query_inventory_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// Collects query names from independently downloaded pack documents.
+    fn pack_queries(root: &Path, names: &mut BTreeSet<String>) {
+        for entry in std::fs::read_dir(root).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                pack_queries(&path, names);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                let text = std::fs::read_to_string(path).unwrap();
+                for (index, _) in text.match_indices('.') {
+                    let prefix = &text[..index];
+                    let before = prefix
+                        .strip_suffix("query")
+                        .or_else(|| prefix.strip_suffix('q'));
+                    if before.is_none_or(|before| {
+                        before
+                            .as_bytes()
+                            .last()
+                            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                    }) {
+                        continue;
+                    }
+                    let length = text[index + 1..]
+                        .bytes()
+                        .take_while(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_'
+                        })
+                        .count();
+                    if length > 0 {
+                        names.insert(format!("query.{}", &text[index + 1..index + 1 + length]));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn downloaded_pack_query_inventory_has_explicit_contracts() {
+        let Some(root) = std::env::var_os("CINNABAR_VANILLA_RESOURCE_PACK") else {
+            eprintln!("missing fixture: CINNABAR_VANILLA_RESOURCE_PACK pinned resource pack");
+            return;
+        };
+        let root = Path::new(&root);
+        let mut inventory = BTreeSet::new();
+        for family in [
+            "entity",
+            "animations",
+            "animation_controllers",
+            "render_controllers",
+            "attachables",
+        ] {
+            pack_queries(&root.join(family), &mut inventory);
+        }
+        assert!(!inventory.is_empty(), "pack query inventory is empty");
+        for name in inventory {
+            let contract = assets::MolangQuery::from_name(&name)
+                .unwrap_or_else(|| panic!("query has no supported or unresolved contract: {name}"));
+            let program = compile_molang_expression(&name).unwrap();
+            let symbol = program
+                .symbols
+                .iter()
+                .position(|symbol| symbol.identifier.as_ref() == name)
+                .unwrap();
+            assert_eq!(program.query_binding(symbol as u32), Some(contract));
+        }
+    }
 }

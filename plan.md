@@ -7209,3 +7209,10 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+### Typed Molang query contracts (incomplete query behavior)
+
+Admitted query symbols bind to typed handlers before evaluation. The query manifest owns
+argument forms, output kinds and implementation support. Queries marked unimplemented
+retain their explicit idle behavior; provisional queries still need matched behavior
+verification. Typed dispatch does not close the actor animation parity gate.
