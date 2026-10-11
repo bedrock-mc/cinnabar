@@ -17,6 +17,7 @@ use crate::{
 };
 
 /// Samples rain on the same completed weather ticks that update the atmosphere.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drive_rain_audio(
     ticks: Res<WeatherTickFrame>,
     clock: Res<WorldClock>,
