@@ -341,6 +341,11 @@ impl UiPresentationRuntime {
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .map(sidebar_model);
+            let sidebar = if self.mod_scoreboard_hidden() {
+                None
+            } else {
+                sidebar
+            };
             let options = &self.form_presentation.chat.settings.options;
             let mut model = hud_model(
                 player_runtime,

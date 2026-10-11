@@ -4,6 +4,7 @@ mod cells;
 pub(super) mod template;
 #[cfg(test)]
 pub(super) mod tests;
+mod world_labels;
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
@@ -26,12 +27,24 @@ pub(super) struct ModWidgets {
     icons: Vec<IconRef>,
     resolved: Vec<Option<IconRef>>,
     pub(super) viewport: [f64; 2],
+    projection: Option<[f32; 16]>,
 }
 impl UiPresentationRuntime {
     /// Replaces card values while retaining the template when its geometry is unchanged.
     pub fn set_mod_hud(&mut self, content: Option<&Hud>) -> Result<(), String> {
-        let Some(content) = content.filter(|hud| !hud.cards.is_empty() || hud.hide_effect_icons)
-        else {
+        if self.mod_chat_actions() != content.map_or(&[], |hud| hud.chat_actions.as_slice()) {
+            let chat = &mut self.form_presentation.chat;
+            chat.link_generation = None;
+            chat.link_hits.clear();
+            chat.extension_events.clear();
+        }
+        let Some(content) = content.filter(|hud| {
+            !hud.cards.is_empty()
+                || hud.hide_effect_icons
+                || hud.hide_scoreboard
+                || !hud.world_labels.is_empty()
+                || !hud.chat_actions.is_empty()
+        }) else {
             self.form_presentation.mod_widgets = None;
             return Ok(());
         };
@@ -56,9 +69,32 @@ impl UiPresentationRuntime {
                 icons: Vec::new(),
                 resolved: Vec::new(),
                 viewport: [0.; 2],
+                projection: None,
             });
         }
         Ok(())
+    }
+
+    /// Current literal chat spans, revoked with the owning cosmetic HUD output.
+    pub(super) fn mod_chat_actions(&self) -> &[ui::mod_hud::ChatAction] {
+        self.form_presentation
+            .mod_widgets
+            .as_ref()
+            .map_or(&[], |w| &w.content.chat_actions)
+    }
+
+    /// Supplies the current actual camera projection; absent cameras hide every world anchor.
+    pub fn set_mod_world_projection(&mut self, projection: Option<[f32; 16]>) {
+        if let Some(widgets) = &mut self.form_presentation.mod_widgets {
+            widgets.projection = projection.filter(|m| m.iter().all(|v| v.is_finite()));
+        }
+    }
+    /// A sidebar replacement immediately restores vanilla when revoked.
+    pub(super) fn mod_scoreboard_hidden(&self) -> bool {
+        self.form_presentation
+            .mod_widgets
+            .as_ref()
+            .is_some_and(|w| w.content.hide_scoreboard)
     }
 
     /// A published replacement may hide ordinary effect icons even with no card rows.
@@ -152,6 +188,14 @@ impl UiPresentationRuntime {
             }
             widgets.resolved.clear();
             widgets.resolved.extend_from_slice(resolved);
+        }
+        if !widgets.content.world_labels.is_empty() {
+            world_labels::data(
+                Arc::make_mut(&mut widgets.data),
+                &widgets.content,
+                viewport,
+                widgets.projection,
+            );
         }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return;

@@ -54,6 +54,7 @@ const MESSAGES_VIEW: &str = "messages_panel";
 pub enum ChatHit {
     Suggestion(usize),
     Link(usize),
+    ExtensionAction(usize),
     LinkOpen,
     LinkCancel,
     Send,
@@ -68,7 +69,7 @@ pub enum ChatHit {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct LinkGeneration {
+pub(super) struct LinkGeneration {
     passes: usize,
     scale: u32,
     origin: [u32; 2],
@@ -79,9 +80,10 @@ struct LinkGeneration {
 #[derive(Default)]
 pub(super) struct ChatScreen {
     pub(super) links: Vec<String>,
+    pub(super) extension_events: Vec<String>,
     pub(super) pending_link: Option<String>,
-    link_hits: Vec<(ChatHit, UiRect, String)>,
-    link_generation: Option<LinkGeneration>,
+    pub(super) link_hits: Vec<(ChatHit, UiRect, String)>,
+    pub(super) link_generation: Option<LinkGeneration>,
     pub(super) settings: super::settings_chat::ChatSettings,
     pub(super) coordinates: super::chat_coordinates::ChatCoordinates,
     screen: CachedScreen,
@@ -113,6 +115,7 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
         };
+        let annotations = self.mod_chat_actions().to_vec();
         let chat = &mut self.form_presentation.chat;
         let messages = runtime.chat().messages().len();
         // The view jumps to the newest message on open and on every update.
@@ -199,7 +202,7 @@ impl UiPresentationRuntime {
                 origin: frame.origin.map(f32::to_bits),
                 font: self.font.identity(),
             };
-            if chat.link_generation != Some(generation) {
+            if chat.link_generation != Some(generation) || !annotations.is_empty() {
                 chat.links.clear();
                 chat.link_hits.clear();
                 for (url, bounds, key) in super::chat_links::hits(
@@ -210,10 +213,16 @@ impl UiPresentationRuntime {
                     &mut self.layouts,
                     frame.scale,
                     frame.origin,
+                    &annotations,
                 ) {
                     let index = chat.links.len();
                     chat.links.push(url);
-                    chat.link_hits.push((ChatHit::Link(index), bounds, key));
+                    let hit = if chat.links[index].starts_with("extension-action:") {
+                        ChatHit::ExtensionAction(index)
+                    } else {
+                        ChatHit::Link(index)
+                    };
+                    chat.link_hits.push((hit, bounds, key));
                 }
                 chat.link_generation = Some(generation);
             }
@@ -523,5 +532,26 @@ mod review_tests {
         presentation.cancel_chat_link();
         presentation.scroll_chat(40.0, true);
         assert!(presentation.form_presentation.chat.from_bottom > 0.0);
+    }
+}
+
+impl UiPresentationRuntime {
+    /// Records a native chat click as a bounded extension control event.
+    pub fn request_chat_extension_action(&mut self, index: usize) {
+        let chat = &mut self.form_presentation.chat;
+        if chat.extension_events.len() >= ui::mod_panel::MAX_PANEL_EVENTS {
+            return;
+        }
+        if let Some(action) = chat
+            .links
+            .get(index)
+            .and_then(|link| link.strip_prefix("extension-action:"))
+        {
+            chat.extension_events.push(action.to_owned());
+        }
+    }
+    /// Consumes native chat actions once; the caller routes them to their cosmetic owner.
+    pub fn take_chat_extension_actions(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.form_presentation.chat.extension_events)
     }
 }

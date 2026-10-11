@@ -29,7 +29,7 @@ pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens}
 pub use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
     MAX_ITEM_IDENTIFIER_BYTES, MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
-    MAX_PLAYER_STATE_EFFECTS,
+    MAX_PLAYER_STATE_EFFECTS, MAX_WORLD_IDENTITY_BYTES,
 };
 #[cfg(feature = "execution")]
 pub use mod_render;
@@ -41,8 +41,9 @@ pub use runtime::cinnabar::extension::gameplay::{
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::player_state::{
-    Effect as PlayerStateEffect, Item as PlayerStateItem, Slot as PlayerStateSlot,
-    Snapshot as PlayerStateSnapshot,
+    ChatMessage as ObservedChatMessage, Effect as PlayerStateEffect, Item as PlayerStateItem,
+    Sidebar as SidebarSnapshot, SidebarRow, Slot as PlayerStateSlot,
+    Snapshot as PlayerStateSnapshot, WorldObservation,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
@@ -168,6 +169,18 @@ impl ModHost {
             .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
         self.queue_settings();
         Ok(())
+    }
+
+    /// Supplies bounded, read-only presentation facts for the next frame callback only.
+    pub fn observe_presentation(
+        &mut self,
+        world: Option<WorldObservation>,
+        fps: Option<f32>,
+        sidebar: Option<SidebarSnapshot>,
+        chat: Vec<ObservedChatMessage>,
+    ) -> Result<()> {
+        self.instance
+            .observe_presentation(world, fps, sidebar, chat)
     }
 
     /// The session and dimension of the last successful gameplay delay-fix request.

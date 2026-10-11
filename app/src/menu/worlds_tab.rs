@@ -21,6 +21,7 @@ pub(super) struct LocalWorldsUi {
     pub(super) seed: ui::ChatEditor,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
+    world_id: Option<String>,
     /// The joined world runs on the dedicated server, which the core hosts for Xbox friends.
     hosted: bool,
     /// The open world's player limit, as its server reported it.
@@ -42,6 +43,7 @@ impl Default for LocalWorldsUi {
             name: super::input::field_editor(MenuField::WorldName),
             seed: super::input::field_editor(MenuField::WorldSeed),
             joining: None,
+            world_id: None,
             hosted: false,
             max_players: None,
         }
@@ -49,6 +51,11 @@ impl Default for LocalWorldsUi {
 }
 
 impl MenuRuntime {
+    /// The core's stable local-world identifier, independent of a rename or invite.
+    pub(crate) fn local_world_identity(&self) -> Option<&str> {
+        self.local_ui.world_id.as_deref()
+    }
+
     /// Includes deliberate joins whose local-world preparation completes on a later frame.
     pub(super) fn gameplay_return_pending(&self) -> bool {
         use crate::local_worlds::{PromptButton, PromptFor};
@@ -97,6 +104,7 @@ impl MenuRuntime {
         if let Some(id) = worlds.take_ready() {
             let world = worlds.menu().worlds().iter().find(|world| world.id == id);
             let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
+            self.local_ui.world_id = Some(id.clone());
             let name = world.map_or(id, |world| world.name.clone());
             self.request_local_world_join(name, hosted);
             self.local_ui.max_players = worlds.menu().max_players();

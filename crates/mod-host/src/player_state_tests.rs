@@ -325,3 +325,59 @@ fn malformed_snapshots_cannot_expose_items_or_expired_effects() {
     bad.inventory[0].item.as_mut().unwrap().count = 0;
     assert!(validate(Some(&bad)).is_err());
 }
+
+#[test]
+fn presentation_reads_share_grants_budget_and_revocation() {
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
+    state.player_state.fps = Some(144.0);
+    state.player_state.world = Some(crate::WorldObservation {
+        session: 7,
+        world: "remote:example:19132".into(),
+        dimension: 0,
+        position: (1., 2., 3.),
+        alive: true,
+    });
+    assert!(state.read_fps().unwrap().is_err());
+    assert!(state.read_world().unwrap().is_err());
+    assert!(state.read_sidebar().unwrap().is_err());
+    state.grants.player_state = true;
+    assert_eq!(state.read_fps().unwrap().unwrap(), Some(144.));
+    assert_eq!(
+        state.read_world().unwrap().unwrap().unwrap().position,
+        (1., 2., 3.)
+    );
+    state.player_state.revoke();
+    assert_eq!(state.read_fps().unwrap().unwrap(), None);
+    assert_eq!(state.read_world().unwrap().unwrap(), None);
+}
+
+#[test]
+fn chat_import_is_incremental_bounded_and_fifo() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    state.player_state.chat = (10..16)
+        .map(|sequence| crate::ObservedChatMessage {
+            sequence,
+            text: format!("Message {sequence}"),
+        })
+        .collect();
+    assert!(state.read_chat(0, 0).unwrap().is_err());
+    assert!(
+        state
+            .read_chat(0, (ui::mod_hud::MAX_CHAT_READ_MESSAGES + 1) as u32)
+            .unwrap()
+            .is_err()
+    );
+    let result = state.read_chat(11, 2).unwrap().unwrap();
+    assert_eq!(
+        result.iter().map(|m| m.sequence).collect::<Vec<_>>(),
+        vec![12, 13]
+    );
+    assert!(state.read_chat(15, 4).unwrap().unwrap().is_empty());
+}

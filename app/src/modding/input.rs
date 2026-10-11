@@ -531,6 +531,14 @@ pub(super) fn prepare_mod_input(
         }
     }
     super::hud_editor::collect(&mut extension, &mut presentation);
+    if extension.hud_owner() == Some(owner) {
+        events.extend(
+            presentation
+                .take_chat_extension_actions()
+                .into_iter()
+                .map(|id| ui::mod_panel::Event { id, value: 1. }),
+        );
+    }
     let events = events
         .into_iter()
         .take(ui::mod_panel::MAX_PANEL_EVENTS)

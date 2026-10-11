@@ -348,6 +348,8 @@ fn drive_mod(
     render_scene: Option<ResMut<::render::ModRenderScene>>,
     mut outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
+    cameras: Query<(&GlobalTransform, &Projection), With<crate::camera::FlyCamera>>,
+    mut frame_rate: Local<presentation_facts::FrameRate>,
 ) {
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = crate::screen_policy::absorbs_input(
@@ -416,6 +418,23 @@ fn drive_mod(
         &player_runtime,
         &ui,
     );
+    let world_observation = gameplay.world_observation(&ui);
+    let chat = if world_observation.is_some() {
+        presentation_facts::chat_snapshot(&ui)
+    } else {
+        Vec::new()
+    };
+    let fps = frame_rate.sample(std::time::Instant::now());
+    let sidebar = world_observation
+        .as_ref()
+        .and_then(|_| presentation.sidebar_snapshot(&ui))
+        .map(|(title, rows)| mod_host::SidebarSnapshot {
+            title,
+            rows: rows
+                .into_iter()
+                .map(|(label, score)| mod_host::SidebarRow { label, score })
+                .collect(),
+        });
     let mut callback_failed = false;
     let merged = multi::run_frame(
         &mut extension,
@@ -424,6 +443,10 @@ fn drive_mod(
             controls: &controls,
             previous_cues: &previous_cues,
             player_state: player_state.as_ref(),
+            world_observation: world_observation.as_ref(),
+            fps,
+            sidebar: sidebar.as_ref(),
+            chat: &chat,
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
@@ -480,6 +503,9 @@ fn drive_mod(
     if let Err(error) = presentation.set_mod_hud(hud) {
         eprintln!("Cinnabar extension HUD cards rejected: {error}");
     }
+    presentation.set_mod_world_projection(cameras.single().ok().map(|(transform, projection)| {
+        (projection.get_clip_from_view() * transform.to_matrix().inverse()).to_cols_array()
+    }));
     let crosshair_owner = extension.crosshair_owner();
     let crosshair = crosshair_owner.and_then(|owner| extension.host(owner).crosshair());
     if let Err(error) = presentation.set_mod_crosshair(crosshair) {
@@ -657,3 +683,6 @@ mod player_state;
 mod render;
 #[cfg(feature = "local-mods")]
 mod screens;
+
+#[cfg(feature = "local-mods")]
+mod presentation_facts;
