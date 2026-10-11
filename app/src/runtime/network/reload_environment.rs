@@ -141,7 +141,7 @@ fn prepare_atmosphere(
                 fogs.insert(profile.identifier.clone(), profile);
             }
         } else {
-            overlay_biome_profile(&root, &mut biomes);
+            overlay_biome_profile(&root, &mut biomes, &fogs);
         }
     }
     if textures.is_empty()
@@ -182,7 +182,7 @@ fn supports_texture_dimensions(role: assets::AtmosphereRole, width: u32, height:
         || (width == meshing::CLOUD_MASK_SIZE && height == meshing::CLOUD_MASK_SIZE)
 }
 
-/// Preserves pack priority when definitions in different files reuse an identifier.
+/// Collects fog definitions before biome routes while preserving pack priority.
 fn environment_files(view: &LayeredPackView) -> Vec<(String, Box<[u8]>)> {
     let mut files = layered_json(view, "fogs/");
     files.extend(layered_json(view, "biomes/"));
@@ -214,14 +214,31 @@ fn layered_json(view: &LayeredPackView, prefix: &str) -> Vec<(String, Box<[u8]>)
     result
 }
 
-/// Updates known client-biome environment components, retaining absent base values.
-fn overlay_biome_profile(root: &Value, profiles: &mut BTreeMap<Box<str>, BiomeVisualProfile>) {
+/// Applies client-biome components only when their fog route resolves, retaining absent values.
+fn overlay_biome_profile(
+    root: &Value,
+    profiles: &mut BTreeMap<Box<str>, BiomeVisualProfile>,
+    fogs: &BTreeMap<Box<str>, assets::FogProfile>,
+) {
     let biome = &root["minecraft:client_biome"];
     let Some(identifier) = biome["description"]["identifier"].as_str() else {
         return;
     };
-    let Some(profile) = profiles.get_mut(identifier) else {
+    if identifier.is_empty() || identifier.len() > assets::MAX_ENVIRONMENT_IDENTIFIER_BYTES {
         return;
+    }
+    let mut profile = match profiles.get(identifier) {
+        Some(profile) => profile.clone(),
+        None => {
+            if profiles.len() >= assets::MAX_ENVIRONMENT_PROFILES {
+                return;
+            }
+            let Some(mut fallback) = profiles.get("minecraft:plains").cloned() else {
+                return;
+            };
+            fallback.biome_identifier = identifier.into();
+            fallback
+        }
     };
     let components = &biome["components"];
     for (key, field, target) in [
@@ -250,6 +267,15 @@ fn overlay_biome_profile(root: &Value, profiles: &mut BTreeMap<Box<str>, BiomeVi
     if let Some(rgb) = parse_rgb(&components["minecraft:sky_color"]["sky_color"]) {
         profile.sky_rgb8 = Some(rgb);
     }
+    if !fogs.contains_key(&profile.fog_identifier) {
+        bevy::log::warn!(
+            biome = identifier,
+            fog = %profile.fog_identifier,
+            "optional client-biome profile has an unresolved fog route; skipping entry"
+        );
+        return;
+    }
+    profiles.insert(identifier.into(), profile);
 }
 
 #[cfg(test)]

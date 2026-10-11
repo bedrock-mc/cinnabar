@@ -273,17 +273,39 @@ pub struct LinearBiomeTints {
     pub seasonal_foliage: [[f32; 4]; crate::SEASONAL_FOLIAGE_COUNT],
 }
 
+/// Climate and environment name admitted with the corresponding tint record.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionBiome {
+    pub identifier: Box<str>,
+    pub temperature: f32,
+    pub downfall: f32,
+}
+
+impl SessionBiome {
+    /// Returns whether this admitted climate permits precipitation.
+    pub fn precipitation_eligible(&self) -> bool {
+        world::weather::precipitation_eligible(self.downfall)
+    }
+}
+
 /// Deterministic dense tint records and direct raw-palette-ID lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedBiomeTints {
     /// Odd live climate or seasonal entries omitted while resolving valid siblings.
     pub skipped_definitions: usize,
     pub records: Box<[LinearBiomeTints]>,
+    /// Dense climate routes; fallback slot zero deliberately has no biome identity.
+    pub biomes: Box<[Option<SessionBiome>]>,
     pub swamp_grass_palette: Box<[[f32; 4]]>,
     pub raw_id_to_dense: Box<[u32]>,
 }
 
 impl ResolvedBiomeTints {
+    /// Resolves climate and environment routing with the same admission as GPU tints.
+    pub fn biome(&self, raw_id: u32) -> Option<&SessionBiome> {
+        self.biomes.get(self.dense_index(raw_id) as usize)?.as_ref()
+    }
+
     /// Returns the dense tint-record index for one raw palette ID, or fallback slot zero.
     #[must_use]
     pub fn dense_index(&self, raw_id: u32) -> u32 {
@@ -363,11 +385,20 @@ impl CompiledBiomeAssets {
         fallback.set_water_opacity(DEFAULT_WATER_OPACITY)?;
         let mut records = Vec::with_capacity(self.rules.len() + custom.len() + 1);
         records.push(self.resolve_rule(&fallback, 0.8, 0.4, 0.0, None)?);
+        let mut biomes = BTreeMap::new();
         for rule in &self.rules {
             let (temperature, downfall, snow_foliage, max_snow_accumulation) = climates
                 .get(&rule.id)
                 .copied()
                 .unwrap_or((rule.temperature(), rule.downfall(), 0.0, None));
+            biomes.insert(
+                rule.id,
+                SessionBiome {
+                    identifier: rule.name.clone(),
+                    temperature,
+                    downfall,
+                },
+            );
             records.push(self.resolve_rule(
                 rule,
                 temperature,
@@ -377,6 +408,14 @@ impl CompiledBiomeAssets {
             )?);
         }
         for (id, definition) in custom {
+            biomes.insert(
+                id,
+                SessionBiome {
+                    identifier: definition.name.into(),
+                    temperature: definition.temperature,
+                    downfall: definition.downfall,
+                },
+            );
             let mut fallback = BiomeRule {
                 id,
                 name: definition.name.into(),
@@ -408,6 +447,10 @@ impl CompiledBiomeAssets {
         }
         Ok(ResolvedBiomeTints {
             skipped_definitions,
+            biomes: records
+                .iter()
+                .map(|record| biomes.remove(&record.raw_id))
+                .collect(),
             records: records.into_boxed_slice(),
             swamp_grass_palette: self
                 .tint_maps_rgb8

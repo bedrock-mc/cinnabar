@@ -86,7 +86,7 @@ fn rule(id: u32, name: &str) -> BiomeRule {
 }
 
 #[test]
-fn known_missing_profiles_remain_distinct_from_unknown_ids_and_rebinding_refreshes_indices() {
+fn unresolved_visual_profiles_use_dimension_fallback_and_rebinding_refreshes_indices() {
     let profiles = crate::environment::tests::profiles();
     let mut fogs = crate::environment::tests::fog_profiles();
     let rules = [rule(42, "minecraft:the_end"), rule(43, "test:missing")];
@@ -96,20 +96,24 @@ fn known_missing_profiles_remain_distinct_from_unknown_ids_and_rebinding_refresh
         .position(|fog| fog.identifier.as_ref() == "minecraft:fog_the_end")
         .unwrap();
     assert_eq!(bindings.fog(Some(42), 0), Some(FogProfileIndex(expected)));
-    assert_eq!(bindings.fog(Some(43), 0), None);
+    assert_eq!(bindings.fog(Some(43), 0), bindings.fog(None, 0));
     assert_eq!(bindings.fog(Some(999), 0), bindings.fog(None, 0));
     assert_eq!(bindings.camera(Some(43), 0).0, bindings.camera(None, 0).0);
     assert_eq!(bindings.fog(None, -1), None);
 
     fogs.remove(expected);
-    bindings.compile(&rules, &profiles, &fogs);
+    bindings.compile(
+        rules.iter().map(|rule| (rule.id, rule.name.as_ref())),
+        &profiles,
+        &fogs,
+    );
     assert_eq!(bindings.fog(Some(42), 0), None);
     let plains = fogs
         .iter()
         .position(|fog| fog.identifier.as_ref() == "minecraft:fog_plains")
         .unwrap();
     assert_eq!(bindings.fog(None, 0), Some(FogProfileIndex(plains)));
-    bindings.compile(&[rule(42, "minecraft:plains")], &profiles, &fogs);
+    bindings.compile([(42, "minecraft:plains")], &profiles, &fogs);
     assert_eq!(bindings.fog(Some(42), 2), Some(FogProfileIndex(plains)));
 }
 
@@ -185,4 +189,147 @@ fn atmosphere_rejects_indices_sampled_before_a_registry_reload() {
             }
         }
     }
+}
+
+/// Admits original custom-biome fixtures with valid climate for fog-binding tests.
+fn session_registry(entries: &[(u16, &str)]) -> assets::ResolvedBiomeTints {
+    let definitions: Vec<_> = entries
+        .iter()
+        .map(|&(id, name)| assets::LiveBiomeDefinition {
+            name,
+            biome_id: Some(id),
+            temperature: 0.8,
+            downfall: 0.4,
+            snow_foliage: 0.0,
+            max_snow_accumulation: None,
+            map_water_argb: 0xff112233,
+        })
+        .collect();
+    assets::CompiledBiomeAssets::diagnostic()
+        .resolve_live(&definitions)
+        .unwrap()
+}
+
+#[test]
+fn unprofiled_custom_fog_samples_keep_dimension_fallback() {
+    use crate::environment::{EnvironmentContext, atmosphere::derive_profiled_atmosphere_frame};
+    let mut profiles = crate::environment::tests::profiles();
+    let mut authored = profiles
+        .iter()
+        .find(|profile| profile.biome_identifier.as_ref() == "minecraft:plains")
+        .unwrap()
+        .clone();
+    authored.biome_identifier = "custom:profiled".into();
+    profiles.push(authored);
+    profiles.sort_unstable_by(|left, right| left.biome_identifier.cmp(&right.biome_identifier));
+    let registry = session_registry(&[(42, "custom:unprofiled"), (43, "custom:profiled")]);
+    for dimension in [0, 1, 2] {
+        for include_default_fog in [false, true] {
+            for include_authored_sample in [false, true] {
+                let fogs: Vec<_> = crate::environment::tests::fog_profiles()
+                    .into_iter()
+                    .filter(|fog| {
+                        include_default_fog || fog.identifier.as_ref() != "minecraft:fog_default"
+                    })
+                    .collect();
+                let mut bindings = FogBindings::for_profiles(&[], &profiles, &fogs);
+                bindings.compile(
+                    FogBindings::registry_identifiers(&registry),
+                    &profiles,
+                    &fogs,
+                );
+                let (camera_profile, profile_route, camera_fog) =
+                    bindings.camera(Some(42), dimension);
+                let mut samples = [bindings.fog(Some(42), dimension);
+                    render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+                let mut expected = [bindings.fog(None, dimension);
+                    render_model::PRECIPITATION_SAMPLE_OFFSETS.len()];
+                if include_authored_sample {
+                    samples[0] = bindings.fog(Some(43), dimension);
+                    expected[0] = samples[0];
+                }
+                let mut context = EnvironmentContext {
+                    dimension,
+                    fog_registry_generation: bindings.atmosphere_generation,
+                    camera_biome_identifier: bindings.identifier(Some(42)),
+                    camera_profile,
+                    profile_route,
+                    camera_fog,
+                    default_fog: bindings.default_fog,
+                    fog_biomes: Some(samples),
+                    render_distance_blocks: Some(256.0),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    context.camera_biome_identifier.as_deref(),
+                    Some("custom:unprofiled")
+                );
+                let derive = |context: &EnvironmentContext| {
+                    derive_profiled_atmosphere_frame(
+                        Default::default(),
+                        Default::default(),
+                        0.0,
+                        meshing::CameraMedium::Air,
+                        context,
+                        &profiles,
+                        &fogs,
+                        bindings.atmosphere_generation.unwrap(),
+                        None,
+                        0.0,
+                    )
+                };
+                let sampled = derive(&context);
+                context.fog_biomes = Some(expected);
+                let fallback = derive(&context);
+                assert_eq!(
+                    sampled, fallback,
+                    "dimension {dimension}, authored={include_authored_sample}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn admitted_custom_names_and_visual_routes_follow_registry_replacement() {
+    let mut profiles = crate::environment::tests::profiles();
+    let mut authored = profiles[0].clone();
+    authored.biome_identifier = "custom:profiled".into();
+    profiles.push(authored);
+    profiles.sort_unstable_by(|left, right| left.biome_identifier.cmp(&right.biome_identifier));
+    let fogs = crate::environment::tests::fog_profiles();
+    let mut bindings = FogBindings::for_profiles(&[], &profiles, &fogs);
+    let registry = session_registry(&[(42, "custom:profiled"), (43, "custom:unprofiled")]);
+    bindings.compile(
+        FogBindings::registry_identifiers(&registry),
+        &profiles,
+        &fogs,
+    );
+    let before = crate::tests::alloc_count::thread_allocations();
+    let identifier = bindings.identifier(Some(42)).unwrap();
+    let (_, route, fog) = bindings.camera(Some(42), 0);
+    let samples =
+        [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(Some(42), 0));
+    assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(identifier.as_ref(), "custom:profiled");
+    assert_eq!(
+        route.unwrap().biome_identifier.as_deref(),
+        Some("custom:profiled")
+    );
+    assert_eq!(
+        samples,
+        [fog; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
+    );
+    let replaced = session_registry(&[(42, "custom:replacement")]);
+    bindings.compile(
+        FogBindings::registry_identifiers(&replaced),
+        &profiles,
+        &fogs,
+    );
+    assert_eq!(
+        bindings.identifier(Some(42)).as_deref(),
+        Some("custom:replacement")
+    );
+    assert_eq!(bindings.identifier(Some(43)), None);
+    assert_eq!(bindings.camera(Some(42), 2).0, bindings.camera(None, 2).0);
 }

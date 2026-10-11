@@ -268,3 +268,29 @@ fn simplex_noise_stays_in_range() {
     }
     assert!(peak > 0.3);
 }
+
+#[test]
+fn precipitation_classification_and_occlusion_use_the_admitted_climate_threshold() {
+    for downfall in [0.0, f32::EPSILON / 2.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            classify_precipitation(0.8, downfall, 64),
+            Precipitation::None
+        );
+        assert_eq!(
+            column_heights(Some(ColumnSample {
+                surface_y: 64,
+                temperature: 0.8,
+                downfall
+            })),
+            [OCCLUSION_BLOCKED; 2]
+        );
+    }
+    assert_eq!(
+        classify_precipitation(0.8, f32::EPSILON, 64),
+        Precipitation::Rain
+    );
+    assert_eq!(
+        classify_precipitation(0.0, f32::EPSILON, 64),
+        Precipitation::Snow
+    );
+}

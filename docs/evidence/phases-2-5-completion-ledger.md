@@ -231,3 +231,7 @@ in `render-scene`; presentation and acceptance have no dependency on `render`.
 GPU passes remain in `render`. Existing regression coverage is retained, but
 compilation and execution of these moves are unverified. No parity or performance
 gate is closed by the ownership change.
+
+## Session biome climate and environment
+
+Admitted live biome identifiers and climate now travel with the session tint registry. Weather, fog precipitation, camera temperature and environment routes read that registry, including custom biome routes. Registry replacement clears removed routes. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.
