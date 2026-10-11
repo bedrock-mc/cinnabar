@@ -160,6 +160,11 @@ impl AnchorProbeState {
         self.pending = true;
     }
 
+    /// Whether the next tick needs a pose-aware recovery probe at its new anchor.
+    pub(super) const fn pending(&self) -> bool {
+        self.pending
+    }
+
     /// Clears all probe state with movement authority itself.
     pub(super) fn reset(&mut self) {
         *self = Self::new();
@@ -172,8 +177,8 @@ impl AnchorProbeState {
     /// query error. An unresolvable embedment proceeds — the simulator reports
     /// no inputless horizontal motion from an embedded start — after optionally
     /// rendering one diagnostic marker.
-    /// `height` is the retained pose's collision height, so a crouched anchor
-    /// under a low ceiling is not pushed as if standing.
+    /// `height` is the pose selected at the new anchor, so a fitting crouch or
+    /// crawl is not pushed out as if the player were still standing.
     pub(super) fn before_tick(
         &mut self,
         world: &impl CollisionWorld,

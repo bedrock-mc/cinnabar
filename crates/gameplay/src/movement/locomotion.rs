@@ -289,10 +289,10 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
-        } else if matches!(self.mode, MovementMode::Swimming | MovementMode::Crawling)
+        } else if !observed.in_water
             && pose_fits(world, observed.feet, MovementMode::Crawling, false)?
         {
-            // Only a swimmer or an existing crawler is squeezed into a gap; walking never enters one.
+            // Dry low-space entry does not require an existing horizontal pose.
             (MovementMode::Crawling, false)
         } else {
             (MovementMode::Walking, false)
@@ -921,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn a_walker_is_never_squeezed_into_a_gap_it_does_not_fit() {
+    fn closing_a_low_ceiling_starts_crawling_from_standing() {
         let mut tracker = ModeTracker::default();
         let observed = ModeObservation {
             on_ground: true,
@@ -931,7 +931,8 @@ mod tests {
         let choice = tracker
             .select(ModeIntent::default(), observed, &Ceiling(Some(1.0)))
             .unwrap();
-        assert_eq!(choice.mode, MovementMode::Walking);
+        assert_eq!(choice.mode, MovementMode::Crawling);
+        assert!(!choice.forced_sneak);
     }
 
     #[test]

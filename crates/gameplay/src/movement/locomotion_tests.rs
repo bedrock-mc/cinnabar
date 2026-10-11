@@ -372,6 +372,148 @@ fn crawl_edges_fire_once_on_entry_and_once_on_exit() {
     assert!(has(exit, PlayerInputFlags::STOP_CRAWLING));
 }
 
+/// Closing a trapdoor selects the low box before travel and publishes the matching pose edges.
+#[test]
+fn trapdoor_closure_enters_crawl_and_opening_restores_standing() {
+    let mut physics = settled_controller();
+    let feet = physics.state().unwrap().position;
+    let low = LowCeiling(feet.y + 1.0);
+    let input = MovementInput {
+        forward: 1.0,
+        ..Default::default()
+    };
+    let first = step(&mut physics, input, ModeIntent::default(), &low);
+    assert_eq!(first.processed.mode, MovementMode::Crawling);
+    assert!(!first.sneaking);
+    assert_eq!(physics.state().unwrap().position.y, feet.y);
+    assert!(physics.state().unwrap().position.z > feet.z);
+    let flags = input_flags(&first, HeldInput::default());
+    assert!(has(flags, PlayerInputFlags::START_CRAWLING));
+    assert!(!has(flags, PlayerInputFlags::START_SWIMMING));
+    assert!(!has(flags, PlayerInputFlags::SNEAK_DOWN));
+    for _ in 0..24 {
+        let next = step(&mut physics, input, ModeIntent::default(), &low);
+        assert_eq!(next.processed.mode, MovementMode::Crawling);
+        let flags = input_flags(&next, HeldInput::from(&first));
+        assert!(!has(flags, PlayerInputFlags::START_CRAWLING));
+        assert!(!has(flags, PlayerInputFlags::STOP_CRAWLING));
+    }
+    assert!((physics.render_eye_position().unwrap()[1] - feet.y as f32 - 0.4).abs() < 0.001);
+    let open = step(
+        &mut physics,
+        input,
+        ModeIntent::default(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(open.processed.mode, MovementMode::Walking);
+    let flags = input_flags(&open, HeldInput::from(&first));
+    assert!(has(flags, PlayerInputFlags::STOP_CRAWLING));
+    assert!(!has(flags, PlayerInputFlags::START_CRAWLING));
+}
+
+/// A teleport into a one-block opening must shrink the pose without ejecting the feet anchor.
+#[test]
+fn teleport_into_a_low_opening_starts_crawl_at_the_authoritative_position() {
+    let mut physics = grounded_controller();
+    let feet = physics.state().unwrap().position;
+    let network = physics.network_position().unwrap();
+    let low = LowCeiling(feet.y + 1.0);
+    let sample = step(
+        &mut physics,
+        MovementInput::default(),
+        ModeIntent::default(),
+        &low,
+    );
+    assert_eq!(sample.processed.mode, MovementMode::Crawling);
+    assert_eq!(sample.position, network);
+    assert!(has(
+        input_flags(&sample, HeldInput::default()),
+        PlayerInputFlags::START_CRAWLING
+    ));
+}
+
+/// Water contact suppresses dry crawl entry even when only a low box fits.
+struct WetLowCeiling(LowCeiling);
+
+impl CollisionWorld for WetLowCeiling {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        self.0.collision_boxes(query)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        PoolFloor(std::cell::Cell::new(true)).block_physics(block)
+    }
+}
+
+#[test]
+fn a_wet_or_fully_blocked_opening_does_not_start_crawling() {
+    let mut physics = settled_controller();
+    let wet = WetLowCeiling(LowCeiling(2.0));
+    let sample = step(
+        &mut physics,
+        MovementInput::default(),
+        ModeIntent::default(),
+        &wet,
+    );
+    assert_eq!(sample.processed.mode, MovementMode::Walking);
+    assert!(!has(
+        input_flags(&sample, HeldInput::default()),
+        PlayerInputFlags::START_CRAWLING
+    ));
+
+    let mut physics = settled_controller();
+    let sample = step(
+        &mut physics,
+        MovementInput::default(),
+        ModeIntent::default(),
+        &LowCeiling(1.4),
+    );
+    assert_eq!(sample.processed.mode, MovementMode::Walking);
+}
+
+/// Correction replay derives crawl entry at the corrected position and retains it on the next tick.
+#[test]
+fn a_low_space_prediction_correction_replays_crawl_input() {
+    let mut physics = settled_controller();
+    let input = MovementInput {
+        forward: 1.0,
+        ..Default::default()
+    };
+    let world = VersionedFloor(1);
+    let first = step(&mut physics, input, ModeIntent::default(), &world);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, first.tick - 1, first.position);
+    ticker.set_source(MovementSource::Physics);
+    for sample in [
+        first.clone(),
+        step(&mut physics, input, ModeIntent::default(), &world),
+    ] {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let low = LowCeiling(2.0);
+    let mut anchor = first.position;
+    anchor[0] += 0.1;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        anchor,
+        first.tick,
+        true,
+        super::PhysicsCorrectionMode::ReplayIfRetained,
+        &low,
+    )
+    .unwrap();
+    assert_eq!(physics.mode(), MovementMode::Crawling);
+    let pending = ticker.pending_snapshots();
+    assert_eq!(pending.len(), 1);
+    assert!(has(pending[0].flags, PlayerInputFlags::START_CRAWLING));
+    physics.advance_with_context(Duration::ZERO, input, PhysicsSampleContext::default(), &low);
+    let next = step(&mut physics, input, ModeIntent::default(), &low);
+    assert_eq!(next.processed.mode, MovementMode::Crawling);
+    assert!((next.position[0] - anchor[0]).abs() < 0.000_001);
+    assert!((next.position[1] - anchor[1]).abs() < 0.000_001);
+}
+
 #[test]
 fn swim_and_glide_edges_pair_start_with_stop() {
     for (mode, start, stop) in [
