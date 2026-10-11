@@ -153,7 +153,7 @@ impl Changes {
     }
 }
 
-/// Replays consumed reads; listing an unrelated texture does not consume its pixels.
+/// Replays readable and rejected file dependencies without consuming unrelated textures.
 fn dependency_fingerprint(
     stack: &ValidatedPackStack,
     inputs: &BTreeSet<PackDependency>,
@@ -165,11 +165,19 @@ fn dependency_fingerprint(
         for input in inputs {
             match input {
                 PackDependency::File { path, limit } => {
-                    if let Ok(Some(bytes)) = pack.read_file_with_limit(path, *limit) {
-                        layer.update([0]);
-                        hash_part(&mut layer, path.as_bytes());
-                        hash_part(&mut layer, &bytes);
-                        populated = true;
+                    match pack.read_file_with_limit(path, *limit) {
+                        Ok(Some(bytes)) => {
+                            layer.update([0]);
+                            hash_part(&mut layer, path.as_bytes());
+                            hash_part(&mut layer, &bytes);
+                            populated = true;
+                        }
+                        Err(_) => {
+                            layer.update([4]);
+                            hash_part(&mut layer, path.as_bytes());
+                            populated = true;
+                        }
+                        Ok(None) => {}
                     }
                 }
                 PackDependency::Directory(prefix) => {
