@@ -103,16 +103,21 @@ fn chat_screen_filters_survive_pack_overrides_of_shared_templates() {
 }
 
 #[test]
-fn copied_filters_keep_the_bindings_that_feed_them() {
+fn copied_filters_keep_the_bindings_and_values_that_feed_them() {
     let pack_bindings = json!([
         {"binding_name":"#chat_text","binding_name_override":"#message"},
         {"binding_name":"#unrelated","binding_name_override":"#other"},
         {"binding_name":"#pack_text","binding_name_override":"#text"},
-        visible_when("(not ((#message = 'x') or (#text = 'y')))"),
+        visible_when("(not ((#message = #blocked) or (#text = 'y')))"),
     ]);
-    let rules = visibility_rules(Some(&pack_bindings));
-    assert_eq!(rules.len(), 3);
-    assert!(!rules.contains(&&pack_bindings[1]));
+    let bag = json!({"#blocked":"x","#unused":1});
+    let rules = Rules::read(Some(&pack_bindings), Some(&bag));
+    assert_eq!(rules.bindings.len(), 3);
+    assert!(!rules.bindings.contains(&pack_bindings[1]));
+    assert_eq!(
+        rules.bag,
+        serde_json::Map::from_iter([("#blocked".to_owned(), json!("x"))])
+    );
     let mut control = RawControl {
         owner_ns: "chat".into(),
         name: "text".into(),
@@ -124,12 +129,77 @@ fn copied_filters_keep_the_bindings_that_feed_them() {
         children: Vec::new(),
         has_controls: false,
     };
-    assert!(merge_rules(&mut control, rules.into_iter()));
+    assert!(rules.merge_into(&mut control));
     let merged = control.props["bindings"].as_array().unwrap();
     assert!(merged.contains(&pack_bindings[0]));
     assert!(merged.contains(&pack_bindings[3]));
     assert!(
         !merged.contains(&pack_bindings[2]),
         "a dependency the control already binds keeps its own source"
+    );
+    assert_eq!(control.props["property_bag"], json!({"#blocked":"x"}));
+}
+
+#[test]
+fn factory_variables_reach_the_filters_they_parameterize() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "used@hud.chat_label":{"bindings":[visible_when("(#text = $allowed)")]},
+            "custom_row":{"type":"panel","controls":[{"message@hud.used":{}}]},
+            "root_panel":{"modifications":[{"array_name":"controls","operation":"insert_front",
+                "value":[{"custom_chat":{"type":"stack_panel","$allowed":"ordinary",
+                    "factory":{"name":"chat_item_factory","control_ids":{"chat_item":"@hud.custom_row"},
+                        "factory_variables":["$allowed"]}}}]}]}}),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let bindings = pack.lookup("hud", "chat_label").unwrap().props["bindings"]
+        .as_array()
+        .unwrap();
+    let source = bindings
+        .iter()
+        .find_map(|binding| binding["source_property_name"].as_str())
+        .expect("copied filter");
+    assert!(!source.contains("$allowed"), "unbound variable in {source}");
+    assert!(
+        source.contains("ordinary"),
+        "lost captured value in {source}"
+    );
+}
+
+#[test]
+fn long_factory_chains_are_scanned_within_the_expansion_limit() {
+    let builtin = builtin();
+    let mut document = serde_json::Map::from_iter([("namespace".to_owned(), json!("hud"))]);
+    const CHAIN: usize = 4_000;
+    for index in 0..CHAIN {
+        document.insert(
+            format!("link_{index}"),
+            json!({"type":"stack_panel",
+                "factory":{"name":"chat_item_factory","control_ids":{"chat_item":format!("@hud.link_{}", index + 1)}}}),
+        );
+    }
+    document.insert(
+        format!("link_{CHAIN}@hud.chat_label"),
+        json!({"bindings":[visible_when("(#text = 'deep')")]}),
+    );
+    document.insert(
+        "root_panel".to_owned(),
+        json!({"modifications":[{"array_name":"controls","operation":"insert_front",
+            "value":[{"chain@hud.link_0":{}}]}]}),
+    );
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        serde_json::Value::Object(document),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let bindings = &pack.lookup("hud", "chat_label").unwrap().props["bindings"];
+    assert!(
+        !bindings
+            .as_array()
+            .is_some_and(|bindings| bindings.contains(&visible_when("(#text = 'deep')")))
     );
 }

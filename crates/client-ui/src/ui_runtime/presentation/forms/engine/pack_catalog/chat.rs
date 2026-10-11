@@ -6,6 +6,8 @@ use json_ui::{Catalog, ControlRef, RawControl, ResolvedControl};
 use serde_json::Value;
 
 const ROOTS: [&str; 4] = ["java_chat", "chat_panel", "chat_grid_item", "chat_label"];
+/// Bounds factory templates followed from the HUD, as the runtime binder bounds its expansions.
+const MAX_FACTORY_EXPANSIONS: usize = 64;
 
 /// Restores built-in chat in `catalog`; returns the chat-screen controls that gained pack filters.
 pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<RawControl> {
@@ -49,29 +51,19 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     let mut visibility = ROOTS
         .into_iter()
         .filter_map(|name| {
-            let reference = ControlRef::new("hud", name);
-            let bindings = visibility_rules(catalog.lookup("hud", name)?.props.get("bindings"))
-                .into_iter()
-                .cloned()
-                .collect();
-            Some((reference, bindings))
+            let props = &catalog.lookup("hud", name)?.props;
+            let rules = Rules::read(props.get("bindings"), props.get("property_bag"));
+            Some((ControlRef::new("hud", name), rules))
         })
         .collect::<BTreeMap<_, _>>();
     let labels = derived_labels(&derived);
-    let label_bindings = visibility
-        .entry(ControlRef::new("hud", "chat_label"))
-        .or_default();
-    let context = crate::ui_runtime::presentation::forms::menu_screens::retail_context();
-    if let Some(hud) = json_ui::resolve(catalog, json_ui::HUD_SCREEN, &context).control {
-        let mut active = ActiveLabels {
-            catalog,
-            context: &context,
-            labels: &labels,
-            visited: BTreeSet::new(),
-            bindings: label_bindings,
-        };
-        active.collect(&hud, false);
-    }
+    collect_active_labels(
+        catalog,
+        &labels,
+        visibility
+            .entry(ControlRef::new("hud", "chat_label"))
+            .or_default(),
+    );
     for control in catalog.controls_mut() {
         suppress_chat(control, &chat);
     }
@@ -84,8 +76,8 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     for reference in restore {
         if let Some(control) = builtin.lookup(&reference.namespace, &reference.name) {
             let mut control = control.clone();
-            if let Some(bindings) = visibility.get(&reference) {
-                merge_rules(&mut control, bindings.iter());
+            if let Some(rules) = visibility.get(&reference) {
+                rules.merge_into(&mut control);
             }
             collect_globals(&control, &mut global_names);
             catalog.insert(control);
@@ -139,50 +131,77 @@ fn derived_labels(derived: &BTreeMap<ControlRef, Vec<ControlRef>>) -> BTreeSet<C
     labels
 }
 
-/// Walks the controls the pack HUD instantiates, directly or through factories.
-struct ActiveLabels<'a> {
-    catalog: &'a Catalog,
-    context: &'a json_ui::Context,
-    labels: &'a BTreeSet<ControlRef>,
-    visited: BTreeSet<ControlRef>,
-    bindings: &'a mut Vec<Value>,
+/// Retains visibility rules from the ordinary chat labels the pack HUD instantiates.
+fn collect_active_labels(catalog: &Catalog, labels: &BTreeSet<ControlRef>, rules: &mut Rules) {
+    let context = crate::ui_runtime::presentation::forms::menu_screens::retail_context();
+    let Some(hud) = json_ui::resolve(catalog, json_ui::HUD_SCREEN, &context).control else {
+        return;
+    };
+    let mut templates = Vec::new();
+    visit_active(&hud, false, labels, &context, rules, &mut templates);
+    let mut visited = BTreeSet::new();
+    let mut expansions = 0;
+    while let Some((template, scope)) = templates.pop() {
+        let key = (
+            template.clone(),
+            serde_json::to_string(scope.vars()).unwrap_or_default(),
+        );
+        if !visited.insert(key) {
+            continue;
+        }
+        if expansions == MAX_FACTORY_EXPANSIONS {
+            bevy::log::warn!(
+                %template,
+                limit = MAX_FACTORY_EXPANSIONS,
+                "chat filter scan skipped factory templates beyond the expansion limit"
+            );
+            break;
+        }
+        expansions += 1;
+        if let Some(instance) = json_ui::resolve(catalog, &template.to_string(), &scope).control {
+            let is_label = labels.contains(&template);
+            visit_active(&instance, is_label, labels, &scope, rules, &mut templates);
+        }
+    }
 }
 
-impl ActiveLabels<'_> {
-    /// Retains visibility rules from instantiated ordinary chat labels; unused templates add none.
-    fn collect(&mut self, control: &ResolvedControl, is_label: bool) {
-        if is_label
-            || control
-                .base
-                .as_ref()
-                .is_some_and(|base| self.labels.contains(base))
+/// Collects label rules in one resolved tree and queues its factory templates with their variables.
+fn visit_active(
+    control: &ResolvedControl,
+    is_label: bool,
+    labels: &BTreeSet<ControlRef>,
+    scope: &json_ui::Context,
+    rules: &mut Rules,
+    templates: &mut Vec<(ControlRef, json_ui::Context)>,
+) {
+    if is_label
+        || control
+            .base
+            .as_ref()
+            .is_some_and(|base| labels.contains(base))
+    {
+        rules.extend(Rules::read(
+            control.properties.get("bindings"),
+            control.properties.get("property_bag"),
+        ));
+    }
+    if let Some(factory) = &control.factory {
+        let captured = factory
+            .variables
+            .iter()
+            .fold(scope.clone(), |scope, (name, value)| {
+                scope.with_var(name, value.clone())
+            });
+        for template in factory
+            .control_name
+            .iter()
+            .chain(factory.control_ids.values())
         {
-            for binding in visibility_rules(control.properties.get("bindings")) {
-                if !self.bindings.contains(binding) {
-                    self.bindings.push(binding.clone());
-                }
-            }
+            templates.push((template.clone(), captured.clone()));
         }
-        if let Some(factory) = &control.factory {
-            for target in factory
-                .control_name
-                .iter()
-                .chain(factory.control_ids.values())
-            {
-                if !self.visited.insert(target.clone()) {
-                    continue;
-                }
-                if let Some(instance) =
-                    json_ui::resolve(self.catalog, &target.to_string(), self.context).control
-                {
-                    let is_label = self.labels.contains(target);
-                    self.collect(&instance, is_label);
-                }
-            }
-        }
-        for child in &control.children {
-            self.collect(child, false);
-        }
+    }
+    for child in &control.children {
+        visit_active(child, false, labels, scope, rules, templates);
     }
 }
 
@@ -215,10 +234,11 @@ fn restore_chat_screen(
 
 /// Copies resolved visibility rules onto the same named control and its children.
 fn retain_visibility(target: &mut RawControl, source: &ResolvedControl) -> bool {
-    let mut changed = merge_rules(
-        target,
-        visibility_rules(source.properties.get("bindings")).into_iter(),
-    );
+    let mut changed = Rules::read(
+        source.properties.get("bindings"),
+        source.properties.get("property_bag"),
+    )
+    .merge_into(target);
     for child in &mut target.children {
         if let Some(source) = source
             .children
@@ -231,60 +251,110 @@ fn retain_visibility(target: &mut RawControl, source: &ResolvedControl) -> bool 
     changed
 }
 
-/// Appends visibility rules; a dependency the control already binds keeps its own source.
-fn merge_rules<'a>(control: &mut RawControl, rules: impl Iterator<Item = &'a Value>) -> bool {
-    let Some(bindings) = control
-        .props
-        .entry("bindings".to_owned())
-        .or_insert_with(|| Value::Array(Vec::new()))
-        .as_array_mut()
-    else {
-        return false;
-    };
-    let supplied = bindings
-        .iter()
-        .filter_map(binding_target)
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
-    let mut changed = false;
-    for rule in rules {
-        let target = binding_target(rule);
-        if (target == Some("#visible") || !target.is_some_and(|target| supplied.contains(target)))
-            && !bindings.contains(rule)
-        {
-            bindings.push(rule.clone());
-            changed = true;
-        }
-    }
-    changed
+/// Visibility bindings with the bindings and property-bag values that feed the properties they read.
+#[derive(Debug, Default)]
+struct Rules {
+    bindings: Vec<Value>,
+    bag: serde_json::Map<String, Value>,
 }
 
-/// Visibility bindings plus the bindings that supply the properties they read.
-fn visibility_rules(bindings: Option<&Value>) -> Vec<&Value> {
-    let bindings = bindings
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice);
-    let mut wanted = vec![false; bindings.len()];
-    let mut read = BTreeSet::from(["#visible".to_owned()]);
-    loop {
-        let mut grew = false;
-        for (index, binding) in bindings.iter().enumerate() {
-            if !wanted[index] && binding_target(binding).is_some_and(|target| read.contains(target))
-            {
-                wanted[index] = true;
-                grew = true;
-                read.extend(properties_read(binding));
+impl Rules {
+    /// Selects the visibility rules of one control's bindings and property bag.
+    fn read(bindings: Option<&Value>, bag: Option<&Value>) -> Self {
+        let bindings = bindings
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let mut wanted = vec![false; bindings.len()];
+        let mut read = BTreeSet::from(["#visible".to_owned()]);
+        loop {
+            let mut grew = false;
+            for (index, binding) in bindings.iter().enumerate() {
+                if !wanted[index]
+                    && binding_target(binding).is_some_and(|target| read.contains(target))
+                {
+                    wanted[index] = true;
+                    grew = true;
+                    read.extend(properties_read(binding));
+                }
+            }
+            if !grew {
+                break;
             }
         }
-        if !grew {
-            break;
+        let bindings = bindings
+            .iter()
+            .zip(&wanted)
+            .filter_map(|(binding, wanted)| wanted.then(|| binding.clone()))
+            .collect::<Vec<_>>();
+        let bag = if bindings.is_empty() {
+            serde_json::Map::new()
+        } else {
+            bag.and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .filter(|(name, _)| read.contains(name.as_str()))
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect()
+        };
+        Self { bindings, bag }
+    }
+
+    /// Adds rules not already present; the first value for a property-bag entry wins.
+    fn extend(&mut self, other: Self) {
+        for binding in other.bindings {
+            if !self.bindings.contains(&binding) {
+                self.bindings.push(binding);
+            }
+        }
+        for (name, value) in other.bag {
+            self.bag.entry(name).or_insert(value);
         }
     }
-    bindings
-        .iter()
-        .zip(wanted)
-        .filter_map(|(binding, wanted)| wanted.then_some(binding))
-        .collect()
+
+    /// Appends these rules; properties the control already binds or holds keep their own source.
+    fn merge_into(&self, control: &mut RawControl) -> bool {
+        if self.bindings.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        if let Some(bindings) = control
+            .props
+            .entry("bindings".to_owned())
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+        {
+            let supplied = bindings
+                .iter()
+                .filter_map(binding_target)
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>();
+            for rule in &self.bindings {
+                let target = binding_target(rule);
+                if (target == Some("#visible")
+                    || !target.is_some_and(|target| supplied.contains(target)))
+                    && !bindings.contains(rule)
+                {
+                    bindings.push(rule.clone());
+                    changed = true;
+                }
+            }
+        }
+        if !self.bag.is_empty()
+            && let Some(bag) = control
+                .props
+                .entry("property_bag".to_owned())
+                .or_insert_with(|| Value::Object(serde_json::Map::new()))
+                .as_object_mut()
+        {
+            for (name, value) in &self.bag {
+                if !bag.contains_key(name) {
+                    bag.insert(name.clone(), value.clone());
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
 }
 
 /// The property a binding writes.
