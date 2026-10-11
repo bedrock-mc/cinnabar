@@ -66,6 +66,7 @@ impl ReadbackRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_scene::gpu_times::{SpanValidity, decode_spans, span_validity, ticks_to_duration};
     use render_scene::{GpuFrameTimes, RuntimeStage};
     use std::time::Duration;
 
@@ -213,6 +214,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(test)]
-use render_scene::gpu_times::{SpanValidity, decode_spans, span_validity, ticks_to_duration};

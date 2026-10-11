@@ -1,5 +1,4 @@
 use crate::shader_source;
-use render_model::ActorGpuInstance;
 use std::sync::Arc;
 
 use bevy::{

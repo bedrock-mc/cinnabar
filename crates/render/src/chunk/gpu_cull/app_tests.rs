@@ -1,6 +1,6 @@
 //! Real render apps on a validating NOOP device and native fallback backends.
 
-use render_scene::{ChunkRenderInstance, ChunkRenderQueue, PipelineWarmupReadiness};
+use render_scene::{ChunkRenderInstance, ChunkRenderQueue};
 
 use bevy::{
     asset::{AssetPlugin, Assets},

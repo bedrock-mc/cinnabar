@@ -5,7 +5,6 @@ use crate::actor::frame::{
     ActorRigGeometry, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, EntityRigId,
 };
-use crate::{ACTOR_BONE_MATRIX_BYTES, MAX_ACTOR_BONE_ARENA_BYTES};
 use std::sync::Arc;
 
 /// Creates a finite pose with rotation, translation and nonuniform scale.

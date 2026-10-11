@@ -10,8 +10,7 @@ use protocol::{
     MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
 use render_api::{CapeImage, SkinGeometrySource, StandardSkin};
-use render_model::{ACTOR_LAYER_BODY, ActorRigRejects, ActorRigRoute, STANDARD_SKIN_BYTES};
-use render_scene::ActorRenderScene;
+use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
 
 mod skin_geometry;

@@ -100,8 +100,7 @@ pub use viewmodel_render::ViewmodelRenderPlugin;
 mod weather_render;
 
 use meshing::{
-    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
-    PackedQuadLighting,
+    PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
 };
 
 pub use actor::material::blend_state as actor_material_blend_state;
