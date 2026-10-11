@@ -251,8 +251,7 @@ fn a_join_frame_does_not_wait_for_the_core() {
 
     app.world_mut()
         .resource_mut::<MenuRuntime>()
-        .intents
-        .disconnect = true;
+        .request_disconnect_for_test();
     app.update();
     let menu = app.world().resource::<MenuRuntime>();
     assert!(!menu.is_connecting());
