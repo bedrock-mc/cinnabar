@@ -2,6 +2,7 @@
 //! anvil names in its requests.
 
 use std::sync::Arc;
+use valentine::bedrock::codec::BedrockCodec;
 
 use super::crafting::RecipeOutput;
 
@@ -52,9 +53,7 @@ impl MultiRecipe {
     /// Decode the wire's little-endian UUID halves and match the exact repair identifier.
     #[must_use]
     pub fn is_repair(&self) -> bool {
-        let most = u64::from_le_bytes(self.uuid[..8].try_into().expect("UUID half"));
-        let least = u64::from_le_bytes(self.uuid[8..].try_into().expect("UUID half"));
-        uuid::Uuid::from_u64_pair(most, least) == REPAIR_MULTI_UUID
+        uuid::Uuid::decode(&mut &self.uuid[..], ()).is_ok_and(|uuid| uuid == REPAIR_MULTI_UUID)
     }
 }
 
