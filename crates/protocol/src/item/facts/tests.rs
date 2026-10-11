@@ -88,3 +88,15 @@ fn warmed_presentation_facts_do_not_allocate() {
     assert_eq!(allocations, 0);
     println!("named-stack display allocations: fresh={fresh_allocations}, cached={allocations}");
 }
+
+#[test]
+fn headerless_sources_share_empty_facts_without_spending_cache_entries() {
+    let cache = ItemStackFactsCache::default();
+    let empty = cache.get(&Arc::from([]), false);
+    let odd = cache.get(&Arc::from([1, 2, 3]), true);
+    assert!(Arc::ptr_eq(&empty, &odd));
+    assert!(empty.display.name.is_none());
+    assert!(empty.charged_projectile.is_none());
+    assert!(empty.damage.is_none());
+    assert!(cache.0.lock().unwrap().entries.is_empty());
+}

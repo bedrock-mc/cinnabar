@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use super::{
@@ -49,6 +49,10 @@ pub struct ItemStackFactsCache(Arc<Mutex<Cache>>);
 impl ItemStackFactsCache {
     /// Resolves one immutable extra-data allocation, decoding projectiles only for crossbows.
     pub fn get(&self, source: &Arc<[u8]>, crossbow: bool) -> Arc<ItemStackFacts> {
+        if super::decode_extra_nbt(source).is_none() {
+            static EMPTY: OnceLock<Arc<ItemStackFacts>> = OnceLock::new();
+            return Arc::clone(EMPTY.get_or_init(Default::default));
+        }
         let key = (source.as_ptr().addr(), source.len(), crossbow);
         let mut cache = self
             .0
