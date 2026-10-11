@@ -20,6 +20,7 @@ fn unchanged_source_shares_facts_and_changed_source_refreshes_damage() {
     assert!(facts.has_enchantment_list);
     assert!(facts.display.enchantments.is_empty());
     assert!(Arc::ptr_eq(&facts, &cache.get(&Arc::clone(&first), false)));
+    assert!(Arc::ptr_eq(&facts, &cache.clone().get(&first, false)));
     let changed = source(9);
     assert_eq!(cache.get(&changed, false).damage, Some(9));
     assert_eq!(facts.damage, Some(7));
