@@ -3,7 +3,7 @@ mod tests {
     use crate::ModRenderScene;
     use mod_api::MAX_BLOCK_HIGHLIGHTS;
     use mod_render::block_highlights::*;
-    use mod_render::geometry::{KIND_GROUND, KIND_STRIP, STYLE_BILLBOARD};
+    use mod_render::geometry::{KIND_GROUND, STYLE_BILLBOARD};
     use std::sync::Arc;
 
     const PINK: [f32; 4] = [1.0, 0.08, 0.45, 1.0];

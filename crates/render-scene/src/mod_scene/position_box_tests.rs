@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::ModRenderScene;
-    use mod_render::geometry::{KIND_GROUND, KIND_STRIP, STYLE_BILLBOARD};
+    use mod_render::geometry::KIND_STRIP;
     use mod_render::position_box::*;
     use std::sync::Arc;
 
