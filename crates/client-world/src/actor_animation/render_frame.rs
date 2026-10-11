@@ -337,6 +337,7 @@ impl ActorAnimationStore {
             .map(|progress| progress.bedrock_progress(partial_tick));
         let swing_changed = state.samples_swing_poses
             && swing.is_some_and(|value| value != frame.motion.input.attack_time);
+        let body_swing_changed = frame.samples_swing_poses && swing_changed;
         let swell_changed = frame.needs_swell_sampling(actor);
         if !state.samples_render_frames && !swing_changed && !swell_changed {
             return Some(completed());
@@ -440,6 +441,7 @@ impl ActorAnimationStore {
             .and_then(|sampling| sampling.sampled_scale(rig, scale, state.scale));
         let sampled_clips = if !isolated_swell
             && (swing_changed
+                || (frame.samples_camera_poses && pose_inputs_changed)
                 || (swell_changed
                     && state
                         .swell_sampling
@@ -458,6 +460,7 @@ impl ActorAnimationStore {
                     server_effects: &frame.motion.server_effects,
                 },
                 state.swell_sampling.as_deref().filter(|_| swell_changed),
+                !swell_changed,
                 &mut budget,
             ) else {
                 return Some(completed());
@@ -485,7 +488,7 @@ impl ActorAnimationStore {
             };
             Some(local)
         } else if (frame.samples_camera_poses && pose_inputs_changed)
-            || (frame.samples_swing_poses && swing_changed)
+            || body_swing_changed
             || swell_changed
         {
             let Ok(local) = pose::sample_clips(

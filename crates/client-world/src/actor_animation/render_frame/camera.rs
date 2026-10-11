@@ -13,27 +13,38 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
         geometry_binding,
         controllers,
         false,
-        None,
+        true,
     )
 }
 
-/// Contributing body clips sample presentation input; layer variants follow render selection.
-pub(in crate::actor_animation) fn needs_active_pose_sampling(
+/// Contributing body inputs admit sampling independently of selected layer variants.
+pub(in crate::actor_animation) fn active_pose_inputs(
+    layout: &VariableLayout,
+    mut expressions: evaluation::PresentationReads,
+    controllers: &[ControllerState],
+    clips: &[tick::WeightedClip],
+) -> evaluation::PresentationReads {
+    for inputs in controllers
+        .iter()
+        .map(|c| layout.controller_inputs(c.controller))
+        .chain(clips.iter().map(|c| layout.clip_inputs(c.clip)))
+    {
+        expressions.camera |= inputs.camera;
+        expressions.swing |= inputs.swing;
+    }
+    expressions
+}
+
+/// Binds rig-level presentation inputs without animation-channel scans during actor ticks.
+pub(in crate::actor_animation) fn presentation_expressions(
     assets: &RuntimeEntityAssets,
     rig_binding: usize,
     geometry_binding: usize,
-    controllers: &[ControllerState],
-    clips: &[tick::WeightedClip],
-    swing: bool,
-) -> bool {
-    needs_pose_sampling(
-        assets,
-        rig_binding,
-        geometry_binding,
-        controllers,
-        swing,
-        Some(clips),
-    )
+) -> evaluation::PresentationReads {
+    evaluation::PresentationReads {
+        camera: needs_pose_sampling(assets, rig_binding, geometry_binding, &[], false, false),
+        swing: needs_pose_sampling(assets, rig_binding, geometry_binding, &[], true, false),
+    }
 }
 
 /// Attack-time expressions sample the local swing at the physical frame fraction.
@@ -49,7 +60,7 @@ pub(in crate::actor_animation) fn needs_swing_sampling(
         geometry_binding,
         controllers,
         true,
-        None,
+        true,
     )
 }
 
@@ -60,27 +71,19 @@ fn needs_pose_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
     swing: bool,
-    active_clips: Option<&[tick::WeightedClip]>,
+    include_clips: bool,
 ) -> bool {
-    if active_clips.is_some_and(|clips| {
-        clips
-            .iter()
-            .any(|active| camera_clip(assets, active.clip, swing))
-    }) {
-        return true;
-    }
-    let samples_clip = |clip: usize| {
-        active_clips.is_none() && camera_clip_with_layers(assets, rig_binding, clip, swing)
-    };
+    let samples_clip =
+        |clip: usize| include_clips && camera_clip_with_layers(assets, rig_binding, clip, swing);
     if swing
-        && active_clips.is_none()
+        && include_clips
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
             .any(|expression| camera_expression(assets, expression as usize, true))
     {
         return true;
     }
-    if (!swing || active_clips.is_none())
+    if (!swing || include_clips)
         && assets.render_layers(rig_binding).iter().any(|layer| {
             layer
                 .light_color_multiplier
@@ -265,7 +268,11 @@ fn camera_clip(assets: &RuntimeEntityAssets, index: usize, swing: bool) -> bool 
 }
 
 /// Checks a compiled expression for the selected presentation input.
-fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) -> bool {
+pub(in crate::actor_animation) fn camera_expression(
+    assets: &RuntimeEntityAssets,
+    index: usize,
+    swing: bool,
+) -> bool {
     let Some(expression) = assets.molang_expressions().get(index) else {
         return false;
     };
@@ -288,7 +295,11 @@ fn camera_op(assets: &RuntimeEntityAssets, op: &MolangOp, swing: bool) -> bool {
 }
 
 /// Identifies a cached presentation read without revisiting its instruction stream.
-fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bool) -> bool {
+pub(in crate::actor_animation) fn camera_symbol(
+    assets: &RuntimeEntityAssets,
+    symbol: u32,
+    swing: bool,
+) -> bool {
     assets
         .molang_symbols()
         .get(symbol as usize)

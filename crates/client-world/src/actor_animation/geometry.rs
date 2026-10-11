@@ -195,6 +195,11 @@ pub(super) fn resolve_binding(
         samples_render_frames: samples_camera_poses
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,
+        presentation_expressions: super::render_frame::camera::presentation_expressions(
+            assets,
+            rig_binding,
+            geometry_binding,
+        ),
         samples_swing_poses,
         creeper: actor.is_creeper(),
         swell_sampling,
@@ -543,6 +548,8 @@ fn reselect_geometry_with_checkpoint(
         selected,
         &controllers,
     );
+    state.presentation_expressions =
+        super::render_frame::camera::presentation_expressions(assets, state.rig_binding, selected);
     state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
         assets,
         state.rig_binding,
