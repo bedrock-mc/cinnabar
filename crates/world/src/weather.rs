@@ -19,10 +19,16 @@ pub fn altitude_adjusted_temperature(temperature: f32, surface_y: i32) -> f32 {
     temperature - above * TEMPERATURE_LOSS_PER_BLOCK_ABOVE_SEA
 }
 
-/// Rain, snow or nothing for a biome: zero downfall never precipitates, cold falls as snow.
+/// Whether a biome's downfall permits precipitation at all; sub-epsilon downfall stays dry.
+#[must_use]
+pub fn precipitation_eligible(downfall: f32) -> bool {
+    downfall.is_finite() && downfall >= f32::EPSILON
+}
+
+/// Rain, snow or nothing for a biome: ineligible downfall never precipitates, cold falls as snow.
 #[must_use]
 pub fn classify_precipitation(temperature: f32, downfall: f32, surface_y: i32) -> Precipitation {
-    if !temperature.is_finite() || !downfall.is_finite() || downfall <= 0.0 {
+    if !temperature.is_finite() || !precipitation_eligible(downfall) {
         return Precipitation::None;
     }
     if altitude_adjusted_temperature(temperature, surface_y) <= SNOW_TEMPERATURE {

@@ -142,3 +142,83 @@ fn nonfinite_live_snow_does_not_discard_valid_siblings() {
     assert_eq!(actual.records, expected.records);
     assert_eq!(actual.skipped_definitions, 1);
 }
+
+#[test]
+fn session_climate_and_routes_share_tint_admission_and_replacement() {
+    let catalog = fixture(TintSource::map(TintMapId::Grass));
+    let known = assets::LiveBiomeDefinition {
+        name: "test:shaded",
+        biome_id: Some(91),
+        temperature: -0.5,
+        downfall: 0.0,
+        snow_foliage: 0.0,
+        max_snow_accumulation: None,
+        map_water_argb: 0xff617b64,
+    };
+    let custom = assets::LiveBiomeDefinition {
+        name: "custom:wet",
+        biome_id: Some(92),
+        temperature: 1.0,
+        downfall: 0.8,
+        ..known
+    };
+    let invalid = assets::LiveBiomeDefinition {
+        name: "custom:invalid",
+        biome_id: Some(93),
+        temperature: f32::NAN,
+        ..custom
+    };
+    let unbound = assets::LiveBiomeDefinition {
+        name: "custom:unbound",
+        biome_id: None,
+        ..custom
+    };
+    let resolved = catalog
+        .resolve_live(&[known, custom, invalid, unbound])
+        .unwrap();
+    let climate = resolved.biome(1).unwrap();
+    assert_eq!(climate.identifier.as_ref(), known.name);
+    assert_eq!((climate.temperature, climate.downfall), (-0.5, 0.0));
+    assert!(!climate.precipitation_eligible());
+    let climate = resolved.biome(92).unwrap();
+    assert_eq!(climate.identifier.as_ref(), custom.name);
+    assert_eq!((climate.temperature, climate.downfall), (1.0, 0.8));
+    assert!(climate.precipitation_eligible());
+    assert_eq!(
+        resolved.records[resolved.dense_index(92) as usize].raw_id,
+        92
+    );
+    for missing in [91, 93, u32::MAX] {
+        assert!(resolved.biome(missing).is_none());
+    }
+    assert_eq!(resolved.skipped_definitions, 1);
+    let restored = catalog.resolve_live(&[]).unwrap();
+    assert_eq!(restored.biome(1).unwrap().temperature, 0.5);
+    assert!(restored.biome(92).is_none());
+}
+
+#[test]
+fn session_precipitation_admission_uses_the_climate_epsilon() {
+    let catalog = fixture(TintSource::map(TintMapId::Grass));
+    for (downfall, eligible) in [
+        (0.0, false),
+        (f32::EPSILON * 0.5, false),
+        (f32::EPSILON, true),
+    ] {
+        let resolved = catalog
+            .resolve_live(&[assets::LiveBiomeDefinition {
+                name: "test:shaded",
+                biome_id: None,
+                temperature: 0.5,
+                downfall,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
+                map_water_argb: 0,
+            }])
+            .unwrap();
+        assert_eq!(
+            resolved.biome(1).unwrap().precipitation_eligible(),
+            eligible
+        );
+    }
+}

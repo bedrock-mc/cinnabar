@@ -62,6 +62,7 @@ impl WorldAuthority {
     /// Publishes only seasonal palette colours, preserving mesh identities and revision.
     pub fn replace_seasonal_biome_tints(&mut self, resolved: ResolvedBiomeTints) -> bool {
         if resolved.raw_id_to_dense != self.resolved_biome_tints.raw_id_to_dense
+            || resolved.biomes != self.resolved_biome_tints.biomes
             || resolved == *self.resolved_biome_tints
         {
             return false;
