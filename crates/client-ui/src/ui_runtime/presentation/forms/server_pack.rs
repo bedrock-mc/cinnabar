@@ -426,7 +426,7 @@ impl ServerAtlas {
         key: &str,
         uv: json_ui::UvRect,
         dest: [f32; 4],
-    ) -> Option<Vec<native_sheets::Quad>> {
+    ) -> Option<native_sheets::Quads<'_>> {
         let (sheet, first) = self.native.get(key)?;
         Some(sheet.quads(uv, dest, first))
     }

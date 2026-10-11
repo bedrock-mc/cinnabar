@@ -18,6 +18,9 @@ use render_model::{
 
 use super::Source;
 
+#[cfg(test)]
+mod tests;
+
 /// Neighbor texels overlap tile borders so bilinear filtering crosses them unchanged.
 const INTERIOR: u32 = MAX_UI_TEXTURE_SIDE - 2;
 
@@ -98,97 +101,148 @@ pub(in crate::ui_runtime::presentation::forms) struct Quad {
     pub dest: [f32; 4],
 }
 
-#[derive(Clone, Copy)]
+/// Two endpoints plus each possible source and tile edge bound the sampling work.
+const MAX_AXIS_CUTS: usize = MAX_UI_NATIVE_SHEET_SIDE.div_ceil(INTERIOR) as usize + 3;
+
+#[derive(Clone, Copy, Default)]
 struct Axis {
     dest: [f32; 2],
     sample: [f32; 2],
     middle: f32,
 }
 
+#[derive(Default)]
+struct Segments {
+    values: [Axis; MAX_AXIS_CUTS - 1],
+    len: usize,
+}
+
 /// Splits sampling at tile and source edges, retaining mirroring and clamp-to-edge spans.
-fn axis(start: f32, end: f32, extent: u32) -> Option<Vec<Axis>> {
+fn axis(start: f32, end: f32, extent: u32) -> Option<Segments> {
     if !start.is_finite() || !end.is_finite() {
         return None;
     }
     let limit = extent as f32;
+    let mut pieces = Segments::default();
     if start == end {
         let sample = start.clamp(0.0, limit);
-        return Some(vec![Axis {
+        pieces.values[0] = Axis {
             dest: [0.0, 1.0],
             sample: [sample; 2],
             middle: sample,
-        }]);
+        };
+        pieces.len = 1;
+        return Some(pieces);
     }
-    let mut cuts = vec![start.min(end), start.max(end)];
+    let lower = start.min(end);
+    let upper = start.max(end);
+    let mut cuts = [0.0; MAX_AXIS_CUTS];
+    cuts[..2].copy_from_slice(&[lower, upper]);
+    let mut len = 2;
     for edge in (0..extent)
         .step_by(INTERIOR as usize)
         .chain(std::iter::once(extent))
     {
         let edge = edge as f32;
-        if edge > cuts[0] && edge < cuts[1] {
-            cuts.push(edge);
+        if edge > lower && edge < upper {
+            *cuts.get_mut(len)? = edge;
+            len += 1;
         }
     }
-    cuts.sort_by(f32::total_cmp);
-    let pieces = cuts
-        .windows(2)
-        .map(|edges| {
-            let mut a = edges[0];
-            let mut b = edges[1];
-            if end < start {
-                std::mem::swap(&mut a, &mut b);
-            }
-            Axis {
-                dest: [(a - start) / (end - start), (b - start) / (end - start)],
-                sample: [a.clamp(0.0, limit), b.clamp(0.0, limit)],
-                middle: ((a + b) * 0.5).clamp(0.0, limit),
-            }
-        })
-        .collect();
+    cuts[..len].sort_unstable_by(f32::total_cmp);
+    for (index, edges) in cuts[..len].windows(2).enumerate() {
+        let mut a = edges[0];
+        let mut b = edges[1];
+        if end < start {
+            std::mem::swap(&mut a, &mut b);
+        }
+        pieces.values[index] = Axis {
+            dest: [(a - start) / (end - start), (b - start) / (end - start)],
+            sample: [a.clamp(0.0, limit), b.clamp(0.0, limit)],
+            middle: ((a + b) * 0.5).clamp(0.0, limit),
+        };
+    }
+    pieces.len = len - 1;
     Some(pieces)
+}
+
+/// Samples resident pages lazily with bounded stack storage for both axes.
+pub(in crate::ui_runtime::presentation::forms) struct Quads<'a> {
+    sheet: &'a Sheet,
+    xs: Segments,
+    ys: Segments,
+    x: usize,
+    y: usize,
+    dest: [f32; 4],
+    first: usize,
+}
+
+impl Quads<'_> {
+    /// Rebases tile references into the presentation's logical texture catalog.
+    pub(in crate::ui_runtime::presentation::forms) fn rebased(mut self, first: usize) -> Self {
+        self.first += first;
+        self
+    }
+}
+
+impl Iterator for Quads<'_> {
+    type Item = Quad;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.xs.len == 0 {
+            return None;
+        }
+        while self.y < self.ys.len {
+            let x = self.xs.values[self.x];
+            let y = self.ys.values[self.y];
+            self.x += 1;
+            if self.x == self.xs.len {
+                self.x = 0;
+                self.y += 1;
+            }
+            let Some((index, tile)) = self.sheet.tiles.iter().enumerate().find(|(_, tile)| {
+                let [left, top, right, bottom] = tile.spec.content;
+                x.middle >= left as f32
+                    && (x.middle < right as f32 || right == self.sheet.size[0])
+                    && y.middle >= top as f32
+                    && (y.middle < bottom as f32 || bottom == self.sheet.size[1])
+            }) else {
+                continue;
+            };
+            let [left, top] = tile.spec.origin.map(|side| side as f32);
+            return Some(Quad {
+                page: self.first + index,
+                uv: [
+                    x.sample[0] - left,
+                    y.sample[0] - top,
+                    x.sample[1] - left,
+                    y.sample[1] - top,
+                ],
+                dest: [
+                    self.dest[0] + x.dest[0] * (self.dest[2] - self.dest[0]),
+                    self.dest[1] + y.dest[0] * (self.dest[3] - self.dest[1]),
+                    self.dest[0] + x.dest[1] * (self.dest[2] - self.dest[0]),
+                    self.dest[1] + y.dest[1] * (self.dest[3] - self.dest[1]),
+                ],
+            });
+        }
+        None
+    }
 }
 
 impl Sheet {
     /// Maps the authored source rectangle without resampling or changing its animation time.
-    pub(super) fn quads(&self, uv: UvRect, dest: [f32; 4], first: usize) -> Vec<Quad> {
+    pub(super) fn quads(&self, uv: UvRect, dest: [f32; 4], first: usize) -> Quads<'_> {
         let [width, height] = self.size.map(|side| side as f32);
-        let Some(xs) = axis(uv.u0 * width, uv.u1 * width, self.size[0]) else {
-            return Vec::new();
-        };
-        let Some(ys) = axis(uv.v0 * height, uv.v1 * height, self.size[1]) else {
-            return Vec::new();
-        };
-        let mut quads = Vec::new();
-        for y in ys {
-            for x in &xs {
-                let Some((index, tile)) = self.tiles.iter().enumerate().find(|(_, tile)| {
-                    let [left, top, right, bottom] = tile.spec.content;
-                    x.middle >= left as f32
-                        && (x.middle < right as f32 || right == self.size[0])
-                        && y.middle >= top as f32
-                        && (y.middle < bottom as f32 || bottom == self.size[1])
-                }) else {
-                    continue;
-                };
-                let [left, top] = tile.spec.origin.map(|side| side as f32);
-                quads.push(Quad {
-                    page: first + index,
-                    uv: [
-                        x.sample[0] - left,
-                        y.sample[0] - top,
-                        x.sample[1] - left,
-                        y.sample[1] - top,
-                    ],
-                    dest: [
-                        dest[0] + x.dest[0] * (dest[2] - dest[0]),
-                        dest[1] + y.dest[0] * (dest[3] - dest[1]),
-                        dest[0] + x.dest[1] * (dest[2] - dest[0]),
-                        dest[1] + y.dest[1] * (dest[3] - dest[1]),
-                    ],
-                });
-            }
+        Quads {
+            sheet: self,
+            xs: axis(uv.u0 * width, uv.u1 * width, self.size[0]).unwrap_or_default(),
+            ys: axis(uv.v0 * height, uv.v1 * height, self.size[1]).unwrap_or_default(),
+            x: 0,
+            y: 0,
+            dest,
+            first,
         }
-        quads
     }
 }
 

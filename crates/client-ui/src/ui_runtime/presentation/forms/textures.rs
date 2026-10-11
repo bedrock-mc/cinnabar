@@ -132,7 +132,7 @@ pub(super) struct Textures<'a> {
     pub(super) images: Option<&'a HashMap<String, IconRef>>,
 }
 
-impl Textures<'_> {
+impl<'a> Textures<'a> {
     /// `path` without an image extension, the key every source uses.
     pub(super) fn canonical<'p>(&self, path: &'p str) -> Cow<'p, str> {
         Cow::Borrowed(texture_key(path))
@@ -284,13 +284,10 @@ impl Textures<'_> {
         path: &str,
         uv: json_ui::UvRect,
         dest: [f32; 4],
-    ) -> Option<Vec<super::server_pack::native_sheets::Quad>> {
-        let mut quads = self.atlas.native_quads(&self.canonical(path), uv, dest)?;
+    ) -> Option<super::server_pack::native_sheets::Quads<'a>> {
+        let quads = self.atlas.native_quads(&self.canonical(path), uv, dest)?;
         let first = self.native_first_page()?;
-        for quad in &mut quads {
-            quad.page += first;
-        }
-        Some(quads)
+        Some(quads.rebased(first))
     }
 }
 
