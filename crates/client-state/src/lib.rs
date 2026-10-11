@@ -61,6 +61,13 @@ pub struct GameplayScreenControls {
     pub spyglass_gamepad_damping: f32,
 }
 
+/// Runtime boundaries that app-owned ingress and world adapters order against.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RuntimeFrameSet {
+    /// Refills the shared publication allowance before ingress or world publication.
+    PublicationBudget,
+}
+
 /// Retained desktop input ownership shared by the shell and camera.
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct CursorFocus(pub semantic_input::cursor_focus::CursorFocus);

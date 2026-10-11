@@ -1,5 +1,7 @@
 use super::*;
-use crate::runtime::network::{drain_network_controls, publish_bootstrap_inventory};
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
+use client_runtime::{ingress::drain_network_controls, inventory::publish_bootstrap_inventory};
 use client_ui::ui_runtime::UiRuntime;
 use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 
@@ -95,13 +97,13 @@ fn old_terminal_receiver_cannot_clear_new_mining_mode() {
             origin: NetworkFailureOrigin::Receive,
         },
     ] {
-        let (mut handle, _) = NetworkHandle::stub();
+        let (mut handle, _) = NetworkHandle::<PackApplication>::stub();
         let (sender, receiver) = mpsc::channel(1);
         *handle.control_events_mut() = receiver;
         sender.try_send(terminal).unwrap();
         drop(std::mem::replace(
             &mut handle,
-            NetworkHandle::disconnected(),
+            NetworkHandle::<PackApplication>::disconnected(),
         ));
         assert!(sender.is_closed());
         assert!(drain_network_controls(handle.control_events_mut(), 64).is_empty());

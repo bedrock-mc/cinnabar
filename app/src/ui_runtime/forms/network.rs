@@ -1,12 +1,14 @@
 use super::{FormTransportError, flush_form_response};
-use crate::runtime::network::{NetworkHandle, PacketSendError};
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{Res, ResMut};
+use client_runtime::network::NetworkHandle;
+use client_session::PacketSendError;
 use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,
     player: Res<client_state::PlayerRuntime>,
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
 ) {
     let session = runtime.session_id();

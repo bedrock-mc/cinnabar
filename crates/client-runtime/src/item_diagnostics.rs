@@ -22,6 +22,7 @@ struct State {
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
+/// Updates retained diagnostic counters while holding their process-wide lock.
 fn with_state(apply: impl FnOnce(&mut State)) {
     if let Ok(mut state) = STATE.lock() {
         apply(state.get_or_insert_with(State::default));
@@ -29,7 +30,7 @@ fn with_state(apply: impl FnOnce(&mut State)) {
 }
 
 /// Logs the StartGame registry's shape and forgets the previous session's lines.
-pub(super) fn session_registry(registry: Option<&ItemRegistryEvent>) {
+pub fn session_registry(registry: Option<&ItemRegistryEvent>) {
     with_state(|state| *state = State::default());
     let Some(registry) = registry else {
         info!("StartGame carried no usable item registry; vanilla ids only");
@@ -52,7 +53,7 @@ pub(super) fn session_registry(registry: Option<&ItemRegistryEvent>) {
 }
 
 /// Logs how many server item icons the pack stack resolved.
-pub(super) fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
+pub fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
     info!(
         registry_icon_keys = keys,
         resolved = icons.map_or(0, |icons| icons.icons.len()),
@@ -62,7 +63,7 @@ pub(super) fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
 }
 
 /// Logs bounded station recipe skips and distinct inventory content shapes.
-pub(super) fn inventory(event: &InventoryEvent) {
+pub fn inventory(event: &InventoryEvent) {
     if let InventoryEvent::Recipes(update) = event {
         let skipped = update.skipped_screen_recipes();
         if skipped > 0 {
@@ -108,7 +109,7 @@ pub(super) fn inventory(event: &InventoryEvent) {
 }
 
 /// Logs each actor's first armor and held-item event, and every distinct refusal.
-pub(super) fn equipment(notices: Vec<EquipmentNotice>) {
+pub fn equipment(notices: Vec<EquipmentNotice>) {
     if notices.is_empty() {
         return;
     }

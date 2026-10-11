@@ -1,5 +1,7 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
@@ -533,7 +535,7 @@ const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
 /// Asks the server for the pixels of framed maps whose images have not arrived.
 pub(crate) fn request_missing_maps(
     mut runtime: ResMut<BlockEntityRuntime>,
-    network: Option<Res<crate::runtime::network::NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
     time: Res<Time<Real>>,
 ) {
     let Some(network) = network else {

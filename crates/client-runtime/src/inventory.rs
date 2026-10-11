@@ -2,9 +2,10 @@ use protocol::{InventoryEvent, ItemRegistryEvent, WorldEvent};
 
 use client_ui::ui_runtime::{UiRuntime, UiRuntimeError};
 
-use super::session;
+use client_session::SequencedWorldEvent;
 
-pub(crate) fn publish_bootstrap_inventory(
+/// Publishes initial inventory authority and its optional item registry as one bootstrap.
+pub fn publish_bootstrap_inventory(
     player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     registry: Option<ItemRegistryEvent>,
@@ -23,12 +24,13 @@ pub(crate) fn publish_bootstrap_inventory(
     true
 }
 
-pub(crate) fn route_inventory_ingress(
+/// Queues a sequenced inventory event and returns its FIFO commit position.
+pub fn route_inventory_ingress(
     player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
-    sequenced: session::SequencedWorldEvent,
+    sequenced: SequencedWorldEvent,
 ) -> Result<u64, UiRuntimeError> {
-    let session::SequencedWorldEvent {
+    let SequencedWorldEvent {
         session_generation,
         sequence,
         event: WorldEvent::Inventory(event),
@@ -41,10 +43,11 @@ pub(crate) fn route_inventory_ingress(
     Ok(sequence)
 }
 
-pub(crate) fn route_item_registry_ingress(
+/// Queues item registry facts at the same generation and sequence as their world event.
+pub fn route_item_registry_ingress(
     player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
-    sequenced: &session::SequencedWorldEvent,
+    sequenced: &SequencedWorldEvent,
 ) -> Result<(), UiRuntimeError> {
     let WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(event)) = &sequenced.event else {
         unreachable!("item-registry routing accepts only registry world events")

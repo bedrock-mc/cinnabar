@@ -1,19 +1,19 @@
 //! Middle-click pick block: asks the server to put the targeted block in hand.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Res, ResMut, Window, With},
     window::PrimaryWindow,
 };
+use client_runtime::network::NetworkHandle;
 use protocol::PlayerGameMode;
 
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
-        interaction_authority::observe_block,
-        mining::hand_interaction_selection,
-        movement::PhysicsCollisionRegistries,
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        interaction_authority::observe_block, mining::hand_interaction_selection,
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
     },
     client_presentation::local_player::InteractionOriginSnapshot,
     client_state::SemanticInputSnapshot,
@@ -29,7 +29,7 @@ pub(crate) struct PickBlockContext<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
 }
 
 /// Sends one block-pick request per middle-click on a block in reach.

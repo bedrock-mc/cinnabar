@@ -76,7 +76,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     frame(&player_runtime, &mut presentation, &runtime);
     presentation.set_menu_view(None);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
+    client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 2);
     runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
     let glyphs = client_ui::test_support::pack_harness::env_glyphs();
     runtime.set_session_glyphs(glyphs.clone());
@@ -133,7 +133,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
         }
         runtime.set_server_ui(None);
         frame(&player_runtime, &mut presentation, &runtime);
-        crate::session::begin_session(&mut runtime, &mut player_runtime, phase + 3);
+        client_runtime::session::begin_session(&mut runtime, &mut player_runtime, phase + 3);
         runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
         runtime.set_session_glyphs(glyphs.clone());
     }

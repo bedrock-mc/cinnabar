@@ -1,5 +1,6 @@
 //! Keyboard and pointer handling for the sign editor, and the request that opens it.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
     prelude::{
@@ -7,6 +8,7 @@ use bevy::{
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
+use client_runtime::network::NetworkHandle;
 
 use client_ui::ui_runtime::sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit};
 use client_ui::ui_runtime::{
@@ -15,7 +17,7 @@ use client_ui::ui_runtime::{
 use {
     crate::{
         block_entities::{BlockEntityFont, BlockEntityRuntime},
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        runtime::world::ClientWorld,
     },
     client_shell::menu::MenuRuntime,
 };
@@ -37,7 +39,7 @@ pub(crate) fn drive_sign_editor(
     mut keyboard: MessageReader<KeyboardInput>,
     menu: Option<Res<MenuRuntime>>,
     presentation: Res<UiPresentationRuntime>,
-    network: Option<Res<NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
     font: Option<Res<BlockEntityFont>>,
     measure: Option<ResMut<BlockEntityRuntime>>,
     mut client_world: ResMut<ClientWorld>,

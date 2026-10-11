@@ -1,5 +1,7 @@
 //! Packet-driven aim selection publishes a separate interaction ray.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::sync::Arc;
 
 use bevy::{ecs::system::SystemParam, prelude::*};
@@ -14,7 +16,7 @@ use {
     crate::{
         environment::WorldClock,
         movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        runtime::world::ClientWorld,
     },
     client_presentation::{
         camera::{CameraSettingsAuthority, ServerCameraView},
@@ -42,7 +44,7 @@ pub(crate) struct AimContext<'w> {
     instructions: Res<'w, ServerCameraInstructions>,
     camera: Res<'w, ServerCameraView>,
     camera_settings: Res<'w, CameraSettingsAuthority>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     physics: Res<'w, LocalPhysicsController>,
 }
 

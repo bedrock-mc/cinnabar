@@ -1,9 +1,11 @@
 //! Published-tick block admission through the production producer and bounded session queue.
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::prelude::*;
+use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::UiRuntime;
 use protocol::{ContainerIdentity, InventoryEvent, InventorySlotEvent, SlotIdentity};
 use std::time::{Duration, Instant};
@@ -94,8 +96,9 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     }
     let mut sample = gameplay::test_support::survival_mining::completed(101);
     sample.position = position;
-    let (network, captured) = NetworkHandle::stub_capturing_packets();
-    let mut movement = network.movement_ticker();
+    let (network, captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    let mut movement =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
     movement.reset(7, 100, position);
     movement.set_source(gameplay::movement::MovementSource::Physics);
     movement.enqueue_completed_physics(sample.clone()).unwrap();

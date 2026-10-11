@@ -1,33 +1,37 @@
 #[cfg(not(feature = "acceptance"))]
 use crate::acceptance::AcceptanceRun;
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::{
     app::{App, AppExit, Update},
     prelude::{IntoScheduleConfigs, Quat, ResMut, Resource, Transform, Vec3},
 };
+use client_runtime::network::NetworkHandle;
 use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
 use client_ui::ui_runtime::UiRuntime;
 use diagnostics::metrics::MetricsCollector;
 use {
-    crate::app::{ClientBlobCacheOwner, configure_client_frame_schedule},
-    crate::movement::{LocalPhysicsController, MovementTicker},
-    crate::runtime::network::{
-        NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
-        drain_network_controls,
+    crate::{
+        app::configure_client_frame_schedule,
+        movement::{LocalPhysicsController, MovementTicker},
+        runtime::{
+            network::session::NetworkControlEvent, shutdown::record_fatal_error,
+            telemetry::send_player_auth_inputs, visibility::AppMetrics, world::ClientWorld,
+        },
+        session::{SessionController, drive_session, recover_session_failure},
     },
-    crate::runtime::shutdown::record_fatal_error,
-    crate::runtime::telemetry::send_player_auth_inputs,
-    crate::runtime::visibility::AppMetrics,
-    crate::runtime::world::ClientWorld,
-    crate::session::{SessionController, drive_session, recover_session_failure},
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
     },
-    client_state::ClientFrameSet,
-    client_state::SemanticInputSnapshot,
+    client_runtime::{
+        blob_cache::ClientBlobCacheOwner, ingress::drain_network_controls,
+        pack_admission::ResourcePackAdmissionState,
+    },
+    client_session::NetworkFailureOrigin,
+    client_state::{ClientFrameSet, SemanticInputSnapshot},
     gameplay::movement::{MovementSource, PhysicsMovementSample, ProcessedMovementState},
 };
 use {
@@ -39,7 +43,7 @@ use {
 struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);
 
 fn receive_terminal_for_test(
-    mut network: ResMut<NetworkHandle>,
+    mut network: ResMut<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<ClientWorld>,
 ) {
     for event in drain_network_controls(network.control_events_mut(), 16) {
@@ -53,7 +57,7 @@ fn receive_terminal_for_test(
         };
         record_fatal_error(
             &mut client_world.fatal_error,
-            crate::runtime::network::session_failure_display(&message, server_disconnect.as_ref()),
+            client_session::session_failure_display(&message, server_disconnect.as_ref()),
         );
     }
 }
@@ -181,7 +185,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     app.add_message::<AppExit>()
         .insert_resource(menu)
         .insert_resource(SessionController::default())
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(runtime)
@@ -266,7 +270,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         })
         .unwrap();
 
-    let (network, terminal_sender) = NetworkHandle::stub_with_control_sender();
+    let (network, terminal_sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.add_message::<AppExit>()
@@ -348,7 +352,10 @@ fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, Sess
     (menu, controller)
 }
 
-fn drive_once((menu, controller): (MenuRuntime, SessionController), network: NetworkHandle) -> App {
+fn drive_once(
+    (menu, controller): (MenuRuntime, SessionController),
+    network: NetworkHandle<PackApplication>,
+) -> App {
     let mut app = App::new();
     app.add_message::<AppExit>()
         .insert_resource(menu)
@@ -380,7 +387,7 @@ fn cancelling_a_pack_download_retires_the_session() {
         total_bytes: 4,
     });
     menu.activate(MenuAction::AddBack);
-    let mut network = NetworkHandle::disconnected();
+    let mut network = NetworkHandle::<PackApplication>::disconnected();
     let (session_events, receiver) = tokio::sync::mpsc::channel(1);
     *network.control_events_mut() = receiver;
     let app = drive_once((menu, controller), network);
@@ -396,7 +403,7 @@ fn cancelling_a_pack_download_retires_the_session() {
 fn back_during_the_realm_lookup_keeps_joining() {
     let (mut menu, controller) = connecting_menu(launcher::menu::view::JoinStage::Realm);
     menu.activate(MenuAction::AddBack);
-    let mut network = NetworkHandle::disconnected();
+    let mut network = NetworkHandle::<PackApplication>::disconnected();
     let (session_events, receiver) = tokio::sync::mpsc::channel(1);
     *network.control_events_mut() = receiver;
     let app = drive_once((menu, controller), network);

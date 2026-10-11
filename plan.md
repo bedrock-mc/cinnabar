@@ -1,3 +1,18 @@
+## Client runtime ownership
+
+`client-runtime` owns the Bevy transport handle and frame flush, bounded ingress,
+inventory ingress, publication budgeting, world-service schedules and resource,
+process shutdown, shared session helpers, admitted-pack resource and pack geometry
+preparation. `app` installs `ClientRuntimePlugin`; its frame adapters keep their
+existing order through `client-state`.
+
+The extraction remains incomplete: network bootstrap and world publication still
+borrow app-owned movement and presentation resources; join, transfer and teardown
+still borrow the menu; pack reload publication still applies presentation and audio
+state. These adapters remain in `app` until their shared contracts exist. The runtime
+crate has no presentation, audio or other sibling-plugin dependency. Compilation and
+execution of this move remain unverified, and no parity gate is closed by it.
+
 ## Client frame contract
 
 - `client-state` owns the shared frame sets, player authority wrapper, settings revision

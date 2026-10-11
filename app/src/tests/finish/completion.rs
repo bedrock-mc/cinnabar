@@ -53,7 +53,7 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
     )));
 
     let mut transport_refilled = snapshot;
-    transport_refilled.work.network_events = crate::runtime::network::WORLD_EVENT_CAPACITY;
+    transport_refilled.work.network_events = client_session::WORLD_EVENT_CAPACITY;
     let same_expectation = settler
         .reconcile_presentation(
             transport_refilled,

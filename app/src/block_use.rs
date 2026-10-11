@@ -5,11 +5,13 @@
 //! is also applied locally; the server's block updates stay authoritative. Air
 //! use lives in `item_use`.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
+use client_runtime::network::NetworkHandle;
 use protocol::{ItemUseTrigger, PlayerGameMode, PlayerInputMode};
 use semantic_input::Action;
 use sim::PaletteWorld;
@@ -20,7 +22,7 @@ use {
         melee::{MeleeRuntime, SwingTracker},
         mining::verified_selection,
         movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        runtime::world::ClientWorld,
     },
     client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},
     client_state::SemanticInputSnapshot,
@@ -114,7 +116,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }

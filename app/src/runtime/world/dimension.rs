@@ -1,17 +1,19 @@
 //! Dimension acknowledgement after server and terrain readiness, before presentation completes.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::time::Duration;
 
 use protocol::{ChangeDimensionEvent, LoadingScreenPhase, Packet};
 
-use crate::runtime::network::{NetworkHandle, PacketSendError};
+use client_session::PacketSendError;
 
 const SERVER_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Transfer control packets keep progressing when the window cannot present.
 pub(crate) fn advance_dimension_transfer(
     mut client_world: bevy::prelude::ResMut<super::ClientWorld>,
-    network: bevy::prelude::Res<NetworkHandle>,
+    network: bevy::prelude::Res<NetworkHandle<PackApplication>>,
     clock: bevy::prelude::Res<crate::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
     mut menu: Option<bevy::prelude::ResMut<client_shell::menu::MenuRuntime>>,
@@ -169,7 +171,7 @@ impl DimensionTransfer {
         &mut self,
         now: Duration,
         destination_ready: bool,
-        network: &NetworkHandle,
+        network: &NetworkHandle<PackApplication>,
     ) -> Result<(), PacketSendError> {
         self.send_before_presentation(now, destination_ready, |packet| {
             network.send_dimension_packet(packet)
@@ -214,7 +216,7 @@ impl DimensionTransfer {
 
     pub(crate) fn finish_presentation(
         &mut self,
-        network: &NetworkHandle,
+        network: &NetworkHandle<PackApplication>,
     ) -> Result<bool, PacketSendError> {
         self.complete_with(|packet| network.send_dimension_packet(packet))
     }

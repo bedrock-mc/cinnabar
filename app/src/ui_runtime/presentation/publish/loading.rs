@@ -1,12 +1,14 @@
 //! Native dimension switching and destination terrain presentation are separate waits.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::time::Duration;
 
 use client_ui::ui_runtime::presentation::startup::StartupReadinessInput;
 use render_model::VisibilityDiagnosticSnapshot;
 
 use super::*;
-use crate::runtime::network::{NetworkHandle, PacketSendError};
+use client_session::PacketSendError;
 
 pub(super) struct LoadingObservation {
     pub restart: bool,
@@ -24,7 +26,7 @@ pub(super) fn prepare_loading(
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     diagnostics: &mut VisibilityDiagnosticsInput,
-    network: &NetworkHandle,
+    network: &NetworkHandle<PackApplication>,
     observation: LoadingObservation,
 ) {
     if observation.restart {

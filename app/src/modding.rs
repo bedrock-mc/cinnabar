@@ -10,8 +10,9 @@ use client_extensions::modding::{
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::environment::VisualTimeOverride,
+    crate::{environment::VisualTimeOverride, runtime::network::resource_packs::PackApplication},
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_runtime::network::NetworkHandle,
     client_shell::menu::MenuRuntime,
     client_state::ClientFrameSet,
     client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
@@ -237,7 +238,7 @@ fn configure_systems(app: &mut App, watching: bool) {
 /// Where a mod's network, camera and cue output lands.
 #[cfg(feature = "local-mods")]
 type ModOutputs<'w> = (
-    Option<Res<'w, crate::runtime::network::NetworkHandle>>,
+    Option<Res<'w, NetworkHandle<PackApplication>>>,
     Option<ResMut<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
@@ -468,7 +469,7 @@ fn drive_mod(
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
 #[cfg(feature = "local-mods")]
 fn send_commands(
-    network: Option<&crate::runtime::network::NetworkHandle>,
+    network: Option<&NetworkHandle<PackApplication>>,
     session: u64,
     commands: Vec<String>,
 ) {

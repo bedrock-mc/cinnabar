@@ -503,7 +503,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .unwrap();
     assert_cube_scene(&app, true);
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        crate::session::begin_session(runtime, player_runtime, 2);
+        client_runtime::session::begin_session(runtime, player_runtime, 2);
     });
     app.world_mut()
         .run_system_once(

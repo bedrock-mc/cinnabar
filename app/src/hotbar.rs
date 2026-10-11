@@ -5,19 +5,18 @@
 //! highlight follows input without waiting for the server), and the choice is announced upstream
 //! with a `PlayerHotbar` packet.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     input::mouse::AccumulatedMouseScroll,
     prelude::{Res, ResMut},
 };
+use client_runtime::network::NetworkHandle;
 use protocol::{HOTBAR_SLOT_COUNT, Packet};
 use semantic_input::Action;
 
 use {
-    crate::runtime::{
-        network::{NetworkHandle, PacketSendError},
-        shutdown::record_fatal_error,
-        world::ClientWorld,
-    },
+    crate::runtime::{shutdown::record_fatal_error, world::ClientWorld},
+    client_session::PacketSendError,
     client_state::SemanticInputSnapshot,
 };
 
@@ -34,7 +33,7 @@ pub(crate) fn select_hotbar_slot(
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
     focus: Res<client_state::ScreenFocus>,
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<ClientWorld>,
 ) {
     // Direct number-key selection. The router only resolves Hotbar1..9 in the Gameplay context,
@@ -253,7 +252,7 @@ mod tests {
                 delta: Vec2::new(0.0, -1.0),
                 ..Default::default()
             })
-            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
@@ -338,7 +337,7 @@ mod tests {
                 delta: Vec2::new(0.0, -1.0),
                 ..Default::default()
             })
-            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(NetworkHandle::<PackApplication>::disconnected())
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
@@ -607,7 +606,7 @@ mod tests {
             .inventory
             .queue_local_hotbar_selection(5, game_mode);
 
-        crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
+        client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
     }

@@ -1,9 +1,4 @@
-//! Bounded process-shutdown watchdog shared by production startup and tests.
-//!
-//! Extracted verbatim from the world-stream runtime module to respect the
-//! per-file architecture line policy; behavior is unchanged and every public
-//! path (`crate::runtime::world::ShutdownWatchdog` and friends) is preserved
-//! through the world-module re-export.
+//! Bounded process-shutdown watchdog shared by startup and teardown.
 
 use std::{
     io::Write,
@@ -22,31 +17,33 @@ use bevy::{
 
 use diagnostics::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
 
-pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
+pub const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub(crate) const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
-pub(crate) const SHUTDOWN_WATCHDOG_ARMED: u8 = 1;
-pub(crate) const SHUTDOWN_WATCHDOG_COMPLETED: u8 = 2;
-pub(crate) const SHUTDOWN_WATCHDOG_FIRED: u8 = 3;
+pub const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
+pub const SHUTDOWN_WATCHDOG_ARMED: u8 = 1;
+pub const SHUTDOWN_WATCHDOG_COMPLETED: u8 = 2;
+pub const SHUTDOWN_WATCHDOG_FIRED: u8 = 3;
 
-pub(crate) type ShutdownTerminator = Arc<dyn Fn(i32) + Send + Sync + 'static>;
+pub type ShutdownTerminator = Arc<dyn Fn(i32) + Send + Sync + 'static>;
 
 #[derive(Resource, Clone)]
-pub(crate) struct ShutdownWatchdog {
-    pub(crate) state: Arc<AtomicU8>,
-    pub(crate) timeout: Duration,
-    pub(crate) terminate: ShutdownTerminator,
+pub struct ShutdownWatchdog {
+    pub state: Arc<AtomicU8>,
+    pub timeout: Duration,
+    pub terminate: ShutdownTerminator,
 }
 
 impl ShutdownWatchdog {
-    pub(crate) fn process(timeout: Duration) -> Self {
+    /// Creates a watchdog that stops owned child processes before terminating the client.
+    pub fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
             launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
             std::process::exit(code)
         })
     }
 
-    pub(crate) fn new<F>(timeout: Duration, terminate: F) -> Self
+    /// Creates a watchdog with a caller-supplied termination action.
+    pub fn new<F>(timeout: Duration, terminate: F) -> Self
     where
         F: Fn(i32) + Send + Sync + 'static,
     {
@@ -57,7 +54,8 @@ impl ShutdownWatchdog {
         }
     }
 
-    pub(crate) fn arm(&self, exit: AppExit) -> bool {
+    /// Starts the timeout once and returns whether this call armed it.
+    pub fn arm(&self, exit: AppExit) -> bool {
         if self
             .state
             .compare_exchange(
@@ -104,7 +102,8 @@ impl ShutdownWatchdog {
         true
     }
 
-    pub(crate) fn complete(&self) {
+    /// Marks shutdown complete so an armed timeout cannot terminate the process.
+    pub fn complete(&self) {
         self.state
             .store(SHUTDOWN_WATCHDOG_COMPLETED, Ordering::Release);
     }
@@ -114,7 +113,7 @@ impl ShutdownWatchdog {
 /// (Cmd+Q, Dock Quit) does; Bevy's pipelined-render teardown otherwise deadlocks there.
 /// Insert before the render plugins finish so it drops ahead of `RenderAppChannels`.
 #[derive(Resource)]
-pub(crate) struct TeardownWatchdog(pub(crate) ShutdownWatchdog);
+pub struct TeardownWatchdog(pub ShutdownWatchdog);
 
 impl Drop for TeardownWatchdog {
     fn drop(&mut self) {
@@ -122,14 +121,16 @@ impl Drop for TeardownWatchdog {
     }
 }
 
-pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
+/// Converts the Bevy exit reason to its process exit status.
+pub fn app_exit_code(exit: &AppExit) -> i32 {
     match exit {
         AppExit::Success => 0,
         AppExit::Error(code) => i32::from(code.get()),
     }
 }
 
-pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
+/// Arms shutdown once and records the requested timeout and exit status.
+pub fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
     if watchdog.arm(exit.clone()) {
         let _ = writeln!(
             diagnostics::console::stderr(),
@@ -140,10 +141,8 @@ pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit
     }
 }
 
-pub(crate) fn arm_shutdown_watchdog(
-    mut exits: MessageReader<AppExit>,
-    watchdog: Res<ShutdownWatchdog>,
-) {
+/// Arms the watchdog for exit requests, preserving any failure status.
+pub fn arm_shutdown_watchdog(mut exits: MessageReader<AppExit>, watchdog: Res<ShutdownWatchdog>) {
     let requested = exits.read().cloned().reduce(
         |selected, next| {
             if selected.is_error() { selected } else { next }

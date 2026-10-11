@@ -1,10 +1,12 @@
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
 
 #[test]
 fn each_emote_start_sends_once_on_its_selection_frame() {
     let mut h = Harness::new();
-    let (network, mut captured) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     h.app.insert_resource(network);
     h.play();
     let packets = captured.drain();
@@ -30,7 +32,7 @@ fn each_emote_start_sends_once_on_its_selection_frame() {
 #[test]
 fn closing_the_wheel_without_a_selection_sends_no_emote() {
     let mut h = Harness::new();
-    let (network, mut captured) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     h.app.insert_resource(network);
     h.press(KeyCode::KeyB);
     h.press(KeyCode::Escape);

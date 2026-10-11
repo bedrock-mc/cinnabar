@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use {super::*, inventory::CraftingPreview};
 
 #[test]
@@ -53,15 +55,15 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
         crate::{
             movement::PhysicsAuthorityGate,
             runtime::{
-                network::{
-                    NetworkControlEvent, NetworkHandle, ResourcePackAdmissionState,
-                    SessionTransferTarget, receive_network_events,
-                },
-                publication::PublicationController,
+                network::{receive_network_events, session::NetworkControlEvent},
                 visibility::AppMetrics,
             },
         },
         client_presentation::{camera::AutoFly, local_player::LocalAvatarPresentation},
+        client_runtime::{
+            pack_admission::ResourcePackAdmissionState, publication::PublicationController,
+        },
+        client_session::SessionTransferTarget,
     };
     let mut app = app();
     ingress(&mut app, 1, clear_recipes());
@@ -82,7 +84,7 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
             .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
-    let (network, sender) = NetworkHandle::stub_with_control_sender();
+    let (network, sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
     sender
         .try_send(NetworkControlEvent::Transferred {
             target: SessionTransferTarget {

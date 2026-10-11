@@ -1,6 +1,7 @@
 //! Drives account, world and settings services from the menu.
-use crate::runtime::world::ClientWorld;
+use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
 use bevy::prelude::*;
+use client_runtime::{blob_cache::ClientBlobCacheOwner, network::NetworkHandle};
 use client_shell::{
     menu::{LauncherCoreSlot, MenuRuntime, launcher_account},
     player_skin::LocalPlayerSkin,
@@ -11,7 +12,7 @@ use client_ui::ui_runtime::UiRuntime;
 pub(crate) fn drive_menu_services(
     mut commands: Commands,
     mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    client_blob_cache: Res<ClientBlobCacheOwner>,
     player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
@@ -22,7 +23,7 @@ pub(crate) fn drive_menu_services(
     settings: Option<ResMut<client_state::RuntimeSettings>>,
     antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
     mut local_skin: Option<ResMut<LocalPlayerSkin>>,
-    network: Option<Res<crate::runtime::network::NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
     #[cfg(feature = "developer-control")]
     if menu.fixture_active() {

@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 #[test]
 fn correction_during_terminal_drain_keeps_definitely_unsent_retry_pending_and_times_out() {
     let (mut ticker, _physics, admitted) =
@@ -34,7 +36,7 @@ fn correction_during_terminal_drain_keeps_definitely_unsent_retry_pending_and_ti
 
 #[test]
 fn production_replay_reconciliation_notifies_the_network_invalidation_channel() {
-    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
+    let (network, reanchor) = NetworkHandle::<PackApplication>::stub();
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance_with_context(
@@ -43,7 +45,8 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
         PhysicsSampleContext::default(),
         &VersionedFloor(1),
     );
-    let mut ticker = network.movement_ticker();
+    let mut ticker =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
@@ -80,9 +83,10 @@ fn production_replay_reconciliation_notifies_the_network_invalidation_channel() 
 
 #[test]
 fn app_respawn_snap_publishes_its_epoch_from_the_authority_event() {
-    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
-    let (mut ticker, mut physics, _admitted) =
-        replay_with_admitted_future_ticks(network.movement_ticker());
+    let (network, reanchor) = NetworkHandle::<PackApplication>::stub();
+    let (mut ticker, mut physics, _admitted) = replay_with_admitted_future_ticks(
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher()),
+    );
 
     reconcile_candidate_physics_correction(
         &mut ticker,
@@ -105,8 +109,9 @@ fn app_respawn_snap_publishes_its_epoch_from_the_authority_event() {
 
 #[test]
 fn world_stream_fatal_deactivation_publishes_before_early_return() {
-    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
-    let mut ticker = network.movement_ticker();
+    let (network, reanchor) = NetworkHandle::<PackApplication>::stub();
+    let mut ticker =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     assert_eq!(*reanchor.borrow(), ticker.reanchor_epoch());
 
@@ -121,8 +126,9 @@ fn world_stream_fatal_deactivation_publishes_before_early_return() {
 
 #[test]
 fn bootstrap_reset_publishes_before_equipment_identity_early_exit() {
-    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
-    let mut ticker = network.movement_ticker();
+    let (network, reanchor) = NetworkHandle::<PackApplication>::stub();
+    let mut ticker =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
 
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
 
@@ -135,7 +141,7 @@ fn bootstrap_reset_publishes_before_equipment_identity_early_exit() {
 
 #[test]
 fn snap_fallback_invalidates_transport_owned_commands() {
-    let (network, reanchor) = crate::runtime::network::session::NetworkHandle::stub();
+    let (network, reanchor) = NetworkHandle::<PackApplication>::stub();
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let frame = physics.advance_with_context(
@@ -144,7 +150,8 @@ fn snap_fallback_invalidates_transport_owned_commands() {
         PhysicsSampleContext::default(),
         &VersionedFloor(1),
     );
-    let mut ticker = network.movement_ticker();
+    let mut ticker =
+        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is

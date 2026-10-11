@@ -4,7 +4,7 @@ use client_world::CommittedControlEvent;
 use protocol::{Packet, RespawnEvent};
 
 use crate::movement::MovementTicker;
-use crate::runtime::network::PacketSendError;
+use client_session::PacketSendError;
 
 #[derive(Debug, Default)]
 pub(crate) struct RespawnLifecycle {
