@@ -135,10 +135,10 @@ impl InventorySession {
         );
         match &sequenced.event {
             InventoryAuthorityEvent::Registry(registry) => {
-                self.inventory_ledger.apply_registry(registry)
+                self.ledger_mut().apply_registry(registry)
             }
             InventoryAuthorityEvent::Inventory(event) => {
-                self.inventory_ledger.apply(event);
+                self.ledger_mut().apply(event);
                 if let InventoryEvent::SelectedSlot(selected) = event
                     && selected.select_slot
                     && selected.slot < protocol::HOTBAR_SLOT_COUNT
