@@ -650,10 +650,10 @@ fn resolve(
         Template::ItemFrame {
             model,
             item,
-            rotation_steps,
+            rotation_degrees,
             map_id,
         } => {
-            let (mut model, rotation_steps, map_id) = (*model, *rotation_steps, *map_id);
+            let (mut model, rotation_degrees, map_id) = (*model, *rotation_degrees, *map_id);
             if let Some(id) = map_id
                 && stream.map_image(id).is_none()
             {
@@ -669,7 +669,7 @@ fn resolve(
             if let (Some(item), None) = (item, map) {
                 held.push(held_placement(
                     item,
-                    item_frame_item_transform(position, model.outward, rotation_steps),
+                    item_frame_item_transform(position, model.outward, rotation_degrees),
                     model.glow.then_some((15, 15)),
                 ));
             }

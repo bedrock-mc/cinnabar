@@ -95,6 +95,15 @@ platforms. These limits and the unresolved server-routing behavior remain open g
 - Per-object blur remains incomplete and needs motion vectors from every world renderer.
   Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
 
+## Item frames
+
+- All six facing states retain their outward direction, placing the frame against its support.
+  Ordinary sprites sit on the panel front and use the floor/ceiling face's upright basis.
+- Float item rotations retain degrees, including fractional angles; legacy integral turns
+  remain supported. Offline GPU fixtures cover mounting and clockwise turns with original art.
+- Map presentation, special items, three-dimensional block items and complete frame border,
+  material and texture parity remain incomplete. No broad item-frame parity gate closes.
+
 ## Anvil models
 
 - Intact, chipped and damaged anvils use four stacked pieces with their damage artwork and
