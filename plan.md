@@ -7371,3 +7371,10 @@ resolve. The equipment carrier stores Dye, NoMask or Unresolved; unknown parent 
 acquire dye from a material name. The existing undyed colour and legacy armour material defaults
 are retained. Complete native shader coverage and session item-component dye overrides remain
 open; this descriptor change does not close those parity gates.
+
+### Block-family routing coverage
+
+Crossed-plane routing now comes from the shared family catalog and is retained
+in current registry records. Historical records resolve that catalog at
+admission. Broader native material and movement descriptors remain incomplete;
+this routing cleanup does not close their parity gates.
