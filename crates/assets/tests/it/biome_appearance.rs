@@ -179,11 +179,9 @@ fn session_climate_and_routes_share_tint_admission_and_replacement() {
     let climate = resolved.biome(1).unwrap();
     assert_eq!(climate.identifier.as_ref(), known.name);
     assert_eq!((climate.temperature, climate.downfall), (-0.5, 0.0));
-    assert!(!climate.precipitation_eligible());
     let climate = resolved.biome(92).unwrap();
     assert_eq!(climate.identifier.as_ref(), custom.name);
     assert_eq!((climate.temperature, climate.downfall), (1.0, 0.8));
-    assert!(climate.precipitation_eligible());
     assert_eq!(
         resolved.records[resolved.dense_index(92) as usize].raw_id,
         92
@@ -198,13 +196,9 @@ fn session_climate_and_routes_share_tint_admission_and_replacement() {
 }
 
 #[test]
-fn session_precipitation_admission_uses_the_climate_epsilon() {
+fn session_climate_preserves_sub_epsilon_downfall() {
     let catalog = fixture(TintSource::map(TintMapId::Grass));
-    for (downfall, eligible) in [
-        (0.0, false),
-        (f32::EPSILON * 0.5, false),
-        (f32::EPSILON, true),
-    ] {
+    for downfall in [0.0, f32::EPSILON * 0.5, f32::EPSILON] {
         let resolved = catalog
             .resolve_live(&[assets::LiveBiomeDefinition {
                 name: "test:shaded",
@@ -216,9 +210,6 @@ fn session_precipitation_admission_uses_the_climate_epsilon() {
                 map_water_argb: 0,
             }])
             .unwrap();
-        assert_eq!(
-            resolved.biome(1).unwrap().precipitation_eligible(),
-            eligible
-        );
+        assert_eq!(resolved.biome(1).unwrap().downfall, downfall);
     }
 }

@@ -461,7 +461,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
- "world",
  "zip",
 ]
 
@@ -680,6 +679,7 @@ dependencies = [
  "bytes",
  "chunk-pipeline",
  "client-audio",
+ "client-extensions",
  "client-presentation",
  "client-runtime",
  "client-session",
@@ -2275,6 +2275,32 @@ dependencies = [
  "windows-sys 0.61.2",
  "world",
  "zip",
+]
+
+[[package]]
+name = "client-extensions"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "assets",
+ "bevy",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "fontdue",
+ "inventory 0.1.12",
+ "mod-api",
+ "mod-host",
+ "mod-render",
+ "player-state",
+ "protocol",
+ "render-model",
+ "serde",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "tempfile",
+ "ui",
 ]
 
 [[package]]

@@ -919,6 +919,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
+    app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
     crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);

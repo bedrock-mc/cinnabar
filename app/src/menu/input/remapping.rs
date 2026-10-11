@@ -76,3 +76,116 @@ pub(super) fn capture(
     keys.reset_all();
     mouse.reset_all();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{
+        input::keyboard::{Key, NativeKey},
+        prelude::{App, Entity, ResMut, Update},
+    };
+    use launcher::menu::settings_options::{
+        KEY_BINDINGS, SettingsOptions, control_bindings::is_gamepad,
+    };
+    use semantic_input::{Action, InputContext};
+
+    /// Runs the production capture adapter without loading UI carriers.
+    fn capture_input(
+        mut menu: ResMut<MenuRuntime>,
+        mut messages: MessageReader<KeyboardInput>,
+        mut keys: ResMut<ButtonInput<KeyCode>>,
+        mut mouse: ResMut<ButtonInput<MouseButton>>,
+        gamepads: Query<&Gamepad>,
+    ) {
+        capture(&mut menu, &mut messages, &mut keys, &mut mouse, &gamepads);
+    }
+
+    #[test]
+    fn mapped_keys_capture_save_and_reload_without_changing_other_bindings() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Sneak)
+            .unwrap();
+        let mut app = App::new();
+        app.insert_resource(MenuRuntime::new(false, 2, "Bindings".into()))
+            .add_message::<KeyboardInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, capture_input);
+        let original = app
+            .world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .controls()
+            .unwrap();
+        for &(key_code, usage) in [
+            (KeyCode::CapsLock, 0x39),
+            (KeyCode::NumLock, 0x53),
+            (KeyCode::ScrollLock, 0x47),
+        ]
+        .iter()
+        .chain(crate::semantic_controls::physical::KEYBOARD_USAGES)
+        {
+            if key_code == KeyCode::Escape {
+                continue;
+            }
+            app.world_mut().resource_mut::<MenuRuntime>().key_remap = Some(row as u16);
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: Key::Unidentified(NativeKey::Unidentified),
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+            let menu = app.world().resource::<MenuRuntime>();
+            assert_eq!(menu.key_remap, None, "{key_code:?}");
+            assert!(menu.settings_dirty && menu.settings_apply);
+            menu.settings_options.save(&path).unwrap();
+            let loaded = SettingsOptions::load(&path);
+            assert_eq!(
+                loaded.key_control(row),
+                Some(PhysicalControl::KeyboardUsage(usage))
+            );
+            let controls = loaded.controls().unwrap();
+            assert!(controls.bindings().iter().any(|binding| {
+                binding.action == Action::Sneak
+                    && binding.chord.control == PhysicalControl::KeyboardUsage(usage)
+            }));
+            let mut runtime = crate::semantic_controls::SemanticInputRuntime::default();
+            runtime.replace_bindings(controls.clone()).unwrap();
+            for held in [true, true, false, false, true, false] {
+                let snapshot = runtime
+                    .route_and_finalize(semantic_input::DeviceFrame {
+                        keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                            keys: if held { vec![usage] } else { vec![] },
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(
+                    snapshot.phases[Action::Sneak as usize].held,
+                    held,
+                    "{key_code:?}"
+                );
+            }
+            let unchanged = |settings: &semantic_input::ControlSettings| {
+                settings
+                    .bindings()
+                    .iter()
+                    .copied()
+                    .filter(|binding| {
+                        binding.action != Action::Sneak
+                            || binding.context != InputContext::Gameplay
+                            || is_gamepad(binding.chord.control)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(unchanged(&controls), unchanged(&original));
+        }
+    }
+}
