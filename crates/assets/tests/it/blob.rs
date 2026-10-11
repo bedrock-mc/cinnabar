@@ -928,6 +928,30 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
 }
 
 #[test]
+fn cauldron_water_material_roundtrips_only_with_untinted_blending() {
+    let mut compiled = valid_assets();
+    let mut materials = compiled.materials.into_vec();
+    let mut water = materials[0];
+    water.flags = assets::MATERIAL_FLAG_CAULDRON_WATER | assets::MATERIAL_FLAG_ALPHA_BLEND;
+    materials.push(water);
+    compiled.materials = materials.into_boxed_slice();
+    let encoded = encode_blob(&compiled).unwrap();
+    let runtime = assets::RuntimeAssets::decode(&encoded).unwrap();
+    assert_eq!(runtime.material(1).flags, water.flags);
+    for flags in [
+        assets::MATERIAL_FLAG_CAULDRON_WATER,
+        water.flags | assets::MATERIAL_FLAG_WATER_TINT,
+        water.flags | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    ] {
+        compiled.materials[1].flags = flags;
+        assert!(matches!(
+            encode_blob(&compiled),
+            Err(AssetError::InvalidCompiledAssets { .. })
+        ));
+    }
+}
+
+#[test]
 fn blob_accepts_model_full_face_occluder_without_cube_geometry() {
     let compiled = full_face_model_assets(1);
     assert!(encode_blob(&compiled).is_ok());

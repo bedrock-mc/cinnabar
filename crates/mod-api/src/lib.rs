@@ -125,3 +125,6 @@ pub mod player_mod {
         export_macro_name: "export_player_mod",
     });
 }
+
+/// Maximum bytes in a stable selected world or server identity.
+pub const MAX_WORLD_IDENTITY_BYTES: usize = 256;

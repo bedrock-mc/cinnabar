@@ -72,3 +72,44 @@ fn clear_releases_messages_bytes_and_sequence_identity() {
         ChatApplyResult::Applied { .. }
     ));
 }
+
+#[test]
+fn observation_ids_distinguish_batched_and_local_rows_without_changing_fifo() {
+    let mut store = ChatStore::default();
+    assert_eq!(
+        store.push_batch(vec![message(7, "first"), message(7, "second")]),
+        ChatApplyResult::Applied { evicted: 0 }
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            store.push_local(message(99, "notification")),
+            ChatApplyResult::Applied { evicted: 0 }
+        );
+    }
+    assert_eq!(
+        store.observed_rows().map(|(id, _)| id).collect::<Vec<_>>(),
+        [1, 2, 3, 4]
+    );
+    assert!(store.messages().iter().all(|row| row.fifo_sequence == 7));
+    assert_eq!(store.last_sequence(), Some(7));
+    assert_eq!(
+        store.push(message(7, "stale")),
+        ChatApplyResult::RejectedStaleSequence
+    );
+    assert_eq!(
+        store.observed_rows().map(|(id, _)| id).collect::<Vec<_>>(),
+        [1, 2, 3, 4]
+    );
+    for sequence in 8..(8 + MAX_CHAT_MESSAGES as u64) {
+        store.push(message(sequence, "newer"));
+    }
+    let rows = store.observed_rows().collect::<Vec<_>>();
+    assert_eq!(rows.first().unwrap().0, 5);
+    assert_eq!(rows.last().unwrap().0, 4 + MAX_CHAT_MESSAGES as u64);
+    assert_eq!(rows.first().unwrap().1.fifo_sequence, 8);
+    let previous = rows.last().unwrap().0;
+    store.clear();
+    store.push_local(message(0, "after clear"));
+    assert_eq!(store.observed_rows().next().unwrap().0, previous + 1);
+    assert_eq!(store.last_sequence(), None);
+}

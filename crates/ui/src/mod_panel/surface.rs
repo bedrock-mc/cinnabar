@@ -190,7 +190,10 @@ fn node(
             .get("renderer")
             .and_then(Value::as_str)
             .is_some_and(|name| {
-                matches!(name, "cinnabar_rounded_rectangle" | "cinnabar_vector_icon")
+                matches!(
+                    name,
+                    "cinnabar_rounded_rectangle" | "cinnabar_vector_icon" | "gradient_renderer"
+                )
             })
     {
         return Err("surface custom renderer is unsupported".into());
