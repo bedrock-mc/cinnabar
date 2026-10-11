@@ -7180,3 +7180,10 @@ one-chunk steps to the owner-chosen 255 maximum. See
 Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
+
+
+Compiled equipment dye capabilities remain incomplete for material contracts the compiler cannot
+resolve. The equipment carrier stores Dye, NoMask or Unresolved; unknown parent chains no longer
+acquire dye from a material name. The existing undyed colour and legacy armour material defaults
+are retained. Complete native shader coverage and session item-component dye overrides remain
+open; this descriptor change does not close those parity gates.

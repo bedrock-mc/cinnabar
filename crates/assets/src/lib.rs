@@ -155,7 +155,7 @@ pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,
     CompiledItemAttackTiming, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
     EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory,
-    EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
+    EquipmentColorMask, EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
     RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,

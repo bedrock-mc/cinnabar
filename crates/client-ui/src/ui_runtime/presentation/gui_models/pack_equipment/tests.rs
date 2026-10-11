@@ -17,6 +17,7 @@ fn catalog(color: [u8; 4]) -> Arc<assets::RuntimeEquipmentCatalog> {
                 geometry: reference("geometry.fixture"),
                 texture: reference("textures/models/armor/fixture"),
                 material: "armor".into(),
+                color_mask: assets::EquipmentColorMask::NoMask,
                 render_controller: "controller.render.armor".into(),
                 first_person: EquipmentTransform::NeedsMeasurement,
                 third_person: EquipmentTransform::NeedsMeasurement,

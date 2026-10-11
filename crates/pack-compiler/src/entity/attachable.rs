@@ -57,6 +57,8 @@ pub(super) fn compile_bindings(
     sources: &[EntityAssetSource],
     lenient: bool,
 ) -> Result<Box<[EquipmentBinding]>, AttachableError> {
+    let materials = super::materials::MaterialStates::load(Path::new(""), payloads, sources)
+        .map_err(|_| AttachableError::Malformed)?;
     let animation_sources = animation_source_index(symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
@@ -95,7 +97,7 @@ pub(super) fn compile_bindings(
     }
     let bindings = chosen
         .into_values()
-        .map(|parsed| binding(parsed, &geometry_symbols, &texture_symbols))
+        .map(|parsed| binding(parsed, &geometry_symbols, &texture_symbols, &materials))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(bindings.into_boxed_slice())
 }
@@ -182,11 +184,13 @@ fn binding(
     parsed: ParsedAttachable,
     geometry_symbols: &BTreeMap<&str, ()>,
     texture_symbols: &BTreeMap<&str, ()>,
+    materials: &super::materials::MaterialStates,
 ) -> Result<EquipmentBinding, AttachableError> {
     let category = category(&parsed.item_identifier, &parsed.geometry);
     Ok(EquipmentBinding {
         geometry: reference(parsed.geometry, geometry_symbols),
         texture: reference(parsed.texture, texture_symbols),
+        color_mask: materials.color_mask(&parsed.material),
         material: parsed.material,
         render_controller: parsed.render_controller,
         first_person: parsed.first_person,
@@ -865,5 +869,84 @@ mod tests {
         assert_eq!(durations.len(), 1);
         assert_eq!(durations[0].identifier.as_ref(), "minecraft:golden_apple");
         assert_eq!(durations[0].ticks, 32);
+    }
+
+    #[test]
+    fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
+        let document = serde_json::json!({"materials": {
+            "cloth_tint:entity": {"+defines": ["USE_COLOR_MASK"]},
+            "renamed:cloth_tint": {},
+            "leather_decoy:entity": {},
+            "removed:cloth_tint": {"-defines": ["USE_COLOR_MASK"]},
+            "replaced:cloth_tint": {"defines": []},
+            "unknown:absent": {},
+            "cycle_a:cycle_b": {},
+            "cycle_b:cycle_a": {},
+            "malformed:entity": {"+defines": "USE_COLOR_MASK"}
+        }});
+        let material_text = document.to_string();
+        let mut payloads = payloads(&[("materials/test.material", &material_text)]);
+        for declaration in document["materials"].as_object().unwrap().keys() {
+            let material = declaration.split(':').next().unwrap();
+            let attachable = serde_json::json!({"format_version": "1.10.0", "minecraft:attachable": {"description": {
+                "identifier": format!("custom:{material}"),
+                "materials": {"default": material},
+                "textures": {"default": "textures/test"},
+                "geometry": {"default": "geometry.test"},
+                "render_controllers": ["controller.render.test"]
+            }}});
+            payloads.insert(
+                format!("attachables/{material}.json").into(),
+                attachable.to_string().into_bytes().into_boxed_slice(),
+            );
+        }
+        let bindings = compile_bindings(
+            &payloads,
+            &[],
+            &sources(&["materials/test.material"]),
+            false,
+        )
+        .unwrap();
+        let dye = Some(0x00b0_2e26);
+        let inventory = payloads
+            .iter()
+            .filter(|(path, _)| path.starts_with("attachables/"))
+            .map(|(_, bytes)| {
+                let source: Value = serde_json::from_slice(bytes).unwrap();
+                source["minecraft:attachable"]["description"]["identifier"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|binding| binding.identifier.to_string())
+                .collect::<std::collections::BTreeSet<_>>(),
+            inventory,
+        );
+        for binding in &bindings {
+            let expected = if matches!(
+                binding.identifier.as_ref(),
+                "custom:renamed" | "custom:cloth_tint"
+            ) {
+                dye
+            } else {
+                None
+            };
+            assert_eq!(
+                binding.color_mask_rgb(dye),
+                expected,
+                "{}",
+                binding.identifier
+            );
+            if matches!(
+                binding.identifier.as_ref(),
+                "custom:unknown" | "custom:cycle_a" | "custom:cycle_b" | "custom:malformed"
+            ) {
+                assert_eq!(binding.color_mask, assets::EquipmentColorMask::Unresolved);
+            }
+        }
     }
 }
