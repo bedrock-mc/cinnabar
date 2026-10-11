@@ -423,6 +423,22 @@ fn production_module_remapping_cannot_hide_authority_aliases() {
 }
 
 #[test]
+fn production_console_satisfies_module_boundary_policy() {
+    let temp = fixture();
+    write(
+        &temp.path().join("crates/diagnostics/src/console.rs"),
+        include_str!("../../../../crates/diagnostics/src/console.rs"),
+    );
+    write(
+        &temp
+            .path()
+            .join("crates/diagnostics/src/console/raw_stderr.rs"),
+        include_str!("../../../../crates/diagnostics/src/console/raw_stderr.rs"),
+    );
+    assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
+}
+
+#[test]
 fn test_only_module_remapping_remains_allowed() {
     let temp = fixture();
     write(

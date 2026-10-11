@@ -375,6 +375,7 @@ func connectUpstream(
 			err = errors.Join(err, finishPreparedResources(owned, nil))
 		}
 	}()
+	started := time.Now()
 	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
 	upstream, err := dialFollowingTransfers(ctx, address, dial)
 	if err != nil {
@@ -382,7 +383,7 @@ func connectUpstream(
 		return nil, err
 	}
 	owned = upstream
-	logger.Info("upstream connected", "target", address, "authentication", authentication)
+	logger.Info("upstream connected", "target", address, "authentication", authentication, "elapsed_ms", time.Since(started).Milliseconds())
 	result = upstream
 	owned = nil
 	return result, nil

@@ -35,7 +35,7 @@ pub(crate) fn load_optional_equipment_assets(
             .read_to_end(&mut bytes)
     });
     if let Err(error) = read {
-        eprintln!(
+        diagnostics::log_stderr!(
             "equipment carrier unavailable at {} ({error}); worn armor is not drawn and held items use sprites. Build it with `{rebuild}`",
             path.display()
         );
@@ -44,7 +44,7 @@ pub(crate) fn load_optional_equipment_assets(
     let catalog = match RuntimeEquipmentCatalog::decode(&bytes) {
         Ok(catalog) => catalog,
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "equipment carrier at {} rejected ({error}); rebuild with `{rebuild}`",
                 path.display()
             );
@@ -52,13 +52,13 @@ pub(crate) fn load_optional_equipment_assets(
         }
     };
     if catalog.entity_blob_sha256() != entities.identity {
-        eprintln!(
+        diagnostics::log_stderr!(
             "equipment carrier at {} is pinned to a different entity carrier; rebuild with `{rebuild}`",
             path.display()
         );
         return None;
     }
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded equipment carrier from {} ({} bindings, {} textures)",
         path.display(),
         catalog.bindings().len(),
