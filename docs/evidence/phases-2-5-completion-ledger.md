@@ -78,6 +78,11 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Stock wolf texture admission preserves controller-selected adult/baby variants
+and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
+updates. Wet shading, custom-material composition, and exact target-version stock
+material/shader linkage remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Not started |

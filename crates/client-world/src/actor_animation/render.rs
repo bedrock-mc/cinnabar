@@ -17,7 +17,7 @@ pub struct RenderTextureLayer {
     pub texture_slot: u16,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
     pub multitexture: Option<[u32; 2]>,
-    /// Multiplies the texture; white when the controller sets no colour.
+    /// Material color multiplier; inherits actor color when the controller sets none.
     pub color: [f32; 4],
     /// Blended over the texture; alpha 0 when unset.
     pub overlay: [f32; 4],
@@ -241,6 +241,14 @@ pub(super) fn evaluate_render(
     let render = assets.render_data();
     let mut output = Vec::new();
     let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
+    let actor_color = assets
+        .rig_bindings()
+        .get(rig.binding)
+        .and_then(|binding| assets.symbols().get(binding.entity_symbol as usize))
+        .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
+        .map_or([1.0; 4], |_| {
+            crate::actor_store::color::default_render_color(evaluator.actor)
+        });
     for layer in assets.render_layers(rig.binding) {
         budget.charge_work()?;
         if let Some(condition) = layer.condition
@@ -303,7 +311,7 @@ pub(super) fn evaluate_render(
             .filter(|(_, hidden)| **hidden)
             .map(|(index, _)| index as u32)
             .collect();
-        let tint = color(evaluator, variables, layer.color, [1.0; 4], budget)?;
+        let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
         let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
         let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
         let uv_anim = color(

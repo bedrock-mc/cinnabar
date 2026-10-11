@@ -9,7 +9,7 @@ const HEALTH_WEIGHT: f32 = 0.4;
 const HEALTH_BASE: f32 = 0.15;
 
 pub(super) fn tail_angle(actor: &ActorSnapshot) -> f32 {
-    if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:wolf")
+    if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == crate::actor_store::color::WOLF_IDENTIFIER)
     {
         return 0.0;
     }

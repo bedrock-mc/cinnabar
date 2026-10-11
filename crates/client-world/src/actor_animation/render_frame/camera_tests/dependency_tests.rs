@@ -1,6 +1,106 @@
 use super::*;
 
 #[test]
+fn render_only_swing_updates_persona_visibility_without_reposing_it() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::Variable,
+        identifier: "variable.attack_time".into(),
+    });
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::Variable,
+        identifier: "variable.is_blinking".into(),
+    });
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops.into_vec();
+    ops.extend([
+        MolangOp::LoadVariable(3),
+        MolangOp::Push(EntityGeometryScalar::new(0.45).unwrap()),
+        MolangOp::Less,
+        MolangOp::StoreVariable(4),
+        MolangOp::LoadVariable(4),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op: 6,
+        op_count: 5,
+        max_stack: 2,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    compiled.render.visibility = vec![assets::EntityRenderVisibility {
+        pattern: "root".into(),
+        condition: 4,
+    }]
+    .into_boxed_slice();
+    compiled.render.layers[0].first_visibility = 0;
+    compiled.render.layers[0].visibility_count = 1;
+    for layer in &mut compiled.render.layers[1..] {
+        layer.first_visibility = 1;
+        layer.visibility_count = 0;
+    }
+    let source = Arc::new(protocol::SkinGeometrySource {
+        resource_patch: r#"{"geometry":{"default":"geometry.body","animated_face":"geometry.face"}}"#.into(),
+        geometry_data: r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.body","texture_width":16,"texture_height":16},"bones":[{"name":"root","pivot":[0,0,0]}]},{"description":{"identifier":"geometry.face","texture_width":16,"texture_height":16},"bones":[{"name":"root","pivot":[0,0,0]}]}]}"#.into(),
+        animations: vec![protocol::SkinAnimation {
+            kind: protocol::SkinAnimationKind::Face,
+            width: 16,
+            height: 32,
+            rgba8: vec![255; 16 * 32 * 4].into(),
+            frames: 2,
+            blinking: true,
+        }].into(),
+    });
+    let mut store = ActorAnimationStore::with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.request_skin_preparation(&source);
+    store.submit_skin_preparation();
+    store.finish_skin_fixture_batch();
+    let actor = super::super::super::tests::actor_with_metadata(HashMap::new());
+    store.insert(1, 0, &actor);
+    store.sync_local_swing(
+        actor.runtime_id,
+        crate::LocalSwingProgress {
+            bedrock: [0.25, 0.5],
+            java: [0.25, 0.5],
+            frame_alpha: Some(0.75),
+        },
+    );
+    store.advance_tick(
+        &HashMap::from([(actor.runtime_id, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| ActorTickContext {
+            skin_geometry: Some(Arc::clone(&source)),
+            ..Default::default()
+        },
+    );
+    let rig = store.get(actor.runtime_id).unwrap();
+    assert_eq!(rig.skin_layers.len(), 1);
+    assert_eq!(rig.skin_layers[0].hidden_bones.as_ref(), [0]);
+    let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+    let frame = store
+        .render_layers(&actor, 0.25, [0.0; 2], [0.0; 3], &mut budget, true)
+        .unwrap();
+    assert!(frame.render[0].hidden_bones.is_empty());
+    assert!(frame.skin[0].hidden_bones.is_empty());
+    assert_eq!(rig.skin_layers[0].uv_anim[1], 0.0);
+    assert_eq!(frame.skin[0].uv_anim[1], 0.5);
+    assert!(Arc::ptr_eq(
+        &frame.skin[0].previous,
+        &rig.skin_layers[0].previous
+    ));
+    assert!(Arc::ptr_eq(
+        &frame.skin[0].current,
+        &rig.skin_layers[0].current
+    ));
+}
+
+#[test]
 fn coalesced_swing_weight_updates_the_body_between_ticks() {
     let mut compiled = camera_compiled();
     compiled.molang_symbols[1].kind = MolangSymbolKind::Variable;
