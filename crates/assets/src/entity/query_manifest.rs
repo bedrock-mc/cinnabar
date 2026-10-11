@@ -31,7 +31,7 @@ pub enum MolangQuerySupport {
     Unimplemented,
 }
 
-/// Argument forms read by this implementation; omitted or excess arguments keep existing idle behavior.
+/// Argument counts consumed by handlers; evaluation keeps its existing permissive behavior.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MolangQueryArguments {
     pub minimum: u8,
@@ -65,6 +65,13 @@ macro_rules! query_manifest {
             /// Resolves an admitted name during compilation or asset admission.
             pub fn from_name(name: &str) -> Option<Self> {
                 match name { $($name => Some(Self::$variant),)* _ => None }
+            }
+            /// Returns an integer metadata source when this contract declares one.
+            pub const fn integer_metadata_key(self) -> Option<u32> {
+                match self.descriptor().handler {
+                    MolangQueryHandler::IntegerMetadata(key) => Some(key),
+                    _ => None,
+                }
             }
             /// Returns the manifest contract without a name lookup.
             pub const fn descriptor(self) -> MolangQueryDescriptor {

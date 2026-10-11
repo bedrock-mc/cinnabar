@@ -619,16 +619,17 @@ pub(super) fn tropical_fish_variables(actor: &ActorSnapshot) -> Option<[f32; 2]>
         return None;
     }
     // Unlike the numeric Molang queries, this native updater requires Int metadata.
-    let integer = |name| {
-        integer_query_key(name)
+    let integer = |query: Q| {
+        query
+            .integer_metadata_key()
             .and_then(|key| match actor.metadata.get(&key) {
                 Some(ActorMetadataValue::Int(value)) => Some(*value),
                 _ => None,
             })
             .unwrap_or(0)
     };
-    let base = integer("variant") as u8 != 0;
-    let mark = integer("mark_variant");
+    let base = integer(Q::Variant) as u8 != 0;
+    let mark = integer(Q::MarkVariant);
     let pattern = if (0..PATTERNS_PER_FAMILY).contains(&mark) {
         mark
     } else {
