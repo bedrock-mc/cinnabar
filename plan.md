@@ -115,6 +115,8 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   `bridge`; shared skin data lives in `render-api`.
 - `launcher-host` owns authentication and core processes, account and artwork workers,
   server-list storage, storage scans, persistent login IDs, video persistence and process lifecycle services.
+  It also runs local worlds: the world store, the BDS download and the local server processes; the core
+  only receives the open world's address over `local_world.v1`. This move is not yet compiled or run.
   `client-shell` supplies the menu resources and drivers; `app` adapts session and network state.
 - `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.

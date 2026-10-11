@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,59 +12,18 @@ import (
 )
 
 type stubWorlds struct {
-	worlds              []localworld.World
-	status              localworld.Status
-	opened              string
-	paused              *bool
-	eula                bool
-	redetect, dismissed bool
-	view                int
-	err                 error
+	reports []localworld.Status
+	opened  bool
+	err     error
 }
 
-func (s *stubWorlds) List() ([]localworld.World, error) { return s.worlds, s.err }
-func (s *stubWorlds) Create(spec localworld.Spec) (localworld.World, error) {
+func (s *stubWorlds) SetLocal(status localworld.Status) (bool, error) {
 	if s.err != nil {
-		return localworld.World{}, s.err
+		return false, s.err
 	}
-	return localworld.World{ID: "0123456789abcdef", Name: spec.Name, GameMode: "survival"}, nil
+	s.reports = append(s.reports, status)
+	return s.opened, nil
 }
-func (s *stubWorlds) Update(id string, u localworld.Update) (localworld.World, error) {
-	world := localworld.World{ID: id}
-	if u.Name != nil {
-		world.Name = *u.Name
-	}
-	if u.Difficulty != nil {
-		world.Difficulty = *u.Difficulty
-	}
-	return world, s.err
-}
-func (s *stubWorlds) Delete(string) error { return s.err }
-func (s *stubWorlds) Prefs(_ context.Context, u localworld.PrefsUpdate) (localworld.Prefs, error) {
-	s.redetect = u.Redetect
-	if u.DockerPromptDismissed != nil {
-		s.dismissed = *u.DockerPromptDismissed
-	}
-	return localworld.Prefs{DockerPromptDismissed: s.dismissed}, s.err
-}
-func (s *stubWorlds) AcceptEULA() error { s.eula = true; return s.err }
-func (s *stubWorlds) Open(id string, opts ...localworld.OpenOptions) error {
-	s.opened = id
-	if len(opts) > 0 {
-		s.view = opts[0].ViewDistance
-	}
-	s.status = localworld.Status{State: localworld.StateStarting, WorldID: id}
-	return s.err
-}
-func (s *stubWorlds) Close() error {
-	s.status = localworld.Status{State: localworld.StateIdle}
-	return s.err
-}
-func (s *stubWorlds) SetPaused(p bool) error {
-	s.paused = &p
-	return s.err
-}
-func (s *stubWorlds) Status() localworld.Status { return s.status }
 
 func startWorlds(t *testing.T, worlds Worlds) string {
 	t.Helper()
@@ -86,74 +44,30 @@ func call(t *testing.T, dir, method, params string) []byte {
 	return exchange(t, dir, []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":%q%s}`, method, params)))
 }
 
-func TestWorldListCreateRenameDelete(t *testing.T) {
-	stub := &stubWorlds{worlds: []localworld.World{{ID: "0123456789abcdef", Name: "one"}}}
-	dir := startWorlds(t, stub)
-	list := call(t, dir, methodWorldList, "")
-	var decoded struct {
-		Result WorldResultV1 `json:"result"`
-	}
-	if err := json.Unmarshal(list, &decoded); err != nil || len(decoded.Result.Worlds) != 1 || decoded.Result.SchemaVersion != 1 {
-		t.Fatalf("list = %s (%v)", list, err)
-	}
-	created := call(t, dir, methodWorldCreate, `{"name":"fresh","seed":0}`)
-	if !strings.Contains(string(created), `"name":"fresh"`) {
-		t.Fatalf("create = %s", created)
-	}
-	renamed := call(t, dir, methodWorldUpdate, `{"id":"0123456789abcdef","name":"two","difficulty":"hard"}`)
-	if !strings.Contains(string(renamed), `"name":"two"`) || !strings.Contains(string(renamed), `"difficulty":"hard"`) {
-		t.Fatalf("rename = %s", renamed)
-	}
-	if deleted := call(t, dir, methodWorldDelete, `{"id":"0123456789abcdef"}`); !strings.Contains(string(deleted), `"result"`) {
-		t.Fatalf("delete = %s", deleted)
-	}
-}
-
-func TestWorldOpenPauseCloseReturnStatus(t *testing.T) {
+func TestLocalWorldReportsReachTheRoute(t *testing.T) {
 	stub := &stubWorlds{}
 	dir := startWorlds(t, stub)
-	opened := call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef"}`)
-	if stub.opened != "0123456789abcdef" || !strings.Contains(string(opened), `"state":"starting"`) {
-		t.Fatalf("open = %s", opened)
+	payload := call(t, dir, methodLocalWorld, `{"state":"running","world":{"id":"0123456789abcdef","name":"Home","game_mode":"creative","backend":"bds"},`+
+		`"target":{"address":"127.0.0.1:5000","transport":"nethernet-lan","lan_address":"127.0.0.1:7551","level_name":"0123456789abcdef"}}`)
+	if !strings.Contains(string(payload), `"schema_version":1`) {
+		t.Fatalf("report = %s", payload)
 	}
-	call(t, dir, methodWorldPause, `{"paused":true}`)
-	if stub.paused == nil || !*stub.paused {
-		t.Fatal("pause not forwarded")
+	if len(stub.reports) != 1 {
+		t.Fatalf("reports = %+v", stub.reports)
 	}
-	if closed := call(t, dir, methodWorldClose, ""); !strings.Contains(string(closed), `"state":"idle"`) {
-		t.Fatalf("close = %s", closed)
+	report := stub.reports[0]
+	if report.State != localworld.StateRunning || report.World.Name != "Home" || report.Target.Transport != localworld.TransportNetherNetLAN || report.Target.LevelName != "0123456789abcdef" {
+		t.Fatalf("report = %+v %+v %+v", report, report.World, report.Target)
 	}
-	if status := call(t, dir, methodWorldStatus, ""); !strings.Contains(string(status), `"status"`) {
-		t.Fatalf("status = %s", status)
-	}
-}
-
-func TestOpenForwardsViewDistanceAndEULAAcceptanceIsExplicit(t *testing.T) {
-	stub := &stubWorlds{}
-	dir := startWorlds(t, stub)
-	call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef","view_distance":12}`)
-	if stub.view != 12 {
-		t.Fatalf("view distance = %d", stub.view)
-	}
-	assertRPCError(t, call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef","view_distance":-1}`), -32602)
-	assertRPCError(t, call(t, dir, methodBDSEULA, `{"accepted":false}`), -32602)
-	assertRPCError(t, call(t, dir, methodBDSEULA, ""), -32602)
-	if stub.eula {
-		t.Fatal("EULA recorded without acceptance")
-	}
-	if payload := call(t, dir, methodBDSEULA, `{"accepted":true}`); !stub.eula || !strings.Contains(string(payload), `"status"`) {
-		t.Fatalf("accept = %s", payload)
+	if call(t, dir, methodLocalWorld, `{"state":"idle"}`); len(stub.reports) != 2 || stub.reports[1].State != localworld.StateIdle {
+		t.Fatalf("reports = %+v", stub.reports)
 	}
 }
 
-func TestWorldParamValidation(t *testing.T) {
+func TestLocalWorldParamValidation(t *testing.T) {
 	dir := startWorlds(t, &stubWorlds{})
-	for _, tc := range []struct{ method, params string }{
-		{methodWorldCreate, ""}, {methodWorldCreate, `{"name":"x","bogus":1}`}, {methodWorldOpen, `{}`},
-		{methodWorldUpdate, `{"id":"a"}`}, {methodWorldPause, `{"paused":"yes"}`},
-		{methodWorldList, `{}`}, {methodWorldStatus, `{}`}, {methodWorldClose, `{}`},
-	} {
-		assertRPCError(t, call(t, dir, tc.method, tc.params), -32602)
+	for _, params := range []string{"", `{"state":5}`, `{"state":"idle","bogus":1}`, `{"state":"running","target":{"address":"a","transport":"raknet","port":1}}`} {
+		assertRPCError(t, call(t, dir, methodLocalWorld, params), -32602)
 	}
 }
 
@@ -163,17 +77,12 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		code int
 		msg  string
 	}{
-		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
-		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
-		{localworld.ErrInUse, codeWorldBusy, "world is open"},
-		{localworld.ErrRuntimePending, codeWorldBusy, "still checking"},
-		{localworld.ErrEULARequired, codeEULARequired, "EULA"},
-		{localworld.ErrBackendUnavailable, codeBackendAbsent, "not available"},
-		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
+		{fmt.Errorf("%w: unknown state", localworld.ErrInvalid), -32602, "unknown state"},
+		{localworld.ErrNotOpen, codeWorldBusy, "no world is open"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {
 		dir := startWorlds(t, &stubWorlds{err: tc.err})
-		payload := call(t, dir, methodWorldDelete, `{"id":"0123456789abcdef"}`)
+		payload := call(t, dir, methodLocalWorld, `{"state":"idle"}`)
 		assertRPCError(t, payload, tc.code)
 		if !strings.Contains(string(payload), tc.msg) || strings.Contains(string(payload), "secret") {
 			t.Fatalf("payload = %s", payload)
@@ -201,6 +110,7 @@ func TestWorldInviteReachesTheHostOnlyWithAValidXUID(t *testing.T) {
 	assertRPCError(t, call(t, unhosted, methodWorldInvite, `{"xuid":"2535400000000000"}`), codeWorldBusy)
 }
 
+// The core no longer runs worlds; the launcher's world methods are unknown here.
 func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	dir := t.TempDir()
 	server, err := Start(dir, NewStore())
@@ -208,19 +118,25 @@ func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close() })
-	assertRPCError(t, call(t, dir, methodWorldList, ""), -32601)
+	assertRPCError(t, call(t, dir, methodLocalWorld, ""), -32601)
+	served := startWorlds(t, &stubWorlds{})
+	assertRPCError(t, call(t, served, "world_list.v1", ""), -32601)
 }
 
-func TestOpenHookRunsOnlyAfterSuccessfulOpen(t *testing.T) {
+func TestOpenHookRunsOnlyWhenAWorldBeginsOpening(t *testing.T) {
 	stub := &stubWorlds{}
 	opened := 0
 	worlds := WithOpenHook(stub, func() { opened++ })
-	if err := worlds.Open("0123456789abcdef"); err != nil || opened != 1 || stub.opened != "0123456789abcdef" {
-		t.Fatalf("Open() = %v, hook calls %d", err, opened)
+	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateIdle}); err != nil || opened != 0 {
+		t.Fatalf("SetLocal() = %v, hook calls %d", err, opened)
 	}
-	stub.err = errors.New("busy")
-	if err := worlds.Open("0123456789abcdef"); err == nil || opened != 1 {
-		t.Fatalf("failed Open ran the hook: err=%v calls=%d", err, opened)
+	stub.opened = true
+	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateStarting}); err != nil || opened != 1 {
+		t.Fatalf("SetLocal() = %v, hook calls %d", err, opened)
+	}
+	stub.err = errors.New("invalid")
+	if _, err := worlds.SetLocal(localworld.Status{State: localworld.StateStarting}); err == nil || opened != 1 {
+		t.Fatalf("a failed report ran the hook: err=%v calls=%d", err, opened)
 	}
 }
 
@@ -231,17 +147,4 @@ func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
 	if store.Status().Transfer != nil {
 		t.Fatal("transfer still pending after ClearTransfer")
 	}
-}
-
-func TestPrefsMethodReadsUpdatesAndRedetects(t *testing.T) {
-	stub := &stubWorlds{}
-	dir := startWorlds(t, stub)
-	if payload := call(t, dir, methodPrefs, ""); !strings.Contains(string(payload), `"docker_prompt_dismissed":false`) {
-		t.Fatalf("read = %s", payload)
-	}
-	payload := call(t, dir, methodPrefs, `{"docker_prompt_dismissed":true,"redetect":true}`)
-	if !stub.dismissed || !stub.redetect || !strings.Contains(string(payload), `"docker_prompt_dismissed":true`) || !strings.Contains(string(payload), `"status"`) {
-		t.Fatalf("update = %s", payload)
-	}
-	assertRPCError(t, call(t, dir, methodPrefs, `{"bogus":1}`), -32602)
 }

@@ -1,7 +1,8 @@
 # Local worlds
 
 Single-player worlds run on a local server behind the same core and session endpoint as online play.
-Full scope: `plan.md` Phase 7.
+The launcher (`crates/launcher-host/src/local_worlds`) owns the world store, the BDS download and the
+server processes; the core only routes sessions to the open world. Full scope: `plan.md` Phase 7.
 
 ## Backends
 
@@ -16,23 +17,23 @@ Each world records the backend that created it (`world.json`) and always reopens
 The create screen defaults to Dragonfly and Normal (Vanilla). Backend and generator are independent choices;
 both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
 Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
-`world_create.v1` without `backend` still uses the store default (`-local-backend=auto`).
+A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition
 
-Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) holds `<version>/` builds with a
+Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` builds with a
 `manifest.json` (URL, zip SHA-256, size, platform, time).
 
-- The build is `server_version` in `assets/bedrock-target.json`; the client passes it as `-bds-version`, fetched from
-  its versioned official URL. Without it nothing is downloaded.
+- The build is `server_version` in `assets/bedrock-target.json`, fetched from its versioned official URL.
+  Without it nothing is downloaded.
 - Only https `minecraft.net` / `minecraft-services.net` hosts (including redirects) are accepted; zips are
   size-capped and unpacked with path-escape checks. Mojang publishes no hash, so the SHA-256 is provenance, not a pin.
-- The EULA gate: `world_open.v1` on a BDS world fails with code -32012 until `bds_accept_eula.v1 {"accepted":true}`;
-  nothing is downloaded before then. Status carries `setup` (state, bytes, runtime, reason, `eula_accepted`).
-- Container runtime: the core downloads the Linux build on the host (with byte progress) and mounts it as `/data`;
-  `bedrock_server-<version>` beside it makes the image skip its own download. The image is `bds_container_image` in
-  the manifest (a tag plus sha256 digest, passed as `-bds-image`); the core refuses an image without a digest.
+- The EULA gate: opening a BDS world fails with `EulaRequired` until the user accepts the EULA; nothing is
+  downloaded before then. Status carries `setup` (state, bytes, runtime, reason, `eula_accepted`).
+- Container runtime: the launcher downloads the Linux build on the host (with byte progress) and mounts it as
+  `/data`; `bedrock_server-<version>` beside it makes the image skip its own download. The image is
+  `bds_container_image` in the manifest (a tag plus sha256 digest); an image without a digest is refused.
 - Open stages in `setup.state`: `checking_runtime` (`docker info`), `pulling_image` (`layers_done/total`),
   `downloading` (`bytes_done/total`), `unpacking`; the client shows each on the loading screen.
 
@@ -50,10 +51,11 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   generator; reopening preserves the saved spawn and chunks. Flat retains Dragonfly's default generators.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
-- **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets Go's default one.
+- **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
+  Closing the client asks the open world's server to stop without waiting; the server saves on its own.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
@@ -64,19 +66,23 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.
 
-## Control methods
+## Core route
 
-`world_list/create/update/delete/open/close/pause/status.v1`, `bds_accept_eula.v1`, and `local_worlds_prefs.v1`
-(`docker_prompt_dismissed`, `redetect`), all schema v1. `world_update.v1` takes `id` plus any of `name`, `game_mode`,
-`difficulty` (applied on the next open); listed worlds carry `size_bytes`.
+The launcher reports the open world to the core with `local_world.v1`: `state` (`idle`, `starting`,
+`running`, `stopping`, `failed`), `world` (`id`, `name`, `game_mode`, `backend`), `target` while running
+(`address`, `transport` = `raknet` | `nethernet` | `nethernet-lan`, `lan_address`, `level_name`) and a path-free
+`error` while failed. A session waits while the world starts, fails while it stops or has failed, and falls
+through to other routes only when idle. A world that begins opening clears any `connect.v1` selection and
+pending transfer. The core hosts a running BDS world to Xbox friends and serves `world_invite.v1` for it.
 
 ## Client
 
 `crates/launcher/src/local_worlds` owns the screen model (list, create, templates, edit, delete, open stages,
-EULA, Docker modal) and control worker; Play and the OreUI create/edit screens bind to it.
+EULA, Docker modal); `crates/client-shell/src/local_worlds` runs its requests against the launcher's world
+manager. Play and the OreUI create/edit screens bind to it.
 
 ## v1 limits
 
 The owner-requested natural generator has not passed version-matched Bedrock terrain parity; its source targets
 Java-style generation. Dragonfly's mob AI and other parity gaps remain open. Docker-mounted LevelDB on macOS
-can be slow. A killed core can leave a container running; the next start of that world removes it.
+can be slow. A killed client can leave a container running; the next start of that world removes it.
