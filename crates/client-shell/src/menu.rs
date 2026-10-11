@@ -71,7 +71,6 @@ use std::{
 
 use bevy::prelude::{Commands, ResMut, Resource};
 
-use client_ui::ui_runtime::UiRuntime;
 use launcher::install_layout::InstallLayout;
 
 use launcher::menu::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES};

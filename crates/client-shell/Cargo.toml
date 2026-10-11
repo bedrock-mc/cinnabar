@@ -52,6 +52,7 @@ launcher-host = { path = "../launcher-host", features = ["test-support"] }
 client-ui = { path = "../client-ui", features = ["test-support"] }
 client-world = { path = "../client-world" }
 player-state = { path = "../player-state" }
+protocol = { path = "../protocol", features = ["wire-test-support"] }
 test-time = { path = "../test-time" }
 tempfile = "3"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
