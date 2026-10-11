@@ -592,7 +592,7 @@ impl Evaluator<'_> {
     }
     fn symbols(&self) -> &[assets::MolangSymbol] {
         self.program
-            .map_or_else(|| self.assets.molang_symbols(), |program| &program.symbols)
+            .map_or_else(|| self.assets.molang_symbols(), |program| program.symbols())
     }
     fn collections(&self) -> &[assets::MolangCollection] {
         self.program.map_or_else(

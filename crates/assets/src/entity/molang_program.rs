@@ -7,7 +7,7 @@ use super::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MolangProgram {
     query_bindings: Box<[Option<MolangQuery>]>,
-    pub symbols: Box<[MolangSymbol]>,
+    symbols: Box<[MolangSymbol]>,
     pub expressions: Box<[CompiledMolangExpression]>,
     pub ops: Box<[MolangOp]>,
     pub collections: Box<[MolangCollection]>,
@@ -31,6 +31,11 @@ impl MolangProgram {
             collections,
             collection_items,
         }
+    }
+
+    /// Returns the admitted symbols without allowing their cached bindings to become stale.
+    pub fn symbols(&self) -> &[MolangSymbol] {
+        &self.symbols
     }
 
     /// Reads the handler already bound to this symbol slot.
