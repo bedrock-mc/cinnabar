@@ -23,6 +23,33 @@ fn fixture() -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
     (HashMap::from([(1, actor)]), store)
 }
 
+#[test]
+fn predicted_item_use_keeps_gameplay_ticks_across_actor_catchup_and_interruptions() {
+    let (mut actors, mut store) = fixture();
+    actors
+        .get_mut(&1)
+        .unwrap()
+        .metadata
+        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM));
+    let context = ActorTickContext {
+        is_local: true,
+        local_item_use_ticks: Some(7),
+        main_hand_max_use_ticks: 10,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    }
+    assert_eq!(store.get(1).unwrap().hand[1].use_ticks, 7);
+    let completed_tick = store.completed_tick;
+    store.refresh_local_view(&actors, 1, |_| ActorTickContext {
+        local_item_use_ticks: Some(0),
+        ..context.clone()
+    });
+    assert_eq!(store.get(1).unwrap().hand[1].use_ticks, 0);
+    assert_eq!(store.completed_tick, completed_tick);
+}
+
 /// Early actor ticks precede this frame's interaction admission.
 fn early(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore, count: usize) {
     for _ in 0..count {

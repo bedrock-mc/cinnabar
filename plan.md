@@ -2027,6 +2027,11 @@ No synthetic blocking flag or server-incompatible crossbow transaction is used
 to mask fixture limitations. See [camera](docs/reference/crouch-camera.md) and
 [crossbow](docs/reference/crossbow-use.md) rules. Local, uncommitted.
 
+Crossbow first-person charging now shares the selected gameplay use clock with
+the authored player parent and attachable, with normalized remaining-duration
+queries and immediate interruption refresh. Incomplete: version-matched server
+load/fire inventory parity and displayed-frame performance acceptance remain open.
+
 2026-10-01 destruction particles: ordinary block-break events now use the native
 100-piece default, cube-root intensity and effect-local strict pre-spawn limits.
 The native bottom-texture path selects untinted dirt for grass, replacing the

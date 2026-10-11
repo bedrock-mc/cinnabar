@@ -120,6 +120,7 @@ impl ActorStore {
             local_main_metadata: 0,
             local_main_stack_id: None,
             local_main_slot: 0,
+            local_item_use: LocalItemUse::Unpredicted,
             local_bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
             local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
             camera_rotation: [0.0; 2],
@@ -173,6 +174,8 @@ impl ActorStore {
         self.local_main_metadata = feed.main_hand_metadata;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
+        self.local_view_dirty |= self.local_item_use != feed.item_use;
+        self.local_item_use = feed.item_use;
         self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {

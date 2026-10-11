@@ -292,6 +292,9 @@ impl ActorSnapshot {
             LocalItemUse::Unpredicted => {}
             LocalItemUse::Idle => self.set_flag(ACTOR_FLAG_USING_ITEM, false),
             LocalItemUse::Using => self.set_flag(ACTOR_FLAG_USING_ITEM, true),
+            LocalItemUse::Predicted { elapsed_ticks, .. } => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, elapsed_ticks.is_some());
+            }
         }
     }
 
@@ -695,6 +698,12 @@ pub enum LocalItemUse {
     Idle,
     /// A predicted item is in use.
     Using,
+    /// Gameplay's selected-stack clock, including charge-duration modifiers and loaded state.
+    Predicted {
+        elapsed_ticks: Option<u32>,
+        max_ticks: u32,
+        charged: bool,
+    },
 }
 
 /// Sparse session state, including immutable prepared appearances; GPU resources stay in presentation.
@@ -754,6 +763,7 @@ pub(crate) struct ActorStore {
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
+    local_item_use: LocalItemUse,
     local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.

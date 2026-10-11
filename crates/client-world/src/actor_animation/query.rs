@@ -3,8 +3,12 @@ use {
     world::TICK_DURATION as ACTOR_TICK_DURATION,
 };
 
+mod item_use;
 mod potion;
 mod wolf;
+
+#[cfg(test)]
+mod item_use_tests;
 
 #[cfg(test)]
 mod player_tests;
@@ -299,7 +303,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         match name {
             "frame_alpha" => return attachable.frame_alpha,
             "get_animation_frame" => return attachable.animation_frame as f32,
-            "main_hand_item_use_duration" | "item_remaining_use_duration" => return remaining,
+            "main_hand_item_use_duration" => return remaining,
+            "item_remaining_use_duration" => {
+                return item_use::remaining(evaluator, arguments);
+            }
             "main_hand_item_max_duration" => return attachable.max_use_ticks as f32,
             "is_using_item" => return truth(attachable.use_elapsed_ticks.is_some()),
             "anim_time" => return (evaluator.anim_tick as f32 + attachable.frame_alpha) * 0.05,
@@ -426,10 +433,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             context.main_hand_max_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
         }
         "item_remaining_use_duration" => {
-            context
-                .main_hand_max_use_ticks
-                .saturating_sub(input.item_use_ticks) as f32
-                * ACTOR_TICK_DURATION.as_secs_f32()
+            item_use::remaining(evaluator, arguments)
         }
         "base_swing_duration" if arguments.is_empty() => context
             .main_hand_swing_seconds
