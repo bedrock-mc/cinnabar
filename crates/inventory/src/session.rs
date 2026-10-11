@@ -106,6 +106,9 @@ impl InventorySession {
 
     /// Expire outstanding requests; the caller updates its screen if a lifecycle expired.
     pub fn poll_inventory_timeout(&mut self, now_millis: u64) -> bool {
+        if !self.ledger().timeout_work_due(now_millis) {
+            return false;
+        }
         self.ledger_mut().poll_timeout(now_millis)
     }
 

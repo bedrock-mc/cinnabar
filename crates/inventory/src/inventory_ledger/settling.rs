@@ -89,13 +89,16 @@ impl PlayerInventoryLedger {
             .collect()
     }
 
-    /// Runs deferred cleanup for every closed window whose last request has settled.
-    pub(super) fn finish_settled_closes(&mut self) {
-        while let Some(index) = self
-            .settling
+    /// Finds the next closed window whose final retained request has left the queue.
+    pub(super) fn settled_close_index(&self) -> Option<usize> {
+        self.settling
             .iter()
             .position(|window| !self.queue.iter().any(|request| window.owns(request)))
-        {
+    }
+
+    /// Runs deferred cleanup for every closed window whose last request has settled.
+    pub(super) fn finish_settled_closes(&mut self) {
+        while let Some(index) = self.settled_close_index() {
             let window = self.settling.remove(index).expect("index observed");
             self.clear_closed_inputs(window);
         }
