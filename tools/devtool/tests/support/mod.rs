@@ -2,8 +2,9 @@
 use std::{
     fs,
     process::{Command, Output, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use wait_timeout::ChildExt;
 
 /// Captures a fixture's output and terminates its own child if a wrapper loops.
 pub fn bounded_output(command: &mut Command) -> Output {
@@ -14,12 +15,9 @@ pub fn bounded_output(command: &mut Command) -> Output {
         .stderr(Stdio::from(stderr.reopen().unwrap()))
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= deadline {
+    let status = match child.wait_timeout(Duration::from_secs(10)).unwrap() {
+        Some(status) => status,
+        None => {
             child.kill().unwrap();
             child.wait().unwrap();
             panic!(
@@ -27,7 +25,6 @@ pub fn bounded_output(command: &mut Command) -> Output {
                 fs::read_to_string(stderr.path()).unwrap()
             );
         }
-        std::thread::sleep(Duration::from_millis(20));
     };
     Output {
         status,

@@ -13,5 +13,8 @@ tempfile = "3"
 regex = "1"
 thiserror.workspace = true
 
+[dev-dependencies]
+wait-timeout = "0.2"
+
 [lints]
 workspace = true
