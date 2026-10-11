@@ -302,6 +302,14 @@ fn compile_pack_inner(
             || visuals::literal::is_literal_cube(record)
             || fallback.contains(record)
     }) {
+        if visuals::candle_cake::is_record(record) {
+            if let Some(descriptors) = visuals::candle_cake::descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
         if visuals::end_portal_frame::is_record(record)
             && let Some((descriptor, key)) =
                 visuals::end_portal_frame::eye_descriptor(&pack, record)

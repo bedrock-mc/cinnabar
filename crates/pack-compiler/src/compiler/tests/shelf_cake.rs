@@ -2,7 +2,9 @@ use super::*;
 use assets::{CompiledBiomeAssets, NetworkIdMode, RuntimeAssets};
 
 /// Loads the active registry and lights so fixtures exercise the runtime identities.
-fn active_records(names: &[&str]) -> (Vec<RegistryRecord>, Box<[assets::LightProperties]>, u32) {
+pub(super) fn active_records(
+    names: &[&str],
+) -> (Vec<RegistryRecord>, Box<[assets::LightProperties]>, u32) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -31,7 +33,7 @@ fn active_records(names: &[&str]) -> (Vec<RegistryRecord>, Box<[assets::LightPro
 }
 
 /// Writes independently colored cake sprites with transparent unused texels.
-fn cake_pack(root: &Path) {
+pub(super) fn cake_pack(root: &Path) {
     write(
         root.join("blocks.json"),
         r#"{"cake":{"textures":{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west"}}}"#,

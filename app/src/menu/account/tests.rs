@@ -320,6 +320,8 @@ fn core_child_args_are_offline_unless_authentication_was_validated() {
             OsString::from("example.test:19132"),
             OsString::from("-resource-pack-cache-dir"),
             layout.resource_pack_cache_dir().into_os_string(),
+            OsString::from("-device-file"),
+            layout.device_profile_file().into_os_string(),
         ]
     );
     assert_eq!(
@@ -357,6 +359,8 @@ fn core_child_args_are_offline_unless_authentication_was_validated() {
             OsString::from("example.test:19132"),
             OsString::from("-resource-pack-cache-dir"),
             layout.resource_pack_cache_dir().into_os_string(),
+            OsString::from("-device-file"),
+            layout.device_profile_file().into_os_string(),
             OsString::from("-auth-cache"),
             OsString::from("validated token.json"),
         ]
@@ -389,6 +393,8 @@ fn core_child_args_advertise_upstream_client_cache_only_when_enabled() {
             OsString::from("example.test:19132"),
             OsString::from("-resource-pack-cache-dir"),
             layout.resource_pack_cache_dir().into_os_string(),
+            OsString::from("-device-file"),
+            layout.device_profile_file().into_os_string(),
             OsString::from("-upstream-client-cache"),
         ]
     );
