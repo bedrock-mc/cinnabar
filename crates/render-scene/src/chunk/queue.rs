@@ -45,6 +45,18 @@ impl Default for ChunkRenderQueue {
 }
 
 impl ChunkRenderQueue {
+    /// Drops old meshes while preserving queued world removals.
+    pub fn discard_resource_work(&mut self) {
+        for (key, pending) in self.pending.drain() {
+            if let Some(generation) = pending.previous_generation {
+                self.render_manifest.insert(key, generation);
+            } else {
+                self.render_manifest.remove(&key);
+            }
+        }
+        self.pending_bytes = 0;
+    }
+
     #[must_use]
     pub fn with_limits(limits: ChunkRenderQueueLimits) -> Self {
         Self {

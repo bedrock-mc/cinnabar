@@ -403,3 +403,6 @@ pub fn hand_projection(size: [u32; 2]) -> Mat4 {
         render_api::CAMERA_NEAR_PLANE_BLOCKS,
     )
 }
+
+#[cfg(test)]
+mod admission_tests;

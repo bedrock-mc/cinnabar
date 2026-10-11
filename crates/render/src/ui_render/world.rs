@@ -1,5 +1,6 @@
 //! Direct world-projected UI pass with the native text depth modes.
 use super::*;
+use bevy::{ecs::query::QueryItem, render::render_resource::RenderPassDepthStencilAttachment};
 
 type UiViewQuery = (
     &'static ViewTarget,

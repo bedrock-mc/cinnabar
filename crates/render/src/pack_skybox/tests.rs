@@ -1,5 +1,5 @@
 use super::*;
-use crate::gpu_snapshot::{Draw, Gpu};
+use crate::gpu_snapshot::{self, Draw, Gpu};
 use crate::shader_source;
 use render_scene::{AtmosphereFrame, SkyKind, SkyboxSettings};
 use wgpu::util::DeviceExt;

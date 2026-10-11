@@ -56,5 +56,4 @@ fn install(app: &mut App) {
     passes::install(app.sub_app_mut(RenderApp));
 }
 
-#[cfg(test)]
 use mod_render::{block_highlights, position_box};

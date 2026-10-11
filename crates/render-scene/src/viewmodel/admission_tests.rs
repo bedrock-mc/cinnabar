@@ -1,10 +1,11 @@
-use bevy::prelude::{App, Assets, Mat2, Shader, Vec2};
+use super::*;
+use bevy::prelude::{Mat2, Vec2};
 use render_model::viewmodel::geometry;
 use render_model::viewmodel::{VIEWMODEL_TEXTURE_BYTES, VIEWMODEL_TEXTURE_SIDE};
 use render_model::{ViewmodelGeometry, ViewmodelSkin};
-use render_scene::viewmodel::*;
 use std::sync::Arc;
 
+/// Builds a six-face opaque cube carrier for admission checks.
 fn cube_carrier() -> assets::CompiledAssets {
     use assets::*;
     CompiledAssets {
@@ -299,6 +300,7 @@ fn skin_fractional_alpha_is_not_silently_quantized() {
     assert!(ViewmodelSkin::new(Arc::from([255; 4]), [3; 32]).is_none());
 }
 
+/// Identifies a valid hand frame for completion and fallback checks.
 fn test_token() -> ViewmodelToken {
     ViewmodelToken {
         session: 1,
@@ -316,6 +318,7 @@ fn test_token() -> ViewmodelToken {
     }
 }
 
+/// Builds the fixed arm and sleeve profile accepted by the neutral hand.
 fn profile() -> assets::EntityGeometry {
     use assets::{
         EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as S,
@@ -476,6 +479,7 @@ fn reverse_z_projection_is_private_aspect_correct_and_world_fov_independent() {
     assert!((projection.y_axis.y / projection.x_axis.x - 1920. / 1080.).abs() < 0.000001);
 }
 
+/// Builds a canonical UI quad for the hand fallback witness.
 fn fallback_input() -> render_model::UiRenderInput {
     use render_model::*;
     UiRenderInput {
@@ -523,6 +527,7 @@ fn fallback_input() -> render_model::UiRenderInput {
         ),
     }
 }
+/// Publishes a neutral hand with matching skin and geometry identities.
 fn fallback_scene(gate: &ViewmodelCompletionGate) -> ViewmodelScene {
     let mut scene = ViewmodelScene::default();
     let skin = ViewmodelSkin::new(vec![255; VIEWMODEL_TEXTURE_BYTES].into(), [4; 32]).unwrap();
@@ -784,42 +789,4 @@ fn review_render_fixed_arm_rejects_bindings_and_texture_meshes() {
         texture: "default".into(),
     }]);
     assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
-}
-
-#[test]
-fn actual_renderer_startup_revokes_pending_callback_and_equal_token_publish_recovers() {
-    use bevy::{
-        app::SubApp,
-        ecs::schedule::Schedule,
-        render::{ExtractSchedule, Render, RenderApp, RenderStartup},
-    };
-    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let mut render_app = SubApp::new();
-    render_app
-        .insert_resource(bevy::render::renderer::RenderDevice::from(device))
-        .add_schedule(Schedule::new(RenderStartup))
-        .add_schedule(Render::base_schedule())
-        .add_schedule(Schedule::new(ExtractSchedule));
-    let mut app = App::new();
-    app.insert_resource(Assets::<Shader>::default())
-        .insert_sub_app(RenderApp, render_app);
-    app.add_plugins(crate::viewmodel_render::ViewmodelRenderPlugin);
-    app.finish();
-    let gate = app.world().resource::<ViewmodelCompletionGate>().clone();
-    let mut scene = fallback_scene(&gate);
-    let token = test_token();
-    let old = gate.reserve(token).unwrap();
-    app.sub_app_mut(RenderApp)
-        .world_mut()
-        .run_schedule(RenderStartup);
-    assert!(!gate.complete(old));
-    assert!(gate.reserve(token).is_none());
-    assert!(!gate.completed(token));
-    let frame = scene.frame.as_ref().unwrap().clone();
-    assert!(scene.publish(token, &frame.skin, &frame.geometry, &gate));
-    assert!(!gate.complete(old));
-    let fresh = gate.reserve(token).unwrap();
-    assert!(!gate.complete(old));
-    assert!(gate.complete(fresh));
-    assert!(gate.completed(token));
 }

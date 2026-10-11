@@ -30,6 +30,7 @@ impl ParticleGpuFrame {
         self.opaque.len() + self.blend.len() + self.add.len()
     }
 
+    /// Replaces draw lists and computes their sorting centers, using the camera for empty lists.
     fn set_lists(&mut self, lists: DrawLists, camera: [f32; 3]) {
         self.blend_centroid = draw_centroid(&lists.blend, camera);
         self.add_centroid = draw_centroid(&lists.add, camera);
@@ -102,3 +103,6 @@ pub fn update_particle_frame(
         frame.patch_seq = seq;
     }
 }
+
+#[cfg(test)]
+mod tests;

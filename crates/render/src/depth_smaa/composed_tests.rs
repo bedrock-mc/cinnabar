@@ -4,6 +4,7 @@ use super::*;
 use render_model::{
     UiRenderBatch, UiRenderInput, UiRenderTextureArray, UiRenderVertex, UiScissor, UiTexturePage,
 };
+use std::sync::Arc;
 use {
     crate::{motion_blur::CameraMotionBlurPlugin, ui_render::UiRenderPlugin},
     render_scene::{CameraMotionBlur, UiRenderSceneResource, UiRenderStatsResource},

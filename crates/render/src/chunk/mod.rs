@@ -116,7 +116,6 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
-mod resource_geometry;
 use render_scene::chunk::instance::ChunkRenderInstance;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;

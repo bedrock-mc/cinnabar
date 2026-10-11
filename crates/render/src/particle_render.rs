@@ -48,7 +48,7 @@ use bevy::{
     },
 };
 
-use particles::{ATLAS_SIDE, DrawLists, ParticleInstance};
+use particles::{ATLAS_SIDE, ParticleInstance};
 
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-9a57-3c0f1d7a2b64");
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;

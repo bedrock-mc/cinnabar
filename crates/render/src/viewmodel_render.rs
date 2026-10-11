@@ -158,6 +158,3 @@ impl crate::pipeline_warmup::PrewarmPipelines for HandGpu {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod admission_tests;

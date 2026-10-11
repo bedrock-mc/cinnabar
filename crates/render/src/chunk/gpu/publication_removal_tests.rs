@@ -1,7 +1,9 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
-use render_scene::{ChunkRenderInstance, ChunkUploadAcknowledgements, ChunkUploadToken};
+use render_scene::{
+    ChunkRenderInstance, ChunkUploadAcknowledgements, ChunkUploadToken, chunk::chunk_origin,
+};
 
 fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
     let mesh = solid_test_mesh();
@@ -27,7 +29,7 @@ fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
         priority: ChunkUploadPriority::new(0.0),
         token: None,
         publication_permit: None,
-        origin: queue::chunk_origin(key),
+        origin: chunk_origin(key),
     }
 }
 
