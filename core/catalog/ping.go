@@ -2,12 +2,12 @@ package catalog
 
 import (
 	"context"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 )

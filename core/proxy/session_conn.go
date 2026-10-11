@@ -3,11 +3,11 @@ package proxy
 import (
 	"bytes"
 	"fmt"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"net"
 	"sync"
 	"sync/atomic"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"

@@ -6,10 +6,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"io"
 	"net"
 	"sync"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
