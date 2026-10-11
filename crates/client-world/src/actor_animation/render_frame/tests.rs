@@ -1,6 +1,8 @@
 use super::*;
 use assets::{CompiledMolangExpression, EntityAssetKind, EntityGeometryScalar, MolangFunction};
 
+mod wolf_color_tests;
+
 /// A `minecraft:test` rig whose pre-animation counts ticks and draws a random number, posing both.
 pub(in crate::actor_animation) fn counting_random_assets() -> Arc<RuntimeEntityAssets> {
     counting_random_assets_for("minecraft:test")
