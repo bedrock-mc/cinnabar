@@ -326,6 +326,27 @@ fn unshadowed_geometry(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
     pack_compiler::select_entity_geometry(files)
 }
 
+/// List modern and legacy identifiers used to fill missing geometry references.
+fn geometry_identifiers(bytes: &[u8]) -> Vec<String> {
+    let Some(Value::Object(root)) = parse_pack_json(bytes) else {
+        return Vec::new();
+    };
+    if let Some(Value::Array(entries)) = root.get("minecraft:geometry") {
+        return entries
+            .iter()
+            .filter_map(|entry| {
+                entry["description"]["identifier"]
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect();
+    }
+    root.keys()
+        .filter(|key| key.starts_with("geometry."))
+        .map(|key| key.split(':').next().unwrap_or(key).to_owned())
+        .collect()
+}
+
 /// Texture path stems (no extension) named by any string in the entity sources.
 fn referenced_textures(files: &[(Box<str>, Vec<u8>)]) -> BTreeSet<String> {
     let mut stems = BTreeSet::new();
