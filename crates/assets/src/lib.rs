@@ -12,6 +12,10 @@ mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
 mod block_names;
+mod block_presentation_state;
+pub use block_presentation_state::{
+    BlockPresentationState, BlockPresentationStates, PortalAxis, pinned_block_presentation_states,
+};
 pub mod carriers;
 mod compiled;
 pub mod dye;

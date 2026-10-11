@@ -397,7 +397,7 @@ impl UiRuntime {
         self.inventory_open
     }
 
-    pub const fn inventory_ledger<'a>(
+    pub fn inventory_ledger<'a>(
         &self,
         player_runtime: &'a player_state::PlayerState,
     ) -> &'a PlayerInventoryLedger {
@@ -447,11 +447,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         now_millis: u64,
     ) {
-        if player_runtime
-            .inventory
-            .ledger_mut()
-            .poll_timeout(now_millis)
-        {
+        if player_runtime.inventory.poll_inventory_timeout(now_millis) {
             self.inventory_open = player_runtime
                 .inventory
                 .ledger()

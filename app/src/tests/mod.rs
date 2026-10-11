@@ -316,6 +316,7 @@ mod gameplay_click;
 mod input_publication;
 mod inventory;
 mod inventory_close_order;
+mod inventory_publication_allocations;
 mod inventory_reopen;
 mod inventory_schedule;
 mod inventory_secondary_input;
