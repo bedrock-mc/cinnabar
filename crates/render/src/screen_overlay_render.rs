@@ -4,7 +4,6 @@ use crate::screen_overlay::{
 };
 use crate::screen_overlay_portal::PortalTexture;
 use crate::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
-use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -89,6 +88,7 @@ fn install(app: &mut App) {
         "screen_overlay.wgsl",
         crate::shader_safety::from_wgsl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<OverlayPipeline>()
@@ -179,7 +179,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..default()
         }),
         _texture: texture,
@@ -200,7 +200,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
             label: Some("portal overlay atlas sampler"),
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..default()
         }),
         portal: None,
@@ -415,7 +415,7 @@ impl FromWorld for OverlayPipeline {
                 shader: OVERLAY_SHADER_HANDLE,
                 entry_point: Some("overlay_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -423,8 +423,8 @@ impl FromWorld for OverlayPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::Always,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Always),
                 stencil: default(),
                 bias: default(),
             }),
@@ -464,9 +464,9 @@ impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -524,14 +524,20 @@ fn queue_overlay(
     (ui, mut gpu): (Option<Res<crate::ui_render::UiGpu>>, ResMut<OverlayGpu>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     gpu.view_pipelines.clear();
     if scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -539,7 +545,7 @@ fn queue_overlay(
             &pipeline_cache,
             OverlayPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
                 after_hand: ui.is_some(),
             },
         ) else {
@@ -549,16 +555,20 @@ fn queue_overlay(
             gpu.view_pipelines.insert(view_entity, pipeline_id);
             continue;
         }
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            // Sorts after every real transparent item.
-            distance: f32::MAX,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        });
+        crate::transparent_phase::add(
+            phase,
+            Transparent3d {
+                sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                entity: (view_entity, *main_entity),
+                pipeline: pipeline_id,
+                draw_function,
+                // Sorts after every real transparent item.
+                distance: f32::MAX,
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
+            },
+        );
     }
 }
 
@@ -604,6 +614,7 @@ pub(crate) fn draw_before_hud(
             crate::RuntimeStage::GpuPost,
         ),
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     if let Some(viewport) =
         crate::ui_render::overlay::overlay_viewport(camera.viewport.as_ref(), resolution)

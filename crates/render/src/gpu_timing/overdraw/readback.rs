@@ -71,7 +71,11 @@ impl Target {
     pub(super) fn report(&self) {
         match self.state.load(Ordering::Acquire) {
             MAPPED => {
-                let bytes = self.buffer.slice(..).get_mapped_range();
+                let bytes = self
+                    .buffer
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("readback buffer is mapped");
                 let stats = summarize(&bytes, self.row_bytes as usize, &self.viewport);
                 eprintln!(
                     "RUST_MCBE_OPAQUE_LAYERS {}",

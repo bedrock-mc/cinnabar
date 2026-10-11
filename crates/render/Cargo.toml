@@ -20,6 +20,7 @@ mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
 bevy.workspace = true
+glam.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
@@ -47,8 +48,8 @@ test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
-naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }
-naga_oil = "0.20"
+naga = { version = "30.0.1", features = ["wgsl-in", "wgsl-out"] }
+wesl = "0.6.0"
 tempfile = "3"
 
 [lints]

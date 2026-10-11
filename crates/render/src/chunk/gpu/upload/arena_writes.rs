@@ -134,7 +134,7 @@ fn write_merged(render_queue: &RenderQueue, buffer: &Buffer, staged: &mut Vec<(u
         {
             let mut at = 0;
             for (_, bytes) in run {
-                view[at..at + bytes.len()].copy_from_slice(bytes);
+                view.slice(at..at + bytes.len()).copy_from_slice(bytes);
                 at += bytes.len();
             }
         }

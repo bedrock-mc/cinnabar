@@ -1,5 +1,5 @@
 use super::*;
-use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+use bevy::ecs::system::RunSystemOnce;
 use std::sync::Arc;
 
 /// Initializes item resources on the CPU-only backend for deterministic preparation tests.
@@ -7,7 +7,7 @@ fn item_world() -> World {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<DroppedItemScene>();
     world.init_resource::<TerrainItemMeshGenerations>();
     world.run_system_once(init_gpu).unwrap();

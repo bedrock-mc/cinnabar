@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -242,6 +241,7 @@ func (server *sessionServer) prepare(
 		PacksRequired: prepared.packStack.required,
 		Packs:         selected,
 	}
+	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs
 	return plan, prepared, nil
 }
@@ -269,7 +269,7 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 	if err := session.writeFrame(frame); err != nil {
 		return err
 	}
-	if err := writeSessionPacks(session, plan.packs); err != nil {
+	if err := writeSessionPacks(session.writeFrame, plan.packs); err != nil {
 		return err
 	}
 	for _, data := range plan.rest {
@@ -278,30 +278,6 @@ func writeSessionHandoff(session *sessionConn, plan sessionPlan) error {
 		}
 	}
 	return session.Flush()
-}
-
-// writeSessionPacks streams each archive in PackData frames of at most bridgecontract.SessionPackChunkBytes.
-func writeSessionPacks(session *sessionConn, packs []*resource.Pack) error {
-	var frame []byte
-	for index, pack := range packs {
-		size := pack.Size()
-		for offset := 0; offset < size; {
-			n := min(bridgecontract.SessionPackChunkBytes, size-offset)
-			if cap(frame) < 5+n {
-				frame = make([]byte, 5+n)
-			}
-			frame = frame[:5+n]
-			putSessionPackHeader(frame, uint32(index))
-			if read, err := pack.ReadAt(frame[5:], int64(offset)); read != n {
-				return errors.Join(io.ErrUnexpectedEOF, err)
-			}
-			if err := session.writeFrame(frame); err != nil {
-				return err
-			}
-			offset += n
-		}
-	}
-	return nil
 }
 
 // readSessionStartup reads upstream batches through StartGame, which a HandoffAtStartGame dial has
@@ -443,7 +419,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 	if errors.As(cause, &refused) {
 		key = refused.key
 	}
-	frame, err := encodeSessionJSON(bridgecontract.SessionKindDisconnect, sessionDisconnectMessage{Message: key})
+	frame, err := encodeSessionJSON(bridgecontract.SessionKindDisconnect, sessionDisconnect{Message: key})
 	if err != nil {
 		return err
 	}
@@ -460,7 +436,7 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
-		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	if claimed != nil {
 		claimed.Apply(&clientData)
@@ -476,11 +452,11 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())}
 	}
 	if err := clientData.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: client data: %v", errMalformedSessionMessage, err)
+		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	if claimed != nil {
 		if clientData.DeviceID == "" {
-			return nil, fmt.Errorf("%w: core device ID is empty", errMalformedSessionMessage)
+			return nil, fmt.Errorf("%w: core device ID is empty", errMalformedSession)
 		}
 		clientData.SelfSignedID = initialSelfSignedID(clientData.ClientRandomID, string(clientData.DeviceID))
 		clientData.MarkClaims("SelfSignedId")

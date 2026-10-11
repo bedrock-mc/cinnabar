@@ -14,14 +14,12 @@ use crate::actor::{
     ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRuntimeWitness,
     ActorSubmitWitness, gpu::ActorDrawTracker,
 };
-use bevy::image::BevyDefault;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{
         CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
     },
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
@@ -51,14 +49,14 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 use render_model::ActorRigVertex;
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
-const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wgsl");
+const ACTOR_SHADER_SOURCE: &str = include_str!("actor.wesl");
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ActorRenderPlugin;
@@ -101,14 +99,15 @@ fn install_actor_render(app: &mut App) {
     load_internal_asset!(
         app,
         ACTOR_SHADER_HANDLE,
-        "actor.wgsl",
-        crate::shader_safety::from_actor_wgsl,
+        "actor.wesl",
+        crate::shader_safety::from_actor_wesl,
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS
     );
     crate::nametag_render::install_nametag_render(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::device_poll::install(app.sub_app_mut(RenderApp));
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
@@ -190,7 +189,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         address_mode_w: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..default()
     });
     commands.insert_resource(ActorGpu {

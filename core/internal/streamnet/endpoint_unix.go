@@ -20,10 +20,6 @@ import (
 // on the other.
 const maxUnixEndpointPathBytes = 103
 
-func unixEndpointPath(socketDir string) string {
-	return unixEndpointPathNamed(socketDir, unixEndpointName)
-}
-
 func unixEndpointPathNamed(socketDir, endpointName string) string {
 	// filepath.Clean is the cross-language contract: normalize separators and
 	// dot components lexically, without resolving anything in the filesystem,

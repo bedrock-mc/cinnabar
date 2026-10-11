@@ -632,7 +632,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
                 }),
             )
         },
-        params.get_mut(&mut world),
+        params.get_mut(&mut world).unwrap(),
     );
     let state = world.resource::<super::super::ActorFrameState>();
     assert!(
@@ -667,7 +667,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
         },
         swing,
         |_, _, _, _| false,
-        params.get_mut(&mut world),
+        params.get_mut(&mut world).unwrap(),
     );
     let scene = world.resource::<render::HandRigScene>();
     assert!(scene.is_active());

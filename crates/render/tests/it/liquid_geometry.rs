@@ -12,7 +12,7 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
     let gpu = Gpu::new().expect("native GPU");
     let source = format!(
         "{}\n{WITNESS}",
-        shader_source::standalone(include_str!("../../src/liquid.wgsl"), &[])
+        shader_source::standalone(include_str!("../../src/liquid.wesl"), &[])
     );
     for face in Face::ALL {
         for top_emitted in [false, true] {

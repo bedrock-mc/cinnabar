@@ -1,5 +1,5 @@
 use super::*;
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use render::{ActorArtworkPages, EquipmentRaster};
 use render_model::STANDARD_SKIN_BYTES;
 
@@ -30,11 +30,11 @@ fn view(direction: Vec3) -> ActorCullView {
     let camera = Vec3::new(0.0, 65.0, 0.0);
     ActorCullView {
         camera_position: camera,
-        clip_from_world: Mat4::perspective_infinite_reverse_rh(
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             90_f32.to_radians(),
             1.0,
             render_api::CAMERA_NEAR_PLANE_BLOCKS,
-        ) * Mat4::look_to_rh(camera, direction, Vec3::Y),
+        ) * glam::camera::rh::view::look_to_mat4(camera, direction, Vec3::Y),
         max_distance: 100.0,
     }
 }

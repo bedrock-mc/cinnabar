@@ -10,7 +10,7 @@ fn native_sky_fan_interpolates_center_edges_and_below_horizon_on_the_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
     let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
-    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     shader.push_str(
         r#"
 @vertex fn fan_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
@@ -69,7 +69,7 @@ fn native_sky_fan_interpolates_center_edges_and_below_horizon_on_the_gpu() {
 
 #[test]
 fn sky_uses_native_fan_interpolation_instead_of_screen_space_gradient() {
-    let shader = include_str!("../../src/atmosphere.wgsl");
+    let shader = include_str!("../../src/atmosphere.wesl");
     assert!(shader.contains("native_sky_fog_weight(ray)"));
     assert!(!shader.contains("smoothstep(-0.08, 0.72, ray.y)"));
     assert!(!shader.contains("colour *= 0.72"));
@@ -81,7 +81,7 @@ fn native_celestial_size_basis_rain_alpha_and_star_colour_on_the_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
     let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
-    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     shader.push_str(
         r#"
 @vertex fn celestial_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
@@ -161,7 +161,7 @@ fn native_celestial_size_basis_rain_alpha_and_star_colour_on_the_gpu() {
 fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
     use gpu_snapshot::{Draw, Gpu};
     let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
-    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     shader.push_str(
         r#"
 @vertex fn colour_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
@@ -234,7 +234,7 @@ fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
 fn orbital_phase_visibility_and_star_brightness_survive_the_srgb_target() {
     use gpu_snapshot::{Draw, Gpu};
     let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
-    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
+    let mut shader = shader_source::standalone(include_str!("../../src/atmosphere.wesl"), &[]);
     shader.push_str(
         r#"
 @vertex fn phase_probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {

@@ -4,7 +4,7 @@ use crate::gpu_snapshot;
 use crate::material_shader;
 use crate::shader_source;
 
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use gpu_snapshot::{Draw, Gpu, RasterState};
 use meshing::{CubeQuadLayout, Face, PackedQuad, sub_chunk_facing_faces};
 
@@ -156,7 +156,7 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     let indices = chunk_constants::STATIC_QUAD_INDICES;
     let source = format!(
         "{}\n{}",
-        shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[]),
+        shader_source::standalone(include_str!("../../src/chunk.wesl"), &[]),
         RASTER_VERTEX.replace(
             "RASTER_INDICES",
             &indices.map(|index| format!("{index}u")).join(", ")
@@ -176,8 +176,9 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     let mut culled_any = false;
     for (eye, target) in cameras {
         let (eye, target) = (origin_point + eye, origin_point + target);
-        let clip_from_world = Mat4::perspective_infinite_reverse_rh(1.4, 1.0, 0.05)
-            * Mat4::look_at_rh(eye, target, Vec3::Y);
+        let clip_from_world =
+            glam::camera::rh::proj::directx::perspective_infinite_reverse(1.4, 1.0, 0.05)
+                * glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y);
         let view = gpu.buffer(
             &gpu_snapshot::view(clip_from_world, eye),
             wgpu::BufferUsages::UNIFORM,

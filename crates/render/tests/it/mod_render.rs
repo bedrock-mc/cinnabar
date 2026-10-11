@@ -160,11 +160,16 @@ fn decals_render_on_the_ground_and_respect_scene_depth() {
         return;
     };
     let source =
-        shader_source::standalone(include_str!("../../src/mod_render/primitives.wgsl"), &[]);
+        shader_source::standalone(include_str!("../../src/mod_render/primitives.wesl"), &[]);
     // Looks straight down at the origin from ten blocks up; screen right is +X.
     let world_from_view =
-        Mat4::look_at_rh(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, Vec3::NEG_Z).inverse();
-    let projection = Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1);
+        glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, Vec3::NEG_Z)
+            .inverse();
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_2,
+        1.0,
+        0.1,
+    );
     let view = gpu.buffer(
         &view_words(projection, world_from_view),
         wgpu::BufferUsages::UNIFORM,
@@ -304,8 +309,8 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -316,7 +321,7 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
                 compilation_options: Default::default(),
                 targets: &[],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
     // Touches every binding so the derived layout matches the production one.
@@ -353,7 +358,7 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
     let frame = gpu.buffer(&frame_words(&[]), wgpu::BufferUsages::UNIFORM);
@@ -396,6 +401,7 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&ramp_pipeline);
         pass.draw(0..3, 0..1);
@@ -415,6 +421,7 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&pass_pipeline);
         pass.set_bind_group(0, &bindings, &[]);
@@ -447,7 +454,11 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
-    readback.slice(..).get_mapped_range()[..side as usize * 4].to_vec()
+    readback
+        .slice(..)
+        .get_mapped_range()
+        .expect("readback buffer is mapped")[..side as usize * 4]
+        .to_vec()
 }
 
 #[test]

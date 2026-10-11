@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	unixEndpointName           = "game.sock"
-	windowsEndpointName        = "game.addr"
 	controlUnixEndpointName    = "control.sock"
 	controlWindowsEndpointName = "control.addr"
 	sessionUnixEndpointName    = "session.sock"
@@ -26,17 +24,9 @@ type endpointNames struct {
 }
 
 var (
-	gameEndpoint    = endpointNames{unix: unixEndpointName, windows: windowsEndpointName, lease: "game.lock"}
 	controlEndpoint = endpointNames{unix: controlUnixEndpointName, windows: controlWindowsEndpointName, lease: "control.lock"}
 	sessionEndpoint = endpointNames{unix: sessionUnixEndpointName, windows: sessionWindowsEndpointName, lease: "session.lock"}
 )
-
-// Resolve discovers the local bridge endpoint in socketDir. On Unix it
-// returns the fixed Unix-domain socket; on Windows it validates the published
-// loopback TCP address.
-func Resolve(socketDir string) (network, address string, err error) {
-	return resolveEndpoint(socketDir, gameEndpoint)
-}
 
 // ResolveControl discovers the separately published control endpoint.
 func ResolveControl(socketDir string) (network, address string, err error) {
@@ -132,10 +122,6 @@ func ensureSocketDir(socketDir string) error {
 	return nil
 }
 
-func publishAddress(socketDir, address string) (string, error) {
-	return publishAddressNamed(socketDir, windowsEndpointName, address)
-}
-
 func publishAddressNamed(socketDir, endpointName, address string) (string, error) {
 	path := filepath.Join(socketDir, endpointName)
 	temp, err := os.CreateTemp(socketDir, endpointName+".tmp-")
@@ -163,10 +149,6 @@ func publishAddressNamed(socketDir, endpointName, address string) (string, error
 		return "", fmt.Errorf("streamnet: publish endpoint: %w", err)
 	}
 	return path, nil
-}
-
-func preparePublishedAddress(socketDir string) error {
-	return preparePublishedAddressNamed(socketDir, windowsEndpointName)
 }
 
 func preparePublishedAddressNamed(socketDir, endpointName string) error {

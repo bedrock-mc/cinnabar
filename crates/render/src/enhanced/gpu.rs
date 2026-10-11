@@ -23,7 +23,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{CachedTexture, TextureCache},
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 
@@ -41,7 +41,7 @@ const CASTER_UNIFORM_BYTES: u64 = 96;
 pub(crate) const SHADOW_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 pub(crate) const POST_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
-/// Mirrors `CasterUniform` in enhanced/caster.wgsl, padded to one dynamic slot.
+/// Mirrors `CasterUniform` in enhanced/caster.wesl, padded to one dynamic slot.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CasterUniformGpu {
@@ -490,7 +490,7 @@ pub(crate) fn prepare_enhanced_views(
         Entity,
         &ExtractedView,
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
         &EnhancedRendering,
     )>,
 ) {

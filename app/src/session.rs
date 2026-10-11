@@ -567,10 +567,17 @@ pub(crate) fn login_settings(
                 gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
         gui_scale_offset: menu.gui_scale_offset(),
+        memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
+        graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
+        resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
 
 /// Starts the network session against the core serving `socket_dir`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "joining forwards captured session inputs and optional presentation assets"
+)]
 fn start_network(
     commands: &mut Commands,
     menu: &MenuRuntime,

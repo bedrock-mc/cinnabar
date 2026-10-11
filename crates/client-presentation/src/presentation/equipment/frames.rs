@@ -299,12 +299,15 @@ fn render_first_person_held_item_frames() {
             actor_rig_presentation(&rig, world.authority().actor(1).unwrap(), None, 1.0).unwrap();
         let placement = if third {
             // Looks at the model's right side from ahead of it (it faces +Z at yaw 0).
-            Mat4::look_at_rh(Vec3::new(-3.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Y)
-                * rows_to_mat(rig_world_from_actor(
-                    [0.0; 3],
-                    0.0,
-                    presentation.authored_scale,
-                ))
+            glam::camera::rh::view::look_at_mat4(
+                Vec3::new(-3.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::Y,
+            ) * rows_to_mat(rig_world_from_actor(
+                [0.0; 3],
+                0.0,
+                presentation.authored_scale,
+            ))
         } else {
             rows_to_mat(rig_world_from_actor(
                 [

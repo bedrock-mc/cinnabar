@@ -90,6 +90,7 @@ impl AimAssistHighlight {
 
 /// Shared textures stay resident when targeting stops; a missing texture draws nothing.
 #[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct AimAssistHighlightScene {
     pub target: Option<AimAssistHighlight>,
     pub textures: [Option<Arc<AimAssistTexture>>; 2],

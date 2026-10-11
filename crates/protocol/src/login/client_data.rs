@@ -40,6 +40,12 @@ pub struct LoginSettings {
     pub input_mode: PlayerInputMode,
     /// The GUI scale offset from the video settings.
     pub gui_scale_offset: i8,
+    /// Vanilla's device memory tier, from [`login_memory_tier`].
+    pub memory_tier: u32,
+    /// The graphics option: 0 simple, 1 fancy.
+    pub graphics_mode: u8,
+    /// Trusted local archive directory, never sent in the upstream login claims.
+    pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for LoginSettings {
@@ -48,8 +54,21 @@ impl Default for LoginSettings {
             language_code: "en_US".to_owned(),
             input_mode: PlayerInputMode::Mouse,
             gui_scale_offset: 0,
+            memory_tier: SUPER_HIGH_MEMORY_TIER,
+            graphics_mode: 1,
+            resource_pack_cache_dir: None,
         }
     }
+}
+
+/// Returns vanilla's login memory tier for physical RAM: 0 up to 1.5 GiB, then 2, 4 and 8 GiB
+/// boundaries up to 4; unknown memory (`0`) reports the lowest tier.
+pub fn login_memory_tier(physical_bytes: u64) -> u32 {
+    const GIB: u64 = 1 << 30;
+    [GIB * 3 / 2, 2 * GIB, 4 * GIB, 8 * GIB]
+        .into_iter()
+        .filter(|limit| physical_bytes > *limit)
+        .count() as u32
 }
 
 /// Builds claims with the caller's stored ID and player settings; `None` uploads the
@@ -93,14 +112,14 @@ pub(crate) fn login_client_data(
         "ClientRandomId": client_random_id.get(),
         "ClientEditorConnectionIntent": NON_EDITOR_CONNECTION_INTENT,
         "ClientIsEditorCapable": false,
-        "CompatibleWithClientSideChunkGen": true,
+        "CompatibleWithClientSideChunkGen": false,
         "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
-        "GraphicsMode": 0,
+        "GraphicsMode": settings.graphics_mode,
         "GuiScale": settings.gui_scale_offset,
         "LanguageCode": settings.language_code,
-        "MaxViewDistance": 32,
-        "MemoryTier": SUPER_HIGH_MEMORY_TIER,
+        "MaxViewDistance": render_api::MAX_VIEW_RADIUS_CHUNKS,
+        "MemoryTier": settings.memory_tier,
         "PlatformOfflineId": "",
         "PlatformOnlineId": "",
         "PlatformType": 0,
@@ -169,13 +188,13 @@ mod tests {
             let id = ClientRandomId::new(value).unwrap();
             for name in ["First", "Second"] {
                 let claims = login_client_data(name, id, None, &LoginSettings::default());
-                let request = bridge::ConnectRequest {
+                let request = crate::session_wire::ConnectRequest {
                     protocol: crate::PROTOCOL_VERSION,
                     target: None,
                     client_cache: false,
                     client_data: claims,
                 };
-                let encoded = bridge::encode_connect(&request).unwrap();
+                let encoded = crate::session_wire::encode_connect(&request).unwrap();
                 let decoded: serde_json::Value = serde_json::from_slice(&encoded[1..]).unwrap();
                 assert_eq!(
                     decoded["client_data"]["ClientRandomId"].as_i64(),
@@ -192,9 +211,9 @@ mod tests {
             .expect("valid base64")
     }
 
-    /// The uploaded skin, cape and geometry reach the claims byte for byte.
+    /// Session serialization explicitly declines chunk generation and retains player data.
     #[test]
-    fn claims_carry_the_supplied_skin() {
+    fn session_claims_decline_chunk_generation_and_preserve_player_data() {
         let skin = ClientSkin {
             rgba8: vec![7; 64 * 32 * 4],
             width: 64,
@@ -212,11 +231,39 @@ mod tests {
                 engine_version: "1.26.50".into(),
             }),
         };
-        let claims = login_client_data(
-            "Steve",
-            ClientRandomId::new(-7).unwrap(),
-            Some(&skin),
-            &LoginSettings::default(),
+        let settings = LoginSettings {
+            language_code: "de_DE".into(),
+            input_mode: PlayerInputMode::GamePad,
+            gui_scale_offset: -1,
+            ..Default::default()
+        };
+        let request = crate::session_wire::ConnectRequest {
+            protocol: crate::PROTOCOL_VERSION,
+            target: None,
+            client_cache: false,
+            client_data: login_client_data(
+                "Steve",
+                ClientRandomId::new(-7).unwrap(),
+                Some(&skin),
+                &settings,
+            ),
+        };
+        let encoded = crate::session_wire::encode_connect(&request).unwrap();
+        let received = crate::session_wire::decode_connect(&encoded).unwrap();
+        assert_eq!(received, request);
+        let claims = received.client_data;
+        assert_eq!(
+            claims["CompatibleWithClientSideChunkGen"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(claims["ClientRandomId"].as_i64(), Some(-7));
+        assert_eq!(claims["ThirdPartyName"], "Steve");
+        assert_eq!(claims["GameVersion"], GAME_VERSION);
+        assert_eq!(claims["LanguageCode"], settings.language_code);
+        assert_eq!(claims["GuiScale"], settings.gui_scale_offset);
+        assert_eq!(
+            claims["CurrentInputMode"],
+            input_mode_value(settings.input_mode)
         );
         assert_eq!(decoded(&claims, "SkinData"), skin.rgba8);
         assert_eq!(
@@ -250,6 +297,10 @@ mod tests {
             ClientRandomId::new(-7).unwrap(),
             None,
             &LoginSettings::default(),
+        );
+        assert_eq!(
+            claims["CompatibleWithClientSideChunkGen"].as_bool(),
+            Some(false)
         );
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();
@@ -302,6 +353,39 @@ mod tests {
         }
     }
 
+    // Each tier boundary is exclusive: exactly 1.5, 2, 4 and 8 GiB stay in the lower tier.
+    #[test]
+    fn login_memory_tier_matches_vanilla_boundaries() {
+        const GIB: u64 = 1 << 30;
+        for (bytes, tier) in [
+            (0, 0),
+            (GIB * 3 / 2, 0),
+            (GIB * 3 / 2 + 1, 1),
+            (2 * GIB, 1),
+            (2 * GIB + 1, 2),
+            (4 * GIB, 2),
+            (4 * GIB + 1, 3),
+            (8 * GIB, 3),
+            (8 * GIB + 1, 4),
+            (64 * GIB, 4),
+        ] {
+            assert_eq!(login_memory_tier(bytes), tier, "{bytes} bytes");
+        }
+    }
+
+    // The claims report the player's graphics option and device memory tier, not constants.
+    #[test]
+    fn claims_carry_the_graphics_option_and_memory_tier() {
+        let settings = LoginSettings {
+            memory_tier: 2,
+            graphics_mode: 0,
+            ..Default::default()
+        };
+        let claims = login_client_data("Steve", ClientRandomId::new(1).unwrap(), None, &settings);
+        assert_eq!(claims["MemoryTier"], 2);
+        assert_eq!(claims["GraphicsMode"], 0);
+    }
+
     /// The claims carry the version, offline name and the player's own settings, and leave the
     /// device to the core.
     #[test]
@@ -310,6 +394,7 @@ mod tests {
             language_code: "de_DE".to_owned(),
             input_mode: PlayerInputMode::GamePad,
             gui_scale_offset: -1,
+            ..Default::default()
         };
         let claims = login_client_data("Steve", ClientRandomId::new(-7).unwrap(), None, &settings);
         assert_eq!(claims["GameVersion"], GAME_VERSION);
@@ -320,6 +405,12 @@ mod tests {
             "vanilla's gamepad input mode"
         );
         assert_eq!(claims["GuiScale"], -1);
+        assert_eq!(
+            claims["MaxViewDistance"],
+            render_api::MAX_VIEW_RADIUS_CHUNKS
+        );
+        assert_eq!(claims["MemoryTier"], SUPER_HIGH_MEMORY_TIER);
+        assert_eq!(claims["GraphicsMode"], 1);
         for device_field in ["DeviceOS", "DeviceModel", "DeviceId", "DefaultInputMode"] {
             assert!(
                 claims.get(device_field).is_none(),

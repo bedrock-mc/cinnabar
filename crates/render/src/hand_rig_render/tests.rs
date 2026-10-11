@@ -46,12 +46,13 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.spawn((
         Msaa::Off,
+        crate::render_test_support::camera(false),
         ExtractedView {
             retained_view_entity: RetainedViewEntity::new(Entity::PLACEHOLDER.into(), None, 0),
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 64, 64),
             color_grading: default(),
             invert_culling: false,
@@ -83,16 +84,20 @@ fn recurring_hand_pose_updates_allocate_no_gpu_staging_buffers() {
 
 #[test]
 fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     let (device, queue) = wgpu::Device::noop(&Default::default());
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
     world.run_system_once(init_gpu).unwrap();
     let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
     let device = world.resource::<RenderDevice>().clone();
     let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, CAMERA_NEAR_PLANE_BLOCKS);
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        1.2,
+        1.5,
+        CAMERA_NEAR_PLANE_BLOCKS,
+    );
     let mut light = light();
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [1, 1]);
@@ -105,7 +110,11 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     );
     assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
 
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, CAMERA_NEAR_PLANE_BLOCKS);
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        1.2,
+        2.0,
+        CAMERA_NEAR_PLANE_BLOCKS,
+    );
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [2, 1]);
     light.java_lights[1][2] = 0.75;
@@ -233,20 +242,23 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
 fn pose_updates_reuse_their_buffers() {
     use bevy::{
         ecs::system::RunSystemOnce,
-        render::renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        render::renderer::{RenderDevice, RenderQueue},
     };
     use std::{
         future::Future,
         pin::pin,
         task::{Context, Poll, Waker},
     };
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(adapter)) =
@@ -260,7 +272,7 @@ fn pose_updates_reuse_their_buffers() {
         panic!("noop device must be immediate");
     };
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = bevy::prelude::World::new();
     world.insert_resource(device.clone());
     world.run_system_once(init_gpu).unwrap();
@@ -339,10 +351,10 @@ fn pose_updates_reuse_their_buffers() {
 
 #[test]
 fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = World::new();
     world.insert_resource(device.clone());
     world.run_system_once(init_gpu).unwrap();
@@ -368,10 +380,10 @@ fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
 
 #[test]
 fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
-    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    use bevy::ecs::system::RunSystemOnce;
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut world = World::new();
     world.insert_resource(device.clone());
     world.run_system_once(init_gpu).unwrap();
@@ -413,9 +425,9 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
                     .unwrap()
                     .format,
                 if hdr {
-                    ViewTarget::TEXTURE_FORMAT_HDR
+                    crate::SCENE_HDR_FORMAT
                 } else {
-                    TextureFormat::bevy_default()
+                    crate::SCENE_COLOR_FORMAT
                 }
             );
         }

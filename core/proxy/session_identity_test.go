@@ -117,7 +117,7 @@ func TestSessionDownstreamRejectsMissingCoreDeviceID(t *testing.T) {
 	t.Parallel()
 	profile := device.New(protocol.DeviceAndroid)
 	profile.ID = ""
-	if _, err := newSessionDownstream(testSessionConnect(t), &profile); !errors.Is(err, errMalformedSessionMessage) {
+	if _, err := newSessionDownstream(testSessionConnect(t), &profile); !errors.Is(err, errMalformedSession) {
 		t.Fatalf("missing core device ID: %v", err)
 	}
 }

@@ -2,10 +2,12 @@ use super::*;
 use bevy::{
     asset::AssetId,
     core_pipeline::core_3d::{Opaque3dBatchSetKey, Opaque3dBinKey},
-    ecs::change_detection::Tick,
+    prelude::{Mesh, default},
     render::{
         batching::gpu_preprocessing::GpuPreprocessingMode,
-        render_phase::{BinnedRenderPhaseType, Draw, DrawFunctionId, InputUniformIndex},
+        render_phase::{
+            BinnedRenderPhaseType, Draw, DrawFunctionId, InputUniformIndex, ViewBinnedRenderPhases,
+        },
         render_resource::CachedRenderPipelineId,
         sync_world::MainEntity,
         view::RetainedViewEntity,
@@ -80,16 +82,14 @@ fn add(
             pipeline: CachedRenderPipelineId::INVALID,
             material_bind_group_index: None,
             lightmap_slab: None,
-            vertex_slab: default(),
-            index_slab: None,
+            slabs: default(),
         },
         Opaque3dBinKey {
-            asset_id: AssetId::<Mesh>::invalid().untyped(),
+            asset_id: AssetId::<Mesh>::default().untyped(),
         },
         (entity, MainEntity::from(entity)),
         InputUniformIndex::default(),
         kind,
-        Tick::new(1),
     );
 }
 
@@ -190,17 +190,67 @@ fn unsupported_phases_keep_the_original_node() {
 }
 
 #[test]
-fn category_replacement_requires_opt_in_and_timestamp_support() {
-    let mut world = World::new();
-    assert!(replacement(&mut world).is_none());
-    world.insert_resource(CategoryProfiling);
-    assert!(replacement(&mut world).is_none());
-    let (device, _) = super::super::tests::noop_device(wgpu::Features::empty());
-    world.insert_resource(device);
-    assert!(replacement(&mut world).is_none());
-    let (device, _) = super::super::tests::noop_device(wgpu::Features::TIMESTAMP_QUERY);
-    world.insert_resource(device);
-    assert!(replacement(&mut world).is_some());
+fn category_splitting_requires_opt_in_and_timestamp_support() {
+    for enabled in [false, true] {
+        for supported in [false, true] {
+            let features = if supported {
+                wgpu::Features::TIMESTAMP_QUERY
+            } else {
+                wgpu::Features::empty()
+            };
+            let (device, _queue) = super::super::tests::noop_device(features);
+            let mut world = World::new();
+            world.init_resource::<DrawFunctions<Opaque3d>>();
+            if enabled {
+                world.insert_resource(CategoryProfiling);
+            }
+            let color = crate::scene_sampling::tests::texture(
+                &device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            );
+            let depth = crate::scene_sampling::tests::texture(
+                &device,
+                wgpu::TextureFormat::Depth32Float,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            );
+            let color = color.create_view(&default());
+            let depth = depth.create_view(&default());
+            let (split, buffers) =
+                crate::render_test_support::record(&mut world, &device, |world, context| {
+                    draw_categories(
+                        world,
+                        context,
+                        Entity::PLACEHOLDER,
+                        &phase(),
+                        &phase(),
+                        false,
+                        wgpu::RenderPassColorAttachment {
+                            view: &color,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        },
+                        wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        },
+                        None,
+                    )
+                });
+            assert_eq!(split, enabled && supported);
+            assert_eq!(buffers.is_empty(), !split);
+        }
+    }
 }
 
 #[test]
@@ -218,15 +268,4 @@ fn category_profiling_disables_overlapping_in_pass_draw_spans() {
         .run_system_once(super::super::init_gpu_timestamps)
         .unwrap();
     assert!(!world.resource::<GpuTimestamps>().draw_spans);
-}
-
-/// Only opt-in category splitting may take over the shared-scene opaque pass.
-#[test]
-fn only_category_profiling_replaces_the_scene_opaque_pass() {
-    let mut world = World::new();
-    let scene = crate::scene_target::opaque_pass(&mut world);
-    assert!(replaceable(&*scene, true));
-    assert!(!replaceable(&*scene, false));
-    let stock = ViewNodeRunner::new(MainOpaquePass3dNode, &mut world);
-    assert!(replaceable(&stock, false));
 }

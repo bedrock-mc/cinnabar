@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 
 /// Shared retained state; extraction copies only the handle and the current clock/dimension.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PrimitiveShapesScene {
     pub store: Arc<Mutex<PrimitiveShapeStore>>,
     pub clock: f32,
@@ -51,11 +52,12 @@ impl Plugin for PrimitiveShapesRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PrimitiveShapesScene>()
             .add_plugins(ExtractResourcePlugin::<PrimitiveShapesScene>::default());
-        load_internal_asset!(app, SHADER, "primitive_shapes/shapes.wgsl", shader);
+        load_internal_asset!(app, SHADER, "primitive_shapes/shapes.wesl", shader);
         crate::pipeline_warmup::register::<pipeline::ShapePipeline>(app);
         let Some(render) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        crate::transparent_phase::install(render);
         render.init_resource::<pipeline::ShapePipeline>()
             .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::DrawShapes>()
             .add_systems(RenderStartup, gpu::init)
@@ -102,7 +104,7 @@ fn shader(raw: &str, path: impl Into<String>) -> Shader {
             "HORIZONTAL_ZERO_VALUE",
             &render_model::NAMETAG_HORIZONTAL_ZERO.to_string(),
         );
-    crate::shader_safety::from_wgsl(source, path)
+    crate::shader_safety::from_wesl(source, path)
 }
 
 /// Identifies the debug draw family for encoded-color transparency routing.

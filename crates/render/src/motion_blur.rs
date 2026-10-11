@@ -74,12 +74,12 @@ fn shader_source(source: &str, multisampled: bool) -> String {
 pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     use bevy::render::{
         render_resource::PipelineCache,
-        view::{ViewDepthTexture, ViewTarget},
+        view::{ViewDepthStencilTexture, ViewTarget},
     };
     let (Some(state), Some(target), Some(depth), Some(cache)) = (
         world.get::<prepare::BlurView>(entity),
         world.get::<ViewTarget>(entity),
-        world.get::<ViewDepthTexture>(entity),
+        world.get::<ViewDepthStencilTexture>(entity),
         world.get_resource::<PipelineCache>(),
     ) else {
         return false;
@@ -87,7 +87,10 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     state.active
         && cache.get_render_pipeline(state.pipeline).is_some()
         && state
-            .binding(target.main_texture_view().id(), depth.view().id())
+            .binding(
+                target.main_texture_view().id(),
+                crate::scene_sampling::view_depth(depth).id(),
+            )
             .is_some()
 }
 

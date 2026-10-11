@@ -4,7 +4,7 @@
 use crate::support;
 use crate::support::java_pack;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use json_ui::{
     BossBar, Catalog, Context, Draw, DrawNode, HUD_SCREEN, HudModel, HudSlot, HudTitle, LayoutEnv,
@@ -145,7 +145,7 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
 }
 
 /// The vanilla UI catalog for the pack's directory, before any overlay.
-fn catalog_for(dir: &PathBuf) -> Catalog {
+fn catalog_for(dir: &Path) -> Catalog {
     Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads")
 }
 
@@ -560,7 +560,7 @@ fn a_multiline_tip_text_keeps_its_last_line_on_the_tip_position() {
         };
         let nodes = &render.nodes;
         dump(nodes);
-        let expected = format!("LUMINE PROXY\nJava");
+        let expected = "LUMINE PROXY\nJava".to_owned();
         let block = nodes
             .iter()
             .find(|node| matches!(&node.draw, Draw::Text { text, .. } if *text == expected))
@@ -589,14 +589,14 @@ fn a_multiline_tip_text_keeps_its_last_line_on_the_tip_position() {
         // Both stay centred on the tip text's column.
         let center = |node: &DrawNode| node.dest.x + node.dest.w / 2.0;
         assert!(
-            (center(&block) - center(&bare)).abs() < 1e-6,
+            (center(block) - center(bare)).abs() < 1e-6,
             "tip lines are not centred alike: {block:?} vs {bare:?}"
         );
         // It stays clear of the hotbar row below it.
         let hotbar = nodes
             .iter()
             .filter(|node| node.dest.y > 240.0 && node.dest.y < 250.0)
-            .map(|node| at(node))
+            .map(at)
             .min_by(|[_, a], [_, b]| a.total_cmp(b))
             .expect("a hotbar element");
         assert!(

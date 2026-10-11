@@ -5,12 +5,10 @@ impl PhysicsCollisionRegistries {
     pub(super) fn admit_server_definitions(
         &self,
         definitions: &protocol::CustomBlocks,
-        insertion_remap: assets::SequentialIdRemap,
-        internal_state_count: u32,
     ) -> assets::SequentialIdRemap {
         let Some(server_defined) = assets::server_defined_blocks_for_registry(self.breg_sha256)
         else {
-            return insertion_remap;
+            return assets::SequentialIdRemap::default();
         };
         let mut admitted = vec![true; self.sequential_count];
         let mut omitted = false;
@@ -28,12 +26,11 @@ impl PhysicsCollisionRegistries {
             omitted = true;
         }
         if !omitted {
-            return insertion_remap;
+            return assets::SequentialIdRemap::default();
         }
-        let palette = (0..internal_state_count)
-            .map(|wire| insertion_remap.to_internal(wire))
+        let palette = (0..self.sequential_count as u32)
             .filter(|&internal| admitted.get(internal as usize).copied().unwrap_or(true))
             .collect();
-        assets::SequentialIdRemap::from_palette(palette, internal_state_count)
+        assets::SequentialIdRemap::from_palette(palette, self.sequential_count as u32)
     }
 }

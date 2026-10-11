@@ -42,7 +42,7 @@ pub(super) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVerte
 }
 
 pub(super) fn source(gamma: bool) -> String {
-    let actor = include_str!("../../../src/actor.wgsl")
+    let actor = include_str!("../../../src/actor.wesl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
             &render::ACTOR_GPU_INSTANCE_WORDS.to_string(),

@@ -67,7 +67,7 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         min_filter: wgpu::FilterMode::Nearest,
         mag_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         lod_max_clamp: (assets::VANILLA_TERRAIN_MIP_COUNT - 1) as f32,
         ..Default::default()
     }

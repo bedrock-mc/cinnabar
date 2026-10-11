@@ -308,7 +308,7 @@ pub fn precipitation_forward_offset(forward: [f32; 3]) -> [f32; 3] {
     })
 }
 
-/// One drawn layer in the layout `weather.wgsl` reads.
+/// One drawn layer in the layout `weather.wesl` reads.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PrecipitationLayerRecord {
@@ -447,6 +447,7 @@ pub trait ColumnSampler {
 
 /// Decoded weather sheet and End sky, when the optional carrier is present.
 #[derive(Resource, ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct WeatherTextureAssets {
     textures: Option<Arc<assets::WeatherTextures>>,
     identity: [u8; 32],
@@ -474,6 +475,7 @@ impl WeatherTextureAssets {
 
 /// Precipitation state consumed by the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct PrecipitationScene {
     pub layers: Vec<PrecipitationLayerRecord>,
     pub forward_offset: [f32; 3],

@@ -404,13 +404,10 @@ mod tests {
     #[test]
     fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
         use crate::actor::ActorRigVertexSegments;
-        use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+        use bevy::render::renderer::{RenderDevice, RenderQueue};
         use render_model::ActorRigVertex;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-        let (device, queue) = (
-            RenderDevice::from(device),
-            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-        );
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
         let first = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);
         let mut mirror = super::SegmentedVertexBuffer::default();
         mirror.sync(&device, &queue, "test", &first);

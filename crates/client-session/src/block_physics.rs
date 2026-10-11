@@ -83,6 +83,9 @@ pub(crate) fn resolve(blocks: &mut CustomBlocks) {
 
 fn resolve_bounded(blocks: &mut CustomBlocks, mut remaining: usize) {
     for block in Arc::make_mut(&mut blocks.blocks) {
+        if block.visual.materialization_disabled {
+            continue;
+        }
         let (conditions, skipped) = conditions(block);
         blocks.skipped += skipped;
         if conditions.is_empty() {

@@ -29,7 +29,7 @@ def declarations(manifest):
             raise ValueError("bridge contract values must fit their wire types")
         go += [f'    // {row["go_name"]}: {row["doc"]}', f'    {row["go_name"]} = {value}']
         if row["rust_name"]:
-            visibility = "pub" if row["rust_name"] == "MAX_FRAME_LEN" else "pub(crate)"
+            visibility = "pub(crate)" if row["rust_name"] in ("CONTROL_MAX_FRAME_LEN", "MAX_PING_TARGETS") else "pub"
             rust += ["", f'/// {row["doc"]}',
                      f'{visibility} const {row["rust_name"]}: {row["rust_type"]} = {value};']
     go.append(")")

@@ -2,10 +2,9 @@
 //! gaps, not evidence that the player is in a source-qualified idle state.
 use crate::camera::FlyCamera;
 use bevy::{
-    camera::{Camera, RenderTarget},
+    camera::{Camera, Hdr, RenderTarget},
     ecs::system::SystemParam,
     prelude::*,
-    render::view::Hdr,
     window::WindowRef,
 };
 use client_ui::ui_runtime::UiRuntime;

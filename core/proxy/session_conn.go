@@ -77,7 +77,7 @@ func (session *sessionConn) watchPeer(cancel func(error)) (stop func()) {
 		case read := <-session.frames:
 			cause := read.err
 			if cause == nil {
-				cause = fmt.Errorf("%w: client message before handoff", errMalformedSessionMessage)
+				cause = fmt.Errorf("%w: client message before handoff", errMalformedSession)
 			}
 			cancel(cause)
 		case <-stopped:
@@ -101,9 +101,9 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 		return nil, read.err
 	}
 	if len(read.frame) == 0 || read.frame[0] != bridgecontract.SessionKindBatch {
-		return nil, fmt.Errorf("%w: expected batch", errMalformedSessionMessage)
+		return nil, fmt.Errorf("%w: expected batch", errMalformedSession)
 	}
-	packets, err := splitBatch(read.frame[1:])
+	packets, err := splitSessionBatch(read.frame[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		case packet.IDTransfer:
 			if transfer, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Transfer); ok {
 				if _, err := transferAddress(transfer.Address, transfer.Port); err == nil {
-					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransferMessage{
+					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,
 					})
 				}
@@ -135,7 +135,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 	if len(session.pending) == 0 {
 		session.pending = append(session.pending, bridgecontract.SessionKindBatch)
 	}
-	session.pending = appendBatchPacket(session.pending, data)
+	session.pending = appendSessionBatchPacket(session.pending, data)
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (session *sessionConn) DisconnectPacket(value packet.Disconnect) error {
 	if session.ended {
 		return nil // a Transfer already ended the session
 	}
-	err := session.endLocked(bridgecontract.SessionKindDisconnect, sessionDisconnectMessage{
+	err := session.endLocked(bridgecontract.SessionKindDisconnect, sessionDisconnect{
 		Reason: value.Reason, Message: value.Message, FilteredMessage: value.FilteredMessage,
 		HideScreen: value.HideDisconnectionScreen,
 	})

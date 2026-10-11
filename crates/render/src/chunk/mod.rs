@@ -12,7 +12,6 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{
     Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
@@ -24,7 +23,6 @@ use bevy::{
         CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
     },
     ecs::{
-        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
@@ -64,7 +62,7 @@ use bevy::{
         sync_world::MainEntity,
         view::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms, window::ExtractedWindows,
+            ViewUniforms, window::ExtractedWindow,
         },
     },
 };
@@ -99,7 +97,7 @@ mod gpu;
 mod gpu_cull;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
-pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
+pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
 mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;

@@ -55,20 +55,20 @@ fn resident_source_regions_preserve_coverage_without_heap_allocations() {
         ),
     ] {
         let ((count, area), allocations) = crate::allocation_count::count(|| {
-            sheet
-                .quads(uv, [10.0, 20.0, 110.0, 100.0], 11)
-                .into_iter()
-                .fold((0, 0.0f32), |(count, area), quad| {
+            sheet.quads(uv, [10.0, 20.0, 110.0, 100.0], 11).fold(
+                (0, 0.0f32),
+                |(count, area), quad| {
                     let size = sheet.tiles[quad.page - 11].spec.size;
-                    for axis in 0..2 {
-                        assert!(quad.uv[axis] >= 0.0 && quad.uv[axis] <= size[axis] as f32);
-                        assert!(quad.uv[axis + 2] >= 0.0 && quad.uv[axis + 2] <= size[axis] as f32);
+                    for (axis, side) in size.into_iter().enumerate() {
+                        assert!(quad.uv[axis] >= 0.0 && quad.uv[axis] <= side as f32);
+                        assert!(quad.uv[axis + 2] >= 0.0 && quad.uv[axis + 2] <= side as f32);
                     }
                     (
                         count + 1,
                         area + (quad.dest[2] - quad.dest[0]) * (quad.dest[3] - quad.dest[1]),
                     )
-                })
+                },
+            )
         });
         assert_eq!(count, expected);
         assert!(

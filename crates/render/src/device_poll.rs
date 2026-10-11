@@ -48,9 +48,9 @@ pub(crate) fn on_frame_complete(queue: &RenderQueue, callback: impl FnOnce() + S
     queue.on_submitted_work_done(callback);
 }
 
-/// Counts the queue's submissions so far by making an empty one, which tests subtract.
+/// Reads a reserved queue index with an empty submit; callback registration may reserve one too.
 #[cfg(test)]
-pub(crate) fn submissions_so_far(queue: &RenderQueue) -> u64 {
+pub(crate) fn submission_marker(queue: &RenderQueue) -> u64 {
     let index = format!("{:?}", queue.submit([]));
     index
         .chars()

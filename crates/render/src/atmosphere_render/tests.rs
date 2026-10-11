@@ -9,12 +9,11 @@ use bevy::{
     asset::Assets,
     core_pipeline::core_3d::{Opaque3d, Transparent3d},
     ecs::{schedule::Schedule, system::RunSystemOnce},
-    image::BevyDefault,
     prelude::{App, Shader},
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
     },
 };
 use sha2::{Digest, Sha256};
@@ -31,7 +30,7 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: super::TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: super::ColorWrites::ALL,
                 })],
@@ -60,12 +59,13 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
     }
 }
 
+/// Creates the minimal render app needed to verify resource installation.
 fn app_with_noop_render_sub_app() -> App {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(DrawFunctions::<Opaque3d>::default())
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))

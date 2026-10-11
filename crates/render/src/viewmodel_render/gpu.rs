@@ -62,7 +62,7 @@ pub(super) fn init_gpu(
             label: Some("neutral binary-alpha hand nearest"),
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
             ..default()
@@ -91,7 +91,16 @@ pub(super) struct PrepareViewmodel<'w, 's> {
     pub(super) gpu: ResMut<'w, HandGpu>,
     pub(super) gate: Res<'w, ViewmodelCompletionGate>,
     pub(super) drawn: Res<'w, HandDrawn>,
-    pub(super) views: Query<'w, 's, (&'static MainEntity, &'static ExtractedView, &'static Msaa)>,
+    pub(super) views: Query<
+        'w,
+        's,
+        (
+            &'static MainEntity,
+            &'static ExtractedView,
+            &'static bevy::render::camera::ExtractedCamera,
+            &'static Msaa,
+        ),
+    >,
     pub(super) coverage: Option<Res<'w, crate::ui_render::UiHandCoverage>>,
     pub(super) tick: SystemChangeTick,
 }
@@ -154,9 +163,9 @@ pub(super) fn prepare(params: PrepareViewmodel) {
         gpu.token = None;
         return;
     }
-    let view_valid = views.iter().any(|(owner, view, msaa)| {
+    let view_valid = views.iter().any(|(owner, view, camera, msaa)| {
         owner.id() == token.owner
-            && view.hdr == token.hdr
+            && camera.hdr == token.hdr
             && msaa.samples() == token.samples
             && view.viewport == UVec4::new(0, 0, token.viewport[0], token.viewport[1])
     });
@@ -351,9 +360,9 @@ pub(super) fn specialized_hand_pipeline(
         .as_mut()
         .unwrap()
         .format = if hdr {
-        bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR
+        crate::SCENE_HDR_FORMAT
     } else {
-        TextureFormat::bevy_default()
+        crate::SCENE_COLOR_FORMAT
     };
     descriptor
 }
@@ -424,7 +433,7 @@ pub(super) fn hand_pipeline_descriptor(
             shader: HAND_SHADER,
             entry_point: Some("hand_fragment".into()),
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::bevy_default(),
+                format: crate::SCENE_COLOR_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
@@ -432,8 +441,8 @@ pub(super) fn hand_pipeline_descriptor(
         }),
         depth_stencil: Some(DepthStencilState {
             format: TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::GreaterEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(CompareFunction::GreaterEqual),
             stencil: default(),
             bias: default(),
         }),

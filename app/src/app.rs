@@ -582,6 +582,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
+    let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
@@ -798,6 +799,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .init_resource::<environment::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
     .insert_resource(environment::LightningFlashState::default())
+    .insert_resource({
+        let mut bindings = environment::FogBindings::default();
+        bindings.refresh(&runtime_assets, Some(&atmosphere_assets));
+        bindings
+    })
     .insert_resource(EnvironmentContext::default())
     .insert_resource(EnvironmentProfileRoute::default())
     .insert_resource(movement_ticker)
@@ -816,7 +822,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ))
     .insert_resource(named_audio)
     .insert_resource(audio_engine)
-    .insert_non_send_resource(audio_device)
+    .insert_non_send(audio_device)
     .insert_resource(LocalPhysicsController::default())
     .insert_resource(LocalMovementEffectTimeline::default())
     .insert_resource(LocalMovementSpeedAuthority::default())
@@ -828,14 +834,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(weather_textures)
     .insert_resource(
         crate::runtime::network::reload_environment::EnvironmentBase::new(
-            AtmosphereTextureAssets::new(atmosphere_runtime.clone(), atmosphere_identity),
+            atmosphere_assets.clone(),
             particle_assets.clone(),
         ),
     )
-    .insert_resource(AtmosphereTextureAssets::new(
-        atmosphere_runtime,
-        atmosphere_identity,
-    ))
+    .insert_resource(atmosphere_assets)
     .insert_resource(startup_biome_tints(&runtime_assets))
     .insert_resource(ChunkTextureAssets::new(runtime_assets))
     .insert_resource(CaveVisibilityCache::default())

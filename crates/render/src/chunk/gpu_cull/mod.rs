@@ -29,7 +29,6 @@ use bevy::{
 };
 
 use crate::chunk::*;
-pub(crate) use direct::TerrainPassLabel;
 use direct::{DirectOcclusion, direct_occlusion_supported, reset_direct_occlusion_frame};
 pub(in crate::chunk) use direct::{DirectOcclusionFrame, SkipOccludedTerrain};
 use model::STREAM_COUNT;

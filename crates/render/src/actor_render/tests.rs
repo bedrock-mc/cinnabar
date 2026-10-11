@@ -11,7 +11,7 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderQueue},
     },
 };
 
@@ -82,14 +82,14 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
             .unwrap();
         let depth = descriptor.depth_stencil.unwrap();
         let target = descriptor.fragment.unwrap().targets[0].clone().unwrap();
-        assert!(depth.depth_write_enabled);
+        assert_eq!(depth.depth_write_enabled, Some(true));
         assert_eq!(target.blend, None);
         if material == assets::EntityRenderMaterial::DissolveDepth {
             assert_eq!(target.write_mask, ColorWrites::empty());
-            assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
         } else {
             assert_eq!(target.write_mask, ColorWrites::ALL);
-            assert_eq!(depth.depth_compare, CompareFunction::Equal);
+            assert_eq!(depth.depth_compare, Some(CompareFunction::Equal));
         }
     }
 }
@@ -128,7 +128,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
         assert_eq!(descriptor.primitive.cull_mode, cull.then_some(Face::Back));
         assert_eq!(
             descriptor.depth_stencil.unwrap().depth_write_enabled,
-            depth_write
+            Some(depth_write)
         );
         let actual = descriptor.fragment.unwrap().targets[0]
             .as_ref()
@@ -306,7 +306,7 @@ fn app_with_noop_render_sub_app() -> App {
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(RenderQueue::new(queue))
         .insert_resource(DrawFunctions::<Opaque3d>::default())
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))
@@ -319,13 +319,13 @@ fn app_with_noop_render_sub_app() -> App {
 }
 
 fn standalone_actor_shader_source() -> String {
-    let shader = crate::shader_safety::from_actor_wgsl(
+    let shader = crate::shader_safety::from_actor_wesl(
         ACTOR_SHADER_SOURCE,
-        "actor.wgsl",
+        "actor.wesl",
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
         render_model::ACTOR_RIG_VERTEX_WORDS,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         panic!("actor source is WGSL");
     };
     shader_source::standalone(&source, &[])
@@ -378,7 +378,7 @@ fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
 #[test]
 fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
     use bevy::prelude::Msaa;
-    use bevy::render::{render_resource::Specializer, view::ViewTarget};
+    use bevy::render::render_resource::Specializer;
 
     let layout = actor_bind_group_layout();
     crate::shader_test_support::assert_binding_visibility(
@@ -406,7 +406,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
                 .as_ref()
                 .unwrap()
                 .format,
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         );
     }
 
@@ -448,7 +448,10 @@ fn native_color_mask_alpha_controls_dye_not_opacity() {
             .blend
             .is_none()
     );
-    assert!(descriptor.depth_stencil.unwrap().depth_write_enabled);
+    assert_eq!(
+        descriptor.depth_stencil.unwrap().depth_write_enabled,
+        Some(true)
+    );
 }
 
 #[test]
@@ -553,7 +556,7 @@ fn publish_and_sync(
 fn skin_arrays_upload_only_newly_admitted_skins() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
-    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let queue = RenderQueue::new(queue);
     let mut gpu = super::GpuSkinArrays::new(&device);
     let mut scene = crate::actor::ActorRenderScene::default();
     let skins: Vec<_> = (0..6).map(|seed| upscaled_skin(seed, 64)).collect();

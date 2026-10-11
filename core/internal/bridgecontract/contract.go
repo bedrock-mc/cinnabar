@@ -3,7 +3,7 @@
 package bridgecontract
 
 const (
-	// MaxFrameLen: Largest game and session frame payload in bytes.
+	// MaxFrameLen: Largest session frame payload in bytes.
 	MaxFrameLen = 67108864
 	// MaxControlFrameLen: Largest control request or response payload in bytes.
 	MaxControlFrameLen = 65536

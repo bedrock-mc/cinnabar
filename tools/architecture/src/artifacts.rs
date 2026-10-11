@@ -99,7 +99,9 @@ fn binary_attributes(
             .stdout
             .split(|byte| *byte == 0)
             .collect::<Vec<_>>()
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .filter(|entry| entry[2] == b"set")
             .map(|entry| String::from_utf8_lossy(entry[0]).into_owned())
             .collect())

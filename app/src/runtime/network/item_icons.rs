@@ -136,6 +136,9 @@ pub(super) fn custom_block_icons(
     let mut first_state = std::collections::HashMap::new();
     let mut offset = 0usize;
     for block in blocks.blocks.iter() {
+        if block.visual.materialization_disabled {
+            break;
+        }
         let count = if hashed {
             block.hashed_states().len()
         } else {

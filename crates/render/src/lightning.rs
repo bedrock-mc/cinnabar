@@ -47,6 +47,7 @@ pub struct BoltRecord {
     Default,
     PartialEq,
 )]
+#[extract_app(bevy::render::RenderApp)]
 pub struct LightningScene {
     pub records: Vec<BoltRecord>,
 }

@@ -27,7 +27,7 @@ pub struct LauncherCore {
     pub socket_dir: PathBuf,
     pub authenticated: bool,
     pub auth_cache: Option<PathBuf>,
-    /// Account and local-world clients are attached once the game socket is up.
+    /// Account and local-world clients are attached once the session endpoint is up.
     pub attached: bool,
 }
 impl Drop for LauncherCore {

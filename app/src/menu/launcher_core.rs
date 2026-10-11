@@ -180,7 +180,7 @@ impl LauncherCoreSlot {
     }
 
     /// Selects a join's target on the launcher core off the frame; the receiver
-    /// yields the game socket to dial. Local worlds always use their owning core;
+    /// yields the session endpoint to dial. Local worlds always use their owning core;
     /// direct remote joins stay on a separate per-session core.
     pub(crate) fn begin_join(
         &self,

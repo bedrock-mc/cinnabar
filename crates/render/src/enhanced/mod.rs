@@ -61,6 +61,7 @@ const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
 
 /// Per-camera opt-in for Enhanced rendering, with resolved depth for post effects.
 #[derive(Component, ExtractComponent, Clone, Copy, Debug, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct EnhancedRendering {
     pub shadows: bool,
     pub shadow_resolution: u32,
@@ -124,20 +125,20 @@ pub(crate) fn load_shader_imports(app: &mut App) {
     load_internal_asset!(
         app,
         ENHANCED_COMMON_SHADER_HANDLE,
-        "common.wgsl",
-        crate::shader_safety::from_wgsl
+        "common.wesl",
+        crate::shader_safety::from_wesl
     );
     load_internal_asset!(
         app,
         ENHANCED_VIEW_SHADER_HANDLE,
-        "view.wgsl",
-        crate::shader_safety::from_wgsl
+        "view.wesl",
+        crate::shader_safety::from_wesl
     );
     load_internal_asset!(
         app,
         ENHANCED_CASTER_SHADER_HANDLE,
-        "caster.wgsl",
-        crate::shader_safety::from_wgsl
+        "caster.wesl",
+        crate::shader_safety::from_wesl
     );
 }
 
@@ -179,8 +180,8 @@ impl Plugin for EnhancedRenderPlugin {
         load_internal_asset!(
             app,
             ENHANCED_POST_SHADER_HANDLE,
-            "post.wgsl",
-            crate::shader_safety::from_wgsl
+            "post.wesl",
+            crate::shader_safety::from_wesl
         );
         app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

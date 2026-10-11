@@ -372,7 +372,10 @@ fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
             &mut descriptor,
         )
         .unwrap();
-    assert!(!descriptor.depth_stencil.unwrap().depth_write_enabled);
+    assert_eq!(
+        descriptor.depth_stencil.unwrap().depth_write_enabled,
+        Some(false)
+    );
     let fragment = descriptor.fragment.unwrap();
     let target = fragment.targets[0].as_ref().unwrap();
     let blend = target.blend.unwrap();
@@ -523,9 +526,9 @@ fn always_passing_depth_materials_ignore_occluders_and_draw_after_opaque_geometr
         let srgb = fragment.targets[0].as_ref().unwrap().format.is_srgb();
         assert_eq!((gamma, srgb), (depth_always, !depth_always));
         let depth = descriptor.depth_stencil.unwrap();
-        assert!(depth.depth_write_enabled);
+        assert_eq!(depth.depth_write_enabled, Some(true));
         assert_eq!(
-            depth.depth_compare == bevy::render::render_resource::CompareFunction::Always,
+            depth.depth_compare == Some(bevy::render::render_resource::CompareFunction::Always),
             depth_always
         );
         assert_eq!(
@@ -556,7 +559,7 @@ fn explicit_always_depth_overrides_the_dissolve_color_default() {
         .unwrap();
     assert_eq!(
         descriptor.depth_stencil.unwrap().depth_compare,
-        bevy::render::render_resource::CompareFunction::Always
+        Some(bevy::render::render_resource::CompareFunction::Always)
     );
 }
 

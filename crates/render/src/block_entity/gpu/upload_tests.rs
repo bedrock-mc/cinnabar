@@ -1,5 +1,5 @@
 use super::*;
-use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+use bevy::ecs::system::RunSystemOnce;
 use std::sync::Arc;
 
 #[test]
@@ -7,7 +7,7 @@ fn steady_uploads_portal_parameters_skip_unused_and_equal_frames() {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<BlockEntityFrame>();
     world.init_resource::<BlockSelectionFrame>();
     world.run_system_once(init_gpu).unwrap();

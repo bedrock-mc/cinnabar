@@ -9,7 +9,7 @@ use bevy::{
     render::{
         render_resource::*,
         renderer::{RenderDevice, RenderQueue},
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::mem::size_of;
@@ -46,7 +46,7 @@ type Views<'w, 's> = Query<
         &'static ExtractedView,
         Option<&'static MainPassResolutionOverride>,
         &'static ViewTarget,
-        &'static ViewDepthTexture,
+        &'static ViewDepthStencilTexture,
         &'static Msaa,
         Option<&'static mut BlurView>,
     ),
@@ -147,7 +147,7 @@ fn update(
     history: CameraHistory,
     settings: CameraMotionBlur,
     target: &ViewTarget,
-    depth: &ViewDepthTexture,
+    depth: &ViewDepthStencilTexture,
     samples: u32,
     device: &RenderDevice,
     queue: &RenderQueue,
@@ -161,13 +161,15 @@ fn update(
         state.last_uniform = Some(uniform);
     }
     for source in [target.main_texture_view(), target.main_texture_other_view()] {
-        if state.binding(source.id(), depth.view().id()).is_none() {
+        if state
+            .binding(source.id(), crate::scene_sampling::view_depth(depth).id())
+            .is_none()
+        {
             // Bind both scene colours before SMAA can switch them; resizing retires both bindings.
             if state.bindings.len() == 2
-                || state
-                    .bindings
-                    .first()
-                    .is_some_and(|(_, old, _)| *old != depth.view().id())
+                || state.bindings.first().is_some_and(|(_, old, _)| {
+                    *old != crate::scene_sampling::view_depth(depth).id()
+                })
             {
                 state.bindings.clear();
             }
@@ -185,7 +187,9 @@ fn update(
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: BindingResource::TextureView(depth.view()),
+                        resource: BindingResource::TextureView(crate::scene_sampling::view_depth(
+                            depth,
+                        )),
                     },
                     BindGroupEntry {
                         binding: 3,
@@ -193,9 +197,11 @@ fn update(
                     },
                 ],
             );
-            state
-                .bindings
-                .push((source.id(), depth.view().id(), binding));
+            state.bindings.push((
+                source.id(),
+                crate::scene_sampling::view_depth(depth).id(),
+                binding,
+            ));
         }
     }
 }

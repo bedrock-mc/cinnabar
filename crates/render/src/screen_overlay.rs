@@ -52,6 +52,7 @@ impl ScreenOverlayTextures {
 
 /// The frame's overlay stack, back to front. `textures_revision` must change whenever `textures` does.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ScreenOverlayScene {
     pub(crate) layers: Vec<ScreenOverlayLayer>,
     pub(crate) clock_seconds: f32,

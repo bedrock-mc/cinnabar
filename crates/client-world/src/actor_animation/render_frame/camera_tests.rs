@@ -265,7 +265,7 @@ fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
         max_stack: 1,
     }));
     compiled.molang_expressions = expressions.into_boxed_slice();
-    let camera_keyframe = compiled.animation_keyframes[0].clone();
+    let camera_keyframe = compiled.animation_keyframes[0];
     for keyframe in &mut compiled.animation_keyframes {
         keyframe.expressions = [Some(2), None, None];
     }

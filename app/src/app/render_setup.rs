@@ -42,7 +42,7 @@ pub(super) fn render_plugin() -> RenderPlugin {
         });
     }
     RenderPlugin {
-        render_creation: RenderCreation::Automatic(settings),
+        render_creation: RenderCreation::Automatic(Box::new(settings)),
         ..Default::default()
     }
 }
@@ -75,7 +75,6 @@ mod tests {
         let mut settings = WgpuSettings {
             dx12_shader_compiler: wgpu::Dx12Compiler::DynamicDxc {
                 dxc_path: "dxcompiler.dll".into(),
-                max_shader_model: wgpu::DxcShaderModel::V6_7,
             },
             ..Default::default()
         };

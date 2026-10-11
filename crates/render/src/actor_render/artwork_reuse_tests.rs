@@ -2,12 +2,8 @@ use super::*;
 
 /// Creates a no-op GPU so resource identity checks are deterministic on every CI platform.
 fn gpu() -> (RenderDevice, RenderQueue) {
-    use bevy::render::renderer::WgpuWrapper;
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    (
-        RenderDevice::from(device),
-        RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-    )
+    (RenderDevice::from(device), RenderQueue::new(queue))
 }
 
 /// One retained source page to which a publication may append equipment textures.

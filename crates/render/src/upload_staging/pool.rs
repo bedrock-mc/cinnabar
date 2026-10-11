@@ -77,6 +77,7 @@ impl Pool {
             slot.buffer
                 .slice(start..slot.offset)
                 .get_mapped_range_mut()
+                .expect("staging range is mapped and unaliased")
                 .copy_from_slice(bytes);
             self.copies.push(Copy {
                 slot: index,

@@ -44,8 +44,8 @@ pub const COMPILE_COMMAND: &str = "make world-assets";
 
 const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 const FONT_SOURCE_JSON: &str = include_str!("../../assets/cinnangles-sans-source.json");
-const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
-const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
+const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wesl");
+const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wesl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;

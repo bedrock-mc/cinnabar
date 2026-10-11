@@ -28,27 +28,6 @@ impl BlockFlags {
     }
 }
 
-#[cfg(test)]
-mod model_family_tests {
-    use super::ModelFamily;
-
-    #[test]
-    fn reads_dedicated_chiseled_bookshelf_family_value() {
-        assert_eq!(
-            ModelFamily::read(35).expect("family value 35"),
-            ModelFamily::ChiseledBookshelf
-        );
-    }
-
-    #[test]
-    fn reads_dedicated_resin_clump_family_value() {
-        assert_eq!(
-            ModelFamily::read(36).expect("family value 36"),
-            ModelFamily::ResinClump
-        );
-    }
-}
-
 impl ModelState {
     #[must_use]
     pub fn get(self, field: ModelStateField) -> Option<u32> {
@@ -307,5 +286,26 @@ impl<'a> Reader<'a> {
         let start = self.position;
         self.position += count;
         Ok(&self.bytes[start..self.position])
+    }
+}
+
+#[cfg(test)]
+mod model_family_tests {
+    use super::ModelFamily;
+
+    #[test]
+    fn reads_dedicated_chiseled_bookshelf_family_value() {
+        assert_eq!(
+            ModelFamily::read(35).expect("family value 35"),
+            ModelFamily::ChiseledBookshelf
+        );
+    }
+
+    #[test]
+    fn reads_dedicated_resin_clump_family_value() {
+        assert_eq!(
+            ModelFamily::read(36).expect("family value 36"),
+            ModelFamily::ResinClump
+        );
     }
 }

@@ -10,7 +10,7 @@ use render::{
 
 fn source() -> String {
     shader_source::standalone(
-        include_str!("../../src/block_entity/block_entity.wgsl"),
+        include_str!("../../src/block_entity/block_entity.wesl"),
         &[],
     )
     .replace(
@@ -49,8 +49,8 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
             vertex
         })
         .collect::<Vec<_>>();
-    let matrix = Mat4::perspective_infinite_reverse_rh(0.7, 1.0, 0.1)
-        * Mat4::look_at_rh(eye, Vec3::splat(0.5), Vec3::Y);
+    let matrix = glam::camera::rh::proj::directx::perspective_infinite_reverse(0.7, 1.0, 0.1)
+        * glam::camera::rh::view::look_at_mat4(eye, Vec3::splat(0.5), Vec3::Y);
     let uniform = gpu.buffer(
         &gpu_snapshot::view(matrix, eye),
         wgpu::BufferUsages::UNIFORM,

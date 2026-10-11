@@ -3,7 +3,7 @@ use super::*;
 /// Draws a minified sprite before an opaque sprite behind it to expose stray colour and depth.
 fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
     let mut source = crate::shader_source::standalone(
-        include_str!("../dropped_item.wgsl"),
+        include_str!("../dropped_item.wesl"),
         if samples > 1 { &[SHADER_DEF] } else { &[] },
     )
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")

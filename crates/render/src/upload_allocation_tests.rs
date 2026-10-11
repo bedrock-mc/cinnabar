@@ -6,20 +6,18 @@ use bevy::{
     prelude::*,
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
-        graph::CameraDriverLabel,
-        render_graph::{EmptyNode, RenderGraph},
         render_phase::DrawFunctions,
         render_resource::PipelineCache,
-        renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper},
+        renderer::{RenderDevice, RenderGraph, RenderQueue},
     },
 };
 use std::sync::Arc;
 
 /// Installs the real owner and startup systems on Metal without a window or render submission.
 pub(crate) fn app(plugin: impl Plugin) -> Option<App> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::METAL,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let Ok(adapter) =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -49,15 +47,13 @@ pub(crate) fn app(plugin: impl Plugin) -> Option<App> {
     );
     drop(probe);
     let device = RenderDevice::from(device);
-    let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
-    let mut graph = RenderGraph::default();
-    graph.add_node(CameraDriverLabel, EmptyNode);
+
     let mut render_app = SubApp::new();
     render_app
-        .insert_resource(PipelineCache::new(device.clone(), adapter, true))
+        .insert_resource(PipelineCache::new(device.clone(), true))
         .insert_resource(device)
-        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
-        .insert_resource(graph)
+        .insert_resource(RenderQueue::new(queue))
+        .add_schedule(RenderGraph::base_schedule())
         .init_resource::<DrawFunctions<Transparent3d>>()
         .add_schedule(Schedule::new(RenderStartup))
         .add_schedule(Render::base_schedule())

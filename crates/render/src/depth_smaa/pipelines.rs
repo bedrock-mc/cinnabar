@@ -1,6 +1,5 @@
 use super::*;
 use crate::pipeline_warmup::{PrewarmPipelines, WarmView, WarmupIds};
-use bevy::image::BevyDefault;
 use bevy::{
     anti_alias::smaa::SmaaInfoUniform,
     asset::uuid_handle,
@@ -62,7 +61,7 @@ pub(super) fn init(mut commands: Commands, server: Res<AssetServer>) {
             "SMAA restore",
             &BindGroupLayoutEntries::single(ShaderStages::FRAGMENT, float),
         ),
-        shader: server.load("embedded://bevy_anti_alias/smaa/smaa.wgsl"),
+        shader: server.load("embedded://bevy_anti_alias/smaa/smaa.wesl"),
         variants: Vec::new(),
     });
 }
@@ -192,9 +191,9 @@ impl PrewarmPipelines for DepthSmaaPipelines {
         ids: &mut WarmupIds,
     ) -> Result<(), BevyError> {
         let format = if view.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         let pipelines = self.ids(cache, view.msaa.samples(), format);
         ids.extend([
@@ -220,12 +219,14 @@ fn descriptor(
         label: Some("depth SMAA 1x".into()),
         layout,
         vertex: VertexState {
+            constants: Default::default(),
             shader: shader.clone(),
             shader_defs: defs.clone(),
             entry_point: Some(vertex.into()),
             buffers: vec![],
         },
         fragment: Some(FragmentState {
+            constants: Default::default(),
             shader,
             shader_defs: defs,
             entry_point: Some(fragment.into()),
@@ -257,8 +258,8 @@ fn stencil(write: bool) -> DepthStencilState {
     };
     DepthStencilState {
         format: TextureFormat::Stencil8,
-        depth_write_enabled: false,
-        depth_compare: CompareFunction::Always,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(CompareFunction::Always),
         stencil: StencilState {
             front: face,
             back: face,

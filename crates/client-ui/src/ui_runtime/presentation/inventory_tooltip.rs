@@ -112,7 +112,7 @@ pub(super) fn tooltip_lines(
     let facts = runtime.stack_facts(stack, identifier);
     let display = &facts.display;
     let mut lines = vec![
-        name_line(runtime, identifier, stated_name, &display).unwrap_or_else(|| TooltipLine {
+        name_line(runtime, identifier, stated_name, display).unwrap_or_else(|| TooltipLine {
             text: "Unknown Item".to_owned(),
             color: NAME_COLOR,
         }),

@@ -8,6 +8,9 @@ use bevy::{
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(target_os = "macos")]
+use objc2_metal::MTLDevice;
+
 /// Applies installed memory to untouched preferences after the renderer has selected its adapter.
 pub(crate) fn initialize_render_distance(
     adapter: Option<Res<RenderAdapter>>,
@@ -97,11 +100,11 @@ fn dedicated_graphics_bytes(
 ) -> Option<u64> {
     // SAFETY: the HAL guard retains the Metal device; both queries leave its state unchanged.
     let native = unsafe { device?.wgpu_device().as_hal::<wgpu::hal::api::Metal>()? };
-    let raw = native.raw_device().lock();
-    if raw.has_unified_memory() {
+    let raw = native.raw_device();
+    if raw.hasUnifiedMemory() {
         Some(0)
     } else {
-        macos::dedicated_bytes(raw.registry_id())
+        macos::dedicated_bytes(raw.registryID())
     }
 }
 

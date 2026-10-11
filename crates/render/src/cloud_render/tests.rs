@@ -65,12 +65,13 @@ fn spawn_view(world: &mut World, position: Vec3) -> Entity {
     let entity = world.spawn_empty().id();
     world.entity_mut(entity).insert((
         Camera3d::default(),
+        crate::render_test_support::camera(false),
         ExtractedView {
             retained_view_entity: RetainedViewEntity::new(entity.into(), None, 0),
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::from_translation(position),
             clip_from_world: None,
-            hdr: false,
+            target_format: crate::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 256, 256),
             color_grading: Default::default(),
             invert_culling: false,
@@ -89,11 +90,10 @@ fn buffer_id(world: &World, entity: Entity) -> BufferId {
 
 #[test]
 fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
-    use bevy::render::renderer::WgpuWrapper;
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let mut world = World::new();
     world.insert_resource(RenderDevice::from(device));
-    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<crate::AtmosphereViewInputs>();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
     world.insert_resource(frame);

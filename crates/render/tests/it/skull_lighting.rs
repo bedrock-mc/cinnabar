@@ -34,13 +34,13 @@ fn assets(texel: [u8; 4]) -> assets::RuntimeBlockEntityAssets {
 }
 
 fn source() -> String {
-    let shader = shader_safety::from_block_entity_wgsl(
-        include_str!("../../src/block_entity/block_entity.wgsl"),
-        "skull.wgsl",
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "skull.wesl",
         render::BLOCK_ENTITY_VERTEX_WORDS,
         render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
-    let bevy::shader::Source::Wgsl(source) = shader.source else {
+    let bevy::shader::Source::Wesl(source) = shader.source else {
         unreachable!()
     };
     // Remap resources for the shared readback helper, retaining production entry points.
@@ -81,8 +81,11 @@ fn raster(
     } else {
         center + front * 2.0
     };
-    let clip = Mat4::perspective_infinite_reverse_rh(35.0_f32.to_radians(), 1.0, 0.1)
-        * Mat4::look_at_rh(eye, center, Vec3::Y);
+    let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        35.0_f32.to_radians(),
+        1.0,
+        0.1,
+    ) * glam::camera::rh::view::look_at_mat4(eye, center, Vec3::Y);
     let view = gpu.buffer(&gpu_snapshot::view(clip, eye), wgpu::BufferUsages::UNIFORM);
     let vertices: &[f32] = bytemuck::cast_slice(&frame.solid);
     let vertices = gpu.buffer(vertices, wgpu::BufferUsages::STORAGE);

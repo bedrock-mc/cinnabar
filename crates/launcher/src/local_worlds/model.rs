@@ -224,7 +224,7 @@ impl WorldsMenu {
         self.busy
     }
 
-    /// Takes the id of a world that finished opening; the caller then joins the game socket.
+    /// Takes the id of a world that finished opening; the caller then joins the session endpoint.
     pub fn take_ready(&mut self) -> Option<String> {
         self.ready.take()
     }

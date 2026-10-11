@@ -1,6 +1,6 @@
 //! Exercises sky/world composition through the real headless render app.
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use bevy::{
     asset::{AssetId, AssetPlugin, uuid_handle},
@@ -9,8 +9,8 @@ use bevy::{
         CorePipelinePlugin,
         core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     },
-    ecs::{change_detection::Tick, query::ROQueryItem, system::SystemParamItem},
-    image::{BevyDefault, ImagePlugin},
+    ecs::{query::ROQueryItem, system::SystemParamItem},
+    image::ImagePlugin,
     mesh::{Mesh, MeshPlugin},
     prelude::*,
     render::{
@@ -22,10 +22,7 @@ use bevy::{
             ViewBinnedRenderPhases,
         },
         render_resource::*,
-        renderer::{
-            RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue,
-            WgpuWrapper,
-        },
+        renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue},
         settings::RenderCreation,
         sync_world::MainEntity,
         texture::GpuImage,
@@ -54,14 +51,15 @@ struct Fixture {
 
 /// Retains the adapter and instance required to give Bevy the same native test device.
 fn fixture() -> Option<Fixture> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&default())) {
         Ok(adapter) if adapter.get_info().backend != wgpu::Backend::Noop => adapter,
         Ok(_) | Err(wgpu::RequestAdapterError::NotFound { .. }) => {
-            eprintln!("skipping finite skybox real render graph: missing native GPU fixture");
+            eprintln!("skipping finite skybox real render schedule: missing native GPU fixture");
             return None;
         }
-        Err(error) => panic!("finite skybox render graph adapter: {error}"),
+        Err(error) => panic!("finite skybox render schedule adapter: {error}"),
     };
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_limits: wgpu::Limits {
@@ -70,7 +68,7 @@ fn fixture() -> Option<Fixture> {
         },
         ..default()
     }))
-    .expect("finite skybox render graph device");
+    .expect("finite skybox render schedule device");
     Some(Fixture {
         gpu: crate::gpu_snapshot::Gpu {
             device,
@@ -82,7 +80,7 @@ fn fixture() -> Option<Fixture> {
     })
 }
 
-/// Builds the real sky graph, optionally adding a green surface at the supplied distance.
+/// Builds the real sky schedule, optionally adding a green surface at the supplied distance.
 fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Image>) {
     let gpu = &fixture.gpu;
     let mut app = App::new();
@@ -95,10 +93,10 @@ fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Ima
         .add_plugins(RenderPlugin {
             render_creation: RenderCreation::manual(
                 RenderDevice::from(gpu.device.clone()),
-                RenderQueue(Arc::new(WgpuWrapper::new(gpu.queue.clone()))),
-                RenderAdapterInfo(WgpuWrapper::new(fixture.adapter.get_info())),
-                RenderAdapter(Arc::new(WgpuWrapper::new(fixture.adapter.clone()))),
-                RenderInstance(Arc::new(WgpuWrapper::new(fixture.instance.clone()))),
+                RenderQueue::new(gpu.queue.clone()),
+                RenderAdapterInfo::new(fixture.adapter.get_info()),
+                RenderAdapter::new(fixture.adapter.clone()),
+                RenderInstance::new(fixture.instance.clone()),
             ),
             synchronous_pipeline_compilation: true,
             ..default()
@@ -118,7 +116,7 @@ fn app(fixture: &Fixture, msaa: Msaa, distance: Option<f32>) -> (App, Handle<Ima
         .resource_mut::<Assets<Shader>>()
         .insert(
             WORLD_SHADER.id(),
-            Shader::from_wgsl(source, "synthetic distant world surface"),
+            crate::shader_safety::from_wgsl(source, "synthetic distant world surface"),
         )
         .unwrap();
     if distance.is_some() {
@@ -170,16 +168,21 @@ fn queue_world(
     cache: Res<PipelineCache>,
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
     mut pipelines: Local<HashMap<(Msaa, bool), CachedRenderPipelineId>>,
-    mut tick: Local<Tick>,
 ) {
     let draw = functions.read().id::<(SetItemPipeline, DrawWorld)>();
-    for (entity, main, view, msaa) in &views {
+    for (entity, main, view, camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let pipeline = *pipelines.entry((*msaa, view.hdr)).or_insert_with(|| {
+        let pipeline = *pipelines.entry((*msaa, camera.hdr)).or_insert_with(|| {
             cache.queue_render_pipeline(RenderPipelineDescriptor {
                 label: Some("synthetic world surface".into()),
                 vertex: VertexState {
@@ -191,10 +194,10 @@ fn queue_world(
                     shader: WORLD_SHADER,
                     entry_point: Some("fragment".into()),
                     targets: vec![Some(ColorTargetState {
-                        format: if view.hdr {
-                            bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR
+                        format: if camera.hdr {
+                            crate::SCENE_HDR_FORMAT
                         } else {
-                            TextureFormat::bevy_default()
+                            crate::SCENE_COLOR_FORMAT
                         },
                         blend: None,
                         write_mask: ColorWrites::ALL,
@@ -203,8 +206,8 @@ fn queue_world(
                 }),
                 depth_stencil: Some(DepthStencilState {
                     format: CORE_3D_DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: CompareFunction::GreaterEqual,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(CompareFunction::GreaterEqual),
                     stencil: default(),
                     bias: default(),
                 }),
@@ -215,24 +218,20 @@ fn queue_world(
                 ..default()
             })
         });
-        let next_tick = tick.get() + 1;
-        tick.set(next_tick);
         phase.add(
             Opaque3dBatchSetKey {
                 draw_function: draw,
                 pipeline,
                 material_bind_group_index: None,
                 lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
+                slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::invalid().untyped(),
+                asset_id: AssetId::<Mesh>::default().untyped(),
             },
             (entity, *main),
             InputUniformIndex::default(),
             BinnedRenderPhaseType::NonMesh,
-            *tick,
         );
     }
 }
@@ -254,7 +253,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWorld {
     }
 }
 
-/// Reads the completed image after the actual production render graph ran.
+/// Reads the completed image after the actual production render schedule ran.
 fn pixel(app: &App, image: &Handle<Image>) -> [u8; 4] {
     let world = app.sub_app(RenderApp).world();
     let device = world.resource::<RenderDevice>();
@@ -298,7 +297,9 @@ fn pixel(app: &App, image: &Handle<Image>) -> [u8; 4] {
         .slice(..)
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    buffer.slice(..).get_mapped_range()[..4].try_into().unwrap()
+    buffer.slice(..).get_mapped_range().unwrap()[..4]
+        .try_into()
+        .unwrap()
 }
 
 #[test]

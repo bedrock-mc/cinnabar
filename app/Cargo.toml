@@ -59,6 +59,7 @@ anyhow.workspace = true
 pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
 bevy.workspace = true
+glam.workspace = true
 crossbeam-channel = "0.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
@@ -93,6 +94,7 @@ world = { path = "../crates/world" }
 libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ash = "0.38"

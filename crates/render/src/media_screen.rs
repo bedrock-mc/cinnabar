@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bevy::image::BevyDefault;
 #[cfg(test)]
 use bevy::prelude::{IntoSystem, System};
 use bevy::{
@@ -35,7 +34,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -43,13 +42,14 @@ use crate::media::MediaTexture;
 
 const MEDIA_SCREEN_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("5b8e2f4a-3c71-4d09-a6e2-91f0c7d3b852");
-/// Matches `Screen` in media_screen.wgsl: centre+flag, right axis, up axis.
+/// Matches `Screen` in media_screen.wesl: centre+flag, right axis, up axis.
 const RECORD_BYTES: u64 = 48;
 
 pub const MAX_MEDIA_SCREENS: usize = 4;
 
 /// Screens to draw this frame; at most `MAX_MEDIA_SCREENS` are used, in order.
 #[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct MediaScreenScene {
     pub screens: Vec<MediaScreen>,
     /// Texture bytes all screens together may allocate.
@@ -94,9 +94,10 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
     load_internal_asset!(
         app,
         MEDIA_SCREEN_SHADER_HANDLE,
-        "media_screen.wgsl",
-        crate::shader_safety::from_wgsl
+        "media_screen.wesl",
+        crate::shader_safety::from_wesl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<MediaScreenPipeline>()
         .add_render_command::<Transparent3d, DrawMediaScreenCommands>()
@@ -399,7 +400,7 @@ impl FromWorld for MediaScreenPipeline {
                 shader: MEDIA_SCREEN_SHADER_HANDLE,
                 entry_point: Some("media_screen_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -407,8 +408,8 @@ impl FromWorld for MediaScreenPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -440,9 +441,9 @@ impl Specializer<RenderPipeline> for MediaScreenPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -454,13 +455,19 @@ fn queue_media_screens(
     scene: Res<MediaScreenScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if scene.screens.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawMediaScreenCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -468,23 +475,28 @@ fn queue_media_screens(
             &pipeline_cache,
             MediaScreenPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
             },
         ) else {
             continue;
         };
         for (index, screen) in scene.screens.iter().take(MAX_MEDIA_SCREENS).enumerate() {
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function,
-                distance: view
-                    .rangefinder3d()
-                    .distance(&Vec3::from_array(screen.center)),
-                batch_range: index as u32..index as u32 + 1,
-                extra_index: PhaseItemExtraIndex::None,
-                indexed: false,
-            });
+            crate::transparent_phase::add(
+                phase,
+                Transparent3d {
+                    sorting_info:
+                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                    entity: (view_entity, *main_entity),
+                    pipeline: pipeline_id,
+                    draw_function,
+                    distance: view
+                        .rangefinder3d()
+                        .distance(&Vec3::from_array(screen.center)),
+                    batch_range: index as u32..index as u32 + 1,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: false,
+                },
+            );
         }
     }
 }
@@ -803,7 +815,7 @@ mod tests {
         let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
         let mut pipeline = MediaScreenPipeline::from_world(&mut World::new());
         crate::shader_test_support::assert_binding_visibility(
-            &crate::shader_source::standalone(include_str!("media_screen.wgsl"), &[]),
+            &crate::shader_source::standalone(include_str!("media_screen.wesl"), &[]),
             0,
             &pipeline.bind_group_layout,
         );
@@ -821,12 +833,12 @@ mod tests {
         assert_eq!(descriptor.multisample.count, 4);
         assert_eq!(descriptor.primitive.cull_mode, None);
         let depth = descriptor.depth_stencil.as_ref().unwrap();
-        assert!(depth.depth_write_enabled);
-        assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+        assert_eq!(depth.depth_write_enabled, Some(true));
+        assert_eq!(depth.depth_compare, Some(CompareFunction::GreaterEqual));
         let colour = descriptor.fragment.as_ref().unwrap().targets[0]
             .as_ref()
             .unwrap();
         assert_eq!(colour.blend, None);
-        assert_eq!(colour.format, ViewTarget::TEXTURE_FORMAT_HDR);
+        assert_eq!(colour.format, crate::SCENE_HDR_FORMAT);
     }
 }

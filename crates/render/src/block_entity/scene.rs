@@ -122,6 +122,7 @@ pub struct SceneClock {
 
 /// Extracted per-frame draw data; textured models require an installed atlas.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct BlockEntityFrame {
     pub revision: u64,
     pub atlas: Option<Arc<BlockEntityAtlasImage>>,

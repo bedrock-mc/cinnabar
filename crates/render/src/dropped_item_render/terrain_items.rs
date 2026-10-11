@@ -10,6 +10,7 @@ pub(crate) struct TerrainItemSessionSet;
 
 /// Successful zero-byte changes applied in the main world before extraction.
 #[derive(Resource, Default, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct ImmediateTerrainMeshPublications(pub(crate) Vec<(SubChunkKey, u64)>);
 
 #[derive(Resource, Default)]

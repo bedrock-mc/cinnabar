@@ -6,12 +6,21 @@ use bevy::{
     render::{
         render_resource::{Texture, TextureView, TextureViewId},
         renderer::{RenderContext, RenderDevice},
-        view::ViewDepthTexture,
+        view::ViewDepthStencilTexture,
     },
 };
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Selects the 3D view's depth aspect without exposing stencil samples to depth-reading shaders.
+pub(crate) fn view_depth(depth: &ViewDepthStencilTexture) -> &TextureView {
+    depth
+        .attachment
+        .depth_stencil_views()
+        .depth_only_view()
+        .expect("a 3D view has a depth aspect")
+}
 
 /// Nearest reverse-Z surface for effects that require a single-sample depth texture.
 pub(crate) struct ResolvedDepth {
@@ -27,12 +36,12 @@ impl ResolvedDepth {
     /// Samples depth instead of copying it and attributes the pass to its consumer.
     pub(crate) fn new(
         device: &RenderDevice,
-        depth: &ViewDepthTexture,
+        depth: &ViewDepthStencilTexture,
         stage: RuntimeStage,
     ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("resolved scene depth"),
-            size: depth.texture.size(),
+            size: depth.texture().size(),
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -48,7 +57,7 @@ impl ResolvedDepth {
             label: Some("resolved scene depth"),
             source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
         });
-        let multi = depth.texture.sample_count() > 1;
+        let multi = depth.texture().sample_count() > 1;
         let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("resolved scene depth"),
             layout: None,
@@ -67,13 +76,13 @@ impl ResolvedDepth {
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let binding = gpu.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -81,13 +90,15 @@ impl ResolvedDepth {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: u32::from(multi),
-                resource: wgpu::BindingResource::TextureView(depth.view()),
+                resource: wgpu::BindingResource::TextureView(crate::scene_sampling::view_depth(
+                    depth,
+                )),
             }],
         });
         Self {
             _texture: texture,
             view,
-            source: depth.view().id(),
+            source: crate::scene_sampling::view_depth(depth).id(),
             stage,
             pipeline,
             binding,
@@ -95,8 +106,8 @@ impl ResolvedDepth {
     }
 
     /// The source view identity includes both the attachment size and its sample count.
-    pub(crate) fn matches(&self, depth: &ViewDepthTexture) -> bool {
-        self.source == depth.view().id()
+    pub(crate) fn matches(&self, depth: &ViewDepthStencilTexture) -> bool {
+        self.source == crate::scene_sampling::view_depth(depth).id()
     }
 
     /// Reassigns a shared resolve when its first consuming mod pass changes.
@@ -131,6 +142,7 @@ impl ResolvedDepth {
                 }),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, self.stage),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         if let Some(rect) = rect {
             pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);

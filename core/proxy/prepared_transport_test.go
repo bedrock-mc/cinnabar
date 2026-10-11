@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -283,8 +284,8 @@ func redialAfterLoginTimeout(t *testing.T, authDelay time.Duration) {
 	defer func() {
 		stopServing()
 		_ = listener.Close()
-		// Later tests assert that no listener connection outlives its owner.
-		waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, 5*time.Second)
+		// Allow the transport's graceful close to finish before checking listener ownership.
+		waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, testwait.DefaultTimeout)
 	}()
 	go func() {
 		for {

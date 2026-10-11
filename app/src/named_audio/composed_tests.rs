@@ -118,7 +118,7 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
         .init_resource::<LocalPlayerFrameCarrier>()
         .init_resource::<CameraPublicationAttempt>()
         .insert_resource(NamedAudio::new(Some(Arc::new(sample()))))
-        .insert_non_send_resource(device)
+        .insert_non_send(device)
         .add_systems(
             Update,
             (

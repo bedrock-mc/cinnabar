@@ -37,7 +37,7 @@ mod tests {
     use bevy::{
         asset::{AssetId, UntypedAssetId},
         core_pipeline::core_3d::{Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
-        ecs::{change_detection::Tick, schedule::Schedule},
+        ecs::schedule::Schedule,
         mesh::Mesh,
         prelude::*,
         render::{
@@ -62,16 +62,14 @@ mod tests {
                 pipeline: CachedRenderPipelineId::INVALID,
                 material_bind_group_index: Some(u32::from(hdr)),
                 lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
+                slabs: default(),
             },
             Opaque3dBinKey {
-                asset_id: UntypedAssetId::from(AssetId::<Mesh>::invalid()),
+                asset_id: UntypedAssetId::from(AssetId::<Mesh>::default()),
             },
             (Entity::PLACEHOLDER, MainEntity::from(Entity::PLACEHOLDER)),
             InputUniformIndex::default(),
             BinnedRenderPhaseType::NonMesh,
-            Tick::new(u32::from(hdr) + 1),
         );
     }
 

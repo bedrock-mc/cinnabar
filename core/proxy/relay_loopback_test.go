@@ -8,7 +8,6 @@ import (
 	"math"
 	"math/rand/v2"
 	"net"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -31,9 +30,9 @@ type relayLoopback struct {
 // relayFunc serves one accepted session; production is servePreparedConnection.
 type relayFunc func(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) error
 
-// socketNetworks joins both legs over the production local socket transport.
-func socketNetworks(tb testing.TB) (upstream, local minecraft.Network) {
-	return streamnet.New(filepath.Join(tb.TempDir(), "upstream")), streamnet.New(filepath.Join(tb.TempDir(), "local"))
+// streamNetworks exercises relay framing over buffered loopback byte streams.
+func streamNetworks(testing.TB) (upstream, local minecraft.Network) {
+	return newStreamNetwork(), newStreamNetwork()
 }
 
 // memoryNetworks joins both legs in memory, leaving only codec and relay work to measure.
@@ -80,7 +79,11 @@ func startRelayLoopback(tb testing.TB, networks func(testing.TB) (minecraft.Netw
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return dialer.DialContextNetwork(ctx, target.network, "")
 	}
-	config := localListenConfig(connections.prepare)
+	config := minecraft.ListenConfig{
+		AuthenticationDisabled: true, FlushRate: -1, EnableBatchReading: true,
+		AllowUnknownPackets: true, Compression: packet.NopCompression,
+		DisablePacketEncryption: true, PrepareResourcePackOffer: connections.prepare,
+	}
 	config.ErrorLog = quiet
 	listener, err := config.ListenNetwork(localNetwork, "")
 	if err != nil {
@@ -202,7 +205,7 @@ func chunkPayload(size int) []byte {
 
 // Packets the proxy does not inspect cross both legs byte for byte, headers included.
 func TestRelayLoopbackForwardsUntouchedPacketsByteForByte(t *testing.T) {
-	loopback := startRelayLoopback(t, socketNetworks, servePreparedConnection)
+	loopback := startRelayLoopback(t, streamNetworks, servePreparedConnection)
 	inbound := [][]byte{
 		chunkFrame(3, chunkPayload(16<<10)),
 		encodeTestPacket(&packet.Unknown{PacketID: 1000, Payload: []byte{0, 1, 2, 0xff}}),
@@ -223,7 +226,7 @@ func TestRelayLoopbackForwardsUntouchedPacketsByteForByte(t *testing.T) {
 
 // Mixed batches keep their order and boundaries while chat is rewritten and transfers are recorded.
 func TestRelayLoopbackHandlesInspectedPacketsInOrder(t *testing.T) {
-	loopback := startRelayLoopback(t, socketNetworks, servePreparedConnection)
+	loopback := startRelayLoopback(t, streamNetworks, servePreparedConnection)
 	payload := chunkPayload(4 << 10)
 	first := [][]byte{
 		chunkFrame(0, payload),
@@ -256,7 +259,7 @@ func TestRelayLoopbackHandlesInspectedPacketsInOrder(t *testing.T) {
 
 // A server disconnect arrives after the batch before it, then ends the client session with its reason.
 func TestRelayLoopbackDeliversDisconnectAfterPrecedingBatch(t *testing.T) {
-	loopback := startRelayLoopback(t, socketNetworks, servePreparedConnection)
+	loopback := startRelayLoopback(t, streamNetworks, servePreparedConnection)
 	before := encodeTestPacket(&packet.SetTime{Time: 3})
 	sendRaw(t, loopback.server, before)
 	if err := loopback.server.Disconnect("server closing"); err != nil {
@@ -444,3 +447,49 @@ func (*memoryConn) RemoteAddr() net.Addr             { return memoryAddr{} }
 func (*memoryConn) SetDeadline(time.Time) error      { return nil }
 func (*memoryConn) SetReadDeadline(time.Time) error  { return nil }
 func (*memoryConn) SetWriteDeadline(time.Time) error { return nil }
+
+// streamTestNetwork supplies buffered loopback streams for Minecraft fixture peers.
+type streamTestNetwork struct{ listener net.Listener }
+
+// newStreamNetwork creates a fixture network; Listen publishes its ephemeral address.
+func newStreamNetwork() *streamTestNetwork { return new(streamTestNetwork) }
+
+// DialContext connects a fixture peer using the production framing contract.
+func (n *streamTestNetwork) DialContext(ctx context.Context, _ string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", n.listener.Addr().String())
+	if err != nil {
+		return nil, err
+	}
+	return streamnet.NewFramedConn(conn), nil
+}
+
+// PingContext has no discovery protocol for a fixture network.
+func (*streamTestNetwork) PingContext(context.Context, string) ([]byte, error) { return nil, nil }
+
+// Listen binds a private loopback listener for one scripted server.
+func (n *streamTestNetwork) Listen(string) (minecraft.NetworkListener, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	n.listener = listener
+	return streamTestListener{Listener: listener}, nil
+}
+
+// streamTestListener adds packet framing to accepted fixture streams.
+type streamTestListener struct{ net.Listener }
+
+// Accept frames one loopback connection for the Minecraft codec.
+func (l streamTestListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return streamnet.NewFramedConn(conn), nil
+}
+
+// ID supplies the fixture's stable discovery identity.
+func (streamTestListener) ID() int64 { return 1 }
+
+// PongData ignores server discovery updates on the fixture transport.
+func (streamTestListener) PongData([]byte) {}

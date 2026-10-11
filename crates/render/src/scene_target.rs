@@ -8,14 +8,14 @@ mod tests;
 
 use bevy::{
     camera::CameraMainTextureUsages,
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{Core3d, Core3dSystems},
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        render_graph::{Node, RenderGraph, ViewNodeRunner},
+        camera::{CameraMainPassTextureFormats, ExtractedCamera},
         render_resource::*,
         renderer::{RenderContext, RenderDevice},
-        view::ViewTarget,
+        view::{ExtractedView, ViewTarget},
     },
 };
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -181,6 +181,7 @@ impl SceneTarget {
                     crate::RuntimeStage::GpuBlit,
                 ),
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
     }
 }
@@ -188,9 +189,32 @@ impl SceneTarget {
 /// Registers the retained main attachment before any consumer prepares its view resources.
 pub(crate) fn install(app: &mut App) {
     app.add_systems(Last, admit_copy_destination);
+    install_formats(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WithheldSamples>()
         .add_systems(Render, render_systems());
+}
+
+#[derive(Resource)]
+struct SceneFormatsInstalled;
+
+/// Gives every custom renderer the same scene formats, even without retained terrain attachments.
+pub(crate) fn install_formats(render_app: &mut SubApp) {
+    if render_app
+        .world()
+        .contains_resource::<SceneFormatsInstalled>()
+    {
+        return;
+    }
+    render_app
+        .insert_resource(SceneFormatsInstalled)
+        .init_resource::<CameraMainPassTextureFormats>()
+        .add_systems(
+            Render,
+            prepare_scene_formats
+                .in_set(RenderSystems::PrepareViews)
+                .before(bevy::render::view::prepare_view_targets),
+        );
 }
 
 /// Allocates the shared attachment in place of Bevy's multisampled colour target.
@@ -198,16 +222,32 @@ fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::S
     use bevy::render::view::prepare_view_targets;
     (
         withhold_view_samples
-            .in_set(RenderSystems::ManageViews)
+            .in_set(RenderSystems::PrepareViews)
             .before(prepare_view_targets),
         restore_view_samples
-            .in_set(RenderSystems::ManageViews)
+            .in_set(RenderSystems::PrepareViews)
             .after(prepare_view_targets),
         prepare_scene_targets
             .in_set(RenderSystems::PrepareResources)
             .after(prepare_view_targets),
     )
         .into_configs()
+}
+
+/// Keeps material blending in the scene's colour space, independently of the output image format.
+fn prepare_scene_formats(
+    mut formats: ResMut<CameraMainPassTextureFormats>,
+    mut views: Query<(Entity, &ExtractedCamera, &mut ExtractedView), With<Camera3d>>,
+) {
+    for (entity, camera, mut view) in &mut views {
+        let format = if camera.hdr {
+            crate::SCENE_HDR_FORMAT
+        } else {
+            crate::SCENE_COLOR_FORMAT
+        };
+        view.target_format = format;
+        formats.insert(entity, format);
+    }
 }
 
 /// 3D sample counts hidden from Bevy's view-target allocation for the current frame.
@@ -267,38 +307,72 @@ pub(crate) fn prepare_scene_targets(
     }
 }
 
-/// Draws the opaque and cutout phases into the shared scene samples.
-pub(crate) fn opaque_pass(world: &mut World) -> Box<dyn Node> {
-    Box::new(ViewNodeRunner::new(nodes::SceneOpaquePass, world))
+/// Boundaries that share multisampled scene colour in the main camera schedule.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ScenePass {
+    Opaque,
+    Transparent,
+    Finish,
 }
 
-/// Recognises the installed shared-scene opaque pass.
-pub(crate) fn is_opaque_pass(node: &dyn Node) -> bool {
-    node.downcast_ref::<ViewNodeRunner<nodes::SceneOpaquePass>>()
-        .is_some()
+#[derive(Resource)]
+struct PassesInstalled;
+
+/// Orders GPU submissions even when their systems only read ECS components.
+pub(crate) fn order_camera_stages(schedule: &mut bevy::ecs::schedule::Schedule) {
+    use Core3dSystems::*;
+    schedule.configure_sets((Prepass, MainPass, EarlyPostProcess, PostProcess).chain());
 }
 
-/// Replaces only main-pass nodes, preserving every installed dependency and post-processing node.
+/// Replaces the stock opaque pass and resolves shared samples before post-processing.
 pub(crate) fn install_graph(world: &mut World) {
-    let opaque = opaque_pass(world);
-    let transmissive = ViewNodeRunner::new(nodes::SceneTransmissivePass, world);
-    let finish = ViewNodeRunner::new(nodes::SceneFinish, world);
-    let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
+    if world.contains_resource::<PassesInstalled>() {
         return;
-    };
-    let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
-        return;
-    };
-    if let Ok(node) = graph.get_node_state_mut(Node3d::MainOpaquePass) {
-        node.node = opaque;
-        node.type_name = std::any::type_name::<ViewNodeRunner<nodes::SceneOpaquePass>>();
     }
-    if let Ok(node) = graph.get_node_state_mut(Node3d::MainTransmissivePass) {
-        node.node = Box::new(transmissive);
-        node.type_name = std::any::type_name::<ViewNodeRunner<nodes::SceneTransmissivePass>>();
-    }
-    if let Ok(node) = graph.get_node_state_mut(Node3d::EndMainPass) {
-        node.node = Box::new(finish);
-        node.type_name = std::any::type_name::<ViewNodeRunner<nodes::SceneFinish>>();
+    let installed = world
+        .try_schedule_scope(Core3d, |world, schedule| {
+            order_camera_stages(schedule);
+            use bevy::ecs::schedule::ScheduleCleanupPolicy;
+            schedule
+                .remove_systems_in_set(
+                    bevy::core_pipeline::core_3d::main_opaque_pass_3d,
+                    world,
+                    ScheduleCleanupPolicy::RemoveSystemsOnly,
+                )
+                .expect("replace the stock opaque pass");
+            schedule.configure_sets(
+                (ScenePass::Opaque, ScenePass::Transparent, ScenePass::Finish)
+                    .chain()
+                    .in_set(Core3dSystems::MainPass),
+            );
+            schedule
+                .remove_systems_in_set(
+                    bevy::core_pipeline::core_3d::main_transparent_pass_3d,
+                    world,
+                    ScheduleCleanupPolicy::RemoveSystemsOnly,
+                )
+                .expect("replace the stock transparent pass");
+            schedule.add_systems(
+                bevy::core_pipeline::core_3d::main_transparent_pass_3d
+                    .in_set(ScenePass::Transparent),
+            );
+            schedule.add_systems((
+                crate::gpu_timing::profiled(
+                    nodes::scene_opaque,
+                    Some(crate::RuntimeStage::GpuOpaque),
+                    "MainOpaquePass",
+                )
+                .in_set(ScenePass::Opaque),
+                crate::gpu_timing::profiled(
+                    nodes::scene_finish,
+                    Some(crate::RuntimeStage::GpuBlit),
+                    "EndMainPass",
+                )
+                .in_set(ScenePass::Finish),
+            ));
+        })
+        .is_ok();
+    if installed {
+        world.insert_resource(PassesInstalled);
     }
 }

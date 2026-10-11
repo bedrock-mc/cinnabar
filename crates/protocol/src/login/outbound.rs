@@ -34,7 +34,7 @@ impl PlayOutbound {
             crate::codec::validate_packet(packet)?;
         }
         let batch = self.encoder.encode(packets)?;
-        let frame = bridge::batch_frame_from_bedrock(&batch)
+        let frame = crate::session_wire::batch_frame_from_bedrock(&batch)
             .map_err(|error| ProtocolError::Bridge(error.into()))?;
         self.frames
             .send(frame)

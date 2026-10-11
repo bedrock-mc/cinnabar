@@ -1,7 +1,6 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::render::render_phase::DrawFunctionId;
-use bevy::render::render_phase::SortedPhaseItem;
 
 /// Uploads and queues all material lists through the production systems.
 fn queue_lists(app: &mut App, lists: DrawLists, camera: [f32; 3]) {
@@ -38,7 +37,7 @@ pub(crate) fn queue_opaque(app: &mut App) -> (DrawFunctionId, RenderPipelineDesc
         .world()
         .resource::<ViewSortedRenderPhases<Transparent3d>>()
         .values()
-        .flat_map(|phase| phase.items.iter())
+        .flat_map(|phase| phase.items.values())
         .find(|item| item.draw_function == draw)
         .unwrap()
         .pipeline;
@@ -75,16 +74,19 @@ fn additive_particles_compose_at_their_depth_with_only_cutout_particles_present(
         let add = functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>();
         let terrain = functions.id::<DrawParticles<{ ParticleMode::Blend as u8 }>>();
         drop(functions);
-        let mut items = std::mem::take(
-            &mut app
-                .world_mut()
+        let mut phase = std::mem::take(
+            app.world_mut()
                 .resource_mut::<ViewSortedRenderPhases<Transparent3d>>()
                 .get_mut(&view)
-                .unwrap()
-                .items,
+                .unwrap(),
         );
-        let item = items.iter().find(|item| item.draw_function == add).unwrap();
-        items.push(Transparent3d {
+        let item = phase
+            .items
+            .values()
+            .find(|item| item.draw_function == add)
+            .unwrap();
+        let extra = Transparent3d {
+            sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
             entity: item.entity,
             pipeline: item.pipeline,
             draw_function: terrain,
@@ -92,8 +94,10 @@ fn additive_particles_compose_at_their_depth_with_only_cutout_particles_present(
             batch_range: 0..1,
             extra_index: PhaseItemExtraIndex::None,
             indexed: false,
-        });
-        Transparent3d::sort(&mut items);
+        };
+        crate::transparent_phase::add(&mut phase, extra);
+        phase.sort();
+        let items = phase.items.into_values();
         let mut pixel = 0.2;
         let mut depth = 0.0;
         for item in items {
@@ -143,12 +147,13 @@ fn blended_and_additive_particles_keep_their_translucent_pipeline() {
                 .write_mask,
             ColorWrites::COLOR
         );
-        assert!(
-            !descriptor
+        assert_eq!(
+            descriptor
                 .depth_stencil
                 .as_ref()
                 .unwrap()
-                .depth_write_enabled
+                .depth_write_enabled,
+            Some(false)
         );
         assert!(
             descriptor.fragment.as_ref().unwrap().targets[0]

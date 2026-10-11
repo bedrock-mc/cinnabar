@@ -77,6 +77,7 @@ type AtmosphereOutputs<'w> = (
     ResMut<'w, render::AtmosphereViewInputs>,
 );
 
+/// Resolves sampled indices only in their owning registry, using camera names after a reload.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn derive_profiled_atmosphere_frame(
@@ -87,20 +88,54 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     context: &EnvironmentContext,
     biome_profiles: &[BiomeVisualProfile],
     fog_profiles: &[FogProfile],
+    registry_generation: [u8; 32],
     transition_seconds: Option<f32>,
     fog_weather_level: f32,
 ) -> (AtmosphereFrame, EnvironmentProfileRoute) {
     let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
+    // A pack can change after sampling. Use camera names until the next lattice sample.
+    let indexed = context.fog_registry_generation == Some(registry_generation);
     let profile = context
-        .camera_biome_identifier
-        .as_deref()
-        .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
+        .camera_profile
+        .filter(|_| indexed)
+        .and_then(|index| biome_profiles.get(index.0))
         .or_else(|| {
-            dimension_fallback_biome(context.dimension)
+            context
+                .camera_biome_identifier
+                .as_deref()
                 .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
+                .or_else(|| {
+                    dimension_fallback_biome(context.dimension)
+                        .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
+                })
         });
     let Some(profile) = profile else {
         return (base, EnvironmentProfileRoute::default());
+    };
+    let samples = context
+        .fog_biomes
+        .filter(|_| indexed)
+        .map(|samples| samples.map(|index| index.and_then(|index| fog_profiles.get(index.0))));
+    let (camera_fog, default_fog) = if indexed && context.profile_route.is_some() {
+        (
+            context
+                .camera_fog
+                .and_then(|index| fog_profiles.get(index.0)),
+            context
+                .default_fog
+                .and_then(|index| fog_profiles.get(index.0)),
+        )
+    } else {
+        (
+            fog_profiles
+                .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
+                .ok()
+                .map(|index| &fog_profiles[index]),
+            fog_profiles
+                .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
+                .ok()
+                .map(|index| &fog_profiles[index]),
+        )
     };
     let resolve = |requested: FogMedium| {
         // Air fog profiles use the adjusted render distance in the
@@ -108,31 +143,8 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         // The separate native submerged distance admission remains incomplete.
         let render_distance =
             render::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
-        let fog = fog_profiles
-            .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
-            .ok()
-            .map(|index| &fog_profiles[index])?;
-        let default_fog = fog_profiles
-            .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
-            .ok()
-            .map(|index| &fog_profiles[index]);
-        let samples: Vec<_> = context
-            .fog_biomes
-            .iter()
-            .map(|id| {
-                let profile = find_biome_profile(biome_profiles, id.as_deref()?)?;
-                fog_profiles
-                    .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
-                    .ok()
-                    .map(|index| &fog_profiles[index])
-            })
-            .collect();
-        let camera = [Some(fog)];
-        let layer = if samples.is_empty() {
-            &camera[..]
-        } else {
-            &samples[..]
-        };
+        let camera = [Some(camera_fog?)];
+        let layer = samples.as_ref().map_or(&camera[..], |samples| &samples[..]);
         assets::resolve_fog_layers(
             &[layer],
             default_fog,
@@ -153,14 +165,30 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     };
     (
         frame,
-        EnvironmentProfileRoute {
-            biome_identifier: Some(profile.biome_identifier.clone()),
-            fog_identifier: Some(profile.fog_identifier.clone()),
-            atmosphere_identifier: Some(profile.atmosphere_identifier.clone()),
-            provisional_lighting_identifier: Some(profile.lighting_identifier.clone()),
-        },
+        context
+            .profile_route
+            .as_deref()
+            .filter(|_| indexed)
+            .cloned()
+            .unwrap_or_else(|| EnvironmentProfileRoute {
+                biome_identifier: Some(std::sync::Arc::from(profile.biome_identifier.as_ref())),
+                fog_identifier: Some(std::sync::Arc::from(profile.fog_identifier.as_ref())),
+                atmosphere_identifier: Some(std::sync::Arc::from(
+                    profile.atmosphere_identifier.as_ref(),
+                )),
+                provisional_lighting_identifier: Some(std::sync::Arc::from(
+                    profile.lighting_identifier.as_ref(),
+                )),
+            }),
     )
 }
+
+/// Menu options and optional sky settings consumed by atmosphere updates.
+type AtmospherePreferences<'w> = (
+    Option<Res<'w, crate::menu::MenuRuntime>>,
+    Option<ResMut<'w, render::CloudVisibility>>,
+    Option<ResMut<'w, render::SkyboxSettings>>,
+);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
@@ -181,11 +209,7 @@ pub(crate) fn update_atmosphere_frame(
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
     mut renderer_clock: Local<super::renderer_clock::RendererClock>,
-    preferences: (
-        Option<Res<crate::menu::MenuRuntime>>,
-        Option<ResMut<render::CloudVisibility>>,
-        Option<ResMut<render::SkyboxSettings>>,
-    ),
+    preferences: AtmospherePreferences,
     cameras: Query<&Transform, With<client_presentation::camera::FlyCamera>>,
 ) {
     let vision = vision
@@ -245,6 +269,7 @@ pub(crate) fn update_atmosphere_frame(
             &context,
             assets.biome_profiles(),
             assets.fog_profiles(),
+            atmosphere_assets.identity(),
             Some(submerged),
             display.fog_level(),
         ),

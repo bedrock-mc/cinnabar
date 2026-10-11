@@ -1,3 +1,13 @@
+## RakNet transport compatibility
+
+The Go core, local server, and fixture generator share a reviewed transport revision with
+corrected handshake addresses and probe cadence, connected control framing, reliability
+and ordering, peer GUID generation, datagram batching, and outgoing split envelopes.
+
+Full transport parity remains incomplete. Host-resolver timing and address admission,
+absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
+platforms. These limits and the unresolved server-routing behavior remain open gates.
+
 ## Launcher crate ownership
 
 - `launcher` owns menu models and settings definitions. Control types come directly from
@@ -15,6 +25,12 @@
   existing install device ID. Unchanged inputs produce the same identifier across joins.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
+
+## Client-side chunk generation
+
+- Login claims explicitly decline client-side chunk generation. The client relies on
+  server-supplied terrain; FeatureRegistry consumption and client-side terrain generation
+  remain unsupported and incomplete. Server-routing parity remains open.
 
 ## Totem activation
 
@@ -3597,7 +3613,7 @@ Scope (detailed plan to be written at phase start):
 - Session lifecycle: begin by copying Lunar's `lunar/internal/relay/relay.go` and relay tests
   into `core/internal/relay`, adapting only imports/helpers needed to make the package
   standalone. The core uses that relay logic to dial upstream (RakNet / NetherNet via Xbox
-  signaling / Realms address), serve the game socket, and handle transfers. Lunar remains a
+  signaling / Realms address), serve the session endpoint, and handle transfers. Lunar remains a
   source donor, never a module dependency.
 - Resource-pack negotiation upstream; pack payloads handed to client over the control channel as files in a cache dir (client applies them — Phase 6 renders them).
 - Windows transport flavor (named pipe or TCP) behind the same listener interface.
@@ -5967,7 +5983,7 @@ via control channel (v1.x, not v1).
 Scope: core embeds/spawns dragonfly (`platform/pc-server` and dragonfly-server skill patterns
 as reference); world create/select/delete UI; settings (name, gamemode, seed, flat/normal);
 LevelDB world persistence via dragonfly; pause/resume semantics on window focus; same client
-path as online (core points the game socket at the local dragonfly). Documented v1 limits:
+path as online (core points the session endpoint at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
 Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.
@@ -6565,6 +6581,15 @@ sign-in keeps a stable cache generation across refreshes; a replacement sign-in
 ends the old account runtime before it can adopt the new credentials. The active
 catalog exporter and native Windows/Linux BDS installer remain supported. Resource
 packs still pass through the Go cache and retain their client progress reporting.
+Session handoffs name pinned cache archives by absolute path, size and SHA-256.
+The client reads them under its configured cache directory and rejects invalid
+paths or bytes during the join. Cache misses retain the streamed archive fallback;
+pack order, required flags, sub-packs and content keys remain unchanged. Live
+performance acceptance of the cache-reference handoff remains incomplete.
+The Rust `bedrock-replay` tool uses the protocol crate's session messages and keeps
+the raw capture and report formats. Acceptance endpoint waiters use the session
+endpoint. The real core-session test covers large binary frames in both directions.
+
 ### Astra UX follow-up (incomplete live performance/parity acceptance)
 
 Real-carrier Bevy input now exercises all Add/Edit server fields, persistence and

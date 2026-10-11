@@ -543,9 +543,7 @@ mod tests {
     fn missing_bucket_and_new_generation_never_recreate_or_reuse_uploaded_ids() {
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(std::sync::Arc::new(
-            bevy::render::renderer::WgpuWrapper::new(queue),
-        ));
+        let queue = RenderQueue::new(queue);
         let catalog = catalog(0);
         let mut gpu = UiGpuTextures::default();
         gpu.prepare(&catalog, &device, &queue, None).unwrap();

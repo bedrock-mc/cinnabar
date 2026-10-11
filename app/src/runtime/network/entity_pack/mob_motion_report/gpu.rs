@@ -60,7 +60,7 @@ pub(super) fn app() -> (App, Entity) {
             },
             RenderTarget::Image(target.clone().into()),
             Msaa::Off,
-            Tonemapping::None,
+            Tonemapping::Linear,
             camera_transform(0.0),
         ))
         .id();

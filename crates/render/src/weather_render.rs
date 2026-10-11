@@ -19,12 +19,12 @@ use bevy::{
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FilterMode,
             FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
             SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
-            SpecializerKey, Texture, TextureFormat, TextureSampleType, TextureView,
-            TextureViewDimension, Variants, VertexState,
+            SpecializerKey, Texture, TextureSampleType, TextureView, TextureViewDimension,
+            Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -44,7 +44,7 @@ const OCCLUSION_BYTES: usize = 2 * (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize * 
 /// Fixed seed so the particle mesh is identical across runs.
 const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
 
-/// Uniform read by `weather.wgsl`: box forward offset plus sheet flag, then the grid origin.
+/// Uniform read by `weather.wesl`: box forward offset plus sheet flag, then the grid origin.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct WeatherParamsGpu {
@@ -57,9 +57,10 @@ pub(crate) fn install_weather_render(app: &mut App) {
     load_internal_asset!(
         app,
         WEATHER_SHADER_HANDLE,
-        "weather.wgsl",
-        crate::shader_safety::from_wgsl
+        "weather.wesl",
+        crate::shader_safety::from_wesl
     );
+    crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WeatherPipeline>()
         .add_render_command::<Transparent3d, DrawWeatherCommands>()
@@ -304,7 +305,7 @@ impl FromWorld for WeatherPipeline {
                 shader: WEATHER_SHADER_HANDLE,
                 entry_point: Some("weather_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format: crate::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -312,8 +313,8 @@ impl FromWorld for WeatherPipeline {
             }),
             depth_stencil: Some(DepthStencilState {
                 format: CORE_3D_DEPTH_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil: default(),
                 bias: default(),
             }),
@@ -345,9 +346,9 @@ impl Specializer<RenderPipeline> for WeatherPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
+            crate::SCENE_HDR_FORMAT
         } else {
-            TextureFormat::bevy_default()
+            crate::SCENE_COLOR_FORMAT
         };
         Ok(key)
     }
@@ -424,13 +425,19 @@ fn queue_weather(
     scene: Res<PrecipitationScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &bevy::render::camera::ExtractedCamera,
+        &Msaa,
+    )>,
 ) {
     if gpu.layer_count == 0 || gpu.max_particles == 0 || scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawWeatherCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -438,22 +445,26 @@ fn queue_weather(
             &pipeline_cache,
             WeatherPipelineKey {
                 msaa: *msaa,
-                hdr: view.hdr,
+                hdr: extracted_camera.hdr,
             },
         ) else {
             continue;
         };
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            distance: view
-                .rangefinder3d()
-                .distance(&view.world_from_view.translation()),
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        });
+        crate::transparent_phase::add(
+            phase,
+            Transparent3d {
+                sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                entity: (view_entity, *main_entity),
+                pipeline: pipeline_id,
+                draw_function,
+                distance: view
+                    .rangefinder3d()
+                    .distance(&view.world_from_view.translation()),
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
+            },
+        );
     }
 }
 

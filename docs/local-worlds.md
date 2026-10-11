@@ -1,6 +1,6 @@
 # Local worlds
 
-Single-player worlds run on a local server behind the same core and game socket as online play.
+Single-player worlds run on a local server behind the same core and session endpoint as online play.
 Full scope: `plan.md` Phase 7.
 
 ## Backends

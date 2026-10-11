@@ -1,13 +1,13 @@
 //! Local stream bridge between the Rust client and Go core.
 
 mod account;
-mod contract;
+/// Shared frame limits and session message kinds for the Rust and Go bridge.
+pub mod contract;
 pub use contract::MAX_FRAME_LEN;
 mod endpoint;
 mod error;
 mod framed;
 mod packet_delay;
-mod session;
 mod status;
 mod store;
 mod worlds;
@@ -15,6 +15,12 @@ mod xbox_presence;
 pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
 
 use std::path::{Path, PathBuf};
+
+/// Connects to the core's session endpoint published in `socket_dir`.
+pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
+    let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Session).await?;
+    Ok(crate::framed::queued(stream, MAX_FRAME_LEN))
+}
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
@@ -25,16 +31,12 @@ pub use account::{
     list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
     poll_events, profile, realm_membership, report_message_event, sign_out,
 };
+pub use endpoint::listener::SessionListener;
 pub use error::BridgeError;
-pub(crate) use framed::FramedStream;
+pub use framed::FramedStream;
 pub use framed::{FrameQueue, FramedReader};
 pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
-};
-pub use session::{
-    ConnectRequest, CoreMessage, HandoffPack, HandoffPackReceiver, PackContentKey,
-    SessionDisconnect, SessionHandoff, SessionIdentity, SessionTransfer, batch_frame_body,
-    batch_frame_from_bedrock, connect_session, decode_core_message, encode_batch, encode_connect,
 };
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
@@ -53,12 +55,6 @@ pub use worlds::{
     local_worlds_prefs, open_world, open_world_with, set_world_paused, update_world, world_status,
 };
 
-/// Returns the platform endpoint used for the logical socket directory.
-#[must_use]
-pub fn endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
-    endpoint::endpoint_path(socket_dir, endpoint::EndpointKind::Game)
-}
-
 /// Returns the platform session endpoint used for the logical socket directory.
 #[must_use]
 pub fn session_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
@@ -76,10 +72,9 @@ pub const CORE_START_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 
 /// Returns every endpoint the core publishes in `socket_dir`, for cleanup after a lost core.
 #[must_use]
-pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 3] {
+pub fn core_endpoint_paths(socket_dir: &Path) -> [PathBuf; 2] {
     [
         session_endpoint_path(socket_dir),
-        endpoint_path(socket_dir),
         control_endpoint_path(socket_dir),
     ]
 }
@@ -94,14 +89,6 @@ pub fn bridge_endpoint_exists(directory: &Path) -> bool {
     }
 }
 
-/// Connects to the local Go core game endpoint published in `socket_dir`.
-///
-/// A spawned writer task owns the write half, so sends never wait on a read in progress.
-pub async fn connect(socket_dir: &Path) -> anyhow::Result<(FramedReader, FrameQueue)> {
-    let stream = endpoint::connect(socket_dir, endpoint::EndpointKind::Game).await?;
-    Ok(framed::queued(stream, MAX_FRAME_LEN))
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -109,7 +96,7 @@ mod tests {
     use bytes::Bytes;
     use futures::Stream;
 
-    use super::{BridgeError, FrameQueue, FramedReader, connect};
+    use super::{BridgeError, FrameQueue, FramedReader, connect_session};
 
     fn assert_transport<R, W>()
     where
@@ -121,12 +108,12 @@ mod tests {
     #[test]
     fn public_transport_contract_is_stable() {
         assert_transport::<FramedReader, FrameQueue>();
-        let _ = connect;
+        let _ = connect_session;
     }
 
     #[tokio::test]
-    async fn connect_preserves_bridge_error_in_anyhow_result() {
-        let error = match connect(Path::new("")).await {
+    async fn connect_session_rejects_empty_directory() {
+        let error = match connect_session(Path::new("")).await {
             Ok(_) => panic!("empty socket directory must fail"),
             Err(error) => error,
         };

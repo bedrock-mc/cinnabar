@@ -127,7 +127,7 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         )
         .map_err(|error| format!("{}: {error}", wav_path.display()))?;
         world
-            .get_non_send_resource_mut::<AudioDevice>()
+            .get_non_send_mut::<AudioDevice>()
             .map(|mut device| AudioCapture {
                 mixer: Mutex::new(device.start_capture()),
                 wav,
@@ -287,7 +287,7 @@ fn finish(world: &mut World, mut recording: Recording) {
         pacing.set_suspended(false);
     }
     if recording.audio.is_some()
-        && let Some(mut device) = world.get_non_send_resource_mut::<AudioDevice>()
+        && let Some(mut device) = world.get_non_send_mut::<AudioDevice>()
     {
         device.stop_capture();
     }

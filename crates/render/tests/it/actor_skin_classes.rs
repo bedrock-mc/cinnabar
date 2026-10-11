@@ -1,7 +1,7 @@
 //! Skins drawn from their native-resolution class arrays match the standard-raster array.
 use crate::gpu_snapshot;
 
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use gpu_snapshot::{Draw, Gpu};
 use render::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId, STANDARD_SKIN_SIDE};
@@ -94,8 +94,8 @@ fn raster(
     layer: u32,
 ) -> Vec<u8> {
     let eye = Vec3::new(0.45, 0.7, 0.55);
-    let clip = Mat4::perspective_infinite_reverse_rh(1.0, 1.0, 0.05)
-        * Mat4::look_at_rh(eye, Vec3::new(0.0, 0.25, 0.0), Vec3::Y);
+    let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(1.0, 1.0, 0.05)
+        * glam::camera::rh::view::look_at_mat4(eye, Vec3::new(0.0, 0.25, 0.0), Vec3::Y);
     let view = gpu.buffer(&gpu_snapshot::view(clip, eye), wgpu::BufferUsages::UNIFORM);
     let affine = [
         [1.0, 0.0, 0.0, 0.0],

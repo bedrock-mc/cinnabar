@@ -31,10 +31,7 @@ fn allocation(layout: CubeQuadLayout, metadata_index: u32) -> GpuChunkAllocation
 
 #[test]
 fn displaced_model_cull_record_keeps_outer_geometry_visible() {
-    use bevy::{
-        camera::primitives::Aabb,
-        math::{Mat4, Vec3A},
-    };
+    use bevy::{camera::primitives::Aabb, math::Vec3A};
     let mut allocation = allocation(CubeQuadLayout::default(), 0);
     allocation.key = SubChunkKey::new(0, 0, 0, 0);
     let [low, high] = cull_record(&allocation, None).bounds();
@@ -44,8 +41,9 @@ fn displaced_model_cull_record_keeps_outer_geometry_visible() {
         center: (low + high) * 0.5,
         half_extents: (high - low) * 0.5,
     };
-    let frustum =
-        Frustum::from_clip_from_world(&Mat4::orthographic_rh(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0));
+    let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+        &glam::camera::rh::proj::directx::orthographic(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
+    ));
     assert!(
         frustum.intersects_obb_identity(&aabb),
         "GPU culling retains component displacement beyond a model overhang"
@@ -363,9 +361,12 @@ fn gpu_cull_cpu_stage_bench() {
     let eye = Vec3::new(8.0, 72.0, 8.0);
     let world_from_view =
         Transform::from_translation(eye).looking_to(Vec3::new(1.0, -0.2, 0.4), Vec3::Y);
-    let clip_from_world = Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05)
-        * world_from_view.to_matrix().inverse();
-    let frustum = bevy::camera::primitives::Frustum::from_clip_from_world(&clip_from_world);
+    let clip_from_world =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 16.0 / 9.0, 0.05)
+            * world_from_view.to_matrix().inverse();
+    let frustum = bevy::camera::primitives::Frustum(
+        bevy::shape::ViewFrustum::from_clip_from_world(&clip_from_world),
+    );
     let mut query = world.query::<&GpuChunkAllocation>();
     query.update_archetypes(&world);
     let visible = entities

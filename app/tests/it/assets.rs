@@ -479,7 +479,7 @@ fn atmosphere_evidence_summary_contains_only_stable_hashes() {
 fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
     let expected = format!(
         "{:x}",
-        Sha256::digest(include_bytes!("../../../crates/render/src/atmosphere.wgsl"))
+        Sha256::digest(include_bytes!("../../../crates/render/src/atmosphere.wesl"))
     );
     assert_eq!(atmosphere_shader_source_sha256(), expected);
 }
@@ -488,7 +488,7 @@ fn atmosphere_shader_identity_hashes_the_exact_embedded_wgsl_source() {
 fn cloud_shader_identity_hashes_the_exact_embedded_wgsl_source() {
     let expected = format!(
         "{:x}",
-        Sha256::digest(include_bytes!("../../../crates/render/src/cloud.wgsl"))
+        Sha256::digest(include_bytes!("../../../crates/render/src/cloud.wesl"))
     );
     assert_eq!(cloud_shader_source_sha256(), expected);
 }

@@ -539,8 +539,8 @@ fn cached_block_overlay(
     overlay
 }
 
-/// Returns the carrier extended with this session's custom block visuals, or the
-/// carrier itself when there is nothing to apply or the overlay does not fit.
+/// Installs the materialized custom prefix while leaving the rest of the palette unbacked.
+/// Returns the base carrier when there is no overlay or its visuals exceed the custom range.
 pub(super) fn session_runtime_assets(
     base: &Arc<assets::RuntimeAssets>,
     custom_ids: Option<&std::ops::Range<u32>>,
@@ -551,8 +551,8 @@ pub(super) fn session_runtime_assets(
     };
     let empty_ids = base.visual_count() as u32..base.visual_count() as u32;
     let ids = custom_ids.unwrap_or(&empty_ids);
-    if compiled.overlay.visuals.len() != ids.len() {
-        bevy::log::warn!("server block visuals do not match the custom block ids");
+    if compiled.overlay.visuals.len() > ids.len() {
+        bevy::log::warn!("server block visuals exceed the custom block ids");
         return Arc::clone(base);
     }
     static LAST: OverlaidCarrier = OverlaidCarrier::new();

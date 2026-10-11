@@ -85,16 +85,16 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
     ] {
         let material = material(mode);
         let fragment = material.fragment.as_ref().unwrap();
-        // `#ifdef` checks registered names, including definitions whose boolean value is false.
         let definitions: Vec<&str> = material
             .vertex
             .shader_defs
             .iter()
             .chain(&fragment.shader_defs)
-            .map(|value| match value {
-                bevy::shader::ShaderDefVal::Bool(name, _)
+            .filter_map(|value| match value {
+                bevy::shader::ShaderDefVal::Bool(_, false) => None,
+                bevy::shader::ShaderDefVal::Bool(name, true)
                 | bevy::shader::ShaderDefVal::Int(name, _)
-                | bevy::shader::ShaderDefVal::UInt(name, _) => name.as_str(),
+                | bevy::shader::ShaderDefVal::UInt(name, _) => Some(name.as_ref()),
             })
             .collect();
         let depth = material.depth_stencil.as_ref().unwrap();
@@ -155,11 +155,11 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
                 vertices: 0..6,
                 bindings: &bindings,
                 blend: fragment.targets[0].as_ref().unwrap().blend,
-                write_depth: depth.depth_write_enabled,
+                write_depth: depth.depth_write_enabled.unwrap(),
             }],
             RasterState {
                 primitive: material.primitive,
-                depth_compare: depth.depth_compare,
+                depth_compare: depth.depth_compare.unwrap(),
                 ..default()
             },
         );

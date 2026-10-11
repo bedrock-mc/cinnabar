@@ -31,6 +31,7 @@ pub use skin_change::{
     cape_content_id, player_skin_packet, set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
+pub mod session_wire;
 mod transfer;
 mod translation_parameter;
 mod ui;
@@ -179,7 +180,7 @@ pub mod wire {
 }
 pub use login::{
     ClientRandomId, LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
-    network_stack_latency_reply,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

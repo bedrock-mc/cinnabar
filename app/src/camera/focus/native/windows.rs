@@ -39,7 +39,7 @@ impl Drop for NativeBinding {
 /// Registers the callback on the event-loop thread before any game capture.
 pub(in crate::camera::focus) fn install(app: &mut App) {
     app.init_resource::<NativeCaptureReady>()
-        .init_non_send_resource::<NativeBinding>()
+        .init_non_send::<NativeBinding>()
         .add_systems(PreUpdate, bind.before(super::super::track_focus));
 }
 

@@ -17,6 +17,7 @@ const SKYBOX_HALF_EXTENT: f32 = 0.5;
 
 /// Whether custom skyboxes retain the ordinary Bedrock vertical translation.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq, Eq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct SkyboxSettings {
     pub native_vertical_offset: bool,
     /// Admission from Fancy Skies and active camera vision effects.
