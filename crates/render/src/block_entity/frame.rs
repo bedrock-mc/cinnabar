@@ -223,9 +223,7 @@ mod tests {
     /// Samples the nearest triangle along a ray, retaining interpolated texture and lighting.
     fn sample(builder: &MeshBuilder, origin: Vec3, direction: Vec3) -> (Vec3, Vec3) {
         let mut hit = None;
-        for triangle in builder.solid.chunks_exact(3) {
-            let [a, b, c]: &[super::super::mesh::BlockEntityVertex; 3] =
-                triangle.try_into().unwrap();
+        for [a, b, c] in builder.solid.as_chunks::<3>().0 {
             let edge1 = Vec3::from_array(b.position) - Vec3::from_array(a.position);
             let edge2 = Vec3::from_array(c.position) - Vec3::from_array(a.position);
             let cross = direction.cross(edge2);

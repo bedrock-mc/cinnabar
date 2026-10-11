@@ -428,7 +428,9 @@ fn frame_artwork_has_a_wooden_rim_and_a_distinct_backing() {
                 );
                 if !oblique && outward == 2 {
                     let count = pixels
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .filter(|p| p[0] > 160 && p[1] > 100 && p[2] < 100)
                         .count();
                     rim_counts.push((name, count));

@@ -66,7 +66,14 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
             }],
             &[assets::FogProfile {
                 identifier: "test:fog".into(),
-                distances: Box::new([]),
+                distances: Box::new([assets::FogDistance {
+                    medium: assets::FogMedium::Air,
+                    mode: assets::FogDistanceMode::RenderRelative,
+                    start_bits: 0.25_f32.to_bits(),
+                    end_bits: 0.75_f32.to_bits(),
+                    rgb8: 0x445566,
+                    transition: None,
+                }]),
             }],
         )
         .unwrap(),
