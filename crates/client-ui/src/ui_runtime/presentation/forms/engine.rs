@@ -201,6 +201,11 @@ impl FormEngine {
         self.textures.set_atlas(atlas, first);
     }
 
+    /// Polls original-image readiness even when the current menu needs no repaint.
+    pub(super) fn poll_native_images(&mut self) -> bool {
+        self.textures.atlas_mut().poll_native_images()
+    }
+
     /// The atlas page images when they changed since the last call.
     pub(super) fn take_server_pages(&mut self) -> Option<&[render_model::UiTexturePage]> {
         let atlas = self.textures.atlas_mut();

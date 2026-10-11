@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 use image::Limits;
 use json_ui::UvRect;
 use render_model::{
@@ -322,6 +322,7 @@ pub(super) struct NativeSheets {
     loaded: Vec<(String, Sheet)>,
     failed: BTreeSet<String>,
     pending: Option<String>,
+    retry: Option<Job>,
     sender: Sender<Completed>,
     receiver: Receiver<Completed>,
     cancelled: Arc<AtomicBool>,
@@ -336,6 +337,7 @@ impl Default for NativeSheets {
             loaded: Vec::new(),
             failed: BTreeSet::new(),
             pending: None,
+            retry: None,
             sender,
             receiver,
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -353,8 +355,10 @@ impl Drop for NativeSheets {
 
 impl NativeSheets {
     /// Publishes completed immutable pages; pack replacement drops the whole namespace.
-    pub(super) fn collect(&mut self) {
+    pub(super) fn collect(&mut self) -> bool {
+        let mut completed = false;
         while let Ok((key, sheet)) = self.receiver.try_recv() {
+            completed = true;
             self.pending = None;
             if let Some(sheet) = sheet {
                 self.pages
@@ -365,6 +369,15 @@ impl NativeSheets {
                 self.fail(key);
             }
         }
+        if let Some(job) = self.retry.take() {
+            if let Some(worker) = worker() {
+                self.submit(worker, job);
+            } else {
+                self.fail(job.key);
+                completed = true;
+            }
+        }
+        completed
     }
 
     /// Requests one original image while keeping decoded bytes and page count within the pack budget.
@@ -372,6 +385,7 @@ impl NativeSheets {
         if self.loaded.iter().any(|(name, _)| name == key)
             || self.failed.contains(key)
             || self.pending.is_some()
+            || self.retry.is_some()
         {
             return;
         }
@@ -397,8 +411,16 @@ impl NativeSheets {
             cancelled: Arc::clone(&self.cancelled),
             done: self.sender.clone(),
         };
-        if worker.try_send(job).is_ok() {
-            self.pending = Some(key.to_owned());
+        self.submit(worker, job);
+    }
+
+    /// Retains one bounded request when another pack occupies the shared decode queue.
+    fn submit(&mut self, worker: &Sender<Job>, job: Job) {
+        let key = job.key.clone();
+        match worker.try_send(job) {
+            Ok(()) => self.pending = Some(key),
+            Err(TrySendError::Full(job)) => self.retry = Some(job),
+            Err(TrySendError::Disconnected(_)) => self.fail(key),
         }
     }
 

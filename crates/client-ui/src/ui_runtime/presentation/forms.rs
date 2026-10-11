@@ -51,6 +51,8 @@ pub mod model;
 pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
+#[cfg(test)]
+mod retained_image_tests;
 mod retained_menu;
 pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
@@ -303,6 +305,19 @@ impl UiPresentationRuntime {
             .collect();
         if let Some(engine) = self.form_presentation.engine.as_mut() {
             engine.textures.set_full_res(full_res);
+        }
+    }
+
+    /// Publishes completed original images before a saved menu frame can be reused.
+    pub(super) fn poll_server_ui_images(&mut self) {
+        if self
+            .form_presentation
+            .engine
+            .as_mut()
+            .is_some_and(|engine| engine.poll_native_images())
+        {
+            self.retained_menu = None;
+            self.sync_server_ui_pages();
         }
     }
 

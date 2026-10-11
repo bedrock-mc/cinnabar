@@ -431,6 +431,11 @@ impl ServerAtlas {
         Some(sheet.quads(uv, dest, first))
     }
 
+    /// Collects image completions before a retained menu can reuse its saved frame.
+    pub(super) fn poll_native_images(&mut self) -> bool {
+        self.native.collect()
+    }
+
     /// Original virtual-image pages, separate from the ordinary small atlas.
     pub(super) fn native_pages(&self) -> &[UiTexturePage] {
         self.native.pages()
