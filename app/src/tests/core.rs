@@ -296,19 +296,17 @@ pub(super) fn overworld_biome_payload() -> Vec<u8> {
 
 pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
     // A wall-clock bound, not a spin count: decode workers can be starved on a loaded machine.
-    let deadline = std::time::Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
-    while std::time::Instant::now() < deadline {
-        stream.poll([0.0; 3], 0);
-        let stats = stream.stats();
-        if stats.queued_decode_jobs == 0
-            && stats.in_flight_decode_jobs == 0
-            && stats.completed_decode_results == 0
-        {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    panic!("world stream decode did not complete");
+    test_time::eventually_within(
+        WORLD_STREAM_COMPLETION_TIMEOUT,
+        "world stream decode to complete",
+        || {
+            stream.poll([0.0; 3], 0);
+            let stats = stream.stats();
+            stats.queued_decode_jobs == 0
+                && stats.in_flight_decode_jobs == 0
+                && stats.completed_decode_results == 0
+        },
+    );
 }
 
 #[test]
@@ -1023,14 +1021,12 @@ fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_fina
 
 /// Polls the public mesh boundary while background work catches up.
 fn wait_for_mesh_publication<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
-    let deadline = Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
-    while Instant::now() < deadline {
-        if let Some(publication) = poll() {
-            return Some(publication);
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    None
+    let mut publication = None;
+    test_time::wait_until(WORLD_STREAM_COMPLETION_TIMEOUT, || {
+        publication = poll();
+        publication.is_some()
+    });
+    publication
 }
 
 #[test]

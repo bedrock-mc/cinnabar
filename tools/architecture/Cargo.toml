@@ -12,6 +12,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror.workspace = true
 toml = "0.9"
 
+proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 
 [dev-dependencies]

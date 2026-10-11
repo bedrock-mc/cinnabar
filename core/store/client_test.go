@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
@@ -308,10 +310,7 @@ func TestPurchaseLocksTheOfferWhileInFlight(t *testing.T) {
 		_, err := client.Purchase(context.Background(), request("purchase-0000000003", "offer-3"))
 		done <- err
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for server.calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	testwait.WaitUntil(5*time.Second, func() bool { return server.calls.Load() != 0 })
 	if _, err := client.Purchase(context.Background(), request("purchase-0000000004", "offer-3")); !errors.Is(err, ErrPurchaseBusy) {
 		t.Fatalf("second purchase err = %v", err)
 	}

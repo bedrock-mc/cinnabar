@@ -241,7 +241,7 @@ fn attached_servers_relay_commands_and_replies() {
                 pending.reply.send(outcome);
                 return;
             }
-            std::thread::sleep(Duration::from_millis(5));
+            test_time::idle();
         }
         panic!("no command arrived");
     });
@@ -275,7 +275,7 @@ fn a_timed_out_reply_does_not_desynchronise_later_calls() {
                     return;
                 }
             }
-            std::thread::sleep(Duration::from_millis(5));
+            test_time::idle();
         }
         panic!("commands did not arrive");
     });

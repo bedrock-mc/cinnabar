@@ -22,6 +22,24 @@ pub(super) struct Policy {
     pub(super) module_boundaries: Vec<ModuleBoundary>,
     #[serde(default)]
     pub(super) reexport_allowances: Vec<ReexportAllowance>,
+    #[serde(default)]
+    pub(super) timing: TimingRules,
+}
+
+/// Tests never sleep, and listed crates never read the clock outside tests.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct TimingRules {
+    #[serde(default)]
+    pub(super) clock_free_crates: Vec<String>,
+    #[serde(default)]
+    pub(super) sleep_exceptions: Vec<SleepException>,
+}
+
+/// A test file that may sleep until it is converted; the reason says why.
+#[derive(Debug, Deserialize)]
+pub(super) struct SleepException {
+    pub(super) path: String,
+    pub(super) reason: String,
 }
 
 /// Temporary, individually named forwarding APIs retained during an ownership migration.

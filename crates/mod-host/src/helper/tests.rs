@@ -53,7 +53,7 @@ fn completion(helper: &mut Helper) -> Result<Reply> {
             return result;
         }
         assert!(since.elapsed() < Duration::from_secs(5));
-        std::thread::sleep(Duration::from_millis(1));
+        test_time::idle();
     }
 }
 

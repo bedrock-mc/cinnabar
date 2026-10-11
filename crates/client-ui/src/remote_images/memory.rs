@@ -249,13 +249,9 @@ pub mod tests {
     }
 
     pub(crate) fn settle(images: &RemoteImages, url: &str) -> RemoteState {
-        for _ in 0..250 {
-            let state = images.state(url);
-            if state != RemoteState::Loading {
-                return state;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        test_time::wait_until(Duration::from_secs(5), || {
+            images.state(url) != RemoteState::Loading
+        });
         images.state(url)
     }
 

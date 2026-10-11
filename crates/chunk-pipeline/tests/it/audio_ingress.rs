@@ -72,7 +72,7 @@ fn audio_fifo_survives_interleaved_weather_and_block_updates() {
                 stream.committed_sequence(),
                 stream.stats()
             );
-            std::thread::sleep(Duration::from_millis(1));
+            test_time::idle();
         }
         let committed = stream.take_committed_audio();
         assert_eq!(committed.len(), 2);

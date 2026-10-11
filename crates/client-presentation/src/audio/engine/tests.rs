@@ -104,13 +104,10 @@ fn undecoded_sounds_start_on_a_later_pump() {
     assert!(engine.pump(None, 0.01, &settings).is_empty());
     assert_eq!(engine.pending.len(), 1);
     let mut started = Vec::new();
-    for _ in 0..2000 {
+    test_time::eventually("the queued sound to start", || {
         started = engine.pump(None, 0.0, &settings);
-        if !started.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+        !started.is_empty()
+    });
     assert_eq!(started.len(), 1);
     assert!(engine.pending.is_empty());
     engine.enqueue(SoundRequest::new("random.pop"));
@@ -189,14 +186,11 @@ fn pending_loops_are_not_duplicated() {
     );
     // Held so the started voice stays alive.
     let mut started = Vec::new();
-    for _ in 0..2000 {
+    test_time::eventually("the replacement sound to start", || {
         started.extend(engine.pump(None, 0.0, &settings));
         assert!(engine.pending.len() <= 1);
-        if !started.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+        !started.is_empty()
+    });
     assert_eq!(started.len(), 1);
     assert!(engine.pump(None, 0.0, &settings).is_empty());
     let _ = std::fs::remove_file(path);

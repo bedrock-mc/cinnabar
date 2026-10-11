@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"golang.org/x/oauth2"
@@ -169,9 +171,7 @@ func TestKeepFreshRunsOncePerAccount(t *testing.T) {
 		defer close(first)
 		account.KeepFresh(context.Background())
 	}()
-	for !account.refreshing.Load() {
-		time.Sleep(time.Millisecond)
-	}
+	testwait.Eventually(t, testwait.DefaultTimeout, "the first refresh to start", account.refreshing.Load)
 	second := make(chan struct{})
 	go func() {
 		defer close(second)

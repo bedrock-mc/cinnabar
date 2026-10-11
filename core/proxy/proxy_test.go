@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -765,7 +767,7 @@ func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout ti
 		if !time.Now().Before(deadline) {
 			t.Fatalf("goroutine stack %q presence = %v, want %v\n%s", substring, present, want, stacks.String())
 		}
-		time.Sleep(5 * time.Millisecond)
+		testwait.Idle()
 	}
 }
 
@@ -944,14 +946,9 @@ func assertProxyTextInOrder(t *testing.T, text string, parts ...string) {
 
 func waitForWrites(t *testing.T, session *fakeUpstream, count int) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if len(session.written()) >= count {
-			return
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.WaitUntil(time.Second, func() bool { return len(session.written()) >= count }) {
+		t.Fatalf("forwarded %d packets, want at least %d", len(session.written()), count)
 	}
-	t.Fatalf("forwarded %d packets, want at least %d", len(session.written()), count)
 }
 
 type packetResult struct {
@@ -1445,16 +1442,11 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	_ = client.WritePacket(&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42})
 	_ = client.Flush()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	testwait.WaitUntil(5*time.Second, func() bool {
 		mu.Lock()
-		n := len(upstreamReceived)
-		mu.Unlock()
-		if n >= 4 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(upstreamReceived) >= 4
+	})
 	time.Sleep(200 * time.Millisecond) // let any stray duplicate arrive
 	mu.Lock()
 	defer mu.Unlock()

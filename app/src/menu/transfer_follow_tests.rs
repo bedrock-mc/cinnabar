@@ -316,24 +316,25 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
         app.update();
     }
     // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
-    let spawned = std::time::Instant::now();
-    while app.world().resource::<MenuRuntime>().is_connecting()
-        && !app
-            .world_mut()
-            .resource_mut::<SessionController>()
-            .core_mut()
-            .exited()
-    {
-        assert!(
-            spawned.elapsed() < std::time::Duration::from_secs(60),
-            "stub core never exited"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    while app.world().resource::<MenuRuntime>().is_connecting() {
+    test_time::eventually_within(
+        std::time::Duration::from_secs(60),
+        "the stub core to exit",
+        || {
+            !app.world().resource::<MenuRuntime>().is_connecting()
+                || app
+                    .world_mut()
+                    .resource_mut::<SessionController>()
+                    .core_mut()
+                    .exited()
+        },
+    );
+    test_time::eventually("the connect attempt to finish", || {
+        if !app.world().resource::<MenuRuntime>().is_connecting() {
+            return true;
+        }
         app.update();
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        false
+    });
     assert!(!app.world().resource::<SessionController>().join_pending());
     let menu = app.world().resource::<MenuRuntime>();
     // The exit is seen, not the start timeout (a new executable's first

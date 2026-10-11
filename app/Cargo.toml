@@ -118,6 +118,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+test-time = { path = "../crates/test-time" }
 wit-component.workspace = true
 tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }
