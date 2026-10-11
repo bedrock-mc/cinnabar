@@ -396,6 +396,7 @@ pub(super) fn evaluate_state(
     .then(|| super::render_frame::FrameState {
         samples_camera_poses: false,
         samples_swing_poses: false,
+        selection_effects: evaluation::MolangEffects::default(),
         retained_pose_effects: evaluation::MolangEffects::default(),
         motion: super::render_frame::swell_endpoint::SwellMotion {
             variables: variables.clone(),
@@ -488,6 +489,7 @@ pub(super) fn evaluate_state(
                 .as_ref()
                 .is_some_and(|s| s.samples_clips()),
     );
+    let selection_capture = render_frame.as_ref().map(|_| variables.begin_effects());
     let mut weighted_clips = selection::select(
         &evaluator,
         &mut variables,
@@ -538,6 +540,9 @@ pub(super) fn evaluate_state(
         super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
         previous_clocks.clone()
     };
+    if let Some(capture) = selection_capture {
+        render_frame.as_mut().unwrap().selection_effects = variables.finish_effects(capture);
+    }
     if let Some(frame) = render_frame.as_mut() {
         frame.samples_camera_poses = state.samples_camera_poses
             && super::render_frame::camera::needs_active_pose_sampling(

@@ -163,17 +163,73 @@ fn needs_pose_sampling(
     })
 }
 
-/// Selected layers sample their mapped presentation channels without changing body endpoints.
+/// Inputs compared after the selected layer's render-controller expressions have run.
+pub(super) struct LayerInputs<'a> {
+    pub variables: &'a MolangVariables,
+    pub completed: &'a MolangVariables,
+    pub presentation_changed: bool,
+}
+
+/// Selected layers respond to presentation queries and changed authored reads independently.
 pub(super) fn layer_needs_pose_sampling(
-    assets: &RuntimeEntityAssets,
+    evaluator: &evaluation::Evaluator<'_>,
     clips: &[tick::WeightedClip],
     geometry: u32,
-    swing: bool,
-) -> bool {
-    clips.iter().any(|active| {
-        render::clip_for_layer(assets, *active, geometry)
-            .is_some_and(|mapped| camera_clip(assets, mapped.clip, swing))
-    })
+    inputs: LayerInputs<'_>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<bool, EvalError> {
+    for active in clips {
+        budget.charge_work()?;
+        if let Some(mapped) = render::clip_for_layer(evaluator.assets, *active, geometry)
+            && clip_inputs_changed(evaluator, mapped.clip, &inputs, budget)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Checks channel reads within the frame work budget after render-controller writes.
+fn clip_inputs_changed(
+    evaluator: &evaluation::Evaluator<'_>,
+    clip: usize,
+    inputs: &LayerInputs<'_>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<bool, EvalError> {
+    let assets = evaluator.assets;
+    let clip = &assets.animation_clips()[clip];
+    let first = clip.first_channel as usize;
+    for channel in &assets.animation_channels()[first..first + clip.channel_count as usize] {
+        budget.charge_work()?;
+        let first = channel.first_keyframe as usize;
+        for keyframe in
+            &assets.animation_keyframes()[first..first + channel.keyframe_count as usize]
+        {
+            budget.charge_work()?;
+            for &expression in keyframe.expressions.iter().flatten() {
+                let expression = &assets.molang_expressions()[expression as usize];
+                let first = expression.first_op as usize;
+                for op in &assets.molang_ops()[first..first + usize::from(expression.op_count)] {
+                    budget.charge_work()?;
+                    if inputs.presentation_changed && camera_op(assets, op, false) {
+                        return Ok(true);
+                    }
+                    let symbol = match op {
+                        MolangOp::LoadVariable(symbol) => *symbol,
+                        MolangOp::Coalesce(branch) => branch.symbol,
+                        _ => continue,
+                    };
+                    if inputs
+                        .variables
+                        .read_changed(inputs.completed, evaluator.layout, symbol)
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Detects camera capability across every geometry the render controllers can select.
@@ -240,37 +296,38 @@ fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) ->
     assets
         .molang_ops()
         .get(first..first + usize::from(expression.op_count))
-        .is_some_and(|ops| {
-            ops.iter().any(|op| {
-                let symbol = match op {
-                    MolangOp::LoadVariable(symbol) => *symbol,
-                    MolangOp::LoadQuery(symbol) if !swing => *symbol,
-                    MolangOp::CallQuery(call) if !swing => call.symbol,
-                    _ => return false,
-                };
-                assets
-                    .molang_symbols()
-                    .get(symbol as usize)
-                    .is_some_and(|symbol| {
-                        if swing {
-                            return symbol.identifier.as_ref() == "variable.attack_time"
-                                || symbol.identifier.starts_with("variable.fp_melee_spear_")
-                                || symbol.identifier.starts_with("variable.tp_melee_spear_");
-                        }
-                        symbol
-                            .identifier
-                            .starts_with("variable.fp_melee_spear_use_")
-                            || symbol
-                                .identifier
-                                .starts_with("variable.tp_melee_spear_use_")
-                            || matches!(
-                                symbol.identifier.as_ref(),
-                                "query.camera_distance_range_lerp"
-                                    | "query.camera_rotation"
-                                    | "query.distance_from_camera"
-                                    | "query.rotation_to_camera"
-                            )
-                    })
-            })
+        .is_some_and(|ops| ops.iter().any(|op| camera_op(assets, op, swing)))
+}
+
+/// Identifies the presentation input consumed by one authored instruction.
+fn camera_op(assets: &RuntimeEntityAssets, op: &MolangOp, swing: bool) -> bool {
+    let symbol = match op {
+        MolangOp::LoadVariable(symbol) => *symbol,
+        MolangOp::LoadQuery(symbol) if !swing => *symbol,
+        MolangOp::CallQuery(call) if !swing => call.symbol,
+        _ => return false,
+    };
+    assets
+        .molang_symbols()
+        .get(symbol as usize)
+        .is_some_and(|symbol| {
+            if swing {
+                return symbol.identifier.as_ref() == "variable.attack_time"
+                    || symbol.identifier.starts_with("variable.fp_melee_spear_")
+                    || symbol.identifier.starts_with("variable.tp_melee_spear_");
+            }
+            symbol
+                .identifier
+                .starts_with("variable.fp_melee_spear_use_")
+                || symbol
+                    .identifier
+                    .starts_with("variable.tp_melee_spear_use_")
+                || matches!(
+                    symbol.identifier.as_ref(),
+                    "query.camera_distance_range_lerp"
+                        | "query.camera_rotation"
+                        | "query.distance_from_camera"
+                        | "query.rotation_to_camera"
+                )
         })
 }

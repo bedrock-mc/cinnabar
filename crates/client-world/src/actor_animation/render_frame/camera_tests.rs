@@ -997,3 +997,5 @@ fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
         pose::quat_from_euler([-0.4375, 0.0, 0.0]),
     );
 }
+
+mod dependency_tests;
