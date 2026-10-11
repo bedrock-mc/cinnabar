@@ -1,7 +1,7 @@
-use super::*;
 use crate::runtime::network::NetworkHandle;
 use crate::runtime::world::advance_dimension_transfer;
 use bevy::prelude::IntoScheduleConfigs;
+use {super::*, gameplay::movement::flush_player_auth_inputs};
 
 #[test]
 fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_input() {
@@ -12,7 +12,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     let mut app = wiring_app(authorized_ticker(false), physics);
     let (network, mut captured) = NetworkHandle::stub_capturing_packets();
     app.insert_resource(network)
-        .insert_resource(crate::camera::AutoFly::new(false))
+        .insert_resource(client_presentation::camera::AutoFly::new(false))
         .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
         .add_systems(
             Update,

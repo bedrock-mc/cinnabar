@@ -658,25 +658,38 @@ impl PlayerInventoryLedger {
         personal_expired
     }
 
-    fn poll_personal_timeout(&mut self, now_millis: u64) -> bool {
-        let Some(personal) = self.personal else {
-            return false;
-        };
-        let expired = match personal {
-            PersonalWindow::Opening {
-                admitted: true,
-                deadline_millis: Some(deadline),
-                ..
-            }
-            | PersonalWindow::Closing {
-                deadline_millis: Some(deadline),
-                ..
-            } => now_millis >= deadline,
+    /// Whether polling can change a deadline, request, or deferred close.
+    pub(crate) fn timeout_work_due(&self, now_millis: u64) -> bool {
+        self.personal_timeout_due(now_millis)
+            || self.request_timeout_work_due(now_millis)
+            || self.settled_close_index().is_some()
+    }
+
+    /// Tests the personal window's existing admitted deadline without mutating it.
+    fn personal_timeout_due(&self, now_millis: u64) -> bool {
+        match self.personal {
+            Some(
+                PersonalWindow::Opening {
+                    admitted: true,
+                    deadline_millis: Some(deadline),
+                    ..
+                }
+                | PersonalWindow::Closing {
+                    deadline_millis: Some(deadline),
+                    ..
+                },
+            ) => now_millis >= deadline,
             _ => false,
-        };
-        if !expired {
+        }
+    }
+
+    fn poll_personal_timeout(&mut self, now_millis: u64) -> bool {
+        if !self.personal_timeout_due(now_millis) {
             return false;
         }
+        let personal = self
+            .personal
+            .expect("an expired personal window was observed");
         let generation = personal.generation();
         self.pending_closes
             .retain(|close| close.owner.personal_generation() != Some(generation));

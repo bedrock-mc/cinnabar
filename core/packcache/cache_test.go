@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
+
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -353,12 +355,9 @@ func TestExclusiveLeaseAcrossProcess(t *testing.T) {
 		if err := os.WriteFile(ready, []byte("ready"), 0o600); err != nil {
 			os.Exit(3)
 		}
-		for i := 0; i < 500; i++ {
-			if _, err := os.Stat(stop); err == nil {
-				_ = c.Close()
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
+		if testwait.WaitUntil(5*time.Second, func() bool { _, err := os.Stat(stop); return err == nil }) {
+			_ = c.Close()
+			return
 		}
 		os.Exit(4)
 	}
@@ -378,12 +377,7 @@ func TestExclusiveLeaseAcrossProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.WriteFile(stop, nil, 0o600); _ = cmd.Wait() }()
-	for i := 0; i < 500; i++ {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testwait.WaitUntil(5*time.Second, func() bool { _, err := os.Stat(ready); return err == nil })
 	if _, err := os.Stat(ready); err != nil {
 		t.Fatal("helper did not acquire lease")
 	}
@@ -403,12 +397,7 @@ func TestDeadHolderLeaseIsReclaimed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	for i := 0; i < 500; i++ {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testwait.WaitUntil(5*time.Second, func() bool { _, err := os.Stat(ready); return err == nil })
 	if _, err := New(root); !errors.Is(err, ErrInUse) {
 		t.Fatalf("New beside a live holder = %v, want ErrInUse", err)
 	}

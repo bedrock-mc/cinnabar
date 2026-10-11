@@ -21,18 +21,8 @@ pub mod server;
 mod settings;
 
 #[cfg(feature = "execution")]
-pub use experience_sdk::mod_manifest::{KEY_NAMES, KeyDecl, Modifier};
-#[cfg(feature = "execution")]
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
-#[cfg(feature = "execution")]
-pub use mod_api::{
-    MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_ITEM_IDENTIFIER_BYTES, MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
-    MAX_PLAYER_STATE_EFFECTS,
-};
-#[cfg(feature = "execution")]
-pub use mod_render;
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob,

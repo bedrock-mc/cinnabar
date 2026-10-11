@@ -1,20 +1,8 @@
 //! Bevy resource and system adapters for the gameplay crate.
 use bevy::prelude::Resource;
-#[cfg(test)]
-pub(crate) use gameplay::movement::flush_player_auth_inputs;
-pub use gameplay::movement::{
-    CorrectionKind, CorrectionShape, InteractionPacketGuard, LocalPhysicsFrame,
-    MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, MiningEffects, ModeIntent, MovementOutboxReconciliation,
-    MovementSendError, MovementSource, OUTBOX_CAPACITY, PhysicsAnchor, PhysicsAuthorityFault,
-    PhysicsCollisionRegistryError, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
-    PhysicsMovementSample, PhysicsSampleContext, PhysicsSendIdentity, PhysicsTickEvidence,
-    PhysicsTickEvidenceContext, ProcessedMovementState, RideKind, ServerTeleportKind,
-    flush_player_auth_inputs_guarded, local_facts, note_click_drop, note_correction, note_motion,
-    pending_trace_line, physics_movement_input, reconcile_candidate_physics_correction,
-    reconcile_committed_correction, reconcile_move_player_teleport, reconcile_physics_anchor,
-    reconcile_prediction_correction, reconcile_timeline_rewind, reset_start_game_prediction, trace,
-    trace_local_attributes, trace_server_control, write_trace_line,
-};
+
+pub use gameplay::movement::{InteractionPacketGuard, PhysicsSendIdentity};
+
 mod prediction_sync;
 mod runtime_system;
 pub(crate) use prediction_sync::send_movement_prediction_sync;

@@ -1,6 +1,6 @@
-use super::*;
-use crate::menu::{MenuScreen, MenuServerCard, MenuView, PingInfo, SavedServer};
 use launcher::menu::server_list::{ServerGroup, ServerListAction};
+use launcher::menu::{MenuScreen, MenuServerCard, MenuView, PingInfo, SavedServer};
+use {super::*, launcher::menu::MenuAction};
 
 /// Two featured and saved entries expose selected and unrelated ping states.
 pub(super) fn servers_view() -> MenuView {
@@ -27,7 +27,7 @@ pub(super) fn servers_view() -> MenuView {
         .collect();
     view.feeds.details.insert(
         view.featured[1].address.clone(),
-        crate::menu::ServerDetails {
+        launcher::menu::ServerDetails {
             group: "creator".into(),
             ..Default::default()
         },

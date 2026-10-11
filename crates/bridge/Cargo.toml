@@ -24,6 +24,7 @@ rustix = { version = "1", default-features = false, features = ["net", "process"
 tempfile = "3"
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 tempfile = "3"
 
 [lints]

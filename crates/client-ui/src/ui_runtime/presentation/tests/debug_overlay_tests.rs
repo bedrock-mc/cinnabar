@@ -50,8 +50,8 @@ fn debug_lines_add_geometry_and_clearing_them_restores_the_frame() {
 
 #[test]
 fn menus_and_other_screens_hide_debug_until_gameplay_resumes() {
-    use crate::menu::{MenuScreen, MenuView};
     use crate::ui_runtime::presentation::LoadingStage;
+    use launcher::menu::{MenuScreen, MenuView};
 
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
@@ -667,9 +667,9 @@ fn changes_outside_displayed_rows_keep_paint_and_glyphs() {
 
 #[test]
 fn diagnostic_eligibility_matches_the_rendered_stack_without_allocations() {
-    use crate::menu::{MenuScreen, MenuView};
     use crate::ui_runtime::presentation::LoadingStage;
     use crate::ui_runtime::scene_stack::Scene;
+    use launcher::menu::{MenuScreen, MenuView};
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime

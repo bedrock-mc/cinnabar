@@ -57,7 +57,7 @@ fn mode_defaults_follow_the_gamemode_table() {
     assert!(!spectator.can_use_blocks() && !spectator.can_mine && !spectator.can_attack);
     assert!(!spectator.can_use_items, "spectators cannot use held items");
     assert!(survival.can_use_items && creative.can_use_items && adventure.can_use_items);
-    assert!(spectator.can_fly && spectator.flying && spectator.invulnerable);
+    assert!(!spectator.can_fly && spectator.flying && spectator.invulnerable);
     assert!(!spectator.visible && !spectator.has_collision);
     assert_eq!(spectator.attack_reach, 0.0);
 
@@ -82,6 +82,15 @@ fn adventure_with_build_permission_can_edit() {
     );
     // A grant does not fabricate the other creative privileges.
     assert!(!caps.can_fly && !caps.instant_break && !caps.creative_inventory);
+}
+
+#[test]
+fn spectator_mode_suppresses_stale_build_and_flight_toggle_permissions() {
+    let base = update(vec![layer(u32::MAX, u32::MAX)]);
+    let caps = GameModeCapabilities::resolve(Spectator, Some(&base));
+    assert!(!caps.can_use_blocks() && !caps.can_mine && !caps.can_attack);
+    assert!(caps.flying && !caps.has_collision);
+    assert!(!caps.can_fly, "spectator flight cannot be toggled off");
 }
 
 /// Build and Mine are separate grants; neither implies the other.

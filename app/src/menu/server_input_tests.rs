@@ -12,11 +12,13 @@ use bevy::{
 };
 use ui::{DpiScale, UiPoint, UiVisual};
 
-use super::*;
-use crate::ui_runtime::presentation::forms::pack_harness;
 use client_ui::ui_runtime::{
     UiRuntime,
     presentation::{UiPresentationRuntime, forms::snapshot},
+};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuField, MenuScreen},
 };
 
 #[derive(Resource)]
@@ -99,7 +101,7 @@ impl Harness {
     /// Uses a temporary user directory; never touches the owner's saved servers.
     fn new(dpi: f32) -> Option<Self> {
         let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
-        let mut presentation = pack_harness::engine_presentation()?;
+        let mut presentation = client_ui::test_support::pack_harness::engine_presentation()?;
         let frame = presentation
             .build(
                 &player_runtime,
@@ -109,7 +111,7 @@ impl Harness {
                 DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        let root = pack_harness::scratch_dir("server-input");
+        let root = client_ui::test_support::pack_harness::scratch_dir("server-input");
         let mut layout = crate::install_layout::checkout();
         layout.user_config_root = root.clone();
         let menu = MenuRuntime::new_with_layout(
@@ -130,7 +132,7 @@ impl Harness {
             .insert_resource(presentation)
             .insert_resource(menu)
             .insert_resource(Frame(frame))
-            .insert_resource(pack_harness::menu_runtime())
+            .insert_resource(client_ui::test_support::pack_harness::menu_runtime())
             .init_resource::<FrameTime>()
             .insert_resource(MenuClipboard::with_access(
                 move |limit| {
@@ -222,7 +224,7 @@ impl Harness {
     /// Checks each rendered field by its own hit rectangle, so swapped/stale text fails.
     fn fields(&self, expected: [&str; 3], focused: MenuField) {
         let presentation = self.app.world().resource::<UiPresentationRuntime>();
-        let nodes = pack_harness::menu_nodes(presentation);
+        let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
         let caret = self.app.world().resource::<MenuRuntime>().view().caret;
         let selected = caret.selection.is_some();
         let (mut rendered_carets, mut literal_carets) = (0, 0);
@@ -267,7 +269,7 @@ impl Harness {
                 MenuAction::AddAddress => "addExternalServerScreen.ipPlaceholder",
                 _ => "",
             };
-            let placeholder = pack_harness::menu_translation(
+            let placeholder = client_ui::test_support::pack_harness::menu_translation(
                 self.app.world().resource::<UiRuntime>(),
                 placeholder,
             );
@@ -307,7 +309,7 @@ impl Harness {
                         &self.app.world().resource::<MenuRuntime>().view().address
                     ]
                 );
-                pack_harness::dump(nodes);
+                client_ui::test_support::pack_harness::dump(nodes);
                 snapshot::write(&self.app.world().resource::<Frame>().0, "input-failure");
             }
             assert_eq!(actual, wanted, "rendered value in {action:?}");

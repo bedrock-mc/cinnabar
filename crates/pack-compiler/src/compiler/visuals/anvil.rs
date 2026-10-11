@@ -1,10 +1,10 @@
 //! Anvils share a four-piece silhouette and rotate about the vertical block axis.
 
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const PIECES: [([i16; 3], [i16; 3]); 4] = [
     ([32, 0, 32], [224, 64, 224]),

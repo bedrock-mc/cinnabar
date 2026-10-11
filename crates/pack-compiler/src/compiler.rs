@@ -19,15 +19,18 @@ use assets::{
     VisualSupport,
 };
 
-use crate::{
-    AnimationInventory, BlockFace, PackSources, TextureKey,
-    animation::{
-        AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
-        compile_animation_plan_selected,
+use {
+    crate::{
+        AnimationInventory, PackSources, TextureKey,
+        animation::{
+            AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
+            compile_animation_plan_selected,
+        },
+        compile_biome_assets,
+        image::{decode_static_texture, decode_texture, normalize_texture_tile},
+        pack::{read_pack, resolve_texture_key},
     },
-    compile_biome_assets,
-    image::{decode_static_texture, decode_texture, normalize_texture_tile},
-    pack::{read_pack, resolve_texture_key},
+    assets::BlockFace,
 };
 
 mod classification;

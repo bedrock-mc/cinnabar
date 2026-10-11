@@ -1,7 +1,7 @@
 //! Sign-in prompts own input even when another route was being edited.
 
 use super::*;
-use crate::menu::{AuthState, MenuAction, MenuField, MenuScreen};
+use launcher::menu::{MenuAction, MenuField, MenuScreen, auth::AuthState};
 
 #[test]
 fn device_prompt_releases_hidden_text_and_escape_cancels_first() {
@@ -45,7 +45,7 @@ fn sign_in_close_cancels_like_the_button_above_a_hidden_editor() {
                 target: SkinEditorTarget::Skin,
                 draft: "Saved draft".into(),
             });
-            menu.dialog = Some(crate::menu::MenuDialog::Accounts);
+            menu.dialog = Some(launcher::menu::MenuDialog::Accounts);
             menu.feeds.account_adding = adding_account;
             menu.sign_in_requested = true;
             menu.apply_control_auth(auth);
@@ -184,7 +184,7 @@ fn device_prompt_releases_pending_binding_capture() {
 #[test]
 fn a_device_code_keeps_confirmation_focus_until_the_dialog_closes() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    menu.dialog = Some(crate::menu::MenuDialog::Exit);
+    menu.dialog = Some(launcher::menu::MenuDialog::Exit);
     menu.focused = 1;
     menu.apply_control_auth(AuthState::AwaitingCode {
         uri: "https://example.invalid".into(),
@@ -210,7 +210,7 @@ fn completed_add_account_prompt_keeps_cancel_above_a_hidden_editor() {
         target: SkinEditorTarget::Skin,
         draft: "Saved draft".into(),
     });
-    menu.dialog = Some(crate::menu::MenuDialog::Accounts);
+    menu.dialog = Some(launcher::menu::MenuDialog::Accounts);
     menu.feeds.account_adding = true;
     menu.apply_control_auth(AuthState::Authenticated);
     assert_eq!(menu.view().focused_action, Some(MenuAction::CancelSignIn));

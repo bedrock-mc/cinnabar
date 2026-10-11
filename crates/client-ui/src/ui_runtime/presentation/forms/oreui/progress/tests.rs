@@ -1,6 +1,6 @@
 use super::super::super::loading_screen::LoadingStage;
 use super::super::review_tests::{paint, solids};
-use super::*;
+use {super::*, launcher::menu::MenuView};
 
 fn loading(stage: LoadingStage, seconds: f64) -> Vec<ui::UiNode> {
     use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime};
@@ -251,7 +251,7 @@ fn download_progress_is_determinate_and_clamps_invalid_input() {
 
 #[test]
 fn loading_logo_and_status_form_one_compact_centered_group() {
-    use crate::ui_runtime::presentation::{IconRef, menu_artwork::TITLE_KEY};
+    use {crate::ui_runtime::presentation::menu_artwork::TITLE_KEY, ui::IconRef};
     static ART: std::sync::OnceLock<std::collections::HashMap<String, IconRef>> =
         std::sync::OnceLock::new();
     let art = ART.get_or_init(|| {

@@ -1,5 +1,7 @@
 //! Exercises fractional-scale label strokes through retained JSON-UI paint and physical rasterization.
 
+mod coordinates;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
@@ -14,10 +16,11 @@ use ui::{
 use super::super::pixel_snap::positioned;
 use super::painted_label_request;
 use crate::ui_runtime::presentation::forms::snapshot::rasterize;
-use crate::ui_runtime::presentation::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime, rect,
-};
 use crate::ui_runtime::render_adapter::{UiRenderViewport, adapt_ui_draw_list};
+use {
+    crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, rect},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 /// Ink rows of every stroke glyph, as tall as Cinnangles Sans capitals.
 const INK_ROWS: u16 = 14;

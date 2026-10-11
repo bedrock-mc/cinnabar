@@ -6,12 +6,15 @@ use bevy::prelude::{App, ButtonInput, KeyCode, MouseButton, Vec2, Window};
 use ui::{DpiScale, UiNode, UiVisual};
 
 use super::super::UiPresentationRuntime;
-use super::super::forms::pack_harness::{drawn_texts, engine_presentation};
-use crate::{
-    menu::{LocalWorldAction, MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen},
-    ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
-};
+use client_ui::test_support::pack_harness::{drawn_texts, engine_presentation};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        menu::{MenuClipboard, MenuRuntime},
+        ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
+    },
+    launcher::menu::{MenuAction, MenuField, MenuScreen, worlds_tab::LocalWorldAction},
+};
 
 const SIZE: [u32; 2] = [1280, 720];
 

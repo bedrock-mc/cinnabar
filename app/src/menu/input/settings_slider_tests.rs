@@ -9,11 +9,11 @@ use bevy::{
 use ui::DpiScale;
 
 use super::*;
-use crate::{
-    menu::{MenuAction, MenuScreen, settings_options::SETTINGS_OPTIONS},
-    ui_runtime::presentation::tests::engine_hud_tests::engine_presentation,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    client_ui::test_support::engine_presentation,
+    launcher::menu::{MenuAction, MenuScreen, settings_options::SETTINGS_OPTIONS},
+};
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 

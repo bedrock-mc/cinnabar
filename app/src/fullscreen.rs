@@ -31,7 +31,7 @@ pub(crate) fn toggle_fullscreen_hotkey(
         .read()
         .filter(|input| {
             input.window == entity
-                && crate::menu::settings_options::binding_key(
+                && crate::menu::settings_options::control_bindings::binding_key(
                     Some(&menu),
                     "key.fullscreen",
                     input.key_code,

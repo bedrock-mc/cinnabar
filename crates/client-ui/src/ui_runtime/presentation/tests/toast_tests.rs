@@ -142,8 +142,8 @@ fn join_request_toast_stands_around_server_toasts_and_takes_presses() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    let title = crate::menu::join_requests::title("Alex");
-    let hint = crate::menu::join_requests::respond_hint("N");
+    let title = launcher::menu::join_requests::title("Alex");
+    let hint = launcher::menu::join_requests::respond_hint("N");
     runtime.stand_toast(ui::StandingToast {
         id: 7,
         title: Arc::from(title.as_str()),

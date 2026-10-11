@@ -7,8 +7,11 @@ use std::sync::Arc;
 
 use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiScale, UiVisual};
 
-use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+use {
+    super::{HudFrame, HudLayout, UiPresentationError, UiRuntime, rect},
+    ui::IconRef,
+};
 
 const PANEL_SIZE: [f32; 2] = [176.0, 166.0];
 const SLOT_SIZE: f32 = 18.0;
@@ -175,9 +178,8 @@ impl HudLayout<'_> {
                 origin[1] + grid[1] + (index / width) as f32 * SLOT_SIZE,
             ];
             self.inventory_slot(slot)?;
-            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
-                first_slot + index as u8,
-            );
+            let target =
+                inventory::inventory_ledger::InventoryTarget::Craft(first_slot + index as u8);
             if let Some(stack) = runtime
                 .inventory_ledger(player_runtime)
                 .target_stack(target)
@@ -518,8 +520,8 @@ impl HudLayout<'_> {
                 text,
                 style: TextStyle::default(),
                 width_64: 128 * 64,
-                line_height_64: super::super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::super::TEXT_BASELINE_64,
+                line_height_64: ui::TEXT_LINE_HEIGHT_64,
+                baseline_64: ui::TEXT_BASELINE_64,
                 scale: UiScale::default(),
                 font: self.font,
                 wrap: Default::default(),

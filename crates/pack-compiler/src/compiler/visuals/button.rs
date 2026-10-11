@@ -1,10 +1,10 @@
-use super::super::*;
 use super::carpets::typed_model_state_value;
 use super::context::{
     ButtonTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, push_model_template,
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
@@ -239,7 +239,7 @@ pub(in crate::compiler) fn button_quads(
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
+    use {super::*, assets::BlockFace};
     #[test]
     fn review_button_face_ids_match_the_transformed_normals() {
         for orientation in 0..=5 {

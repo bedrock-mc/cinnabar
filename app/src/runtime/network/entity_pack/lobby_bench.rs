@@ -18,8 +18,9 @@ use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
-use crate::runtime::network::{
-    HandRigBuilder, advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
+use {
+    crate::runtime::network::{advance_actor_frame, prepare_actor_render_frame},
+    client_presentation::actor_publication::{HandRigBuilder, publish_actor_render_frame},
 };
 
 mod gpu_replay;
@@ -282,7 +283,7 @@ fn build_world(
         &loaded.entities,
     );
     let (equipment, artwork, equipment_geometries) =
-        crate::presentation::equipment::EquipmentRuntime::build(
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog,
             Arc::clone(icons.runtime()),

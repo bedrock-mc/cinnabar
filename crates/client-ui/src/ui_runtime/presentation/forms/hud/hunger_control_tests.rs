@@ -1,9 +1,9 @@
 use super::super::engine::FormEngine;
 use super::super::server_pack::ServerAtlas;
-use super::*;
 use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::SequencedLocalAttributes;
 use ui::{DpiScale, SafeArea, TextLayoutCache};
+use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 /// A server pack placing independently visible hunger controls on separate rows.
 fn engine() -> FormEngine {

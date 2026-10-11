@@ -21,10 +21,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
     ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::*,
+    prelude::{App, First, IntoScheduleConfigs, Last, Plugin, Res, Resource, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};

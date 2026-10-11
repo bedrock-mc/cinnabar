@@ -1,7 +1,10 @@
 //! Profile summary and statistic rows from OreUI `g2` / `h2` / `EJ`.
 use super::super::theme::{BODY, BORDER, CAPTION, NEUTRAL, TEXT_DIMMER, TEXT_DIMMEST};
 use super::super::widgets::Interaction;
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 /// Draws the combined social summary and the available Overview service summaries.
 pub(super) fn overview(
@@ -19,7 +22,7 @@ pub(super) fn overview(
         p.friends.map(|n| n.to_string()).as_deref(),
         p.friends
             .filter(|n| *n > 0)
-            .map(|_| MenuAction::Navigate(crate::menu::MenuScreen::Friends)),
+            .map(|_| MenuAction::Navigate(launcher::menu::MenuScreen::Friends)),
     )?;
     summary(
         canvas,
@@ -106,9 +109,9 @@ pub(super) fn statistics(
             continue;
         };
         let display = if index == 0 {
-            crate::menu::profile_minutes_display(raw)
+            launcher::menu::profile_minutes_display(raw)
         } else {
-            crate::menu::profile_count_display(raw)
+            launcher::menu::profile_count_display(raw)
         };
         let Some(display) = display else {
             continue;

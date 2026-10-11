@@ -9,22 +9,26 @@ use bevy::prelude::{
 use protocol::{AudioEvent, PlayAudioEvent, StopAudioEvent};
 
 use super::*;
-use crate::{
-    app::{
-        ClientBlobCacheOwner, configure_acceptance_finish_system, configure_client_frame_schedule,
-        configure_client_production_frame_systems,
-    },
-    menu::{MenuAction, MenuRuntime},
-    runtime::{
-        network::{NetworkHandle, ResourcePackAdmissionState},
-        world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
-    },
-    session::{drive_session, follow_server_transfer, recover_session_failure},
-    session_audio::{SessionAudio, SessionAudioCatalog, drain_sequenced_audio_into_session},
-};
 use client_presentation::audio_ingress::SequencedAudioEvent;
 use client_presentation::audio_ingress::drain_committed_audio;
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        app::{
+            ClientBlobCacheOwner, configure_acceptance_finish_system,
+            configure_client_frame_schedule, configure_client_production_frame_systems,
+        },
+        menu::MenuRuntime,
+        runtime::{
+            network::{NetworkHandle, ResourcePackAdmissionState},
+            world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
+        },
+        session::{drive_session, follow_server_transfer, recover_session_failure},
+        session_audio::drain_sequenced_audio_into_session,
+    },
+    client_presentation::session_audio::{SessionAudio, SessionAudioCatalog},
+    launcher::menu::MenuAction,
+};
 
 fn audio_event(name: &str) -> WorldEvent {
     WorldEvent::Audio(AudioEvent::Play(PlayAudioEvent {
@@ -111,10 +115,10 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
         .insert_resource(world)
         .init_resource::<crate::environment::WorldClock>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
-        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
-        .init_resource::<crate::local_player::CameraPose>()
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<client_presentation::local_player::CameraPose>()
         .init_resource::<crate::movement::LocalPhysicsController>()
-        .init_resource::<crate::named_audio::NamedAudio>()
+        .init_resource::<client_presentation::named_audio::NamedAudio>()
         .add_systems(Update, crate::named_audio::drain_live_named_audio);
     for event in events {
         app.world_mut()
@@ -124,13 +128,13 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
     app.update();
     let stats = app
         .world()
-        .resource::<crate::named_audio::NamedAudio>()
+        .resource::<client_presentation::named_audio::NamedAudio>()
         .stats();
     assert_eq!((stats.stale, stats.unavailable), (2, 1));
     app.update();
     assert_eq!(
         app.world()
-            .resource::<crate::named_audio::NamedAudio>()
+            .resource::<client_presentation::named_audio::NamedAudio>()
             .stats()
             .stale,
         2
@@ -361,8 +365,8 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(PlayerRuntime::new(1))
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default());
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default());
 }
 
 #[test]

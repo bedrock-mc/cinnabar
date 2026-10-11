@@ -252,9 +252,18 @@ JSON-UI. It has `screen` (`namespace.name`), `document` (a JSON string containin
 that namespace and one root definition), and `bindings` (a map of `#name` to a
 boolean, finite number, bounded text or 2–4-number array). The private catalog
 accepts bounded screen, panel, button, label, stack-panel and rectangle/vector
-custom nodes; factories, inheritance and dynamic expansion are rejected. The
-whole panel is capped at 128 KiB; its document at 96 KiB, 1,024 nodes and depth 32.
-Bindings update without rebuilding unchanged catalog geometry. Host bindings
+custom nodes, scroll views and their track/box controls; factories, inheritance
+and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
+document at 96 KiB, 1,024 nodes and depth 32.
+Bindings update without rebuilding unchanged catalog geometry.
+
+Personal-panel surfaces support JSON-UI scroll views, including wheel input, track
+presses and scrollbar-box dragging. Wheel input stays within the view under the
+pointer; closing the panel or losing focus releases scrollbar capture. Changes
+to content bounds clamp the scroll offset to the visible range. Track mappings
+use `mod.scroll_track` with the view's `scrollbar_track_button` set to that action;
+these presses are consumed by the host without invoking an extension control.
+
 `#surface_width` and `#surface_height` report the current logical viewport.
 With a surface, the optional panel `reference_size` pair declares positive logical
 dimensions up to 1,000,000. Smaller viewports proportionally reduce rendering and

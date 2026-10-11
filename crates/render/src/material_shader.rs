@@ -94,6 +94,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_AUTHORED_FLAG", &format!("{}u", assets::EntityRenderMaterialState::AUTHORED))
         .replace("ACTOR_MATERIAL_ALPHA_TEST_FLAG", &format!("{}u", assets::EntityRenderMaterialState::ALPHA_TEST))
         .replace("ACTOR_MATERIAL_CULL_FLAG", &format!("{}u", assets::EntityRenderMaterialState::CULL))
+        .replace("ACTOR_MATERIAL_BLEND_FLAG", &format!("{}u", assets::EntityRenderMaterialState::BLEND))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
         .replace("ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG", &format!("{}u", assets::EntityRenderMaterialState::DISABLE_OVERLAY))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))

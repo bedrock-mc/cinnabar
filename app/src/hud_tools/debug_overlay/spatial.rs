@@ -3,8 +3,11 @@
 use bevy::prelude::Vec3;
 use chunk_pipeline::WorldStream;
 
-use super::{Column, DebugContext, Lines, LocalPlayerFrameCarrier, LocalViewPose};
 use std::fmt::Write;
+use {
+    super::{Column, DebugContext, Lines},
+    client_presentation::local_player::{LocalPlayerFrameCarrier, LocalViewPose},
+};
 
 /// Diagnostic inspection reach, independent of the server's interaction reach.
 pub(super) const TARGET_RANGE_BLOCKS: f64 = 20.0;

@@ -2,8 +2,8 @@
 
 use serde_json::{Value, json};
 
-use crate::handle;
 use crate::tools::Server;
+use mcp_stdio::handle;
 
 fn examples() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../jsonui-editor/examples")

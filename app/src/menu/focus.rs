@@ -1,8 +1,14 @@
 //! Keyboard and gamepad focus: the actions each launcher screen cycles
 //! through, and moving or activating the focused one.
 
-use super::*;
+use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
 use launcher::menu::view::{SettingsFocusAxis, SettingsFocusLandmark, SettingsFocusTarget};
+use {
+    super::*,
+    launcher::menu::auth::AuthState,
+    launcher::menu::worlds_tab::LocalWorldAction,
+    launcher::menu::{MenuAction, MenuDialog, MenuScreen, MenuServerTab},
+};
 
 mod settings;
 pub(super) use settings::SettingsFocusGeometry;
@@ -59,16 +65,16 @@ impl MenuRuntime {
             && !self.settings_scale_picker
             && let MenuAction::SettingsOption(index, _) = action
         {
-            match settings_options::SETTINGS_OPTIONS
+            match SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .map(|option| option.kind)
             {
-                Some(settings_options::SettingKind::Slider) => {
+                Some(SettingKind::Slider) => {
                     self.settings_slider_selected =
                         (self.settings_slider_selected != Some(index)).then_some(index);
                     return;
                 }
-                Some(settings_options::SettingKind::Toggle) => {
+                Some(SettingKind::Toggle) => {
                     self.activate_from_navigation(self.live_settings_action(action));
                     return;
                 }
@@ -82,11 +88,9 @@ impl MenuRuntime {
     pub(super) fn live_settings_action(&self, action: MenuAction) -> MenuAction {
         match action {
             MenuAction::SettingsOption(index, _)
-                if settings_options::SETTINGS_OPTIONS
+                if SETTINGS_OPTIONS
                     .get(usize::from(index))
-                    .is_some_and(|option| {
-                        matches!(option.kind, settings_options::SettingKind::Toggle)
-                    }) =>
+                    .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)) =>
             {
                 MenuAction::SettingsOption(index, 1 - self.settings_options.get(usize::from(index)))
             }
@@ -114,12 +118,12 @@ impl MenuRuntime {
                 action if picker => action,
                 MenuAction::SettingsOption(index, choice) => {
                     let value = self.settings_options.get(usize::from(index));
-                    let target = match settings_options::SETTINGS_OPTIONS
+                    let target = match SETTINGS_OPTIONS
                         .get(usize::from(index))
                         .map(|option| option.kind)
                     {
-                        Some(settings_options::SettingKind::Toggle) => 1 - value,
-                        Some(settings_options::SettingKind::Slider) => value,
+                        Some(SettingKind::Toggle) => 1 - value,
+                        Some(SettingKind::Slider) => value,
                         _ => choice,
                     };
                     MenuAction::SettingsOption(index, target)
@@ -181,7 +185,7 @@ impl MenuRuntime {
             && self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && let Some(index) = self.settings_slider_selected
-            && let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index))
+            && let Some(option) = SETTINGS_OPTIONS.get(usize::from(index))
         {
             let value = self.settings_options.get(usize::from(index));
             let next = self
@@ -354,17 +358,21 @@ impl MenuRuntime {
                     MenuAction::SettingsConfirmResetBindings(gamepad),
                     MenuAction::DismissDialog,
                 ],
-                MenuDialog::SettingsSupport(super::settings_support::SupportDialog::Help) => vec![
-                    MenuAction::SettingsSupport(super::settings_support::SupportAction::Open(
-                        super::settings_support::SupportLink::Help,
-                    )),
+                MenuDialog::SettingsSupport(
+                    launcher::menu::settings_support::SupportDialog::Help,
+                ) => vec![
+                    MenuAction::SettingsSupport(
+                        launcher::menu::settings_support::SupportAction::Open(
+                            launcher::menu::settings_support::SupportLink::Help,
+                        ),
+                    ),
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::SettingsSupport(_) => vec![MenuAction::DismissDialog],
                 MenuDialog::StorageError => vec![MenuAction::DismissDialog],
                 MenuDialog::StorageDelete => vec![
                     MenuAction::SettingsStorage(
-                        super::settings_storage::StorageAction::ConfirmDelete,
+                        launcher::menu::settings_storage::StorageAction::ConfirmDelete,
                     ),
                     MenuAction::DismissDialog,
                 ],
@@ -410,7 +418,7 @@ impl MenuRuntime {
                     .iter()
                     .position(|action| *action == MenuAction::Navigate(MenuScreen::Social))
                     .expect("home navigation includes Realms");
-                actions.insert(realms + 1, MenuAction::Store(crate::store::OPEN));
+                actions.insert(realms + 1, MenuAction::Store(client_ui::store::OPEN));
                 actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
@@ -565,7 +573,7 @@ impl MenuRuntime {
             }
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::OpenDeathGameMenu],
             MenuScreen::Inbox => {
-                use super::inbox::{Action, CATEGORIES, category_index};
+                use launcher::menu::inbox::{Action, CATEGORIES, category_index};
                 if self.feeds.inbox_state.delete_pending.is_some() {
                     return vec![
                         MenuAction::Inbox(Action::Cancel),
@@ -608,7 +616,7 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
-            MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
+            MenuScreen::Store => vec![MenuAction::Store(launcher::store::StoreAction::Back)],
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
@@ -620,13 +628,10 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
             av == bv
                 || matches!(
-                    settings_options::SETTINGS_OPTIONS
+                    SETTINGS_OPTIONS
                         .get(usize::from(a))
                         .map(|option| option.kind),
-                    Some(
-                        settings_options::SettingKind::Toggle
-                            | settings_options::SettingKind::Slider
-                    )
+                    Some(SettingKind::Toggle | SettingKind::Slider)
                 )
         }
         (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,

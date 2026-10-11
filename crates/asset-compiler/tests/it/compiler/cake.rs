@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionConfidence, ContributorRole, DIAGNOSTIC_MATERIAL,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+        MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelStateField, RegistryRecord, VisualKind,
+        encode_blob, read_registry,
+    },
+    std::path::Path,
+};
 
 fn cake_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
@@ -394,9 +403,10 @@ fn compiler_cake_rejects_nonexact_sources_and_descriptor_aliases() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_cake_records_twice() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK").expect("set PINNED_VANILLA_PACK");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let records = cake_records();
     let first = compile_pack(Path::new(&pack), &records).expect("compile pinned cake family");
     let second =

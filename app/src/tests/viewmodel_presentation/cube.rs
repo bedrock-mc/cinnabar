@@ -1,4 +1,8 @@
 use super::*;
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 
 fn cube_world_assets(
     entities: &assets::RuntimeEntityAssets,
@@ -53,10 +57,7 @@ fn cube_world_assets(
         biomes: CompiledBiomeAssets::diagnostic(),
         provenance: BlobProvenance {
             source_manifest_sha256: entities.source_manifest_sha256(),
-            block_registry_sha256: Sha256::digest(
-                crate::asset_startup::pinned_block_registry_bytes(),
-            )
-            .into(),
+            block_registry_sha256: Sha256::digest(assets::pinned_block_registry_bytes()).into(),
             light_registry_sha256: [3; 32],
             biome_registry_sha256: [4; 32],
         },
@@ -68,20 +69,22 @@ fn cube_world_assets(
 fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rejection() {
     let mut player_runtime = PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::tests::{fixture_font, fixture_hud};
-    use crate::{
-        camera::FlyCamera,
-        presentation::viewmodel::{HandAdapter, HandFallback, ViewmodelPublish},
-        runtime::world::ClientWorld,
-    };
     use bevy::{
         camera::{Camera, ComputedCameraValues, RenderTarget, RenderTargetInfo},
         ecs::system::RunSystemOnce,
         prelude::*,
     };
+    use client_ui::test_support::{fixture_font, fixture_hud};
     use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
     use protocol::WorldBootstrap;
     use std::sync::Arc;
+    use {
+        crate::{presentation::viewmodel::ViewmodelPublish, runtime::world::ClientWorld},
+        client_presentation::{
+            camera::FlyCamera,
+            presentation::viewmodel::{HandAdapter, HandFallback},
+        },
+    };
     let (pack, _geometry, _) = hand_fixture();
     // Match the decoded carrier's unsupported player-controller route: retain
     // the player symbol, authored geometry and item routes, but no resolved rig.
@@ -183,7 +186,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         &mut runtime,
         &mut presentation,
         world.stream.as_ref(),
-        crate::camera::CameraSettingsAuthority::default().perspective(),
+        client_presentation::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );
     // Block-routed items are absent from the sprite-only icon catalog. The
@@ -204,12 +207,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut app = App::new();
     let mut movement = crate::movement::MovementTicker::default();
     let mut physics = crate::movement::LocalPhysicsController::default();
-    crate::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
-    movement.set_source(crate::movement::MovementSource::Physics);
-    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
-    let mut view = crate::local_player::LocalViewPose::default();
-    let mut settings = crate::camera::CameraSettingsAuthority::default();
-    crate::local_player::reset_local_player_session(
+    gameplay::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
+    movement.set_source(gameplay::movement::MovementSource::Physics);
+    let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
+    let mut view = client_presentation::local_player::LocalViewPose::default();
+    let mut settings = client_presentation::camera::CameraSettingsAuthority::default();
+    client_presentation::local_player::reset_local_player_session(
         1,
         1,
         [0., 64., 0.],
@@ -217,7 +220,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         &mut view,
         &mut avatar,
     );
-    let mut visibility = crate::local_player::LocalAvatarVisibilityCarrier::default();
+    let mut visibility = client_presentation::local_player::LocalAvatarVisibilityCarrier::default();
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
         Vec3::new(0., 64., 0.),
@@ -290,7 +293,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut clock = crate::environment::WorldClock::default();
     let mut weather = crate::environment::WeatherState::default();
     crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
-    let breg = crate::asset_startup::pinned_block_registry_bytes();
+    let breg = assets::pinned_block_registry_bytes();
     let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
     let collisions = crate::movement::PhysicsCollisionRegistries::from_assets(
         breg,
@@ -303,21 +306,16 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .insert_resource(weather)
         .insert_resource(collisions)
         .insert_resource(physics)
-        .insert_resource(crate::acceptance::AcceptanceRun::new(
-            Some(900),
-            None,
-            false,
-            false,
-        ))
-        .insert_resource(crate::acceptance::model_witness::ModelWitnessFileSource::new(None))
+        .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
+        .insert_resource(acceptance::model_witness::ModelWitnessFileSource::new(None))
         .init_resource::<crate::movement::LocalMovementEffectTimeline>()
         .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
         .init_resource::<Time<bevy::time::Real>>()
         .init_resource::<render::ChunkUploadBudget>()
-        .init_resource::<crate::camera::CameraSettingsAuthority>()
-        .init_resource::<crate::local_player::LocalViewPose>()
-        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
-        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<client_presentation::camera::CameraSettingsAuthority>()
+        .init_resource::<client_presentation::local_player::LocalViewPose>()
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
         .init_resource::<crate::runtime::phase3_evidence::Phase3EvidenceEmitter>()
         .init_resource::<crate::runtime::world::WorldStreamFramePoll>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
@@ -348,7 +346,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     for (index, event) in controls.into_iter().enumerate() {
         app.world_mut()
             .resource_mut::<crate::movement::MovementTicker>()
-            .set_source(crate::movement::MovementSource::FreeCamera);
+            .set_source(gameplay::movement::MovementSource::FreeCamera);
         let before = app
             .world()
             .resource::<crate::movement::MovementTicker>()
@@ -389,7 +387,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         assert_cube_scene(&app, false);
         app.world_mut()
             .resource_mut::<crate::movement::MovementTicker>()
-            .set_source(crate::movement::MovementSource::Physics);
+            .set_source(gameplay::movement::MovementSource::Physics);
         let input = input.clone();
         app.world_mut()
             .run_system_once(
@@ -536,7 +534,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     app.world_mut()
         .resource_mut::<crate::movement::MovementTicker>()
         .reset(2, 0, [0., 64., 0.]);
-    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(2, 1);
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
@@ -545,7 +543,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         Quat::IDENTITY,
         &mut app
             .world_mut()
-            .resource_mut::<crate::local_player::LocalAvatarVisibilityCarrier>(),
+            .resource_mut::<client_presentation::local_player::LocalAvatarVisibilityCarrier>(),
     );
     for fresh_stream in [false, true] {
         if fresh_stream {

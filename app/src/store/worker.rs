@@ -17,7 +17,7 @@ const IMAGE_QUEUE: usize = 64;
 /// Concurrent offer image fetches; each thumbnail is a few hundred KB from one CDN host.
 const IMAGE_WORKERS: usize = 8;
 
-pub(crate) use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
+use launcher::store::worker::{StoreError, StoreEvent, StoreRequest};
 
 fn reduce<T>(result: Result<T, BridgeError>) -> Result<T, StoreError> {
     result.map_err(|error| StoreError::from(&error))
@@ -147,7 +147,10 @@ async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::store::worker::{StoreError, StoreRequest},
+    };
 
     fn rpc(code: i64) -> BridgeError {
         BridgeError::ControlRpc {
@@ -206,18 +209,18 @@ mod tests {
         // Each download holds its connection open until answered; none is answered here.
         let mut held = Vec::new();
         listener.set_nonblocking(true).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while held.len() < IMAGE_WORKERS && std::time::Instant::now() < deadline {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    stream.set_nonblocking(false).unwrap();
-                    let mut request = [0; 512];
-                    let _ = stream.read(&mut request).unwrap();
-                    held.push(stream);
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(5)),
+        test_time::wait_until(Duration::from_secs(5), || {
+            if held.len() == IMAGE_WORKERS {
+                return true;
             }
-        }
+            if let Ok((mut stream, _)) = listener.accept() {
+                stream.set_nonblocking(false).unwrap();
+                let mut request = [0; 512];
+                let _ = stream.read(&mut request).unwrap();
+                held.push(stream);
+            }
+            held.len() == IMAGE_WORKERS
+        });
         let concurrent = held.len();
         drop(held);
         drop(worker);
@@ -229,12 +232,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let worker = StoreWorker::new(dir.path().to_path_buf(), dir.path().join("images"));
         assert!(worker.send(StoreRequest::Image("http://insecure.test/a.png".into())));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut events = Vec::new();
-        while events.is_empty() && std::time::Instant::now() < deadline {
+        test_time::wait_until(std::time::Duration::from_secs(5), || {
             events = worker.poll();
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+            !events.is_empty()
+        });
         assert!(matches!(
             events.as_slice(),
             [StoreEvent::Image {

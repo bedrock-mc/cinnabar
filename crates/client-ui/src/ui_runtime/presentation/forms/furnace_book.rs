@@ -16,11 +16,11 @@ use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use protocol::{NetworkItemStack, ScreenRecipe, WindowKind};
 use serde_json::Value;
 
-use super::super::{HudFrame, IconRef};
 use crate::ui_runtime::{
     UiRuntime,
     presentation::{inventory_pointer::InventoryCellHit, screens::Widget},
 };
+use {super::super::HudFrame, ui::IconRef};
 
 pub fn active(player: &player_state::PlayerState) -> bool {
     matches!(

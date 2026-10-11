@@ -8,12 +8,15 @@ use json_ui::{CollectionItem, HitKind};
 use server_experience::screen::{self, GuiSize};
 use ui::UiNode;
 
-use super::super::{IconRef, TextMetrics, UiPresentationRuntime};
 use super::{
     engine::{EngineInputs, ScreenArt},
     template_screen::{TemplateArt, TemplateScreen},
 };
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{TextMetrics, UiPresentationRuntime},
+    ui::IconRef,
+};
 
 pub use super::template_screen::ModalEdits;
 #[cfg(test)]

@@ -1,38 +1,45 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
 use crate::player_runtime::PlayerRuntime;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 #[path = "latency_fences.rs"]
 mod latency_fences;
 
-use crate::{
-    acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
-    camera::CameraSettingsAuthority,
-    environment::{WeatherState, WorldClock, bind_session_generation},
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        MovementTicker, PhysicsCollisionRegistries,
-    },
-    runtime::{
-        network::{
-            publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
-            session::SequencedWorldEvent,
-        },
-        phase3_evidence::Phase3EvidenceEmitter,
-        world::{
-            ClientWorld, WorldStreamFramePoll, drain_committed_ui_before_authority,
-            reconcile_world_stream_before_physics,
-        },
-    },
-    ui_runtime::drain_inventory_authority,
-};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
 use client_presentation::{
     audio_ingress::SequencedAudioEvent, server_camera::ServerCameraInstructions,
 };
-use client_ui::ui_runtime::{CraftingPreview, UiRuntime, inventory_ledger::PlayerInventorySlot};
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemRegistryEvent,
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,
+};
+use {
+    crate::environment::{WeatherState, WorldClock, bind_session_generation},
+    crate::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries,
+    },
+    crate::runtime::network::session::SequencedWorldEvent,
+    crate::runtime::network::{
+        publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
+    },
+    crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
+    crate::runtime::world::{
+        ClientWorld, WorldStreamFramePoll, drain_committed_ui_before_authority,
+        reconcile_world_stream_before_physics,
+    },
+    crate::ui_runtime::drain_inventory_authority,
+    acceptance::model_witness::ModelWitnessFileSource,
+    client_presentation::camera::CameraSettingsAuthority,
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose,
+    },
+};
+use {
+    client_ui::ui_runtime::UiRuntime,
+    inventory::{CraftingPreview, inventory_ledger::PlayerInventorySlot},
 };
 
 /// Creates the real committed-drain schedule with independent domain ownership.
@@ -897,7 +904,7 @@ fn legacy_destructive_pop_remains_destructive_and_partial_updates_cannot_restore
 #[test]
 fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overflow() {
     fn transfer(overflow: bool) -> (Vec<u8>, u16, u16) {
-        use client_ui::ui_runtime::inventory_ledger::{
+        use inventory::inventory_ledger::{
             PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
         };
         let mut app = app();
@@ -1084,10 +1091,11 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
 /// from the output cell.
 #[test]
 fn output_click_crafts_the_unique_recipe_through_the_ledger() {
-    use client_ui::ui_runtime::{
-        dispatch_inventory_click,
-        inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
-        presentation::inventory_pointer::InventoryCellHit,
+    use {
+        client_ui::ui_runtime::{
+            dispatch_inventory_click, presentation::inventory_pointer::InventoryCellHit,
+        },
+        inventory::inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
     };
     let mut app = app();
     registry_ingress(&mut app, 1, named_registry("minecraft:oak_log"));

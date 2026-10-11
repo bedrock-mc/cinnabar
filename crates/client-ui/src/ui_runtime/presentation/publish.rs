@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 pub mod commit;
 pub mod item_icons;
@@ -70,7 +70,7 @@ pub fn capture_hud_frame(
             .iter_mut()
             .zip(ledger.crafting_grid().slots())
         {
-            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot);
+            let target = inventory::inventory_ledger::InventoryTarget::Craft(slot);
             if let Some(stack) = ledger.target_stack(target) {
                 *icon = resolve_identifier(stack)
                     .as_deref()
@@ -121,11 +121,11 @@ pub fn capture_hud_frame(
             presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
     }
     {
-        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
             let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-            item_facts::cell_durability_fraction(stack, maximum, correction)
+            runtime.stack_durability(stack, maximum, correction)
         };
         for (slot, bar) in durability.player.iter_mut().enumerate() {
             if let Some(stack) = ledger.displayed_stack(slot as u8) {
@@ -309,7 +309,7 @@ pub fn capture_hud_frame(
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
                 runtime.inventory_ledger(player_runtime),
-                runtime.screen_state(),
+                runtime,
             );
             let first = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS;
             for (cell, item) in entries
@@ -436,9 +436,9 @@ pub fn capture_hud_frame(
     let selected_snapshot = player_runtime.selected_stack_snapshot();
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
     let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown
-        | crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => None,
+        inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
+        inventory::inventory_ledger::PlayerInventorySlot::Unknown
+        | inventory::inventory_ledger::PlayerInventorySlot::Empty => None,
     });
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
         let slot = slot as u8;
@@ -459,7 +459,7 @@ pub fn capture_hud_frame(
             let overlay = runtime
                 .inventory_ledger(player_runtime)
                 .presented_slot_overlay(slot);
-            *durability = item_facts::cell_durability_fraction(
+            *durability = runtime.stack_durability(
                 stack,
                 runtime.item_max_durability(identifier.as_deref()),
                 overlay.and_then(|overlay| overlay.durability_correction),
@@ -478,7 +478,7 @@ pub fn capture_hud_frame(
     presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-        item_facts::durability_fraction(stack, maximum)
+        runtime.stack_durability(stack, maximum, None)
     });
     let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
@@ -514,12 +514,12 @@ pub fn capture_hud_frame(
     let selected_item_name = selected_stack.and_then(|stack| {
         let identifier = resolve_identifier(stack);
         let stated_name = player_runtime.selected_stack_custom_name();
-        let display = protocol::item_display(&stack.extra_data);
+        let facts = runtime.stack_facts(stack, identifier.as_deref());
         super::inventory_tooltip::name_line(
             runtime,
             identifier.as_deref(),
             stated_name.as_deref(),
-            &display,
+            &facts.display,
         )
         .map(|line| Arc::from(line.text))
     });
@@ -635,29 +635,23 @@ pub fn hovered_stack(
             ),
             Hit::Storage(slot) => (ledger.storage_stack(slot), None),
             Hit::Craft(slot) => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
-                    slot,
-                )),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot)),
                 None,
             ),
             Hit::Armor(row) => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(
-                    row,
-                )),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Armor(row)),
                 None,
             ),
             Hit::Offhand => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
                 None,
             ),
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
                     + usize::from(index);
-                let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                    ledger,
-                    runtime.screen_state(),
-                );
+                let entries =
+                    crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
                 (entries.get(position).map(|item| &item.stack), None)
             }
             Hit::Widget(super::screens::Widget::BookRecipe(index)) => {

@@ -58,15 +58,15 @@ fn frame(
 fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let Some(pack) = pack_harness::env_pack() else {
+    let Some(pack) = client_ui::test_support::pack_harness::env_pack() else {
         eprintln!(
             "skipping zeqa_lazy_pages_survive_menu_join_reload_and_cancellation: fixture unavailable; requires installed local carriers (make assets)"
         );
         return;
     };
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
-    let dir = pack_harness::scratch_dir("loading-sequence");
-    let view = super::play_flow_snapshots::fixture_view(&dir);
+    let dir = client_ui::test_support::pack_harness::scratch_dir("loading-sequence");
+    let view = client_ui::test_support::fixture_view(&dir);
     let paths = super::super::menu_artwork::view_paths(&view);
     let mut runtime = UiRuntime::new(1);
     presentation.set_menu_view(Some(view.clone()));
@@ -78,7 +78,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
     runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
-    let glyphs = pack_harness::env_glyphs();
+    let glyphs = client_ui::test_support::pack_harness::env_glyphs();
     runtime.set_session_glyphs(glyphs.clone());
     let mut warm = None;
     for phase in 0..4 {
@@ -97,7 +97,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
             let dirt = image::open(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../.local")
-                    .join(crate::install_layout::vanilla_pack_relative())
+                    .join(launcher::install_layout::vanilla_pack_relative())
                     .join("textures/blocks/dirt.png"),
             )
             .unwrap()
@@ -144,7 +144,8 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
 fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
+    let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
+    else {
         eprintln!(
             "skipping vanilla_loading_before_pack_arrival_survives_static_page_insertion: fixture unavailable; requires installed local carriers (make assets)"
         );
@@ -164,14 +165,14 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         })
         .unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    let runtime = pack_harness::menu_runtime();
+    let runtime = client_ui::test_support::pack_harness::menu_runtime();
     let input = frame(&player_runtime, &mut presentation, &runtime);
     snapshot::write(&input, "loading-before-pack");
     let pixels = snapshot::rasterize(&input);
     let dirt = image::open(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../.local")
-            .join(crate::install_layout::vanilla_pack_relative())
+            .join(launcher::install_layout::vanilla_pack_relative())
             .join("textures/blocks/dirt.png"),
     )
     .unwrap()

@@ -21,7 +21,7 @@ pub(super) struct HudSprite {
     pub(super) size: [u16; 2],
 }
 
-pub use ui::IconRef;
+use ui::IconRef;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct HudTexturePages {
@@ -212,6 +212,13 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         ([render_model::UI_ART_PAGE_SIDE; 2], UiTextureFormat::Rgba8),
         render_model::MAX_UI_ART_PAGES,
     ));
+    planned.extend(std::iter::repeat_n(
+        (
+            [render_model::UI_DYNAMIC_PAGE_SIDE; 2],
+            UiTextureFormat::Rgba8,
+        ),
+        render_model::MAX_UI_NATIVE_SHEET_PAGES,
+    ));
     let plan = UiTexturePlan::with_formats(&planned)
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
     if plan.bytes() > MAX_UI_FIXED_TEXTURE_BYTES {
@@ -389,6 +396,10 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     pages.extend(std::iter::repeat_n(
         blank_art,
         render_model::MAX_UI_ART_PAGES,
+    ));
+    pages.extend(std::iter::repeat_n(
+        blank,
+        render_model::MAX_UI_NATIVE_SHEET_PAGES,
     ));
     let mut source = Sha256::new();
     source.update(b"ui-source-catalog-v1");

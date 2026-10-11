@@ -3,7 +3,7 @@
 use crate::ui_runtime::{SequencedBlockCrackEvent, UiRuntime, UiRuntimeError};
 use protocol::BlockCrackEvent;
 
-pub use chunk_pipeline::BlockCrackStatus;
+use chunk_pipeline::BlockCrackStatus;
 
 pub fn consume_committed_block_crack(
     ui: &mut UiRuntime,

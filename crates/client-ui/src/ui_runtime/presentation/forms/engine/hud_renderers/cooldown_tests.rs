@@ -3,9 +3,9 @@ use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::presentation::forms::engine::{
     EngineInputs, EngineOutput, FormEngine, ScreenArt,
 };
-use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics};
 use json_ui::{Catalog, Context, ViewState};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode};
+use {crate::ui_runtime::presentation::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
     let mut catalog = Catalog::default();

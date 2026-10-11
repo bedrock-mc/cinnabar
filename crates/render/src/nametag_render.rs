@@ -2,6 +2,7 @@
 //! a depth-tested pass, as vanilla's `name_tag` and `name_tag_depth_tested` materials do.
 use std::{ops::Range, sync::Arc};
 
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -9,7 +10,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Deref, DerefMut, Entity, FromWorld, Handle, IntoScheduleConfigs,
+        Msaa, Query, Res, ResMut, Resource, Result, Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

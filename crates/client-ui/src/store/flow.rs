@@ -1,7 +1,7 @@
 //! Converts launcher purchase state to the existing JSON-UI modal presentation.
 
 use json_ui::ModalForm;
-pub use launcher::store::flow::{DISABLED_BODY, DISABLED_TITLE, PurchaseDialog, PurchaseFlow};
+use launcher::store::flow::{DISABLED_BODY, DISABLED_TITLE, PurchaseDialog, PurchaseFlow};
 
 /// Builds the modal associated with a purchase flow.
 pub trait PurchaseFlowPresentation {
@@ -114,11 +114,14 @@ impl PurchaseDialogPresentation for PurchaseDialog {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use launcher::store::flow::Begin;
     use launcher::store::worker::StoreError;
     use protocol::store_control::{
         PurchaseOutcome, PurchaseStatus, StoreBalance, StoreOffer, StorePrice,
+    };
+    use {
+        super::*,
+        launcher::store::flow::{DISABLED_BODY, PurchaseDialog, PurchaseFlow},
     };
 
     fn offer() -> StoreOffer {

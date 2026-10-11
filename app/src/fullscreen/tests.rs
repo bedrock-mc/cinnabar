@@ -4,8 +4,8 @@ use bevy::{
 };
 
 use super::*;
-use crate::menu::MenuAction;
 use crate::present_mode::{PresentModeRuntime, apply_present_mode};
+use launcher::menu::MenuAction;
 
 fn app(visible: bool) -> (App, Entity) {
     let menu = MenuRuntime::new(visible, 2, "Steve".to_owned());

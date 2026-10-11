@@ -8,7 +8,10 @@ use super::super::super::hud::CachedScreen;
 use super::super::super::server_pack::ServerAtlas;
 use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
 use super::{positioned, snapped};
-use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, tests::fixture_font};
+use {
+    crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 const PAINT_VIEWPORT: [u32; 2] = [1440, 813];
 

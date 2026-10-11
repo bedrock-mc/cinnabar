@@ -11,8 +11,7 @@ use collect::collect_files;
 
 use super::resource_packs::{StackFingerprint, parse_pack_json};
 
-pub(crate) use assets::SessionEntityPack;
-pub(crate) use client_presentation::session_assets::SessionItems;
+use assets::SessionEntityPack;
 
 /// Vanilla definitions server-pack entities may reference; replaced whenever a carrier loads.
 static VANILLA_REFS: std::sync::RwLock<Option<Arc<assets::VanillaEntityRefs>>> =

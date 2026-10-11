@@ -9,7 +9,7 @@ use bevy::{
         system::{SystemParamItem, lifetimeless::SRes},
     },
     math::{Mat4, UVec4, Vec4},
-    prelude::*,
+    prelude::{Entity, FromWorld, Has, Query, Res, ResMut, Resource, Time, With, World, default},
     render::{
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         render_resource::{

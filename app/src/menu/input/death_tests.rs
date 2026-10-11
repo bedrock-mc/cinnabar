@@ -1,8 +1,8 @@
 //! Authoritative route replacement retires the previous screen's input.
 use super::*;
-use crate::menu::{MenuAction, MenuScreen};
 use bevy::{prelude::*, window::WindowResolution};
 use client_ui::ui_runtime::{SequencedUiEvent, UiRuntime};
+use launcher::menu::{MenuAction, MenuScreen};
 
 #[test]
 fn death_discards_a_same_frame_pause_settings_click() {

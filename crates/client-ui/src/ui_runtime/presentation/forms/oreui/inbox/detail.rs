@@ -2,9 +2,9 @@
 use super::super::grid::Grid;
 use super::super::motion::Surface;
 use super::super::theme::{BORDER, EDGE, NEUTRAL80};
-use super::{
-    Action, BODY, Canvas, InboxItem, MenuAction, MenuView, TEXT, TEXT_DIMMER, UiPresentationError,
-    header, screen_overlay,
+use {
+    super::{BODY, Canvas, TEXT, TEXT_DIMMER, UiPresentationError, header, screen_overlay},
+    launcher::menu::{InboxItem, MenuAction, MenuView, inbox::Action},
 };
 
 /// Shows the selected message without expanding its summary into the list.

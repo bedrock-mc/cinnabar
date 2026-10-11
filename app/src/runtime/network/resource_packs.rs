@@ -33,14 +33,14 @@ pub struct PackApplication {
     pub(crate) item_components:
         Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
-    pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
+    pub(crate) entities: Option<Arc<assets::SessionEntityPack>>,
     pub(super) entity_artwork: Option<Arc<render::ActorArtworkPages>>,
     pub(crate) prepared_actor_artwork:
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
-    pub(crate) server_sounds: Option<Arc<crate::audio::ServerSoundPack>>,
+    pub(crate) server_sounds: Option<Arc<client_presentation::audio::ServerSoundPack>>,
     pub(crate) aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
 }
 
@@ -378,7 +378,7 @@ fn compile_application(
                 changes.sounds,
                 Subscriber::Sounds,
                 previous.and_then(|old| old.server_sounds.clone()),
-                |view| crate::audio::ServerSoundPack::from_view(view).map(Arc::new),
+                |view| client_presentation::audio::ServerSoundPack::from_view(view).map(Arc::new),
             );
         });
     });

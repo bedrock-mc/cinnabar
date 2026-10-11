@@ -377,7 +377,7 @@ fn the_post_join_reload_publishes_the_join_outputs() {
     use crate::runtime::network::pack_reload::PackReload;
     use crate::runtime::network::pack_reload_tests::{app_with_assets, settle};
     let _cache = overlay_cache();
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let kept: &'static CompiledStacks = Box::leak(Box::new(CompiledStacks::new()));

@@ -1,6 +1,10 @@
-use super::*;
-use crate::menu::split_address;
 use json_ui::RectOut;
+use launcher::menu::split_address;
+use {
+    super::*,
+    launcher::menu::auth::AuthState,
+    launcher::menu::{MenuAction, MenuScreen, MenuView},
+};
 
 #[test]
 fn reconnect_regions_require_a_retryable_failure() {
@@ -14,7 +18,7 @@ fn reconnect_regions_require_a_retryable_failure() {
 }
 
 fn view(screen: MenuScreen) -> MenuView {
-    let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
+    let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = screen;
     view.auth_state = AuthState::SignedOut;
     view
@@ -114,7 +118,7 @@ fn menu_states_open_their_vanilla_screens() {
         reference(&connecting),
         Some("progress.world_loading_progress_screen")
     );
-    connecting.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
+    connecting.feeds.join = launcher::menu::JoinProgress::new(launcher::menu::JoinKind::Realm);
     assert_eq!(
         reference(&connecting),
         Some("progress.realms_stories_loading_progress_screen")
@@ -135,12 +139,14 @@ fn menu_states_open_their_vanilla_screens() {
 fn local_world_progress_opens_the_loading_screen_with_cancel() {
     let mut opening = view(MenuScreen::Play);
     opening.connecting = true;
-    opening.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
+    opening.local.progress = Some(launcher::local_worlds::Progress::connecting("Home"));
     assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
     let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
     assert_eq!(
         cancel,
-        Some(MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back))
+        Some(MenuAction::LocalWorld(
+            launcher::menu::LocalWorldAction::Back
+        ))
     );
 }
 
@@ -162,8 +168,8 @@ fn local_world_download_bar_fills_with_the_bytes_done() {
         json_ui::Catalog::from_files(files.iter().map(|(path, text)| (*path, text.as_bytes())))
             .unwrap();
     let mut opening = view(MenuScreen::Play);
-    opening.local.progress = Some(crate::local_worlds::Progress {
-        stage: crate::local_worlds::Stage::DownloadingServer,
+    opening.local.progress = Some(launcher::local_worlds::Progress {
+        stage: launcher::local_worlds::Stage::DownloadingServer,
         fraction: Some(0.882),
         detail: "72.2 / 81.8 MB".to_owned(),
     });
@@ -253,21 +259,21 @@ fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_
     let home = view(MenuScreen::Home);
     assert_eq!(
         action_for(&home, &region(HitKind::Button, Some("button.menu_store"))),
-        Some(MenuAction::Store(crate::store::StoreAction::Open))
+        Some(MenuAction::Store(launcher::store::StoreAction::Open))
     );
     let mut store = view(MenuScreen::Store);
     assert!(
         reference(&store).is_none(),
         "no engine screen until the store publishes"
     );
-    store.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot::empty()));
+    store.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot::empty()));
     assert_eq!(
         reference(&store),
         Some("store_layout.store_data_driven_screen")
     );
     assert_eq!(
         action_for(&store, &region(HitKind::Button, Some("button.menu_exit"))),
-        Some(MenuAction::Store(crate::store::StoreAction::Back))
+        Some(MenuAction::Store(launcher::store::StoreAction::Back))
     );
 }
 
@@ -330,7 +336,7 @@ fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
 
 #[test]
 fn sliders_split_into_their_settings_values() {
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
         .choices()
         .collect();
@@ -345,13 +351,13 @@ fn sliders_split_into_their_settings_values() {
             MenuAction::SettingsScale(0)
         ]
     );
-    for (index, option) in crate::menu::settings_options::SETTINGS_OPTIONS
+    for (index, option) in launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .enumerate()
     {
         if !matches!(
             option.kind,
-            crate::menu::settings_options::SettingKind::Slider
+            launcher::menu::settings_options::SettingKind::Slider
         ) {
             continue;
         }
@@ -383,7 +389,7 @@ fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
     let mut view = view(MenuScreen::Settings);
     let options = Arc::make_mut(&mut view.settings_options);
     options.set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
-    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "msaa")
         .unwrap();
@@ -407,7 +413,7 @@ fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
 
 #[test]
 fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
-    use crate::menu::settings_options::{
+    use launcher::menu::settings_options::{
         MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, SETTINGS_OPTIONS,
     };
     let mut view = view(MenuScreen::Settings);
@@ -445,7 +451,7 @@ fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
 
 #[test]
 fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() {
-    use crate::menu::settings_options::{SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION};
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION};
     let mut view = view(MenuScreen::Settings);
     let index = SETTINGS_OPTIONS
         .iter()

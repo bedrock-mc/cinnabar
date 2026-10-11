@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
+        DIAGNOSTIC_MATERIAL, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+        MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelQuad, ModelStateField, RegistryProvenance,
+        RegistryRecord, RuntimeAssets, VisualKind, encode_blob, read_registry,
+    },
+    std::{collections::HashSet, path::Path},
+};
 
 fn generated_slab_record(
     sequential_id: u32,

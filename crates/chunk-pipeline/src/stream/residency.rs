@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, render_api::MAX_VIEW_RADIUS_CHUNKS};
 
 /// Tracks new data in one publisher cohort without treating re-sends as progress.
 pub(super) struct ArrivalCohort {
@@ -340,7 +340,7 @@ impl WorldStream {
             (Some(radius), None) | (None, Some(radius)) => radius,
             (None, None) => render_api::UNGRANTED_VIEW_RADIUS_CHUNKS,
         }
-        .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+        .clamp(0, MAX_VIEW_RADIUS_CHUNKS)
     }
     pub(super) fn column_is_active(&self, key: ChunkKey) -> bool {
         if key.dimension != self.authority.current_dimension() {
@@ -366,7 +366,7 @@ impl WorldStream {
             || self.chunk_radius.is_some_and(|radius| {
                 let player = self.player_chunk();
                 chunk_in_view(
-                    radius.clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS),
+                    radius.clamp(0, MAX_VIEW_RADIUS_CHUNKS),
                     [key.x, key.z],
                     [player.x, player.z],
                 )

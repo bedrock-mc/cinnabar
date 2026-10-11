@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    client_world::ingestion::{MAX_ADMITTED_WORLD_EVENTS, WorldStreamError},
+};
 
 #[test]
 fn undrained_ui_commits_apply_bounded_backpressure_without_panicking() {

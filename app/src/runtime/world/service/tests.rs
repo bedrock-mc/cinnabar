@@ -2,7 +2,7 @@ use bevy::prelude::{App, First, Last, MinimalPlugins, ResMut, Resource};
 use chunk_pipeline::WorldStream;
 use protocol::WorldBootstrap;
 
-use super::*;
+use {super::*, client_presentation::local_player::LocalViewPose};
 
 #[derive(Resource, Default)]
 struct Observed(Vec<bool>);

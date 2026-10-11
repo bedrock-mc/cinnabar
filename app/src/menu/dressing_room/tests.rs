@@ -1,5 +1,8 @@
-use super::*;
 use launcher::dressing_room::SkinModel;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuField, MenuScreen},
+};
 
 fn wait(
     menu: &mut MenuRuntime,

@@ -3,11 +3,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chunk_pipeline::{MAX_ADMITTED_WORLD_EVENTS, WorldStream, WorldStreamError};
 use client_world::COMMITTED_AUDIO_CAPACITY;
 use protocol::{
     AudioEvent, BlockUpdateEvent, PlayAudioEvent, WeatherChannel, WeatherUpdateEvent,
     WorldBootstrap, WorldEvent,
+};
+use {
+    chunk_pipeline::WorldStream,
+    client_world::ingestion::{MAX_ADMITTED_WORLD_EVENTS, WorldStreamError},
 };
 
 fn stream() -> WorldStream {
@@ -69,7 +72,7 @@ fn audio_fifo_survives_interleaved_weather_and_block_updates() {
                 stream.committed_sequence(),
                 stream.stats()
             );
-            std::thread::sleep(Duration::from_millis(1));
+            test_time::idle();
         }
         let committed = stream.take_committed_audio();
         assert_eq!(committed.len(), 2);

@@ -47,7 +47,12 @@ impl RecipeCatalog {
     /// One stonecutter, cartography or smithing recipe by network id.
     #[must_use]
     pub fn screen_recipe(&self, id: u32) -> Option<&ScreenRecipe> {
-        self.screen.recipes.iter().find(|recipe| recipe.id == id)
+        let index = self
+            .screen
+            .recipes
+            .binary_search_by_key(&id, |recipe| recipe.id)
+            .ok()?;
+        self.screen.recipes.get(index)
     }
 
     /// Catalog positions are valid until the catalog revision changes.
@@ -66,29 +71,28 @@ impl RecipeCatalog {
     /// The network id of the item-repair multi-recipe the anvil names.
     #[must_use]
     pub fn repair_multi_recipe_id(&self) -> Option<u32> {
-        self.screen
-            .multi
-            .iter()
-            .find(|multi| multi.is_repair())
-            .map(|multi| multi.id)
+        let mut repairs = self.screen.multi.iter().filter(|multi| multi.is_repair());
+        let repair = repairs.next()?;
+        repairs.next().is_none().then_some(repair.id)
     }
 
     fn merge_screens(&mut self, update: &RecipeUpdate, clear: bool) {
         if clear {
             self.screen = ScreenRecipes::default();
         }
-        let Some(incoming) = update.screen.as_ref() else {
-            return;
-        };
-        self.screen
-            .recipes
-            .retain(|old| incoming.recipes.iter().all(|new| new.id != old.id));
-        self.screen.recipes.extend(incoming.recipes.iter().cloned());
+        let batch = update.batch.as_ref().expect("admitted update");
+        let empty = ScreenRecipes::default();
+        let incoming = update.screen.as_deref().unwrap_or(&empty);
+        self.screen.recipes = merge_views(
+            &self.screen.recipes,
+            &incoming.recipes,
+            &batch.records,
+            |r| r.id,
+        );
         self.screen.recipes.truncate(MAX_SCREEN_RECIPES);
-        self.screen
-            .multi
-            .retain(|old| incoming.multi.iter().all(|new| new.id != old.id));
-        self.screen.multi.extend(incoming.multi.iter().copied());
+        self.screen.multi = merge_views(&self.screen.multi, &incoming.multi, &batch.records, |r| {
+            r.id
+        });
     }
 
     pub fn revision(&self) -> u64 {
@@ -216,6 +220,33 @@ impl RecipeCatalog {
     }
 }
 
+/// Merge sorted views while every advertised ID, including a tombstone, replaces its old view.
+fn merge_views<T: Clone>(
+    old: &[T],
+    incoming: &[T],
+    records: &[super::model::Record],
+    id: impl Fn(&T) -> u32,
+) -> Vec<T> {
+    let mut retained = Vec::with_capacity(old.len() + incoming.len());
+    let mut record = 0;
+    let mut next = 0;
+    for value in old {
+        let key = id(value);
+        while next < incoming.len() && id(&incoming[next]) < key {
+            retained.push(incoming[next].clone());
+            next += 1;
+        }
+        while record < records.len() && records[record].id < key {
+            record += 1;
+        }
+        if record == records.len() || records[record].id != key {
+            retained.push(value.clone());
+        }
+    }
+    retained.extend_from_slice(&incoming[next..]);
+    retained
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::model::{Batch, Output, Recipe, Record};
@@ -247,6 +278,13 @@ mod tests {
                 _permit: owner.reserve(512).unwrap(),
             })),
         }
+    }
+
+    #[test]
+    fn sorted_view_merge_keeps_omitted_ids_and_removes_interleaved_tombstones() {
+        let records = [2, 3, 6, 8].map(|id| Record { id, recipe: None });
+        let result = merge_views(&[1, 3, 5, 8, 9], &[2, 6], &records, |id| *id);
+        assert_eq!(result, [1, 2, 5, 6, 9]);
     }
 
     #[test]

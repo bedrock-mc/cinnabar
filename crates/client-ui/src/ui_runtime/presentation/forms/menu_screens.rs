@@ -10,7 +10,7 @@ use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
 use super::{menu_caret::with_caret, play_screen};
-use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
+use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
 /// Settings selector index vars as 1.26.50's settings screen assigns them.
 pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
@@ -40,7 +40,7 @@ pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("global_texture_pack_forced_index", 24),
     (
         "storage_management_forced_index",
-        crate::menu::settings_storage::SECTION_INDEX,
+        launcher::menu::settings_storage::SECTION_INDEX,
     ),
     ("edu_cloud_storage_forced_index", 26),
     ("language_forced_index", 27),
@@ -119,7 +119,7 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
-pub use launcher::menu::menu_reference;
+use launcher::menu::menu_reference;
 
 /// The vanilla screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them).
@@ -135,14 +135,14 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     } else if view.connecting {
         super::join_progress::bind(&view.feeds.join, &mut data, translate)
     } else if let Some(error) = &view.disconnect_message {
-        let words = crate::menu::disconnect::describe(error);
+        let words = launcher::menu::disconnect::describe(error);
         data.set_global(
             "#title_text",
             text(translated(translate, words.title, words.title)),
         );
         let body = match words.body {
-            crate::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
-            crate::menu::disconnect::DisconnectBody::Server(message) => message,
+            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            launcher::menu::disconnect::DisconnectBody::Server(message) => message,
         };
         data.set_global("#disconnect_text", text(body));
         if view.can_reconnect {
@@ -273,9 +273,9 @@ const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress
 fn local_world_progress(
     data: &mut DataSource,
     translate: Translate<'_>,
-    progress: &crate::local_worlds::Progress,
+    progress: &launcher::local_worlds::Progress,
 ) {
-    use crate::local_worlds::Stage;
+    use launcher::local_worlds::Stage;
     let (title, message) = match progress.stage {
         Stage::StartingServer => (
             translated(
@@ -556,7 +556,7 @@ pub(super) fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui
 /// The host's answer to `name`'s Discord join request, with vanilla's Accept and Decline.
 pub(super) fn join_request_model(name: &str, translate: Translate<'_>) -> json_ui::FormModel {
     json_ui::FormModel::Modal(json_ui::ModalForm {
-        title: crate::menu::join_requests::title(name),
+        title: launcher::menu::join_requests::title(name),
         body: String::new(),
         button1: translated(translate, "gui.accept", "Accept"),
         button2: translated(translate, "gui.decline", "Decline"),
@@ -793,7 +793,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         }
         // The local-world loading screen's Cancel closes the world.
         "button.menu_exit" if view.local.progress.is_some() => {
-            MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)
+            MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Back)
         }
         "button.menu_continue" if view.screen == MenuScreen::Pause => MenuAction::PauseResume,
         // Acknowledging a disconnect clears it (every action does).

@@ -1,7 +1,7 @@
 //! Visual state for edit boxes whose text is owned by the host's editors.
 
 use super::ScreenArt;
-use crate::menu::{MenuField, MenuView};
+use launcher::menu::{MenuField, MenuView};
 
 #[derive(Clone, Copy)]
 pub(in super::super) struct Feedback {

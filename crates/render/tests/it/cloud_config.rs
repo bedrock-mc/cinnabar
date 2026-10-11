@@ -1,9 +1,12 @@
 use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{CloudFace, PackedCloudQuad};
-use render::{
-    CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
-    CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView, CloudQuality,
-    CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
+use {
+    assets::CloudQuality,
+    render::{
+        CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
+        CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView,
+        CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
+    },
 };
 
 const QUALITIES: [CloudQuality; 4] = [

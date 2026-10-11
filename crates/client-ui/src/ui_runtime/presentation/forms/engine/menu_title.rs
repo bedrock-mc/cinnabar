@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use super::{FormEngine, IconRef, Textures};
 use crate::ui_runtime::presentation::menu_artwork::{SERVER_ART_PREFIX, TITLE_KEY};
+use {
+    super::{FormEngine, Textures},
+    ui::IconRef,
+};
 
 pub(super) struct TitleSource {
     texture: String,
@@ -55,7 +58,7 @@ impl FormEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, ui::IconRef};
 
     #[test]
     fn title_uses_the_pack_defined_image_and_restores_the_shipped_brand() {
@@ -104,5 +107,72 @@ mod tests {
                 .menu_title(&artwork),
             Some(shipped)
         );
+    }
+
+    #[test]
+    fn oversized_title_remains_visible_to_icon_consumers_and_restores_on_reload() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let key = "textures/ui/original_large_brand";
+        let shipped = IconRef {
+            page: 999,
+            uv: [0, 0, 30, 10],
+            glint: false,
+        };
+        let artwork = HashMap::from([(TITLE_KEY.to_owned(), shipped)]);
+        for size in [[1992, 669], [8192, 8]] {
+            let definition = serde_json::to_vec(&serde_json::json!({
+                "namespace":"common_art",
+                "title_image":{"type":"image", "texture":key}
+            }))
+            .unwrap();
+            let mut png = Vec::new();
+            image::RgbaImage::from_pixel(size[0], size[1], image::Rgba([19, 53, 79, 255]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            presentation.set_server_ui_pack(&super::super::super::ServerUiPack {
+                ui_layers: vec![vec![
+                    (
+                        "ui/_ui_defs.json".into(),
+                        br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec(),
+                    ),
+                    ("ui/original_brand.json".into(), definition),
+                ]],
+                textures: vec![(format!("{key}.png"), png)],
+                ..Default::default()
+            });
+            test_time::eventually("oversized title available to icon consumers", || {
+                presentation
+                    .form_presentation
+                    .engine
+                    .as_deref()
+                    .unwrap()
+                    .menu_title(&artwork)
+                    .is_some()
+            });
+            let icon = presentation
+                .form_presentation
+                .engine
+                .as_deref()
+                .unwrap()
+                .menu_title(&artwork)
+                .unwrap();
+            assert_ne!(icon, shipped);
+            presentation.sync_server_ui_pages();
+            let page = &presentation.textures.pages()[usize::from(icon.page)];
+            let offset = (usize::from(icon.uv[1]) * page.dimensions()[0] as usize
+                + usize::from(icon.uv[0]))
+                * 4;
+            assert_eq!(&page.pixels()[offset..offset + 4], &[19, 53, 79, 255]);
+            presentation.set_server_ui_pack(&super::super::super::ServerUiPack::default());
+            assert_eq!(
+                presentation
+                    .form_presentation
+                    .engine
+                    .as_deref()
+                    .unwrap()
+                    .menu_title(&artwork),
+                Some(shipped)
+            );
+        }
     }
 }

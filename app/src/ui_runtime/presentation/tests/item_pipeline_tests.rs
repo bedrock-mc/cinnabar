@@ -11,8 +11,11 @@ use protocol::{
     PlayerGameMode, WorldBootstrap,
 };
 
-use super::*;
 use client_ui::ui_runtime::presentation::refresh_hud_frame;
+use {
+    super::*,
+    client_ui::test_support::{fixture_font, fixture_hud},
+};
 
 /// Reads an installed item fixture, skipping missing files and rejecting other read errors.
 fn local(name: &str) -> Option<Vec<u8>> {
@@ -50,7 +53,7 @@ fn harness() -> Option<Harness> {
         RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?)
             .expect("decode installed world fixture"),
     );
-    let carrier = super::super::forms::pack_harness::carrier()?;
+    let carrier = client_ui::test_support::pack_harness::carrier()?;
     let mut presentation =
         UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons)
             .expect("build item fixture HUD");
@@ -311,8 +314,12 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
             .iter()
             .all(Option::is_some)
     );
-    let rig =
-        crate::presentation::equipment::local_input(&player_runtime, &stream, Some(&runtime), 1);
+    let rig = client_presentation::presentation::equipment::local_input(
+        &player_runtime,
+        &stream,
+        Some(&runtime),
+        1,
+    );
     let rig_worn = rig
         .armor
         .map(|item| item.map(|item| item.identifier.to_string()));

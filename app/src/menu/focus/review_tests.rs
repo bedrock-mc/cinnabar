@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
     let rect = |[left, top, right, bottom]: [f32; 4]| {
@@ -34,7 +37,7 @@ fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
 fn native_inline_options_navigate_without_commit_and_keep_each_choice_focus() {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.screen = MenuScreen::Settings;
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "third_person")
         .unwrap() as u16;
@@ -120,7 +123,7 @@ fn native_gui_scale_choices_commit_only_on_select() {
 fn native_slider_selection_exits_on_back_focus_loss_and_empty_layout() {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.screen = MenuScreen::Settings;
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "gamma")
         .unwrap() as u16;
@@ -155,7 +158,7 @@ fn native_slider_selection_exits_on_back_focus_loss_and_empty_layout() {
 fn toggle_activation_reads_the_current_value_between_paints_and_arrows_do_not_commit() {
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "keyboard_mouse_autojump")
         .unwrap();
@@ -234,7 +237,7 @@ fn gui_scale_picker_commits_once_and_keeps_focus_through_responsive_layouts() {
 fn review_settings_focus_reaches_visible_ordinary_controls() {
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.screen = MenuScreen::Settings;
-    let gamma = settings_options::SETTINGS_OPTIONS
+    let gamma = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "gamma")
         .unwrap();
@@ -270,7 +273,7 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
 fn settings_picker_retains_choices_and_commits_only_when_activated() {
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.screen = MenuScreen::Settings;
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "third_person")
         .unwrap() as u16;
@@ -301,7 +304,7 @@ fn settings_picker_retains_choices_and_commits_only_when_activated() {
 fn settings_picker_back_keeps_the_settings_page_and_value() {
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "third_person")
         .unwrap() as u16;
@@ -317,7 +320,7 @@ fn settings_picker_back_keeps_the_settings_page_and_value() {
 fn settings_pack_overlay_with_no_controls_keeps_background_input_closed() {
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.screen = MenuScreen::Settings;
-    let index = settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "gamma")
         .unwrap() as u16;
@@ -337,7 +340,7 @@ fn settings_dropdown_focus_reaches_and_activates_each_radio_choice() {
     for name in ["animations", "graphics_mode"] {
         let mut menu = MenuRuntime::new(true, 2, "Test".into());
         menu.screen = MenuScreen::Settings;
-        let index = settings_options::SETTINGS_OPTIONS
+        let index = SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == name)
             .unwrap() as u16;

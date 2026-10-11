@@ -1,6 +1,6 @@
 //! Imported names and deletion keep preferences and private image ownership together.
 
-use super::*;
+use {super::*, launcher::install_layout::InstallLayout};
 
 pub(crate) fn rename(
     layout: &InstallLayout,

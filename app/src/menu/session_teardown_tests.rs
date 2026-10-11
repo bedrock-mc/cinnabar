@@ -1,3 +1,7 @@
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use bevy::{
     app::{App, AppExit, Update},
     prelude::{IntoScheduleConfigs, Quat, ResMut, Resource, Transform, Vec3},
@@ -5,30 +9,30 @@ use bevy::{
 use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
-use super::{MenuAction, MenuRuntime, MenuScreen};
-use crate::{
-    acceptance::AcceptanceRun,
-    app::{ClientBlobCacheOwner, ClientFrameSet, configure_client_frame_schedule},
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample},
-    movement::{
-        LocalPhysicsController, MovementSource, MovementTicker, PhysicsMovementSample,
-        ProcessedMovementState,
-    },
-    runtime::{
-        network::{
-            NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
-            drain_network_controls,
-        },
-        shutdown::record_fatal_error,
-        telemetry::send_player_auth_inputs,
-        visibility::AppMetrics,
-        world::ClientWorld,
-    },
-    semantic_controls::SemanticInputSnapshot,
-    session::{SessionController, drive_session, recover_session_failure},
-};
 use client_ui::ui_runtime::UiRuntime;
 use diagnostics::metrics::MetricsCollector;
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
+use {
+    crate::app::{ClientBlobCacheOwner, ClientFrameSet, configure_client_frame_schedule},
+    crate::movement::{LocalPhysicsController, MovementTicker},
+    crate::runtime::network::{
+        NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
+        drain_network_controls,
+    },
+    crate::runtime::shutdown::record_fatal_error,
+    crate::runtime::telemetry::send_player_auth_inputs,
+    crate::runtime::visibility::AppMetrics,
+    crate::runtime::world::ClientWorld,
+    crate::semantic_controls::SemanticInputSnapshot,
+    crate::session::{SessionController, drive_session, recover_session_failure},
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
+    },
+    gameplay::movement::{MovementSource, PhysicsMovementSample, ProcessedMovementState},
+};
 
 #[derive(Resource)]
 struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);
@@ -328,14 +332,15 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }
 
-fn connecting_menu(stage: super::JoinStage) -> (MenuRuntime, SessionController) {
+fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, SessionController) {
     let mut controller = SessionController::default();
     controller.set_connecting(true);
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
     menu.catalog_started = true;
     menu.show_connecting();
     menu.observe_session(controller.status());
-    menu.feeds.join = super::JoinProgress::new(super::JoinKind::External);
+    menu.feeds.join =
+        launcher::menu::view::JoinProgress::new(launcher::menu::view::JoinKind::External);
     menu.feeds.join.observe(Some(stage));
     (menu, controller)
 }
@@ -363,7 +368,7 @@ fn drive_once((menu, controller): (MenuRuntime, SessionController), network: Net
 // Cancelling a download retires the session, closing its link to the core, and returns to Play.
 #[test]
 fn cancelling_a_pack_download_retires_the_session() {
-    let (mut menu, controller) = connecting_menu(super::JoinStage::Packs {
+    let (mut menu, controller) = connecting_menu(launcher::menu::view::JoinStage::Packs {
         done: 0,
         total: 1,
         received_bytes: 1,
@@ -384,7 +389,7 @@ fn cancelling_a_pack_download_retires_the_session() {
 // Vanilla's Realm lookup offers no cancel, so back leaves the join running.
 #[test]
 fn back_during_the_realm_lookup_keeps_joining() {
-    let (mut menu, controller) = connecting_menu(super::JoinStage::Realm);
+    let (mut menu, controller) = connecting_menu(launcher::menu::view::JoinStage::Realm);
     menu.activate(MenuAction::AddBack);
     let mut network = NetworkHandle::disconnected();
     let (session_events, receiver) = tokio::sync::mpsc::channel(1);

@@ -1,4 +1,14 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionSeed, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK,
+        MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
+        ModelFamily, ModelStateField, RegistryRecord, VisualKind, encode_blob, read_registry,
+    },
+    pack_compiler::{read_pack, resolve_texture_key},
+    std::{collections::HashSet, path::Path},
+};
 
 fn generated_wall_records(name: &str) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(

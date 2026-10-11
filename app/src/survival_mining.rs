@@ -14,23 +14,30 @@ use bevy::{
 use semantic_input::Action;
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 
-use crate::{
-    interaction_authority::{observe_block, within_pick_range},
-    local_player::InteractionOriginSnapshot,
-    melee::{MeleeRuntime, SwingTracker, swing_duration},
-    menu::MenuRuntime,
-    mining::{creative_reach, hand_interaction_selection, protocol_input_mode, survival_reach},
-    movement::{
-        LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
-        PhysicsCollisionRegistries,
-    },
-    runtime::{network::NetworkHandle, world::ClientWorld},
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::UiRuntime;
 use client_world::game_mode_capabilities::GameModeCapabilities;
+use {
+    crate::{
+        interaction_authority::observe_block,
+        melee::{MeleeRuntime, SwingTracker},
+        menu::MenuRuntime,
+        mining::hand_interaction_selection,
+        movement::{
+            LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
+            PhysicsCollisionRegistries,
+        },
+        runtime::{network::NetworkHandle, world::ClientWorld},
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::{
+        interaction_authority::within_pick_range,
+        melee::swing_duration,
+        mining::{creative_reach, protocol_input_mode, survival_reach},
+    },
+};
 
-pub(crate) use gameplay::survival_mining::{
+use gameplay::survival_mining::{
     BlockBreakingAuthority, DestroyInput, DestroyTarget, ToolWear, blocked_mining_reason,
     destroys_in_creative, exempt_from_airborne_penalty, eyes_in_water, mining_active, percent_roll,
     tool_break_damage, unbreaking_keeps_damage,
@@ -66,7 +73,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
-    block_cues: bevy::prelude::MessageWriter<'w, crate::audio::LocalBlockCue>,
+    block_cues: bevy::prelude::MessageWriter<'w, client_presentation::audio::LocalBlockCue>,
 }
 
 /// Runs after the committed world poll and before the movement flush.
@@ -194,7 +201,7 @@ pub(crate) fn produce_survival_mining(
         } = cue;
         context
             .block_cues
-            .write(crate::audio::LocalBlockCue::Break {
+            .write(client_presentation::audio::LocalBlockCue::Break {
                 position,
                 block_runtime_id,
             });

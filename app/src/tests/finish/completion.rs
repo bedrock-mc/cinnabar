@@ -241,8 +241,8 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             surface_anchor: None,
         },
     };
-    let mut view = crate::local_player::LocalViewPose::default();
-    let mut camera_settings = crate::camera::CameraSettingsAuthority::default();
+    let mut view = client_presentation::local_player::LocalViewPose::default();
+    let mut camera_settings = client_presentation::camera::CameraSettingsAuthority::default();
     let mut pending_surface_spawn = None;
     for control in [correction_control, move_control, dimension_control] {
         assert!(refresh_mutation_anchor_from_committed_control(
@@ -483,7 +483,7 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
         .view()
         .disconnect_message
         .expect("the launcher must explain the failure");
-    let words = crate::menu::disconnect::describe(&error);
+    let words = launcher::menu::disconnect::describe(&error);
     assert_eq!(words.title, "connect.failed", "got {words:?}");
 }
 
@@ -508,8 +508,8 @@ fn a_long_session_failure_shows_vanilla_text() {
 
     let error = menu.view().disconnect_message.unwrap();
     assert_eq!(
-        crate::menu::disconnect::describe(&error).body,
-        crate::menu::disconnect::DisconnectBody::Key("disconnectionScreen.noReason")
+        launcher::menu::disconnect::describe(&error).body,
+        launcher::menu::disconnect::DisconnectBody::Key("disconnectionScreen.noReason")
     );
 }
 

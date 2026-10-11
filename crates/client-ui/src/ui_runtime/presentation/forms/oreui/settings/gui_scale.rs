@@ -6,7 +6,7 @@ use super::super::paint::Canvas;
 use super::super::theme::{self, BODY};
 use super::super::widgets;
 use super::{Content, picker, sections};
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 fn label(percentage: u16, translate: Translate<'_>) -> String {
     translate("options.percent.format").map_or_else(

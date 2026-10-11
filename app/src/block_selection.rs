@@ -4,18 +4,16 @@ use gameplay::melee::{Crosshair, classify, pick_actor};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 use sim::PaletteWorld;
 
-use crate::{
-    app::ClientFrameSet,
-    interaction_authority::ray_is_current,
-    local_player::InteractionOriginSnapshot,
-    menu::MenuRuntime,
-    mining::{creative_reach, protocol_input_mode, survival_reach},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-    settings_runtime::RuntimeSettings,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        app::ClientFrameSet, interaction_authority::ray_is_current, menu::MenuRuntime,
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
+        semantic_controls::SemanticInputSnapshot, settings_runtime::RuntimeSettings,
+    },
+    client_presentation::local_player::InteractionOriginSnapshot,
+    gameplay::mining::{creative_reach, protocol_input_mode, survival_reach},
+};
 
 #[derive(SystemParam)]
 pub(crate) struct SelectionContext<'w> {

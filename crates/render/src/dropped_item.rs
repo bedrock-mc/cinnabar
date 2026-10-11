@@ -28,6 +28,8 @@ pub const WHITE_LAYER: u32 = 0;
 /// Geometry an instance can reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DroppedItemModel {
+    /// Reclaimed atlas slot; live model indices on either side remain unchanged.
+    Vacant,
     /// Legacy centered slab used by static placements, not native item actors.
     Sprite(DroppedItemSprite),
     /// Vanilla tessellated sprite frame after the ordinary dropped-item default transform.

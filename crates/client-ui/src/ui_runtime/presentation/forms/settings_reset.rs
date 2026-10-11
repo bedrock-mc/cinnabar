@@ -1,8 +1,8 @@
 //! Host routing for the pack's three reset_settings buttons.
 
 use super::menu_screens::{SETTINGS_SECTIONS, Translate, translated};
-use crate::menu::{MenuAction, MenuView, settings_options::SettingsGroup};
 use json_ui::HitRegion;
+use launcher::menu::{MenuAction, MenuView, settings_options::SettingsGroup};
 
 /// Uses the active section because HitRegion does not expose the reset_group property bag.
 pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
@@ -41,8 +41,8 @@ pub(super) fn dialog_model(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::menu::{MenuScreen, MenuView};
+    use launcher::menu::{MenuScreen, MenuView};
+    use {super::*, launcher::menu::MenuAction, launcher::menu::settings_options::SettingsGroup};
 
     #[test]
     fn authored_section_reset_buttons_route_to_their_own_group() {

@@ -2,7 +2,7 @@
 
 use json_ui::{DataSource, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
+use launcher::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// Fill the signed-in and signed-out branches in general_section.account_section.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
@@ -29,7 +29,7 @@ pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, launcher::menu::MenuView, launcher::menu::auth::AuthState};
 
     #[test]
     fn account_settings_bind_the_authenticated_profile_name() {

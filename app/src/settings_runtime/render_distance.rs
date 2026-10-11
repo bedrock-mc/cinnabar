@@ -29,10 +29,8 @@ pub(crate) fn apply_render_distance(
     if *sent == Some(revision) {
         return;
     }
-    let packet = protocol::request_chunk_radius_packet(
-        radius,
-        chunk_pipeline::PHASE0_MAX_VIEW_RADIUS_CHUNKS as u8,
-    );
+    let packet =
+        protocol::request_chunk_radius_packet(radius, render_api::MAX_VIEW_RADIUS_CHUNKS as u8);
     if network.send_settings_packet(revision.0, packet).is_ok() {
         *sent = Some(revision);
     }

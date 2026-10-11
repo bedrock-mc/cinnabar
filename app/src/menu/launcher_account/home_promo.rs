@@ -1,6 +1,6 @@
 //! Offline home-feed mapping and rendered start-screen evidence.
 
-use super::*;
+use {super::*, launcher::menu::auth::AuthState};
 
 #[test]
 fn home_feed_preserves_promo_and_fallback_label() {
@@ -26,8 +26,7 @@ fn home_feed_preserves_promo_and_fallback_label() {
 fn snapshot_core_home_promo() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let Some(mut presentation) =
-        crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+    let Some(mut presentation) = client_ui::test_support::pack_harness::engine_presentation()
     else {
         assert!(
             std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_none(),

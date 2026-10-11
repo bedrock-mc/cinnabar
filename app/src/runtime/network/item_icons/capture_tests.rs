@@ -96,7 +96,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         &mut runtime,
         &mut presentation,
         Some(&stream),
-        crate::camera::CameraSettingsAuthority::default().perspective(),
+        client_presentation::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );
     let frame = presentation.hud_frame().clone();
@@ -114,7 +114,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         }
     }
     assert!(frame.hotbar_stacks.iter().any(Option::is_some));
-    if let Some(pack) = crate::ui_runtime::presentation::forms::pack_harness::env_pack() {
+    if let Some(pack) = client_ui::test_support::pack_harness::env_pack() {
         presentation.set_server_ui_pack(&pack);
     }
     let input = presentation
@@ -152,11 +152,11 @@ fn harness() -> Option<(UiPresentationRuntime, chunk_pipeline::WorldStream)> {
         RuntimeEntityAssets::decode(&std::fs::read(root.join("vanilla-v1.mcbeent")).ok()?).ok()?,
     );
     let world = Arc::new(RuntimeAssets::diagnostic());
-    let fixtures = crate::ui_runtime::presentation::tests::fixture_font();
-    let hud = crate::ui_runtime::presentation::tests::fixture_hud();
+    let fixtures = client_ui::test_support::fixture_font();
+    let hud = client_ui::test_support::fixture_hud();
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(fixtures, hud, icons).ok()?;
     presentation
-        .enable_json_ui(crate::ui_runtime::presentation::forms::pack_harness::carrier()?)
+        .enable_json_ui(client_ui::test_support::pack_harness::carrier()?)
         .ok()?;
     presentation.set_gui_models(&world, &entities).ok()?;
     let stream = chunk_pipeline::WorldStream::new_with_asset_sets(

@@ -4,12 +4,14 @@ use chunk_pipeline::ViewCohortStatus;
 use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 
-use super::{
-    markers::{FORCED_FULL_VIEW_REMESH_SETTLED, TELEPORT_SETTLED},
-    remesh::FullViewRemeshCompletion,
-    teleport::{FullViewTeleportCompletion, cohort_tag},
+use diagnostics::metrics::{ExactFullViewProof, TeleportProof, deterministic_manifest_hash};
+use {
+    super::{
+        remesh::FullViewRemeshCompletion,
+        teleport::{FullViewTeleportCompletion, cohort_tag},
+    },
+    diagnostics::markers::{FORCED_FULL_VIEW_REMESH_SETTLED, TELEPORT_SETTLED},
 };
-use crate::metrics::{ExactFullViewProof, TeleportProof, deterministic_manifest_hash};
 
 pub struct FullViewCompletionEvidence<'a> {
     pub settle_latency: Duration,

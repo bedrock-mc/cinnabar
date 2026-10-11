@@ -5,7 +5,7 @@ use std::sync::Arc;
 use assets::gui_item::CUBE_FACES;
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
-use super::IconRef;
+use ui::IconRef;
 
 mod block_model;
 mod shield;
@@ -21,7 +21,7 @@ pub(super) fn shield(
 }
 
 /// The native item renderer's design-pixel frame, independent of texture and display resolution.
-pub(super) use assets::gui_item::{GUI_ITEM_SIDE, SHIELD_IDENTIFIER};
+use assets::gui_item::GUI_ITEM_SIDE;
 
 /// Ordinary opaque cubes. `faces` retains the carried texture in `BlockFace::ALL` order.
 /// Other block shapes (slabs, stairs, fences) draw through [`block_model`].

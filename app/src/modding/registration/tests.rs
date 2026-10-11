@@ -59,12 +59,12 @@ fn packet_delay_grant_is_opt_in_and_survives_registration_decode() {
 #[test]
 fn unloading_extensions_restores_view_scales_and_preserves_saved_fov() {
     let mut world = World::new();
-    let mut camera = crate::camera::CameraSettingsAuthority::default();
+    let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     let fov = camera.horizontal_fov_degrees();
     camera.set_view_scale(0.25, 0.25);
     world.insert_resource(camera);
     clear_presentation(&mut world);
-    let camera = world.resource::<crate::camera::CameraSettingsAuthority>();
+    let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
     assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
     assert_eq!(camera.horizontal_fov_degrees(), fov);
 }
@@ -110,8 +110,8 @@ fn candidate(directory: &Scratch, enabled: bool, text: &str) -> Box<Candidate> {
     Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap())
 }
 
-fn rendered_output() -> mod_host::mod_render::RenderOutput {
-    use mod_host::mod_render::{Billboard, BillboardPattern, Primitives, RenderOutput};
+fn rendered_output() -> mod_render::RenderOutput {
+    use mod_render::{Billboard, BillboardPattern, Primitives, RenderOutput};
     RenderOutput {
         passes: Vec::new(),
         primitives: Arc::new(Primitives {
@@ -405,7 +405,7 @@ fn replacing_a_registered_component_discards_its_pending_jump() {
     let mut physics = world.resource_mut::<crate::movement::LocalPhysicsController>();
     physics.set_jump_pulse_scope(Some((1, 0)));
     let frame = physics.advance(
-        std::time::Duration::from_secs_f64(1.0 / sim::TICKS_PER_SECOND as f64),
+        std::time::Duration::from_secs_f64(1.0 / world::TICKS_PER_SECOND as f64),
         sim::MovementInput::default(),
         &Air,
     );
@@ -683,13 +683,13 @@ fn fullbright_grant_is_opt_in_and_survives_registration_decode() {
 #[test]
 fn removing_extension_revokes_teleport_camera_policy() {
     let (mut world, _, _) = world();
-    let mut camera = crate::camera::CameraSettingsAuthority::default();
+    let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
     camera.set_preserve_teleport_rotation(true);
     world.insert_resource(camera);
     clear_owned_state(&mut world);
     assert!(
         !world
-            .resource::<crate::camera::CameraSettingsAuthority>()
+            .resource::<client_presentation::camera::CameraSettingsAuthority>()
             .preserves_teleport_rotation()
     );
 }

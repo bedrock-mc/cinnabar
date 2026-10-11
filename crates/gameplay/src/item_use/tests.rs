@@ -3,7 +3,7 @@ use std::sync::Arc;
 use protocol::{BedrockSession, NetworkItemStack, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
 
-use super::*;
+use {super::*, inventory::crossbow_animation_frame};
 
 mod admission;
 mod crossbow;

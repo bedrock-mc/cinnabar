@@ -1,22 +1,24 @@
 //! App schedule and borrowed observations for presentation audio.
-use super::{
-    AudioEngine,
-    predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
-};
-use crate::{
-    local_player::LocalViewPose,
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    particles::ParticleInbox,
-    runtime::world::ClientWorld,
-};
 use bevy::prelude::{App, IntoScheduleConfigs, Local, MessageReader, Res, ResMut, Time, Update};
 use client_presentation::audio::{
     local::LocalMotion,
     systems::{AmbientState, IngestState, UiSoundCue, pump_audio},
 };
 use client_presentation::audio_ingress::SequencedAudioEvent;
-use render::{ParticleSimulation, PrecipitationMix, RuntimeStage, RuntimeStageProfiler};
+use render::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
+use {
+    super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
+    client_presentation::audio::AudioEngine,
+};
+use {
+    crate::{
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        particles::ParticleInbox,
+        runtime::world::ClientWorld,
+    },
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Installs presentation audio in its existing order. Each system times only its own work, so
 /// systems the executor runs between them are never attributed to audio.
@@ -30,6 +32,7 @@ pub(crate) fn configure(app: &mut App) {
                 drive_inventory_audio,
                 drive_local_motion,
                 drive_ambience,
+                super::weather::drive_rain_audio.after(crate::environment::update_atmosphere_frame),
                 drive_weather_and_particles,
                 // Local break and place cues play in the frame that predicts them.
                 drive_block_cues
@@ -159,7 +162,6 @@ pub(crate) fn drive_weather_and_particles(
     time: Res<Time>,
     world: Res<ClientWorld>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
-    mix: Option<Res<PrecipitationMix>>,
     particles: Option<ResMut<ParticleSimulation>>,
     mut inbox: Option<ResMut<ParticleInbox>>,
     engine: ResMut<AudioEngine>,
@@ -178,7 +180,6 @@ pub(crate) fn drive_weather_and_particles(
         collisions
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
-        mix,
         particles,
         inbox.as_deref_mut().map(|value| {
             value as &mut dyn client_presentation::observations::ParticleAudioObservation

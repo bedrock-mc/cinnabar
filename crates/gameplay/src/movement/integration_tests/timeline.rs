@@ -142,7 +142,7 @@ fn empty_modifier_server_sprint_runs_at_one_boost_and_custom_speed_survives() {
             let before = physics.state().unwrap().position;
             run_tick_with(&mut physics, input);
             let movement = physics.state().unwrap().position - before;
-            speed = movement.x.hypot(movement.z) * f64::from(sim::TICKS_PER_SECOND);
+            speed = movement.x.hypot(movement.z) * f64::from(world::TICKS_PER_SECOND);
         }
         speed
     }
@@ -488,7 +488,10 @@ fn same_tick_server_updates_replay_the_latest_value() {
     let clear = flags(|flags| flags.has_gravity = Some(false));
     let restore = flags(|flags| flags.has_gravity = Some(true));
     assert_eq!(restored.apply_server_movement_flags(102, clear), Some(102));
-    assert_eq!(restored.apply_server_movement_flags(102, restore), Some(102));
+    assert_eq!(
+        restored.apply_server_movement_flags(102, restore),
+        Some(102)
+    );
     reconcile_timeline_rewind(&mut ticker, &mut restored, 102, &VersionedFloor(1)).unwrap();
     assert_eq!(restored.state(), untouched.state());
 }
@@ -579,7 +582,10 @@ fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
         underwater: Some(0.05),
         lava: None,
     };
-    assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), Some(102));
+    assert_eq!(
+        physics.retime_liquid_movement_speeds(102, speeds),
+        Some(102)
+    );
     assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), None);
     assert_eq!(
         physics.retime_liquid_movement_speeds(104, speeds),

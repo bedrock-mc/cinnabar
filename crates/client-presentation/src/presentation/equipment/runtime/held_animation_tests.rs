@@ -532,7 +532,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(
@@ -559,7 +559,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(repeated[0].submission.input.rig, initial_rig);
@@ -634,7 +634,7 @@ fn worn_attachable_categories_do_not_become_held_models() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: 1.0,
-                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                delta_seconds: world::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert!(
@@ -768,7 +768,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+            delta_seconds: world::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(layers.len(), 1);
@@ -846,7 +846,7 @@ fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
         owner: &owner,
         rig: &rig,
         frame_alpha: 0.5,
-        delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+        delta_seconds: world::TICK_DURATION.as_secs_f32(),
     };
     let mut input = held("test:held");
     assert!(
@@ -909,7 +909,7 @@ fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: alpha,
-                delta_seconds: client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                delta_seconds: world::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert_eq!(layers.len(), 1);

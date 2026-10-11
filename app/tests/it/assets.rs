@@ -16,18 +16,21 @@ use ::assets::{
     encode_font_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
-use bedrock_client::asset_startup::{
-    ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
-    DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
-    FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-    LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
-    atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
-    font_asset_path, load_runtime_assets, local_font_asset_path, pinned_world_provenance,
-    select_asset_path, select_asset_path_in_context,
-};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
+use {
+    assets::pinned_world_provenance,
+    bedrock_client::asset_startup::{
+        ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
+        DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
+        FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+        LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
+        atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
+        font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
+        select_asset_path_in_context,
+    },
+};
 
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()

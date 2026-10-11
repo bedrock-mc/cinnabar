@@ -1,6 +1,9 @@
 use launcher::accounts::{AccountProfile, AccountStore};
 
-use super::{AuthState, MenuAction, MenuDialog, MenuRuntime};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuDialog, auth::AuthState},
+};
 
 /// Placeholder identities shown while developer recordings present accounts.
 const PRESENTATION_ACCOUNTS: [(&str, &str); 4] = [
@@ -402,7 +405,11 @@ impl MenuRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::menu::auth::AuthState,
+        launcher::menu::{MenuAction, MenuDialog},
+    };
 
     #[test]
     fn presentation_accounts_never_sign_in_or_queue_store_changes() {

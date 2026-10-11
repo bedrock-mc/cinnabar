@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 )
 
 const helperEnv = "LOCALWORLD_TEST_HELPER"
@@ -73,9 +75,7 @@ func runFakeDocker(args []string) {
 		touch(".stop")
 	case args[0] == "run":
 		os.Stdout.WriteString("[INFO] Server started.\n")
-		for i := 0; i < 1500 && !exists(".stop"); i++ {
-			time.Sleep(20 * time.Millisecond)
-		}
+		testwait.WaitUntil(30*time.Second, func() bool { return exists(".stop") })
 	}
 	os.Exit(0)
 }

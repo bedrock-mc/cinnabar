@@ -3,7 +3,11 @@ use std::time::{Duration, Instant};
 use bevy::prelude::{Time, Vec3};
 use bevy::time::Real;
 
-use super::*;
+use {
+    super::*,
+    client_presentation::local_player::LocalViewPose,
+    gameplay::movement::{MovementSource, flush_player_auth_inputs},
+};
 
 /// Builds a local grounded stream for correction publication tests.
 fn grounded_stream(position: [f32; 3]) -> WorldStream {
@@ -88,7 +92,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
     ticker.set_source(MovementSource::Physics);
     let mut app = wiring_app(ticker, physics);
     app.world_mut().resource_mut::<ClientWorld>().stream = Some(grounded_stream(initial));
-    app.insert_resource(crate::camera::AutoFly::new(false))
+    app.insert_resource(client_presentation::camera::AutoFly::new(false))
         .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
         .add_systems(
             Update,
@@ -99,7 +103,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
         app.world_mut()
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_secs_f64(
-                ticks / sim::TICKS_PER_SECOND as f64,
+                ticks / world::TICKS_PER_SECOND as f64,
             ));
         app.update();
     }
@@ -190,7 +194,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .can_advance_physics_frame()
     );
     // The retained half-tick plus two half-ticks advances once, then samples its decay.
-    let half_tick = Duration::from_secs_f64(0.5 / sim::TICKS_PER_SECOND as f64);
+    let half_tick = Duration::from_secs_f64(0.5 / world::TICKS_PER_SECOND as f64);
     for _ in 0..2 {
         app.world_mut()
             .resource_mut::<Time<Real>>()

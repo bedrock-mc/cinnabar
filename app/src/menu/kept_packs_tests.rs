@@ -8,17 +8,21 @@ use bevy::{
     prelude::IntoScheduleConfigs,
 };
 
-use super::{MenuAction, MenuRuntime};
-use crate::{
-    app::ClientBlobCacheOwner,
-    install_layout::{InstallEnvironment, InstallLayout, Platform},
-    runtime::{
-        network::{CompiledStacks, NetworkHandle, ResourcePackAdmissionState},
-        world::{ClientWorld, TransferNotice},
-    },
-    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {super::MenuRuntime, launcher::menu::MenuAction};
+use {
+    crate::{
+        app::ClientBlobCacheOwner,
+        runtime::{
+            network::{CompiledStacks, NetworkHandle, ResourcePackAdmissionState},
+            world::{ClientWorld, TransferNotice},
+        },
+        session::{
+            SessionController, drive_session, follow_server_transfer, recover_session_failure,
+        },
+    },
+    launcher::install_layout::{InstallEnvironment, InstallLayout, Platform},
+};
 
 /// A development layout under `root` with no core executable, so every join fails to start.
 fn missing_core_layout(root: &Path) -> InstallLayout {
@@ -83,8 +87,8 @@ fn run_session<M>(
         .insert_resource(client_world)
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, system);
     app.update();
 }

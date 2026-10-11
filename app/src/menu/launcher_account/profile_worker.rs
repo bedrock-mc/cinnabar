@@ -161,10 +161,9 @@ mod tests {
                 Duration::from_millis(100),
             )
         });
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while shared.lock().unwrap().profile.is_none() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
+        test_time::wait_until(Duration::from_secs(2), || {
+            shared.lock().unwrap().profile.is_some()
+        });
         drop(alive);
         worker.join().unwrap();
         fixture.join().unwrap();

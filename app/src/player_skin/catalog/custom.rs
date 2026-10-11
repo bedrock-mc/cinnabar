@@ -1,6 +1,6 @@
 //! Validated custom inputs and immutable private files for the skin catalog.
-use super::*;
 use launcher::skin_import::{self, SkinPackEntry};
+use {super::*, launcher::install_layout::InstallLayout};
 
 /// Imports a loose PNG and sibling JSON, or every skin declared by a skin-pack archive.
 pub(crate) fn import(

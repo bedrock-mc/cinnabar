@@ -1,6 +1,6 @@
 use super::*;
-use crate::ui_runtime::presentation::forms::tests::mini_engine_presentation;
 use bevy::input::keyboard::Key;
+use client_ui::test_support::mini_engine_presentation;
 
 fn fixture() -> String {
     fixture_with_capture(false)

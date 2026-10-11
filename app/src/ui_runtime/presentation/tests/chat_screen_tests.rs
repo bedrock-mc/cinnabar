@@ -155,8 +155,8 @@ fn wheel_input_system_scrolls_the_open_chat() {
     assert!(text_node(presentation.chat_draw_nodes(), "line 1").is_none());
     let mut app = App::new();
     app.init_resource::<Time<Real>>()
-        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
-        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
         .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
         .init_resource::<crate::runtime::world::ClientWorld>()
         .init_resource::<ButtonInput<MouseButton>>()
@@ -209,7 +209,7 @@ fn server_chat_screen_keeps_the_java_layout_and_input_policy() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
+        engine_presentation_with(client_ui::test_support::pack_harness::font())
     else {
         eprintln!(
             "skipping server_chat_screen_keeps_the_java_layout_and_input_policy: fixture unavailable; requires installed local carriers (make assets)"

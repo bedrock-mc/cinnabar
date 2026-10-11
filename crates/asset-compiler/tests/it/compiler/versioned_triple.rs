@@ -2,7 +2,13 @@ use std::process::Command;
 
 use assets::{NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 
-use super::support::*;
+use {
+    super::support::*,
+    assets::{BlockFlags, RegistryProvenance, RegistryRecord},
+    std::fs,
+    std::path::Path,
+    tempfile::TempDir,
+};
 
 /// One stone texture plus the biome fixture, the minimum pack surface the
 /// compile CLI consumes for a two-record registry.

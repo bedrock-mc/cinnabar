@@ -1,5 +1,5 @@
 //! Controller traversal and retained effects of completed transitions.
-use super::*;
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 #[cfg(test)]
 mod state_time_tests;

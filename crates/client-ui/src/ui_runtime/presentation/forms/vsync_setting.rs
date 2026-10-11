@@ -3,7 +3,7 @@
 use json_ui::{Catalog, DataSource, Scalar};
 use render_api::FrameRateLimit;
 
-use crate::menu::{MenuView, settings_options::frame_rate_limit};
+use launcher::menu::{MenuView, settings_options::frame_rate_limit};
 
 /// The Max Framerate caption: a numeric cap or Unlimited.
 pub(super) fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
@@ -47,9 +47,9 @@ const OVERLAY: &str = r##"{
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::menu::settings_options::FRAME_RATE_UNLIMITED;
     use crate::ui_runtime::presentation::forms::pack_harness;
+    use launcher::menu::settings_options::FRAME_RATE_UNLIMITED;
+    use {super::*, launcher::menu::MenuView};
 
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
         control

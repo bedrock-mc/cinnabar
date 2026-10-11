@@ -1,15 +1,21 @@
 //! Desktop focus arbitration before input sampling and before OS cursor updates.
+#[cfg(test)]
+use bevy::prelude::{Local, MessageWriter, Mut, Time, Update, default};
 use bevy::{
     input::{
         InputSystems,
         mouse::{AccumulatedMouseMotion, MouseButtonInput},
     },
-    prelude::*,
+    prelude::{
+        App, ButtonInput, Entity, Gamepad, IntoScheduleConfigs, KeyCode, MessageReader,
+        MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches, Vec2, Window,
+        With,
+    },
     window::{CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
 use client_presentation::camera::CursorFocus;
 
-use super::{AutoFly, DrivenInput};
+use {super::DrivenInput, client_presentation::camera::AutoFly};
 
 #[cfg(any(windows, test))]
 mod native;
@@ -69,7 +75,7 @@ fn track_focus(
         return;
     }
     if !available {
-        super::release_cursor(&mut cursor);
+        client_presentation::camera::release_cursor(&mut cursor);
         keys.reset_all();
         buttons.reset_all();
         motion.delta = Vec2::ZERO;
@@ -84,7 +90,7 @@ pub(crate) fn mouse_input_active(
     driven: bool,
 ) -> bool {
     driven
-        || (super::input_is_active(window, cursor)
+        || (client_presentation::camera::input_is_active(window, cursor)
             && focus.is_none_or(CursorFocus::capture_allowed))
 }
 
@@ -156,7 +162,7 @@ fn enforce_cursor_ownership(
     let allowed = allowed && native.0;
     if driven.is_some() || !allowed {
         for mut cursor in &mut cursors {
-            super::release_cursor(&mut cursor);
+            client_presentation::camera::release_cursor(&mut cursor);
         }
     }
 }

@@ -10,6 +10,7 @@ mod mode;
 #[cfg(test)]
 mod numeric_tests;
 mod scaffolding;
+mod spectator;
 mod state;
 mod travel;
 mod water;
@@ -33,7 +34,6 @@ pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), Simulatio
     state::validate(state)
 }
 
-pub use world::TICKS_PER_SECOND;
 const DEFAULT_JUMP_HEIGHT: f64 = 0.42;
 const DEFAULT_AIR_FRICTION: f64 = 0.91;
 const NORMAL_GRAVITY_MULTIPLIER: f64 = 0.98;
@@ -171,6 +171,10 @@ impl Simulator {
             .ok_or(SimulationError::TickOverflow)?;
         if next.velocity.length_squared() < 1.0e-12 {
             next.velocity = Vec3::ZERO;
+        }
+
+        if input.spectator {
+            return spectator::tick(next, state, input, world.registry_identity());
         }
 
         if !input.jumping {
@@ -382,22 +386,17 @@ impl Simulator {
 
         let pre_collision_velocity = next.velocity;
         next.requested_movement = pre_collision_velocity;
+        let height = input.mode.hitbox_height(input.sneaking);
+        let collision_box = next.collision_box(height);
         let motion = resolve_motion(
-            &scaffolding::ScaffoldingView::new(
-                world,
-                Aabb::player_with_height_at(
-                    next.position,
-                    input.mode.hitbox_height(input.sneaking),
-                ),
-                sampled.descend_through,
-            ),
-            next.position,
+            &scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through),
+            collision_box,
             next.velocity,
             grounded_at_start,
-            input.mode.hitbox_height(input.sneaking),
         )?;
         identity = identity.merge(&motion.identity)?;
         next.position = motion.position;
+        next.retain_collision_box(motion.aabb, height);
         // Ground comes only from a vertical collision under a downward request,
         // so a step taken while rising leaves the ground; a free move keeps it
         // only for an exactly zero vertical request.

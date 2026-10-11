@@ -189,7 +189,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                 server_tick,
                 attributes,
             } => {
-                crate::movement::trace_local_attributes(
+                gameplay::movement::trace_local_attributes(
                     clock.session_generation(),
                     sequence,
                     server_tick,
@@ -227,6 +227,12 @@ pub(crate) fn drain_committed_ui_before_authority(
                 clock.session_generation(),
                 sequence,
                 ridden_unique_id,
+            ),
+            CommittedUiEvent::LocalTotemActivation { sequence } => ui_runtime.activate_totem(
+                &mut player_runtime,
+                clock.session_generation(),
+                sequence,
+                local_millis,
             ),
         };
         if let Err(error) = result {

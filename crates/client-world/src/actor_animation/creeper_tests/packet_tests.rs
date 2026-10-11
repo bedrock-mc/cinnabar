@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
 fn compile_swell_stop(source: &str, version: i32) -> Option<assets::MolangProgram> {
     assert_eq!(source, "variable.factor = 3; return 0;");

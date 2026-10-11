@@ -16,7 +16,7 @@ use render::{
 };
 
 use super::{WeatherState, WeatherTickFrame, weather_fog::WeatherFog};
-use crate::{camera::FlyCamera, runtime::world::ClientWorld};
+use {crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera};
 
 const MAX_FRAME_STEP_SECONDS: f64 = 1.0;
 const MAX_QUEUED_SPLASHES: usize = 256;

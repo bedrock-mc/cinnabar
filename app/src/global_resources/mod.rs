@@ -9,8 +9,6 @@ use crate::{menu::MenuRuntime, runtime::network::PackReload};
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::Arc};
 
-pub(crate) use launcher::global_resources::{Action, Snapshot};
-
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
 pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
     app.insert_resource(worker::Worker::new(root, files))

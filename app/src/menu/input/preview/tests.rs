@@ -12,7 +12,10 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use ui::{DpiScale, UiPoint, UiRect};
 
 use super::super::{MenuClipboard, drive_menu_input};
-use crate::menu::{MenuAction, MenuRuntime, MenuScreen};
+use {
+    crate::menu::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 const PHYSICAL: [u32; 2] = [1280, 720];
 

@@ -276,7 +276,7 @@ fn join_part_timing() {
         collect_server_ui(view);
     });
     time("sounds", &|view| {
-        crate::audio::ServerSoundPack::from_view(view);
+        client_presentation::audio::ServerSoundPack::from_view(view);
     });
     time("property_defaults", &|view| {
         super::super::entity_pack::pack_property_defaults(view);

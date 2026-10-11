@@ -98,7 +98,7 @@ fn reply(helper: &mut Helper) -> Reply {
             return result.unwrap();
         }
         assert!(since.elapsed() < Duration::from_secs(30), "no reply");
-        std::thread::sleep(Duration::from_millis(5));
+        test_time::idle();
     }
 }
 
@@ -150,7 +150,7 @@ fn wait_log(helper: &mut Helper, needle: &str) -> Vec<String> {
             since.elapsed() < Duration::from_secs(10),
             "no stderr line with {needle:?} in {lines:?}"
         );
-        std::thread::sleep(Duration::from_millis(5));
+        test_time::idle();
     }
 }
 

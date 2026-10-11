@@ -7,7 +7,6 @@ mod template;
 #[cfg(test)]
 mod tests;
 
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
     engine::{EngineInputs, EngineOutput, ScreenArt},
     hud::CachedScreen,
@@ -19,6 +18,10 @@ use std::sync::Arc;
 use ui::{
     IconRef, UiNode,
     mod_hud::{EditorResult, Hud, MAX_HUD_ROWS},
+};
+use {
+    super::super::{TextMetrics, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
 };
 
 const SCREEN: &str = "cinnabar_hud_editor.layout";

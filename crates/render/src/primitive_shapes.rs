@@ -6,9 +6,11 @@ mod pipeline;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use bevy::prelude::{IntoSystem, System, default};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    prelude::*,
+    prelude::{App, Handle, IntoScheduleConfigs, Plugin, Resource, Shader, World},
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

@@ -1,8 +1,8 @@
 //! Focus reveals a control once, preserving later wheel movement.
 
 use super::paint::Canvas;
-use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::presentation::{menu_scroll::MenuScrolls, rect};
+use launcher::menu::{MenuAction, MenuView};
 
 pub(super) fn reveal(canvas: &mut Canvas<'_>, scrolls: &mut MenuScrolls, view: &MenuView) -> bool {
     let target = view
@@ -13,7 +13,7 @@ pub(super) fn reveal(canvas: &mut Canvas<'_>, scrolls: &mut MenuScrolls, view: &
         return false;
     };
     let fixed = *action == MenuAction::AddBack
-        || (view.screen == crate::menu::MenuScreen::AddServer
+        || (view.screen == launcher::menu::MenuScreen::AddServer
             && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
         || (*action == MenuAction::SettingsScalePicker && view.settings_scale_picker)
         || matches!(action, MenuAction::SettingsDropdown(index) if view.settings_dropdown == Some(*index));

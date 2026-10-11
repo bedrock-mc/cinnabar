@@ -7,7 +7,7 @@
 
 use render_model::UiRenderTextureArray;
 
-use super::IconRef;
+use ui::IconRef;
 
 pub const SIDE: u32 = 96;
 const DEPTH: f32 = 0.075;

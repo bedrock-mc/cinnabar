@@ -1,16 +1,13 @@
-#[cfg(feature = "acceptance")]
-use crate::acceptance::{
-    model_witness::poll_model_witness_request,
-    transparent_witness::poll_transparent_witness_request,
-};
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use crate::runtime::phase3_evidence::{
     Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
 };
 #[cfg(feature = "acceptance")]
 use crate::runtime::shutdown::finish_acceptance_run;
-use std::{ffi::OsStr, fs, io::Write, path::Path, sync::Arc};
-
+#[cfg(feature = "acceptance")]
+use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
 use bevy::{
     anti_alias::AntiAliasPlugin,
@@ -22,32 +19,36 @@ use bevy::{
     render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
-use chunk_pipeline::PublicationServiceConfig;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
+use render_api::PublicationServiceConfig;
+#[cfg(test)]
+use std::fs;
+use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
+#[cfg(feature = "acceptance")]
+use {
+    crate::acceptance::model_witness::drive_model_witness,
+    crate::acceptance::world_ready::emit_world_ready,
+    acceptance::transparent_witness::poll_transparent_witness_request,
+};
 mod logging;
 mod startup;
+use startup::bind_direct_session_directory;
 
-#[cfg(feature = "acceptance")]
-use crate::acceptance::world_ready::emit_world_ready;
 use crate::{
     args,
     asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
     block_use::{BlockUseRuntime, produce_block_use},
-    camera::{FlyCameraPlugin, FlyCameraUpdateSet},
+    camera::FlyCameraPlugin,
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame, update_lightning, update_precipitation_scene,
         update_seasonal_foliage,
     },
-    install_layout::InstallLayout,
-    local_player::{
-        LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
-        resolve_camera_pose,
-    },
+    local_player::{publish_local_player_frame, resolve_camera_pose},
     melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
         CoreProcessGuard, MenuRuntime, drive_menu_input, drive_menu_services,
@@ -62,14 +63,14 @@ use crate::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
             NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
-            prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
-            receive_network_events, spawn_network,
+            prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
+            spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
-            AcceptanceRuntimeConfig, publish_runtime_stage_profile, record_metrics,
-            send_player_auth_inputs, update_visibility_diagnostics,
+            publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
+            update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -86,7 +87,7 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
+    session_cleanup::reclaim_stale_session_directories,
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
@@ -99,12 +100,16 @@ use crate::{
         },
     },
 };
+use client_presentation::{
+    actor_publication::publish_actor_render_frame,
+    camera::FlyCameraUpdateSet,
+    local_player::{LocalPlayerFrameSet, publish_interaction_origin},
+};
 use client_ui::ui_runtime::{UiRuntime, oreui_fonts, presentation::UiPresentationRuntime};
+use diagnostics::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
-
-#[cfg(feature = "acceptance")]
-use crate::acceptance::model_witness::drive_model_witness;
+use launcher::install_layout::InstallLayout;
 
 mod render_setup;
 use render_setup::render_plugin;
@@ -189,7 +194,7 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     #[cfg(not(feature = "acceptance"))]
-    app.init_resource::<crate::acceptance::AcceptanceRun>();
+    app.init_resource::<AcceptanceRun>();
     #[cfg(feature = "acceptance")]
     app.init_resource::<Phase3EvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
@@ -202,9 +207,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
-        .init_resource::<crate::session_audio::SessionAudio>()
-        .init_resource::<crate::named_audio::NamedAudio>()
-        .init_resource::<crate::audio::AudioEngine>()
+        .init_resource::<client_presentation::session_audio::SessionAudio>()
+        .init_resource::<client_presentation::named_audio::NamedAudio>()
+        .init_resource::<client_presentation::audio::AudioEngine>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
@@ -411,36 +416,6 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
         .add_systems(Last, arm_shutdown_watchdog);
 }
 
-/// Binds the identity-checked session-directory owner for direct starts.
-///
-/// Only app-derived directories carry the `direct-<pid>` naming grammar the
-/// guard enforces. A flag-provided `--socket-dir` belongs to the operator
-/// (documented custom layouts predate the ownership guard) and its leaf may
-/// violate that grammar, so binding it would abort startup with
-/// `InvalidName`; such sessions own no runtime directory and leave the
-/// provided directory exactly as supplied, after preserving the historical
-/// side effect that it exists. Teardown order is unchanged: the core child
-/// is stopped by the explicit `drop(app)` below before any app-owned state
-/// is released, and an unowned directory is never removed.
-fn bind_direct_session_directory(
-    args: &args::ClientArgs,
-    socket_dir: std::path::PathBuf,
-) -> Result<ScopedSessionDirectory> {
-    if args.address.is_some() && !args.socket_dir_explicit {
-        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
-            format!(
-                "prepare direct-connect session directory {}",
-                socket_dir.display()
-            )
-        });
-    }
-    if args.address.is_some() {
-        fs::create_dir_all(&socket_dir)
-            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
-    }
-    Ok(ScopedSessionDirectory::none())
-}
-
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
@@ -522,7 +497,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
-        crate::presentation::equipment::EquipmentRuntime::build(
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog.clone(),
             Arc::clone(icon_assets.runtime()),
@@ -534,10 +509,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
-    let saved_settings = crate::menu::settings_options::SettingsOptions::load(
+    let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
-            .with_file_name(crate::menu::settings_options::SETTINGS_FILE),
+            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
     let active_lang = crate::asset_startup::load_active_language(
         &loaded_assets.selected_path,
@@ -549,14 +524,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         sound_bank,
     } = carriers.audio?;
     let audio_device = if pcm.is_some() || sound_bank.is_some() {
-        crate::named_audio::AudioDevice::open_default_once()
+        client_presentation::named_audio::AudioDevice::open_default_once()
     } else {
-        crate::named_audio::AudioDevice::disabled()
+        client_presentation::named_audio::AudioDevice::disabled()
     };
     // The full engine supersedes the single-sample named path when a bank is present.
-    let named_audio =
-        crate::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
-    let audio_engine = crate::audio::AudioEngine::new(sound_bank);
+    let named_audio = client_presentation::named_audio::NamedAudio::new(if sound_bank.is_some() {
+        None
+    } else {
+        pcm
+    });
+    let audio_engine = client_presentation::audio::AudioEngine::new(sound_bank);
     let particle_assets = carriers.particles;
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
@@ -619,7 +597,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
-        crate::runtime::network::HandRigBuilder::from_runtime_assets(&entity_runtime)?;
+        client_presentation::actor_publication::HandRigBuilder::from_runtime_assets(
+            &entity_runtime,
+        )?;
     let collision_registries = carriers.collision?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
@@ -698,9 +678,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let movement_ticker = network.movement_ticker();
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
-    let stage_profile_enabled = std::env::var_os(crate::acceptance::markers::STAGE_PROFILE)
-        .as_deref()
-        == Some(OsStr::new("1"));
+    let stage_profile_enabled =
+        std::env::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));
     #[cfg(feature = "developer-control")]
     let hidden_surface = crate::developer_control::hidden_window_requested();
     #[cfg(not(feature = "developer-control"))]
@@ -822,7 +801,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(local_player_skin)
     .insert_resource(menu.with_vsync_override(vsync_override))
     .init_resource::<crate::menu::MenuClipboard>()
-    .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
+    .insert_resource(client_presentation::session_audio::SessionAudioCatalog(
+        audio_catalog,
+    ))
     .insert_resource(named_audio)
     .insert_resource(audio_engine)
     .insert_non_send_resource(audio_device)
@@ -882,7 +863,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
         app.insert_resource(RuntimeStageProfiler::for_gameplay(
             stage_profile_enabled,
-            std::env::var_os(crate::acceptance::markers::STAGE_PROFILE_FRAMES)
+            std::env::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
                 .map(std::path::PathBuf::from),
         ))
         .init_resource::<render::RuntimeStageSpans>()
@@ -943,7 +924,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::block_entities::configure(&mut app, block_entity_font);
     crate::block_selection::configure(&mut app);
     crate::primitive_shapes::configure(&mut app);
-    app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
+    app.init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
     }

@@ -14,7 +14,7 @@ use bevy::{
     },
 };
 
-/// Cinnabar's opaque, cutout and sky phase items share samples with later world passes. The
+/// Cinnabar's opaque and cutout phase items share sky samples with later world passes. The
 /// pass records and encodes on a worker task, in parallel with other deferred world passes.
 pub(super) struct SceneOpaquePass;
 

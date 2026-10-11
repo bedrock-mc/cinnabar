@@ -12,8 +12,14 @@ mod blob;
 mod block_entity;
 pub mod block_entity_geometry;
 mod block_names;
+mod block_presentation_state;
+pub use block_presentation_state::{
+    BlockPresentationState, BlockPresentationStates, PortalAxis, pinned_block_presentation_states,
+};
 pub mod carriers;
 mod compiled;
+pub mod dye;
+mod effects;
 mod encoding;
 mod entity;
 mod environment_settings;
@@ -47,6 +53,7 @@ mod seasonal_foliage;
 mod server_lang;
 mod session_entities;
 mod skin_geometry;
+mod skybox;
 mod sound_bank;
 mod sound_events;
 mod stair;
@@ -112,6 +119,9 @@ pub use compiled::{
     MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
     MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_MATERIALS,
     MAX_TEXTURE_LAYERS, Material, material_leaf_ao_exponent,
+};
+pub use effects::{
+    EFFECT_DESCRIPTORS, EffectDescriptor, effect_descriptor, effect_registry_version,
 };
 pub use entity::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
@@ -268,6 +278,9 @@ pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
     SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
     parse_skin_geometry_layer, skin_geometry_name,
+};
+pub use skybox::{
+    DEFAULT_NATIVE_SKYBOX_OFFSET, PackSkybox, SKYBOX_FACE_COUNT, SkyboxDimension, SkyboxFace,
 };
 pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,

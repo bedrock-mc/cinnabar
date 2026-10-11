@@ -2,7 +2,7 @@
 use super::LocalPhysicsController;
 use crate::runtime::{network::NetworkHandle, world::ClientWorld};
 use bevy::prelude::{Local, Res, ResMut};
-pub(crate) use gameplay::movement::PredictionSyncState;
+use gameplay::movement::PredictionSyncState;
 
 /// Keeps the existing system slot while gameplay owns countdown and packet construction.
 pub(crate) fn send_movement_prediction_sync(

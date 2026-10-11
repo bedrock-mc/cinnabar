@@ -1,7 +1,7 @@
 //! Disk inventory and deletion boundary regressions.
 
-use super::*;
 use std::path::PathBuf;
+use {super::*, launcher::menu::MenuDialog, launcher::menu::settings_storage::StorageAction};
 
 /// Gives each test a private, canonical data directory.
 fn fixture() -> PathBuf {

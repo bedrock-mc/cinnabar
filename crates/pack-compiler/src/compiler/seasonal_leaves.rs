@@ -1,12 +1,12 @@
 //! World-only seasonal leaf materials. The ordinary face table remains usable
 //! by carried block icons and viewmodels without a terrain exposure context.
 
-use super::*;
 use assets::{
     BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF, BLOCK_VISUAL_VARIANT_SEASONAL_LEAF,
     MATERIAL_FLAG_EXPOSED_FOLIAGE, MATERIAL_FLAG_NATIVE_LEAF_COLOUR,
     MATERIAL_FLAG_SEASONAL_FOLIAGE, MATERIAL_FLAG_TWO_SIDED, SEASONAL_LEAF_MATERIAL_COUNT,
 };
+use {super::*, assets::BlockFace};
 
 pub(super) fn install(
     records: &[RegistryRecord],
@@ -136,8 +136,8 @@ fn native_seasonal_replaceable(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use assets::{SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET};
+    use {super::*, assets::BlockFace};
 
     fn empty_blocks() -> crate::pack::BlockTextureMap {
         let directory = tempfile::tempdir().unwrap();

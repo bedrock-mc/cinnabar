@@ -1,7 +1,7 @@
 //! Immutable gallery thumbnails prepared on the artwork worker.
 
 use super::{ArtworkSet, UiPresentationRuntime};
-use crate::menu::{MenuScreen, MenuView};
+use launcher::menu::{MenuScreen, MenuView};
 
 #[derive(Clone)]
 pub(in super::super) struct SkinArtwork {
@@ -155,8 +155,11 @@ impl UiPresentationRuntime {
 #[cfg(test)]
 mod tests {
     use super::super::{DecodeCache, Source, sources};
-    use super::*;
     use launcher::dressing_room::{DressingRoomSkin, DressingRoomView};
+    use {
+        super::*,
+        launcher::menu::{MenuScreen, MenuView},
+    };
 
     #[test]
     fn unchanged_gallery_artwork_sync_allocates_nothing() {

@@ -11,8 +11,8 @@ use std::process::Command;
 
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use crate::install_layout::InstallLayout;
 use canvas::{Image, Text};
+use launcher::install_layout::InstallLayout;
 
 pub(crate) const SETUP_FLAG: &str = "--first-run-setup";
 const EXIT_QUIT: i32 = 3;

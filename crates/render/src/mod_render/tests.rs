@@ -1,5 +1,6 @@
 use super::*;
 use crate::queue_review_support as fixture;
+use bevy::prelude::FromWorld;
 use bevy::{
     core_pipeline::core_3d::Transparent3d, ecs::system::RunSystemOnce,
     render::render_phase::AddRenderCommand, render::view::ExtractedView,
@@ -135,7 +136,7 @@ fn pass_pipelines_compile_for_each_view_format_without_blending() {
                     ) {
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    test_time::idle();
                 }
                 assert!(gpu.pipeline(1, format).is_some(), "{format:?}");
                 assert!(passes::color_target(format).blend.is_none());

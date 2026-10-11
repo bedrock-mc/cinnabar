@@ -6,8 +6,8 @@ use super::super::{
     widgets::{self, Variant},
 };
 use super::{PreviewArea, command, enabled};
-use crate::menu::MenuView;
 use launcher::dressing_room::{Action, DressingRoomSection, SkinModel};
+use launcher::menu::MenuView;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

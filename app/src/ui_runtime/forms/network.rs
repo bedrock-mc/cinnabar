@@ -39,7 +39,7 @@ pub(crate) fn flush_server_form_network(
     }
     // Opening settings in a session asks the server for its settings form once.
     let in_settings = menu.as_ref().is_some_and(|menu| {
-        menu.is_visible() && menu.screen() == crate::menu::MenuScreen::Settings
+        menu.is_visible() && menu.screen() == launcher::menu::MenuScreen::Settings
     });
     let store = runtime.server_forms_mut();
     store.flush_settings_request(in_settings, || {

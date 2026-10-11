@@ -3,11 +3,14 @@ use protocol::{
     ItemRegistryVersion, SlotIdentity,
 };
 
-use super::*;
-use crate::mining::FrozenMiningSelection;
+use gameplay::mining::FrozenMiningSelection;
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use {
+    super::*,
+    gameplay::item_use::{AirUse, UseFrame, classify},
+};
 
 const BOW: i32 = 300;
 

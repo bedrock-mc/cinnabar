@@ -24,8 +24,6 @@ use optional_carriers::{
     load_vanilla_entity_refs,
 };
 mod world_provenance;
-pub use world_provenance::pinned_world_provenance;
-pub(crate) use world_provenance::{active_content_registry_protocol, pinned_block_registry_bytes};
 
 pub const ATMOSPHERE_FILENAME: &str = assets::carriers::ATMOSPHERE.output;
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
@@ -107,7 +105,7 @@ pub(crate) mod test_carriers;
 /// Environment override consumed through [`path_selection`]; kept beside the
 /// other identity anchors so the registered marker's declared consumer stays
 /// this module.
-pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
+pub const ASSET_PATH_ENVIRONMENT: &str = diagnostics::markers::ASSETS;
 
 pub use path_selection::{
     AssetPathSource, AssetSelection, DEFAULT_ASSET_PATH, select_asset_path,

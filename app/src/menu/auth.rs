@@ -21,7 +21,7 @@ const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
-pub(crate) use launcher::menu::auth::AuthState;
+use launcher::menu::auth::AuthState;
 
 #[cfg(test)]
 mod signup_tests;
@@ -462,7 +462,7 @@ mod tests {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
-    use super::*;
+    use {super::*, launcher::menu::auth::AuthState};
 
     fn channel() -> (Sender<ReaderMessage>, Receiver<ReaderMessage>) {
         bounded(EVENT_CAPACITY)
@@ -603,11 +603,10 @@ mod tests {
         let child = command.stdout(Stdio::piped()).spawn().unwrap();
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.request_cancel();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !supervisor.cleanup_handed_off() && Instant::now() < deadline {
+        test_time::wait_until(Duration::from_secs(5), || {
             supervisor.poll();
-            thread::sleep(Duration::from_millis(5));
-        }
+            supervisor.cleanup_handed_off()
+        });
         assert!(supervisor.cleanup_handed_off());
         assert_eq!(supervisor.state, AuthState::SignedOut);
         assert!(supervisor.reader.is_none());
@@ -617,27 +616,22 @@ mod tests {
     fn cancellation_discards_buffered_events_and_remains_signed_out() {
         let (child, directory) = event_child_holding(&[r#"{"v":1,"event":"checking_cache"}"#]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
-        let buffered_deadline = Instant::now() + Duration::from_secs(5);
-        while supervisor.receiver.is_empty() && Instant::now() < buffered_deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
+        test_time::wait_until(Duration::from_secs(5), || !supervisor.receiver.is_empty());
         assert!(!supervisor.receiver.is_empty(), "event was not buffered");
 
         supervisor.request_cancel();
         assert_eq!(supervisor.state, AuthState::SignedOut);
-        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
-        while !supervisor.cleanup_handed_off() && Instant::now() < cleanup_deadline {
+        test_time::wait_until(Duration::from_secs(5), || {
             supervisor.poll();
             assert_eq!(supervisor.state, AuthState::SignedOut);
-            thread::sleep(Duration::from_millis(5));
-        }
+            supervisor.cleanup_handed_off()
+        });
         assert!(supervisor.cleanup_handed_off());
         assert_eq!(supervisor.state, AuthState::SignedOut);
 
-        let reap_deadline = Instant::now() + Duration::from_secs(5);
-        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
+        test_time::wait_until(Duration::from_secs(5), || {
+            supervisor.reaped.load(Ordering::Acquire)
+        });
         assert!(supervisor.reaped.load(Ordering::Acquire));
         fs::remove_dir_all(directory).unwrap();
     }
@@ -662,21 +656,19 @@ mod tests {
         ] {
             let (child, directory) = event_child(lines);
             let mut supervisor = AuthSupervisor::from_child(child).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while supervisor.reader.is_some() && Instant::now() < deadline {
+            test_time::wait_until(Duration::from_secs(5), || {
                 supervisor.poll();
-                thread::sleep(Duration::from_millis(5));
-            }
+                supervisor.reader.is_none()
+            });
             assert_eq!(supervisor.state, expected);
             assert!(supervisor.terminal);
             assert!(
                 supervisor.cleanup_handed_off(),
                 "cleanup was not handed off"
             );
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(5));
-            }
+            test_time::wait_until(Duration::from_secs(5), || {
+                supervisor.reaped.load(Ordering::Acquire)
+            });
             assert!(
                 supervisor.reaped.load(Ordering::Acquire),
                 "helper was not reaped and reader was not joined"
@@ -692,9 +684,8 @@ mod tests {
             r#"{"v":1,"event":"authenticated","method":"cached"}"#,
         ]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
         let mut authenticated = false;
-        while !supervisor.cleanup_handed_off() && Instant::now() < deadline {
+        test_time::wait_until(Duration::from_secs(5), || {
             let poll_started = Instant::now();
             supervisor.poll();
             assert!(poll_started.elapsed() < Duration::from_millis(100));
@@ -703,8 +694,8 @@ mod tests {
             } else {
                 authenticated = matches!(supervisor.state, AuthState::Authenticated);
             }
-            thread::sleep(Duration::from_millis(5));
-        }
+            supervisor.cleanup_handed_off()
+        });
         assert!(authenticated, "cached authentication was not observed");
         assert_eq!(supervisor.state, AuthState::Authenticated);
         assert!(
@@ -712,10 +703,9 @@ mod tests {
             "successful helper cleanup was not handed off after the grace window"
         );
 
-        let reap_deadline = Instant::now() + Duration::from_secs(5);
-        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
+        test_time::wait_until(Duration::from_secs(5), || {
+            supervisor.reaped.load(Ordering::Acquire)
+        });
         assert!(
             supervisor.reaped.load(Ordering::Acquire),
             "successful helper was not reaped and its reader was not joined"
@@ -745,17 +735,16 @@ mod tests {
         supervisor.request_cancel();
         supervisor.poll();
         assert!(started.elapsed() < Duration::from_millis(100));
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !supervisor.reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+        test_time::wait_until(Duration::from_secs(2), || {
             supervisor.poll();
-            thread::sleep(Duration::from_millis(5));
-        }
+            supervisor.reaped.load(Ordering::Acquire)
+        });
         assert!(supervisor.reaped.load(Ordering::Acquire));
     }
 
     #[test]
     fn retry_waits_for_helper_cleanup_with_a_preparing_prompt() {
-        use super::super::{MenuAction, MenuRuntime};
+        use {super::super::MenuRuntime, launcher::menu::MenuAction};
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Failed("Try again.".into());
@@ -774,7 +763,7 @@ mod tests {
 
     #[test]
     fn a_failed_prompt_survives_stale_core_status_until_explicit_cancel() {
-        use super::super::{MenuAction, MenuRuntime};
+        use {super::super::MenuRuntime, launcher::menu::MenuAction};
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Failed("Your sign-in code expired. Try again.".into());
@@ -793,7 +782,10 @@ mod tests {
 
     #[test]
     fn cancelled_completed_add_account_does_not_validate_a_missing_main_cache() {
-        use super::super::{MenuAction, MenuDialog, MenuRuntime};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuDialog},
+        };
         let (child, directory) = event_child_holding(&[]);
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
         supervisor.state = AuthState::Authenticated;
@@ -837,7 +829,10 @@ mod tests {
 
     #[test]
     fn profile_sign_in_focus_outranks_stale_control_auth() {
-        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuScreen},
+        };
 
         for state in [
             AuthState::Checking,
@@ -880,7 +875,7 @@ mod tests {
 
     #[test]
     fn profile_sign_in_focus_outranks_stale_control_auth_and_resets_transition() {
-        use super::super::{MenuRuntime, MenuScreen};
+        use {super::super::MenuRuntime, launcher::menu::MenuScreen};
 
         let (child, directory) = event_child_holding(&[]);
         let supervisor = AuthSupervisor::from_child(child).unwrap();
@@ -899,7 +894,10 @@ mod tests {
 
     #[test]
     fn signed_out_profile_exposes_sign_in_without_gating_offline_servers() {
-        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+        use {
+            super::super::MenuRuntime,
+            launcher::menu::{MenuAction, MenuScreen},
+        };
 
         let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
         menu.activate(MenuAction::Navigate(MenuScreen::Profile));

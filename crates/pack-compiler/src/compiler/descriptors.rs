@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, assets::BlockFace};
 
 pub(super) fn descriptor_for(
     fallback: &visuals::fallback::FallbackInventory,

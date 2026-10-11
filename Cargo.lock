@@ -349,7 +349,9 @@ dependencies = [
 name = "architecture"
 version = "0.1.12"
 dependencies = [
+ "cfg-expr",
  "clap",
+ "proc-macro2",
  "serde",
  "syn 2.0.118",
  "tempfile",
@@ -653,6 +655,7 @@ dependencies = [
  "ctrlc",
  "developer-control",
  "diagnostics",
+ "experience-sdk",
  "fontdue",
  "futures-lite",
  "gameplay",
@@ -663,7 +666,9 @@ dependencies = [
  "launcher",
  "libc",
  "meshing",
+ "mod-api",
  "mod-host",
+ "mod-render",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "pack-compiler",
@@ -688,6 +693,7 @@ dependencies = [
  "sha2",
  "sim",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tracing-tracy",
@@ -1688,6 +1694,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -1898,6 +1905,7 @@ dependencies = [
  "render-api",
  "serde_json",
  "sha2",
+ "test-time",
  "thiserror 2.0.18",
  "tracing",
  "windows-sys 0.61.2",
@@ -1937,6 +1945,7 @@ version = "0.1.12"
 dependencies = [
  "anyhow",
  "protocol",
+ "ring",
  "serde",
  "serde_json",
  "server-experience",
@@ -1956,6 +1965,7 @@ dependencies = [
  "mcp-stdio",
  "serde",
  "serde_json",
+ "test-time",
 ]
 
 [[package]]
@@ -2048,6 +2058,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "sim",
+ "test-time",
  "thiserror 2.0.18",
  "ui",
  "windows-sys 0.61.2",
@@ -2110,6 +2121,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "ui",
@@ -2758,6 +2770,7 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_json",
+ "test-time",
  "uuid",
 ]
 
@@ -3108,6 +3121,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "toml 0.9.12+spec-1.1.0",
  "wasmtime",
  "wat",
@@ -4567,6 +4581,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-time",
  "ui",
  "wasmtime",
  "wat",
@@ -5354,20 +5369,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "phase2-evidence"
-version = "0.1.0"
-dependencies = [
- "clap",
- "image",
- "same-file",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5642,6 +5643,7 @@ dependencies = [
  "sha2",
  "snap",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
@@ -6034,6 +6036,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "tracy-client",
  "wgpu",
  "windows-sys 0.61.2",
@@ -6465,6 +6468,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-time",
  "tokio",
  "url",
  "zip",
@@ -6807,6 +6811,10 @@ checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "test-time"
+version = "0.1.12"
 
 [[package]]
 name = "thiserror"
@@ -7498,19 +7506,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "visualcoverage"
-version = "0.1.12"
-dependencies = [
- "assets",
- "clap",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
-]
 
 [[package]]
 name = "walkdir"

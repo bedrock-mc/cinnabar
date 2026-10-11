@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::menu::MenuScreen};
 
 /// Captures comparable CPU build work without using timing as a CI assertion.
 #[test]

@@ -10,9 +10,7 @@ fn configured_time_changer_is_visual_only_offline() {
         return;
     };
     let mut app = App::new();
-    let Some(presentation) =
-        crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
-    else {
+    let Some(presentation) = client_ui::test_support::pack_harness::engine_presentation() else {
         return;
     };
     app.insert_resource(presentation)

@@ -1,4 +1,10 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK,
+        MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_KELP, ModelFamily, VisualKind,
+    },
+};
 
 #[test]
 fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {

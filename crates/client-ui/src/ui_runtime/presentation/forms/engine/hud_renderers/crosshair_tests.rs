@@ -4,9 +4,9 @@ use crate::ui_runtime::presentation::forms::{
     engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt},
     server_pack::ServerAtlas,
 };
-use crate::ui_runtime::presentation::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics};
 use json_ui::{Catalog, Context, DataSource, ViewState};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode};
+use {crate::ui_runtime::presentation::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 const FALLBACK: SheetSprite = SheetSprite {
     page: 1,
@@ -147,7 +147,7 @@ fn resource_pack_icons_sheet_replaces_the_crosshair() {
                 .textures
                 .set_full_res(std::collections::HashMap::from([(
                     "textures/gui/icons".into(),
-                    crate::ui_runtime::presentation::IconRef {
+                    ui::IconRef {
                         page: 4,
                         uv: [
                             0,

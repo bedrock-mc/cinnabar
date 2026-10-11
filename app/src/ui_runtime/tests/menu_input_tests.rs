@@ -9,14 +9,15 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 
-use crate::{
-    menu::{MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen, drive_menu_input},
-    ui_runtime::presentation::tests::fixture_font,
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
+};
+use {
+    crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_ui::test_support::fixture_font,
+    launcher::menu::{MenuAction, MenuField, MenuScreen},
 };
 
 fn menu_input_app(clipboard: MenuClipboard) -> (App, Entity) {

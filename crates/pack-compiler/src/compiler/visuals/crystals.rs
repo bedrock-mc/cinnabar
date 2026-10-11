@@ -1,10 +1,10 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, ThinTemplateKey, diagnostic_visual, push_model_template,
     set_model_visual,
 };
 use super::cross::crossed_quads;
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 const FAMILY: u8 = 4;
 const UP: u8 = 0;

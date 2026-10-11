@@ -1,5 +1,5 @@
-use super::*;
 use ServerGroup::{Creator, Featured, Saved};
+use {super::*, launcher::menu::MenuAction};
 
 fn point(x: f32, y: f32) -> Option<UiPoint> {
     Some(UiPoint::new(x, y).unwrap())

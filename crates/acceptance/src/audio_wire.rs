@@ -38,7 +38,7 @@ pub struct WireEvidence {
 impl Default for WireEvidence {
     fn default() -> Self {
         Self::new(selected(
-            std::env::var(crate::markers::AUDIO_WIRE_EVIDENCE)
+            std::env::var(diagnostics::markers::AUDIO_WIRE_EVIDENCE)
                 .ok()
                 .as_deref(),
         ))
@@ -120,7 +120,11 @@ impl WireEvidence {
 
 /// Writes bounded diagnostic evidence without making stdout part of session authority.
 fn write_marker(writer: &mut impl std::io::Write, json: &str) {
-    let _ = writeln!(writer, "{}={json}", crate::markers::AUDIO_WIRE_EVIDENCE);
+    let _ = writeln!(
+        writer,
+        "{}={json}",
+        diagnostics::markers::AUDIO_WIRE_EVIDENCE
+    );
 }
 
 #[cfg(test)]

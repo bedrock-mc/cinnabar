@@ -6,7 +6,10 @@ use protocol::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::{InventoryAuthorityEvent, UiRuntime, inventory_ledger::PlayerInventorySlot};
+use {
+    super::UiRuntime,
+    inventory::{InventoryAuthorityEvent, inventory_ledger::PlayerInventorySlot},
+};
 
 const MAX_ROWS: usize = 8;
 const TARGET: &str = "minecraft:stone";

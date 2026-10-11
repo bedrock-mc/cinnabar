@@ -1,10 +1,13 @@
 //! Storage world deletion goes through the existing local-world control channel.
 
-use crate::{
-    local_worlds::{Input, LocalWorlds, Screen},
-    menu::{MenuDialog, MenuRuntime, MenuScreen},
-};
 use std::sync::Arc;
+use {
+    crate::{local_worlds::LocalWorlds, menu::MenuRuntime},
+    launcher::{
+        local_worlds::model::{Input, Screen},
+        menu::{MenuDialog, MenuScreen},
+    },
+};
 
 impl MenuRuntime {
     /// Resolves a storage directory against the core's catalog instead of deleting files directly.
@@ -26,7 +29,8 @@ impl MenuRuntime {
                     .file_name()
                     .is_some_and(|id| id == world.id.as_str())
                     && (item.name != world.name
-                        || item.game_type != crate::local_worlds::game_mode_label(world.game_mode)
+                        || item.game_type
+                            != launcher::local_worlds::form::game_mode_label(world.game_mode)
                         || item.last_played != world.last_played_unix.max(world.created_unix))
             })
         });

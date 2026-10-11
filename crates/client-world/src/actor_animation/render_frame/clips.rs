@@ -16,6 +16,7 @@ pub(super) fn sample(
     state: &ActorRigState,
     history: ClipHistory<'_>,
     swelling: Option<&swell::SwellSampling>,
+    presentation: bool,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<tick::WeightedClip>, EvalError> {
     let ClipHistory {
@@ -36,14 +37,12 @@ pub(super) fn sample(
             geometry: state.geometry_binding,
             blink: super::super::skin_layers::blink_controller(evaluator.assets, state),
             journal: &mut journal,
-            replay: swelling.is_some(),
+            replay: true,
             record: false,
         },
         budget,
     )?;
-    if swelling.is_some() {
-        server_effects.apply(variables)?;
-    }
+    server_effects.apply(variables)?;
     clips.extend(
         previous
             .iter()
@@ -53,7 +52,7 @@ pub(super) fn sample(
     super::super::clock::sample(evaluator, clocks, &mut clips, budget)?;
     let mut sampled_times = BTreeMap::new();
     for weighted in &mut clips {
-        if swelling.is_some()
+        if (swelling.is_some() || presentation)
             && weighted.weight >= f32::EPSILON
             && evaluator.assets.animation_clips()[weighted.clip]
                 .anim_time_update

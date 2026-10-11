@@ -18,8 +18,11 @@ use client_ui::ui_runtime::{
     presentation::{ModScreensInput, UiPresentationRuntime, publish::hovered_stack},
     session_data::{SessionDataCache, session_data, session_stack},
 };
-use mod_host::{KeyDecl, KeyModifiers, ModEvent, ModHost, Modifier};
 use server_experience::screen::ScreenLayout;
+use {
+    experience_sdk::mod_manifest::{KeyDecl, Modifier},
+    mod_host::{KeyModifiers, ModEvent, ModHost},
+};
 
 use super::ModRuntime;
 
@@ -328,7 +331,11 @@ fn key_events(
     let typed: Vec<String> = presses
         .iter()
         .filter_map(|press| {
-            crate::ui_runtime::typed_text(press.key, press.text.as_deref(), press.modifiers.ctrl)
+            client_ui::ui_runtime::forms::engine_input::typed_text(
+                press.key,
+                press.text.as_deref(),
+                press.modifiers.ctrl,
+            )
         })
         .collect();
     let escape = presses.iter().any(|press| press.key == KeyCode::Escape);
@@ -476,7 +483,10 @@ mod input_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        experience_sdk::mod_manifest::{KeyDecl, Modifier},
+    };
 
     #[test]
     fn declared_key_names_map_to_their_keys() {
@@ -491,7 +501,7 @@ mod tests {
         assert_eq!(key_code("backspace"), Some(KeyCode::Backspace));
         assert_eq!(key_code("page_up"), Some(KeyCode::PageUp));
         assert_eq!(key_code("page_down"), Some(KeyCode::PageDown));
-        for name in mod_host::KEY_NAMES {
+        for name in experience_sdk::mod_manifest::KEY_NAMES {
             assert!(key_code(name).is_some(), "{name}");
         }
     }

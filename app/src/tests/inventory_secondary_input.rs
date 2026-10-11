@@ -21,26 +21,29 @@ use protocol::{
 use semantic_input::Action;
 use ui::UiPoint;
 
-use crate::{
-    app::{ClientFrameSet, configure_client_frame_schedule},
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
-        route_semantic_input, synchronize_semantic_input_authority,
+use {
+    crate::{
+        app::{ClientFrameSet, configure_client_frame_schedule},
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
+            SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
+            route_semantic_input, synchronize_semantic_input_authority,
+        },
+        settings_runtime::RuntimeSettings,
+        ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
     },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
-    },
+    client_ui::test_support::fixture_font,
 };
-use client_ui::ui_runtime::{
-    UiRuntime,
-    inventory_ledger::{
+use {
+    client_ui::ui_runtime::{
+        UiRuntime,
+        presentation::{UiPresentationRuntime, inventory_pointer::InventoryCellHit},
+    },
+    inventory::inventory_ledger::{
         GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState,
         SMALL_STORAGE_SLOT_COUNT,
     },
-    presentation::{UiPresentationRuntime, inventory_pointer::InventoryCellHit},
 };
 
 const PHYSICAL_SIZE: [u32; 2] = [1280, 720];
@@ -959,7 +962,7 @@ fn drop_keys_and_outside_clicks_drop_items() {
 fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
     let mut player_runtime = PlayerRuntime::new(1);
 
-    use crate::menu::{
+    use launcher::menu::{
         MenuAction,
         settings_options::{EXTRA_KEYS, KEY_BINDINGS},
     };

@@ -10,7 +10,10 @@ use developer_control::{protocol::Condition, server::Reply};
 use serde_json::{Value, json};
 
 use super::{camera::ScriptedCamera, capture::Recording};
-use crate::{local_player::LocalViewPose, menu::MenuRuntime, runtime::world::ClientWorld};
+use {
+    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Waits without a timeout give up after this long so a controller is never wedged.
 const DEFAULT_WAIT: Duration = Duration::from_secs(120);
@@ -275,7 +278,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
-        "java_animations": world.get_resource::<crate::camera::CameraSettingsAuthority>()
+        "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
@@ -322,7 +325,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
-        "server_camera": world.get_resource::<crate::camera::ServerCameraView>().map(|camera| json!({
+        "server_camera": world.get_resource::<client_presentation::camera::ServerCameraView>().map(|camera| json!({
             "active": camera.is_active(),
             "preset": camera.active_preset_name(),
             "base_preset": camera.active_base_preset_name(),

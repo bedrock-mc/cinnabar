@@ -1,4 +1,3 @@
-use super::super::super::super::{IconRef, UiPresentationError, menu_artwork};
 use super::super::{
     grid::space,
     icons::{self, Icon},
@@ -8,8 +7,12 @@ use super::super::{
     widgets::{self, Variant},
 };
 use super::{PreviewArea, command, enabled};
-use crate::menu::MenuView;
 use launcher::dressing_room::{Action, DressingRoomSection};
+use launcher::menu::MenuView;
+use {
+    super::super::super::super::{UiPresentationError, menu_artwork},
+    ui::IconRef,
+};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

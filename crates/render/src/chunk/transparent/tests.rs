@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::layout::transparent_geometry_update_requires_cow;
 use crate::chunk::transparent::retirement::transparent_view_key_satisfies_witness;
 
 pub(super) fn resident_transparent_allocation(

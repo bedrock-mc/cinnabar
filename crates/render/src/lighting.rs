@@ -5,12 +5,16 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{App, Commands, Handle, IntoScheduleConfigs, Res, ResMut, Resource, Shader},
     render::{
         Render, RenderApp, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        render_resource::*,
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+            BindingType, Buffer, BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
+            PipelineCache, ShaderStages,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };

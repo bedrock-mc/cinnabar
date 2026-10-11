@@ -10,7 +10,7 @@ use ui::{TextLayoutCache, UiPoint, UiRect, UiScale};
 
 use super::super::{TextMetrics, UiPresentationRuntime};
 use super::engine::{UNWRAPPED_LOGICAL, width_64};
-use crate::menu::{MenuField, MenuView};
+use launcher::menu::{MenuField, MenuView};
 
 /// The caret's blink clock and where the last menu frame drew each box's text.
 #[derive(Default)]

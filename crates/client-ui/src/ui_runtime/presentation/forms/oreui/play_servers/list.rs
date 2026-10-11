@@ -1,9 +1,13 @@
 //! Group headers retain visibility and order preferences independently of the picked server.
 
 use super::super::motion::{Feedback, Kind, opacity};
-use super::*;
 use crate::ui_runtime::oreui_assets::CHEVRON_DOWN_IMAGE;
 use launcher::menu::server_list::{ServerGroup, ServerListAction};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+    ui::IconRef,
+};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,

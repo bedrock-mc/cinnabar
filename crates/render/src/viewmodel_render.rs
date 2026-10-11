@@ -3,17 +3,34 @@ use crate::viewmodel::{
     HandVertex, ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, hand_projection,
     viewmodel_depth_bytes,
 };
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::Assets;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::graph::Core3d,
     ecs::system::{SystemChangeTick, SystemParam},
     mesh::VertexBufferLayout,
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, DetectChanges, Entity, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, UVec4, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_graph::{RenderGraph, RenderLabel, ViewNodeRunner},
-        render_resource::*,
+        render_resource::{
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, Extent3d, FilterMode, FragmentState, LoadOp, Operations,
+            PipelineCache, RenderPassDepthStencilAttachment, RenderPassDescriptor,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            StoreOp, Texture, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewDimension, VertexAttribute, VertexFormat, VertexState, VertexStepMode,
+        },
         renderer::{RenderAdapter, RenderDevice, RenderQueue},
         sync_world::MainEntity,
         view::ExtractedView,

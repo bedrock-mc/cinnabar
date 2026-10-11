@@ -123,7 +123,7 @@ fn settled(
             std::time::Instant::now() < deadline,
             "carrier images were unresolved"
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        test_time::idle();
     }
     presentation.finish_menu_artwork();
     frame(player, presentation)
@@ -169,7 +169,7 @@ fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
     )
     .scale
     .get()
-        * crate::ui_runtime::presentation::FONT_DESIGN_PIXEL_TEXELS as f32
+        * ui::FONT_DESIGN_PIXEL_TEXELS as f32
 }
 
 #[test]

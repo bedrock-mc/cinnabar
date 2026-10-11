@@ -19,13 +19,13 @@ use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
-use crate::{
-    install_layout::InstallLayout,
-    native_dialog::{Consent, NativePrompter, Prompter},
-};
 use prepare::prepare;
 use status::{Phase, Status};
 pub(crate) use window::{SETUP_FLAG, run_setup_process};
+use {
+    crate::native_dialog::{Consent, NativePrompter, Prompter},
+    launcher::install_layout::InstallLayout,
+};
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
 const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";

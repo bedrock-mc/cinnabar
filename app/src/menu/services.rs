@@ -12,7 +12,7 @@ pub(crate) fn drive_menu_services(
     launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
-    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
+    audio_settings: Option<ResMut<client_presentation::audio::AudioSettings>>,
     settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
     antialiasing: Option<Res<client_presentation::camera::antialiasing::CameraAntiAliasingSupport>>,
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,

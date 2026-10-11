@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, diagnostics::markers::cumulative_counter_delta};
 
 #[test]
 fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {

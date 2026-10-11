@@ -31,7 +31,7 @@ use super::{
     input::{Command, Input, Source, pointer::Pointer},
     view,
 };
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const PANORAMA_TINT: [f32; 4] = [0.0, 0.0, 0.0, 0.3];
 /// Progress repaints at most this often; the panorama animates every frame.

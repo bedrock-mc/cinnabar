@@ -1,5 +1,5 @@
-use super::super::*;
 use super::fallback::FallbackInventory;
+use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) struct RuleInputs<'a> {
     pub(in crate::compiler) pack: &'a PackSources,

@@ -11,7 +11,6 @@ mod lightmap;
 mod shader_test_support;
 pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
-pub use render_api::fancy_actor_shade;
 
 mod aim_assist;
 pub use aim_assist::{
@@ -53,16 +52,19 @@ pub use media_screen::{
 };
 mod material_shader;
 mod mod_render;
-pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
+
+pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
 pub mod motion_blur;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
 mod native_trig;
 pub use native_sunlight::AtmosphereViewInputs;
+mod pack_skybox;
 mod panorama;
 mod panorama_render;
 mod particle_render;
+pub use pack_skybox::SkyboxSettings;
 mod pipeline_warmup;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
@@ -132,6 +134,7 @@ pub use actor::{
     pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
+
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_ALPHA,
     CLOUD_SCROLL_BLOCKS_PER_TICK, CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile,
@@ -190,7 +193,7 @@ pub use chunk::{
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
-    CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
+    CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
 pub use dropped_item::{

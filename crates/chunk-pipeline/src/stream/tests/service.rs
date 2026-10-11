@@ -78,7 +78,7 @@ fn service_commits_decoded_terrain_without_a_frame_poll() {
         );
         service.launch(stream, [0.0; 3], 0);
         assert!(service.is_servicing());
-        std::thread::sleep(Duration::from_millis(1));
+        test_time::idle();
         let serviced = service.reclaim().expect("the service holds the stream");
         assert!(!service.is_servicing());
         assert!(serviced.held >= serviced.busy);

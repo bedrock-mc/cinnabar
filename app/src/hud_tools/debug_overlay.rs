@@ -23,16 +23,20 @@ use render::{
     ChunkRenderQueue, GpuFrameTimes, RuntimeStage, RuntimeStageProfiler, VisibilityDiagnostics,
 };
 
-use crate::{
-    app::ClientFrameSet,
-    camera::CameraSettingsAuthority,
-    environment::{WeatherState, WorldClock},
-    local_player::{LocalPlayerFrameCarrier, LocalViewPose},
-    movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
-    player_runtime::PlayerRuntime,
-    runtime::{network::NetworkHandle, visibility::CaveVisibilityCache, world::ClientWorld},
-};
 use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
+use {
+    crate::{
+        app::ClientFrameSet,
+        environment::{WeatherState, WorldClock},
+        movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
+        player_runtime::PlayerRuntime,
+        runtime::{network::NetworkHandle, visibility::CaveVisibilityCache, world::ClientWorld},
+    },
+    client_presentation::{
+        camera::CameraSettingsAuthority,
+        local_player::{LocalPlayerFrameCarrier, LocalViewPose},
+    },
+};
 
 /// Publish frame statistics once per second, independently of render frequency.
 const FRAME_TIMING_WINDOW: Duration = Duration::from_secs(1);

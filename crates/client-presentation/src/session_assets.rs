@@ -1,5 +1,5 @@
 //! Immutable session item presentation inputs.
-pub use assets::SessionEntityPack;
+
 use std::sync::Arc;
 /// StartGame item components and pack item icons the equipment layer draws custom items from.
 #[derive(Debug)]

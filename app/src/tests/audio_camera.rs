@@ -1,19 +1,21 @@
 //! Tests the real camera writer/frame publication, not a trusted receipt factory.
-use crate::{
-    camera::{CameraSettingsAuthority, FlyCamera},
-    environment::WorldClock,
-    local_player::{
-        CameraPose, LocalPlayerFrameCarrier, LocalViewPose, publish_local_player_frame,
-        resolve_camera_pose,
-    },
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
-};
 use bevy::prelude::*;
 use client_presentation::local_player_camera_receipt::{
     CameraPublicationAttempt, begin_camera_publication_attempt,
 };
 use std::{path::Path, sync::Arc, time::Duration};
+use {
+    crate::{
+        environment::WorldClock,
+        local_player::{publish_local_player_frame, resolve_camera_pose},
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        runtime::world::ClientWorld,
+    },
+    client_presentation::{
+        camera::{CameraSettingsAuthority, FlyCamera},
+        local_player::{CameraPose, LocalPlayerFrameCarrier, LocalViewPose},
+    },
+};
 
 struct EmptyWorld;
 impl sim::CollisionWorld for EmptyWorld {
@@ -36,11 +38,11 @@ fn camera_app() -> App {
         block_network_ids_are_hashes: false,
     }));
     let collisions = PhysicsCollisionRegistries::bind_coherent_assets(
-        crate::asset_startup::pinned_block_registry_bytes(),
+        assets::pinned_block_registry_bytes(),
         include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
         Path::new("fixture.preg"),
         Path::new("fixture.mcbea"),
-        crate::asset_startup::active_content_registry_protocol(),
+        assets::active_content_registry_protocol(),
     )
     .unwrap();
     let mut physics = LocalPhysicsController::default();

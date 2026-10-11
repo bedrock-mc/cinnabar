@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bevy::prelude::*;
+use bevy::prelude::{Mat3, Resource, Vec3};
 
 mod gpu;
 #[cfg(test)]

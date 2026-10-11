@@ -1,7 +1,7 @@
 //! Optional cape downloads verify immutable identities without blocking skin selection.
 
-use super::*;
 use launcher::dressing_room::DressingRoomCape;
+use {super::*, launcher::install_layout::InstallLayout};
 
 pub(super) fn cached(layout: &InstallLayout) -> Vec<DressingRoomCape> {
     default_capes::JAVA_CAPES

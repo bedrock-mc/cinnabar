@@ -6,7 +6,7 @@ use super::{
     theme::{CAPTION, HEADER5, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use launcher::menu::{MenuAction, MenuScreen, MenuView};
 
 /// A uniform world overlay frames the actions and the interactive character together.
 pub(super) fn draw(

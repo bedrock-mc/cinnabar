@@ -45,6 +45,7 @@ fn local_skin_selection_updates_authoritative_roster_without_replacing_identity(
         )
         .unwrap();
     let feed = LocalPlayerFeed {
+        game_mode: None,
         uuid: [5; 16],
         username: "local".into(),
         skin: skin(2),

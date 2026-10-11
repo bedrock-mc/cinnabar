@@ -5,11 +5,11 @@ use protocol::{
     InventoryEvent, NetworkItemStack,
 };
 
-use crate::ui_runtime::inventory_ledger::{
+use crate::ui_runtime::{UiRuntime, flush_inventory_send};
+use inventory::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState, PERSONAL_INVENTORY_WINDOW_TYPE,
     PlayerInventoryLedger,
 };
-use crate::ui_runtime::{UiRuntime, flush_inventory_send};
 
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
@@ -92,8 +92,8 @@ fn drop_key_admits_creative_grid_and_recipe_book_items() {
 
 #[test]
 fn creative_group_drop_matches_the_icons_retained_user_data() {
-    use crate::ui_runtime::inventory_ledger::CreativeDestination;
     use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    use inventory::inventory_ledger::CreativeDestination;
     use sha2::{Digest, Sha256};
     let mut player = player_state::PlayerState::new(1);
     player

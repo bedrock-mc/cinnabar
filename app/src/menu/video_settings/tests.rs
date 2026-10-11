@@ -6,10 +6,12 @@ use std::{
 use bevy::prelude::{App, IntoScheduleConfigs, MinimalPlugins, Update};
 
 use super::*;
-use crate::{
-    fullscreen::{apply_runtime_fullscreen_setting, toggle_fullscreen_hotkey},
-    menu::MenuAction,
-    settings_runtime::RuntimeSettings,
+use {
+    crate::{
+        fullscreen::{apply_runtime_fullscreen_setting, toggle_fullscreen_hotkey},
+        settings_runtime::RuntimeSettings,
+    },
+    launcher::menu::MenuAction,
 };
 
 struct ConfigRoot(PathBuf);

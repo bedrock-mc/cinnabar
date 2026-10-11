@@ -1,7 +1,10 @@
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
 use crate::ui_runtime::presentation::forms::oreui::transitions::Transitions;
 use crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn animated_switch(
     transitions: &mut Transitions,
@@ -168,7 +171,7 @@ fn slider_drag_geometry_retains_full_endpoints_and_clips_only_its_animated_thumb
 #[test]
 fn selected_slider_uses_hover_face_without_a_pressed_face() {
     use super::super::super::review_tests::{paint, solids};
-    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "gamma")
         .unwrap() as u16;
@@ -239,7 +242,7 @@ fn rail_hover_does_not_highlight_the_thumb_but_thumb_hover_does() {
             .iter()
             .any(|(_, color)| *color == theme::SECONDARY.hovered)
     );
-    view.settings_slider_pointer = Some(crate::menu::view::SettingsSliderPointer {
+    view.settings_slider_pointer = Some(launcher::menu::view::SettingsSliderPointer {
         option: 8,
         fraction: 0.5,
         mouse_input: true,

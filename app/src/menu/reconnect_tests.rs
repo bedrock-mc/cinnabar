@@ -1,4 +1,7 @@
-use super::{MenuAction, MenuRuntime, MenuScreen};
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
 
 #[test]
 fn remote_join_failure_logs_its_complete_provisioning_diagnostic() {
@@ -130,13 +133,16 @@ fn a_new_join_from_a_failure_still_accepts_loading_cancel() {
         if late_failure {
             menu.disconnect_message = Some("network session failed: late account event".into());
         }
-        menu.feeds.join = super::JoinProgress::new(super::JoinKind::External);
-        menu.feeds.join.observe(Some(super::JoinStage::Packs {
-            done: 0,
-            total: 1,
-            received_bytes: 1,
-            total_bytes: 4,
-        }));
+        menu.feeds.join =
+            launcher::menu::view::JoinProgress::new(launcher::menu::view::JoinKind::External);
+        menu.feeds
+            .join
+            .observe(Some(launcher::menu::view::JoinStage::Packs {
+                done: 0,
+                total: 1,
+                received_bytes: 1,
+                total_bytes: 4,
+            }));
         menu.activate(MenuAction::AddBack);
         assert!(
             menu.take_disconnect_request(),
@@ -215,8 +221,8 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         .insert_resource(ClientWorld::default())
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
     for attempt in 0..2 {
         let previous = app.world().resource::<UiRuntime>().session_id();

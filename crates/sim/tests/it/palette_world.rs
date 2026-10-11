@@ -6,6 +6,47 @@ use world::{BlockUpdate, ChunkKey, ChunkStore, RawBlockIds, SubChunkKey};
 
 const AIR_IDS: RawBlockIds = RawBlockIds { air: 0 };
 
+#[test]
+fn nonintersecting_unavailable_terrain_does_not_suspend_loaded_motion() {
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    let simulator = Simulator::default();
+    for (position, loaded, missing) in [
+        (Vec3::new(14.5, 10.0, 8.5), [0, 0, 0], [1, 0, 0]),
+        (Vec3::new(8.5, 10.0, 14.5), [0, 0, 0], [0, 0, 1]),
+        (Vec3::new(-1.5, 10.0, 8.5), [-1, 0, 0], [0, 0, 0]),
+        (Vec3::new(8.5, 13.0, 8.5), [0, 0, 0], [0, 1, 0]),
+    ] {
+        let mut store = ChunkStore::new();
+        store
+            .mark_sub_chunk_loaded(SubChunkKey::new(0, loaded[0], loaded[1], loaded[2]))
+            .unwrap();
+        let mut state = PlayerState::new(position);
+        state.velocity = Vec3::new(-0.1, -0.1, -0.1);
+        let world = PaletteWorld::new(&store, &registry, 0);
+        let mut actual = state.clone();
+        let tick = simulator
+            .tick(&mut actual, MovementInput::default(), &world)
+            .expect("the player and its swept body are entirely in available terrain");
+
+        store
+            .mark_sub_chunk_loaded(SubChunkKey::new(0, missing[0], missing[1], missing[2]))
+            .unwrap();
+        let complete = PaletteWorld::new(&store, &registry, 0);
+        let expected = simulator
+            .tick(&mut state, MovementInput::default(), &complete)
+            .unwrap();
+        assert_eq!(actual, state, "position {position:?}");
+        assert_eq!(tick.movement, expected.movement);
+        assert!(actual.position.x < position.x);
+        assert!(actual.position.y < position.y);
+        assert!(actual.position.z < position.z);
+    }
+}
+
 fn registry_identity() -> sim::CollisionRegistryIdentity {
     sim::CollisionRegistryIdentity {
         protocol: 1001,

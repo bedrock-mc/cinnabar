@@ -10,7 +10,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const LOG_TAIL_BYTES: u64 = 16 * 1024;
 const MAX_REPORTS: usize = 8;

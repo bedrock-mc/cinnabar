@@ -1,7 +1,7 @@
 use assets::BlockFace;
 use assets::gui_item::{GuiBlockQuad, cube_face};
 
-use super::*;
+use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
 /// Places a small test tile on the requested atlas page.
 fn tile(page: u16) -> IconRef {

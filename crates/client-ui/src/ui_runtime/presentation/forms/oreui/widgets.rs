@@ -6,7 +6,6 @@ mod art;
 mod choice;
 pub(super) use choice::{choice, choice_focus, choice_height};
 
-use super::super::super::{IconRef, UiPresentationError};
 use super::super::menu_caret::{TextSpot, caret_byte};
 use super::icons::{self, Icon};
 use super::motion::{Kind, mix, opacity};
@@ -18,7 +17,8 @@ use super::theme::{
     NEUTRAL20, NEUTRAL80, NEUTRAL100, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba,
     Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST, Type,
 };
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
+use {super::super::super::UiPresentationError, ui::IconRef};
 
 /// How a control is being interacted with this frame.
 #[derive(Clone, Copy, Default)]

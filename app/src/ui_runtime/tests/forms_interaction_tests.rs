@@ -1,10 +1,4 @@
 use super::forms_fixture::retained;
-use crate::{
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    ui_runtime::{
-        drive_chat_keyboard_input, drive_server_form_input, presentation::tests::fixture_font,
-    },
-};
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet, graph::DiGraph},
     input::{
@@ -17,6 +11,13 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
+    },
+    client_ui::test_support::fixture_font,
+};
 
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
@@ -421,8 +422,10 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
 fn clicking_an_engine_drawn_button_answers_its_index() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
     use bevy::input::mouse::MouseButtonInput;
+    use {
+        client_ui::test_support::mini_engine_presentation, client_ui::test_support::pack_harness,
+    };
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let mut presentation = mini_engine_presentation();
     let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
@@ -500,8 +503,8 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
 // A key held from gameplay auto-repeats; repeats must never press form buttons (pages skipped).
 #[test]
 fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     // Vanilla's form screen carries the real key mappings; skipped without the installed pack.
@@ -571,8 +574,8 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
 // Zeqa answers a page before the mouse is released; that release must not click the next page.
 #[test]
 fn a_release_after_the_next_page_arrives_does_not_click_it() {
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::SequencedUiEvent;
     use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
     use std::sync::Arc;
@@ -754,8 +757,8 @@ fn a_click_without_a_form_reaches_gameplay() {
 fn custom_form_toggle_and_input_edit_their_values() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::forms::FormValue;
     use json_ui::HitKind;
     use protocol::{CustomForm, CustomFormElement, FormRequestEvent, ServerFormModel, UiEvent};
@@ -891,7 +894,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         let mut focus = client_presentation::camera::CursorFocus::default();
         focus.begin_frame(false);
         app.insert_resource(focus)
-            .insert_resource(crate::camera::AutoFly::new(false))
+            .insert_resource(client_presentation::camera::AutoFly::new(false))
             .add_systems(
                 Update,
                 crate::camera::update_cursor_capture.after(drive_menu_input),

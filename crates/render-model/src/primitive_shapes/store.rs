@@ -5,7 +5,9 @@ use super::{
     actors::Attachments,
 };
 use crate::NametagAtlasRect;
-use render_api::primitive_shapes::*;
+use render_api::primitive_shapes::{
+    PrimitiveShapeChange, PrimitiveShapeUpdate, PrimitiveShapesEvent, PrimitiveText,
+};
 use std::{collections::HashMap, sync::Arc};
 
 /// One atlas quad referring to a retained text shape, so movement never rebuilds text.

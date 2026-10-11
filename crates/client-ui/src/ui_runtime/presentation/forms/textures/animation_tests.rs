@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn strip(size: [u32; 2]) -> Vec<u8> {
     let mut pixels = image::RgbaImage::new(size[0], size[1]);

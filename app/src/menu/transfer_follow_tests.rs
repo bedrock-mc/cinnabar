@@ -6,17 +6,22 @@ use std::{
 
 use bevy::prelude::{App, Update};
 
-use super::{MenuAction, MenuRuntime, MenuScreen};
-use crate::{
-    app::ClientBlobCacheOwner,
-    install_layout::{InstallEnvironment, InstallLayout, Platform},
-    runtime::{
-        network::{NetworkHandle, ResourcePackAdmissionState},
-        world::{ClientWorld, TransferNotice},
-    },
-    session::{SessionController, drive_session, follow_server_transfer},
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    super::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
+use {
+    crate::{
+        app::ClientBlobCacheOwner,
+        runtime::{
+            network::{NetworkHandle, ResourcePackAdmissionState},
+            world::{ClientWorld, TransferNotice},
+        },
+        session::{SessionController, drive_session, follow_server_transfer},
+    },
+    launcher::install_layout::{InstallEnvironment, InstallLayout, Platform},
+};
 
 struct TempRoot(PathBuf);
 
@@ -79,7 +84,7 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
         );
-        menu.servers.push(super::SavedServer {
+        menu.servers.push(launcher::menu::view::SavedServer {
             name: "Local".to_owned(),
             address: "127.0.0.1:19132".to_owned(),
             favorite: false,
@@ -170,8 +175,8 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         .insert_resource(ClientWorld::default())
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
     app.update();
 
@@ -222,8 +227,8 @@ fn app_with_core(root: &Path, script: &str) -> App {
         .insert_resource(ClientWorld::default())
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
     app
 }
@@ -311,24 +316,25 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
         app.update();
     }
     // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
-    let spawned = std::time::Instant::now();
-    while app.world().resource::<MenuRuntime>().is_connecting()
-        && !app
-            .world_mut()
-            .resource_mut::<SessionController>()
-            .core_mut()
-            .exited()
-    {
-        assert!(
-            spawned.elapsed() < std::time::Duration::from_secs(60),
-            "stub core never exited"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    while app.world().resource::<MenuRuntime>().is_connecting() {
+    test_time::eventually_within(
+        std::time::Duration::from_secs(60),
+        "the stub core to exit",
+        || {
+            !app.world().resource::<MenuRuntime>().is_connecting()
+                || app
+                    .world_mut()
+                    .resource_mut::<SessionController>()
+                    .core_mut()
+                    .exited()
+        },
+    );
+    test_time::eventually("the connect attempt to finish", || {
+        if !app.world().resource::<MenuRuntime>().is_connecting() {
+            return true;
+        }
         app.update();
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+        false
+    });
     assert!(!app.world().resource::<SessionController>().join_pending());
     let menu = app.world().resource::<MenuRuntime>();
     // The exit is seen, not the start timeout (a new executable's first
@@ -402,8 +408,8 @@ fn failed_automatic_replacement(
         .insert_resource(client_world)
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
-        .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
-        .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+        .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+        .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, follow_server_transfer);
     app.update();
 

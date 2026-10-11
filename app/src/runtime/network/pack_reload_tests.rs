@@ -77,16 +77,15 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
 pub(super) fn settle(app: &mut App, revision: u64) -> (Duration, Duration) {
     let start = Instant::now();
     let mut peak = Duration::ZERO;
-    while app.world().resource::<PackReload>().completed_revision() < revision {
+    test_time::eventually_within(Duration::from_secs(120), "the reload worker", || {
+        if app.world().resource::<PackReload>().completed_revision() >= revision {
+            return true;
+        }
         let frame = Instant::now();
         app.update();
         peak = peak.max(frame.elapsed());
-        assert!(
-            start.elapsed() < Duration::from_secs(120),
-            "reload worker timed out"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
+        false
+    });
     (start.elapsed(), peak)
 }
 
@@ -148,7 +147,7 @@ fn optional_reload_replaces_ui_whose_texture_pixels_changed() {
 
 #[test]
 fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut app = app();
@@ -189,7 +188,7 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
 
 #[test]
 fn newer_reload_request_supersedes_an_in_flight_worker() {
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut app = app();
@@ -208,7 +207,7 @@ fn newer_reload_request_supersedes_an_in_flight_worker() {
 #[test]
 #[ignore = "offline large-pack evidence; CINNABAR_RELOAD_PACK names an unencrypted local archive"]
 fn large_pack_reload_cpu_benchmark() {
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = std::env::var_os("CINNABAR_RELOAD_PACK").expect("pack fixture path");
@@ -251,7 +250,7 @@ fn large_pack_reload_cpu_benchmark() {
 /// The actual reload worker publishes pages prepared against the base it installs.
 #[test]
 fn session_reload_publishes_prepared_actor_pages() {
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut png = Cursor::new(Vec::new());

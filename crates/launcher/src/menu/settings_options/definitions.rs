@@ -64,6 +64,13 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 1);
 
+/// Native placement is enabled; disabling it centers the authored cube.
+pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition = toggle(
+    "native_skybox_offset",
+    "Bedrock Skybox Vertical Offset",
+    assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
+);
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -326,7 +333,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         "render_distance",
         "options.renderDistance",
         ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
-        render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
+        render_api::MAX_VIEW_RADIUS_CHUNKS,
         ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
     ),
     slider(
@@ -605,4 +612,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
     DISCORD_PRESENCE_OPTION,
+    NATIVE_SKYBOX_OFFSET_OPTION,
 ];

@@ -9,12 +9,12 @@ use json_ui::{DataSource, FactoryItem, Scalar};
 use serde_json::{Value, json};
 use ui::{ToastPress, UiNode, UiPoint};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-    bounded_visible_text,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
+use {
+    super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 /// Where the popup's `button.menu_select` routes.
 const TOAST_PRESS: &str = "button.toast_interaction";

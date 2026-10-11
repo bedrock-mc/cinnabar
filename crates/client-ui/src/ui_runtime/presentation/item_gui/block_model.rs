@@ -6,7 +6,11 @@ use std::{collections::BTreeMap, sync::Arc};
 use assets::gui_item::{GuiBlockQuad, face_brightness, project_cube};
 use ui::UiMesh;
 
-use super::{GUI_ITEM_SIDE, IconRef, atlas_uv, batch, vertex};
+use {
+    super::{atlas_uv, batch, vertex},
+    assets::gui_item::GUI_ITEM_SIDE,
+    ui::IconRef,
+};
 
 /// Uses the same accepted alpha byte as the thumbnail baker.
 const ALPHA_CUTOFF: f32 = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32;

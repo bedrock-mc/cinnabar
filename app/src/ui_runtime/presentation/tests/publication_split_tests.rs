@@ -30,7 +30,7 @@ fn ui_publication_capture_bench() {
         },
         {
             let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
-            let runtime = super::super::forms::pack_harness::action_form(
+            let runtime = client_ui::test_support::pack_harness::action_form(
                 &mut player_runtime,
                 "Actions",
                 &labels,

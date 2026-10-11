@@ -42,7 +42,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 /// Marker file written inside every owned session directory.
 const MARKER_FILE_NAME: &str = "session-owner.json";

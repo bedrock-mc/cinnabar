@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use protocol::{SkinAnimation, SkinAnimationKind, SkinGeometrySource};
 
 use super::{pose::LocalDelta, *};
@@ -23,6 +25,7 @@ pub(super) struct SkinLayerSkeleton {
     pub(super) mesh: Option<render_model::ActorRigGeometry>,
     pub(super) bones: Vec<RuntimeBone>,
     pub(super) names: Vec<Box<str>>,
+    body_indices: Vec<Option<u32>>,
     pub(super) rest: Arc<[BoneTransform]>,
 }
 
@@ -34,7 +37,10 @@ impl SkinLayerSkeleton {
 }
 
 /// Resolves each animation image's own named geometry once per skin update.
-pub(super) fn parse(source: &SkinGeometrySource) -> Vec<SkinLayerSkeleton> {
+pub(super) fn parse(
+    source: &SkinGeometrySource,
+    body_names: &[Box<str>],
+) -> Vec<SkinLayerSkeleton> {
     source
         .animations
         .iter()
@@ -48,6 +54,15 @@ pub(super) fn parse(source: &SkinGeometrySource) -> Vec<SkinLayerSkeleton> {
             let (bones, names) = skeleton(&geometry.bones)?;
             let rest = compose_pose(&bones, &[])?.into();
             Some(SkinLayerSkeleton {
+                body_indices: names
+                    .iter()
+                    .map(|name| {
+                        body_names
+                            .iter()
+                            .position(|body| body == name)
+                            .map(|index| index as u32)
+                    })
+                    .collect(),
                 image: image.clone(),
                 mesh: render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID).ok(),
                 geometry: Arc::new(geometry),
@@ -155,24 +170,7 @@ pub(super) fn evaluate(
                 })
                 .collect::<Vec<_>>();
             let pose: Arc<[BoneTransform]> = compose_pose(&layer.bones, &local)?.into();
-            let hidden_bones = layer
-                .names
-                .iter()
-                .enumerate()
-                .filter_map(|(index, name)| {
-                    if !evaluator.context.is_local_first_person
-                        && matches!(name.as_ref(), "head" | "hat")
-                    {
-                        return None;
-                    }
-                    let body_index =
-                        skin.prepared.names.iter().position(|body| body == name)? as u32;
-                    render
-                        .and_then(|layers| layers.first())
-                        .is_some_and(|body| body.hidden_bones.contains(&body_index))
-                        .then_some(index as u32)
-                })
-                .collect::<Arc<[_]>>();
+            let (hidden_bones, uv_anim) = metadata(layer, evaluator, render, blinking);
             Some(SkinRenderLayer {
                 image: layer.image.clone(),
                 geometry: Arc::clone(&layer.geometry),
@@ -181,19 +179,84 @@ pub(super) fn evaluate(
                 current: pose,
                 rest: Arc::clone(&layer.rest),
                 hidden_bones,
-                uv_anim: [
-                    0.0,
-                    uv_offset(
-                        &layer.image,
-                        evaluator.life_tick as f32 * ANIMATION_TICK_SECONDS,
-                        blinking,
-                    ),
-                    1.0,
-                    1.0,
-                ],
+                uv_anim,
             })
         })
         .collect()
+}
+
+/// Derives atlas and visibility values from the immutable body-to-persona bone map.
+fn metadata(
+    layer: &SkinLayerSkeleton,
+    evaluator: &Evaluator<'_>,
+    render: Option<&[RenderTextureLayer]>,
+    blinking: f32,
+) -> (Arc<[u32]>, [f32; 4]) {
+    let hidden = layer
+        .names
+        .iter()
+        .zip(&layer.body_indices)
+        .enumerate()
+        .filter_map(|(index, (name, body_index))| {
+            if !evaluator.context.is_local_first_person && matches!(name.as_ref(), "head" | "hat") {
+                return None;
+            }
+            let body_index = (*body_index)?;
+            render
+                .and_then(|layers| layers.first())
+                .is_some_and(|body| body.hidden_bones.binary_search(&body_index).is_ok())
+                .then_some(index as u32)
+        })
+        .collect::<Arc<[_]>>();
+    (
+        hidden,
+        [
+            0.0,
+            uv_offset(
+                &layer.image,
+                evaluator.life_tick as f32 * ANIMATION_TICK_SECONDS,
+                blinking,
+            ),
+            1.0,
+            1.0,
+        ],
+    )
+}
+
+/// Refreshes persona appearance without replacing either completed animation endpoint.
+pub(super) fn refresh<'s>(
+    state: &'s ActorRigState,
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    render: &[RenderTextureLayer],
+    budget: &mut EvalBudget<'_>,
+) -> Result<Cow<'s, [SkinRenderLayer]>, EvalError> {
+    let Some(skin) = state.skin_skeleton() else {
+        return Ok(Cow::Borrowed(&state.skin_layers));
+    };
+    let blinking = variables
+        .get(
+            evaluator
+                .layout
+                .slot(evaluator.assets, "variable.is_blinking"),
+        )
+        .unwrap_or(0.0);
+    let mut refreshed: Option<Vec<SkinRenderLayer>> = None;
+    for (index, old) in state.skin_layers.iter().enumerate() {
+        let Some(layer) = skin.prepared.layers.iter().find(|layer| layer.poses(old)) else {
+            continue;
+        };
+        for _ in &layer.names {
+            budget.charge_work()?;
+        }
+        let (hidden_bones, uv_anim) = metadata(layer, evaluator, Some(render), blinking);
+        if old.hidden_bones != hidden_bones || old.uv_anim != uv_anim {
+            let target = &mut refreshed.get_or_insert_with(|| state.skin_layers.clone())[index];
+            target.hidden_bones = hidden_bones;
+            target.uv_anim = uv_anim;
+        }
+    }
+    Ok(refreshed.map_or(Cow::Borrowed(&state.skin_layers), Cow::Owned))
 }
 
 /// Bounds the additional persona composition before sampling a body's frame pose.

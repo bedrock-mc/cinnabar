@@ -6,9 +6,12 @@ use std::sync::Arc;
 use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
-use super::{
-    IconRef, PREVIEW_HEIGHT, PREVIEW_WIDTH, PlayerPreviewPose, PreviewEquipment, PreviewHeldModel,
-    PreviewView, Rig, equipment,
+use {
+    super::{
+        PREVIEW_HEIGHT, PREVIEW_WIDTH, PlayerPreviewPose, PreviewEquipment, PreviewHeldModel,
+        PreviewView, Rig, equipment,
+    },
+    ui::IconRef,
 };
 
 mod fire;

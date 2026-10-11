@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, inventory::crossbow_animation_frame};
 
 fn crossbow(tick: u64, held: bool) -> UseFrame {
     UseFrame {

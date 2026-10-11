@@ -45,7 +45,7 @@ fn snowball_packets_each_emit_one_fragment_through_the_app_route() {
         block_network_ids_are_hashes: false,
     });
     let registry = sim::CollisionRegistry::default();
-    let world = StreamParticleWorld::new(&stream, &registry);
+    let world = StreamParticleWorld::new(&stream, &registry, None);
     let icons = icons();
     let routing = Routing {
         world: &world,

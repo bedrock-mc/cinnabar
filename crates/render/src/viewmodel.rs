@@ -1,6 +1,11 @@
 //! Neutral empty-hand foundation. Animation and environmental lighting are not
 //! supplied by this mode; it is deliberately not an idle-animation parity claim.
-use bevy::{prelude::*, render::extract_resource::ExtractResource};
+#[cfg(test)]
+use bevy::prelude::{App, Assets, Mat2, Shader};
+use bevy::{
+    prelude::{Entity, Mat4, Resource, Vec2, Vec3},
+    render::extract_resource::ExtractResource,
+};
 use std::sync::{Arc, Mutex};
 mod cube;
 mod geometry;

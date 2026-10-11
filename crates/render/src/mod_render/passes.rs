@@ -7,7 +7,10 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::query::QueryItem,
-    prelude::*,
+    prelude::{
+        Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, Result, SubApp, Time,
+        UVec2, Vec4Swizzles, World, default, warn,
+    },
     render::{
         Render, RenderStartup, RenderSystems,
         render_graph::{

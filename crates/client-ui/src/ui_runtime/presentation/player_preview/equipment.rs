@@ -57,7 +57,7 @@ pub struct PreviewHandItem {
 /// Real item-space geometry and the source atlas region, never a projected GUI icon.
 #[derive(Clone, Debug)]
 pub struct PreviewHeldModel {
-    pub source: super::IconRef,
+    pub source: ui::IconRef,
     pub vertices: Arc<[render_model::ActorRigVertex]>,
     pub placements: [PreviewHeldPlacement; 2],
     /// Native player `rightItem`/`leftItem` bind origins in mirrored rig blocks.

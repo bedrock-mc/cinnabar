@@ -1,5 +1,5 @@
-use super::super::*;
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
+use {super::super::*, assets::BlockFace};
 
 #[cfg(test)]
 #[path = "selector_alias/tests.rs"]

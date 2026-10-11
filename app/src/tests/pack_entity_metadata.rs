@@ -1,9 +1,9 @@
 //! Independently authored server-pack entities driven by actor metadata end to end: the metadata
 //! variant selects the render controller's texture and geometry, and the metadata scale sizes
 //! the model.
-use crate::presentation::{actors, entity_layers};
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use chunk_pipeline::WorldStream;
+
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,
@@ -295,11 +295,24 @@ struct Drawn {
 
 fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
     let rig = world.authority().actor_rig(42).unwrap();
-    let body =
-        actors::entity_rig_presentation(&rig, world.authority().actor(42).unwrap(), artwork, 0.5)
-            .unwrap();
-    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let body = client_presentation::presentation::actors::entity_rig_presentation(
+        &rig,
+        world.authority().actor(42).unwrap(),
+        artwork,
+        0.5,
+    )
+    .unwrap();
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1,
+        false,
+        None,
+        [body],
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     let submission = &batch.submissions[0];
     let matrix = submission.world_from_actor;
     Drawn {
@@ -360,13 +373,29 @@ fn render_controller_uv_anim_steps_the_flipbook_frame() {
     assert_eq!((second[1] - first[1]).rem_euclid(1.0), 0.5);
 }
 
-fn layered(world: &WorldStream, artwork: &ActorArtworkPages) -> actors::ActorPresentationBatch {
+fn layered(
+    world: &WorldStream,
+    artwork: &ActorArtworkPages,
+) -> client_presentation::presentation::actors::ActorPresentationBatch {
     let rig = world.authority().actor_rig(42).unwrap();
-    let body =
-        actors::entity_rig_presentation(&rig, world.authority().actor(42).unwrap(), artwork, 0.5)
-            .unwrap();
-    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
+    let body = client_presentation::presentation::actors::entity_rig_presentation(
+        &rig,
+        world.authority().actor(42).unwrap(),
+        artwork,
+        0.5,
+    )
+    .unwrap();
+    let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+        1,
+        false,
+        None,
+        [body],
+    );
+    client_presentation::presentation::entity_layers::apply_render_layers(
+        &mut batch,
+        |id| world.authority().actor_rig(id),
+        artwork,
+    );
     batch
 }
 
@@ -457,7 +486,7 @@ fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_li
     let draw = |identifier: &str, block, sky| {
         let world = world(pack.clone(), identifier);
         let rig = world.authority().actor_rig(42).unwrap();
-        let mut body = actors::entity_rig_presentation(
+        let mut body = client_presentation::presentation::actors::entity_rig_presentation(
             &rig,
             world.authority().actor(42).unwrap(),
             &artwork,
@@ -465,8 +494,13 @@ fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_li
         )
         .unwrap();
         body.submission.light = render::pack_actor_light(block, sky);
-        let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-        entity_layers::apply_render_layers(
+        let mut batch = client_presentation::presentation::actors::select_actor_presentations(
+            1,
+            false,
+            None,
+            [body],
+        );
+        client_presentation::presentation::entity_layers::apply_render_layers(
             &mut batch,
             |id| world.authority().actor_rig(id),
             &artwork,

@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    diagnostics::{transparent_sort_committed_marker, write_stdout_marker},
+};
 #[test]
 fn transparent_sort_marker_requires_new_presented_committed_generation_with_refs() {
     let valid = TransparentSortMetricsSnapshot {

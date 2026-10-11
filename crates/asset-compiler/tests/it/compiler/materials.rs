@@ -1,4 +1,18 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        AssetError, BlobProvenance, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
+        MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
+        MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK,
+        MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+        MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
+        MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material,
+        ModelFamily, NetworkIdMode, RuntimeAssets, VisualKind, canonical_source_manifest_sha256,
+        encode_blob, read_registry,
+    },
+    sha2::{Digest, Sha256},
+    std::{fs, path::Path, process::Command},
+};
 
 #[test]
 fn compiler_marks_only_leaf_faces_as_alpha_cutout() {

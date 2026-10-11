@@ -1,16 +1,18 @@
 use super::*;
-use crate::{
-    app::{configure_client_frame_schedule, configure_client_production_frame_systems},
-    runtime::world::{ClientWorld, drain_committed_ui_before_authority},
-    ui_runtime::presentation::tests::fixture_font,
-};
-use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules};
+use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet};
 use server_experience::{
     manifest::{Offer, Scope},
     negotiation::{Grant, VerifiedOffer},
     policy::WIRE_VERSION,
 };
 use std::collections::BTreeSet;
+use {
+    crate::{
+        app::{configure_client_frame_schedule, configure_client_production_frame_systems},
+        runtime::world::{ClientWorld, drain_committed_ui_before_authority},
+    },
+    client_ui::test_support::fixture_font,
+};
 
 /// Finds a real production system node in Bevy's unbuilt schedule graph.
 fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
@@ -66,7 +68,7 @@ fn join_app(state: State) -> App {
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(runtime)
         .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
-        .insert_resource(crate::ui_runtime::presentation::forms::tests::mini_engine_presentation())
+        .insert_resource(client_ui::test_support::mini_engine_presentation())
         .insert_resource(NetworkHandle::disconnected())
         .init_resource::<ClientWorld>()
         .init_resource::<Time<Real>>()
@@ -202,7 +204,7 @@ fn running_or_disabled_experiences_never_open_the_popup() {
 
 #[test]
 fn only_an_unanswered_offer_holds_the_world_entry() {
-    let mut extension = super::super::ExperienceSession::default();
+    let mut extension = client_ui::experience_session::ExperienceSession::default();
     assert!(!extension.holds_world_entry());
     extension.marker = Some(std::sync::Arc::from(&b"{}"[..]));
     assert!(
@@ -354,8 +356,8 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::presentation::forms::snapshot;
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         eprintln!(
@@ -439,7 +441,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
     for key in [KeyCode::Escape, KeyCode::F8, KeyCode::F6] {
         let mut app = join_app(State::Offered(offer()));
         app.init_resource::<CursorFocus>()
-            .insert_resource(crate::camera::AutoFly::new(false))
+            .insert_resource(client_presentation::camera::AutoFly::new(false))
             .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
             .add_systems(
                 Update,

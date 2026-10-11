@@ -36,6 +36,7 @@ pub fn build_local_player_feed(
     }
     let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or_default();
     Some(LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         // A real player-list echo overrides this; without one, the stream backs the local body
         // with the client's own uploaded skin under this stable local uuid.

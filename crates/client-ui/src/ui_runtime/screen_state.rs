@@ -65,7 +65,7 @@ pub struct CrafterView {
     /// Disabled slots as the block entity reports them, one bit per slot.
     pub disabled: u16,
     /// The block's `triggered_bit`.
-    pub powered: bool,
+    pub powered: Option<bool>,
     /// Toggles not yet echoed: the local mask and when it was set, stamped on
     /// the next observation.
     pub pending: Option<(u16, Option<u64>)>,
@@ -85,7 +85,7 @@ impl CrafterView {
     }
 
     /// Adopts the block entity's state, keeping recent local toggles.
-    pub fn observe(&mut self, disabled: u16, powered: bool, now_millis: u64) {
+    pub fn observe(&mut self, disabled: u16, powered: Option<bool>, now_millis: u64) {
         self.disabled = disabled & 0x1ff;
         self.powered = powered;
         self.pending = match self.pending {
@@ -212,13 +212,13 @@ mod tests {
             pending: Some((0b10, None)),
             ..CrafterView::default()
         };
-        crafter.observe(0, false, 100);
+        crafter.observe(0, Some(false), 100);
         assert_eq!(crafter.shown_disabled(), 0b10);
-        crafter.observe(0, false, 100 + CRAFTER_TOGGLE_HOLD_MILLIS);
+        crafter.observe(0, Some(false), 100 + CRAFTER_TOGGLE_HOLD_MILLIS);
         assert_eq!(crafter.shown_disabled(), 0b10);
-        crafter.observe(0b1, true, 101 + CRAFTER_TOGGLE_HOLD_MILLIS);
+        crafter.observe(0b1, Some(true), 101 + CRAFTER_TOGGLE_HOLD_MILLIS);
         assert_eq!(crafter.shown_disabled(), 0b1);
-        assert!(crafter.powered);
+        assert_eq!(crafter.powered, Some(true));
     }
 
     fn catalog() -> CreativeContentEvent {

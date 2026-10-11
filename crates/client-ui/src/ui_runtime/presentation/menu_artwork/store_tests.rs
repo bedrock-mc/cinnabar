@@ -67,12 +67,12 @@ fn assert_store_page_packs(
     rows: Vec<launcher::store::DisplayRow>,
     images: HashMap<String, String>,
 ) {
-    let mut view = crate::menu::MenuView::new(true, "Fixture Player".into());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(Arc::new(crate::store::StoreSnapshot {
+    let mut view = launcher::menu::MenuView::new(true, "Fixture Player".into());
+    view.screen = launcher::menu::MenuScreen::Store;
+    view.store = Some(Arc::new(launcher::store::StoreSnapshot {
         rows,
         images,
-        ..crate::store::StoreSnapshot::empty()
+        ..launcher::store::StoreSnapshot::empty()
     }));
     let set = ArtworkSet {
         paths: view_paths(&view),

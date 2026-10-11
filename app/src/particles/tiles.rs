@@ -48,8 +48,8 @@ mod tests {
         let bytes = std::fs::read(crate::asset_startup::DEFAULT_ASSET_PATH).unwrap();
         let assets = RuntimeAssets::decode(&bytes).unwrap();
         let records = assets::read_registry_for_protocol(
-            crate::asset_startup::pinned_block_registry_bytes(),
-            crate::asset_startup::active_content_registry_protocol(),
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
         )
         .unwrap();
         for name in [

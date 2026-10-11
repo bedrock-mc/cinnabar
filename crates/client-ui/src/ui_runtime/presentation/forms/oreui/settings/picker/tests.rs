@@ -1,6 +1,9 @@
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
 use std::collections::HashMap;
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuView},
+};
 
 fn same_bounds(left: Bounds, right: Bounds) -> bool {
     left.into_iter()

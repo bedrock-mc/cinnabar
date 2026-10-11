@@ -556,19 +556,24 @@ impl SoundBank {
         }
     }
 
-    /// Blocks until `path` decodes; tests only.
+    /// Waits for `path` to decode or fail, panicking if the test timeout passes.
     #[cfg(any(test, feature = "test-support"))]
     pub fn pcm(&mut self, path: &str, stream: bool) -> Option<Arc<Pcm>> {
-        loop {
+        let mut decoded = None;
+        test_time::eventually("audio decoding to finish", || {
             match self.lookup(path, stream) {
-                PcmLookup::Ready(pcm) => return Some(pcm),
-                PcmLookup::Failed => return None,
+                PcmLookup::Ready(pcm) => {
+                    decoded = Some(pcm);
+                    true
+                }
+                PcmLookup::Failed => true,
                 PcmLookup::Pending | PcmLookup::Busy => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
                     self.poll();
+                    false
                 }
             }
-        }
+        });
+        decoded
     }
 }
 

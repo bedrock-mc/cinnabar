@@ -1,9 +1,6 @@
 //! App inventory adapter for frozen gameplay interaction selections.
-use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
-pub(crate) use gameplay::mining::{
-    FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget, creative_reach,
-    protocol_input_mode, survival_reach,
-};
+use gameplay::mining::FrozenMiningSelection;
+use inventory::inventory_ledger::PlayerInventorySlot;
 use protocol::VerifiedNetworkItemStack;
 
 pub(crate) fn verified_selection(

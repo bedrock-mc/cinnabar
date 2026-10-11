@@ -1,9 +1,9 @@
-use super::*;
 use crate::ui_runtime::{
     inventory_actions::recipe_book_entries, inventory_drag::PointerAction,
     presentation::screens::Widget,
 };
 use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use {super::*, ui::IconRef};
 
 #[test]
 fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {

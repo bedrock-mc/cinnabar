@@ -21,7 +21,7 @@ pub(super) fn drive(
                 presentation.menu_server_list_pointer(screen, point, held, pressed);
             if let Some(action) = action {
                 if let Some(sound) = presentation.menu_sound(action) {
-                    crate::audio::ui_control_sound(sound);
+                    client_ui::sound_requests::ui_control_sound(sound);
                 }
                 menu.activate_from_input(action);
             }

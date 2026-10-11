@@ -39,8 +39,7 @@ impl InventorySession {
         session: u64,
         runtime_id: u64,
     ) -> Result<Vec<EquipmentRoute>, InventoryRouterError> {
-        self.equipment_router
-            .publish_local_runtime_id(session, runtime_id)
+        Arc::make_mut(&mut self.equipment_router).publish_local_runtime_id(session, runtime_id)
     }
     /// Route equipment to local inventory selection or remote presentation.
     pub fn route_equipment(
@@ -49,7 +48,7 @@ impl InventorySession {
         sequence: u64,
         event: EquipmentEvent,
     ) -> Result<EquipmentRouteResult, InventoryRouterError> {
-        self.equipment_router.route(session, sequence, event)
+        Arc::make_mut(&mut self.equipment_router).route(session, sequence, event)
     }
     /// Retain a main-hand echo without allowing offhand traffic to change selection.
     pub fn retain_local_selected_equipment(&mut self, fifo_sequence: u64, event: EquipmentEvent) {

@@ -1,6 +1,6 @@
 use super::*;
-use crate::menu::{MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
+use launcher::menu::{MenuScreen, MenuView};
 use ui::DpiScale;
 
 #[test]
@@ -73,7 +73,7 @@ fn retained_launcher_frames_update_for_focus_viewport_and_open_dialogs() {
     let idle = presentation
         .build(&player, &runtime, 1500, [1280, 720], dpi)
         .unwrap();
-    view.focused_action = Some(crate::menu::MenuAction::PlayAddServer);
+    view.focused_action = Some(launcher::menu::MenuAction::PlayAddServer);
     view.navigation_focus_visible = true;
     presentation.set_menu_view(Some(view.clone()));
     let paints = presentation.oreui_paints;
@@ -92,13 +92,13 @@ fn retained_launcher_frames_update_for_focus_viewport_and_open_dialogs() {
         presentation
             .menu_hit_targets
             .iter()
-            .any(|(action, _)| *action == crate::menu::MenuAction::PlayAddServer)
+            .any(|(action, _)| *action == launcher::menu::MenuAction::PlayAddServer)
     );
     let resized = presentation
         .build(&player, &runtime, 2500, [1600, 900], dpi)
         .unwrap();
     assert!(resized.revision > focused.revision);
-    view.dialog = Some(crate::menu::MenuDialog::Exit);
+    view.dialog = Some(launcher::menu::MenuDialog::Exit);
     presentation.set_menu_view(Some(view));
     let paints = presentation.oreui_paints;
     presentation
@@ -116,7 +116,7 @@ fn retained_launcher_frames_update_for_focus_viewport_and_open_dialogs() {
         !presentation
             .menu_hit_targets
             .iter()
-            .any(|(action, _)| *action == crate::menu::MenuAction::PlayAddServer)
+            .any(|(action, _)| *action == launcher::menu::MenuAction::PlayAddServer)
     );
 }
 
@@ -167,7 +167,7 @@ fn owned_menu_snapshot_caret_keeps_blinking_and_restarts_after_edit() {
     let player = player_state::PlayerState::new(0);
     let mut view = MenuView::new(true, "Fixture".into());
     view.screen = MenuScreen::AddServer;
-    view.field = Some(crate::menu::MenuField::Name);
+    view.field = Some(launcher::menu::MenuField::Name);
     view.name = "Caret".into();
     presentation.set_menu_view(Some(view.clone()));
     let dpi = DpiScale::new(1.0).unwrap();

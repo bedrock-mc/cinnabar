@@ -10,23 +10,25 @@ use semantic_input::Action;
 
 use bevy::prelude::{IntoScheduleConfigs, Update};
 
-use crate::{
-    app::{ClientFrameSet, configure_client_frame_schedule},
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    runtime::world::ClientWorld,
-    semantic_controls::{
-        SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
-        route_semantic_input, synchronize_semantic_input_authority,
-    },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-        drive_world_inventory_keys, gameplay_touch::drive_gameplay_touch_targets,
-        presentation::tests::fixture_font,
-    },
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        app::{ClientFrameSet, configure_client_frame_schedule},
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        runtime::world::ClientWorld,
+        semantic_controls::{
+            SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
+            route_semantic_input, synchronize_semantic_input_authority,
+        },
+        settings_runtime::RuntimeSettings,
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+            drive_world_inventory_keys, gameplay_touch::drive_gameplay_touch_targets,
+        },
+    },
+    client_ui::test_support::fixture_font,
+};
 
 fn gameplay_app(menu_visible: bool) -> App {
     let mut player_runtime = PlayerRuntime::new(1);
@@ -83,8 +85,8 @@ fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<crate::semantic_controls::SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<ClientWorld>()
-        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
-        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
         .insert_resource(player_runtime.clone())

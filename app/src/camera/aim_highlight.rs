@@ -6,8 +6,8 @@ use bevy::prelude::*;
 use client_presentation::aim_assist::{AimAssistFrame, TargetKind};
 use render::{AIM_ASSIST_TEXTURES, AimAssistHighlight, AimAssistHighlightScene, AimAssistTexture};
 
-use super::FlyCamera;
-use crate::{local_player::LocalViewPose, runtime::network::PackReload};
+use client_presentation::camera::FlyCamera;
+use {crate::runtime::network::PackReload, client_presentation::local_player::LocalViewPose};
 
 #[derive(Resource, Default)]
 pub(crate) struct BaseTextures([Option<Arc<AimAssistTexture>>; 2]);

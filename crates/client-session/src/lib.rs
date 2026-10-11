@@ -8,6 +8,7 @@ pub mod compile_cache;
 pub mod connection;
 pub mod pack_language;
 mod pack_preparation;
+pub mod pack_skybox;
 pub mod pack_textures;
 mod session;
 

@@ -21,7 +21,10 @@ use render_model::enhanced_rendering_enabled;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 
-use crate::{camera::FlyCamera, menu::MenuRuntime, settings_runtime::RuntimeSettings};
+use {
+    crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings},
+    client_presentation::camera::FlyCamera,
+};
 
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";
 const MAX_GRAPHICS_FILE_BYTES: u64 = 4096;
@@ -250,7 +253,7 @@ fn sync_enhanced_bloom(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, client_presentation::camera::FlyCamera};
 
     /// Every startup source is forced to Vanilla while Enhanced is disabled.
     #[test]

@@ -4,6 +4,7 @@ use crate::screen_overlay::{
 };
 use crate::screen_overlay_portal::PortalTexture;
 use crate::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use bevy::image::BevyDefault;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -11,7 +12,10 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, World, default, warn,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,

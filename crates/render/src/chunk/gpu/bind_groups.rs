@@ -1,5 +1,6 @@
 use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
+use bevy::color::ColorToPacked;
 
 #[cfg(test)]
 mod water_tint_tests;

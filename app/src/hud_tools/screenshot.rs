@@ -9,8 +9,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+use bevy::prelude::Messages;
 use bevy::{
-    prelude::*,
+    prelude::{
+        App, AppExit, ButtonInput, Commands, Image, IntoScheduleConfigs, KeyCode, Last,
+        MessageWriter, MouseButton, On, Real, Res, ResMut, Resource, Result, SystemSet, Time,
+        Update,
+    },
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
 };
 use crossbeam_channel::{Receiver, Sender};
@@ -137,7 +143,7 @@ fn capture_on_key(
     mut frames: ResMut<FrameCapture>,
 ) {
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || !crate::menu::settings_options::binding_pressed(
+        || !crate::menu::settings_options::control_bindings::binding_pressed(
             menu.as_deref(),
             "key.screenshot",
             &keys,

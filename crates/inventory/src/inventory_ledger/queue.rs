@@ -477,6 +477,23 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
+    /// Detects timeout work while preserving shared presentation owners on quiet polls.
+    pub(super) fn request_timeout_work_due(&self, now_millis: u64) -> bool {
+        self.queue.iter().any(|request| {
+            if request.mining.is_some() && request.deadline_millis.is_none() {
+                return true;
+            }
+            let overdue = request
+                .deadline_millis
+                .is_some_and(|deadline| now_millis >= deadline);
+            overdue
+                && request.accepted.is_none()
+                && (request.mining.is_some()
+                    || (request.state == InventoryPendingState::AwaitingResponse
+                        && !request.timed_out))
+        })
+    }
+
     /// Marks every overdue admitted request timed out. Predictions stay: the
     /// server may still apply and answer them.
     pub(super) fn expire_overdue_requests(&mut self, now_millis: u64) {

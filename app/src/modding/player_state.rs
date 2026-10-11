@@ -79,7 +79,7 @@ pub(super) fn snapshot(
         })
         .collect();
     effects.sort_by_key(|effect| effect.effect_id);
-    effects.truncate(mod_host::MAX_PLAYER_STATE_EFFECTS);
+    effects.truncate(mod_api::MAX_PLAYER_STATE_EFFECTS);
     Some(PlayerStateSnapshot {
         session,
         dimension: authority.current_dimension(),
@@ -124,7 +124,7 @@ fn project_item(
 ) -> Option<PlayerStateItem> {
     let canonical = authority.canonical_item_stack(stack)?;
     let identifier = canonical.identifier.filter(|identifier| {
-        identifier.len() <= mod_host::MAX_ITEM_IDENTIFIER_BYTES
+        identifier.len() <= mod_api::MAX_ITEM_IDENTIFIER_BYTES
             && !identifier.chars().any(char::is_control)
     });
     let max_durability = ledger

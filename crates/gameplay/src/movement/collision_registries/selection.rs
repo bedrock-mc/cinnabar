@@ -53,6 +53,12 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     if name.ends_with("wall_sign") {
         return wall_sign_shape(record);
     }
+    if name == "standing_banner" {
+        return Some(bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]));
+    }
+    if name == "wall_banner" {
+        return wall_banner_shape(record);
+    }
     if name.ends_with("hanging_sign") {
         let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
         return match state["facing_direction"]["value"].as_u64()? {
@@ -175,6 +181,20 @@ fn wall_sign_shape(record: &RegistryRecord) -> Option<Aabb> {
         4 => ([0.875, 0.28125, 0.0], [1.0, 0.78125, 1.0]),
         5 => ([0.0, 0.28125, 0.0], [0.125, 0.78125, 1.0]),
         0 | 1 => ([0.0; 3], [1.0; 3]),
+        _ => return None,
+    };
+    Some(bounds(min, max))
+}
+
+/// Wall banners select a thin slab against the supporting face, from the cell
+/// floor to the hanging rod, without movement collision.
+fn wall_banner_shape(record: &RegistryRecord) -> Option<Aabb> {
+    let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
+    let (min, max) = match state["facing_direction"]["value"].as_u64()? {
+        2 => ([0.0, 0.0, 0.875], [1.0, 0.78125, 1.0]),
+        3 => ([0.0, 0.0, 0.0], [1.0, 0.78125, 0.125]),
+        4 => ([0.875, 0.0, 0.0], [1.0, 0.78125, 1.0]),
+        5 => ([0.0, 0.0, 0.0], [0.125, 0.78125, 1.0]),
         _ => return None,
     };
     Some(bounds(min, max))

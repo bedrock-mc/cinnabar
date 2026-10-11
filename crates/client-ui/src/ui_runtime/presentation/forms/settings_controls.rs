@@ -2,10 +2,10 @@
 
 use json_ui::{DataSource, HitKind, HitRegion, Scalar};
 
-use crate::menu::settings_options::{
+use launcher::menu::settings_options::{
     SETTINGS_OPTIONS, SettingDefinition, SettingKind, SettingsOptions,
 };
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 /// Supply control values, labels and enabled states using the pack's binding names.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&str) -> String) {

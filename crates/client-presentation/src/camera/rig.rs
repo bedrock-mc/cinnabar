@@ -1,6 +1,9 @@
 //! Perspective placement and allocation-free boom collision.
 
-use bevy::{log::debug, prelude::*};
+use bevy::{
+    log::debug,
+    prelude::{Quat, Transform, Vec3, default},
+};
 use render_api::CAMERA_NEAR_PLANE_BLOCKS;
 use semantic_input::PerspectiveMode;
 use sim::{CollisionWorld, LenientSkipCounts, Vec3 as SimVec3};

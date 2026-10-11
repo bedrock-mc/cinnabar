@@ -37,7 +37,7 @@ fn animated_radio(
         [100.0, 100.0],
         checked,
         Interaction {
-            action: Some(crate::menu::MenuAction::SettingsLanguage(1)),
+            action: Some(launcher::menu::MenuAction::SettingsLanguage(1)),
             ..Default::default()
         },
         true,

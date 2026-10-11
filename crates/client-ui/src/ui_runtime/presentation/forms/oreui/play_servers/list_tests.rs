@@ -1,7 +1,10 @@
 use super::super::{motion::Surface, transitions::Transitions};
-use super::*;
 use crate::ui_runtime::presentation::forms::oreui::review_tests::{paint, solids};
 use launcher::menu::server_list::{ServerGroup, ServerListAction};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuServerCard, MenuView},
+};
 
 fn view() -> MenuView {
     let mut view = MenuView::new(true, "Fixture".into());
@@ -17,12 +20,12 @@ fn view() -> MenuView {
         .collect();
     view.feeds.details.insert(
         view.featured[1].address.clone(),
-        crate::menu::ServerDetails {
+        launcher::menu::ServerDetails {
             group: "creator".into(),
             ..Default::default()
         },
     );
-    view.servers = vec![crate::menu::SavedServer {
+    view.servers = vec![launcher::menu::SavedServer {
         name: "Home".into(),
         address: "home.test:19132".into(),
         favorite: false,

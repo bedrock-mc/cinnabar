@@ -161,24 +161,22 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     stream.mark_light_changed_sources([key]);
     light_scheduler::settle_light(&mut stream, [0.0; 3]);
     stream.mark_dirty_exact(key, Instant::now());
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 0, 0, 0, 0);
     stream.set_publication_allowance(allowance.clone());
 
     let mut dispatched = 0;
-    let deadline = Instant::now() + std::time::Duration::from_secs(10);
-    for _ in 0..64 {
-        dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
-        if dispatched > 0
-            && stream.mesh_jobs.in_flight.is_empty()
-            && stream.mesh_jobs.pending.is_empty()
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    test_time::eventually_within(
+        std::time::Duration::from_secs(10),
+        "mesh jobs to dispatch and drain",
+        || {
+            dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
+            dispatched > 0
+                && stream.mesh_jobs.in_flight.is_empty()
+                && stream.mesh_jobs.pending.is_empty()
+        },
+    );
     for _ in 0..4 {
         dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
     }

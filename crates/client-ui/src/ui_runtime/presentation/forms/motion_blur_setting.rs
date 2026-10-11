@@ -3,7 +3,7 @@
 use json_ui::Catalog;
 use serde_json::json;
 
-use crate::menu::settings_options::{MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION};
+use launcher::menu::settings_options::{MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION};
 
 pub(super) fn install(catalog: &mut Catalog) {
     let name = MOTION_BLUR_OPTION.name;
@@ -46,8 +46,11 @@ pub(super) fn install(catalog: &mut Catalog) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ui_runtime::presentation::forms::pack_harness;
+    use {
+        super::*,
+        launcher::menu::settings_options::{MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION},
+    };
 
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
         control

@@ -12,6 +12,7 @@ use render_model::VisibilityKeyDigest;
 use world::{RawBlockIds, SubChunk};
 
 use super::*;
+use crate::chunk::gpu::arena::plan_chunk_range_update;
 
 fn target_expectation(
     now: Instant,

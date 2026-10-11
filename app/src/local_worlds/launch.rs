@@ -2,7 +2,7 @@ use std::{ffi::OsString, sync::OnceLock};
 
 use serde::Deserialize;
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const BEDROCK_TARGET_JSON: &str = include_str!("../../../assets/bedrock-target.json");
 

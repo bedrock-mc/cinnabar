@@ -77,8 +77,8 @@ fn a_rejected_required_pack_refuses_the_join() {
             let failure =
                 crate::runtime::network::session_failure_display(&error.to_string(), None);
             assert_eq!(
-                crate::menu::disconnect::describe(&failure).body,
-                crate::menu::disconnect::DisconnectBody::Key("disconnectionScreen.resourcePack")
+                launcher::menu::disconnect::describe(&failure).body,
+                launcher::menu::disconnect::DisconnectBody::Key("disconnectionScreen.resourcePack")
             );
         }
     }
@@ -300,10 +300,10 @@ fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
 #[test]
 fn preparing_packs_leaves_sound_publication_to_bootstrap() {
     let _cache = overlay_cache();
-    let _mailbox = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _mailbox = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let before = crate::audio::server_sounds_generation();
+    let before = client_presentation::audio::server_sounds_generation();
     let sounds = br#"{"sound_definitions":{"custom.beep":{"sounds":["sounds/beep"]}}}"#;
     let application = super::prepare_pack_application(
         protocol::ResourcePackHandoff::from_archives(vec![archive(
@@ -315,7 +315,10 @@ fn preparing_packs_leaves_sound_publication_to_bootstrap() {
         &[],
         false,
     );
-    assert_eq!(crate::audio::server_sounds_generation(), before);
+    assert_eq!(
+        client_presentation::audio::server_sounds_generation(),
+        before
+    );
     assert!(application.server_sounds.is_some(), "carried to Bootstrap");
 }
 

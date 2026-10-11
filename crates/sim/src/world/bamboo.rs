@@ -49,6 +49,7 @@ impl CollisionRegistry {
     }
 
     /// Includes every owner cell whose admitted translated shapes can intersect a query.
+    /// Both bounds are inclusive block coordinates, rounded down after adding the halo.
     pub(super) fn query_bounds(
         &self,
         query: super::Aabb,
@@ -57,7 +58,7 @@ impl CollisionRegistry {
         let max: [f64; 3] = std::array::from_fn(|axis| self.collision_halo[axis].1.max(1) as f64);
         Ok([
             super::block_floor(query.min + Vec3::new(min[0], min[1], min[2]))?,
-            super::block_ceil(query.max + Vec3::new(max[0], max[1], max[2]))?,
+            super::block_floor(query.max + Vec3::new(max[0], max[1], max[2]))?,
         ])
     }
 }

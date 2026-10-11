@@ -10,8 +10,8 @@ use super::super::super::UiPresentationError;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::widgets;
-use crate::menu::{MenuAction, MenuView};
 use launcher::dressing_room::Action;
+use launcher::menu::{MenuAction, MenuView};
 
 pub(super) struct PreviewArea {
     pub(super) control: Bounds,

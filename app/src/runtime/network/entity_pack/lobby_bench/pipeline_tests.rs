@@ -1,4 +1,7 @@
-use super::*;
+use {
+    super::*,
+    client_presentation::actor_publication::{HandRigBuilder, publish_actor_render_frame},
+};
 
 #[test]
 fn offline_actor_frames_publish_and_advance_the_synthetic_actor() {
@@ -69,7 +72,7 @@ fn offline_actor_frames_publish_and_advance_the_synthetic_actor() {
     };
     world
         .resource_mut::<Time<Real>>()
-        .update_with_instant(clock + client_world::ACTOR_TICK_DURATION);
+        .update_with_instant(clock + world::TICK_DURATION);
     prepare_offline_actor_frame(&mut world);
     world.run_system_cached(publish_actor_render_frame).unwrap();
     assert_eq!(

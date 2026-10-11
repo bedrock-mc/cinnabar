@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crate::install_layout::InstallLayout;
+use launcher::install_layout::InstallLayout;
 
 const BASE_DELAY: Duration = Duration::from_millis(500);
 const MAX_DELAY: Duration = Duration::from_secs(8);

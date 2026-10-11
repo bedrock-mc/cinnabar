@@ -1,9 +1,7 @@
 //! Samples the viewmodel's world, screen and movement observations in the current frame.
 use crate::{player_runtime::PlayerRuntime, runtime::world::ClientWorld};
 use bevy::{ecs::system::SystemParam, prelude::*};
-pub(crate) use client_presentation::presentation::viewmodel::HandAdapter;
-#[cfg(test)]
-pub(crate) use client_presentation::presentation::viewmodel::HandFallback;
+
 use client_presentation::presentation::viewmodel::{ViewmodelAuthority, ViewmodelWorld};
 use client_ui::ui_runtime::UiRuntime;
 
@@ -38,7 +36,7 @@ fn observation<'a>(
         stream: world.stream.as_ref(),
         entity_assets: world.entity_assets.as_ref(),
         runtime_assets: &world.runtime_assets,
-        block_registry_hash: crate::asset_startup::pinned_world_provenance().block_registry_sha256,
+        block_registry_hash: assets::pinned_world_provenance().block_registry_sha256,
         renders_game,
         movement: movement.map(|movement| {
             let (session, epoch) = movement.interaction_authority_identity();

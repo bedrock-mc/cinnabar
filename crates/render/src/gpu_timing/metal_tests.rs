@@ -27,6 +27,33 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
     ))
 }
 
+/// Draws one triangle while recording an owned render-pass timestamp pair.
+fn draw_timestamp_triangle(
+    encoder: &mut wgpu::CommandEncoder,
+    world: &World,
+    view: &wgpu::TextureView,
+    pipeline: &wgpu::RenderPipeline,
+    stage: RuntimeStage,
+) {
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("owned timestamp regression pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: render_pass_timestamps(world, stage),
+        occlusion_query_set: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.draw(0..3, 0..1);
+}
+
 #[test]
 fn metal_deferred_pass_markers_emit_readable_timestamps() {
     let Some((device, queue)) = metal_device() else {
@@ -90,36 +117,46 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
     world.insert_resource(timestamps);
     let mut context = RenderContext::new(device.clone(), None);
     let render_world = &world;
+    let first_view = view.clone();
+    let first_pipeline = pipeline.clone();
     context.add_command_buffer_generation_task(move |device| {
         let mut encoder = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("owned timestamp regression pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: render_pass_timestamps(render_world, RuntimeStage::GpuOpaque),
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&pipeline);
-            pass.draw(0..3, 0..1);
-        }
+        draw_timestamp_triangle(
+            &mut encoder,
+            render_world,
+            &first_view,
+            &first_pipeline,
+            RuntimeStage::GpuOpaque,
+        );
         encoder.finish()
     });
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     super::tests::run_readback_node(&world, &mut context);
     queue.submit(context.finish().0);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.request_readback();
+    timestamps.request_readback(&queue);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    timestamps.begin(|_| panic!("completed samples still need a readback copy"));
+    world.insert_resource(timestamps);
+    let mut context = RenderContext::new(device.clone(), None);
+    draw_timestamp_triangle(
+        context.command_encoder(),
+        &world,
+        &view,
+        &pipeline,
+        RuntimeStage::GpuUi,
+    );
+    super::tests::run_readback_node(&world, &mut context);
+    queue.submit(context.finish().0);
+    let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+    timestamps.request_readback(&queue);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let index = timestamps.ring.oldest_in_flight().unwrap();
+    assert_eq!(timestamps.slots[index].passes, 1);
+    assert_eq!(
+        timestamps.slots[index].state.load(Ordering::Acquire),
+        MAPPED
+    );
     let mapped = timestamps.slots[index].buffer.slice(..).get_mapped_range();
     let values: Vec<_> = mapped[..16]
         .as_chunks::<8>()
@@ -129,14 +166,20 @@ fn metal_deferred_pass_markers_emit_readable_timestamps() {
         .collect();
     eprintln!("Metal owned pass timestamp values: {values:?}");
     assert!(
-        values[0] != 0 && values[1] >= values[0],
+        values[0] != 0 && values[1] >= values[0] && values[1] != u64::MAX,
         "owned pass timestamps must be valid"
     );
     drop(mapped);
     let mut frames = Vec::new();
     timestamps.begin(|frame| frames.push(*frame));
     assert_eq!(frames.len(), 1);
-    assert!(frames[0].get(RuntimeStage::GpuOpaque).is_some());
+    assert_eq!(
+        frames[0].get(RuntimeStage::GpuOpaque),
+        Some(std::time::Duration::from_secs_f64(
+            (values[1] - values[0]) as f64 * f64::from(queue.get_timestamp_period()) * 1e-9
+        ))
+    );
+    assert_eq!(frames[0].get(RuntimeStage::GpuUi), None);
     assert_eq!(frames[0].get(RuntimeStage::GpuFrame), None);
 }
 

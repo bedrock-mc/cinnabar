@@ -1,7 +1,8 @@
 # Entity shadows
 
-Vanilla draws no shadow texture. Each caster hangs a polygonal volume under its feet, and every
-opaque surface inside any volume has its encoded colour multiplied by one shadow colour.
+Vanilla draws no shadow texture. Each caster hangs a polygonal volume under its feet, and visible
+opaque surfaces inside a volume have their encoded colour multiplied by one shadow colour
+when the camera is outside that volume.
 
 ## Vanilla rules
 
@@ -10,6 +11,7 @@ opaque surface inside any volume has its encoded colour multiplied by one shadow
 | Shape | 13-sided frustum, in caster radii about the feet: top ring radius 0.75 at y +0.01, bottom ring radius 0.25 at y −3. |
 | Footprint | A surface `d` below the feet is shaded within `r · (0.25 + 0.5 · (3 − d/r) / 3.01)`; nothing below 3r, nothing above 0.01r. |
 | Receivers | Every surface in the depth buffer after opaque terrain and opaque actors: block tops, sides past an edge, slabs, partial blocks, other actors. Translucent surfaces (water, clouds) are drawn later and receive none. |
+| Camera inside | A volume containing the camera draws no shadow: there is no visible entry face to mark the receiver. |
 | Opacity | Uniform across the footprint; no fade with height or distance. |
 | Blend | `scene × colour` on the encoded (gamma) colour; overlapping volumes shade once. |
 | Colour | 0.7 grey. Tint = lerp(sky × 0.5 + 0.4, sunrise rgb, sunrise alpha); each channel is offset by 0.03 × (tint − luminance) / max |tint − luminance| (Rec. 709 luminance). A grey tint leaves 0.7. Alpha 1. |
@@ -26,8 +28,10 @@ opaque surface inside any volume has its encoded colour multiplied by one shadow
 
 - `render_model::EntityShadow` owns the volume and colour; `client_world` owns caster rules;
   `render::EntityShadowRenderPlugin` copies the opaque scene and draws every volume's back faces
-  in one instanced draw, testing the depth-buffer point against the volume in the fragment.
+  in one instanced draw. Volumes containing the camera are clipped in the vertex stage;
+  remaining volumes test the depth-buffer point in the fragment.
 - Rigged casters, including the local player, are the bodies the actor frame drew. First person
   hides the local body and its shadow; third person uses the body's render-time feet.
 - Provisional: dropped items are culled by their volume; the breathing point is the eye at
-  0.9 × height; a camera inside a volume shades the surfaces inside it. Each is unconfirmed.
+  0.9 × height. These remain unconfirmed. Exact near-plane clipping and slope-bias raster
+  edges also remain incomplete parity checks.

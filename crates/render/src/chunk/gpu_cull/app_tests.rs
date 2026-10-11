@@ -8,7 +8,7 @@ use bevy::{
     mesh::MeshPlugin,
     render::{
         RenderPlugin,
-        renderer::{RenderAdapterInfo, WgpuWrapper},
+        renderer::{RenderAdapterInfo, RenderInstance, WgpuWrapper},
         settings::RenderCreation,
     },
     window::WindowPlugin,

@@ -16,9 +16,9 @@ use protocol::{
 };
 
 use crate::ui_runtime::{drain_inventory_authority, drive_chat_keyboard_input};
-use client_ui::ui_runtime::{
-    UiRuntime, flush_inventory_send,
-    inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, PERSONAL_INVENTORY_WINDOW_TYPE},
+use {
+    client_ui::ui_runtime::{UiRuntime, flush_inventory_send},
+    inventory::inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, PERSONAL_INVENTORY_WINDOW_TYPE},
 };
 
 /// Builds the keyboard fixture with one live domain owner.

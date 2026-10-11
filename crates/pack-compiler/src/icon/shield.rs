@@ -14,7 +14,7 @@ use std::{path::Path, sync::Arc};
 
 mod raster;
 
-pub(super) use assets::gui_item::SHIELD_IDENTIFIER as IDENTIFIER;
+use assets::gui_item::SHIELD_IDENTIFIER as IDENTIFIER;
 /// Carrier resolution only; native GUI coordinates retain their sixteen-pixel item frame.
 const SIDE: usize = 64;
 const PIXELS_PER_GUI_PIXEL: f32 = SIDE as f32 / GUI_ITEM_SIDE;

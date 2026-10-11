@@ -14,7 +14,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use super::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, SavedServer};
+use {
+    super::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES},
+    launcher::menu::view::SavedServer,
+};
 
 /// Maximum number of saved-server entries retained from one local file.
 pub(crate) const MAX_SAVED_SERVERS: usize = 256;

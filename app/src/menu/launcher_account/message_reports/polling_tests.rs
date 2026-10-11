@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 /// Replies to a framed launcher request, holding message reports until the fixture ends.
@@ -58,9 +58,7 @@ fn slow_inbox_report_does_not_block_join_polling() {
         while !stopping.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((stream, _)) => respond(stream, &mut held),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
-                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => test_time::idle(),
                 Err(error) => panic!("offline control fixture: {error}"),
             }
         }
@@ -71,15 +69,11 @@ fn slow_inbox_report_does_not_block_join_polling() {
         event_type: "Delete".into(),
         ..Default::default()
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
     let mut stage = None;
-    while Instant::now() < deadline {
+    test_time::wait_until(Duration::from_secs(5), || {
         stage = account.join_stage();
-        if stage == Some(JoinStage::Realm) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+        stage == Some(JoinStage::Realm)
+    });
     // Drop the link before releasing held replies, so no pending report retries during cleanup.
     drop(account);
     done.store(true, Ordering::Relaxed);

@@ -7,11 +7,11 @@ use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
 use world::SubChunkKey;
 
-use crate::{
-    camera::FlyCamera,
-    runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
-};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use {
+    crate::runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
+    client_presentation::camera::FlyCamera,
+};
 
 #[cfg(feature = "developer-control")]
 mod telemetry;

@@ -3,7 +3,10 @@ use std::sync::Arc;
 use json_ui::{BindState, DataSource, EmptyLibrary, ResolvedControl, bind_stateful};
 use serde_json::{Value, json};
 
-use super::{Cells, HudFrame, IconRef, NetworkItemStack};
+use {
+    super::{Cells, HudFrame, NetworkItemStack},
+    ui::IconRef,
+};
 
 fn cell_control() -> Arc<ResolvedControl> {
     Arc::new(ResolvedControl {

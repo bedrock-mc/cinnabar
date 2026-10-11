@@ -1,7 +1,7 @@
 //! Pack identity survives moves between the library and the staged active stack.
 
 use super::super::motion::Tween;
-use crate::global_resources::Snapshot;
+use launcher::global_resources::Snapshot;
 use resource_pack::InstalledPack;
 
 const REVEAL_SECONDS: f64 = 0.160;

@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, client_presentation::local_player::LocalPlayerFrameCarrier};
 
 #[test]
 fn frame_timing_uses_elapsed_time_and_records_stalls() {
@@ -44,7 +44,7 @@ fn third_person_uses_player_feet_and_eye_instead_of_camera_pose() {
     let feet = Vec3::new(3.0, 61.0, -7.0);
     let eye = feet + Vec3::Y * protocol::STANDING_PLAYER_EYE_HEIGHT;
     frame
-        .publish(crate::local_player::LocalPlayerFrameSample {
+        .publish(client_presentation::local_player::LocalPlayerFrameSample {
             session_generation: 1,
             actor_session_id: 1,
             fifo_sequence: 1,
@@ -404,8 +404,8 @@ fn gpu_diagnostics_rank_passes_without_allocating_or_discarding_zero_samples() {
 
 #[test]
 fn covering_screens_skip_expensive_diagnostic_gathers() {
-    use client_ui::menu::{MenuScreen, MenuView};
     use client_ui::ui_runtime::{UiRuntime, presentation::LoadingStage};
+    use launcher::menu::{MenuScreen, MenuView};
     let mut app = App::new();
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
@@ -546,9 +546,9 @@ fn ui_frame_counters_wait_for_the_frame_statistics_window() {
 #[test]
 fn first_eligible_publication_samples_frame_counters() {
     use bevy::ecs::system::{IntoSystem, System};
-    use client_ui::{
-        menu::{MenuScreen, MenuView},
-        ui_runtime::UiRuntime,
+    use {
+        client_ui::ui_runtime::UiRuntime,
+        launcher::menu::{MenuScreen, MenuView},
     };
     let mut world = World::new();
     world.insert_resource(ButtonInput::<KeyCode>::default());

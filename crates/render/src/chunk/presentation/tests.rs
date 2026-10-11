@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::graphics_metadata::adapter_metadata_field;
 use crate::chunk::gpu::types::build_indexed_indirect_commands;
 
 #[test]

@@ -4,13 +4,14 @@ use std::{collections::HashMap, sync::Arc};
 use json_ui::{DataSource, HitKind, InputMode, Scalar, ViewState};
 use ui::{UiNode, UiPoint};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::{UiRuntime, emotes::EmoteState, forms::EngineFrame};
+use {
+    super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 pub const EMOTE_SCREEN: &str = "persona_emote.emote_wheel_screen";
 pub const EMOTE_EQUIP_POPUP: &str = "persona_popups.popup_dialog__emote_equip_slot_editor";

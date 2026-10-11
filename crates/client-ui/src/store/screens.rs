@@ -19,10 +19,10 @@ use super::bindings::{
     RAW_PATH, Translate, info_row_count, info_rows, offer_item, show_more_item, text,
 };
 use super::flow::PurchaseFlowPresentation;
-use super::snapshot::{DisplayRow, StoreSnapshot, StoreView};
-use super::worker::StoreError;
+use launcher::store::snapshot::{DisplayRow, StoreSnapshot, StoreView};
+use launcher::store::worker::StoreError;
 
-pub use launcher::store::SDL_SCREEN;
+use launcher::store::SDL_SCREEN;
 pub const INVENTORY_SCREEN: &str = "store_inventory.store_inventory_screen";
 pub const PROGRESS_SCREEN: &str = "store_progress.store_progress_screen";
 
@@ -121,7 +121,7 @@ fn image_lookup(snapshot: &StoreSnapshot) -> impl Fn(&str) -> Option<String> + '
 
 /// The overlay the purchase flow wants: the progress screen while running, else a modal.
 fn overlay(snapshot: &StoreSnapshot, base: &Context, tr: Translate<'_>) -> Option<ScreenSpec> {
-    use super::flow::PurchaseFlow;
+    use launcher::store::flow::PurchaseFlow;
     if matches!(snapshot.flow, PurchaseFlow::InProgress { .. }) {
         let mut data = ScreenData::default();
         data.global(
@@ -553,8 +553,12 @@ fn inventory_data(snapshot: &StoreSnapshot, tr: Translate<'_>) -> ScreenData {
 mod tests {
     use protocol::store_control::{StoreOffer, StoreOfferDetail, StorePrice};
 
-    use super::super::flow::{PurchaseDialog, PurchaseFlow};
-    use super::*;
+    use launcher::store::flow::{PurchaseDialog, PurchaseFlow};
+    use {
+        super::*,
+        launcher::store::snapshot::{DisplayRow, StoreSnapshot, StoreView},
+        launcher::store::worker::StoreError,
+    };
 
     fn tr(key: &str) -> String {
         format!("<{key}>")

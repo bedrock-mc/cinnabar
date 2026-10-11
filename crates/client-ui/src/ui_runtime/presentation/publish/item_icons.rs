@@ -1,7 +1,7 @@
 //! Stack-aware icons: a crossbow's nonzero animation frame N selects
 //! crossbow_pulling variant N-1.
 
-use super::*;
+use {super::*, ui::IconRef};
 
 #[derive(Default)]
 pub struct ItemIconFrames(pub [Option<u32>; protocol::HOTBAR_SLOT_COUNT as usize]);
@@ -21,11 +21,14 @@ pub(super) fn stack_icon(
     identifier: &str,
     animation_frame: Option<u32>,
 ) -> Option<IconRef> {
-    let projectile = protocol::item_charged_projectile(&stack.extra_data);
+    let facts = runtime.stack_facts(stack, Some(identifier));
+    let charged_projectile = (identifier == "minecraft:crossbow")
+        .then(|| facts.charged_projectile())
+        .flatten();
     let (icon_identifier, variant) = UiPresentationRuntime::item_icon_key(
         identifier,
         stack.metadata,
-        projectile.as_deref(),
+        charged_projectile.as_deref(),
         animation_frame,
     );
     let icon = presentation.item_icon(icon_identifier, variant)?;
@@ -34,7 +37,7 @@ pub(super) fn stack_icon(
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support {
-    use super::*;
+    use {super::*, ui::IconRef};
     /// Resolves a stack icon for app item-use integration tests.
     pub fn stack_icon(
         runtime: &UiRuntime,

@@ -1,14 +1,16 @@
 //! Borrows gameplay and UI facts at the existing camera phase.
-use super::{CameraFovInputs, ScreenEffectFacts};
-use crate::{
-    item_use::ItemUseRuntime,
-    local_player::LocalViewPose,
-    movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
-};
 use bevy::prelude::{Local, Res, ResMut, Time};
-pub use client_presentation::camera::facts::ItemUseClock;
+use client_presentation::camera::facts::ItemUseClock;
+use client_presentation::camera::{CameraFovInputs, ScreenEffectFacts};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        item_use::ItemUseRuntime,
+        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
+        runtime::world::ClientWorld,
+    },
+    client_presentation::local_player::LocalViewPose,
+};
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
@@ -71,9 +73,9 @@ pub(crate) fn diagnose_portal(
     time: Option<Res<Time<bevy::time::Real>>>,
     view: Res<LocalViewPose>,
     facts: Res<ScreenEffectFacts>,
-    portal: Res<super::PortalProgress>,
-    overlays: Res<super::ScreenOverlays>,
-    settings: Res<super::CameraSettingsAuthority>,
+    portal: Res<client_presentation::camera::PortalProgress>,
+    overlays: Res<client_presentation::camera::ScreenOverlays>,
+    settings: Res<client_presentation::camera::CameraSettingsAuthority>,
     physics: Option<Res<LocalPhysicsController>>,
     client_world: Option<Res<ClientWorld>>,
     mut diagnostics: Local<client_presentation::camera::portal_diagnostics::PortalDiagnostics>,

@@ -1,7 +1,11 @@
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use chunk_pipeline::{
-    BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
-    RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
+    BuildProfileIdentity, CohortManifestIdentity, PresentModeIdentity, PresentationSnapshot,
+    PublicationSnapshot, PublicationStageCounters, RequestClass, RequestClassDepth,
+    RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
 use sha2::{Digest, Sha256};
@@ -19,7 +23,7 @@ use crate::runtime::telemetry::local_subject_column;
 
 #[test]
 fn publication_diagnostics_require_an_explicit_acceptance_or_metrics_run() {
-    use crate::{acceptance::AcceptanceRun, runtime::telemetry::publication_diagnostics_enabled};
+    use crate::runtime::telemetry::publication_diagnostics_enabled;
     for (seconds, output, expected) in [
         (None, None, false),
         (Some(30), None, true),
@@ -43,7 +47,7 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
         entry_count: 17,
     };
     CombinedPhase2Snapshot {
-        publication: Phase2PublicationSnapshot {
+        publication: PublicationSnapshot {
             session_generation: 7,
             publisher_epoch: 9,
             publisher_center: Some([64, 70, -32]),
@@ -125,7 +129,7 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             max_queue_wait: StageDurations::default(),
             max_worker_time: StageDurations::default(),
         },
-        presentation: Phase2PresentationSnapshot {
+        presentation: PresentationSnapshot {
             build_profile: BuildProfileIdentity::Release,
             graphics_identity_sha256: [3; 32],
             requested_present_mode: PresentModeIdentity::Fifo,

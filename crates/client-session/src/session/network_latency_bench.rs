@@ -102,7 +102,7 @@ fn run_case(name: &str, wire: Option<Bytes>, hold_world: bool) {
         .map(|value| value.parse().unwrap())
         .unwrap_or(128);
     assert!((2..=2048).contains(&ticks));
-    let interval = Duration::from_secs_f64(1.0 / sim::TICKS_PER_SECOND as f64);
+    let interval = Duration::from_secs_f64(1.0 / world::TICKS_PER_SECOND as f64);
     let decoded = Arc::new(Mutex::new(Vec::new()));
     let (sent_tx, sent_rx) = blocking::channel();
     let mut queued = Vec::new();

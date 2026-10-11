@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chunk_pipeline::PublicationServiceConfig;
+use render_api::PublicationServiceConfig;
 
 use crate::runtime::publication::{PublicationController, PublicationFrameWork};
 

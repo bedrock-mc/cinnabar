@@ -1,7 +1,7 @@
 //! Reads the selected graphics device once before publishing menu settings.
 
 use bevy::{
-    prelude::*,
+    prelude::{Res, ResMut, warn},
     render::renderer::{RenderAdapter, RenderDevice},
 };
 

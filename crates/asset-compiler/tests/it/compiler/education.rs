@@ -1,4 +1,7 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{BlockFlags, DIAGNOSTIC_MATERIAL, ModelFamily, ModelStateField, VisualKind},
+};
 
 #[test]
 fn education_construction_blocks_compile_their_pack_faces_and_border_wall() {

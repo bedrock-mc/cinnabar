@@ -1,8 +1,8 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
 
-use crate::{
-    menu::{MenuAction, MenuServerCard, MenuServerTab, MenuView, SavedServer},
-    ui_runtime::presentation::IconRef,
+use {
+    launcher::menu::{MenuAction, MenuServerCard, MenuServerTab, MenuView, SavedServer},
+    ui::IconRef,
 };
 
 use super::{
@@ -418,10 +418,13 @@ pub(super) fn saved_card(
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
+    use {
+        super::*,
+        launcher::menu::{MenuAction, SavedServer},
+    };
     #[test]
     fn review_saved_server_text_reserves_the_action_region() {
-        let view = crate::menu::MenuView::new(true, "Test".into());
+        let view = launcher::menu::MenuView::new(true, "Test".into());
         let server = SavedServer {
             name: "Long server name ".repeat(50),
             address: "example.test".into(),

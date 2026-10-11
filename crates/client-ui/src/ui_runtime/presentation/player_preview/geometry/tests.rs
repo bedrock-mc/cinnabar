@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 fn skin(side: u16) -> IconRef {
     IconRef {

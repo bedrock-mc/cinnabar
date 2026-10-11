@@ -6,11 +6,12 @@ use std::{
 use json_ui::{DataSource, Scalar, ViewState};
 use ui::{UiNode, UiRect};
 
-use super::super::{
-    FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
-};
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::{UiRuntime, credits::CREDITS_SCREEN};
+use {
+    super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime},
+    ui::FONT_DESIGN_PIXEL_TEXELS,
+};
 
 #[derive(Default)]
 pub(super) struct CreditsScreen {

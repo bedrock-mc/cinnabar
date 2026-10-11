@@ -3,9 +3,9 @@
 
 use json_ui::HitRegion;
 
-use super::snapshot::StoreView;
+use launcher::store::snapshot::StoreView;
 
-pub use launcher::store::StoreAction;
+use launcher::store::StoreAction;
 
 /// Factory rows lead with the header bar item before the displayed rows.
 const LEADING_STATIC_ITEMS: usize = 1;
@@ -84,7 +84,7 @@ pub fn action_for(view: StoreView, modal: bool, region: &HitRegion) -> Option<St
 mod tests {
     use json_ui::{HitKind, RectOut};
 
-    use super::*;
+    use {super::*, launcher::store::StoreAction, launcher::store::snapshot::StoreView};
 
     fn region(pressed: &str, key: &str, index: Option<usize>) -> HitRegion {
         let rect = RectOut {

@@ -1,8 +1,43 @@
 use super::*;
+use protocol::block_state_network_hash;
+
+#[test]
+fn totem_activation_publishes_only_the_local_player_event() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, runtime_id) in [(1, 2), (2, 1)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Status(protocol::ActorStatusEvent {
+                    runtime_id,
+                    kind: protocol::ActorStatusKind::TotemActivate,
+                    data: 0,
+                })),
+                Some(sequence),
+            )
+            .unwrap();
+        let events = authority.take_committed_ui();
+        assert_eq!(events.len(), usize::from(runtime_id == 1));
+    }
+}
 
 /// Supplies a local pose without server-authored health attributes.
 fn local_health_feed() -> crate::LocalPlayerFeed {
     crate::LocalPlayerFeed {
+        game_mode: None,
         prefer_client_skin: false,
         uuid: [0; 16],
         username: "Player".into(),

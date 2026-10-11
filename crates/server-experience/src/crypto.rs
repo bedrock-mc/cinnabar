@@ -1,7 +1,7 @@
 //! Domain-separated Ed25519 signatures over exact canonical JSON bytes.
 
 use anyhow::{Result, bail, ensure};
-pub use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::signature::Ed25519KeyPair;
 use ring::{
     rand::{SecureRandom, SystemRandom},
     signature,

@@ -24,11 +24,9 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/branding/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
-# Existing oversized files may only shrink. New files and files below their
-# category limit remain governed by the strict limits above.
-[[line_baselines]]
-path = "app/src/tests/finish.rs"
-max = 1232
+[[owned_artifacts]]
+path = "assets/fonts/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
 
 [[vendored]]
 path = "crates/protocol/vendor/"
@@ -37,13 +35,13 @@ ownership_record = "crates/protocol/vendor/UPSTREAM.md"
 [[crates]]
 name = "bridge"
 path = "crates/bridge"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["block-transform", "bridge", "render-api"]
+allowed_dependencies = ["block-transform", "bridge", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -100,7 +98,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support"]
-allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
+allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api", "test-time"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
@@ -123,14 +121,14 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "clien
 name = "gameplay"
 path = "crates/gameplay"
 allowed_dependencies = ["assets", "block-transform", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
 allowed_dependencies = ["assets", "block-transform", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -143,32 +141,32 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "play
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "render"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render"]
 test_support_features = ["test-support"]
 
 # Presentation borrows authoritative facts; transport/gameplay and evidence stay outside it.
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "asset-compiler"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
 allowed_dependencies = ["assets", "chunk-pipeline", "meshing", "protocol", "render-model", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "render"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "render"]
 
 [[crates]]
 name = "acceptance"
 path = "crates/acceptance"
 test_support_features = ["test-support"]
 allowed_dependencies = ["chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render", "render-model", "semantic-input", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
 name = "semantic-input"
@@ -180,7 +178,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "developer-control"
 path = "crates/developer-control"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -188,6 +186,13 @@ name = "render-api"
 path = "crates/render-api"
 allowed_dependencies = []
 # Shared contracts stay std-only, including build, dev and target dependencies.
+dependency_free = true
+
+# Test-only waits and manual clocks; std-only, and only ever a dev-dependency.
+[[crates]]
+name = "test-time"
+path = "crates/test-time"
+allowed_dependencies = []
 dependency_free = true
 
 # Render data contracts and CPU geometry; presentation builds against it without the GPU renderer.
@@ -210,7 +215,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
+allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -218,7 +223,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -231,7 +236,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "server-experience"
 path = "crates/server-experience"
-allowed_dependencies = ["protocol"]
+allowed_dependencies = ["protocol", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "asset-compiler"]
 
 [[crates]]
@@ -251,7 +256,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -287,7 +292,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "experience-runtime"
 path = "crates/experience-runtime"
-allowed_dependencies = []
+allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -307,12 +312,6 @@ name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["assets", "render-api", "semantic-input"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-
-[[crates]]
-name = "visualcoverage"
-path = "tools/visualcoverage"
-allowed_dependencies = ["assets"]
-forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
 name = "bedrock-replay"
@@ -339,12 +338,6 @@ allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
-name = "phase2-evidence"
-path = "tools/phase2-evidence"
-allowed_dependencies = []
-forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-
-[[crates]]
 name = "jsonui-editor"
 path = "tools/jsonui-editor"
 allowed_dependencies = ["assets", "json-ui", "ui"]
@@ -366,7 +359,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "mcp-stdio"]
+allowed_dependencies = ["developer-control", "mcp-stdio", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
 
@@ -772,3 +765,436 @@ name = "block-transform"
 path = "crates/block-transform"
 allowed_dependencies = []
 dependency_free = true
+
+# Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
+# Each exception names why the file still sleeps; converting it removes the entry.
+# Domain crates take `now` from their caller; only edge code reads the clock.
+[timing]
+clock_free_crates = [
+    "crates/block-transform",
+    "crates/input",
+    "crates/inventory",
+    "crates/json-ui",
+    "crates/meshing",
+    "crates/player-state",
+    "crates/render-api",
+    "crates/resource-pack",
+    "crates/sim",
+    "crates/ui",
+    "crates/world",
+]
+sleep_exceptions = [
+    { path = "crates/client-ui/src/ui_runtime/presentation/forms/test_support.rs", reason = "warm snapshot frames give background menu artwork time to load; no ready signal" },
+    { path = "crates/bridge/tests/it/go_echo.rs", reason = "deleted with frame-echo" },
+    { path = "crates/client-ui/src/ui_runtime/presentation/forms/menu_latency.rs", reason = "paces idle frames before measuring menu navigation latency" },
+    { path = "crates/client-session/src/session/network_latency_bench.rs", reason = "paces movement packets at the simulation tick rate for a latency benchmark" },
+    { path = "crates/server-experience/src/cache.rs", reason = "delays lease release and cancellation to exercise a pending cache replacement" },
+    { path = "app/src/lifecycle/children.rs", reason = "lets the detached reaper begin stopping a child without an observable ready signal" },
+    { path = "app/src/menu/auth.rs", reason = "a deliberately delayed reader verifies cancellation does not wait for its thread" },
+    { path = "app/src/menu/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
+    { path = "crates/client-presentation/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
+    { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
+    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
+    { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },
+    { path = "crates/chunk-pipeline/src/stream/tests/neighbour_deadlines.rs", reason = "manual timing run past the real unsent-column grace" },
+    { path = "crates/chunk-pipeline/src/stream/tests/streaming_harness.rs", reason = "paces frames for the streaming harness" },
+    { path = "crates/client-ui/src/remote_images/disk/tests.rs", reason = "a fixture image server that answers slowly or stalls" },
+    { path = "crates/client-session/src/session/tests.rs", reason = "a worker still busy when the network handle drops" },
+    { path = "tools/cinnabar-mcp/src/tests.rs", reason = "a reply slower than the client's timeout, then the late reply arriving" },
+    { path = "core/authcache/concurrency_test.go", reason = "a fake token source that is slow to refresh" },
+    { path = "core/authcache/derived_test.go", reason = "a fake service that is slow to answer" },
+    { path = "core/authcache/flight_test.go", reason = "racy: sleeps to let goroutines block; needs a ready signal" },
+    { path = "core/cmd/bedrock-core/lifecycle_unix_test.go", reason = "a helper process that stays alive until the test kills it" },
+    { path = "core/internal/lifeline/lifeline_unix_test.go", reason = "a helper process that stays alive until the test kills it" },
+    { path = "core/internal/lockfile/lockfile_test.go", reason = "a lock holder that stays alive until the test kills it" },
+    { path = "core/internal/streamnet/conn_test.go", reason = "racy: sleeps to let a write block; needs a ready signal" },
+    { path = "core/proxy/first_join_token_live_test.go", reason = "a live, opt-in join profile that keeps credentials warm" },
+    { path = "core/proxy/packet_delay_position_test.go", reason = "virtual time inside synctest bubbles" },
+    { path = "core/proxy/packet_delay_test.go", reason = "virtual time inside synctest bubbles" },
+    { path = "core/proxy/prepared_transport_test.go", reason = "stands in for credential acquisition time" },
+    { path = "core/proxy/proxy_test.go", reason = "asserts nothing else arrives within a window" },
+    { path = "core/proxy/relay_backpressure_test.go", reason = "a stalled sink; racy wait for the pump to block needs a ready signal" },
+    { path = "core/proxy/resource_pack_admission_test.go", reason = "a server that trickles a slow download" },
+    { path = "tools/localserver/experience/client_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+    { path = "tools/localserver/experience/dispatch_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+    { path = "tools/localserver/experience/helpers_test.go", reason = "separate Go module without core's testwait; convert with its own helper" },
+]
+
+# These named protocol, bridge and client-session shims are removed with #532.
+
+[[reexport_allowances]]
+path = "app/src/menu/core_process.rs"
+exports = [
+    "client_session::connection::CORE_START_TIMEOUT",
+]
+
+[[reexport_allowances]]
+path = "app/src/movement.rs"
+exports = [
+    "gameplay::movement::InteractionPacketGuard",
+    "gameplay::movement::PhysicsSendIdentity",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/endpoint.rs"
+exports = [
+    "client_session::connection::bridge_endpoint_exists",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/network.rs"
+exports = [
+    "client_session::WORLD_EVENT_CAPACITY",
+    "resource_packs::BootstrapGenerationDisposition",
+    "resource_packs::active_language_code",
+    "resource_packs::classify_bootstrap_generation",
+    "resource_packs::set_active_language",
+    "resource_packs::set_base_terrain_catalog",
+    "session::BatchSendError",
+    "session::NetworkFailureOrigin",
+    "session::PacketSendError",
+    "session::SessionTransferTarget",
+    "session::session_failure_display",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/network/block_overlay/textures.rs"
+exports = [
+    "super::super::resource_packs::DecodedTexture",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/network/pack_reload.rs"
+exports = [
+    "client_session::PackInputs",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/network/resource_packs.rs"
+exports = [
+    "client_session::BootstrapGenerationDisposition",
+    "client_session::StackFingerprint",
+    "client_session::classify_bootstrap_generation",
+    "client_session::pack_language::active_language_code",
+    "client_session::pack_language::set_active_language",
+    "client_session::pack_textures::DecodedTexture",
+    "client_session::pack_textures::MAX_CATALOG_ENTRIES",
+    "client_session::pack_textures::base_terrain_catalog",
+    "client_session::pack_textures::decode_pack_texture",
+    "client_session::pack_textures::parse_pack_json",
+    "client_session::pack_textures::set_base_terrain_catalog",
+    "client_session::pack_textures::texture_key_paths",
+    "client_session::stack_fingerprint",
+]
+
+[[reexport_allowances]]
+path = "app/src/runtime/network/session.rs"
+exports = [
+    "client_session::BatchSendError",
+    "client_session::NetworkFailureOrigin",
+    "client_session::PacketSendError",
+    "client_session::SequencedWorldEvent",
+    "client_session::SessionTransferTarget",
+    "client_session::WorldIngress",
+    "client_session::session_failure_display",
+]
+
+[[reexport_allowances]]
+path = "crates/client-session/src/lib.rs"
+exports = [
+    "session::BatchSendError",
+]
+
+[[reexport_allowances]]
+path = "crates/client-session/src/session.rs"
+exports = [
+    "protocol::BatchSendError",
+]
+
+[[reexport_allowances]]
+path = "crates/client-ui/src/ui_runtime.rs"
+exports = [
+    "interaction::FastTransferAction",
+]
+
+[[reexport_allowances]]
+path = "crates/client-ui/src/ui_runtime/interaction.rs"
+exports = [
+    "protocol::FastTransferAction",
+]
+
+[[reexport_allowances]]
+path = "crates/client-world/src/ingestion/mod.rs"
+exports = [
+    "protocol::ActorAttribute",
+    "protocol::ActorBlockSyncMessage",
+    "protocol::ActorEvent",
+    "protocol::ActorHandedness",
+    "protocol::AudioEvent",
+    "protocol::BiomeDefinitionEvent",
+    "protocol::BiomeDefinitionsEvent",
+    "protocol::BlockCrackAction",
+    "protocol::BlockCrackEvent",
+    "protocol::BlockEntityUpdateEvent",
+    "protocol::BlockEventEvent",
+    "protocol::BlockUpdateEvent",
+    "protocol::ChangeDimensionEvent",
+    "protocol::CustomBlocks",
+    "protocol::CustomStateValue",
+    "protocol::DaylightCycleUpdateEvent",
+    "protocol::DimensionHeightDiagnostic",
+    "protocol::DimensionRange",
+    "protocol::GameModeUpdate",
+    "protocol::HeightmapDiagnostic",
+    "protocol::ItemRegistryEvent",
+    "protocol::LevelChunkEvent",
+    "protocol::LevelChunkMode",
+    "protocol::MAP_IMAGE_SIDE",
+    "protocol::MapDataEvent",
+    "protocol::MovePlayerEvent",
+    "protocol::NetworkItemStack",
+    "protocol::OpenSignEvent",
+    "protocol::PLAYER_NETWORK_OFFSET",
+    "protocol::Packet",
+    "protocol::ParticleEvent",
+    "protocol::PlayerMovementCorrectionEvent",
+    "protocol::RespawnEvent",
+    "protocol::SetTimeEvent",
+    "protocol::SubChunkBatchEvent",
+    "protocol::SubChunkDiagnostic",
+    "protocol::SubChunkReplyAdmissionEvent",
+    "protocol::SubChunkResult",
+    "protocol::SubChunkUnavailable",
+    "protocol::SyncedBlockUpdateEvent",
+    "protocol::UiEvent",
+    "protocol::WeatherUpdateEvent",
+    "protocol::WorldBootstrap",
+    "protocol::WorldEvent",
+    "protocol::request_sub_chunk_column",
+    "protocol::vanilla_dimension_range",
+]
+
+[[reexport_allowances]]
+path = "crates/client-world/src/lib.rs"
+exports = [
+    "protocol::ItemAttackTiming",
+]
+
+[[reexport_allowances]]
+path = "crates/gameplay/src/lib.rs"
+exports = [
+    "protocol::BatchSendError",
+]
+
+[[reexport_allowances]]
+path = "crates/gameplay/src/movement.rs"
+exports = [
+    "authority::PhysicsSendIdentity",
+    "outbox::InteractionPacketGuard",
+]
+
+[[reexport_allowances]]
+path = "crates/gameplay/src/movement/authority.rs"
+exports = [
+    "protocol::PhysicsSendIdentity",
+]
+
+[[reexport_allowances]]
+path = "crates/gameplay/src/movement/outbox.rs"
+exports = [
+    "protocol::InteractionPacketGuard",
+]
+
+[[reexport_allowances]]
+path = "crates/launcher/src/skin_import.rs"
+exports = [
+    "protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION as DEFAULT_GEOMETRY_ENGINE_VERSION",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/actor.rs"
+exports = [
+    "render_api::MAX_STANDARD_SKIN_SIDE",
+    "skin::CLASSIC_SKIN_SIDE",
+    "skin::MAX_CLASSIC_SKIN_SIDE",
+    "skin::MAX_SKIN_ANIMATION_LAYERS",
+    "skin::SkinRgba8",
+    "skin::expand_legacy_skin_rgba8",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/launcher_control.rs"
+exports = [
+    "bridge::Account",
+    "bridge::Artwork",
+    "bridge::AuthState",
+    "bridge::BridgeError",
+    "bridge::ConnectProgress",
+    "bridge::ConnectStage",
+    "bridge::ConnectTarget",
+    "bridge::Events",
+    "bridge::FeaturedGame",
+    "bridge::FeaturedServer",
+    "bridge::Friend",
+    "bridge::Home",
+    "bridge::Inbox",
+    "bridge::LiveEvent",
+    "bridge::Message",
+    "bridge::MessageButton",
+    "bridge::MessageEvent",
+    "bridge::MessageImage",
+    "bridge::PacketDelayLease",
+    "bridge::Person",
+    "bridge::Profile",
+    "bridge::ProfileAchievement",
+    "bridge::ProfileAchievements",
+    "bridge::ProfileStatistics",
+    "bridge::Realm",
+    "bridge::RealmMembership",
+    "bridge::RelayedPosition",
+    "bridge::ServerDisconnect",
+    "bridge::ServerPing",
+    "bridge::ServerTrustPrompt",
+    "bridge::TransferPending",
+    "bridge::XboxPresenceState",
+    "bridge::account_status",
+    "bridge::answer_server_trust",
+    "bridge::connect_target",
+    "bridge::control_endpoint_path",
+    "bridge::home",
+    "bridge::list_featured_servers",
+    "bridge::list_featured_servers_with_counts",
+    "bridge::list_friends",
+    "bridge::list_people",
+    "bridge::list_realms",
+    "bridge::packet_delay_with_position",
+    "bridge::ping_servers",
+    "bridge::poll_events",
+    "bridge::profile",
+    "bridge::realm_membership",
+    "bridge::report_message_event",
+    "bridge::report_xbox_presence",
+    "bridge::set_packet_delay",
+    "bridge::sign_out",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/lib.rs"
+exports = [
+    "jolyne",
+    "jolyne::GAME_VERSION",
+    "jolyne::GameData",
+    "jolyne::PROTOCOL_VERSION",
+    "jolyne::stream::ResourcePackArchive",
+    "jolyne::stream::ResourcePackContentKey",
+    "jolyne::stream::ResourcePackHandoff",
+    "jolyne::stream::ResourcePackIdentity",
+    "jolyne::stream::ResourcePackStore",
+    "jolyne::stream::client::ClientCape",
+    "jolyne::stream::client::ClientSkin",
+    "jolyne::stream::client::ClientSkinGeometry",
+    "render_api::primitive_shapes::PrimitiveShapeChange",
+    "render_api::primitive_shapes::PrimitiveShapeData",
+    "render_api::primitive_shapes::PrimitiveShapeKind",
+    "render_api::primitive_shapes::PrimitiveShapeUpdate",
+    "render_api::primitive_shapes::PrimitiveShapesEvent",
+    "render_api::primitive_shapes::PrimitiveText",
+    "valentine",
+    "valentine::bedrock::context::BedrockSession",
+    "actor::CLASSIC_SKIN_SIDE",
+    "actor::MAX_CLASSIC_SKIN_SIDE",
+    "actor::MAX_SKIN_ANIMATION_LAYERS",
+    "actor::MAX_STANDARD_SKIN_SIDE",
+    "actor::SkinRgba8",
+    "actor::expand_legacy_skin_rgba8",
+    "transfer::MAX_TRANSFER_HOST_BYTES",
+    "transfer::ServerTransferEvent",
+    "transfer::ServerTransferRejection",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/store_control.rs"
+exports = [
+    "bridge::BridgeError",
+    "bridge::ConfirmedPurchase",
+    "bridge::PendingPurchase",
+    "bridge::PurchaseOutcome",
+    "bridge::PurchaseStatus",
+    "bridge::StoreBalance",
+    "bridge::StoreEntitlements",
+    "bridge::StoreImage",
+    "bridge::StoreOffer",
+    "bridge::StoreOfferDetail",
+    "bridge::StorePage",
+    "bridge::StorePrice",
+    "bridge::StoreRating",
+    "bridge::StoreRow",
+    "bridge::StoreRowMore",
+    "bridge::StoreSearch",
+    "bridge::StoreSearchResults",
+    "bridge::store_balance",
+    "bridge::store_entitlements",
+    "bridge::store_home",
+    "bridge::store_image",
+    "bridge::store_offer",
+    "bridge::store_purchase",
+    "bridge::store_row_more",
+    "bridge::store_search",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/world_control.rs"
+exports = [
+    "bridge::Backend",
+    "bridge::BridgeError",
+    "bridge::CODE_EULA_REQUIRED",
+    "bridge::Difficulty",
+    "bridge::GameMode",
+    "bridge::Generator",
+    "bridge::NewWorld",
+    "bridge::Prefs",
+    "bridge::PrefsUpdate",
+    "bridge::Setup",
+    "bridge::SetupState",
+    "bridge::UnavailableReason",
+    "bridge::World",
+    "bridge::WorldState",
+    "bridge::WorldStatus",
+    "bridge::WorldUpdate",
+    "bridge::accept_bds_eula",
+    "bridge::close_world",
+    "bridge::create_world",
+    "bridge::delete_world",
+    "bridge::invite_to_world",
+    "bridge::list_worlds",
+    "bridge::local_worlds_prefs",
+    "bridge::open_world",
+    "bridge::open_world_with",
+    "bridge::set_world_paused",
+    "bridge::update_world",
+    "bridge::world_status",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/actor/skin.rs"
+exports = [
+    "render_api::CLASSIC_SKIN_SIDE",
+    "render_api::MAX_CLASSIC_SKIN_SIDE",
+    "render_api::MAX_SKIN_ANIMATION_LAYERS",
+    "render_api::SkinRgba8",
+    "render_api::expand_legacy_skin_rgba8",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/blob_cache.rs"
+exports = [
+    "valentine::bedrock::version::v1_26_51::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult",
+]
+
+[[reexport_allowances]]
+path = "crates/protocol/src/transfer.rs"
+exports = [
+    "jolyne::transfer::MAX_TRANSFER_HOST_BYTES",
+    "jolyne::transfer::ServerTransferEvent",
+    "jolyne::transfer::ServerTransferRejection",
+]

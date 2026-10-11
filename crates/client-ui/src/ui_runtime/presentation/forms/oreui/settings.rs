@@ -20,13 +20,13 @@ use super::focus;
 use super::paint::{Bounds, Canvas};
 use super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::widgets;
-use crate::menu::{
+use crate::ui_runtime::oreui_assets::CHEVRON_LEFT_IMAGE;
+use launcher::menu::{
     MenuAction, MenuView,
     settings_options::{SETTINGS_OPTIONS, SettingKind},
     view::SettingsFocusAxis,
 };
-use crate::ui_runtime::oreui_assets::CHEVRON_LEFT_IMAGE;
-use crate::ui_runtime::presentation::IconRef;
+use ui::IconRef;
 
 pub(super) fn section_index(name: &str) -> u8 {
     SETTINGS_SECTIONS
@@ -402,14 +402,14 @@ impl Content<'_, '_> {
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if name == crate::menu::settings_options::VRR_OPTION.name {
+        let description = if name == launcher::menu::settings_options::VRR_OPTION.name {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
             || name == "max_framerate"
-            || name == crate::menu::settings_options::SHOW_EXACT_SERVER_PING
-            || name == crate::menu::settings_options::OREUI_DARK_MODE)
+            || name == launcher::menu::settings_options::SHOW_EXACT_SERVER_PING
+            || name == launcher::menu::settings_options::OREUI_DARK_MODE)
             && description.is_empty()
         {
             sections::fallback(&description_key).to_owned()

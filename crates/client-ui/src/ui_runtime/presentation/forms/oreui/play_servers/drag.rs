@@ -4,7 +4,7 @@ use launcher::menu::server_list::{ServerGroup, ServerListAction};
 use ui::UiPoint;
 
 use super::super::paint::Bounds;
-use crate::menu::{MenuAction, MenuScreen};
+use launcher::menu::{MenuAction, MenuScreen};
 
 #[cfg(test)]
 mod tests;

@@ -50,7 +50,7 @@ impl ActorStore {
             if !elapsed.is_multiple_of(EMISSION_TICKS) {
                 continue;
             }
-            let lifetime = EMISSION_TICKS as f32 * crate::ACTOR_TICK_DURATION.as_secs_f32();
+            let lifetime = EMISSION_TICKS as f32 * world::TICK_DURATION.as_secs_f32();
             let variables = format!(
                 "{{\"variable.cloud_lifetime\":{lifetime},\"variable.cloud_radius\":{radius},\"variable.particle_multiplier\":{EMISSION_TICKS}}}"
             );

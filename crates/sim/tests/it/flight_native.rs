@@ -46,6 +46,85 @@ fn flying() -> MovementInput {
     }
 }
 
+#[test]
+fn spectator_flight_traverses_solid_terrain_and_does_not_retain_ground_contact() {
+    let world = FlightSurface {
+        height: 20.0,
+        surface_block_y: 0,
+        friction: 0.6,
+    };
+    let mut state = PlayerState::new(Vec3::new(0.0, 10.0, 0.0));
+    state.on_ground = true;
+    let start = state.position;
+    let input = MovementInput {
+        spectator: true,
+        forward: 1.0,
+        jumping: true,
+        ..flying()
+    };
+    for _ in 0..20 {
+        let result = Simulator::default()
+            .tick(&mut state, input, &world)
+            .unwrap();
+        assert!(!result.on_ground);
+        assert_eq!(result.collisions, sim::AxisCollisions::default());
+    }
+    assert!(state.position.y > start.y);
+    assert!(state.position.z > start.z + 1.0);
+}
+
+/// Spectator movement must not depend on terrain arriving at its current position.
+struct UnloadedSpectatorWorld;
+
+impl CollisionWorld for UnloadedSpectatorWorld {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Err(WorldQueryError::UnloadedChunk(world::ChunkKey {
+            dimension: 0,
+            x: 0,
+            z: 0,
+        }))
+    }
+
+    fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        Err(WorldQueryError::UnloadedChunk(world::ChunkKey {
+            dimension: 0,
+            x: 0,
+            z: 0,
+        }))
+    }
+}
+
+#[test]
+fn spectator_hovers_and_descends_without_reading_unloaded_terrain() {
+    let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+    let start = state.position;
+    let input = MovementInput {
+        spectator: true,
+        ..flying()
+    };
+    for _ in 0..20 {
+        let result = Simulator::default()
+            .tick(&mut state, input, &UnloadedSpectatorWorld)
+            .unwrap();
+        assert_eq!(result.position, start);
+        assert!(result.world_identity.chunks.is_empty());
+    }
+    let result = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                forward: 1.0,
+                ..input
+            },
+            &UnloadedSpectatorWorld,
+        )
+        .unwrap();
+    assert!(result.position.y < start.y);
+    assert!(result.position.z > start.z);
+    assert!(!result.environment.in_water && !result.environment.in_lava);
+}
+
 struct FlightSurface {
     height: f64,
     surface_block_y: i32,

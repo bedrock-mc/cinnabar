@@ -4,7 +4,7 @@ use super::super::super::super::UiPresentationError;
 use super::super::motion::{Kind, mix};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE};
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 const CHOICE_PADDING: f32 = 1.2;
 

@@ -32,7 +32,13 @@ pub const UI_FALLBACK_FONT_PAGE_SIDE: u32 = assets::FONT_FALLBACK_ATLAS_SIDE;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
-/// Growth beyond the blank extents of the bounded skin, model and session-icon slots.
+/// Original-resolution UI images occupy independent, bounded logical slots.
+pub const UI_NATIVE_SHEET_PAGE_OFFSET: usize = MAX_UI_DYNAMIC_PAGES + MAX_UI_ART_PAGES;
+pub const MAX_UI_NATIVE_SHEET_PAGES: usize = 8;
+pub const MAX_UI_NATIVE_SHEET_BYTES: usize = 96 * 1024 * 1024;
+/// Virtual sheets are tiled into ordinary device-supported texture extents.
+pub const MAX_UI_NATIVE_SHEET_SIDE: u32 = MAX_UI_TEXTURE_SIDE * 4;
+/// Growth beyond blank extents of bounded skin, model, session-icon and UI-image slots.
 pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_SKIN_SIDE as usize
     * render_api::MAX_STANDARD_SKIN_SIDE as usize
     + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
@@ -40,7 +46,8 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
     - (MAX_UI_MODEL_ATLAS_PAGES + 2)
         * UI_DYNAMIC_PAGE_SIDE as usize
         * UI_DYNAMIC_PAGE_SIDE as usize)
-    * UiTextureFormat::Rgba8.bytes_per_texel();
+    * UiTextureFormat::Rgba8.bytes_per_texel()
+    + MAX_UI_NATIVE_SHEET_BYTES;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -342,12 +349,15 @@ impl UiTextureCatalog {
             .iter()
             .enumerate()
             .filter(|(offset, page)| {
-                *offset >= MAX_UI_DYNAMIC_PAGES && page.dimensions == [UI_ART_PAGE_SIDE; 2]
+                (MAX_UI_DYNAMIC_PAGES..UI_NATIVE_SHEET_PAGE_OFFSET).contains(offset)
+                    && page.dimensions == [UI_ART_PAGE_SIDE; 2]
             })
             .count();
-        let small = dynamic.len() - art;
+        let native = dynamic.len().saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET);
+        let small = dynamic.len() - art - native;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
+            || native > MAX_UI_NATIVE_SHEET_PAGES
             || dynamic.iter().enumerate().any(|(offset, page)| {
                 (matches!(&page.pixels, Pixels::Font { .. })
                     && offset != UI_LOCAL_FONT_PAGE_OFFSET
@@ -356,6 +366,18 @@ impl UiTextureCatalog {
             })
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
+        }
+        let blank_bytes = UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize * 4;
+        let native_bytes = dynamic
+            .iter()
+            .skip(UI_NATIVE_SHEET_PAGE_OFFSET)
+            .map(|page| page.pixels().len().saturating_sub(blank_bytes))
+            .sum::<usize>();
+        if native_bytes > MAX_UI_NATIVE_SHEET_BYTES {
+            return Err(UiRenderRejectReason::TextureByteLimitExceeded {
+                actual: native_bytes,
+                limit: MAX_UI_NATIVE_SHEET_BYTES,
+            });
         }
         let planned = pages
             .iter()
@@ -455,13 +477,23 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
         .sum()
 }
 
-/// Model sources and session icons can resize without changing their logical slots.
+/// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
     (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+        || (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
+            .contains(&offset)
 }
 
 /// Accepts only the dimensions supported by each reserved dynamic page's producer.
 fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
+    if (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
+        .contains(&offset)
+    {
+        return width > 0
+            && height > 0
+            && width <= MAX_UI_TEXTURE_SIDE
+            && height <= MAX_UI_TEXTURE_SIDE;
+    }
     if (UI_FALLBACK_FONT_PAGE_OFFSET..MAX_UI_DYNAMIC_PAGES).contains(&offset) {
         return [width, height] == [UI_FALLBACK_FONT_PAGE_SIDE; 2];
     }

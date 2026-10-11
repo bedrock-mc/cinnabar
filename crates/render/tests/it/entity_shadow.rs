@@ -518,13 +518,12 @@ fn shadows_darken_the_floor_once_inside_each_footprint() {
     }
 }
 
-/// From inside a volume, back faces still cover the floor beneath; it shades as usual.
+/// A camera inside the volume has no visible entry face to mark a shadow receiver.
 #[test]
-fn a_camera_inside_a_volume_still_shades_the_floor_inside_it() {
+fn a_camera_inside_a_volume_does_not_shade_the_floor() {
     let Some((gpu, samples)) = fixture() else {
         return;
     };
-    let shaded = (f32::from(FLOOR_BYTE) * 0.7).round() as i32;
     // Feet 0.5 above the eye, radius 4: the volume reaches 12 blocks down past the floor.
     let around_camera = EntityShadow {
         feet: [0.0, FLOOR_Y + 10.5, 0.0],
@@ -533,8 +532,19 @@ fn a_camera_inside_a_volume_still_shades_the_floor_inside_it() {
     for samples in samples {
         let pixels = render(&gpu, &[around_camera], samples);
         assert!(
+            (i32::from(at(&pixels, 0.0, 0.0)) - i32::from(FLOOR_BYTE)).abs() <= 1,
+            "{samples}x MSAA camera inside volume: {}",
+            at(&pixels, 0.0, 0.0)
+        );
+        let ordinary = EntityShadow {
+            feet: [0.0, FLOOR_Y, 0.0],
+            radius: 1.0,
+        };
+        let pixels = render(&gpu, &[around_camera, ordinary], samples);
+        let shaded = (f32::from(FLOOR_BYTE) * 0.7).round() as i32;
+        assert!(
             (i32::from(at(&pixels, 0.0, 0.0)) - shaded).abs() <= 1,
-            "{samples}x MSAA camera inside volume"
+            "{samples}x MSAA another caster still shades the floor"
         );
     }
 }

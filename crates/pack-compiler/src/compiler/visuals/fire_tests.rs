@@ -4,7 +4,7 @@ use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::*;
+use {super::*, assets::BlockFace};
 
 struct Fixture {
     directory: tempfile::TempDir,

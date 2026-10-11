@@ -182,7 +182,7 @@ fn first_texture_path(value: &Value) -> Option<String> {
 }
 
 /// Decodes only images whose source, dimensions, and allocation fit the established limits.
-fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
+pub(crate) fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
     if bytes.is_empty() || bytes.len() > MAX_TEXTURE_SOURCE_BYTES {
         return None;
     }

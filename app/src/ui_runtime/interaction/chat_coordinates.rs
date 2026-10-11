@@ -2,13 +2,14 @@
 
 use bevy::{ecs::system::SystemParam, prelude::Res};
 
-use crate::{
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
-};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use {
+    crate::{
+        movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
+        semantic_controls::SemanticInputSnapshot,
+    },
+    client_presentation::local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier},
+};
 
 #[derive(SystemParam)]
 pub(crate) struct ChatCoordinateContext<'w> {
@@ -42,13 +43,13 @@ impl ChatCoordinateContext<'_> {
     ) -> Option<[i32; 3]> {
         let snapshot = self.input.snapshot()?;
         let selection = crate::mining::hand_interaction_selection(player_runtime)?;
-        let mode = crate::mining::protocol_input_mode(snapshot.input_mode);
+        let mode = gameplay::mining::protocol_input_mode(snapshot.input_mode);
         let reach = if player_runtime.facts.player_game_mode()
             == Some(protocol::PlayerGameMode::Creative)
         {
-            crate::mining::creative_reach(mode)
+            gameplay::mining::creative_reach(mode)
         } else {
-            crate::mining::survival_reach(mode)
+            gameplay::mining::survival_reach(mode)
         };
         crate::interaction_authority::observe_block(
             &self.origin,

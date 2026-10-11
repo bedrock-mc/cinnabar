@@ -344,7 +344,7 @@ fn protocol_players_are_remote_only_and_grants_do_not_disclose_players() {
 #[test]
 fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
     let mut stream = stream();
-    let count = mod_host::MAX_GAMEPLAY_PLAYERS + 7;
+    let count = mod_api::MAX_GAMEPLAY_PLAYERS + 7;
     // Reverse the admission order to make ordering independent of the actor map.
     for (index, id) in (2..=count as u64 + 1).rev().enumerate() {
         stream
@@ -352,11 +352,11 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
             .unwrap();
     }
     let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
-    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players.len(), mod_api::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players.first().unwrap().runtime_id, 2);
     assert_eq!(
         players.last().unwrap().runtime_id,
-        mod_host::MAX_GAMEPLAY_PLAYERS as u64 + 1
+        mod_api::MAX_GAMEPLAY_PLAYERS as u64 + 1
     );
 
     // A newly spawned nearer player must replace the furthest retained tie.
@@ -365,7 +365,7 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
         .submit(count as u64 + 1, player(near_id, [0.0; 3]))
         .unwrap();
     let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
-    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players.len(), mod_api::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players[0].runtime_id, near_id);
     assert_eq!(players[1].runtime_id, 2);
 }
@@ -480,7 +480,7 @@ fn nearby_mobs_are_non_players_in_range_nearest_first_with_health() {
     stream
         .submit(3, mob(4, "minecraft:zombie", [2.0, 0.0, 0.0]))
         .unwrap();
-    let far = mod_host::MAX_MOB_RANGE_BLOCKS + 1.0;
+    let far = mod_api::MAX_MOB_RANGE_BLOCKS + 1.0;
     stream
         .submit(4, mob(5, "minecraft:zombie", [far, 0.0, 0.0]))
         .unwrap();
@@ -509,6 +509,17 @@ fn nearby_mobs_are_non_players_in_range_nearest_first_with_health() {
         (Some(250.0), Some(400.0))
     );
     assert_eq!(mobs[0].health, None);
+}
+
+#[test]
+fn unordered_eye_distance_preserves_mob_eligibility() {
+    let mut stream = stream();
+    stream
+        .submit(1, mob(3, "minecraft:zombie", [2.0, 0.0, 0.0]))
+        .unwrap();
+    let mobs = nearest_mobs(stream.authority().remote_actors(), Vec3::NAN);
+    assert_eq!(mobs.len(), 1);
+    assert_eq!(mobs[0].runtime_id, 3);
 }
 
 #[test]
@@ -552,4 +563,39 @@ fn item_use_grant_builds_scoped_context_without_disclosing_players() {
     app.world_mut().resource_mut::<Request>().allowed = false;
     app.update();
     assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+}
+
+#[test]
+fn nearest_mob_selection_matches_full_order_for_a_large_scrambled_population() {
+    let mut stream = stream();
+    let count = 2048;
+    for index in 0..count {
+        let runtime = index as u64 + 2;
+        let position = [((index * 17) % 24) as f32, ((index * 7) % 16) as f32, 0.0];
+        stream
+            .submit(index as u64 + 1, mob(runtime, "minecraft:zombie", position))
+            .unwrap();
+    }
+    let mut expected: Vec<_> = stream.authority().remote_actors().collect();
+    assert_eq!(expected.len(), count);
+    expected.sort_by(|a, b| {
+        Vec3::from_array(a.position)
+            .length_squared()
+            .total_cmp(&Vec3::from_array(b.position).length_squared())
+            .then(a.runtime_id.cmp(&b.runtime_id))
+    });
+    expected.truncate(mod_api::MAX_GAMEPLAY_MOBS);
+    let expected: Vec<_> = expected.iter().map(|actor| actor.runtime_id).collect();
+    let before = crate::tests::alloc_count::thread_allocations();
+    let actual = nearest_mobs(stream.authority().remote_actors(), Vec3::ZERO);
+    let allocated = crate::tests::alloc_count::thread_allocations() - before;
+    assert!(
+        allocated <= mod_api::MAX_GAMEPLAY_MOBS as u64 + 3,
+        "selected mobs allocated {allocated} times"
+    );
+    println!("2048 eligible mobs: selected payload allocations={allocated}");
+    assert_eq!(
+        actual.iter().map(|mob| mob.runtime_id).collect::<Vec<_>>(),
+        expected
+    );
 }

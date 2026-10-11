@@ -191,7 +191,7 @@ fn disconnect(world: &mut World) -> Result<Value, String> {
     let mut menu = world
         .get_resource_mut::<crate::menu::MenuRuntime>()
         .ok_or("the launcher menu is unavailable")?;
-    menu.activate(crate::menu::MenuAction::PauseDisconnect);
+    menu.activate(launcher::menu::MenuAction::PauseDisconnect);
     Ok(json!({ "disconnecting": true }))
 }
 

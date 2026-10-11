@@ -2,8 +2,10 @@
 
 use std::num::NonZeroU32;
 
+#[cfg(test)]
+use bevy::prelude::{Result, World};
 use bevy::{
-    prelude::*,
+    prelude::{Commands, Entity, IntoScheduleConfigs, Query, Res, ResMut, Resource, SubApp, With},
     render::{
         Extract, ExtractSchedule, Render, RenderSystems,
         view::{

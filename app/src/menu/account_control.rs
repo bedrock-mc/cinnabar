@@ -2,9 +2,15 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
 use launcher::menu::view::{
     JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails, ServerTrustPrompt,
+};
+use {
+    super::MenuRuntime,
+    launcher::menu::{
+        auth::AuthState,
+        view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
+    },
 };
 
 /// Control method names the implementation calls.
@@ -254,7 +260,8 @@ impl MenuRuntime {
             match event {
                 AccountEvent::Auth(state) => self.apply_control_auth(state),
                 AccountEvent::Disconnected { reason } => {
-                    self.disconnect_message = Some(super::disconnect::from_server(&reason));
+                    self.disconnect_message =
+                        Some(launcher::menu::disconnect::from_server(&reason));
                 }
             }
         }
@@ -294,14 +301,14 @@ impl MenuRuntime {
         self.feeds.profile = MenuProfile::default();
         self.feeds.home = MenuHome::default();
         self.catalog_message = None;
-        self.enter(super::MenuScreen::Profile);
+        self.enter(launcher::menu::MenuScreen::Profile);
     }
 
     /// An experience details panel owns the live count subscription for its visible lifetime.
     fn experience_counts_visible(&self) -> bool {
         self.visible
             && !self.is_connecting()
-            && self.screen == super::MenuScreen::Servers
+            && self.screen == launcher::menu::MenuScreen::Servers
             && self.feeds.selected_saved.is_none()
             && self
                 .featured
@@ -325,8 +332,12 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::menu::MenuAction;
+    use launcher::menu::MenuAction;
+    use {
+        super::*,
+        launcher::menu::auth::AuthState,
+        launcher::menu::view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
+    };
 
     struct Catalog(Option<Vec<(MenuServerCard, ServerDetails)>>);
     impl AccountControl for Catalog {
@@ -405,7 +416,7 @@ mod tests {
             icon: None,
         });
         assert!(!menu.experience_counts_visible());
-        menu.enter(super::super::MenuScreen::Servers);
+        menu.enter(launcher::menu::MenuScreen::Servers);
         assert!(menu.experience_counts_visible());
         menu.feeds.selected_saved = Some(0);
         assert!(!menu.experience_counts_visible());
@@ -513,8 +524,10 @@ mod tests {
         assert!(menu.absorb_session_failure(&error));
         let view = menu.view();
         assert_eq!(
-            super::super::disconnect::describe(&view.disconnect_message.unwrap()).body,
-            super::super::disconnect::DisconnectBody::Key("disconnectionScreen.cantConnectToRealm")
+            launcher::menu::disconnect::describe(&view.disconnect_message.unwrap()).body,
+            launcher::menu::disconnect::DisconnectBody::Key(
+                "disconnectionScreen.cantConnectToRealm"
+            )
         );
     }
 
@@ -705,14 +718,14 @@ mod tests {
         assert_eq!(view.friends.len(), 1);
         let error = view.disconnect_message.as_deref().unwrap();
         assert_eq!(
-            super::super::disconnect::describe(error).body,
-            super::super::disconnect::DisconnectBody::Server("Server closed".to_owned())
+            launcher::menu::disconnect::describe(error).body,
+            launcher::menu::disconnect::DisconnectBody::Server("Server closed".to_owned())
         );
-        menu.activate(super::super::MenuAction::SignOut);
+        menu.activate(launcher::menu::MenuAction::SignOut);
         menu.sync_account_control(&mut control);
         assert!(control.signed_out);
         assert!(menu.friends.is_empty());
-        assert_eq!(menu.view().screen, super::super::MenuScreen::Profile);
+        assert_eq!(menu.view().screen, launcher::menu::MenuScreen::Profile);
     }
 
     #[test]

@@ -33,8 +33,11 @@ impl AmbientParticles {
         // Native consumes the portal ambient sound roll before selecting its
         // particle effect. Keep the random stream aligned with later samples.
         let _sound_roll = self.random.bounded(10);
-        let state = collisions.block_canonical_state(mode, runtime_id);
-        let effect = effect_for_state(state);
+        let axis = assets::pinned_block_presentation_states()
+            .get(mode, runtime_id)
+            .portal_axis
+            .unwrap_or_default();
+        let effect = effect_for_axis(axis);
         let accepted = system.spawn(&request(effect, block));
         if self.diagnostics.enabled {
             self.diagnostics.portal_blocks += 1;
@@ -43,15 +46,15 @@ impl AmbientParticles {
     }
 }
 
-fn effect_for_state(state: Option<&str>) -> &'static str {
-    let axis_x = state
-        .and_then(|state| serde_json::from_str::<serde_json::Value>(state).ok())
-        .is_some_and(|state| state["portal_axis"]["value"].as_str() == Some("x"));
-    // Vanilla portal axis x (1) selects the north/south effect. Unknown (0)
-    // follows the same east/west route as Z (2), without inferring neighbors.
-    if axis_x { NORTH_SOUTH } else { EAST_WEST }
+/// Selects the effect for a predecoded axis, retaining the unknown-axis route.
+fn effect_for_axis(axis: assets::PortalAxis) -> &'static str {
+    match axis {
+        assets::PortalAxis::X => NORTH_SOUTH,
+        assets::PortalAxis::Z | assets::PortalAxis::Unknown => EAST_WEST,
+    }
 }
 
+/// Creates the centered burst without changing authored motion or art.
 fn request(effect: &str, block: [i32; 3]) -> SpawnRequest {
     SpawnRequest {
         effect: effect.to_owned(),
@@ -66,16 +69,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portal_axis_routes_match_the_native_cross_plane_effect_names() {
-        assert_eq!(
-            effect_for_state(Some(r#"{"portal_axis":{"type":"string","value":"x"}}"#)),
-            NORTH_SOUTH
-        );
-        for axis in ["z", "unknown", "custom"] {
-            let state = format!(r#"{{"portal_axis":{{"type":"string","value":"{axis}"}}}}"#);
-            assert_eq!(effect_for_state(Some(&state)), EAST_WEST);
-        }
-        assert_eq!(effect_for_state(None), EAST_WEST);
+    fn portal_axis_routes_keep_the_cross_plane_effect_names() {
+        assert_eq!(effect_for_axis(assets::PortalAxis::X), NORTH_SOUTH);
+        assert_eq!(effect_for_axis(assets::PortalAxis::Z), EAST_WEST);
+        assert_eq!(effect_for_axis(assets::PortalAxis::Unknown), EAST_WEST);
     }
 
     #[test]

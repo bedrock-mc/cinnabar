@@ -8,10 +8,10 @@ use super::super::paint::{Bounds, Canvas};
 use super::super::sidebar::background as row_background;
 use super::super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL80, TEXT, TEXT_DIMMER};
 use super::{section_index, sections};
-use crate::menu::view::SettingsFocusAxis;
-use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::oreui_assets::{SETTINGS_ICON_HIGHLIGHT_IMAGE, SETTINGS_ICONS};
-use crate::ui_runtime::presentation::IconRef;
+use launcher::menu::view::SettingsFocusAxis;
+use launcher::menu::{MenuAction, MenuView};
+use ui::IconRef;
 
 const TABS: [(&str, &str); 14] = [
     ("accessibility_forced_index", "menu.accessibility.tab.title"),

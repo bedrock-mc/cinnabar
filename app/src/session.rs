@@ -7,22 +7,26 @@ use bevy::{
     prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
 };
 
-use crate::{
-    local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
-    menu::{
-        CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-        server_trust::SessionTrust, spawn_core_for_address,
-    },
-    movement::{LocalPhysicsController, MovementTicker},
-    player_runtime::PlayerRuntime,
-    runtime::{
-        network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
-        shutdown::record_fatal_error,
-        world::{ClientWorld, TransferNotice},
-    },
-    session_cleanup::SessionDirectoryGuard,
-};
 use client_ui::ui_runtime::UiRuntime;
+use {
+    crate::{
+        menu::{
+            CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
+            server_trust::SessionTrust, spawn_core_for_address,
+        },
+        movement::{LocalPhysicsController, MovementTicker},
+        player_runtime::PlayerRuntime,
+        runtime::{
+            network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
+            shutdown::record_fatal_error,
+            world::{ClientWorld, TransferNotice},
+        },
+        session_cleanup::SessionDirectoryGuard,
+    },
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
+    },
+};
 
 use std::{path::PathBuf, time::Instant};
 
@@ -533,7 +537,7 @@ pub(crate) fn login_settings(
         input_mode: input
             .and_then(crate::semantic_controls::SemanticInputSnapshot::snapshot)
             .map_or(protocol::PlayerInputMode::Mouse, |snapshot| {
-                crate::mining::protocol_input_mode(snapshot.input_mode)
+                gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
         gui_scale_offset: menu.gui_scale_offset(),
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),

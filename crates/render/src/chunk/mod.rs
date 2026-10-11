@@ -12,8 +12,11 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
-#[cfg(any(test, feature = "publication-test-support"))]
-use bevy::render::renderer::RenderInstance;
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
+};
 use bevy::{
     asset::{AssetId, load_internal_asset},
     camera::visibility::{self, VisibilityClass},
@@ -26,7 +29,13 @@ use bevy::{
         system::{SystemParam, SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
     },
     mesh::Mesh,
-    prelude::*,
+    prelude::{
+        App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
+        FromWorld, GlobalTransform, Has, InheritedVisibility, IntoScheduleConfigs, Last, Local,
+        Mat4, Msaa, ParamSet, Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result,
+        Schedule, SubApp, SystemSet, Time, Transform, Update, Vec3, Visibility, With, World,
+        default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         camera::ExtractedCamera,
@@ -133,10 +142,6 @@ use constants::{
     PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES, TRANSPARENT_REFS_BINDING,
     TRANSPARENT_SHADER_HANDLE,
 };
-use draw::{queue_chunks, queue_transparent_chunks};
-use extract::install_chunk_extraction;
-#[cfg(test)]
-use gpu::arena::plan_chunk_range_update;
 #[allow(unused_imports)]
 use gpu::arena::{
     ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
@@ -160,10 +165,6 @@ use gpu::bind_groups::{
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
     prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
 };
-#[allow(unused_imports)]
-use gpu::graphics_metadata::{adapter_metadata_field, publish_graphics_runtime_metadata};
-#[cfg(test)]
-use gpu::layout::transparent_geometry_update_requires_cow;
 #[allow(unused_imports)]
 use gpu::layout::{
     ARENA_MIGRATION_FRAME_BYTES, ArenaGrowthError, ArenaGrowthPlan, ArenaMigration,
@@ -209,7 +210,6 @@ use pipeline::commands::{
     record_visibility_direct_submission, record_visibility_mdi_submissions,
     sorted_visible_entities, upload_indirect_commands_if_changed,
 };
-use pipeline::install_chunk_commands;
 #[allow(unused_imports)]
 use pipeline::layouts::{ChunkPipeline, ChunkPipelineKey, ChunkPipelineSpecializer};
 use plugin::ChunkEntities;

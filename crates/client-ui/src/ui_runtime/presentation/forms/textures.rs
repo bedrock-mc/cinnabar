@@ -15,15 +15,17 @@ use std::{
 use assets::RuntimeUiAssets;
 use json_ui::{NineSlice, TextureMeta, TextureSource};
 
-use super::super::IconRef;
 use super::server_pack::ServerAtlas;
 use crate::remote_images::{RemoteImages, is_remote};
+use ui::IconRef;
 
 /// Texture sources a form engine owns across frames.
 #[derive(Default)]
 pub(super) struct TextureSet {
     /// A lock only because renders borrow the engine shared.
     atlas: Mutex<ServerAtlas>,
+    /// Preserves metadata revision changes across atlas replacement.
+    metadata_base: u64,
     /// Item icon atlas sprites by lowercase item texture path.
     icons: HashMap<String, IconRef>,
     /// Texture page of carrier atlas page 0.
@@ -44,7 +46,7 @@ impl TextureSet {
     pub(super) fn new(first_page: u16) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
         Self {
-            atlas: Mutex::new(ServerAtlas::new(&[], None, pages)),
+            atlas: Mutex::new(ServerAtlas::new(&[], None, pages).with_native_sheets(true)),
             first_page,
             ..Self::default()
         }
@@ -83,6 +85,7 @@ impl TextureSet {
             .with_carrier(self.carrier.clone());
         Self {
             atlas: Mutex::new(atlas),
+            metadata_base: self.metadata_revision().wrapping_add(1),
             icons: self.icons.clone(),
             first_page: self.first_page,
             server_page: page,
@@ -100,12 +103,20 @@ impl TextureSet {
 
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
+        self.metadata_base = self.metadata_revision().wrapping_add(1);
         let atlas = atlas
+            .with_native_sheets(!self.confined)
             .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
             .with_carrier(self.carrier.clone());
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
         self.full_res.clear();
+    }
+
+    /// The current source metadata epoch, including atlas replacements.
+    pub(super) fn metadata_revision(&self) -> u64 {
+        self.metadata_base
+            .wrapping_add(self.lock().metadata_revision())
     }
 
     /// Item icons by texture path and the local vanilla pack; the atlas
@@ -131,7 +142,7 @@ pub(super) struct Textures<'a> {
     pub(super) images: Option<&'a HashMap<String, IconRef>>,
 }
 
-impl Textures<'_> {
+impl<'a> Textures<'a> {
     /// `path` without an image extension, the key every source uses.
     pub(super) fn canonical<'p>(&self, path: &'p str) -> Cow<'p, str> {
         Cow::Borrowed(texture_key(path))
@@ -209,6 +220,12 @@ impl Textures<'_> {
             return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         let key = self.canonical(path);
+        if self.native_sheet(path)
+            && let Some((offset, rect)) = self.atlas.native_sprite(&key)
+        {
+            let page = self.native_first_page()?.checked_add(offset)?;
+            return Some((u16::try_from(page).ok()?, rect));
+        }
         if let Some(art) = self.set.full_res.get(key.as_ref()) {
             let [u0, v0, u1, v1] = art.uv.map(f32::from);
             return Some((art.page, [u0, v0, u1 - u0, v1 - v0]));
@@ -241,9 +258,57 @@ impl Textures<'_> {
         let pixels = self.texture(path)?.pixels;
         ([f64::from(sprite.1[2]), f64::from(sprite.1[3])] == pixels).then_some(sprite)
     }
+
+    /// Whether animation resource readiness comes from the native sheet or ordinary artwork.
+    pub(super) fn animation_ready(&self, path: &str) -> bool {
+        if self.native_sheet(path) {
+            self.atlas.native_sheet_ready(&self.canonical(path))
+        } else {
+            self.animation_sprite(path).is_some()
+        }
+    }
+
+    /// Original images bypass fitted previews while their worker prepares exact texels.
+    pub(super) fn native_sheet(&self, path: &str) -> bool {
+        let key = self.canonical(path);
+        !self.set.confined
+            && self.image(path).is_none()
+            && self.admits(path)
+            && (self.atlas.has_image(&key)
+                || (self.assets.texture(&key).is_none() && self.icon(&key).is_none()))
+            && self.atlas.is_native_sheet(&key)
+    }
+
+    /// The original-image slots rebased into this presentation's logical catalog.
+    fn native_first_page(&self) -> Option<usize> {
+        Some(
+            usize::from(self.set.server_page)
+                .checked_sub(super::super::dynamic_textures::SERVER_UI_PAGE)?
+                + render_model::UI_NATIVE_SHEET_PAGE_OFFSET,
+        )
+    }
+
+    /// Maps a virtual image to its reserved logical pages without changing source UV units.
+    pub(super) fn native_quads(
+        &self,
+        path: &str,
+        uv: json_ui::UvRect,
+        dest: [f32; 4],
+    ) -> Option<super::server_pack::native_sheets::Quads<'a>> {
+        let quads = self.atlas.native_quads(&self.canonical(path), uv, dest)?;
+        let first = self.native_first_page()?;
+        Some(quads.rebased(first))
+    }
 }
 
 impl TextureSource for Textures<'_> {
+    /// Lets every retained screen observe asynchronous dimensions and source replacement.
+    fn metadata_revision(&self) -> u64 {
+        self.set
+            .metadata_base
+            .wrapping_add(self.atlas.metadata_revision())
+    }
+
     fn aseprite_frames(&self, path: &str) -> Option<Arc<[json_ui::AsepriteFrame]>> {
         self.admits(path).then_some(())?;
         self.atlas.aseprite_frames(&self.canonical(path))
@@ -327,7 +392,7 @@ mod animation_tests;
 
 #[cfg(test)]
 mod review_tests {
-    use super::*;
+    use {super::*, ui::IconRef};
     #[test]
     fn review_texture_metadata_uses_the_drawn_artwork_dimensions() {
         let mut png = Vec::new();

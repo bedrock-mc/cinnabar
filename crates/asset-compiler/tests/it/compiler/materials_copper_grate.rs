@@ -1,4 +1,13 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, ModelFamily, VisualKind,
+        encode_blob, read_registry,
+    },
+    std::path::Path,
+    tempfile::TempDir,
+};
 
 #[test]
 fn compiler_emits_exact_checked_copper_grate_models() {
@@ -191,10 +200,10 @@ fn compiler_rejects_exact_copper_grate_with_flags_zero() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
-    let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
+    };
     let all = read_registry(include_bytes!(
         "../../../../assets/data/block-registry-v1001.bin"
     ))
@@ -245,8 +254,8 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned copper grates");
     let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id == fixture_air {
-            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
+        if id == fixture_air || records[id].name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible, "invisible block");
         } else if id < admitted_count {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             let template = compiled.model_templates[visual.model_template as usize];
@@ -263,6 +272,16 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
                     | BlockFlags::OCCLUDES_FULL_FACE
                     | BlockFlags::LEAF_MODEL
             ));
+        } else if records[id].name.as_ref() == "minecraft:slime" {
+            assert_eq!(visual.kind, VisualKind::Model);
+            assert_eq!(
+                compiled.model_templates[visual.model_template as usize].flags,
+                MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+            );
+            assert!(visual.faces.iter().all(|&material| {
+                material != DIAGNOSTIC_MATERIAL
+                    && compiled.materials[material as usize].flags == MATERIAL_FLAG_ALPHA_BLEND
+            }));
         } else {
             assert_eq!(visual.kind, VisualKind::Diagnostic, "{}", records[id].name);
         }

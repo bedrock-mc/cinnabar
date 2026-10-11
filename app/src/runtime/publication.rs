@@ -4,8 +4,8 @@ use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
 };
-use chunk_pipeline::{PublicationAllowance, PublicationServiceConfig};
 use render::ChunkUploadBudget;
+use render_api::{PublicationAllowance, PublicationServiceConfig};
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const RECOVERY_STREAK_FRAMES: u32 = 120;

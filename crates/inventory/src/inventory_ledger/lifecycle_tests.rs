@@ -1186,3 +1186,20 @@ fn accepted_mining_behind_an_expired_head_still_corrects_the_slot() {
         Some(88)
     );
 }
+
+#[test]
+fn quiet_timeout_polls_preserve_shared_ledger_until_a_request_is_due() {
+    let mut runtime = InventorySession::new(1);
+    *runtime.ledger_mut() = ledger_with_slot_zero();
+    runtime.ledger_mut().begin_world_drop(0, Some(1)).unwrap();
+    assert!(runtime.ledger_mut().mark_transport_enqueued(10));
+    let captured = runtime.ledger_snapshot();
+    assert!(!runtime.poll_inventory_timeout(11));
+    assert!(Arc::ptr_eq(&captured, &runtime.ledger_snapshot()));
+    assert!(!runtime.poll_inventory_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
+    assert!(!Arc::ptr_eq(&captured, &runtime.ledger_snapshot()));
+    assert_eq!(
+        captured.pending_state(),
+        Some(InventoryPendingState::AwaitingResponse)
+    );
+}

@@ -124,12 +124,6 @@ pub(super) fn check_sources(
                     index + 1
                 ));
             }
-            if compact.starts_with("pubuse") && compact.contains("::*") {
-                diagnostics.push(format!(
-                    "{relative}:{}: glob re-export is forbidden",
-                    index + 1
-                ));
-            }
             let test_only_public = compact.starts_with("pub")
                 && compact.contains("fn")
                 && (compact.contains("_for_test")

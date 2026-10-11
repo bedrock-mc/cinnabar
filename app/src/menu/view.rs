@@ -1,6 +1,6 @@
 //! Builds the launcher presentation from the active menu and account state.
 
-use super::*;
+use {super::*, launcher::menu::auth::AuthState, launcher::menu::view::MenuView};
 
 impl MenuRuntime {
     /// Presents the visible route, modal focus, and current service feeds together.
