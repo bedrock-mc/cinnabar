@@ -188,7 +188,7 @@ pub mod wire {
 }
 pub use login::{
     ClientRandomId, LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
-    network_stack_latency_reply,
+    login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
