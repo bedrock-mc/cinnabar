@@ -5,6 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/bedrock-target.json",
+    "assets/fonts",
+    "assets/ui-font-source.json",
+    "assets/vanilla-source.json",
+    "crates/assets/data/*",
+    "crates/protocol/data/retail_items_1_26_50.tsv",
+]
+
 [dependencies]
 assets = { path = "../assets" }
 cap-fs-ext = "3.4.5"

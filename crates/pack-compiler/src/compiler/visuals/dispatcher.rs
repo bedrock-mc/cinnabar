@@ -140,6 +140,7 @@ struct VisualCompiler {
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
+    coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
     candle_cake_templates: BTreeMap<[u32; 4], u32>,
     hollow_container_templates: BTreeMap<(super::hollow_containers::VesselState, Vec<u32>), u32>,
 }
@@ -167,6 +168,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::coral::compile_rule(
+            record,
+            inputs,
+            &mut self.coral_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::bamboo::compile_rule(
             record,
             inputs,

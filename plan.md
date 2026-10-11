@@ -4713,6 +4713,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
       sprite orientation need native measurement; the coverage baseline must
       be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
+    - [ ] Coral fans compile spreading floor sprites and four wall mounting
+      directions with replacement-pack artwork. Native-server placement and
+      rendered parity acceptance remain incomplete.
     - [x] Round two: night light floors lowered to the night sky transfer,
       biome tints blend on a 4-block lattice (four taps per axis; vertical axis
       unblended, needs measurement), chains route through crossed link planes.

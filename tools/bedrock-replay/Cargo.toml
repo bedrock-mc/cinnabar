@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "crates/protocol/fixtures",
+]
+
 [dependencies]
 anyhow.workspace = true
 bridge = { path = "../../crates/bridge" }

@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/bedrock-target.json",
+]
+
 [features]
 test-support = []
 

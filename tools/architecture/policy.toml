@@ -401,14 +401,21 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "architecture"
 path = "tools/architecture"
-allowed_dependencies = []
+allowed_dependencies = ["workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = []
+allowed_dependencies = ["workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
+
+# The crate declarations the architecture gate enforces and devtool reads; std-only.
+[[crates]]
+name = "workspace-declarations"
+path = "tools/workspace-declarations"
+allowed_dependencies = []
+dependency_free = true
 
 [[crates]]
 name = "dist-local"

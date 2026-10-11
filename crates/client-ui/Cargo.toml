@@ -5,6 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos"]
+reads = [
+    "assets/branding/title.png",
+    "assets/cinnangles-sans-source.json",
+    "assets/java-hud/ui/*",
+    "crates/protocol/fixtures/*",
+]
+
 [features]
 test-support = []
 tracy = []

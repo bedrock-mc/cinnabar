@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn every_positive_armour_identifier_is_in_the_independent_retail_inventory() {
-        let retail = std::str::from_utf8(super::super::super::item_bindings::RETAIL_ITEMS).unwrap();
+        let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES).unwrap();
         let identifiers = retail
             .lines()
             .filter_map(|line| line.split('\t').nth(1))

@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "tools/localserver/experience/limits.go",
+]
+
 [features]
 default = []
 developer-media = ["dep:matroska-demuxer", "dep:dav1d", "dep:opus"]

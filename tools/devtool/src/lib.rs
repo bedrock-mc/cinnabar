@@ -1,6 +1,7 @@
 mod baseline;
 mod capture;
 mod cargo_failures;
+mod ci;
 mod cli;
 mod commands;
 mod metadata;
@@ -11,7 +12,8 @@ use std::{io, path::PathBuf};
 
 use thiserror::Error;
 
-pub use cli::{Options, parse_args, run};
+pub use ci::{CiPlan, plan_ci};
+pub use cli::{Options, Subcommand, parse_args, run};
 pub use commands::{CommandSpec, TestRunner, extra_commands, verification_commands};
 pub use metadata::{go_modules, packages_from_metadata};
 pub use selection::{
@@ -27,7 +29,7 @@ pub enum DevtoolError {
     #[error("workspace package manifest `{0}` has no parent directory")]
     ManifestWithoutParent(PathBuf),
     #[error(
-        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | capture | trace-summary --trace <file> | wt-gc"
+        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc"
     )]
     Usage(String),
     #[error("failed to run `{command}`: {source}")]

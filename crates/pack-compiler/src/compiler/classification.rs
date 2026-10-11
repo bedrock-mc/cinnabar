@@ -41,7 +41,7 @@ pub(in crate::compiler) fn translucent_cube_material_flags(name: &str) -> u32 {
     }
 }
 
-/// Amethyst clusters, buds, and standing coral fans: single-sprite crossed planes.
+/// Amethyst clusters and buds drawn with crossed sprite planes.
 pub(in crate::compiler) fn is_crystal(record: &RegistryRecord) -> bool {
     matches!(record.contributor_role, ContributorRole::Primary)
         && record.name.strip_prefix("minecraft:").is_some_and(|name| {
@@ -51,7 +51,7 @@ pub(in crate::compiler) fn is_crystal(record: &RegistryRecord) -> bool {
                     | "small_amethyst_bud"
                     | "medium_amethyst_bud"
                     | "large_amethyst_bud"
-            ) || name.ends_with("_coral_fan")
+            )
         })
 }
 
@@ -285,7 +285,8 @@ pub(in crate::compiler) const fn is_stair(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
-    super::visuals::lily_pad::is_record(record)
+    super::visuals::coral::is_fan(record)
+        || super::visuals::lily_pad::is_record(record)
         || is_cross_visual(record)
         || is_kelp(record)
         || is_flowerbed(record)
@@ -301,7 +302,8 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
 }
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
-    crate::respawn_anchor::is_record(record)
+    super::visuals::coral::is_record(record)
+        || crate::respawn_anchor::is_record(record)
         || super::visuals::candle_cake::is_record(record)
         || super::visuals::sea_pickle::is_record(record)
         || super::visuals::grindstone::is_record(record)

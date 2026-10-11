@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "assets/bedrock-target.json",
+    "crates/assets/data/*",
+    "crates/render/src/model.wesl",
+]
+
 [dependencies]
 block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
