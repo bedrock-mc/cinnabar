@@ -1,5 +1,7 @@
 //! Exercises fractional-scale label strokes through retained JSON-UI paint and physical rasterization.
 
+mod coordinates;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};

@@ -185,7 +185,10 @@ fn hud_coordinates_floor_player_feet_independently_of_camera_pose() {
             .unwrap();
         world.run_system_cached(prepare_ui_runtime).unwrap();
         assert_eq!(
-            world.resource::<UiPresentationRuntime>().hud_frame().player_block,
+            world
+                .resource::<UiPresentationRuntime>()
+                .hud_frame()
+                .player_block,
             Some([-17, 47, 2]),
             "HUD coordinates must follow floored feet in {perspective:?}"
         );
