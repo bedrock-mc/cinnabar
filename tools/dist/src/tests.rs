@@ -70,6 +70,23 @@ fn platform_destination_table_matches_runtime_layouts() {
 }
 
 #[test]
+fn every_platform_packages_physics_under_the_registered_filename() {
+    for platform in [Platform::Windows, Platform::Linux, Platform::Macos] {
+        let (root, options) = fixture(platform);
+        let files = input_files(&options);
+        let (_, destination) = files
+            .iter()
+            .find(|(source, _)| *source == options.physics)
+            .unwrap();
+        assert_eq!(
+            std::path::Path::new(destination).file_name().unwrap(),
+            assets::carriers::physics_registry_basename()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn synthetic_bundle_has_sorted_hash_manifest_and_local_scope() {
     let (root, options) = fixture(Platform::Linux);
     stage(&options).unwrap();
