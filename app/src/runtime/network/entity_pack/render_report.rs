@@ -8,7 +8,7 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap,
     WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRenderScene};
+use {render_model::ActorArtworkPages, render_scene::ActorRenderScene};
 
 use client_presentation::presentation::actors;
 

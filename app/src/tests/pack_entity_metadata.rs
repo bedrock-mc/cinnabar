@@ -8,7 +8,7 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
-use render::ActorArtworkPages;
+use render_model::ActorArtworkPages;
 use render_model::EntityRigId;
 use std::sync::Arc;
 
@@ -399,7 +399,10 @@ fn layered(
     batch
 }
 
-fn batch(world: &WorldStream, artwork: &ActorArtworkPages) -> Vec<render::ActorRigSubmission> {
+fn batch(
+    world: &WorldStream,
+    artwork: &ActorArtworkPages,
+) -> Vec<render_model::ActorRigSubmission> {
     layered(world, artwork).submissions
 }
 
@@ -411,7 +414,7 @@ fn each_render_controller_draws_its_own_geometry() {
     let assets = Arc::clone(&pack.0);
     let world = world(pack, "test:title");
     let layered = layered(&world, &artwork);
-    let mut scene = render::ActorRenderScene::default();
+    let mut scene = render_scene::ActorRenderScene::default();
     scene.replace_pack_entities(Some(&assets)).unwrap();
     scene.configure_artwork(artwork.clone());
     let frame = scene.update_rigs_with_artwork(
@@ -493,7 +496,7 @@ fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_li
             0.5,
         )
         .unwrap();
-        body.submission.light = render::pack_actor_light(block, sky);
+        body.submission.light = render_model::pack_actor_light(block, sky);
         let mut batch = client_presentation::presentation::actors::select_actor_presentations(
             1,
             false,
@@ -505,7 +508,7 @@ fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_li
             |id| world.authority().actor_rig(id),
             &artwork,
         );
-        let mut scene = render::ActorRenderScene::default();
+        let mut scene = render_scene::ActorRenderScene::default();
         scene.replace_pack_entities(Some(&pack.0)).unwrap();
         scene.configure_artwork(artwork.clone());
         let frame =
@@ -525,7 +528,7 @@ fn ignore_lighting_controllers_keep_face_shading_and_multiplier_without_world_li
         assert_eq!(ignored.light_color_multiplier, 0.5);
 
         let lit = draw("test:counter", block, sky);
-        assert_eq!(lit.light, render::pack_actor_light(block, sky));
+        assert_eq!(lit.light, render_model::pack_actor_light(block, sky));
         assert_eq!(lit.light_color_multiplier, 1.0);
     }
 }

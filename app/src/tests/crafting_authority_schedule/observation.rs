@@ -98,7 +98,7 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
         .init_resource::<ResourcePackAdmissionState>()
         .init_resource::<LocalAvatarPresentation>()
         .init_resource::<PhysicsAuthorityGate>()
-        .init_resource::<render::ChunkUploadAcknowledgements>()
+        .init_resource::<render_scene::ChunkUploadAcknowledgements>()
         .init_resource::<PublicationController>();
     let mut schedule = Schedule::default();
     schedule.add_systems(

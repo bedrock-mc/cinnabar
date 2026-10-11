@@ -57,7 +57,7 @@ use client_presentation::server_camera::{ServerCameraInstructions, drain_committ
 use client_ui::block_cracks::reconcile_world_block_cracks;
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
-use render::{
+use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, RuntimeStage, RuntimeStageProfiler,
     VisibilityDiagnosticsInput,

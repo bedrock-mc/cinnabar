@@ -12,7 +12,7 @@ fn view() -> ActorCullView {
     ActorCullView {
         clip_from_world: clip_from_view * view_from_world,
         camera_position: camera,
-        max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
     }
 }
 
@@ -39,11 +39,16 @@ fn a_volume_reaching_into_view_is_kept() {
 
 #[test]
 fn entities_outside_the_candidate_cube_are_culled_but_players_are_not() {
-    let far = at(0.0, 64.0, -(render::ACTOR_CANDIDATE_RADIUS_BLOCKS + 4.0));
+    let far = at(
+        0.0,
+        64.0,
+        -(render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS + 4.0),
+    );
     assert!(!volume_may_be_visible(&far, false, view()));
     assert_eq!(
         volume_may_be_visible(&far, true, view()),
-        render::ACTOR_CANDIDATE_RADIUS_BLOCKS + 4.0 <= render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS
+        render_model::ACTOR_CANDIDATE_RADIUS_BLOCKS + 4.0
+            <= render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS
     );
 }
 

@@ -1,13 +1,13 @@
 //! Captures a stable resident set while the ordinary mesh handoff is paused.
 use bevy::prelude::*;
-use render::{ChunkRenderInstance, ChunkTextureAssets, ChunkTextureReload};
+use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkTextureReload};
 use std::sync::{Arc, Mutex, mpsc};
 
 type MeshReceiver = Mutex<mpsc::Receiver<Arc<[ChunkRenderInstance]>>>;
 
 #[derive(Default)]
 pub(super) struct GeometryPreparation {
-    pending: Option<(render::ChunkTextureAssetIdentity, MeshReceiver)>,
+    pending: Option<(render_scene::ChunkTextureAssetIdentity, MeshReceiver)>,
     source_tint: Option<meshing::ChunkBiomeTintIdentity>,
 }
 

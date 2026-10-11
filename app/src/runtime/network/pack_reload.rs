@@ -46,7 +46,7 @@ pub(crate) struct PackReload {
     last_duration: Option<Duration>,
     error: Option<String>,
     previous: Option<PackApplication>,
-    aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
+    aim_assist_textures: [Option<Arc<render_scene::AimAssistTexture>>; 2],
     previous_assets: Option<Arc<assets::RuntimeAssets>>,
     /// Recently joined stacks, which stand in for a missing previous application.
     kept: &'static resource_packs::reuse::CompiledStacks,
@@ -87,7 +87,7 @@ impl PackReload {
     }
 
     /// Prepared texture overrides remain owned by the currently accepted pack application.
-    pub(crate) fn aim_assist_textures(&self) -> &[Option<Arc<render::AimAssistTexture>>; 2] {
+    pub(crate) fn aim_assist_textures(&self) -> &[Option<Arc<render_scene::AimAssistTexture>>; 2] {
         &self.aim_assist_textures
     }
 
@@ -152,7 +152,7 @@ impl PackReload {
         base: Arc<assets::RuntimeAssets>,
         catalog: Option<Arc<json_ui::Catalog>>,
         environment_base: Option<EnvironmentBase>,
-        current_artwork: Option<render::ActorArtworkPages>,
+        current_artwork: Option<render_model::ActorArtworkPages>,
     ) {
         let globals = self.globals.clone();
         let server = self.server.clone();
@@ -274,22 +274,22 @@ pub(crate) fn reload_resource_packs(
     mut reload: ResMut<PackReload>,
     mut world: ResMut<ClientWorld>,
     mut ui: ResMut<UiRuntime>,
-    mut textures: Option<ResMut<render::ChunkTextureAssets>>,
+    mut textures: Option<ResMut<render_scene::ChunkTextureAssets>>,
     presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     environment_base: Option<Res<EnvironmentBase>>,
-    mut atmosphere: Option<ResMut<render::AtmosphereTextureAssets>>,
+    mut atmosphere: Option<ResMut<render_scene::AtmosphereTextureAssets>>,
     mut fog_bindings: Option<ResMut<crate::environment::FogBindings>>,
-    mut particles: Option<ResMut<render::ParticleSimulation>>,
-    mut entity_artwork: Option<ResMut<render::ActorArtworkPages>>,
-    gpu_reload: Option<Res<render::ChunkTextureReload>>,
-    mut chunks: Query<&mut render::ChunkRenderInstance>,
-    mut render_queue: Option<ResMut<render::ChunkRenderQueue>>,
-    mut biome_tints: Option<ResMut<render::ChunkBiomeTints>>,
-    profiler: Option<Res<render::RuntimeStageProfiler>>,
+    mut particles: Option<ResMut<render_scene::ParticleSimulation>>,
+    mut entity_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
+    gpu_reload: Option<Res<render_scene::ChunkTextureReload>>,
+    mut chunks: Query<&mut render_scene::ChunkRenderInstance>,
+    mut render_queue: Option<ResMut<render_scene::ChunkRenderQueue>>,
+    mut biome_tints: Option<ResMut<render_scene::ChunkBiomeTints>>,
+    profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::PackReload));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::PackReload));
     let result = reload
         .ready
         .take()
@@ -327,7 +327,7 @@ pub(crate) fn reload_resource_packs(
                 if prepared.revision == reload.revision
                     && prepared.generation == reload.generation =>
             {
-                let candidate = render::ChunkTextureAssets::with_revision(
+                let candidate = render_scene::ChunkTextureAssets::with_revision(
                     prepared.assets.clone(),
                     prepared.revision,
                 );
@@ -410,7 +410,7 @@ pub(crate) fn reload_resource_packs(
                     (entity_artwork.as_mut(), packs.entity_artwork.as_ref())
                     && current.identity() != next.identity()
                 {
-                    **current = (**next).clone();
+                    current.0 = (**next).clone();
                 }
                 if let Some(stream) = world.stream.as_mut() {
                     stream.reload_resource_assets(prepared.assets.clone());
@@ -473,7 +473,7 @@ pub(crate) fn reload_resource_packs(
                 .as_deref()
                 .and_then(|presentation| presentation.pack_catalog_base()),
             environment_base.as_deref().cloned(),
-            entity_artwork.as_deref().cloned(),
+            entity_artwork.as_deref().map(|artwork| artwork.0.clone()),
         );
     }
 }

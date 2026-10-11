@@ -108,14 +108,14 @@ impl EquipmentRuntime {
         let ids =
             std::iter::once(super::super::ELYTRA_LAYER).chain(super::super::ELYTRA_GROUP_LAYERS);
         for (layer_id, (index, pose, hidden, material, state, source)) in ids.zip(groups) {
-            let material = render::ActorMaterial {
+            let material = render_model::ActorMaterial {
                 kind: if item.enchanted {
                     assets::EntityRenderMaterial::Glint
                 } else {
                     material
                 },
                 state: Some(state.unwrap_or(WING_MATERIAL_STATE)),
-                glint: render::ActorGlint {
+                glint: render_model::ActorGlint {
                     time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
                         * world::TICK_DURATION.as_secs_f32(),
                     ..Default::default()

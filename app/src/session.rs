@@ -339,7 +339,7 @@ pub(crate) struct SessionResources<'w> {
     local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
     interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
-    actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
+    actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
 }
@@ -535,7 +535,7 @@ fn poll_join(
                 socket_dir,
                 login_settings,
                 client_random_id,
-                session.actor_artwork.as_deref(),
+                session.actor_artwork.as_deref().map(|artwork| &artwork.0),
                 session.ui_catalog.as_deref(),
             ) {
                 if owned_core {
@@ -586,7 +586,7 @@ fn start_network(
     socket_dir: PathBuf,
     login_settings: protocol::LoginSettings,
     client_random_id: protocol::ClientRandomId,
-    actor_artwork: Option<&render::ActorArtworkPages>,
+    actor_artwork: Option<&render_model::ActorArtworkPages>,
     ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {

@@ -42,7 +42,7 @@ fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
     for height in [129.0, -1.0] {
         assert_eq!(
             fog_biome_samples(&stream, [0.5, height, 0.5], &bindings),
-            [Some(FogProfileIndex(0)); render::PRECIPITATION_SAMPLE_OFFSETS.len()]
+            [Some(FogProfileIndex(0)); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
         );
     }
 }

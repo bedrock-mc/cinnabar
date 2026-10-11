@@ -10,7 +10,7 @@ use bevy::{
     window::WindowCloseRequested,
 };
 #[cfg(feature = "acceptance")]
-use render::TransparentSortMetrics;
+use render_scene::TransparentSortMetrics;
 
 use crate::runtime::{
     network::NetworkHandle,

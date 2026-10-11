@@ -6,7 +6,7 @@ use ::acceptance::world_ready::observe_world_ready;
 use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use bevy::prelude::*;
 use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
-use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
+use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;
 use {

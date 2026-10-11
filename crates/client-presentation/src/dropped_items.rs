@@ -11,13 +11,16 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use client_world::{BlockEntityKind, RopeKind};
-use render::{
-    ChunkTextureAssets, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
-    DroppedItemSpawnPose, ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, StaticItemPlacements,
-    TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
-    native_dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
-};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
+use {
+    render_model::{
+        DroppedItemInstance, DroppedItemModel, DroppedItemShape, DroppedItemSpawnPose,
+        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
+        dropped_item_transform, native_dropped_item_transform, pack_overlay_rgba8, rope_color,
+        rope_ribbon,
+    },
+    render_scene::{ChunkTextureAssets, DroppedItemScene},
+};
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
@@ -45,7 +48,7 @@ pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
     icons: Option<Res<'w, UiPresentationRuntime>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
-    placements: Option<Res<'w, StaticItemPlacements>>,
+    placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
 }
 
@@ -336,7 +339,7 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
         if let Some(placements) = self.placements.as_ref() {
-            for placement in &placements.0 {
+            for placement in &placements.0.0 {
                 if let Some(icon) = icons.item_icon(&placement.identifier, placement.metadata) {
                     cache.request(&ModelKey::icon(icon, false));
                 }
@@ -424,7 +427,7 @@ impl DroppedItemPublisher<'_, '_> {
 
         // Items held by block entities (item frames, campfires) use the same sprite path.
         if let Some(placements) = self.placements.as_ref() {
-            for placement in &placements.0 {
+            for placement in &placements.0.0 {
                 let Some(model) = Self::icon_model(
                     cache,
                     icons,

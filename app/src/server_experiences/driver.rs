@@ -1,11 +1,12 @@
+use bevy::prelude::IntoScheduleConfigs;
 use std::path::PathBuf;
 
 #[cfg(test)]
 use bevy::prelude::{Entity, Mut, default};
 use bevy::{
     prelude::{
-        App, ButtonInput, IntoScheduleConfigs, KeyCode, MessageReader, MouseButton, NonSendMut,
-        Query, Real, Res, ResMut, Resource, Time, Update, Window, With,
+        App, ButtonInput, KeyCode, MessageReader, MouseButton, NonSendMut, Query, Real, Res,
+        ResMut, Resource, Time, Update, Window, With,
     },
     window::PrimaryWindow,
 };
@@ -330,7 +331,7 @@ fn drive(
 fn present_media(
     mut service: ResMut<ExperienceService>,
     time: Res<Time<Real>>,
-    scene: Option<ResMut<render::MediaScreenScene>>,
+    scene: Option<ResMut<render_scene::MediaScreenScene>>,
     device: Option<NonSendMut<client_audio::named_audio::AudioDevice>>,
     audio_settings: Option<Res<client_audio::audio::settings::AudioSettings>>,
 ) {

@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use assets::{BiomeRule, RuntimeAssets};
 use chunk_pipeline::WorldStream;
 use protocol::BiomeDefinitionEvent;
-use render::PRECIPITATION_SAMPLE_OFFSETS;
+use render_model::PRECIPITATION_SAMPLE_OFFSETS;
 
 /// The fog and weather renderers use the same native precipitation lattice.
 fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSETS.len()] {

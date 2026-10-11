@@ -104,8 +104,8 @@ fn production_java_torso_joins_physics_history_after_same_frame_admission() {
         world.insert_resource(movement);
         world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
         world.init_resource::<crate::melee::SwingTracker>();
-        world.init_resource::<render::ActorRenderFrame>();
-        world.init_resource::<render::ActorRuntimeWitness>();
+        world.init_resource::<render_scene::ActorRenderFrame>();
+        world.init_resource::<render_scene::ActorRuntimeWitness>();
         {
             let mut effects = world.resource_mut::<crate::movement::LocalMovementEffectTimeline>();
             effects.begin_session(1);

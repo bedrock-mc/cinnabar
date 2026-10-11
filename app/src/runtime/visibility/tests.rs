@@ -45,7 +45,7 @@ fn actor_frustum_crossing_a_camera_cell_never_uses_the_previous_cave_result() {
     let bounds = assets::SkinGeometryBounds::default();
     let feet = [17.0, 64.0, 4.0];
     let (low, high) = bounds.at(feet, 1.0);
-    let view = render::ActorCullView {
+    let view = render_model::ActorCullView {
         clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
             std::f32::consts::FRAC_PI_2,
             1.0,
@@ -56,9 +56,9 @@ fn actor_frustum_crossing_a_camera_cell_never_uses_the_previous_cave_result() {
             Vec3::Y,
         ),
         camera_position: after,
-        max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
     };
-    assert!(render::actor_bounds_are_visible(
+    assert!(render_model::actor_bounds_are_visible(
         feet,
         1.0,
         bounds,

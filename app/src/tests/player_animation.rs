@@ -9,10 +9,13 @@ use protocol::{
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, ItemActorEvent, MovePlayerEvent,
     MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, WorldBootstrap, WorldEvent,
 };
-use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
 use render_api::{CapeImage, SkinGeometrySource, StandardSkin};
 use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
+use {
+    render_model::{ACTOR_LAYER_BODY, ActorRigRejects, ActorRigRoute},
+    render_scene::ActorRenderScene,
+};
 
 const ENTITY: &str = r#"{"format_version":"1.26.0","minecraft:client_entity":{"description":{
  "identifier":"minecraft:player",

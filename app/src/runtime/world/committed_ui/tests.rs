@@ -21,7 +21,7 @@ use client_ui::ui_runtime::{
 use protocol::{
     FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent, WorldBootstrap, WorldEvent,
 };
-use render::ChunkUploadBudget;
+use render_scene::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
 use {
@@ -229,7 +229,7 @@ fn bind_ability_fixture(app: &mut App) {
 
 fn prepare_ability_control_fixture(app: &mut App) {
     app.init_resource::<crate::runtime::publication::PublicationController>()
-        .init_resource::<render::ChunkUploadAcknowledgements>()
+        .init_resource::<render_scene::ChunkUploadAcknowledgements>()
         .init_resource::<client_presentation::local_player::LocalAvatarPresentation>()
         .init_resource::<crate::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(

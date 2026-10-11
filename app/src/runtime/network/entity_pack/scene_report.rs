@@ -7,9 +7,9 @@ use bevy::math::{EulerRot, Mat4, Quat, Vec3, Vec4};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRenderScene};
 use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
 use ui::TextLayoutCache;
+use {render_model::ActorArtworkPages, render_scene::ActorRenderScene};
 
 use super::render_report::{compile_local_pack, world_for};
 
@@ -379,7 +379,7 @@ pub(super) fn draw_actors(
         let shade = |uv: [f32; 2]| {
             let [u, v] = std::array::from_fn(|axis| {
                 let animated = uv_anim[axis] + uv[axis] * uv_anim[axis + 2];
-                if uv_anim == render::IDENTITY_UV_ANIM {
+                if uv_anim == render_model::IDENTITY_UV_ANIM {
                     animated.clamp(0.0, 1.0)
                 } else {
                     animated.rem_euclid(1.0)

@@ -17,14 +17,14 @@ pub(super) use biomes::apply_biome_overlay;
 /// Original carriers retained so removing every optional layer restores their resources.
 #[derive(Resource, Clone)]
 pub(crate) struct EnvironmentBase {
-    atmosphere: render::AtmosphereTextureAssets,
+    atmosphere: render_scene::AtmosphereTextureAssets,
     particles: Option<Arc<assets::RuntimeParticleAssets>>,
 }
 
 impl EnvironmentBase {
     /// Retains startup carrier resources before any optional stack is applied.
     pub(crate) fn new(
-        atmosphere: render::AtmosphereTextureAssets,
+        atmosphere: render_scene::AtmosphereTextureAssets,
         particles: Option<Arc<assets::RuntimeParticleAssets>>,
     ) -> Self {
         Self {
@@ -35,7 +35,7 @@ impl EnvironmentBase {
 }
 
 pub(super) struct PreparedEnvironment {
-    pub(super) atmosphere: Option<render::AtmosphereTextureAssets>,
+    pub(super) atmosphere: Option<render_scene::AtmosphereTextureAssets>,
     pub(super) particles: Option<::particles::ParticleSystem>,
     pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
 }
@@ -70,8 +70,8 @@ pub(super) fn prepare_environment(
 /// Overlays only the environment components the renderer already consumes.
 fn prepare_atmosphere(
     view: &LayeredPackView,
-    base: &render::AtmosphereTextureAssets,
-) -> render::AtmosphereTextureAssets {
+    base: &render_scene::AtmosphereTextureAssets,
+) -> render_scene::AtmosphereTextureAssets {
     let Some(runtime) = base.runtime() else {
         return base.clone();
     };
@@ -160,7 +160,7 @@ fn prepare_atmosphere(
         &biomes.into_values().collect::<Vec<_>>(),
         &fogs.into_values().collect::<Vec<_>>(),
     ) {
-        Ok(runtime) => render::AtmosphereTextureAssets::new(
+        Ok(runtime) => render_scene::AtmosphereTextureAssets::new(
             Arc::new(runtime),
             digest.clone().finalize().into(),
         ),

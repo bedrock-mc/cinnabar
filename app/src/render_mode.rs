@@ -16,10 +16,10 @@ use bevy::{
     prelude::*,
     render::render_resource::TextureUsages,
 };
-use render::{EnhancedRenderPlugin, EnhancedRendering};
 use render_model::enhanced_rendering_enabled;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
+use {render::EnhancedRenderPlugin, render_scene::EnhancedRendering};
 
 use {
     crate::menu::MenuRuntime, client_presentation::camera::FlyCamera, client_state::RuntimeSettings,

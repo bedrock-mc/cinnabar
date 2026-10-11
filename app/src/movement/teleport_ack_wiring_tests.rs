@@ -31,7 +31,7 @@ use client_presentation::local_player::{
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
 use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
-use render::ChunkUploadBudget;
+use render_scene::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 use {
     super::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},

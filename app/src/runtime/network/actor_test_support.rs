@@ -1,7 +1,10 @@
 use client_presentation::local_player::FrozenLocalAvatarVisibility;
 use client_world::{ActorSnapshot, PlayerProfile};
-use render::{ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource};
 use render_model::ActorSkinPixels;
+use {
+    render_model::ActorCullView,
+    render_scene::{ActorRenderFrame, ActorRenderScene, ActorRenderSource},
+};
 
 /// Builds the simple actor render fixture used by publication tests.
 pub(crate) fn actor_render_source(

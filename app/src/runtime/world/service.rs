@@ -10,7 +10,10 @@ use bevy::{
     prelude::{Res, ResMut, Resource},
 };
 use chunk_pipeline::WorldStreamService;
-use render::{ChunkUploadBudget, FrameStart, RuntimeStage, RuntimeStageProfiler};
+use {
+    render::FrameStart,
+    render_scene::{ChunkUploadBudget, RuntimeStage, RuntimeStageProfiler},
+};
 
 use super::{ClientWorld, WorldStreamFramePoll};
 use client_presentation::local_player::LocalViewPose;

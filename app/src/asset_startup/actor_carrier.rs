@@ -1,8 +1,8 @@
 use super::{AssetStartupError, LoadedEntityAssets, shell_quote_path};
 use assets::RuntimeActorCatalog;
+use std::io::Read;
 use std::{
     fs::File,
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -23,11 +23,11 @@ pub fn require_actor_assets(
 pub(crate) fn actor_artwork(
     catalog: &RuntimeActorCatalog,
     entities: &assets::RuntimeEntityAssets,
-) -> render::ActorArtworkPages {
+) -> render_model::ActorArtworkPages {
     if let Some(skin) = default_player_skin(catalog, entities) {
         render_model::install_default_player_skin(skin);
     }
-    let artwork = render::ActorArtworkPages::new(catalog);
+    let artwork = render_model::ActorArtworkPages::new(catalog);
     eprintln!(
         "loaded neutral unlit actor artwork: bindings={}, textures={}, page budget rejections={}, rest pose fallbacks={} (pose_expression_unverified); lighting/tint/overlay parity incomplete",
         catalog.bindings().len(),

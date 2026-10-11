@@ -234,9 +234,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .insert_resource(movement)
         .insert_resource(visibility)
         .init_resource::<HandAdapter>()
-        .init_resource::<render::ViewmodelScene>()
-        .init_resource::<render::ViewmodelCompletionGate>();
-    assert!(!app.world().contains_resource::<render::ViewmodelGeometry>());
+        .init_resource::<render_scene::ViewmodelScene>()
+        .init_resource::<render_scene::ViewmodelCompletionGate>();
+    assert!(
+        !app.world()
+            .contains_resource::<render_scene::ViewmodelGeometryResource>()
+    );
     app.world_mut().spawn((
         FlyCamera::default(),
         Camera {
@@ -285,7 +288,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     assert_cube_scene(&app, true);
     assert_eq!(
         app.world().resource::<HandAdapter>().stats.mode,
-        Some(render::ViewmodelMode::OpaqueCubeNeutralStaticFallback)
+        Some(render_scene::ViewmodelMode::OpaqueCubeNeutralStaticFallback)
     );
     // Exercise the real committed-control reconciliation, not a fabricated
     // actor spawn counter. The free-camera correction branch anchors without
@@ -311,7 +314,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .init_resource::<crate::movement::LocalMovementEffectTimeline>()
         .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
         .init_resource::<Time<bevy::time::Real>>()
-        .init_resource::<render::ChunkUploadBudget>()
+        .init_resource::<render_scene::ChunkUploadBudget>()
         .init_resource::<client_presentation::camera::CameraSettingsAuthority>()
         .init_resource::<client_presentation::local_player::LocalViewPose>()
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()

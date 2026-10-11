@@ -43,9 +43,9 @@ type PublishExtras<'w> = (
     Res<'w, crate::menu::MenuRuntime>,
     Res<'w, client_presentation::actor_publication::ActorFrameState>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
-    Option<Res<'w, render::RuntimeStageProfiler>>,
-    Option<Res<'w, render::ActorPipelineReadiness>>,
-    Option<Res<'w, render::PipelineWarmupReadiness>>,
+    Option<Res<'w, render_scene::RuntimeStageProfiler>>,
+    Option<Res<'w, render_scene::ActorPipelineReadiness>>,
+    Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     (
         Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
@@ -53,7 +53,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Res<'w, crate::runtime::network::NetworkHandle>,
-        Option<ResMut<'w, render::UiGlintSettings>>,
+        Option<ResMut<'w, render_scene::UiGlintSettings>>,
         Res<'w, crate::item_use::ItemUseRuntime>,
         Res<'w, crate::movement::MovementTicker>,
         Res<'w, crate::movement::LocalPhysicsController>,
@@ -103,7 +103,7 @@ pub(crate) fn prepare_ui_runtime(
 ) {
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);

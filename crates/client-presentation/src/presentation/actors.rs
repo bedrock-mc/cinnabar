@@ -3,15 +3,18 @@ use std::{collections::HashMap, sync::Arc};
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
-use render::{
-    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
-};
 use render_api::SkinRgba8;
 use render_model::{
     ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,
+};
+use {
+    render_model::{
+        ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderIdentity,
+        ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, actor_bounds_are_visible,
+        actor_rig_submission_is_visible, pack_overlay_rgba8,
+    },
+    render_scene::{ActorRenderFrame, ActorRenderScene},
 };
 
 mod admission;
@@ -273,7 +276,7 @@ fn tick_presentation(
                         source_tick: None,
                         movement_revision: 0,
                         pose_generation: rig.completed_tick,
-                        layer: render::ACTOR_LAYER_BODY,
+                        layer: render_model::ACTOR_LAYER_BODY,
                     },
                     rig: EntityRigId(rig.rig.0),
                     previous_bones,
@@ -285,7 +288,7 @@ fn tick_presentation(
                 texture_layer: u32::MAX,
                 route,
                 tint: 0,
-                uv_anim: render::IDENTITY_UV_ANIM,
+                uv_anim: render_model::IDENTITY_UV_ANIM,
                 light: 0,
                 overlay_rgba8: 0,
             },
@@ -420,7 +423,7 @@ pub fn local_diagnostic_presentation(
                     source_tick: None,
                     movement_revision: pose_generation,
                     pose_generation,
-                    layer: render::ACTOR_LAYER_BODY,
+                    layer: render_model::ACTOR_LAYER_BODY,
                 },
                 rig: EntityRigId(u32::MAX),
                 previous_bones: Arc::from(bones),
@@ -433,7 +436,7 @@ pub fn local_diagnostic_presentation(
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
             tint: 0,
-            uv_anim: render::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             light: 0,
             overlay_rgba8: 0,
         },
@@ -612,7 +615,7 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
                 |actor| stream.actor_light_at(actor, feet),
             );
         if let Some((block, sky)) = light {
-            submission.light = render::pack_actor_light(block, sky);
+            submission.light = render_model::pack_actor_light(block, sky);
         }
     }
 }

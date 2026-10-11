@@ -244,7 +244,7 @@ fn controller_channel(expression: &str) -> Vec<(Box<str>, Vec<u8>)> {
 /// Draws through the equipment route and returns the selected authored X channel.
 fn authored_x(
     runtime: &mut EquipmentRuntime,
-    body: &render::ActorRigSubmission,
+    body: &render_model::ActorRigSubmission,
     owner: &client_world::ActorSnapshot,
     rig: &ActorRigSnapshot<'_>,
     delta: f32,
@@ -661,7 +661,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
         Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap()),
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     let body = player_body(&mut runtime);
     let owner = owner();
@@ -732,7 +732,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         icons,
         None,
         None,
-        render::ActorArtworkPages::default(),
+        render_model::ActorArtworkPages::default(),
     );
     let body = player_body(&mut runtime);
     let mut owner = owner();

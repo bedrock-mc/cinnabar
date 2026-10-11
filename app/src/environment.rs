@@ -37,7 +37,7 @@ pub(crate) struct EnvironmentContext {
     /// Atmosphere registry identity that owns all sampled profile indices and routes.
     pub(crate) fog_registry_generation: Option<[u8; 32]>,
     pub(crate) fog_biomes:
-        Option<[Option<fog::FogProfileIndex>; render::PRECIPITATION_SAMPLE_OFFSETS.len()]>,
+        Option<[Option<fog::FogProfileIndex>; render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]>,
     pub(crate) camera_fog: Option<fog::FogProfileIndex>,
     pub(crate) camera_profile: Option<fog::BiomeProfileIndex>,
     pub(crate) profile_route: Option<std::sync::Arc<EnvironmentProfileRoute>>,

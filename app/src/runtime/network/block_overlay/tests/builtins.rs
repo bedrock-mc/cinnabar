@@ -86,14 +86,14 @@ fn versioned_builtin_full_block_resolves_textured_cube_without_pack_geometry() {
             .into_iter()
             .enumerate()
         {
-            let original_uv = render::greedy_texture_uv(
+            let original_uv = render_scene::greedy_texture_uv(
                 meshing::Face::NegativeY,
                 corner as u32,
                 1,
                 1,
                 down(original).flags,
             );
-            let modern_uv = render::greedy_texture_uv(
+            let modern_uv = render_scene::greedy_texture_uv(
                 meshing::Face::NegativeY,
                 corner as u32,
                 1,

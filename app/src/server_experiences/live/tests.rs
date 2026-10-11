@@ -889,7 +889,7 @@ fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_scre
         live.changed_screens().unwrap().is_empty(),
         "no player means no screen"
     );
-    let frame = render::MediaFrame {
+    let frame = render_scene::MediaFrame {
         serial: 3,
         width: 2,
         height: 2,
@@ -913,7 +913,7 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
         .contributions
         .scene
         .insert(1, media_quad(5.0));
-    let frame = render::MediaFrame {
+    let frame = render_scene::MediaFrame {
         serial: 3,
         width: 2,
         height: 2,

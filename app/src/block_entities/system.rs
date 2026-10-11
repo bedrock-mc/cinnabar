@@ -1,19 +1,22 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
+use bevy::prelude::IntoScheduleConfigs;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::{
-    App, IntoScheduleConfigs, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time,
-    Transform, Update, Vec3, With,
-};
-use render::{
-    AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
-    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace,
-    SignModel, StaticItemPlacement, StaticItemPlacements, item_frame_item_transform, matrix_rows,
+    App, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time, Transform, Update, Vec3, With,
 };
 use ui::TextLayoutCache;
 use world::{ChunkKey, SUB_CHUNK_SIDE};
+use {
+    render_model::{
+        AtlasRect, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind, BlockEntityLight,
+        BlockEntityScene, BlockEntitySubmission, ConduitModel, SceneClock, SignFace, SignModel,
+        StaticItemPlacement, item_frame_item_transform, matrix_rows,
+    },
+    render_scene::AtmosphereFrame,
+};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
@@ -267,10 +270,10 @@ pub(crate) fn update_block_entity_scene(
     time: Res<Time<Real>>,
     font: Res<BlockEntityFont>,
     mut runtime: ResMut<BlockEntityRuntime>,
-    mut scene: ResMut<BlockEntityScene>,
-    mut frame: ResMut<BlockEntityFrame>,
-    mut placements: ResMut<StaticItemPlacements>,
-    profiler: Option<Res<render::RuntimeStageProfiler>>,
+    mut scene: ResMut<render_scene::BlockEntitySceneResource>,
+    mut frame: ResMut<render_scene::BlockEntityFrameResource>,
+    mut placements: ResMut<render_scene::StaticItemPlacementsResource>,
+    profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
 ) {
     if !scene.has_assets() {
         dragon_death::update_without_atlas(
@@ -288,15 +291,15 @@ pub(crate) fn update_block_entity_scene(
     // Timed in the body: a span around the chain would also count waiting on actor publication.
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::BlockEntities));
+        .map(|profiler| profiler.time(render_scene::RuntimeStage::BlockEntities));
     let now_seconds = time.elapsed_secs_f64();
     let clock = SceneClock {
         ticks: now_seconds * TICKS_PER_SECOND,
     };
     let Some(stream) = client_world.stream.as_ref() else {
         runtime.bind_session(None);
-        placements.0.clear();
-        *frame = scene.update(clock, &[], &[]).clone();
+        placements.0.0.clear();
+        frame.0 = scene.update(clock, &[], &[]).clone();
         return;
     };
     let runtime = &mut *runtime;
@@ -487,8 +490,8 @@ pub(crate) fn update_block_entity_scene(
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
         },
     );
-    placements.0 = held;
-    *frame = scene.update(clock, &cracks, &submissions).clone();
+    placements.0.0 = held;
+    frame.0 = scene.update(clock, &cracks, &submissions).clone();
 }
 
 struct FrameContext<'a> {
@@ -599,8 +602,8 @@ fn resolve(
         Template::Beacon => None,
         &Template::Chest(mut model) => {
             let open = open_at(position)
-                || matches!(model.pair, render::ChestPair::Lead { partner } if open_at(partner));
-            if !matches!(model.pair, render::ChestPair::Follower) {
+                || matches!(model.pair, render_model::ChestPair::Lead { partner } if open_at(partner));
+            if !matches!(model.pair, render_model::ChestPair::Follower) {
                 model.lid = runtime.lids.advance(
                     position,
                     ContainerKind::Chest,
@@ -677,7 +680,7 @@ fn resolve(
         }
         Template::FlowerPot { plant } => {
             // Two crossed sprites standing in the pot; the plant icon stands in for the model.
-            let base = render::block_matrix(position, [0.5, 0.32, 0.5], 0.0);
+            let base = render_model::block_matrix(position, [0.5, 0.32, 0.5], 0.0);
             for yaw in [45.0_f32, 135.0] {
                 let pose = base
                     * Mat4::from_rotation_y(yaw.to_radians())
@@ -687,7 +690,7 @@ fn resolve(
             None
         }
         Template::Campfire { yaw_degrees, items } => {
-            let base = render::block_matrix(position, [0.5, 0.0, 0.5], *yaw_degrees);
+            let base = render_model::block_matrix(position, [0.5, 0.0, 0.5], *yaw_degrees);
             for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
                 let Some(item) = item else {
                     continue;
@@ -885,9 +888,9 @@ mod tests {
 
     #[test]
     fn placed_player_skulls_keep_native_light_coordinates_for_the_environment_shader() {
-        let kind = BlockEntityKind::Skull(render::SkullModel {
-            kind: render::SkullKind::Player,
-            mount: render::SkullMount::Floor {
+        let kind = BlockEntityKind::Skull(render_model::SkullModel {
+            kind: render_model::SkullKind::Player,
+            mount: render_model::SkullMount::Floor {
                 rotation_degrees: 0.0,
             },
         });

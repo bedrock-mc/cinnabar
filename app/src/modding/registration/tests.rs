@@ -433,7 +433,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
-        let mut scene = render::ModRenderScene::default();
+        let mut scene = render_scene::ModRenderScene::default();
         scene.apply(&rendered_output(), 7);
         world.insert_resource(scene);
         world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
@@ -448,7 +448,12 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
-        assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
+        assert_eq!(
+            world
+                .resource::<render_scene::ModRenderScene>()
+                .vertex_count(),
+            0
+        );
         assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());

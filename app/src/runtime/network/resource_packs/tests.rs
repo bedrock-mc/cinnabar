@@ -581,7 +581,7 @@ fn the_same_blocks_share_the_extended_carrier_and_its_texture_identity() {
     let carrier = super::OverlaidCarrier::new();
     let first = carrier.extend(&base, first_id, &overlay).unwrap();
     assert!(!Arc::ptr_eq(&first, &base));
-    let mut textures = render::ChunkTextureAssets::with_revision(Arc::clone(&base), 0);
+    let mut textures = render_scene::ChunkTextureAssets::with_revision(Arc::clone(&base), 0);
     super::install_chunk_textures(&mut textures, &first);
     let identity = textures.identity();
     let again = carrier.extend(&base, first_id, &overlay).unwrap();

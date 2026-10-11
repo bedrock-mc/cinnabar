@@ -14,7 +14,7 @@ pub struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     block_sheets: BTreeMap<Box<str>, usize>,
-    block_alpha: BTreeMap<Box<str>, render::HandItemAlphaMode>,
+    block_alpha: BTreeMap<Box<str>, render_model::HandItemAlphaMode>,
     atlas: SpriteAtlas,
 }
 
@@ -95,7 +95,7 @@ pub(super) struct SessionLayer {
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     /// Custom block item to its cube sheet's index in `sprites`.
     block_sheets: BTreeMap<Box<str>, usize>,
-    block_alpha: BTreeMap<Box<str>, render::HandItemAlphaMode>,
+    block_alpha: BTreeMap<Box<str>, render_model::HandItemAlphaMode>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
 }
@@ -225,7 +225,7 @@ impl EquipmentRuntime {
     pub(super) fn session_block_alpha(
         &self,
         identifier: &str,
-    ) -> Option<render::HandItemAlphaMode> {
+    ) -> Option<render_model::HandItemAlphaMode> {
         self.session.block_alpha.get(identifier).copied()
     }
 }

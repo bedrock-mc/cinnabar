@@ -534,7 +534,7 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
 
     assert_eq!(frame.sky_zenith(), [0.0; 3]);
     assert_eq!(frame.sky_horizon(), frame.fog_color());
-    assert_eq!(frame.sky_kind(), render::SkyKind::End);
+    assert_eq!(frame.sky_kind(), render_scene::SkyKind::End);
     assert_eq!(frame.fog_end(), 256.0);
     assert_eq!(frame.rain_level(), 0.0);
     assert_eq!(frame.thunder_level(), 0.0);

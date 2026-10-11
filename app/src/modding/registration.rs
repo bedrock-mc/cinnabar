@@ -1,11 +1,13 @@
 //! Per-user extension registration; polling, compilation and status I/O stay off the frame thread.
 
+use sha2::Digest;
+use std::io::Read;
+use std::io::Write;
 #[cfg(test)]
 mod tests;
 
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -20,7 +22,7 @@ use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModGrants, ModHost};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, font, interaction::ModInteraction};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -612,7 +614,7 @@ fn clear_presentation(world: &mut World) {
     if let Some(mut policy) = world.get_resource_mut::<crate::item_use::ModItemUsePolicy>() {
         policy.scope = None;
     }
-    if let Some(mut scene) = world.get_resource_mut::<render::ModRenderScene>() {
+    if let Some(mut scene) = world.get_resource_mut::<render_scene::ModRenderScene>() {
         scene.clear();
     }
     if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {

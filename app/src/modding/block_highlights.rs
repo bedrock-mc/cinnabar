@@ -1,7 +1,7 @@
 //! Presentation adapter for read-only loaded-block highlights.
 use bevy::prelude::*;
 use client_ui::ui_runtime::UiRuntime;
-use render::ModRenderScene;
+use render_scene::ModRenderScene;
 use {
     crate::{menu::MenuRuntime, runtime::world::ClientWorld},
     client_presentation::camera::FlyCamera,

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use render::WorldFullbright;
+use render_scene::WorldFullbright;
 use {crate::runtime::world::ClientWorld, client_state::ClientFrameSet};
 
 pub(super) fn configure(app: &mut App) {

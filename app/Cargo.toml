@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+render-scene = { path = "../crates/render-scene" }
 client-state = { path = "../crates/client-state" }
 client-audio = { path = "../crates/client-audio" }
 pack-runtime = { path = "../crates/pack-runtime" }

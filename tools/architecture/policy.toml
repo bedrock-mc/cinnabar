@@ -168,9 +168,9 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
+forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
 test_support_features = ["test-support"]
 
 # Audio consumes borrowed listener and world facts without a presentation or GPU edge.
@@ -192,8 +192,8 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "clien
 name = "acceptance"
 path = "crates/acceptance"
 test_support_features = ["test-support"]
-allowed_dependencies = ["client-audio", "chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render", "render-model", "semantic-input", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
+allowed_dependencies = ["client-audio", "chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render-scene", "render-model", "semantic-input", "world"]
+forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
 name = "semantic-input"
@@ -226,7 +226,8 @@ dependency_free = true
 [[crates]]
 name = "render-model"
 path = "crates/render-model"
-allowed_dependencies = ["assets", "render-api", "world"]
+test_support_features = ["test-support"]
+allowed_dependencies = ["block-transform", "mod-api", "assets", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -238,11 +239,19 @@ allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
+# Render submission resources never depend on GPU pass implementations or game authority.
+[[crates]]
+name = "render-scene"
+path = "crates/render-scene"
+allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
+forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
+test_support_features = ["publication-test-support"]
+
 [[crates]]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["render-scene", "assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -250,7 +259,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["render-scene", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 

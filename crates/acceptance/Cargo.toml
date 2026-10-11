@@ -17,7 +17,7 @@ client-world = { path = "../client-world" }
 client-presentation = { path = "../client-presentation" }
 diagnostics = { path = "../diagnostics" }
 protocol = { path = "../protocol" }
-render = { path = "../render" }
+render-scene = { path = "../render-scene" }
 render-model = { path = "../render-model" }
 semantic-input = { path = "../input" }
 serde = { version = "1", features = ["derive"] }
@@ -27,7 +27,7 @@ thiserror.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
-render = { path = "../render", features = ["publication-test-support"] }
+render-scene = { path = "../render-scene", features = ["publication-test-support"] }
 
 [lints]
 workspace = true

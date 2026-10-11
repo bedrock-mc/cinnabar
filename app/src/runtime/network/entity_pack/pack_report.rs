@@ -88,8 +88,8 @@ fn captured_entity_stack_retains_animation_payloads() {
     );
     assert!(!actors.bindings.is_empty());
     report_title_rigs(&vanilla, &actors, &files);
-    let pages =
-        render::ActorArtworkPages::default().with_pack_artwork(&actors.textures, &actors.bindings);
+    let pages = render_model::ActorArtworkPages::default()
+        .with_pack_artwork(&actors.textures, &actors.bindings);
     eprintln!(
         "compiled actor artwork: pages={} rejected_bindings={}",
         pages.pages().len(),
@@ -120,7 +120,7 @@ fn captured_entity_stack_retains_animation_payloads() {
         .iter()
         .map(|geometry| geometry.vertices.len())
         .sum::<usize>();
-    let mut scene = render::ActorRenderScene::with_runtime_entity_assets(&vanilla).unwrap();
+    let mut scene = render_scene::ActorRenderScene::with_runtime_entity_assets(&vanilla).unwrap();
     scene.reset();
     let vanilla_vertices = scene.frame().rig.geometry_vertices.len();
     let (entities_result, equipment_result) =

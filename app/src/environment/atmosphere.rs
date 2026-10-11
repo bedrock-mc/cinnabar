@@ -7,7 +7,7 @@ use bevy::{
     time::Real,
 };
 use meshing::CameraMedium;
-use render::{AtmosphereFrame, SkyKind};
+use render_scene::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
 use client_ui::ui_runtime::UiRuntime;
@@ -57,7 +57,7 @@ fn derive_base_frame(
     // caps need their own admission witness, not a quality multiplier.
     let adjusted_render_distance = context
         .render_distance_blocks
-        .and_then(render::adjusted_player_render_distance_blocks)
+        .and_then(render_scene::adjusted_player_render_distance_blocks)
         .unwrap_or(0.0);
     let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
         .with_sky_kind(SkyKind::from_dimension(context.dimension))
@@ -72,9 +72,9 @@ fn derive_base_frame(
 type AtmosphereOutputs<'w> = (
     ResMut<'w, AtmosphereFrame>,
     ResMut<'w, EnvironmentProfileRoute>,
-    ResMut<'w, render::WorldLighting>,
+    ResMut<'w, render_scene::WorldLighting>,
     ResMut<'w, super::WeatherTickFrame>,
-    ResMut<'w, render::AtmosphereViewInputs>,
+    ResMut<'w, render_scene::AtmosphereViewInputs>,
 );
 
 /// Resolves sampled indices only in their owning registry, using camera names after a reload.
@@ -142,7 +142,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         // ordinary above-water route, not the raw packet.
         // The separate native submerged distance admission remains incomplete.
         let render_distance =
-            render::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
+            render_scene::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
         let camera = [Some(camera_fog?)];
         let layer = samples.as_ref().map_or(&camera[..], |samples| &samples[..]);
         assets::resolve_fog_layers(
@@ -186,8 +186,8 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 /// Menu options and optional sky settings consumed by atmosphere updates.
 type AtmospherePreferences<'w> = (
     Option<Res<'w, crate::menu::MenuRuntime>>,
-    Option<ResMut<'w, render::CloudVisibility>>,
-    Option<ResMut<'w, render::SkyboxSettings>>,
+    Option<ResMut<'w, render_scene::CloudVisibility>>,
+    Option<ResMut<'w, render_scene::SkyboxSettings>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -198,7 +198,7 @@ pub(crate) fn update_atmosphere_frame(
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
     boss_bars: Res<UiRuntime>,
-    atmosphere_assets: Res<render::AtmosphereTextureAssets>,
+    atmosphere_assets: Res<render_scene::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: (
@@ -250,7 +250,7 @@ pub(crate) fn update_atmosphere_frame(
     let elapsed = time.elapsed_secs_f64();
     display.set_precipitation_count(context.precipitation_sample_count);
     let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
-    *view_inputs = render::AtmosphereViewInputs {
+    *view_inputs = render_scene::AtmosphereViewInputs {
         forward: cameras
             .single()
             .map_or([0.0; 3], |transform| transform.forward().to_array()),
@@ -296,12 +296,12 @@ pub(crate) fn update_atmosphere_frame(
             1.055 * c.powf(1.0 / 2.4) - 0.055
         };
     }
-    lighting.0 = render::LightmapInputs {
+    lighting.0 = render_model::LightmapInputs {
         // Vanilla's ordinary renderer sets the lightmap's ambient flag, which
         // applies both ambient stages around gamma;
         // omitting it crushes shaded terrain at night, despite matching gamma.
         ambient_adjustment: true,
-        sky_darken: render::lightmap_sky_darken(
+        sky_darken: render_model::lightmap_sky_darken(
             frame.celestial_angle(),
             display.fog_level(),
             shown.lightning_level,
@@ -311,7 +311,7 @@ pub(crate) fn update_atmosphere_frame(
         brightness: settings.user_settings_update().1.video.brightness,
         night_vision: vision.night_vision,
         darkness: vision.darkness * darkness_scale,
-        darkness_pulse: render::darkness_pulse(
+        darkness_pulse: render_model::darkness_pulse(
             visual_world_time(clock, elapsed) as f32,
             0.0,
             vision.darkness * darkness_scale,
