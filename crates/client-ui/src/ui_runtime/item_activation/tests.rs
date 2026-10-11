@@ -119,6 +119,33 @@ fn totem_stall_advances_only_bounded_client_time_and_backward_time_is_inert() {
 }
 
 #[test]
+fn totem_activation_before_frame_advance_excludes_the_preceding_frame_gap() {
+    for (previous_frame, activation_frame, partial_tick) in [(100, 200, 0), (125, 175, 25)] {
+        let (mut runtime, mut player, _) = queued_player();
+        runtime.advance_item_activation(100);
+        runtime.advance_item_activation(previous_frame);
+        runtime
+            .activate_totem(&mut player, 1, 4, activation_frame)
+            .unwrap();
+        runtime.advance_item_activation(activation_frame);
+        assert_eq!(
+            runtime.item_activation.as_ref().unwrap().elapsed_millis,
+            partial_tick,
+            "only the current partial tick belongs to a newly admitted activation"
+        );
+        let expires_at =
+            activation_frame + ACTIVATION_TICKS * MILLIS_PER_SERVER_TICK - partial_tick;
+        for now in (activation_frame + 50..expires_at).step_by(50) {
+            runtime.advance_item_activation(now);
+        }
+        runtime.advance_item_activation(expires_at - 1);
+        assert!(runtime.item_activation.is_some());
+        runtime.advance_item_activation(expires_at);
+        assert!(runtime.item_activation.is_none());
+    }
+}
+
+#[test]
 fn totem_uses_the_current_client_partial_tick_when_triggered_between_ticks() {
     let (mut runtime, mut player, _) = queued_player();
     runtime.advance_item_activation(100);

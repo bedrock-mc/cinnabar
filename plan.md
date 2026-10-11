@@ -5,7 +5,8 @@
   Offhand takes precedence, retriggers replace the image, and a session change retires it.
 - The camera overlay spins and scales the flat item icon for forty client ticks. It samples
   the current admitted item atlas, including texture replacements, reloads and removals.
-- Client time includes the partial tick and bounds elapsed time during stalls. Screen overlays
+- Client time includes the partial tick and bounds elapsed time during stalls. An activation
+  starts on the current frame even when event publication precedes the UI clock update. Screen overlays
   stay above the effect; HUD safe-area insets do not move or crop the camera animation.
 - Local activation starts the pack-authored Totem emitter at the player's native position,
   following the player during emission. Remote status events do not create this emitter.
