@@ -52,7 +52,7 @@ use chunk_pipeline::{
 };
 use client_world::CommittedControlEvent;
 
-use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
+use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use client_ui::block_cracks::reconcile_world_block_cracks;
 use meshing::CameraMedium;

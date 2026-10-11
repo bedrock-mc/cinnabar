@@ -1,8 +1,6 @@
 //! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
 //! actor hurt/death status events, and dropped-item pickup.
 
-use crate::local_player::LocalViewPose;
-
 use std::sync::Arc;
 
 use bevy::prelude::{Local, Message, MessageReader, Res, ResMut, Time};
@@ -257,7 +255,7 @@ pub fn drive_consume_audio(
     time: Res<Time>,
     ui: Option<&client_ui::ui_runtime::UiRuntime>,
     world: crate::observations::WorldObservation<'_>,
-    view: Res<LocalViewPose>,
+    eye: bevy::prelude::Vec3,
     mut engine: ResMut<AudioEngine>,
     mut state: Local<ConsumeAudio>,
 ) {
@@ -282,7 +280,6 @@ pub fn drive_consume_audio(
     if cues.is_empty() {
         return;
     }
-    let eye = view.eye_translation();
     let requests: Vec<SoundRequest> = {
         let Some(bank) = engine.bank() else { return };
         let tables = bank.tables();

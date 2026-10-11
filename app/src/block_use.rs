@@ -117,7 +117,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
-    audio_cues: bevy::prelude::MessageWriter<'w, client_presentation::audio::LocalBlockCue>,
+    audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
 pub(crate) fn produce_block_use(
@@ -393,7 +393,7 @@ pub(crate) fn produce_block_use(
         let position = destination;
         context
             .audio_cues
-            .write(client_presentation::audio::LocalBlockCue::Place {
+            .write(client_audio::audio::LocalBlockCue::Place {
                 position,
                 block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
                     observed.selection.item.block_runtime_id().to_ne_bytes(),

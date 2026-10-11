@@ -83,7 +83,7 @@ fn saved_volumes_reach_the_mixer() {
     use bevy::prelude::{App, ResMut, Update};
     use {
         crate::menu::MenuRuntime,
-        client_presentation::audio::{AudioCategory, AudioSettings},
+        client_audio::audio::{AudioCategory, AudioSettings},
     };
     /// Exercises the production sound adapter without writing settings to disk.
     fn sync(mut menu: ResMut<MenuRuntime>, audio: ResMut<AudioSettings>) {

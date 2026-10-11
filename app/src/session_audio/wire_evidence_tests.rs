@@ -1,6 +1,6 @@
 use acceptance::audio_wire::WireEvidence;
-use client_presentation::audio_ingress::SequencedAudioEvent;
-use client_presentation::session_audio::{AudioOutcome, SessionAudio};
+use client_audio::audio_ingress::SequencedAudioEvent;
+use client_audio::session_audio::{AudioOutcome, SessionAudio};
 use std::sync::Arc;
 
 fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
@@ -41,7 +41,7 @@ fn forwarded(stream: &mut chunk_pipeline::WorldStream, sequence: u64) -> Vec<Seq
         )
         .unwrap();
     let mut events = Vec::new();
-    client_presentation::audio_ingress::drain_committed_audio(stream, |event| events.push(event));
+    client_audio::audio_ingress::drain_committed_audio(stream, |event| events.push(event));
     events
 }
 
@@ -53,9 +53,7 @@ fn app(stream: chunk_pipeline::WorldStream, enabled: bool) -> bevy::prelude::App
             stream: Some(stream),
             ..crate::runtime::world::ClientWorld::default()
         })
-        .insert_resource(client_presentation::session_audio::SessionAudioCatalog(
-            None,
-        ))
+        .insert_resource(client_audio::session_audio::SessionAudioCatalog(None))
         .insert_resource(SessionAudio::default())
         .insert_resource(WireEvidence::new(enabled))
         .add_systems(

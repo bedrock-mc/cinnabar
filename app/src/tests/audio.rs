@@ -9,8 +9,8 @@ use bevy::prelude::{
 use protocol::{AudioEvent, PlayAudioEvent, StopAudioEvent};
 
 use super::*;
-use client_presentation::audio_ingress::SequencedAudioEvent;
-use client_presentation::audio_ingress::drain_committed_audio;
+use client_audio::audio_ingress::SequencedAudioEvent;
+use client_audio::audio_ingress::drain_committed_audio;
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
@@ -26,7 +26,7 @@ use {
         session::{drive_session, follow_server_transfer, recover_session_failure},
         session_audio::drain_sequenced_audio_into_session,
     },
-    client_presentation::session_audio::{SessionAudio, SessionAudioCatalog},
+    client_audio::session_audio::{SessionAudio, SessionAudioCatalog},
     launcher::menu::MenuAction,
 };
 
@@ -118,7 +118,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::CameraPose>()
         .init_resource::<crate::movement::LocalPhysicsController>()
-        .init_resource::<client_presentation::named_audio::NamedAudio>()
+        .init_resource::<client_audio::named_audio::NamedAudio>()
         .add_systems(Update, crate::named_audio::drain_live_named_audio);
     for event in events {
         app.world_mut()
@@ -128,13 +128,13 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
     app.update();
     let stats = app
         .world()
-        .resource::<client_presentation::named_audio::NamedAudio>()
+        .resource::<client_audio::named_audio::NamedAudio>()
         .stats();
     assert_eq!((stats.stale, stats.unavailable), (2, 1));
     app.update();
     assert_eq!(
         app.world()
-            .resource::<client_presentation::named_audio::NamedAudio>()
+            .resource::<client_audio::named_audio::NamedAudio>()
             .stats()
             .stale,
         2

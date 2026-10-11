@@ -241,10 +241,9 @@ pub use weather::{
     ColumnSample, ColumnSampler, LAYERS_PER_KIND, MAX_PRECIPITATION_LAYERS, OCCLUSION_BLOCKED,
     OCCLUSION_OPEN, OCCLUSION_SIDE, OcclusionGrid, PARTICLE_BOX, PARTICLE_MESH_QUADS,
     PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_LEVEL_PER_TICK,
-    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, Precipitation,
-    PrecipitationLayerRecord, PrecipitationMix, PrecipitationParams, PrecipitationScene,
-    PrecipitationSim, RAIN_PARAMS, RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets,
-    altitude_adjusted_temperature, approach_level, average_precipitation, classify_precipitation,
+    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, PrecipitationLayerRecord,
+    PrecipitationMix, PrecipitationParams, PrecipitationScene, PrecipitationSim, RAIN_PARAMS,
+    RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets, approach_level, average_precipitation,
     column_heights, particle_mesh, particles_per_layer, pick_rain_splashes,
     precipitation_forward_offset,
 };

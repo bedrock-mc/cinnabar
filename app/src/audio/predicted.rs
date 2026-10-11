@@ -1,7 +1,7 @@
 //! Borrows gameplay observations for predicted sound presentation.
 use bevy::prelude::{Local, MessageReader, Res, ResMut, Time};
-use client_presentation::audio::AudioEngine;
-use client_presentation::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
+use client_audio::audio::AudioEngine;
+use client_audio::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
@@ -26,18 +26,18 @@ pub(crate) fn drive_block_cues(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::Audio));
-    client_presentation::audio::predicted::drive_block_cues(
+    client_audio::audio::predicted::drive_block_cues(
         cues,
         time,
-        client_presentation::observations::WorldObservation {
+        client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),
         },
         collisions
             .as_deref()
-            .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+            .map(|value| value as &dyn client_audio::observations::CollisionLookup),
         survival
             .as_deref()
-            .map(|value| value as &dyn client_presentation::observations::MiningObservation),
+            .map(|value| value as &dyn client_audio::observations::MiningObservation),
         engine,
         mining,
     );
@@ -58,14 +58,14 @@ pub(crate) fn drive_consume_audio(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::Audio));
-    client_presentation::audio::predicted::drive_consume_audio(
+    client_audio::audio::predicted::drive_consume_audio(
         &player_runtime,
         time,
         ui.as_deref(),
-        client_presentation::observations::WorldObservation {
+        client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),
         },
-        view,
+        view.eye_translation(),
         engine,
         state,
     );
@@ -82,13 +82,13 @@ pub(crate) fn drive_actor_audio(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::Audio));
-    client_presentation::audio::predicted::drive_actor_audio(
-        client_presentation::observations::WorldObservation {
+    client_audio::audio::predicted::drive_actor_audio(
+        client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),
         },
-        inbox.as_deref_mut().map(|value| {
-            value as &mut dyn client_presentation::observations::ParticleAudioObservation
-        }),
+        inbox
+            .as_deref_mut()
+            .map(|value| value as &mut dyn client_audio::observations::ParticleAudioObservation),
         engine,
     );
 }

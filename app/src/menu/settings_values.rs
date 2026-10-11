@@ -4,7 +4,7 @@
 use bevy::prelude::ResMut;
 
 use super::MenuRuntime;
-use client_presentation::audio::{AudioCategory, AudioSettings};
+use client_audio::audio::{AudioCategory, AudioSettings};
 
 /// The sound section's mixer categories; text-to-speech persists without a mixer backend.
 pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [

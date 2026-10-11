@@ -33,13 +33,3 @@ pub use voice::OUTPUT_RATE;
 
 pub use echo::{EchoLedger, EchoOrigin, EchoSubject};
 pub use systems::BLOCK_ECHO_SECONDS;
-
-/// Installs audio's settings and local cue queues without changing frame ordering.
-pub struct AudioPresentationPlugin;
-impl bevy::prelude::Plugin for AudioPresentationPlugin {
-    fn build(&self, app: &mut bevy::prelude::App) {
-        app.init_resource::<AudioSettings>()
-            .add_message::<UiSoundCue>()
-            .add_message::<LocalBlockCue>();
-    }
-}

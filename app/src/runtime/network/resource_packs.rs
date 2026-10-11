@@ -40,7 +40,7 @@ pub struct PackApplication {
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
-    pub(crate) server_sounds: Option<Arc<client_presentation::audio::ServerSoundPack>>,
+    pub(crate) server_sounds: Option<Arc<client_audio::audio::ServerSoundPack>>,
     pub(crate) aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
 }
 
@@ -378,7 +378,7 @@ fn compile_application(
                 changes.sounds,
                 Subscriber::Sounds,
                 previous.and_then(|old| old.server_sounds.clone()),
-                |view| client_presentation::audio::ServerSoundPack::from_view(view).map(Arc::new),
+                |view| client_audio::audio::ServerSoundPack::from_view(view).map(Arc::new),
             );
         });
     });

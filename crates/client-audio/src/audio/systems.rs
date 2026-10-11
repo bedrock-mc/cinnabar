@@ -1,6 +1,5 @@
 //! Frame systems feeding the audio engine: packets, local motion, ambience, weather and output.
 
-use crate::local_player::LocalViewPose;
 use crate::{
     audio_ingress::SequencedAudioEvent, named_audio::AudioDevice,
     observations::CollisionLookup as PhysicsCollisionRegistries,
@@ -8,10 +7,7 @@ use crate::{
 
 use std::collections::HashSet;
 
-use bevy::prelude::{
-    Local, Message, MessageReader, NonSendMut, Query, Res, ResMut, Time, Transform, With,
-};
-use render::ParticleSimulation;
+use bevy::prelude::{Local, Message, MessageReader, NonSendMut, Res, ResMut, Time};
 use sim::PaletteWorld;
 
 use super::{
@@ -444,7 +440,7 @@ pub fn drive_ambience(
     time: Res<Time>,
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
-    view: Res<LocalViewPose>,
+    eye: bevy::prelude::Vec3,
     player_runtime: Option<&player_state::PlayerState>,
     credits_active: bool,
     mut engine: ResMut<AudioEngine>,
@@ -460,7 +456,6 @@ pub fn drive_ambience(
         .and_then(|player| player.facts.player_game_mode())
         .is_some_and(|mode| matches!(mode, protocol::PlayerGameMode::Creative));
 
-    let eye = view.eye_translation();
     let underwater = match (stream, collisions) {
         (Some(stream), Some(collisions)) => {
             let mode = stream.network_id_mode();
@@ -537,7 +532,7 @@ pub fn drive_weather_and_particles(
     time: Res<Time>,
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
-    particles: Option<ResMut<ParticleSimulation>>,
+    particles: Option<&mut particles::ParticleSystem>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
     mut seen_bolts: Local<HashSet<i64>>,
@@ -631,25 +626,12 @@ fn enqueue_destroy_sound(engine: &mut AudioEngine, position: [f32; 3], request: 
 #[allow(clippy::too_many_arguments)]
 pub fn pump_audio(
     time: Res<Time>,
-    view: Res<LocalViewPose>,
-    camera: Query<&Transform, With<crate::camera::FlyCamera>>,
-    server_camera: Option<Res<crate::camera::ServerCameraView>>,
+    listener: super::engine::Listener,
     settings: Res<AudioSettings>,
     mut engine: ResMut<AudioEngine>,
     mut device: Option<NonSendMut<AudioDevice>>,
-    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
-    let _timer = profiler
-        .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::Audio));
     engine.poll_server();
-    let listener = super::listener::camera_listener(
-        &view,
-        camera.single().ok(),
-        server_camera
-            .as_deref()
-            .and_then(|camera| camera.active_listener()),
-    );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {
         return;
@@ -676,10 +658,6 @@ mod tests {
             &self.0
         }
 
-        fn block_canonical_state(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
-            None
-        }
-
         fn block_identifier(&self, _: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
             match runtime_id {
                 1 => Some("minecraft:dirt"),
@@ -687,30 +665,6 @@ mod tests {
                 _ => None,
             }
         }
-    }
-
-    /// Audio is timed inside its own systems; a span opened around the chain also counted every
-    /// system the single-threaded executor ran between its first and last system.
-    #[test]
-    fn pump_attributes_its_own_work_to_the_audio_stage() {
-        use bevy::prelude::{App, Update};
-        let profiler = render::RuntimeStageProfiler::new(true);
-        let mut app = App::new();
-        app.insert_resource(profiler.clone())
-            .init_resource::<Time>()
-            .init_resource::<LocalViewPose>()
-            .init_resource::<AudioSettings>()
-            .init_resource::<AudioEngine>()
-            .add_systems(Update, pump_audio);
-        app.update();
-        app.update();
-        let snapshot = profiler
-            .take_snapshot_if_due(std::time::Duration::ZERO)
-            .expect("enabled profiler");
-        assert_eq!(
-            snapshot.samples[render::RuntimeStage::Audio as usize].count,
-            2
-        );
     }
 
     #[test]

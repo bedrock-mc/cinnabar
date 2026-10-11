@@ -134,6 +134,44 @@ pub fn begin_camera_publication_attempt(mut receipt: ResMut<CameraPublicationAtt
     receipt.begin();
 }
 
+/// Returns the current first-person camera position only when all publication owners agree.
+#[allow(clippy::too_many_arguments)]
+pub fn published_default_camera(
+    world: crate::observations::WorldObservation<'_>,
+    session: u64,
+    receipt: &CameraPublicationAttempt,
+    frame: &crate::local_player::LocalPlayerFrameCarrier,
+    camera_pose: &crate::local_player::CameraPose,
+    physics: &dyn crate::observations::PhysicsObservation,
+    cameras: &bevy::prelude::Query<&Transform, bevy::prelude::With<crate::camera::FlyCamera>>,
+) -> Option<[f32; 3]> {
+    world.stream.as_ref().and_then(|stream| {
+        if !stream.audio_default_camera_eligible() {
+            return None;
+        }
+        let proof = receipt.published()?;
+        let frame = frame.snapshot()?;
+        let state = physics.state()?;
+        let physics_world = physics.last_world_identity()?;
+        if proof.owner != CameraOwner::current(stream, session)
+            || proof.frame_generation != frame.pose_generation()
+            || proof.tick != frame.physics_tick()
+            || state.tick != proof.tick
+            || physics_world != frame.world_collision_identity()
+            || proof.owner.session != frame.session_generation()
+            || proof.transform != *frame.pose()
+            || proof.transform != *camera_pose.transform()
+            || proof.perspective != PerspectiveMode::FirstPerson
+            || frame.perspective() != proof.perspective
+            || cameras.iter().count() != 1
+            || cameras.get(proof.entity).ok() != Some(&proof.transform)
+        {
+            return None;
+        }
+        Some(proof.transform.translation.to_array())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

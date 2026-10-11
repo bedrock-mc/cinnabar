@@ -73,7 +73,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
-    block_cues: bevy::prelude::MessageWriter<'w, client_presentation::audio::LocalBlockCue>,
+    block_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
 /// Runs after the committed world poll and before the movement flush.
@@ -201,7 +201,7 @@ pub(crate) fn produce_survival_mining(
         } = cue;
         context
             .block_cues
-            .write(client_presentation::audio::LocalBlockCue::Break {
+            .write(client_audio::audio::LocalBlockCue::Break {
                 position,
                 block_runtime_id,
             });

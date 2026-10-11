@@ -1,6 +1,7 @@
 pub mod args;
 pub mod asset_startup;
 mod audio;
+mod audio_observations;
 mod block_entities;
 mod block_selection;
 mod block_use;

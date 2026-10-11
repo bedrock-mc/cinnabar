@@ -152,9 +152,18 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience", "test-time"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
+test_support_features = ["test-support"]
+
+# Audio consumes borrowed listener and world facts without a presentation or GPU edge.
+[[crates]]
+name = "client-audio"
+path = "crates/client-audio"
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "client-presentation", "render"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -167,7 +176,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "clien
 name = "acceptance"
 path = "crates/acceptance"
 test_support_features = ["test-support"]
-allowed_dependencies = ["chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render", "render-model", "semantic-input", "world"]
+allowed_dependencies = ["client-audio", "chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render", "render-model", "semantic-input", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
@@ -225,7 +234,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time"]
+allowed_dependencies = ["client-audio", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "update-manifest", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -722,6 +731,12 @@ forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "
 forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
 
 [[module_boundaries]]
+path = "crates/client-audio/src"
+forbidden_modules = ["bedrock_client", "client_presentation", "render", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController"]
+forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "melee", "menu", "acceptance", "asset_startup", "player_runtime", "semantic_controls", "settings_runtime"]
+forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
+
+[[module_boundaries]]
 path = "crates/acceptance/src"
 forbidden_modules = ["bedrock_client", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ClientWorld"]
 forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "menu", "asset_startup", "player_runtime"]
@@ -793,7 +808,7 @@ sleep_exceptions = [
     { path = "crates/launcher-host/src/lifecycle/children.rs", reason = "lets the detached reaper begin stopping a child without an observable ready signal" },
     { path = "crates/launcher-host/src/auth.rs", reason = "a deliberately delayed reader verifies cancellation does not wait for its thread" },
     { path = "crates/launcher-host/src/launcher_account/artwork.rs", reason = "a slow image fixture verifies feeds publish before artwork downloads" },
-    { path = "crates/client-presentation/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
+    { path = "crates/client-audio/src/audio/inventory.rs", reason = "keeps the opt-in audio device alive for an audible playback window" },
     { path = "app/src/tests/input_publication.rs", reason = "models expensive frame work while measuring system ordering" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler.rs", reason = "a worker frees its light-job slot after settling has started" },
     { path = "crates/chunk-pipeline/src/stream/tests/light_scheduler/backlog.rs", reason = "paces frames in a backlog drain-timing test" },

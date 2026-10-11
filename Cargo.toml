@@ -42,6 +42,7 @@ members = [
     "crates/rich-presence",
     "crates/client-ui",
     "crates/client-presentation",
+    "crates/client-audio",
     "crates/player-state",
     "crates/sim",
     "crates/ui",

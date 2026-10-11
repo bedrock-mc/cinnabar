@@ -1,16 +1,10 @@
 //! Narrow finite, unit-dynamics, nonspatial named playback from LIVE ingress.
 //! Spatial/loop/streaming/category parity is not provided by this lane.
 
-use crate::{
-    audio_ingress::SequencedAudioEvent,
-    camera::FlyCamera,
-    local_player::{CameraPose, LocalPlayerFrameCarrier},
-    local_player_camera_receipt::{CameraOwner, CameraPublicationAttempt},
-};
+use crate::audio_ingress::SequencedAudioEvent;
 
 use assets::RuntimeAudioPcm;
-use bevy::prelude::{MessageReader, NonSendMut, Query, Res, ResMut, Resource, Transform, With};
-use semantic_input::PerspectiveMode;
+use bevy::prelude::{MessageReader, NonSendMut, ResMut, Resource};
 use std::sync::Arc;
 mod backend;
 pub use backend::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
@@ -211,11 +205,7 @@ pub fn drain_live_named_audio(
     mut messages: MessageReader<SequencedAudioEvent>,
     world: crate::observations::WorldObservation<'_>,
     clock: crate::observations::SessionObservation,
-    receipt: Res<CameraPublicationAttempt>,
-    frame: Res<LocalPlayerFrameCarrier>,
-    camera_pose: Res<CameraPose>,
-    physics: &dyn crate::observations::PhysicsObservation,
-    cameras: Query<&Transform, With<FlyCamera>>,
+    camera: Option<[f32; 3]>,
     mut state: ResMut<NamedAudio>,
     mut device: Option<NonSendMut<AudioDevice>>,
 ) {
@@ -226,31 +216,6 @@ pub fn drain_live_named_audio(
         epoch: stream.form_dimension_epoch(),
     });
     state.bind(owner);
-    let camera = world.stream.as_ref().and_then(|stream| {
-        if !stream.audio_default_camera_eligible() {
-            return None;
-        }
-        let proof = receipt.published()?;
-        let frame = frame.snapshot()?;
-        let state = physics.state()?;
-        let physics_world = physics.last_world_identity()?;
-        if proof.owner != CameraOwner::current(stream, clock.session_generation())
-            || proof.frame_generation != frame.pose_generation()
-            || proof.tick != frame.physics_tick()
-            || state.tick != proof.tick
-            || physics_world != frame.world_collision_identity()
-            || proof.owner.session != frame.session_generation()
-            || proof.transform != *frame.pose()
-            || proof.transform != *camera_pose.transform()
-            || proof.perspective != PerspectiveMode::FirstPerson
-            || frame.perspective() != proof.perspective
-            || cameras.iter().count() != 1
-            || cameras.get(proof.entity).ok() != Some(&proof.transform)
-        {
-            return None;
-        }
-        Some(proof.transform.translation.to_array())
-    });
     if world
         .stream
         .as_ref()

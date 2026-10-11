@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+client-audio = { path = "../crates/client-audio" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }
@@ -108,6 +109,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+client-audio = { path = "../crates/client-audio", features = ["test-support"] }
 launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }
 launcher = { path = "../crates/launcher", features = ["test-support"] }
 test-time = { path = "../crates/test-time" }

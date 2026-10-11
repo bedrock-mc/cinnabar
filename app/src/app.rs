@@ -205,9 +205,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
-        .init_resource::<client_presentation::session_audio::SessionAudio>()
-        .init_resource::<client_presentation::named_audio::NamedAudio>()
-        .init_resource::<client_presentation::audio::AudioEngine>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
@@ -524,17 +521,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         sound_bank,
     } = carriers.audio?;
     let audio_device = if pcm.is_some() || sound_bank.is_some() {
-        client_presentation::named_audio::AudioDevice::open_default_once()
+        client_audio::named_audio::AudioDevice::open_default_once()
     } else {
-        client_presentation::named_audio::AudioDevice::disabled()
+        client_audio::named_audio::AudioDevice::disabled()
     };
     // The full engine supersedes the single-sample named path when a bank is present.
-    let named_audio = client_presentation::named_audio::NamedAudio::new(if sound_bank.is_some() {
-        None
-    } else {
-        pcm
-    });
-    let audio_engine = client_presentation::audio::AudioEngine::new(sound_bank);
+    let named_audio =
+        client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
+    let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
     let particle_assets = carriers.particles;
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
@@ -817,7 +811,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(local_player_skin)
     .insert_resource(menu.with_vsync_override(vsync_override))
     .init_resource::<crate::menu::MenuClipboard>()
-    .insert_resource(client_presentation::session_audio::SessionAudioCatalog(
+    .insert_resource(client_audio::session_audio::SessionAudioCatalog(
         audio_catalog,
     ))
     .insert_resource(named_audio)
