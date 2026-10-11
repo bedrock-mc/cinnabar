@@ -6515,6 +6515,12 @@ frontend comparison and the broader UI visual parity gate remain incomplete.
 
 ## Go core simplification (2026-10-02)
 
+Login client IDs persist as nonzero signed 64-bit values in launcher user-data storage.
+Joins and transfers reuse the stored value, independently of account credentials,
+device profiles and transport GUIDs. Invalid or zero files are replaced using full-width
+OS entropy; storage failures return an explicit error. Broader network and platform
+parity and destination-routing acceptance remain incomplete.
+
 Client login claims use a supported memory tier and explicitly report editor capability
 and connection intent for normal gameplay, so PowerNukkitX accepts valid skins.
 The core-session and JWT login builders share the desktop-tier and editor-intent values.

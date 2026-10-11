@@ -252,6 +252,12 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// Loads or initializes the opaque login ID in this user's data namespace.
+    /// Read, entropy and persistence failures prevent using an unpersisted identity.
+    pub fn load_client_random_id(&self) -> std::io::Result<protocol::ClientRandomId> {
+        crate::client_random_id::load(&self.user_data_root)
+    }
+
     /// The install's one login device profile, whichever account's token the core holds.
     #[must_use]
     pub fn device_profile_file(&self) -> PathBuf {

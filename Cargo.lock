@@ -4258,6 +4258,7 @@ name = "launcher"
 version = "0.1.12"
 dependencies = [
  "assets",
+ "getrandom 0.3.4",
  "protocol",
  "render-api",
  "resource-pack",
@@ -4266,6 +4267,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "ui",
  "zip",

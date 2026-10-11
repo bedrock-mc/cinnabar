@@ -558,6 +558,10 @@ fn start_network(
         session_generation,
         socket_dir,
         display_name: menu.display_name().to_owned(),
+        client_random_id: menu
+            .layout()
+            .load_client_random_id()
+            .map_err(|error| error.to_string())?,
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
         login_settings,

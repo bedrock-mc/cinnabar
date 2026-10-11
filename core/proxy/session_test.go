@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -170,6 +171,58 @@ func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
 	if data.DeviceOS != protocol.DeviceAndroid || data.DeviceModel != profile.Model || data.DeviceID != profile.ID ||
 		data.DefaultInputMode != packet.InputModeTouch || data.CurrentInputMode != packet.InputModeMouse {
 		t.Fatalf("serialized login = %s", encoded)
+	}
+}
+
+// Signed login IDs survive bridge decoding, device application and upstream serialization.
+func TestSessionDownstreamPreservesSignedClientRandomID(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		value int64
+	}{
+		{"minimum", math.MinInt64},
+		{"maximum", math.MaxInt64},
+		{"negative", -1},
+		{"positive", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			request := testSessionConnect(t)
+			var claims map[string]json.RawMessage
+			if err := json.Unmarshal(request.ClientData, &claims); err != nil {
+				t.Fatal(err)
+			}
+			claims["ClientRandomId"], _ = json.Marshal(test.value)
+			request.ClientData, _ = json.Marshal(claims)
+			frame, err := encodeSessionJSON(sessionKindConnect, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := decodeSessionConnect(frame)
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile := device.New(protocol.DeviceAndroid)
+			downstream, err := newSessionDownstream(decoded, &profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(downstream.ClientData())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var data login.ClientData
+			if err := json.Unmarshal(encoded, &data); err != nil {
+				t.Fatal(err)
+			}
+			if data.ClientRandomID != test.value {
+				t.Fatalf("ClientRandomID = %d, want %d", data.ClientRandomID, test.value)
+			}
+			if data.DeviceID != profile.ID {
+				t.Fatal("device profile changed")
+			}
+		})
 	}
 }
 

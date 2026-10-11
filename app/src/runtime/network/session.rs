@@ -18,6 +18,8 @@ pub struct NetworkConfig {
     pub session_generation: u64,
     pub socket_dir: PathBuf,
     pub display_name: String,
+    /// The user storage owner's opaque persisted login identifier.
+    pub client_random_id: protocol::ClientRandomId,
     pub client_blob_cache: protocol::ClientBlobCache,
     pub player_skin: crate::player_skin::LocalPlayerSkin,
     /// The player's language, input mode and GUI scale, reported at login.
@@ -131,6 +133,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             session_generation: config.session_generation,
             socket_dir: config.socket_dir,
             display_name: config.display_name,
+            client_random_id: config.client_random_id,
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
             login_settings: config.login_settings,

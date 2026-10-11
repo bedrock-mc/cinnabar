@@ -618,6 +618,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .transpose()
         .context("bind Phase 3 evidence to this exact build and collision registry")?;
 
+    let client_random_id = connection_requested
+        .then(|| layout.load_client_random_id())
+        .transpose()
+        .context("load persistent login client ID")?;
+
     // Validate local carriers before starting a connection: an asset failure
     // must not launch the core or wait on a server the client cannot render.
     if let Some(address) = args.address.as_deref() {
@@ -659,6 +664,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             session_generation: 1,
             socket_dir,
             display_name: args.display_name.clone(),
+            client_random_id: client_random_id.expect("connection requested"),
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
             login_settings: crate::session::login_settings(&menu, None),

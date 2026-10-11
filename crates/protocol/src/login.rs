@@ -26,7 +26,7 @@ mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 use boundary::boundary_wakeup;
-pub use client_data::LoginSettings;
+pub use client_data::{ClientRandomId, LoginSettings};
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
 pub use packet_trace::PacketIdTraceSnapshot;
