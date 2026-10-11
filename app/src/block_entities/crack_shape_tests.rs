@@ -38,14 +38,15 @@ fn bamboo_cracks_follow_columns_and_reuse_unchanged_geometry() {
         .unwrap();
     let lights = vec![assets::LightProperties::default(); records.len()];
     let compiled = pack_compiler::compile_pack(root, &records, &lights).unwrap();
-    let assets = assets::RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let assets =
+        Arc::new(assets::RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap());
     let bamboo = records
         .iter()
         .find(|record| record.name.as_ref() == "minecraft:bamboo")
         .unwrap()
         .sequential_id;
-    let mut shapes = HashMap::new();
-    let shape = |cache: &mut HashMap<_, _>, position| {
+    let mut shapes = CrackShapeCache::default();
+    let shape = |cache: &mut CrackShapeCache, position| {
         let CrackShape::Quads(quads) = crack_shape(
             cache,
             &assets,
@@ -68,7 +69,7 @@ fn bamboo_cracks_follow_columns_and_reuse_unchanged_geometry() {
         std::sync::Arc::ptr_eq(&origin, &same_column),
         "same column reuses geometry without rebuilding"
     );
-    assert_eq!(shapes.len(), 2);
+    assert_eq!(shapes.shapes.len(), 2);
     let stone = records
         .iter()
         .find(|record| record.name.as_ref() == "minecraft:stone")
@@ -87,7 +88,7 @@ fn bamboo_cracks_follow_columns_and_reuse_unchanged_geometry() {
         );
     }
     assert_eq!(
-        shapes.len(),
+        shapes.shapes.len(),
         3,
         "position-independent shapes share one entry"
     );
@@ -139,14 +140,16 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
         }),
         ..Default::default()
     };
-    let assets = assets::RuntimeAssets::diagnostic()
-        .with_block_overlay(1, &overlay)
-        .unwrap();
+    let assets = Arc::new(
+        assets::RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &overlay)
+            .unwrap(),
+    );
     for (mode, id) in [
         (assets::NetworkIdMode::Sequential, 1),
         (assets::NetworkIdMode::Hashed, 0xdead_beef),
     ] {
-        let mut cache = HashMap::new();
+        let mut cache = CrackShapeCache::default();
         let CrackShape::Quads(first) = crack_shape(&mut cache, &assets, mode, Some(id), [0, 2, 0])
         else {
             panic!("compound model");
@@ -169,9 +172,91 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
             "height changes reuse the same column shape"
         );
         assert_eq!(
-            cache.len(),
+            cache.shapes.len(),
             1,
             "continuous column displacement keeps bounded cache entries per runtime transform"
+        );
+    }
+}
+
+/// Builds an admitted block overlay with one surface at the requested local height.
+fn overlay_surface(height: i16) -> Arc<assets::RuntimeAssets> {
+    let overlay = assets::BlockOverlay {
+        visuals: vec![assets::BlockVisual {
+            faces: [0; 6],
+            flags: assets::BlockFlags::empty(),
+            kind: assets::VisualKind::Model,
+            support: assets::VisualSupport::VanillaFallback,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: assets::NO_ANIMATION,
+            variant: 0,
+        }],
+        light_properties: vec![assets::LightProperties::default()],
+        materials: vec![assets::Material {
+            texture: assets::TextureRef::new(1, 0).unwrap(),
+            animation: assets::NO_ANIMATION,
+            ..assets::Material::unvaried()
+        }],
+        model_templates: vec![assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        model_quads: vec![assets::ModelQuad {
+            positions: [
+                [0, height, 0],
+                [256, height, 0],
+                [256, height, 256],
+                [0, height, 256],
+            ],
+            uvs: [[0, 0]; 4],
+            material: 0,
+            flags: 0,
+        }],
+        hashes: vec![Some(0xdead_beef)],
+        texture: Some(assets::TextureArray {
+            layers: 1,
+            mips: assets::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16).unwrap(),
+        }),
+        ..Default::default()
+    };
+    Arc::new(
+        assets::RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &overlay)
+            .unwrap(),
+    )
+}
+
+#[test]
+fn resource_reload_replaces_crack_surfaces_without_changing_block_identity() {
+    let first_assets = overlay_surface(64);
+    let second_assets = overlay_surface(192);
+    for (mode, id) in [
+        (assets::NetworkIdMode::Sequential, 1),
+        (assets::NetworkIdMode::Hashed, 0xdead_beef),
+    ] {
+        let mut cache = CrackShapeCache::default();
+        let first = crack_shape(&mut cache, &first_assets, mode, Some(id), [0; 3]);
+        let repeated = crack_shape(&mut cache, &first_assets, mode, Some(id), [0; 3]);
+        let (CrackShape::Quads(first_quads), CrackShape::Quads(repeated_quads)) =
+            (&first, &repeated)
+        else {
+            panic!("admitted overlay surface");
+        };
+        assert!(Arc::ptr_eq(first_quads, repeated_quads));
+        let replacement = crack_shape(&mut cache, &second_assets, mode, Some(id), [0; 3]);
+        assert_ne!(first, replacement);
+        assert_eq!(cache.shapes.len(), 1);
+        assert_eq!(
+            replacement,
+            crack_shape(
+                &mut CrackShapeCache::default(),
+                &second_assets,
+                mode,
+                Some(id),
+                [0; 3]
+            )
         );
     }
 }
