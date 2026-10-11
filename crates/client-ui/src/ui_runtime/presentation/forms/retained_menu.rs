@@ -1,7 +1,7 @@
 //! Retains the complete launcher output after its input and finite motion settle.
-use super::super::*;
-use crate::menu::MenuScreen;
+use launcher::menu::MenuScreen;
 use std::{collections::HashMap, sync::Arc};
+use {super::super::*, launcher::menu::MenuView};
 
 pub(in crate::ui_runtime::presentation) struct RetainedMenu {
     view: Arc<MenuView>,

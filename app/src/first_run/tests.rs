@@ -3,9 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::*;
-use crate::install_layout::{InstallEnvironment, Platform};
+use launcher::install_layout::{InstallEnvironment, Platform};
 use test_support::Dir;
+use {super::*, launcher::install_layout::InstallLayout};
 
 struct Fake {
     accept: bool,

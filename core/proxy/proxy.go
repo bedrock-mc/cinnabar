@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -58,6 +59,8 @@ type Config struct {
 	// SessionTarget, when set, maps a session Connect's connect.v1 target to a proxy target for that
 	// session alone and drops any pending transfer, as connect.v1 does; nil rejects targeted Connects.
 	SessionTarget func(ctx context.Context, kind, value string) (string, error)
+	// Device, when set, is the install's device, claimed on every session login in place of the client's.
+	Device *device.Profile
 }
 
 const maxInitialTransferHops = 8
@@ -135,6 +138,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		transfers:    transfers,
 		onDisconnect: cfg.OnDisconnect,
 		selectTarget: cfg.SessionTarget,
+		device:       cfg.Device,
 		dialTarget:   dial,
 		delay:        cfg.PacketDelay,
 		logger:       logger,

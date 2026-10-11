@@ -1,6 +1,10 @@
-use super::*;
-use crate::ui_runtime::presentation::{IconRef, forms::oreui::review_tests::paint};
 use std::{collections::HashMap, sync::Arc};
+use {
+    super::*,
+    launcher::global_resources::{Action, Snapshot},
+    launcher::menu::{MenuAction, MenuView},
+};
+use {crate::ui_runtime::presentation::forms::oreui::review_tests::paint, ui::IconRef};
 
 #[test]
 fn resource_sections_and_pack_details_reveal_height_instead_of_jumping() {
@@ -205,7 +209,9 @@ fn expanded_card_background_stays_behind_its_interactive_face_in_the_ui_tree() {
     let draw = ui::UiTree::new(nodes).unwrap().build_draw_list().unwrap();
     let topmost = draw
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .rfind(|quad| {
             let min = [
                 quad.iter()

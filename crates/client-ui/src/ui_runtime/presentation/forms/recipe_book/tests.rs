@@ -5,7 +5,7 @@ use std::sync::Arc;
 use json_ui::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 use serde_json::{Value, json};
 
-use super::*;
+use {super::*, ui::IconRef};
 
 #[test]
 fn review_recipe_cell_clears_an_icon_when_replacement_has_no_art() {

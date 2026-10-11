@@ -3,13 +3,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod artifacts;
 #[cfg(test)]
 mod completion_plan;
+mod conditions;
 mod dependencies;
 mod markers;
 mod modules;
 mod paths;
 mod policy;
+mod reexports;
 mod sources;
 mod timing;
 
@@ -60,7 +63,9 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     let mut diagnostics = Vec::new();
     check_vendor_records(root, &policy, &mut diagnostics);
     check_artifacts(root, &policy, &files, &mut diagnostics);
+    artifacts::check_binary_artifacts(root, &policy, &files, &mut diagnostics)?;
     check_sources(root, &policy, &files, &mut diagnostics)?;
+    reexports::check_reexports(root, &policy, &files, &mut diagnostics)?;
     check_dependencies(root, &policy, &mut diagnostics)?;
     modules::check_modules(root, &policy, &files, &mut diagnostics)?;
     check_markers(root, &policy, &files, &mut diagnostics)?;

@@ -5,13 +5,13 @@ use std::sync::Arc;
 use bevy::prelude::{Vec3, World};
 use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
 
-use crate::runtime::{
-    network::{
-        HandRigBuilder,
-        entity_pack::{SessionEntityPack, SessionItems},
-        prepare_actor_render_frame, publish_actor_render_frame,
+use {
+    crate::runtime::{network::prepare_actor_render_frame, world::ClientWorld},
+    assets::SessionEntityPack,
+    client_presentation::{
+        actor_publication::{HandRigBuilder, publish_actor_render_frame},
+        session_assets::SessionItems,
     },
-    world::ClientWorld,
 };
 
 /// Publishes through the actor stages used by the native main frame.

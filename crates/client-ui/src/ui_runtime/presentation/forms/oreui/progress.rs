@@ -9,7 +9,7 @@ use super::{
     theme::{self, CAPTION, HEADER5, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
-use crate::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuView};
 
 #[cfg(test)]
 mod destination_tests;
@@ -47,8 +47,9 @@ pub(super) fn join(
                 format!("{}\n{}", local.stage.title(), local.detail)
             },
             local.fraction,
-            (local.stage != Stage::Connecting)
-                .then_some(MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)),
+            (local.stage != Stage::Connecting).then_some(MenuAction::LocalWorld(
+                launcher::menu::LocalWorldAction::Back,
+            )),
         )
     } else {
         let shown = join_progress::shown(&view.feeds.join, &tr);
@@ -237,7 +238,7 @@ fn status_surface(progress: &Progress<'_>, view: Option<&MenuView>) -> super::mo
         } else {
             std::mem::discriminant(&view.feeds.join.kind).hash(&mut key);
             std::mem::discriminant(&view.feeds.join.stage).hash(&mut key);
-            if let crate::menu::JoinStage::Packs { total_bytes, .. } = view.feeds.join.stage {
+            if let launcher::menu::JoinStage::Packs { total_bytes, .. } = view.feeds.join.stage {
                 (total_bytes > 0).hash(&mut key);
             }
         }

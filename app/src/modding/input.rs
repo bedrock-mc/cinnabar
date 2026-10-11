@@ -2,16 +2,25 @@
 
 use super::{MenuRuntime, ModRuntime};
 use bevy::{
-    ecs::message::MessageCursor,
+    ecs::{message::MessageCursor, system::SystemParam},
     input::{
         ButtonState,
         keyboard::KeyboardInput,
-        mouse::{AccumulatedMouseMotion, MouseButtonInput},
+        mouse::{
+            AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput, MouseScrollUnit,
+        },
     },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+
+/// Pointer messages and wheel accumulation routed while a personal panel owns input.
+#[derive(SystemParam)]
+pub(super) struct PanelPointerInput<'w> {
+    mouse_events: Option<Res<'w, Messages<MouseButtonInput>>>,
+    scroll: Option<Res<'w, AccumulatedMouseScroll>>,
+}
 
 const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
     (MouseButton::Left, "MouseLeft"),
@@ -105,10 +114,10 @@ mod tests {
         assert_eq!(physical.held_keys, ["Digit1", "ShiftLeft"]);
         physical.track_held("Digit1".into(), false);
         assert_eq!(physical.held_keys, ["ShiftLeft"]);
-        for index in 0..mod_host::MAX_CONTROL_KEYS * 2 {
+        for index in 0..mod_api::MAX_CONTROL_KEYS * 2 {
             physical.track_held(format!("Key{index}"), true);
         }
-        assert_eq!(physical.held_keys.len(), mod_host::MAX_CONTROL_KEYS);
+        assert_eq!(physical.held_keys.len(), mod_api::MAX_CONTROL_KEYS);
         physical.discard_pending(None, None);
         assert!(physical.held_keys.is_empty());
     }
@@ -259,7 +268,7 @@ impl PhysicalControls {
     fn track_held(&mut self, key: String, pressed: bool) {
         let index = self.held_keys.iter().position(|held| *held == key);
         match (pressed, index) {
-            (true, None) if self.held_keys.len() < mod_host::MAX_CONTROL_KEYS => {
+            (true, None) if self.held_keys.len() < mod_api::MAX_CONTROL_KEYS => {
                 self.held_keys.push(key);
             }
             (false, Some(index)) => {
@@ -292,7 +301,7 @@ impl PhysicalControls {
                     continue;
                 };
                 let next = event.state == ButtonState::Pressed;
-                if next && !down[index] && focused && pressed.len() < mod_host::MAX_CONTROL_KEYS {
+                if next && !down[index] && focused && pressed.len() < mod_api::MAX_CONTROL_KEYS {
                     pressed.push(POINTER_BUTTONS[index].1.to_owned());
                 }
                 down[index] = next;
@@ -337,7 +346,7 @@ pub(super) fn prepare_mod_input(
     extension: Option<ResMut<ModRuntime>>,
     mut physical: Local<PhysicalControls>,
     keyboard_events: Option<Res<Messages<KeyboardInput>>>,
-    mouse_events: Option<Res<Messages<MouseButtonInput>>>,
+    pointer_input: PanelPointerInput,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
@@ -350,6 +359,10 @@ pub(super) fn prepare_mod_input(
     mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
     driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
+    let PanelPointerInput {
+        mouse_events,
+        scroll,
+    } = pointer_input;
     let extension = extension.filter(|runtime| !runtime.suspended);
     if extension.is_none() {
         physical.discard_pending(keyboard_events.as_deref(), mouse_events.as_deref());
@@ -505,6 +518,13 @@ pub(super) fn prepare_mod_input(
                 was_held,
                 physical.left_held,
             ));
+            if let Some(scroll) = scroll.as_ref() {
+                presentation.scroll_mod_panel(
+                    position.to_array(),
+                    f64::from(scroll.delta.y),
+                    scroll.unit == MouseScrollUnit::Pixel,
+                );
+            }
         } else if !physical.left_held {
             // A release outside the window must end capture before a later pointer re-entry.
             presentation.cancel_mod_panel_pointer_input();
@@ -550,7 +570,7 @@ pub(super) fn prepare_mod_input(
             pressed
                 .into_iter()
                 .filter(|key| !absorbed || key == "F10")
-                .take(mod_host::MAX_CONTROL_KEYS)
+                .take(mod_api::MAX_CONTROL_KEYS)
                 .collect()
         } else {
             Vec::new()
@@ -576,7 +596,7 @@ pub(super) fn prepare_mod_input(
         keys.reset(KeyCode::Escape);
     }
     if open {
-        crate::camera::release_cursor(&mut cursor);
+        client_presentation::camera::release_cursor(&mut cursor);
         keys.clear();
         if let Some(motion) = motion.as_mut() {
             motion.delta = Vec2::ZERO;

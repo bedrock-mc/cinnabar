@@ -399,7 +399,7 @@ impl TemplateScreen {
             return false;
         };
         let content = inputs.content;
-        let px = inputs.metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let px = inputs.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = inputs.language;
         let rollback = (nodes.len(), *next);
         let out = EngineOutput {

@@ -8,7 +8,20 @@ use crate::{
     server_position::resolve_server_position,
 };
 use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets};
-use protocol::*;
+use protocol::{
+    ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
+    ChangeDimensionEvent, CustomBlocks, DaylightCycleUpdateEvent, DimensionHeightDiagnostic,
+    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, PlayerMovementCorrectionEvent,
+    PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, vanilla_dimension_range,
+};
+#[cfg(test)]
+use protocol::{
+    ActorAttributesUpdateEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorSpawnEvent, CustomBlock, CustomBlockVisuals, CustomSelection,
+    CustomStateAxis, CustomStateValue, HASHED_AIR_NETWORK_ID, PrimitiveShapeChange,
+    SEQUENTIAL_AIR_NETWORK_ID,
+};
 use std::{
     collections::BTreeSet,
     collections::VecDeque,
@@ -52,7 +65,9 @@ pub use contracts::{
     CommittedUiEvent, PublisherViewGeometry, ViewCohort,
 };
 pub use map_data::MapImage;
-pub use movement_attribute::AIR_DRAG_MODIFIER_ATTRIBUTE;
+pub use movement_attribute::{
+    AIR_DRAG_MODIFIER_ATTRIBUTE, MovementSpeedAttribute, SPRINT_SPEED_MODIFIER_ID,
+};
 pub use sign_edit::SignEditRequest;
 
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);

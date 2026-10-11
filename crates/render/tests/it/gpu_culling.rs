@@ -212,17 +212,19 @@ impl<'a> Culler<'a> {
             self.storage.draw_offsets.size(),
         );
         let offsets = bytemuck::cast_slice::<u8, u32>(&offsets)
-            .chunks_exact(2)
-            .map(|pair| [pair[0], pair[1]])
-            .collect::<Vec<_>>();
+            .as_chunks::<2>()
+            .0
+            .to_vec();
         CullStream::ALL.map(|stream| {
             let start = args_region(self.storage.capacity, phase, stream) as usize;
             let count = counts[count_index(phase, stream) as usize] as usize;
             assert!(count as u32 <= stream.draws_per_record() * self.slots);
             words[start..start + count * ARGS_WORDS as usize]
-                .chunks_exact(ARGS_WORDS as usize)
+                .as_chunks::<{ ARGS_WORDS as usize }>()
+                .0
+                .iter()
                 .map(|chunk| {
-                    let command: [u32; ARGS_WORDS as usize] = chunk.try_into().unwrap();
+                    let command = *chunk;
                     // Builtins see neither offset on DX12 count draws, so both stay zero.
                     assert_eq!((command[2], command[4]), (0, 0));
                     let entries = &offsets[command[3] as usize..][..OFFSET_CORNERS as usize];

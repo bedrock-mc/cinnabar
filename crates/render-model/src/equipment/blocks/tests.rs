@@ -6,7 +6,7 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     let mut side = size;
     loop {
         let mut pixels = vec![0; side as usize * side as usize * 4 * 2];
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[40, 80, 120, 128]);
         }
         mips.push(TextureMip {
@@ -70,8 +70,10 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
         assert!(
             sheet
                 .rgba8
-                .chunks_exact(4)
-                .all(|pixel| pixel == [40, 80, 120, 128])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [40, 80, 120, 128])
         );
     }
 }
@@ -218,7 +220,7 @@ fn pinned_portal_frame_keeps_its_short_block_mesh_and_distinct_faces() {
         .fold(f32::NEG_INFINITY, f32::max);
     assert_eq!(min, -0.5);
     assert_eq!(max, 13.0 / 16.0 - 0.5);
-    for triangle in vertices.chunks_exact(3) {
+    for triangle in vertices.as_chunks::<3>().0 {
         let positions = triangle
             .iter()
             .map(|vertex| glam::Vec3::from_array(vertex.position))
@@ -249,7 +251,9 @@ fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
         for layer in 0..2usize {
             let side = mip.size as usize;
             for (pixel, rgba) in mip.rgba8[layer * side * side * 4..][..side * side * 4]
-                .chunks_exact_mut(4)
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
                 .enumerate()
             {
                 rgba.copy_from_slice(if side == 64 {

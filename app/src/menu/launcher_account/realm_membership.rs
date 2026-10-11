@@ -1,6 +1,6 @@
 //! One cancellable invitation request at a time, independent of catalog polling.
 
-use super::*;
+use {super::*, launcher::menu::view::MenuRealmCard};
 
 /// Commands from the launcher frame to its asynchronous membership worker.
 pub(super) enum Request {

@@ -14,8 +14,11 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldEvent};
 use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
 
 use super::actor_rest_presentation::{compiled_fixture, stream};
-use crate::runtime::network::{
-    ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+use {
+    crate::runtime::network::prepare_actor_render_frame,
+    client_presentation::actor_publication::{
+        ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+    },
 };
 
 /// A world holding every resource the actor publication system reads, with a perspective camera
@@ -33,9 +36,11 @@ pub(crate) fn actor_frame_world(
     world.insert_resource(Time::<Real>::new(Instant::now()));
     world.insert_resource(scene);
     world.insert_resource(ActorRenderFrame::default());
-    world.insert_resource(crate::local_player::LocalAvatarPresentation::default());
-    world.insert_resource(crate::local_player::LocalAvatarVisibilityCarrier::default());
-    world.insert_resource(crate::camera::CameraSettingsAuthority::default());
+    world.insert_resource(client_presentation::local_player::LocalAvatarPresentation::default());
+    world.insert_resource(
+        client_presentation::local_player::LocalAvatarVisibilityCarrier::default(),
+    );
+    world.insert_resource(client_presentation::camera::CameraSettingsAuthority::default());
     world.insert_resource(crate::movement::LocalPhysicsController::default());
     world.insert_resource(render::ActorRuntimeWitness::default());
     world.insert_resource(artwork);
@@ -46,7 +51,7 @@ pub(crate) fn actor_frame_world(
     ));
     world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.insert_resource(ActorFramePartialTick::default());
-    world.init_resource::<crate::runtime::network::PreparedActorPublication>();
+    world.init_resource::<client_presentation::actor_publication::PreparedActorPublication>();
     let camera = Transform::from_translation(eye).looking_at(target, Vec3::Y);
     world.spawn((
         camera,
@@ -55,9 +60,9 @@ pub(crate) fn actor_frame_world(
             aspect_ratio: 16.0 / 9.0,
             ..Default::default()
         }),
-        crate::camera::FlyCamera::default(),
+        client_presentation::camera::FlyCamera::default(),
     ));
-    world.insert_resource(crate::local_player::LocalViewPose::new(
+    world.insert_resource(client_presentation::local_player::LocalViewPose::new(
         eye,
         camera.rotation,
     ));

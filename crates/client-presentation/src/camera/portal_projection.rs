@@ -1,9 +1,14 @@
 //! Portal view distortion and the hand's independent perspective.
 
+#[cfg(test)]
+use bevy::prelude::{App, Entity, OrthographicProjection, Transform, Update, World};
 use bevy::{
     camera::{CameraProjection, SubCameraView},
     math::Vec3A,
-    prelude::*,
+    prelude::{
+        Mat4, PerspectiveProjection, Projection, Query, Res, ResMut, Single, Time, Vec3, Window,
+        With,
+    },
     window::PrimaryWindow,
 };
 

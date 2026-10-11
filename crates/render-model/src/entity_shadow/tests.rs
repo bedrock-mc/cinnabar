@@ -67,7 +67,7 @@ fn mesh_is_closed_and_wound_outward() {
         (SHADOW_VOLUME_TOP_Y + SHADOW_VOLUME_BOTTOM_Y) * 0.5,
         0.0,
     ];
-    for triangle in mesh.chunks_exact(3) {
+    for triangle in mesh.as_chunks::<3>().0 {
         let [a, b, c] = [triangle[0], triangle[1], triangle[2]];
         let e1 = glam::Vec3::from(b) - glam::Vec3::from(a);
         let e2 = glam::Vec3::from(c) - glam::Vec3::from(a);
@@ -82,7 +82,7 @@ fn mesh_is_closed_and_wound_outward() {
     // Every edge is shared by exactly two triangles in opposite directions.
     let key = |p: [f32; 3]| p.map(|v| (v * 1.0e4).round() as i64);
     let mut edges = std::collections::HashMap::new();
-    for triangle in mesh.chunks_exact(3) {
+    for triangle in mesh.as_chunks::<3>().0 {
         for (from, to) in [(0, 1), (1, 2), (2, 0)] {
             *edges
                 .entry((key(triangle[from]), key(triangle[to])))

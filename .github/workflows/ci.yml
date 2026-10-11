@@ -370,7 +370,7 @@ jobs:
       PLATFORM_TEST_PACKAGES: >-
         -p asset-compiler -p assets -p bridge -p chunk-pipeline -p developer-control
         -p dist-local -p experience-runtime -p launcher -p mod-host -p pack-compiler
-        -p protocol -p render -p rich-presence -p semantic-input -p server-experience -p visualcoverage
+        -p protocol -p render -p rich-presence -p semantic-input -p server-experience
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.99.0

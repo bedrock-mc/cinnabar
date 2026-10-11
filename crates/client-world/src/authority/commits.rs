@@ -129,7 +129,7 @@ impl WorldAuthority {
                         .iter()
                         .rev()
                         .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
-                        .find_map(movement_attribute::effective_speed);
+                        .find_map(MovementSpeedAttribute::from_attribute);
                     let liquid = |name: &str| {
                         update
                             .attributes
@@ -150,8 +150,8 @@ impl WorldAuthority {
                         })
                         .map(|attribute| attribute.current)
                         .filter(|current| current.is_finite());
-                    if let Some((current, _)) = movement {
-                        self.local_movement_speed = Some(current);
+                    if let Some(attribute) = movement {
+                        self.local_movement_speed = Some(attribute.current);
                     }
                     // One control per update keeps admission's one-slot reservation exact.
                     if movement.is_some()
@@ -162,8 +162,7 @@ impl WorldAuthority {
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
                             sequence,
                             dimension: update.dimension,
-                            current: movement.map(|(current, _)| current),
-                            sprint_modifier: movement.and_then(|(_, modifier)| modifier),
+                            movement,
                             underwater,
                             lava,
                             air_drag_modifier,

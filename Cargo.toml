@@ -45,11 +45,9 @@ members = [
     "crates/ui",
     "crates/world",
     "crates/update-manifest",
-    "tools/visualcoverage",
     "tools/architecture",
     "tools/devtool",
     "tools/dist",
-    "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
     "tools/mcp-stdio",
@@ -152,5 +150,3 @@ lto = false
 incremental = true
 
 [workspace.lints.clippy]
-# Adopted with Rust 1.99; its `as_chunks` rewrites need type changes at each site, done separately.
-chunks_exact_to_as_chunks = "allow"

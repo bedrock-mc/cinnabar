@@ -31,7 +31,13 @@ async fn login_reaches_start_game_through_bds() {
 
     let (mut session, game_data) = tokio::time::timeout(
         LOGIN_TIMEOUT,
-        LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0", None),
+        LoginSequence::connect_session(
+            socket_dir.path(),
+            "RustMCBEPhase0",
+            None,
+            None,
+            &Default::default(),
+        ),
     )
     .await
     .unwrap_or_else(|_| {
@@ -115,53 +121,134 @@ async fn login_reaches_start_game_through_bds() {
     );
 }
 
-/// Exercises the actual Rust login across both production Go relay legs without a game server.
+/// Joins through the production Go session endpoint against a scripted upstream: spawn order and
+/// readiness, transfers during login and play, server disconnects, and the pack handoff.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn offline_core_preserves_spawn_order_and_startup_transfer() {
-    for scenario in ["spawn", "transfer", "transfer-batch"] {
+async fn offline_core_session_preserves_startup_behaviour() {
+    for scenario in [
+        "spawn",
+        "packs",
+        "transfer",
+        "transfer-batch",
+        "transfer-play",
+        "disconnect",
+        "refused",
+    ] {
         let socket_dir = TestSocketDir::new().expect("socket directory");
         let mut harness =
             GoHarness::spawn_mode(socket_dir.path(), None, Some(scenario)).expect("offline core");
         wait_for_endpoint(&mut harness, socket_dir.path()).expect("endpoint");
         let login = tokio::time::timeout(
             LOGIN_TIMEOUT,
-            LoginSequence::connect(socket_dir.path(), "StartupFixture", None),
+            LoginSequence::connect_session(
+                socket_dir.path(),
+                "StartupFixture",
+                None,
+                None,
+                &Default::default(),
+            ),
         )
         .await
         .expect("login timeout");
-        if scenario.starts_with("transfer") {
-            let error = match login {
-                Err(error) => error,
-                Ok(_) => panic!("startup transfer became a spawned session"),
-            };
-            let target = error
-                .server_transfer()
-                .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
-            assert_eq!(
-                (target.host.as_str(), target.port),
-                ("next.example.test", 19133)
-            );
-        } else {
-            let (mut session, _) =
-                login.unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
-            session
-                .send(startup_marker(100))
-                .await
-                .expect("pre-readiness marker");
-            wait_for_startup_marker(&mut session, 200, &harness).await;
-            session.finish_loading().await.expect("presentation ready");
-            session
-                .finish_loading()
-                .await
-                .expect("completion is one shot");
-            session
-                .send(startup_marker(300))
-                .await
-                .expect("completion marker");
-            wait_for_startup_marker(&mut session, 400, &harness).await;
+        match scenario {
+            "transfer" | "transfer-batch" => {
+                let error = login.err().unwrap_or_else(|| {
+                    panic!("{scenario}: startup transfer became a spawned session")
+                });
+                let target = error
+                    .server_transfer()
+                    .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
+                assert_eq!(
+                    (target.host.as_str(), target.port),
+                    ("next.example.test", 19133)
+                );
+            }
+            "disconnect" | "refused" => {
+                let error = login
+                    .err()
+                    .unwrap_or_else(|| panic!("{scenario}: a server disconnect spawned"));
+                let disconnect = error
+                    .server_disconnect()
+                    .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
+                let expected = if scenario == "refused" {
+                    "fixture server is full"
+                } else {
+                    "fixture kicked during spawn"
+                };
+                assert_eq!(disconnect.message.as_deref(), Some(expected), "{scenario}");
+            }
+            _ => {
+                let (mut session, _) =
+                    login.unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+                if scenario == "packs" {
+                    assert_handed_off_fixture_packs(session.take_resource_pack_handoff());
+                }
+                session
+                    .send(startup_marker(100))
+                    .await
+                    .expect("pre-readiness marker");
+                wait_for_startup_marker(&mut session, 200, &harness).await;
+                session.finish_loading().await.expect("presentation ready");
+                session
+                    .finish_loading()
+                    .await
+                    .expect("completion is one shot");
+                session
+                    .send(startup_marker(300))
+                    .await
+                    .expect("completion marker");
+                wait_for_startup_marker(&mut session, 400, &harness).await;
+                if scenario == "transfer-play" {
+                    let packet = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())
+                        .await
+                        .expect("transfer timeout")
+                        .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+                    let McpePacketData::TransferPacket(transfer) = packet.data else {
+                        panic!("play transfer arrived as {:?}", packet.data.packet_id())
+                    };
+                    assert_eq!(
+                        (transfer.server_address.as_str(), transfer.server_port),
+                        ("play.example.test", 19134)
+                    );
+                }
+            }
         }
         let status = harness.finish(CHILD_EXIT_TIMEOUT).expect("harness exit");
-        assert!(status.success(), "{}", harness.output());
+        assert!(status.success(), "{scenario}: {}", harness.output());
+    }
+}
+
+/// The core hands over the required offer in stack order, keeping each pack's content key.
+fn assert_handed_off_fixture_packs(handoff: protocol::ResourcePackHandoff) {
+    assert!(handoff.required(), "a required offer stays required");
+    let archives = handoff.into_archives();
+    let identities: Vec<_> = archives
+        .iter()
+        .map(|archive| {
+            (
+                archive.pack_id.to_string(),
+                archive.content_key.expose().to_vec(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        identities,
+        [
+            (
+                "00112233-4455-6677-8899-aabbccddeeff".to_owned(),
+                b"fixture-content-key".to_vec()
+            ),
+            (
+                "11223344-5566-7788-99aa-bbccddeeff00".to_owned(),
+                Vec::new()
+            ),
+        ]
+    );
+    for archive in &archives {
+        assert!(
+            archive.archive.starts_with(b"PK"),
+            "each archive arrives whole"
+        );
     }
 }
 
@@ -198,7 +285,7 @@ fn startup_marker(timestamp: u64) -> protocol::Packet {
 /// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
 fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
     #[cfg(windows)]
-    let endpoint = socket_dir.join("game.addr");
+    let endpoint = socket_dir.join("session.addr");
     #[cfg(unix)]
     let endpoint = protocol::bridge_endpoint_path(socket_dir);
 

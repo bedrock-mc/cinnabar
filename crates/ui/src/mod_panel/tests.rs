@@ -302,3 +302,18 @@ fn authored_surfaces_reject_feedback_bindings_and_keep_global_visibility_express
     authored.document = document.to_string();
     assert!(authored.validate().is_err());
 }
+
+#[test]
+fn scrollbar_track_actions_are_native_only_on_track_controls() {
+    let mut panel = panel();
+    let mut authored = surface("mod.scroll_track");
+    let mut document: serde_json::Value = serde_json::from_str(&authored.document).unwrap();
+    document["screen"]["controls"][0]["action"]["type"] = serde_json::json!("scroll_track");
+    authored.document = document.to_string();
+    panel.surface = Some(authored.clone());
+    assert!(panel.validate().is_ok());
+    document["screen"]["controls"][0]["action"]["type"] = serde_json::json!("button");
+    authored.document = document.to_string();
+    panel.surface = Some(authored);
+    assert!(panel.validate().is_err());
+}

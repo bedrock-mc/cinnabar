@@ -8,16 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
 
-// TestProxyRustStartupHarness runs the production relay against an offline scripted upstream.
+// TestProxyRustStartupHarness serves the session endpoint against an offline scripted upstream.
 func TestProxyRustStartupHarness(t *testing.T) {
 	scenario := os.Getenv("CINNABAR_STARTUP_FIXTURE")
 	if scenario == "" {
@@ -30,13 +32,18 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	upstreamNetwork := streamnet.New(filepath.Join(t.TempDir(), "upstream"))
-	upstream, err := (minecraft.ListenConfig{AuthenticationDisabled: true, FlushRate: -1, ErrorLog: slog.New(slog.DiscardHandler)}).ListenNetwork(upstreamNetwork, "")
+	packs := rustStartupPacks(t, scenario)
+	upstream, err := (minecraft.ListenConfig{
+		AuthenticationDisabled: true, FlushRate: -1, ErrorLog: slog.New(slog.DiscardHandler),
+		PrepareResourcePackOffer: func(_ context.Context, conn *minecraft.Conn) error {
+			return conn.ConfigureResourcePackOffer(packs, packs != nil)
+		},
+	}).ListenNetwork(upstreamNetwork, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer upstream.Close()
 	serverDone := make(chan error, 1)
-	upstreamConnection := make(chan *minecraft.Conn, 1)
 	go func() {
 		accepted, err := upstream.Accept()
 		if err != nil {
@@ -53,39 +60,18 @@ func TestProxyRustStartupHarness(t *testing.T) {
 		return &resolvedUpstreamTarget{network: upstreamNetwork}, nil
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
-		conn, err := dialer.DialContextNetwork(ctx, target.network, "")
-		if err == nil {
-			upstreamConnection <- conn
-		}
-		return conn, err
+		return dialer.DialContextNetwork(ctx, target.network, "")
 	}
-	listener, err := localListenConfig(connections.prepare).ListenNetwork(streamnet.New(socketDir), "")
+	listener, err := streamnet.ListenSession(socketDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	claimed := device.New(protocol.DeviceAndroid)
+	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: slog.New(slog.DiscardHandler), device: &claimed}
+	server.start(ctx)
 	defer connections.finishShutdown()
-	go func() {
-		accepted, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		downstream := accepted.(*minecraft.Conn)
-		prepared, err := takePreparedAfterAccept(connections, downstream)
-		if err != nil || prepared == nil {
-			_ = downstream.Close()
-			return
-		}
-		if strings.HasPrefix(scenario, "transfer") {
-			// All upstream frames and EOF must be queued before either relay pump starts.
-			conn := <-upstreamConnection
-			select {
-			case <-conn.Context().Done():
-			case <-ctx.Done():
-			}
-		}
-		_ = servePreparedConnection(ctx, downstream, prepared)
-	}()
+	defer server.close()
+	defer connections.beginShutdown()
 	fmt.Printf("RUST_MCBE_EXTERNAL_READY=%s\n", socketDir)
 	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
 		t.Fatal(err)
@@ -98,21 +84,43 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	connections.beginShutdown()
 }
 
-// runRustStartupScript asserts each client message at the upstream end of both relay legs.
+// rustStartupPacks is the required offer of the packs scenario: an encrypted pack, then a plain one.
+func rustStartupPacks(t *testing.T, scenario string) []*resource.Pack {
+	if scenario != "packs" {
+		return nil
+	}
+	var packs []*resource.Pack
+	for _, id := range []string{"00112233-4455-6677-8899-aabbccddeeff", "11223344-5566-7788-99aa-bbccddeeff00"} {
+		pack, err := resource.ReadBytes(admissionPackArchiveWithID(t, id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		packs = append(packs, pack)
+	}
+	packs[0] = packs[0].WithContentKey("fixture-content-key")
+	return packs
+}
+
+// runRustStartupScript asserts each client message at the upstream end of the session.
 func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 	startup := relayFixtureStartup()
 	transfer := &packet.Transfer{Address: "next.example.test", Port: 19133}
-	if scenario == "transfer-batch" {
+	switch scenario {
+	case "transfer-batch":
 		return conn.WritePacketImmediate(startup[0], transfer)
+	case "refused":
+		return conn.WritePacketImmediate(&packet.Disconnect{Message: "fixture server is full"})
 	}
 	if err := conn.WritePacketImmediate(startup[0]); err != nil {
 		return err
 	}
-	if scenario == "transfer" {
+	switch scenario {
+	case "transfer":
 		return conn.WritePacketImmediate(transfer)
+	case "disconnect":
+		return conn.WritePacketImmediate(&packet.Disconnect{Message: "fixture kicked during spawn"})
 	}
 	for _, expected := range []packet.Packet{&packet.RequestChunkRadius{ChunkRadius: 16, MaxChunkRadius: 16}, &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}} {
 		if err := expectStartupPacket(conn, expected); err != nil {
@@ -134,7 +142,10 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 			return err
 		}
 	}
-	return conn.WritePacketImmediate(&packet.SetTime{Time: 400})
+	if err := conn.WritePacketImmediate(&packet.SetTime{Time: 400}); err != nil || scenario != "transfer-play" {
+		return err
+	}
+	return conn.WritePacketImmediate(&packet.Transfer{Address: "play.example.test", Port: 19134})
 }
 
 // expectStartupPacket compares complete decoded packets, including order and runtime identity.

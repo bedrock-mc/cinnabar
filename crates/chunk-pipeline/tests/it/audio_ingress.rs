@@ -3,11 +3,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chunk_pipeline::{MAX_ADMITTED_WORLD_EVENTS, WorldStream, WorldStreamError};
 use client_world::COMMITTED_AUDIO_CAPACITY;
 use protocol::{
     AudioEvent, BlockUpdateEvent, PlayAudioEvent, WeatherChannel, WeatherUpdateEvent,
     WorldBootstrap, WorldEvent,
+};
+use {
+    chunk_pipeline::WorldStream,
+    client_world::ingestion::{MAX_ADMITTED_WORLD_EVENTS, WorldStreamError},
 };
 
 fn stream() -> WorldStream {

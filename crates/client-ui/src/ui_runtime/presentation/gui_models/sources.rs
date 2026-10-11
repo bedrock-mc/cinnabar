@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use ui::UiMesh;
 
-use super::IconRef;
+use ui::IconRef;
 
 /// Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
 pub(in crate::ui_runtime::presentation) fn ordinary_cube_sheet(rgba8: &[u8]) -> bool {
-    rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255)
+    rgba8.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255)
 }
 
 pub(in crate::ui_runtime::presentation) fn sheet_faces(icon: IconRef) -> [IconRef; 6] {

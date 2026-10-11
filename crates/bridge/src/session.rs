@@ -86,6 +86,28 @@ pub fn encode_batch<P: AsRef<[u8]>>(
     Ok(frame.freeze())
 }
 
+/// The first byte of a Bedrock game batch as RakNet frames it; Batch frames replace it with their kind.
+const BEDROCK_BATCH_PREFIX: u8 = 0xfe;
+
+/// Returns the Batch frame for an uncompressed Bedrock batch framed as `0xfe` then length-prefixed packets.
+pub fn batch_frame_from_bedrock(batch: &[u8]) -> Result<Bytes, BridgeError> {
+    match batch.split_first() {
+        Some((&BEDROCK_BATCH_PREFIX, body)) if !body.is_empty() => {
+            let mut frame = BytesMut::with_capacity(batch.len());
+            frame.put_u8(KIND_BATCH);
+            frame.extend_from_slice(body);
+            Ok(frame.freeze())
+        }
+        _ => Err(invalid("not an uncompressed Bedrock batch")),
+    }
+}
+
+/// Returns a Batch frame's body, its length-prefixed packets, without splitting it; `None` for another kind.
+#[must_use]
+pub fn batch_frame_body(frame: &Bytes) -> Option<Bytes> {
+    (frame.first() == Some(&KIND_BATCH)).then(|| frame.slice(1..))
+}
+
 /// A message from the core.
 #[derive(Debug)]
 pub enum CoreMessage {

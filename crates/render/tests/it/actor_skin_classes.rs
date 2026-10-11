@@ -204,13 +204,17 @@ fn native_class_arrays_draw_the_same_pixels_as_the_standard_raster() {
         let drawn = raster(&gpu, &cube, views, render::pack_skin_slot(class, 0));
         let background = &reference[..4];
         let covered = reference
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| *pixel != background)
             .count();
         assert!(covered > 5_000, "{side}-texel cube covers {covered} pixels");
         let differing = reference
-            .chunks_exact(4)
-            .zip(drawn.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(drawn.as_chunks::<4>().0.iter())
             .filter(|(a, b)| a != b)
             .count();
         assert_eq!(

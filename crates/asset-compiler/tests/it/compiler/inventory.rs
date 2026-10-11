@@ -1,4 +1,18 @@
-use super::support::*;
+use {
+    super::support::*,
+    assets::{
+        BlockFace, BlockFlags, CollisionBox, CollisionConfidence, ContributorRole,
+        DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ROTATE_UV, ModelFamily, ModelStateField, NetworkIdMode,
+        RegistryRecord, RuntimeAssets, VisualKind, encode_blob, read_registry,
+    },
+    std::{
+        collections::HashSet,
+        fs,
+        path::{Path, PathBuf},
+        process::Command,
+    },
+    tempfile::TempDir,
+};
 
 /// The full block collision box shared by the reviewed solid cube families.
 const FULL_CUBE_COLLISION: [CollisionBox; 1] = [CollisionBox {

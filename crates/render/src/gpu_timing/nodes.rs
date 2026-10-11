@@ -12,7 +12,9 @@ use super::{
 };
 use crate::device_poll::FrameSubmissions;
 use bevy::{
-    prelude::*,
+    prelude::{
+        IntoScheduleConfigs, Local, ResMut, Resource, Result, SubApp, World, info, resource_exists,
+    },
     render::{
         Render, RenderSystems,
         render_graph::{

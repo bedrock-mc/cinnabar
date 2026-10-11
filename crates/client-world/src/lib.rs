@@ -17,15 +17,15 @@ pub use action::{
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_animation::{
-    ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStats, ActorAnimationVariables,
-    ActorAnimationView, ActorLifetimeId, ActorParticleController, ActorRenderFrame,
-    ActorRenderLayers, ActorRigSnapshot, AttachableAnimationInput, AttachableBoneParent,
-    AttachableRigSnapshot, AttachablesRuntime, BoneTransform, EntityRigId, HandPhase,
-    ItemAnimationState, JavaHeldItem, JavaMotion, JavaRetargetCache, LocalSwingMotionSample,
-    LocalSwingProgress, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-    MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
-    MAX_RUNTIME_BONES_PER_RIG, MODEL_PART_ORIGIN_Y, RenderTextureLayer, ServerAnimationCompiler,
-    SkinRenderLayer, java_mounted_body_yaw, java_walked_distance,
+    ACTOR_SWING_TICKS, ActorAnimationStats, ActorAnimationVariables, ActorAnimationView,
+    ActorLifetimeId, ActorParticleController, ActorRenderFrame, ActorRenderLayers,
+    ActorRigSnapshot, AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot,
+    AttachablesRuntime, BoneTransform, EntityRigId, HandPhase, ItemAnimationState, JavaHeldItem,
+    JavaMotion, JavaRetargetCache, LocalSwingMotionSample, LocalSwingProgress,
+    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
+    MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
+    MODEL_PART_ORIGIN_Y, RenderTextureLayer, ServerAnimationCompiler, SkinRenderLayer,
+    java_mounted_body_yaw, java_walked_distance,
 };
 pub use actor_store::{
     ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose, ActorShadowCaster,
@@ -55,7 +55,7 @@ pub use authority::{
     AIR_DRAG_MODIFIER_ATTRIBUTE, BlockEventCue, COMMITTED_AUDIO_CAPACITY,
     COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY, COMMITTED_PARTICLE_CAPACITY,
     COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
-    CommittedParticleEvent, CommittedUiEvent, MapImage, PublisherViewGeometry, SignEditRequest,
-    ViewCohort, WorldAuthority,
+    CommittedParticleEvent, CommittedUiEvent, MapImage, MovementSpeedAttribute,
+    PublisherViewGeometry, SPRINT_SPEED_MODIFIER_ID, SignEditRequest, ViewCohort, WorldAuthority,
 };
 pub use protocol::ItemAttackTiming;

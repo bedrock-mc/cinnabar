@@ -285,6 +285,8 @@
   boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
   The gameplay FOV multiplier follows vanilla (speed ratio, slowness, flying, bow,
   spyglass); the swim-speed factor and underwater narrowing remain incomplete.
+  Sprint transitions recalculate movement speed from attribute defaults and other
+  modifiers, preventing FOV overshoot after attribute resends and sprint restarts.
   Gameplay angles provisionally apply the [5, 130] bound after effects, preserving
   authored camera overrides. Incomplete: the exact-version final-angle rule and
   live post-death distortion acceptance are unverified.
@@ -608,9 +610,10 @@
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
 - Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
-  drawn; the breathing point, item and local volume culling and
-  camera-inside behaviour are provisional. Native side-by-side
-  comparison is pending.
+  drawn; the breathing point, item and local volume culling remain provisional.
+- Volumes containing the camera draw no shadow. Camera-inside and ordinary outside
+  footprints have GPU regression coverage. Exact near-plane clipping and depth-bias
+  edges remain incomplete parity checks.
 
 ## Configured inventory hotbar swaps
 
@@ -4974,8 +4977,11 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   one-call/one-20-Hz fixed ticks, feet-origin player AABBs, bedsim-order swept collision and
   stepping, basic walk/sprint/jump/sneak forces, packed-palette `crates/world` collision queries,
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
-  collision shapes, and failed replay queries stop prediction instead of guessing. A generator
-  pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
+  collision shapes, and failed replay queries stop prediction instead of guessing.
+  Collision scans floor their inclusive upper bounds so fractional queries do not suspend
+  movement over an extra, unavailable cell. Required missing collision data still stops
+  prediction; full unloaded-boundary behavior remains incomplete.
+  A generator pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
   matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim
   movement strata, expanded terrain/correction traces, and live vanilla/Lunar verification
   remain required before Phase 3 is complete. Freecam remains a non-authoritative mode and

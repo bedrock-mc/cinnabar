@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 /// Distinct colored variants let packing tests detect accidental key collapse.
 fn sprite(metadata: u32) -> SessionIcon {

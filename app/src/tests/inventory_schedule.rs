@@ -19,29 +19,33 @@ use protocol::{
 };
 use semantic_input::Action;
 
-use crate::{
-    app::{
-        ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
-    },
-    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    runtime::network::receive_network_events,
-    semantic_controls::{
-        PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
-        SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
-        route_semantic_input, synchronize_semantic_input_authority,
-    },
-    settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
-        flush_inventory_network, presentation::tests::fixture_font,
-    },
-};
 use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
-use client_ui::ui_runtime::{
-    UiRuntime, flush_inventory_send, inventory_ledger::InventoryPendingState,
-    presentation::UiPresentationRuntime,
-};
 use ui::UiPoint;
+use {
+    crate::{
+        app::{
+            ClientFrameSet, configure_client_frame_schedule,
+            configure_client_production_frame_systems,
+        },
+        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+        runtime::network::receive_network_events,
+        semantic_controls::{
+            PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
+            SemanticTouchTargets, collect_raw_input, finalize_semantic_input_after_ui_authority,
+            route_semantic_input, synchronize_semantic_input_authority,
+        },
+        settings_runtime::RuntimeSettings,
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
+            flush_inventory_network,
+        },
+    },
+    client_ui::test_support::fixture_font,
+};
+use {
+    client_ui::ui_runtime::{UiRuntime, flush_inventory_send, presentation::UiPresentationRuntime},
+    inventory::inventory_ledger::InventoryPendingState,
+};
 
 #[test]
 fn production_schedule_drains_content_before_click_and_admits_only_in_network_send() {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/device"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -118,7 +119,7 @@ func TestDecodeSessionConnectRejectsMalformedSetup(t *testing.T) {
 
 func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *testing.T) {
 	request := testSessionConnect(t)
-	downstream, err := newSessionDownstream(request)
+	downstream, err := newSessionDownstream(request, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,13 +128,48 @@ func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *test
 	}
 	wrongProtocol := request
 	wrongProtocol.Protocol++
-	if _, err := newSessionDownstream(wrongProtocol); err == nil {
+	if _, err := newSessionDownstream(wrongProtocol, nil); err == nil {
 		t.Fatal("another protocol was accepted")
 	}
 	invalid := request
 	invalid.ClientData = json.RawMessage(`{"GameVersion":"` + minecraft.DefaultProtocol.Ver() + `","DeviceOS":0}`)
-	if _, err := newSessionDownstream(invalid); !errors.Is(err, errMalformedSessionMessage) {
+	if _, err := newSessionDownstream(invalid, nil); !errors.Is(err, errMalformedSessionMessage) {
 		t.Fatalf("invalid client data: %v", err)
+	}
+}
+
+// The core's device replaces whatever device the client claims, so a client that sends none still
+// logs in, and every login claims the platform the core signs in as.
+func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
+	profile := device.New(protocol.DeviceAndroid)
+	request := testSessionConnect(t)
+	var claims map[string]any
+	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
+		t.Fatal(err)
+	}
+	delete(claims, "DeviceOS")
+	claims["DeviceModel"] = "JolyneClient"
+	claims["CurrentInputMode"] = packet.InputModeMouse
+	request.ClientData, _ = json.Marshal(claims)
+	if _, err := newSessionDownstream(request, nil); err == nil {
+		t.Fatal("a client claiming no device validated without the core's")
+	}
+	downstream, err := newSessionDownstream(request, &profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The upstream login carries the serialized claims, so check those rather than the struct.
+	encoded, err := json.Marshal(downstream.ClientData())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data login.ClientData
+	if err := json.Unmarshal(encoded, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.DeviceOS != protocol.DeviceAndroid || data.DeviceModel != profile.Model || data.DeviceID != profile.ID ||
+		data.DefaultInputMode != packet.InputModeTouch || data.CurrentInputMode != packet.InputModeMouse {
+		t.Fatalf("serialized login = %s", encoded)
 	}
 }
 
@@ -216,7 +252,7 @@ func TestSelectSessionPacksFollowsTheNegotiatedStack(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected, content, err := selectSessionPacks(stack)
+		selected, content, err := selectSessionPacks(stack, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -230,7 +266,7 @@ func TestSelectSessionPacksFollowsTheNegotiatedStack(t *testing.T) {
 			}
 		}
 	}
-	if _, _, err := selectSessionPacks(nil); !errors.Is(err, errResourcePackStackUnavailable) {
+	if _, _, err := selectSessionPacks(nil, nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing stack: %v", err)
 	}
 }
@@ -245,7 +281,7 @@ func TestSelectSessionPacksRejectsUnavailableRequiredPacks(t *testing.T) {
 	offer, _ := negotiatedOfferUpstream(t, []*resource.Pack{first}, false).ResourcePackOffer()
 	stack, _ := negotiatedOfferUpstream(t, []*resource.Pack{first, second}, false).ResourcePackStack()
 	for _, required := range []bool{false, true} {
-		selected, _, err := selectSessionPacks(&selectedResourcePackStack{offer: offer, snapshot: stack, required: required})
+		selected, _, err := selectSessionPacks(&selectedResourcePackStack{offer: offer, snapshot: stack, required: required}, nil)
 		var admission *PackAdmissionError
 		if required != errors.As(err, &admission) {
 			t.Fatalf("required=%t: err = %v", required, err)
@@ -263,21 +299,21 @@ func testSessionOffer(pack *resource.Pack, key, subPack string) sessionOffer {
 	}, pack: pack}
 }
 
-// An offer repeating one identity is ambiguous, so the join is refused rather than pairing one entry's
-// archive with another's key or sub-pack.
-func TestChooseSessionPacksRefusesARepeatedOfferIdentity(t *testing.T) {
+// An offer repeating one identity keeps its first entry, as vanilla requests each identity once, for
+// optional and required offers alike.
+func TestChooseSessionPacksKeepsTheFirstOfARepeatedOfferIdentity(t *testing.T) {
 	pack := testAdmissionPack(t)
 	offers := []sessionOffer{testSessionOffer(pack, "first-key", ""), testSessionOffer(pack, "second-key", "high")}
-	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version(), subPack: "high"}}
+	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version()}}
 	for _, required := range []bool{false, true} {
-		var admission *PackAdmissionError
-		if _, _, err := chooseSessionPacks(offers, entries, required); !errors.As(err, &admission) {
-			t.Fatalf("required=%t: err = %v", required, err)
+		selected, _, err := chooseSessionPacks(offers, entries, required, nil)
+		if err != nil || len(selected) != 1 || selected[0].ContentKey != "first-key" || selected[0].SubPack != "" {
+			t.Fatalf("required=%t: selected %+v, %v", required, selected, err)
 		}
 	}
-	selected, _, err := chooseSessionPacks(offers[1:], entries, true)
-	if err != nil || len(selected) != 1 || selected[0].ContentKey != "second-key" {
-		t.Fatalf("single offer = %+v, %v", selected, err)
+	highStack := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version(), subPack: "high"}}
+	if selected, _, err := chooseSessionPacks(offers, highStack, false, nil); err != nil || len(selected) != 0 {
+		t.Fatalf("the repeated entry's sub-pack was selected: %+v, %v", selected, err)
 	}
 }
 
@@ -286,15 +322,15 @@ func TestChooseSessionPacksParsesStackUUIDs(t *testing.T) {
 	pack := testAdmissionPack(t)
 	offers := []sessionOffer{testSessionOffer(pack, "", "")}
 	upper := []sessionStackEntry{{uuid: strings.ToUpper(pack.UUID().String()), version: pack.Version()}}
-	selected, _, err := chooseSessionPacks(offers, upper, true)
+	selected, _, err := chooseSessionPacks(offers, upper, true, nil)
 	if err != nil || len(selected) != 1 || selected[0].UUID != pack.UUID().String() {
 		t.Fatalf("upper-case stack entry = %+v, %v", selected, err)
 	}
 	invalid := []sessionStackEntry{{uuid: "not-a-uuid", version: pack.Version()}}
-	if selected, _, err := chooseSessionPacks(offers, invalid, false); err != nil || len(selected) != 0 {
+	if selected, _, err := chooseSessionPacks(offers, invalid, false, nil); err != nil || len(selected) != 0 {
 		t.Fatalf("optional invalid entry = %+v, %v", selected, err)
 	}
-	if _, _, err := chooseSessionPacks(offers, invalid, true); err == nil {
+	if _, _, err := chooseSessionPacks(offers, invalid, true, nil); err == nil {
 		t.Fatal("a required invalid entry was accepted")
 	}
 }
@@ -335,7 +371,7 @@ func TestSessionPrepareExposesThePlayerRuntimeID(t *testing.T) {
 	defer session.Close()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	downstream, err := newSessionDownstream(testSessionConnect(t))
+	downstream, err := newSessionDownstream(testSessionConnect(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -84,7 +84,9 @@ fn model_bake_is_a_projected_cutout_not_its_raw_uv_sheet_or_cube_lighting() {
     );
     let opaque = sprite
         .rgba8
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0)
         .count();
     assert!(
@@ -94,9 +96,11 @@ fn model_bake_is_a_projected_cutout_not_its_raw_uv_sheet_or_cube_lighting() {
     assert!(
         sprite
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] != 0)
-            .all(|pixel| pixel == [200, 60, 20, 255])
+            .all(|pixel| *pixel == [200, 60, 20, 255])
     );
     let mut narrower = geometry();
     narrower.bones[0].cubes[0].size[0] = scalar(4.0);
@@ -121,7 +125,9 @@ fn gui_alpha_test_uses_the_sampled_half_alpha_threshold() {
         bake(&geometry(), &texture(accepted))
             .unwrap()
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] >= accepted)
     );
 }

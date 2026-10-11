@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use super::{FormEngine, IconRef, Textures};
 use crate::ui_runtime::presentation::menu_artwork::{SERVER_ART_PREFIX, TITLE_KEY};
+use {
+    super::{FormEngine, Textures},
+    ui::IconRef,
+};
 
 pub(super) struct TitleSource {
     texture: String,
@@ -55,7 +58,7 @@ impl FormEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, ui::IconRef};
 
     #[test]
     fn title_uses_the_pack_defined_image_and_restores_the_shipped_brand() {

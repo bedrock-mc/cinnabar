@@ -1,7 +1,7 @@
 //! Imported capes retain source texels and private file ownership.
 
-use super::*;
 use launcher::dressing_room::DressingRoomCape;
+use {super::*, launcher::install_layout::InstallLayout};
 
 const CROPPED_CAPE_DIMENSIONS: (u32, u32) = (46, 22);
 

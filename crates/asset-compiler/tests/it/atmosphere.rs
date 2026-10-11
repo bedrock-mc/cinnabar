@@ -71,7 +71,9 @@ fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenan
     assert_eq!(
         cloud
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] >= 128)
             .count(),
         13_356
@@ -870,7 +872,7 @@ fn synthetic_celestial_compiled() -> CompiledAtmosphereAssets {
 }
 
 fn fill_rgba(pixels: &mut [u8], rgba: [u8; 4]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&rgba);
     }
 }

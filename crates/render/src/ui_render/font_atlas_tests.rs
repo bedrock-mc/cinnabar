@@ -453,7 +453,7 @@ fn row_uploads_preserve_existing_glyphs_when_a_taller_glyph_is_added() {
         })
         .unwrap();
     let source = &input.textures.pages()[0];
-    for quad in fonts.vertices.chunks_exact(4) {
+    for quad in fonts.vertices.as_chunks::<4>().0 {
         let [dx, dy] = quad[0].atlas_offset.map(|value| value as i32);
         for y in quad[0].source.uv[1] as i32..quad[2].source.uv[1] as i32 {
             for x in quad[0].source.uv[0] as i32..quad[2].source.uv[0] as i32 {

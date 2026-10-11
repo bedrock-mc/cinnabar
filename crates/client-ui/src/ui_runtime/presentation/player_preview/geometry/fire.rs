@@ -2,8 +2,9 @@
 
 use ui::{UiBlendMode, UiMeshBatch, UiMeshVertex};
 
-use super::super::{
-    IconRef, PREVIEW_FEET_Y, PREVIEW_HEIGHT, PREVIEW_PIXELS_PER_BLOCK, PREVIEW_WIDTH,
+use {
+    super::super::{PREVIEW_FEET_Y, PREVIEW_HEIGHT, PREVIEW_PIXELS_PER_BLOCK, PREVIEW_WIDTH},
+    ui::IconRef,
 };
 
 #[derive(Clone, Copy)]

@@ -20,7 +20,7 @@ fn vanilla_mesh_counts_and_unit_geometry() {
         assert_eq!(vertices.len(), count);
         assert!(vertices.iter().flatten().all(|value| value.is_finite()));
         if kind == PrimitiveShapeKind::Box {
-            for edge in vertices.chunks_exact(2) {
+            for edge in vertices.as_chunks::<2>().0 {
                 assert_eq!(
                     (0..3)
                         .filter(|&axis| edge[0][axis] != edge[1][axis])

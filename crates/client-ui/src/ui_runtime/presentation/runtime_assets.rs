@@ -1,6 +1,6 @@
 //! Skin and menu artwork updates for retained presentation.
 
-use super::*;
+use {super::*, ui::IconRef};
 
 impl UiPresentationRuntime {
     /// Retains original UI skin pixels and compatibility hand rasters. Live model view/bob

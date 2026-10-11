@@ -1,7 +1,11 @@
 //! Selected server content scrolls independently and ends with its last section.
 
-use super::*;
 use crate::ui_runtime::oreui_assets::{SERVER_PING_IMAGES, SERVER_PLAYERS_IMAGE};
+use {
+    super::*,
+    launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable},
+    ui::IconRef,
+};
 
 pub(super) fn details(
     canvas: &mut Canvas<'_>,

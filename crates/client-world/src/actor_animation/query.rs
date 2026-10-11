@@ -1,4 +1,7 @@
-use super::{evaluation::MolangValue, *};
+use {
+    super::{evaluation::MolangValue, *},
+    world::TICK_DURATION as ACTOR_TICK_DURATION,
+};
 
 mod potion;
 mod wolf;

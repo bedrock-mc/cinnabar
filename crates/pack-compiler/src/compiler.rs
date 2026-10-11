@@ -19,15 +19,18 @@ use assets::{
     VisualSupport,
 };
 
-use crate::{
-    AnimationInventory, BlockFace, PackSources, TextureKey,
-    animation::{
-        AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
-        compile_animation_plan_selected,
+use {
+    crate::{
+        AnimationInventory, PackSources, TextureKey,
+        animation::{
+            AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
+            compile_animation_plan_selected,
+        },
+        compile_biome_assets,
+        image::{decode_static_texture, decode_texture, normalize_texture_tile},
+        pack::{read_pack, resolve_texture_key},
     },
-    compile_biome_assets,
-    image::{decode_static_texture, decode_texture, normalize_texture_tile},
-    pack::{read_pack, resolve_texture_key},
+    assets::BlockFace,
 };
 
 mod classification;
@@ -690,7 +693,11 @@ fn compile_runtime_animation_plan(
             Err(_) if fallback_only => continue,
             Err(error) => return Err(error),
         };
-        let has_alpha = rgba8.chunks_exact(4).any(|pixel| pixel[3] != u8::MAX);
+        let has_alpha = rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != u8::MAX);
         let supports_alpha = descriptor_keys
             .keys()
             .filter(|candidate| candidate.path == source_path)
@@ -716,7 +723,9 @@ fn compile_runtime_animation_plan(
         let decoded = decode_texture(&path, &source_path)?;
         if decoded
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] != u8::MAX)
         {
             alpha_paths.insert(source_path.clone());

@@ -5,7 +5,7 @@
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
-use crate::menu::{
+use launcher::menu::{
     MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
 };
 
@@ -345,7 +345,10 @@ pub(super) fn is_featured(region: &HitRegion) -> bool {
 mod tests {
     use json_ui::{HitKind, RectOut};
 
-    use super::*;
+    use {
+        super::*,
+        launcher::menu::{MenuAction, MenuRealmCard, MenuServerCard, MenuView, PingInfo, pingable},
+    };
 
     /// Reads the selected server's count through the same global binding as the installed label.
     fn bound_featured_count(view: &MenuView) -> serde_json::Value {
@@ -373,10 +376,10 @@ mod tests {
 
     #[test]
     fn selected_experience_player_count_reaches_existing_detail_binding() {
-        use crate::menu::ServerDetails;
+        use launcher::menu::ServerDetails;
 
         let mut view = MenuView::new(true, "Steve".to_owned());
-        let address = format!("{}example", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+        let address = format!("{}example", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
         view.featured.push(MenuServerCard {
             address: address.clone(),
             ..card("experience")
@@ -418,10 +421,10 @@ mod tests {
 
     #[test]
     fn experience_player_counts_use_details_and_hide_unavailable_values() {
-        use crate::menu::ServerDetails;
+        use launcher::menu::ServerDetails;
 
         let mut view = MenuView::new(true, "Steve".to_owned());
-        let address = format!("{}example", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+        let address = format!("{}example", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
         view.feeds.pings.insert(
             address.clone(),
             PingInfo {
@@ -454,7 +457,7 @@ mod tests {
 
     #[test]
     fn pingable_featured_servers_keep_pong_counts_and_capacity() {
-        use crate::menu::ServerDetails;
+        use launcher::menu::ServerDetails;
 
         let mut view = MenuView::new(true, "Steve".to_owned());
         let address = "server.test:19132";
@@ -540,7 +543,7 @@ mod tests {
 
     #[test]
     fn the_featured_list_joins_the_pressed_or_selected_server() {
-        let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
+        let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
         view.featured = vec![card("a"), card("g")];
         assert_eq!(play_featured(&view, 0), Some(MenuAction::PlayFeatured(0)));
         assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayFeatured(1)));
@@ -572,7 +575,7 @@ mod tests {
 
     #[test]
     fn realm_grids_index_into_all_realms() {
-        let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
+        let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
         view.realms = vec![
             realm("mine", false),
             realm("theirs", true),

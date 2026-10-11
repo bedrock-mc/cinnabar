@@ -4,7 +4,7 @@ use super::super::super::super::UiPresentationError;
 use super::super::theme::{BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::super::widgets;
 use super::{Content, button};
-use crate::menu::{
+use launcher::menu::{
     MenuAction,
     auth::AuthState,
     settings_storage::{CATEGORIES, StorageAction},

@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::install_layout::InstallLayout};
 
 pub(super) fn layout() -> InstallLayout {
     let mut layout = crate::install_layout::scratch("dressing-room-catalog");
@@ -380,7 +380,13 @@ fn native_import_sizes_exclude_128_by_64_and_custom_alpha_preserves_transparency
     .write_to(&mut bytes, image::ImageFormat::Png)
     .unwrap();
     let skin = decode_png_with_model(bytes.get_ref(), SkinModel::Custom).unwrap();
-    assert!(skin.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 0));
+    assert!(
+        skin.rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 0)
+    );
 }
 
 /// Builds an original two-entry skin pack, with an optional broken second texture.

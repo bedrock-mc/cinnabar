@@ -1,11 +1,13 @@
 //! Offline Global Resources evidence through the real carrier and JSON-UI engine.
 use super::super::{pack_harness, snapshot};
-use crate::{
-    global_resources::{Action, Snapshot},
-    menu::{MenuAction, MenuScreen},
-    ui_runtime::UiRuntime,
-};
 use std::sync::Arc;
+use {
+    crate::ui_runtime::UiRuntime,
+    launcher::{
+        global_resources::{Action, Snapshot},
+        menu::{MenuAction, MenuScreen},
+    },
+};
 
 /// A synthetic pack description; no third-party content is embedded.
 fn fixture() -> resource_pack::InstalledPack {
@@ -41,7 +43,7 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
         );
         return;
     };
-    let mut view = crate::menu::MenuView::new(true, "Steve".into());
+    let mut view = launcher::menu::MenuView::new(true, "Steve".into());
     view.screen = MenuScreen::Settings;
     view.settings_section = 24;
     let pack = fixture();

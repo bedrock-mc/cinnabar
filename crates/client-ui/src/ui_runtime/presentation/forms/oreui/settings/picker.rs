@@ -9,11 +9,11 @@ use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE, TEXT};
 use super::super::widgets::MenuItem;
 use super::{button, gui_scale, sections};
-use crate::menu::{
+use crate::ui_runtime::oreui_assets::CHEVRON_DOWN_IMAGE;
+use launcher::menu::{
     MenuAction, MenuView,
     settings_options::{SETTINGS_OPTIONS, SettingKind},
 };
-use crate::ui_runtime::oreui_assets::CHEVRON_DOWN_IMAGE;
 
 pub(super) const SELECT_HEIGHT: f32 = 4.6;
 

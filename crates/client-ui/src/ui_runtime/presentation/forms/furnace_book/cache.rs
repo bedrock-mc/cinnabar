@@ -3,7 +3,10 @@ use std::sync::Arc;
 use json_ui::{CollectionItem, Scalar};
 use serde_json::Value;
 
-use super::{HudFrame, IconRef, UiRuntime, category, entries};
+use {
+    super::{HudFrame, UiRuntime, category, entries},
+    ui::IconRef,
+};
 
 pub(in super::super) struct FurnaceBookCache {
     all: Arc<[usize]>,

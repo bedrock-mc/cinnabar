@@ -6,8 +6,6 @@
 mod tests;
 mod tools;
 
-pub use mcp_stdio::handle;
-
 fn main() {
     mcp_stdio::serve(&mut tools::Server::new(font_argument()));
 }

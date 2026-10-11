@@ -15,7 +15,7 @@ const HEIGHT: u32 = 480;
 #[test]
 #[ignore = "offline PNG evidence; needs CINNABAR_RELOAD_WORLD and CINNABAR_RELOAD_OUTPUT"]
 fn live_reload_world_software_witness() {
-    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+    let _sounds = client_presentation::audio::SERVER_SOUNDS_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let carrier = std::env::var_os("CINNABAR_RELOAD_WORLD").expect("world carrier path");

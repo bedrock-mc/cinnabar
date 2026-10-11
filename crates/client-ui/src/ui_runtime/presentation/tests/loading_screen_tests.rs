@@ -188,7 +188,7 @@ fn loading_screen_snapshot() {
     };
     // Vanilla art the carrier lacks (the dirt backdrop, the title) reads from
     // the local pack, as an install does.
-    if let Ok(layout) = crate::install_layout::InstallLayout::discover() {
+    if let Ok(layout) = launcher::install_layout::InstallLayout::discover() {
         presentation.set_vanilla_texture_root(layout.vanilla_pack_dir());
     }
     if let Some(pack) = super::super::forms::pack_harness::env_pack() {
@@ -266,7 +266,7 @@ fn loading_screen_pack_snapshot() {
         );
         return;
     };
-    if let Ok(layout) = crate::install_layout::InstallLayout::discover() {
+    if let Ok(layout) = launcher::install_layout::InstallLayout::discover() {
         presentation.set_vanilla_texture_root(layout.vanilla_pack_dir());
     }
     presentation.set_server_ui_pack(&pack);

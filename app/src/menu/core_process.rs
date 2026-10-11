@@ -10,12 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    install_layout::InstallLayout,
-    lifecycle::children::{self, Spawned, StopOutcome},
-    runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
-};
 use anyhow::{Context, Result, bail};
+use {
+    crate::{
+        lifecycle::children::{self, Spawned, StopOutcome},
+        runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
+    },
+    launcher::install_layout::InstallLayout,
+};
 
 /// Bounds the graceful-stop wait before SIGTERM, then SIGKILL, fire.
 ///
@@ -180,6 +182,8 @@ pub(super) fn core_command_for_address(
         .arg(address)
         .arg("-resource-pack-cache-dir")
         .arg(layout.resource_pack_cache_dir())
+        .arg("-device-file")
+        .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(

@@ -49,7 +49,7 @@ pub(in super::super) fn installed_hud_presentation() -> Option<UiPresentationRun
         .textures
         .set_fallbacks(
             Default::default(),
-            root.join(crate::install_layout::vanilla_pack_relative()),
+            root.join(launcher::install_layout::vanilla_pack_relative()),
         );
     Some(presentation)
 }
@@ -622,8 +622,8 @@ fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() 
             2 => runtime.chat_focused = true,
             3 => p.loading_stage = Some(super::super::LoadingStage::Connecting),
             4 => {
-                let mut options = crate::menu::settings_options::SettingsOptions::default();
-                let index = crate::menu::settings_options::SETTINGS_OPTIONS
+                let mut options = launcher::menu::settings_options::SettingsOptions::default();
+                let index = launcher::menu::settings_options::SETTINGS_OPTIONS
                     .iter()
                     .position(|option| option.name == "hide_hud")
                     .unwrap();
@@ -830,7 +830,7 @@ fn personal_hud_snapshot_with_real_carrier() {
 
 #[test]
 fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
-    use crate::menu::settings_options::{
+    use launcher::menu::settings_options::{
         SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
     };
     use protocol::PlayerGameMode;
@@ -890,7 +890,7 @@ fn custom_cursor_preserves_camera_spectator_hidden_hud_and_menu_gates() {
             }
         }
     }
-    p.set_menu_view(Some(crate::menu::MenuView::new(true, "Fixture".into())));
+    p.set_menu_view(Some(launcher::menu::MenuView::new(true, "Fixture".into())));
     assert!(!p.mod_hud_visible(&player, &runtime));
 }
 

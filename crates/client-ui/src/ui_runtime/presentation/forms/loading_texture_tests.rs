@@ -121,7 +121,7 @@ fn vanilla_image(path: &str) -> image::RgbaImage {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("../.local")
-        .join(crate::install_layout::vanilla_pack_relative());
+        .join(launcher::install_layout::vanilla_pack_relative());
     image::open(root.join(format!("{path}.png")))
         .unwrap()
         .into_rgba8()

@@ -7,22 +7,27 @@ use bevy::{
 use chunk_pipeline::ViewCohortStatus;
 use render::{ChunkRenderQueue, PresentedFrameAck, PresentedFrameGate, TargetRenderExpectation};
 
-use super::{
-    AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
-    markers::GALLERY_ANCHOR_READY,
-    mutation::{MutationTracker, world_ready_markers, write_stdout_marker},
-    proofs::{
-        forced_remesh_proof, forced_remesh_settled_marker, teleport_proof, teleport_settled_marker,
-    },
-    remesh::FullViewRemeshTracker,
-    teleport::{
-        FullViewTeleportTracker, TeleportReadySnapshot, presented_ack_matches, render_view_cohort,
-        teleport_global_stage_diagnostic_marker,
-    },
-};
 use crate::world_observation::{WorldReadyCommands, WorldReadyObservation};
 use client_presentation::camera;
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use {
+    super::{
+        AcceptanceRun,
+        mutation::{MutationTracker, world_ready_markers},
+        proofs::{
+            forced_remesh_proof, forced_remesh_settled_marker, teleport_proof,
+            teleport_settled_marker,
+        },
+        remesh::FullViewRemeshTracker,
+        teleport::{
+            FullViewTeleportTracker, TeleportReadySnapshot, presented_ack_matches,
+            render_view_cohort, teleport_global_stage_diagnostic_marker,
+        },
+    },
+    diagnostics::{
+        PHASE0_REQUESTED_RADIUS_CHUNKS, markers::GALLERY_ANCHOR_READY, write_stdout_marker,
+    },
+};
 
 pub const WORLD_READY_QUIET_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const WORLD_READY_DIAGNOSTIC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);

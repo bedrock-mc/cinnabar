@@ -1,11 +1,9 @@
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
 use std::time::{Duration, Instant};
 
-use super::{
-    LocalPhysicsController, MovementOutboxReconciliation, MovementSource, MovementTicker,
-    PhysicsAuthorityGate, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample,
-    PhysicsSampleContext, PhysicsTickEvidenceContext, ProcessedMovementState,
-    flush_player_auth_inputs, reconcile_candidate_physics_correction,
-};
 use assets::{BlockPhysicsFlags, RegistryRecord};
 use gameplay::movement::coordination::physics_authority_fault_for_frame;
 use protocol::PlayerInputMode;
@@ -15,12 +13,21 @@ use sim::{
     MovementInput, Vec3, WorldCollisionIdentity, WorldQueryError,
 };
 use ui::UserSettings;
+use {
+    super::{LocalPhysicsController, MovementTicker, PhysicsAuthorityGate},
+    gameplay::movement::{
+        MovementOutboxReconciliation, MovementSource, PhysicsCorrectionMode,
+        PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
+        PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
+        reconcile_candidate_physics_correction,
+    },
+};
 
-use crate::{
-    acceptance::{AcceptanceRun, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
-    camera::CameraSettingsAuthority,
-    environment::{WeatherState, WorldClock, replace_session},
-    movement::reset_start_game_prediction,
+use {
+    crate::environment::{WeatherState, WorldClock, replace_session},
+    acceptance::{Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
+    client_presentation::camera::CameraSettingsAuthority,
+    gameplay::movement::reset_start_game_prediction,
 };
 
 #[path = "transport_tests.rs"]
@@ -215,8 +222,7 @@ fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
 pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"PREG1001");
-    bytes
-        .extend_from_slice(&crate::asset_startup::active_content_registry_protocol().to_le_bytes());
+    bytes.extend_from_slice(&assets::active_content_registry_protocol().to_le_bytes());
     bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&Sha256::digest(breg));
     for record in records {

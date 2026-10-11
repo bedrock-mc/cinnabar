@@ -5,8 +5,8 @@ use json_ui::{Catalog, Draw, DrawNode, FormRender, RectOut, ResolvedControl};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiVisual};
 
 use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
-use super::*;
 use crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font};
+use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 #[test]
 fn native_font_height_uses_minimum_only_for_first_line_and_pitch_for_newlines() {

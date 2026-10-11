@@ -142,8 +142,8 @@ mod tests {
         let rays = vertices(&model);
         assert!(!rays.is_empty(), "active dragon death must draw its rays");
         assert_eq!(rays.len() % 9, 0);
-        for ray in rays.chunks_exact(9) {
-            for triangle in ray.chunks_exact(3) {
+        for ray in rays.as_chunks::<9>().0 {
+            for triangle in ray.as_chunks::<3>().0 {
                 assert_eq!(triangle[0].position, model.center);
                 assert_eq!(&triangle[0].color[..3], &[1.0; 3]);
                 assert!(triangle[0].color[3] > 0.0);
@@ -201,7 +201,7 @@ mod tests {
                     duration_ticks: 120.0,
                 });
                 assert!(!rays.is_empty());
-                for (index, ray) in rays.chunks_exact(VERTICES_PER_RAY).enumerate() {
+                for (index, ray) in rays.as_chunks::<VERTICES_PER_RAY>().0.iter().enumerate() {
                     let normal = Vec3::from_array(ray[0].normal);
                     assert!(
                         (normal.length_squared() - 1.0).abs() <= 2.0 * f32::EPSILON,

@@ -5,7 +5,10 @@ use bevy::prelude::*;
 use developer_control::camera::CameraPath;
 use serde_json::{Value, json};
 
-use crate::{app::ClientFrameSet, camera::FlyCamera, runtime::telemetry::bedrock_camera_rotation};
+use {
+    crate::{app::ClientFrameSet, runtime::telemetry::bedrock_camera_rotation},
+    client_presentation::camera::FlyCamera,
+};
 
 #[derive(Resource)]
 pub(super) struct ScriptedCamera {
@@ -67,7 +70,9 @@ pub(super) fn start(world: &mut World, path: CameraPath) -> Result<Value, String
     if previously_hid != hid_hand {
         set_hand_hidden(world, hid_hand);
     }
-    if let Some(mut view) = world.get_resource_mut::<crate::local_player::LocalViewPose>() {
+    if let Some(mut view) =
+        world.get_resource_mut::<client_presentation::local_player::LocalViewPose>()
+    {
         view.reanchor_camera();
     }
     world.insert_resource(ScriptedCamera {
@@ -83,7 +88,9 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     let Some(scripted) = world.remove_resource::<ScriptedCamera>() else {
         return Ok(json!({ "released": false }));
     };
-    if let Some(mut view) = world.get_resource_mut::<crate::local_player::LocalViewPose>() {
+    if let Some(mut view) =
+        world.get_resource_mut::<client_presentation::local_player::LocalViewPose>()
+    {
         view.reanchor_camera();
     }
     if scripted.hid_hand {
@@ -103,7 +110,7 @@ fn set_hand_hidden(world: &mut World, hidden: bool) {
 fn drive_camera(
     time: Res<Time>,
     scripted: Option<ResMut<ScriptedCamera>>,
-    view: Option<ResMut<crate::local_player::LocalViewPose>>,
+    view: Option<ResMut<client_presentation::local_player::LocalViewPose>>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
     let Some(mut scripted) = scripted else {

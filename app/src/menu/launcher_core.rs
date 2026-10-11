@@ -1,6 +1,6 @@
 //! The launcher's long-lived core: one `-control-status` core serves account,
 //! catalog, connect and local-world control for the whole launcher run. Joins
-//! pick their target over `connect.v1` and dial this core's game socket, so it
+//! pick their target over `connect.v1` and dial this core's session socket, so it
 //! restarts when the validated sign-in changes or its child exits unexpectedly.
 
 use std::{
@@ -13,15 +13,21 @@ use anyhow::{Context, Result, anyhow};
 use bevy::prelude::{Commands, Resource};
 use protocol::launcher_control::{self, ConnectTarget};
 
-use super::{
-    AuthState, AuthSupervisor, CoreProcessGuard, MenuRuntime, account,
-    core_process::{clear_stale_bridge_endpoint, core_executable},
-    launcher_account::LauncherAccount,
-    wait_for_core,
+use {
+    super::{
+        AuthSupervisor, CoreProcessGuard, MenuRuntime, account,
+        core_process::{clear_stale_bridge_endpoint, core_executable},
+        launcher_account::LauncherAccount,
+        wait_for_core,
+    },
+    launcher::menu::auth::AuthState,
 };
-use crate::{
-    install_layout::InstallLayout, local_worlds::LocalWorlds,
-    runtime::endpoint::bridge_endpoint_exists, session_cleanup::SessionDirectoryGuard,
+use {
+    crate::{
+        local_worlds::LocalWorlds, runtime::endpoint::bridge_endpoint_exists,
+        session_cleanup::SessionDirectoryGuard,
+    },
+    launcher::install_layout::InstallLayout,
 };
 
 /// How long a join waits for the core to answer `connect.v1`.
@@ -68,10 +74,7 @@ impl Drop for LauncherCore {
         #[cfg(unix)]
         if stopped != super::core_process::CoreStopOutcome::Unreaped {
             // Long Unix socket paths live outside the owned session directory.
-            for endpoint in [
-                protocol::bridge_endpoint_path(&self.socket_dir),
-                launcher_control::control_endpoint_path(&self.socket_dir),
-            ] {
+            for endpoint in protocol::core_endpoint_paths(&self.socket_dir) {
                 if let Err(error) = std::fs::remove_file(&endpoint)
                     && error.kind() != std::io::ErrorKind::NotFound
                 {
@@ -329,6 +332,8 @@ fn launcher_command(
         .arg("-xbox-presence")
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
+        .arg("-device-file")
+        .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
@@ -479,7 +484,7 @@ mod tests {
         );
         menu.show_home();
         assert!(!menu.is_launcher());
-        assert_eq!(menu.screen(), super::super::MenuScreen::Home);
+        assert_eq!(menu.screen(), launcher::menu::MenuScreen::Home);
         assert!(
             slot.begin_join("example.invalid", false, false, menu.is_launcher())
                 .is_none(),
@@ -661,5 +666,41 @@ mod tests {
         );
         let signed_in = args(Some(Path::new("/data/auth.json")));
         assert!(signed_in.iter().any(|arg| arg == "-auth-cache"));
+    }
+
+    // Adding an account must not make the install report a second device.
+    #[test]
+    fn every_core_names_the_install_device_whichever_account_signs_in() {
+        let layout = crate::install_layout::scratch("launcher-device");
+        let pending = launcher::accounts::AccountStore::new(layout.auth_cache()).pending_cache();
+        let device_file = |command: Command| {
+            let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
+            args.windows(2)
+                .find(|pair| pair[0] == "-device-file")
+                .map(|pair| PathBuf::from(&pair[1]))
+        };
+        for auth in [None, Some(layout.auth_cache()), Some(pending)] {
+            let auth = auth.as_deref();
+            let launcher = launcher_command(
+                &layout,
+                Path::new("/opt/core"),
+                Path::new("/run/s"),
+                auth,
+                false,
+                None,
+                true,
+            );
+            let direct = super::super::core_process::core_command_for_address(
+                &layout,
+                Path::new("/opt/core"),
+                Path::new("/run/s"),
+                "example.test",
+                auth,
+                false,
+            );
+            for command in [launcher, direct] {
+                assert_eq!(device_file(command), Some(layout.device_profile_file()));
+            }
+        }
     }
 }

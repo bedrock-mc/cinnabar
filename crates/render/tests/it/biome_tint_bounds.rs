@@ -184,7 +184,7 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     let colours: Vec<[f32; 4]> =
         bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
 
-    for (pair, &(outside, inside)) in colours.chunks_exact(2).zip(&OUTSIDE) {
+    for (pair, &(outside, inside)) in colours.as_chunks::<2>().0.iter().zip(&OUTSIDE) {
         assert!(
             pair[1][1] > 0.0,
             "{inside:?} must blend the record's own biome: {:?}",

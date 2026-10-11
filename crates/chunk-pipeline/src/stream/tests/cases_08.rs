@@ -161,8 +161,8 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     stream.mark_light_changed_sources([key]);
     light_scheduler::settle_light(&mut stream, [0.0; 3]);
     stream.mark_dirty_exact(key, Instant::now());
-    let config = crate::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = crate::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 0, 0, 0, 0);
     stream.set_publication_allowance(allowance.clone());
 

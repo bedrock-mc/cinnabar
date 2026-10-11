@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, fmt::Write as _, mem::size_of};
 
 use assets::AtmosphereTexture;
-pub use assets::CloudQuality;
+use assets::CloudQuality;
 use meshing::cloud_viewport::{
     MAX_VIEWPORT_CLOUD_BYTES, MAX_VIEWPORT_CLOUD_QUADS, ViewportCloudQuad,
 };
@@ -184,7 +184,9 @@ impl CloudGeometryDiagnostic {
         let occupied_texels = u32::try_from(
             texture
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|texel| texel[3] >= 128)
                 .count(),
         )
@@ -252,7 +254,9 @@ impl CloudGeometryDiagnostic {
         let occupied_texels = u32::try_from(
             texture
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|texel| texel[3] > 1)
                 .count(),
         )

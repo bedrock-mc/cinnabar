@@ -17,8 +17,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use image::{ImageReader, Limits, imageops::FilterType};
 
-use super::IconRef;
 use super::UiPresentationRuntime;
+use ui::IconRef;
 
 mod skin_previews;
 use skin_previews::SkinArtwork;
@@ -483,14 +483,14 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 }
 
 /// Every downloaded artwork path the menu view can draw.
-pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
-    if view.screen == crate::menu::MenuScreen::DressingRoom {
+pub fn view_paths(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
+    if view.screen == launcher::menu::MenuScreen::DressingRoom {
         return Vec::new();
     }
-    if view.screen == crate::menu::MenuScreen::Profile {
+    if view.screen == launcher::menu::MenuScreen::Profile {
         return profile_art(view);
     }
-    if view.screen == crate::menu::MenuScreen::Store {
+    if view.screen == launcher::menu::MenuScreen::Store {
         return store_art(view);
     }
     // The invite screen draws only its friends' gamerpics, online list first.
@@ -517,7 +517,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .accounts
                 .iter()
                 .filter(|account| {
-                    view.dialog == Some(crate::menu::MenuDialog::Accounts)
+                    view.dialog == Some(launcher::menu::MenuDialog::Accounts)
                         || view.feeds.account_active_id.as_deref() == Some(account.id.as_str())
                 })
                 .filter_map(|account| account.picture_path.clone()),
@@ -534,7 +534,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
         .map(|path| (path, MAX_ARTWORK_SIDE));
-    if view.screen == crate::menu::MenuScreen::Servers {
+    if view.screen == launcher::menu::MenuScreen::Servers {
         let server_art = selected.into_iter().flat_map(|details| {
             let side = if details.games.len() > 8 {
                 192
@@ -570,7 +570,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
 
 /// Queues Profile card art first, followed by only the achievements Overview draws.
 /// The Marketplace draws only its offer art, so the start screen's art does not take its pages.
-fn store_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+fn store_art(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
     let Some(store) = view.store.as_deref() else {
         return Vec::new();
     };
@@ -589,7 +589,7 @@ fn store_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .collect()
 }
 
-fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+fn profile_art(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
     let profile = &view.feeds.profile;
     let mut paths = vec![
         (profile.avatar_path.clone(), MAX_ARTWORK_SIDE),
@@ -597,12 +597,12 @@ fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         (profile.picture_path.clone(), THUMBNAIL_SIDE),
         (view.feeds.home.persona_head.clone(), THUMBNAIL_SIDE),
     ];
-    if view.profile_tab == crate::menu::ProfileTab::Overview
+    if view.profile_tab == launcher::menu::ProfileTab::Overview
         && profile.achievements_loaded
         && !profile.achievements_error
         && let Some(summary) = &profile.achievements
     {
-        let sections = crate::menu::profile_achievements::visible_achievements(&summary.entries);
+        let sections = launcher::menu::profile_achievements::visible_achievements(&summary.entries);
         paths.extend(
             sections
                 .into_iter()
@@ -615,7 +615,7 @@ fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
 }
 
 /// The start screen's service art: messaging tile layers, the event badge and the persona head.
-fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
+fn home_art(home: &launcher::menu::MenuHome) -> Vec<String> {
     let mut paths = vec![home.persona_head.clone()];
     for art in [&home.play_art, &home.store_art].into_iter().flatten() {
         paths.extend([

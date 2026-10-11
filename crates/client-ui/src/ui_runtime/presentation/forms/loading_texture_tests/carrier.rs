@@ -169,7 +169,7 @@ fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
     )
     .scale
     .get()
-        * crate::ui_runtime::presentation::FONT_DESIGN_PIXEL_TEXELS as f32
+        * ui::FONT_DESIGN_PIXEL_TEXELS as f32
 }
 
 #[test]

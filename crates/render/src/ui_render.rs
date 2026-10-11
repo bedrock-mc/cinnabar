@@ -3,12 +3,19 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use bevy::image::BevyDefault;
+#[cfg(test)]
+use bevy::prelude::{GlobalTransform, Mat4};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
-    prelude::*,
+    prelude::{
+        App, BevyError, Commands, Component, Deref, DerefMut, DetectChanges, Entity, FromWorld,
+        Handle, Has, IntoScheduleConfigs, Msaa, Plugin, Query, Res, ResMut, Resource, Result,
+        Shader, World, default,
+    },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},

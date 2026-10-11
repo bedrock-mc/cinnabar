@@ -68,7 +68,9 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
         );
         assert!(
             raster
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| !matches!(pixel[3], 0 | 255))
         );
     }

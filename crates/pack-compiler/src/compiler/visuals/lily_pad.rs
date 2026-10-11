@@ -1,8 +1,8 @@
-use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use {super::super::*, assets::BlockFace};
 
 // Vanilla draws the plane at 1/64 block. Collision thickness is not art height.
 const PLANE_HEIGHT: i16 = 4;

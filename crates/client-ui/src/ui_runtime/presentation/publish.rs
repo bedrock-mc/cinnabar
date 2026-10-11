@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, ui::IconRef};
 
 pub mod commit;
 pub mod item_icons;
@@ -70,7 +70,7 @@ pub fn capture_hud_frame(
             .iter_mut()
             .zip(ledger.crafting_grid().slots())
         {
-            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot);
+            let target = inventory::inventory_ledger::InventoryTarget::Craft(slot);
             if let Some(stack) = ledger.target_stack(target) {
                 *icon = resolve_identifier(stack)
                     .as_deref()
@@ -121,7 +121,7 @@ pub fn capture_hud_frame(
             presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
     }
     {
-        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
             let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
@@ -436,9 +436,9 @@ pub fn capture_hud_frame(
     let selected_snapshot = player_runtime.selected_stack_snapshot();
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
     let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown
-        | crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => None,
+        inventory::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
+        inventory::inventory_ledger::PlayerInventorySlot::Unknown
+        | inventory::inventory_ledger::PlayerInventorySlot::Empty => None,
     });
     for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
         let slot = slot as u8;
@@ -635,19 +635,15 @@ pub fn hovered_stack(
             ),
             Hit::Storage(slot) => (ledger.storage_stack(slot), None),
             Hit::Craft(slot) => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
-                    slot,
-                )),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot)),
                 None,
             ),
             Hit::Armor(row) => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(
-                    row,
-                )),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Armor(row)),
                 None,
             ),
             Hit::Offhand => (
-                ledger.target_stack(crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand),
+                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
                 None,
             ),
             Hit::CraftOutput => (ledger.created_output_stack(), None),

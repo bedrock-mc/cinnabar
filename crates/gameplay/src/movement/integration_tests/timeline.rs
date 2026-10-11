@@ -87,13 +87,19 @@ fn delayed_movement_speed_rewinds_to_its_tick_and_matches_on_time_delivery() {
 
     let (mut delayed, mut ticker) = walked_physics(4);
     assert_eq!(
-        delayed.retime_movement_speed(102, 0.2, None).unwrap().0,
+        delayed
+            .retime_movement_speed(102, attribute(0.2, 0.2, None))
+            .unwrap()
+            .0,
         Some(102)
     );
     reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
     assert_eq!(delayed.state(), on_time.state());
     assert_eq!(
-        delayed.retime_movement_speed(102, 0.2, None).unwrap().0,
+        delayed
+            .retime_movement_speed(102, attribute(0.2, 0.2, None))
+            .unwrap()
+            .0,
         None,
         "a repeated value changes nothing and needs no replay"
     );
@@ -102,9 +108,18 @@ fn delayed_movement_speed_rewinds_to_its_tick_and_matches_on_time_delivery() {
 #[test]
 fn live_and_stale_movement_speed_stamps_leave_retained_inputs_alone() {
     let (mut physics, _) = walked_physics(3);
-    assert_eq!(physics.retime_movement_speed(0, 0.2, None), None);
-    assert_eq!(physics.retime_movement_speed(103, 0.2, None), None);
-    assert_eq!(physics.retime_movement_speed(50, 0.2, None), None);
+    assert_eq!(
+        physics.retime_movement_speed(0, attribute(0.2, 0.2, None)),
+        None
+    );
+    assert_eq!(
+        physics.retime_movement_speed(103, attribute(0.2, 0.2, None)),
+        None
+    );
+    assert_eq!(
+        physics.retime_movement_speed(50, attribute(0.2, 0.2, None)),
+        None
+    );
 }
 
 #[test]
@@ -114,7 +129,7 @@ fn empty_modifier_server_sprint_runs_at_one_boost_and_custom_speed_survives() {
         let mut authority =
             crate::movement::speed_authority::LocalMovementSpeedAuthority::default();
         authority.begin_session(7, 0);
-        assert!(authority.apply(7, 1, 0, f64::from(current), None));
+        assert!(authority.apply(7, 1, 0, attribute(f64::from(current), current, None)));
         authority.adopt_server_sprinting(Some(sprinting));
         let mut speed = 0.0;
         for _ in 0..40 {
@@ -127,7 +142,7 @@ fn empty_modifier_server_sprint_runs_at_one_boost_and_custom_speed_survives() {
             let before = physics.state().unwrap().position;
             run_tick_with(&mut physics, input);
             let movement = physics.state().unwrap().position - before;
-            speed = movement.x.hypot(movement.z) * f64::from(sim::TICKS_PER_SECOND);
+            speed = movement.x.hypot(movement.z) * f64::from(world::TICKS_PER_SECOND);
         }
         speed
     }
@@ -146,11 +161,12 @@ fn delayed_effective_speed_replays_only_sprint_edges_after_its_stamp() {
     for sprinting in [true, true, false, false, true] {
         run_tick_with(&mut physics, sprinting_input(sprinting));
     }
+    assert_eq!(physics.queue_server_motion([0.3, 0.2, -0.1], 102), Some(102));
     let (_, speed) = physics
-        .retime_movement_speed(101, f64::from(0.13_f32), None)
+        .retime_movement_speed(101, attribute(f64::from(0.13_f32), 0.1, None))
         .unwrap();
-    // No packet modifier exists to remove at the first stop; re-entry adds one.
-    assert_eq!(speed.prediction_speed(), Some(f64::from(0.13_f32)));
+    // Re-entry recalculates from packet default after the empty-modifier stop.
+    assert_eq!(speed.prediction_speed(), Some(f64::from(0.1_f32)));
 }
 
 fn sprinting_input(sprinting: bool) -> MovementInput {
@@ -472,7 +488,10 @@ fn same_tick_server_updates_replay_the_latest_value() {
     let clear = flags(|flags| flags.has_gravity = Some(false));
     let restore = flags(|flags| flags.has_gravity = Some(true));
     assert_eq!(restored.apply_server_movement_flags(102, clear), Some(102));
-    assert_eq!(restored.apply_server_movement_flags(102, restore), Some(102));
+    assert_eq!(
+        restored.apply_server_movement_flags(102, restore),
+        Some(102)
+    );
     reconcile_timeline_rewind(&mut ticker, &mut restored, 102, &VersionedFloor(1)).unwrap();
     assert_eq!(restored.state(), untouched.state());
 }
@@ -563,7 +582,10 @@ fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
         underwater: Some(0.05),
         lava: None,
     };
-    assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), Some(102));
+    assert_eq!(
+        physics.retime_liquid_movement_speeds(102, speeds),
+        Some(102)
+    );
     assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), None);
     assert_eq!(
         physics.retime_liquid_movement_speeds(104, speeds),

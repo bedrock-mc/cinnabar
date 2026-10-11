@@ -1,7 +1,7 @@
 //! Domain-separated Ed25519 signatures over exact canonical JSON bytes.
 
 use anyhow::{Result, bail, ensure};
-pub use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::signature::Ed25519KeyPair;
 use ring::{
     rand::{SecureRandom, SystemRandom},
     signature,
@@ -84,7 +84,9 @@ pub fn hex(bytes: &[u8]) -> String {
 pub fn unhex(text: &str) -> Result<Vec<u8>> {
     ensure!(text.len().is_multiple_of(2), "odd hex length");
     text.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| Ok((nibble(pair[0])? << 4) | nibble(pair[1])?))
         .collect()
 }

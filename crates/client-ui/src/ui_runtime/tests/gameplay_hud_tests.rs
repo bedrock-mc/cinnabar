@@ -1012,7 +1012,7 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
     assert_eq!(empty_snapshot.slot, 2);
     assert_eq!(
         empty_snapshot.state,
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+        inventory::inventory_ledger::PlayerInventorySlot::Empty
     );
     assert_eq!(player_runtime.selected_stack(), None);
     assert_eq!(player_runtime.presented_hotbar_stack(2), None);
@@ -1107,7 +1107,7 @@ fn non_forcing_server_selection_does_not_override_local_prediction() {
 fn toast_duration_setting_reaches_the_notification_queue() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()

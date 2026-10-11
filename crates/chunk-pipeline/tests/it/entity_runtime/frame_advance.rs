@@ -120,9 +120,7 @@ fn scripted_stream() -> WorldStream {
         &mut compiled,
         vec![
             MolangOp::LoadQuery(life),
-            MolangOp::Push(scalar(
-                client_world::ACTOR_TICK_DURATION.as_secs_f32() * 5.0,
-            )),
+            MolangOp::Push(scalar(world::TICK_DURATION.as_secs_f32() * 5.0)),
             MolangOp::Greater,
         ],
         2,
@@ -180,7 +178,7 @@ fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
         wing[0], -2.0,
         "the keyframe script runs once per published frame"
     );
-    let tick = client_world::ACTOR_TICK_DURATION.as_secs_f32();
+    let tick = world::TICK_DURATION.as_secs_f32();
     assert!((wing[1] - root[1] - 2.0 - 20.0 * tick).abs() < 1.0e-5);
     assert!((wing[2] - root[2] - 21.0 * tick).abs() < 1.0e-5);
     let current = rig.current.to_vec();

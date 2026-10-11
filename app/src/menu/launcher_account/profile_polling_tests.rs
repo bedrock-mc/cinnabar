@@ -1,11 +1,11 @@
 //! Local control sockets reproduce missing and stalled Profile feeds without an account.
 
-use super::*;
 use std::{
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     sync::atomic::{AtomicBool, Ordering},
 };
+use {super::*, launcher::menu::auth::AuthState};
 
 /// Answers Profile and auth, withholding Home so the old serial worker never reaches Profile.
 fn respond(mut stream: UnixStream, held: &mut Vec<UnixStream>, fail: bool) {
@@ -94,7 +94,7 @@ fn profile_loading_ends_without_a_feed_worker_in_both_startup_modes() {
         );
         menu.control_auth = Some(AuthState::Authenticated);
         menu.catalog_started = true;
-        menu.enter(super::super::MenuScreen::Profile);
+        menu.enter(launcher::menu::MenuScreen::Profile);
         assert!(
             menu.feeds.profile_refresh_requested,
             "opening must request Profile"
@@ -104,7 +104,7 @@ fn profile_loading_ends_without_a_feed_worker_in_both_startup_modes() {
             menu.view().feeds.profile.unavailable,
             "no Profile worker must show unavailable, launcher={launcher}"
         );
-        menu.activate(super::super::MenuAction::RefreshProfile);
+        menu.activate(launcher::menu::MenuAction::RefreshProfile);
         menu.poll_catalog(false);
         assert!(
             menu.view().feeds.profile.unavailable,
@@ -167,7 +167,7 @@ fn profile_account_feed_does_not_prevent_cached_validation_in_direct_mode() {
         layout,
         crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
     );
-    menu.enter(super::super::MenuScreen::Profile);
+    menu.enter(launcher::menu::MenuScreen::Profile);
     menu.poll_catalog(true);
     assert!(
         menu.auth_attempted,

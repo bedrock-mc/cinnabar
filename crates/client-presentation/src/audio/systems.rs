@@ -30,7 +30,6 @@ const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
-pub use client_ui::sound_requests::{ui_control_sound, ui_sound};
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
 /// using the named interface sound queue.

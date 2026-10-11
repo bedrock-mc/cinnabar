@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, launcher::install_layout::InstallLayout};
 
 fn layout() -> InstallLayout {
     super::super::tests::layout()
@@ -32,7 +32,7 @@ fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
         (selected.cape.width, selected.cape.height),
         protocol::CAPE_DIMENSIONS[1]
     );
-    for (index, texel) in selected.cape.rgba8.chunks_exact(4).enumerate() {
+    for (index, texel) in selected.cape.rgba8.as_chunks::<4>().0.iter().enumerate() {
         let x = index as u32 % selected.cape.width;
         let y = index as u32 / selected.cape.width;
         let expected = if x < pixels.width() && y < pixels.height() {
@@ -40,7 +40,7 @@ fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
         } else {
             [0; 4]
         };
-        assert_eq!(texel, expected);
+        assert_eq!(*texel, expected);
     }
     assert_eq!(fs::read(&source).unwrap(), original);
     assert_eq!(fs::read(&selected.path).unwrap(), original);
@@ -110,8 +110,10 @@ fn imported_cape_retains_texels_and_persists_independently_of_skin_choice() {
         selected
             .cape
             .rgba8
-            .chunks_exact(4)
-            .all(|pixel| pixel == [12, 41, 203, 56])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [12, 41, 203, 56])
     );
     fs::remove_file(source).unwrap();
     super::super::select(&layout, &mut view, 1).unwrap();

@@ -1,7 +1,7 @@
 //! Settings actions stay separate from launcher navigation.
 
-use crate::menu::{MenuAction, MenuRuntime};
 use std::sync::Arc;
+use {crate::menu::MenuRuntime, launcher::menu::MenuAction};
 
 impl MenuRuntime {
     /// Applies settings navigation and edits without starting a game session.
@@ -36,7 +36,7 @@ impl MenuRuntime {
             MenuAction::SettingsSection(section) => {
                 self.settings_slider_selected = None;
                 self.settings_section = section;
-                if section == crate::menu::settings_storage::SECTION_INDEX {
+                if section == launcher::menu::settings_storage::SECTION_INDEX {
                     self.refresh_storage();
                 }
                 self.settings_dropdown = None;
@@ -63,14 +63,14 @@ impl MenuRuntime {
                 self.focused = 0;
             }
             MenuAction::SettingsResetGroup(group) => {
-                self.dialog = Some(crate::menu::MenuDialog::SettingsResetGroup(group))
+                self.dialog = Some(launcher::menu::MenuDialog::SettingsResetGroup(group))
             }
             MenuAction::SettingsConfirmResetGroup(group) => self.confirm_settings_reset(group),
             MenuAction::SettingsResetBindings(gamepad) => {
-                self.dialog = Some(crate::menu::MenuDialog::SettingsResetBindings(gamepad));
+                self.dialog = Some(launcher::menu::MenuDialog::SettingsResetBindings(gamepad));
             }
             MenuAction::SettingsConfirmResetBindings(gamepad) => {
-                if self.dialog != Some(crate::menu::MenuDialog::SettingsResetBindings(gamepad)) {
+                if self.dialog != Some(launcher::menu::MenuDialog::SettingsResetBindings(gamepad)) {
                     return;
                 }
                 self.dialog = None;
