@@ -1,6 +1,6 @@
 //! Tick-driven rain sound admission and playback.
 
-use render::{Precipitation, classify_precipitation};
+use world::weather::{Precipitation, classify_precipitation};
 
 use super::engine::{AudioEngine, SoundRequest};
 
@@ -91,4 +91,71 @@ impl RainSoundScheduler {
 /// Triangular column offset from two independent bounded draws.
 fn offset(engine: &mut AudioEngine) -> i32 {
     (engine.unit() * SAMPLE_RANGE as f32) as i32 - (engine.unit() * SAMPLE_RANGE as f32) as i32
+}
+
+/// Samples rain on the completed weather ticks using the current session's loaded columns.
+#[allow(clippy::too_many_arguments)]
+pub fn drive_rain_audio(
+    session: u64,
+    stream: Option<&chunk_pipeline::WorldStream>,
+    assets: &assets::RuntimeAssets,
+    rain_levels: impl IntoIterator<Item = f32>,
+    listener: [f32; 3],
+    fancy: bool,
+    engine: &mut AudioEngine,
+    state: &mut (Option<u64>, RainSoundScheduler),
+) {
+    let generation = Some(session);
+    if state.0 != generation {
+        *state = (generation, RainSoundScheduler::default());
+    }
+    let Some(stream) = stream.filter(|stream| stream.current_dimension() == 0) else {
+        *state = (None, RainSoundScheduler::default());
+        return;
+    };
+    if !engine.has_bank() {
+        return;
+    }
+    let rules = &assets.biome_assets().rules;
+    for level in rain_levels {
+        state.1.tick(level, listener, fancy, engine, |x, z| {
+            sample_rain_column(x, z, stream.top_non_air_block_y(x, z)?, |position| {
+                let biome = stream.camera_biome_id(position)?;
+                let rule = &rules[rules.binary_search_by_key(&biome, |rule| rule.id).ok()?];
+                Some((rule.temperature(), rule.downfall()))
+            })
+        });
+    }
+}
+
+/// Resolves climate for a loaded surface and retains its precipitation height.
+fn sample_rain_column(
+    x: i32,
+    z: i32,
+    top: i32,
+    climate: impl FnOnce([f32; 3]) -> Option<(f32, f32)>,
+) -> Option<RainColumn> {
+    let surface_y = top.saturating_add(1);
+    let (temperature, downfall) = climate([x as f32 + 0.5, top as f32 + 0.5, z as f32 + 0.5])?;
+    Some(RainColumn {
+        surface_y,
+        temperature,
+        downfall,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn highest_loaded_surface_keeps_its_rain_climate() {
+        let highest = 31;
+        let sample = sample_rain_column(0, 0, highest, |position| {
+            (position[1].floor() as i32 <= highest).then_some((0.8, 0.4))
+        })
+        .expect("biome within the retained surface block");
+        assert_eq!(sample.surface_y, highest + 1);
+        assert_eq!(sample.temperature, 0.8);
+        assert_eq!(sample.downfall, 0.4);
+    }
 }

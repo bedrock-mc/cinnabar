@@ -535,7 +535,7 @@ pub(crate) fn receive_network_events(
                     packs.glyph_sheets,
                     client_world.fatal_error.is_none(),
                 );
-                client_presentation::audio::publish_server_sounds(packs.server_sounds);
+                client_audio::audio::publish_server_sounds(packs.server_sounds);
                 player_runtime.facts.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,

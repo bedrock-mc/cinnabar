@@ -40,6 +40,7 @@ mod end_sky;
 mod entity_shadow;
 mod gpu_culling;
 mod hand_lighting;
+mod item_frame_snapshot;
 mod item_particle_lighting;
 mod leaf_colour;
 mod leaf_metadata;

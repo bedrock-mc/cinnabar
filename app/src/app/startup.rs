@@ -40,7 +40,7 @@ pub(super) struct CoreCarriers {
 pub(super) struct AudioCarriers {
     pub(super) catalog: Option<Arc<RuntimeAudioCatalog>>,
     pub(super) pcm: Option<Arc<RuntimeAudioPcm>>,
-    pub(super) sound_bank: Option<client_presentation::audio::SoundBank>,
+    pub(super) sound_bank: Option<client_audio::audio::SoundBank>,
 }
 
 /// Loads every startup carrier in parallel and logs each one's load time.
@@ -170,8 +170,8 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     let catalog = loaded.map(|loaded| loaded.into_runtime());
     // Never fatal: absence or damage leaves playback silent.
     let sound_bank = match times.time("sound bank", || {
-        client_presentation::audio::SoundBank::open(
-            &client_presentation::audio::sound_bank_path(world),
+        client_audio::audio::SoundBank::open(
+            &client_audio::audio::sound_bank_path(world),
             catalog.clone(),
         )
     }) {

@@ -16,6 +16,8 @@ mod grass_side_mips;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/shelf_cake.rs"]
+mod shelf_cake;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();

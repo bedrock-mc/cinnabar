@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+client-audio = { path = "../client-audio" }
 anyhow.workspace = true
 bevy.workspace = true
 chunk-pipeline = { path = "../chunk-pipeline" }

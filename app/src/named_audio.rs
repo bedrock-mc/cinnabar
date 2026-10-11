@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use client_presentation::named_audio::{AudioDevice, NamedAudio};
-use client_presentation::{
-    audio_ingress::SequencedAudioEvent, local_player_camera_receipt::CameraPublicationAttempt,
-};
+use client_audio::audio_ingress::SequencedAudioEvent;
+use client_audio::named_audio::{AudioDevice, NamedAudio};
+use client_presentation::local_player_camera_receipt::CameraPublicationAttempt;
 use {
     crate::{environment::WorldClock, runtime::world::ClientWorld},
     client_presentation::{
@@ -29,17 +28,24 @@ pub(crate) fn drain_live_named_audio(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::Audio));
-    client_presentation::named_audio::drain_live_named_audio(
-        messages,
+    let camera = client_presentation::local_player_camera_receipt::published_default_camera(
         client_presentation::observations::WorldObservation {
             stream: world.stream.as_ref(),
         },
-        client_presentation::observations::SessionObservation(clock.session_generation()),
-        receipt,
-        frame,
-        camera_pose,
+        clock.session_generation(),
+        &receipt,
+        &frame,
+        &camera_pose,
         &*physics,
-        cameras,
+        &cameras,
+    );
+    client_audio::named_audio::drain_live_named_audio(
+        messages,
+        client_audio::observations::WorldObservation {
+            stream: world.stream.as_ref(),
+        },
+        client_audio::observations::SessionObservation(clock.session_generation()),
+        camera,
         state,
         device,
     );

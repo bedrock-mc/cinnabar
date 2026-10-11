@@ -372,8 +372,8 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
-    mut block_cues: MessageReader<client_presentation::audio::LocalBlockCue>,
-    mut break_echoes: Local<client_presentation::audio::EchoLedger>,
+    mut block_cues: MessageReader<client_audio::audio::LocalBlockCue>,
+    mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
     profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
@@ -402,7 +402,7 @@ fn drive_particles(
     );
     if *session != identity {
         *session = identity;
-        *break_echoes = client_presentation::audio::EchoLedger::default();
+        *break_echoes = client_audio::audio::EchoLedger::default();
         system.clear();
         inbox.actor_commands.clear();
         ambient.reset();
@@ -430,15 +430,15 @@ fn drive_particles(
     // Vanilla emits local destruction effects before a server echo.
     // The cue carries the destroyed id because the world already predicts air.
     for cue in block_cues.read() {
-        if let client_presentation::audio::LocalBlockCue::Break {
+        if let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         } = *cue
             && break_echoes.admit(
-                client_presentation::audio::EchoOrigin::Client,
+                client_audio::audio::EchoOrigin::Client,
                 "break",
-                client_presentation::audio::EchoSubject::Cell(position),
-                client_presentation::audio::BLOCK_ECHO_SECONDS,
+                client_audio::audio::EchoSubject::Cell(position),
+                client_audio::audio::BLOCK_ECHO_SECONDS,
                 time.elapsed_secs_f64(),
             )
         {
@@ -454,10 +454,10 @@ fn drive_particles(
                 );
                 if !breaking
                     || break_echoes.admit(
-                        client_presentation::audio::EchoOrigin::Packet,
+                        client_audio::audio::EchoOrigin::Packet,
                         "break",
-                        client_presentation::audio::EchoSubject::Cell(floor_cell(level.position)),
-                        client_presentation::audio::BLOCK_ECHO_SECONDS,
+                        client_audio::audio::EchoSubject::Cell(floor_cell(level.position)),
+                        client_audio::audio::BLOCK_ECHO_SECONDS,
                         time.elapsed_secs_f64(),
                     )
                 {

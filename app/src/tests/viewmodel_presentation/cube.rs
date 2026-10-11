@@ -319,7 +319,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .init_resource::<crate::runtime::phase3_evidence::Phase3EvidenceEmitter>()
         .init_resource::<crate::runtime::world::WorldStreamFramePoll>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
-        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>();
+        .add_message::<client_audio::audio_ingress::SequencedAudioEvent>();
     let controls = [
         protocol::WorldEvent::Respawn(protocol::RespawnEvent {
             position: [1., 64., 0.],

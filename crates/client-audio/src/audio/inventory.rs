@@ -1,11 +1,11 @@
 //! Local inventory gesture feedback, resolved through the active pack's sound routes.
 
 use assets::SoundEventTables;
-use bevy::prelude::{Res, ResMut};
+use bevy::prelude::ResMut;
 use inventory::PlayerInventoryLedger;
 
 use super::engine::{AudioEngine, SoundRequest};
-use crate::{local_player::LocalViewPose, observations::WorldObservation};
+use crate::observations::WorldObservation;
 
 fn take_drop_requests(
     ledger: &mut PlayerInventoryLedger,
@@ -32,10 +32,10 @@ fn take_drop_requests(
 pub fn drive_inventory_audio(
     player: &mut player_state::PlayerState,
     world: WorldObservation<'_>,
-    view: Res<LocalViewPose>,
+    eye: bevy::prelude::Vec3,
     mut engine: ResMut<AudioEngine>,
 ) {
-    let position = world.stream.map(|_| view.eye_translation().to_array());
+    let position = world.stream.map(|_| eye.to_array());
     let requests = take_drop_requests(
         player.inventory.ledger_mut(),
         engine.bank().map(|bank| bank.tables()),

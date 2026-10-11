@@ -3,7 +3,7 @@
 
 use serde::Serialize;
 
-use client_presentation::audio_ingress::SequencedAudioEvent;
+use client_audio::audio_ingress::SequencedAudioEvent;
 
 const TARGET: &str = "game.player.attack.critical";
 const MAX_ROWS: usize = 4;

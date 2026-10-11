@@ -20,7 +20,7 @@ use developer_control::{
 };
 use serde_json::{Value, json};
 
-use client_presentation::named_audio::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
+use client_audio::named_audio::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
 
 use crate::hud_tools::{FrameCapture, FrameCaptureSet};
 
@@ -123,7 +123,7 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         let wav = WavWriter::create(
             &wav_path,
             CAPTURE_CHANNELS,
-            client_presentation::audio::OUTPUT_RATE,
+            client_audio::audio::OUTPUT_RATE,
         )
         .map_err(|error| format!("{}: {error}", wav_path.display()))?;
         world
@@ -262,7 +262,7 @@ fn pull_audio(audio: &mut AudioCapture, fps: u32, copies: u64) {
     let Ok(mut mixer) = audio.mixer.lock() else {
         return;
     };
-    let rate = client_presentation::audio::OUTPUT_RATE;
+    let rate = client_audio::audio::OUTPUT_RATE;
     for _ in 0..copies {
         let count = samples_for_frame(rate, CAPTURE_CHANNELS, fps, audio.frames);
         audio.frames += 1;

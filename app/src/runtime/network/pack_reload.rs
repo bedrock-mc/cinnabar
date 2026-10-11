@@ -450,7 +450,7 @@ pub(crate) fn reload_resource_packs(
                 ui.set_session_glyphs(packs.glyph_sheets);
                 ui.set_server_ui(packs.server_ui);
                 if sounds_changed {
-                    client_presentation::audio::publish_server_sounds(packs.server_sounds);
+                    client_audio::audio::publish_server_sounds(packs.server_sounds);
                 }
                 reload.applied = prepared.revision;
                 reload.last_duration = Some(prepared.elapsed);

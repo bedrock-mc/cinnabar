@@ -20,6 +20,7 @@ mod palette;
 mod section_snapshot;
 mod store;
 mod sub_chunk;
+pub mod weather;
 
 pub use biome::{BiomeIds, BiomeStorage, DecodedBiomeColumn, RawBiomeIds};
 pub use block_entity::{

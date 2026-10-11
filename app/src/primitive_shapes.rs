@@ -37,21 +37,22 @@ struct FrameClock<'w> {
 /// Shares retained state across render extraction without cloning or walking shape records.
 fn publish(
     mut world: ResMut<ClientWorld>,
-    mut scene: ResMut<PrimitiveShapesScene>,
+    scene: ResMut<PrimitiveShapesScene>,
     clock: FrameClock,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    presentation: ResMut<UiPresentationRuntime>,
     runtime: Res<UiRuntime>,
-    mut publisher: Local<PrimitiveShapePublisher>,
+    publisher: Local<PrimitiveShapePublisher>,
 ) {
-    publisher.publish(
+    client_presentation::primitive_shapes::drive_primitive_shapes(
         world.stream.as_mut(),
-        &mut scene,
+        scene,
         clock.time.elapsed_secs(),
         clock.partial.0,
-        Some(clock.view.feet_translation().to_array()),
+        &clock.view,
+        presentation,
+        runtime,
+        publisher,
     );
-    let mut store = scene.store.lock().expect("primitive store lock poisoned");
-    presentation.prepare_primitive_text(&mut store, &runtime);
 }
 
 /// Exposes retained drawing counters only when a developer-control snapshot is requested.

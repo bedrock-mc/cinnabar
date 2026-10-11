@@ -8,9 +8,8 @@ use client_state::PlayerRuntime;
 mod latency_fences;
 
 use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
-use client_presentation::{
-    audio_ingress::SequencedAudioEvent, server_camera::ServerCameraInstructions,
-};
+use client_audio::audio_ingress::SequencedAudioEvent;
+use client_presentation::server_camera::ServerCameraInstructions;
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemRegistryEvent,
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,

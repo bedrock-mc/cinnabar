@@ -25,6 +25,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "chunk-pipeline",
+ "client-audio",
  "client-presentation",
  "client-world",
  "diagnostics",
@@ -677,6 +678,7 @@ dependencies = [
  "bridge",
  "bytes",
  "chunk-pipeline",
+ "client-audio",
  "client-presentation",
  "client-session",
  "client-state",
@@ -2247,7 +2249,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "client-presentation"
+name = "client-audio"
 version = "0.1.12"
 dependencies = [
  "anyhow",
@@ -2257,6 +2259,32 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
+ "inventory 0.1.12",
+ "particles",
+ "player-state",
+ "protocol",
+ "resource-pack",
+ "rodio",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "sim",
+ "test-time",
+ "windows-sys 0.61.2",
+ "world",
+ "zip",
+]
+
+[[package]]
+name = "client-presentation"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "assets",
+ "bevy",
+ "chunk-pipeline",
+ "client-ui",
+ "client-world",
  "glam",
  "image",
  "inventory 0.1.12",
@@ -2269,17 +2297,13 @@ dependencies = [
  "render-api",
  "render-model",
  "resource-pack",
- "rodio",
  "semantic-input",
  "serde",
  "serde_json",
- "server-experience",
  "sha2",
  "sim",
- "test-time",
  "thiserror 2.0.18",
  "ui",
- "windows-sys 0.61.2",
  "world",
  "zip",
 ]

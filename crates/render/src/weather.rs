@@ -6,6 +6,7 @@ use std::sync::Arc;
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 use crate::celestial::unit;
+use world::weather::{Precipitation, classify_precipitation};
 
 /// Rain level change per second while the server target moves.
 /// Vanilla weather approaches its targets by this amount per tick.
@@ -31,9 +32,6 @@ pub const OCCLUSION_OPEN: i32 = i32::MIN;
 /// Simulation ticks per second.
 pub const PRECIPITATION_TICKS_PER_SECOND: f64 = world::TICKS_PER_SECOND as f64;
 
-const SNOW_TEMPERATURE: f32 = 0.15;
-const TEMPERATURE_LOSS_PER_BLOCK_ABOVE_SEA: f32 = 0.05 / 30.0;
-const SEA_LEVEL: f32 = 64.0;
 const LATTICE_WEIGHT: f32 = 0.5;
 const INTENSITY_BLEND: f32 = 0.5;
 const INTENSITY_DIVISOR: f32 = 10.0;
@@ -43,34 +41,6 @@ const WIND_NOISE_TIME_SCALE: f32 = 0.1;
 const WIND_VERTICAL_SCALE: f32 = 0.1;
 const MAX_SPLASHES_PER_TICK: f32 = 4.0;
 const SPLASH_RADIUS: i32 = 10;
-
-/// What falls in one column.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Precipitation {
-    None,
-    Rain,
-    Snow,
-}
-
-/// Temperature after the altitude lapse that turns rain into snow on high ground.
-#[must_use]
-pub fn altitude_adjusted_temperature(temperature: f32, surface_y: i32) -> f32 {
-    let above = (surface_y as f32 - SEA_LEVEL).max(0.0);
-    temperature - above * TEMPERATURE_LOSS_PER_BLOCK_ABOVE_SEA
-}
-
-/// Rain, snow or nothing for a biome: zero downfall never precipitates, cold falls as snow.
-#[must_use]
-pub fn classify_precipitation(temperature: f32, downfall: f32, surface_y: i32) -> Precipitation {
-    if !temperature.is_finite() || !downfall.is_finite() || downfall <= 0.0 {
-        return Precipitation::None;
-    }
-    if altitude_adjusted_temperature(temperature, surface_y) <= SNOW_TEMPERATURE {
-        Precipitation::Snow
-    } else {
-        Precipitation::Rain
-    }
-}
 
 /// Moves `current` toward `target` by at most `max_step`; invalid input reads as clear.
 #[must_use]

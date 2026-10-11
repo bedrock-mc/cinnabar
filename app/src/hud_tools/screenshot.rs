@@ -23,6 +23,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use client_ui::ui_runtime::UiRuntime;
 
+mod offscreen;
+
 type SaveResult = Result<String, String>;
 type CaptureConsumer = Box<dyn FnOnce(&Image) + Send + Sync>;
 
@@ -43,21 +45,33 @@ pub(crate) struct FrameCaptureSet;
 
 pub(crate) fn configure_frame_capture(app: &mut App) {
     app.init_resource::<FrameCapture>()
+        .init_resource::<offscreen::FrameTarget>()
+        .add_systems(bevy::prelude::PreUpdate, offscreen::prepare)
         .add_systems(Last, spawn_frame_capture.in_set(FrameCaptureSet));
 }
 
-fn spawn_frame_capture(mut capture: ResMut<FrameCapture>, mut commands: Commands) {
+fn spawn_frame_capture(
+    mut capture: ResMut<FrameCapture>,
+    target: Res<offscreen::FrameTarget>,
+    mut commands: Commands,
+) {
     if capture.0.is_empty() {
         return;
     }
     let mut consumers = std::mem::take(&mut capture.0);
-    commands.spawn(Screenshot::primary_window()).observe(
-        move |captured: On<ScreenshotCaptured>| {
+    let screenshot = target
+        .0
+        .as_ref()
+        .map_or_else(Screenshot::primary_window, |image| {
+            Screenshot::image(image.clone())
+        });
+    commands
+        .spawn(screenshot)
+        .observe(move |captured: On<ScreenshotCaptured>| {
             for consumer in consumers.drain(..) {
                 consumer(&captured.image);
             }
-        },
-    );
+        });
 }
 
 #[derive(Resource)]
@@ -250,6 +264,9 @@ fn utc_stamp(epoch_seconds: u64) -> String {
         rem % 60
     )
 }
+
+#[cfg(test)]
+mod capture_tests;
 
 #[cfg(test)]
 mod tests {

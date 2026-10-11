@@ -331,8 +331,8 @@ fn present_media(
     mut service: ResMut<ExperienceService>,
     time: Res<Time<Real>>,
     scene: Option<ResMut<render::MediaScreenScene>>,
-    device: Option<NonSendMut<client_presentation::named_audio::AudioDevice>>,
-    audio_settings: Option<Res<client_presentation::audio::settings::AudioSettings>>,
+    device: Option<NonSendMut<client_audio::named_audio::AudioDevice>>,
+    audio_settings: Option<Res<client_audio::audio::settings::AudioSettings>>,
 ) {
     let local_us = u64::try_from(time.elapsed().as_micros()).unwrap_or(u64::MAX);
     let muted = service
@@ -347,7 +347,7 @@ fn present_media(
             local_us,
             true,
         );
-        let defaults = client_presentation::audio::settings::AudioSettings::default();
+        let defaults = client_audio::audio::settings::AudioSettings::default();
         let settings = audio_settings.as_deref().unwrap_or(&defaults);
         live.media_mut().pump_audio(
             device.map(NonSendMut::into_inner),

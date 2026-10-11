@@ -44,15 +44,13 @@ pub(crate) fn collect_fov_inputs(
 pub(crate) fn collect_death_fov_inputs(
     world: Option<Res<ClientWorld>>,
     partial_tick: Option<Res<client_presentation::actor_publication::ActorFramePartialTick>>,
-    mut inputs: ResMut<CameraFovInputs>,
+    inputs: ResMut<CameraFovInputs>,
 ) {
-    let ticks = world
-        .as_deref()
-        .and_then(|world| world.stream.as_ref())
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .filter(|actor| actor.status.dead)
-        .map(|actor| actor.status.native_death_ticks());
-    inputs.set_death_ticks(ticks, partial_tick.map_or(0.0, |tick| tick.0));
+    client_presentation::camera::actor_effects::collect_death_fov_inputs(
+        world.as_deref().and_then(|world| world.stream.as_ref()),
+        partial_tick,
+        inputs,
+    );
 }
 
 /// Composes actor damage after this frame's counters advance and before UI publication.

@@ -126,7 +126,7 @@ fn fixture_stream() -> WorldStream {
 /// reconciliation system over a real connected client world.
 fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
     let mut app = App::new();
-    app.add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
+    app.add_message::<client_audio::audio_ingress::SequencedAudioEvent>()
         .insert_resource(ClientWorld {
             stream: Some(fixture_stream()),
             ..ClientWorld::default()

@@ -41,7 +41,10 @@ pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
 pub use crystal_beam::CrystalBeamModel;
 pub use dragon_death::{DRAGON_DEATH_BLEND, DragonDeathModel};
-pub use frame::{ItemFrameModel, item_frame_item_transform};
+pub use frame::{
+    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    item_frame_item_transform,
+};
 pub use gpu::BlockEntityRenderPlugin;
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{

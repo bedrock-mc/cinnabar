@@ -34,7 +34,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         crate::settings_runtime::initialize_render_distance,
     );
     app.add_plugins(client_presentation::ClientPresentationPlugin)
-        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
+        .add_message::<client_audio::audio_ingress::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<client_ui::ui_runtime::presentation::PreparedUiPublication>()

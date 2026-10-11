@@ -2,7 +2,7 @@
 //! frames to the same bundle's scene quads and reports playback transitions to that guest.
 
 use anyhow::{Result, ensure};
-use client_presentation::audio::{
+use client_audio::audio::{
     media::{self as media_audio, MediaAudio},
     settings::AudioSettings,
 };
@@ -86,7 +86,7 @@ impl Voice {
     /// Opens, resets or keeps the voice for an active player; an inactive one releases it.
     fn sync(
         &mut self,
-        device: Option<&mut client_presentation::named_audio::AudioDevice>,
+        device: Option<&mut client_audio::named_audio::AudioDevice>,
         generation: u64,
         active: bool,
     ) -> Option<&Arc<MediaAudio>> {
@@ -295,7 +295,7 @@ impl Media {
     /// Feeds decoded PCM to one mixer voice per player and steers it onto the media clock.
     pub(super) fn pump_audio(
         &mut self,
-        mut device: Option<&mut client_presentation::named_audio::AudioDevice>,
+        mut device: Option<&mut client_audio::named_audio::AudioDevice>,
         settings: &AudioSettings,
         muted: bool,
         local_us: u64,
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn a_finished_player_hands_the_single_mixer_voice_to_the_next() {
-        let (mut device, mut mixer) = client_presentation::named_audio::AudioDevice::memory_mixer();
+        let (mut device, mut mixer) = client_audio::named_audio::AudioDevice::memory_mixer();
         let mut first = Voice::default();
         assert!(first.sync(Some(&mut device), 1, true).is_some());
         assert!(first.sync(Some(&mut device), 1, false).is_none());

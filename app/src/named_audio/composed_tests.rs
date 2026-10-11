@@ -1,9 +1,9 @@
-use client_presentation::named_audio::AudioDevice;
-use client_presentation::named_audio::test_support::sample;
+use client_audio::named_audio::AudioDevice;
+use client_audio::named_audio::test_support::sample;
 use std::sync::Arc;
 use {
     crate::named_audio::{SequencedAudioEvent, drain_live_named_audio},
-    client_presentation::named_audio::NamedAudio,
+    client_audio::named_audio::NamedAudio,
 };
 
 fn play(sequence: u64) -> SequencedAudioEvent {
@@ -54,7 +54,7 @@ fn forward_live_audio(
     mut messages: bevy::prelude::MessageWriter<SequencedAudioEvent>,
 ) {
     if let Some(stream) = world.stream.as_mut() {
-        client_presentation::audio_ingress::drain_committed_audio(stream, |event| {
+        client_audio::audio_ingress::drain_committed_audio(stream, |event| {
             messages.write(event);
         });
     }
@@ -201,7 +201,7 @@ fn delayed_actual_old_epoch_stop_cannot_cancel_current_epoch_submitted_voice() {
         let mut world = app
             .world_mut()
             .resource_mut::<crate::runtime::world::ClientWorld>();
-        client_presentation::audio_ingress::drain_committed_audio(
+        client_audio::audio_ingress::drain_committed_audio(
             world.stream.as_mut().unwrap(),
             |event| held.push(event),
         );
