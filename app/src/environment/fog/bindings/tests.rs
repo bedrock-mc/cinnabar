@@ -59,3 +59,47 @@ fn admitted_samples_and_route_handles_allocate_nothing() {
     assert_eq!(allocations, 0);
     println!("27 fog samples: name publication={old_allocations}, admitted frame={allocations}");
 }
+
+/// Creates a registry entry whose tint fields do not affect fog binding.
+fn rule(id: u32, name: &str) -> BiomeRule {
+    let tint = assets::TintSource::direct(0);
+    BiomeRule {
+        id,
+        name: name.into(),
+        flags: 0,
+        grass: tint,
+        foliage: tint,
+        dry_foliage: tint,
+        water: tint,
+        temperature_bits: 0,
+        downfall_bits: 0,
+    }
+}
+
+#[test]
+fn known_missing_profiles_remain_distinct_from_unknown_ids_and_rebinding_refreshes_indices() {
+    let profiles = crate::environment::tests::profiles();
+    let mut fogs = crate::environment::tests::fog_profiles();
+    let rules = [rule(42, "minecraft:the_end"), rule(43, "test:missing")];
+    let mut bindings = FogBindings::for_profiles(&rules, &profiles, &fogs);
+    let expected = fogs
+        .iter()
+        .position(|fog| fog.identifier.as_ref() == "minecraft:fog_the_end")
+        .unwrap();
+    assert_eq!(bindings.fog(Some(42), 0), Some(FogProfileIndex(expected)));
+    assert_eq!(bindings.fog(Some(43), 0), None);
+    assert_eq!(bindings.fog(Some(999), 0), bindings.fog(None, 0));
+    assert_eq!(bindings.camera(Some(43), 0).0, bindings.camera(None, 0).0);
+    assert_eq!(bindings.fog(None, -1), None);
+
+    fogs.remove(expected);
+    bindings.compile(&rules, &profiles, &fogs);
+    assert_eq!(bindings.fog(Some(42), 0), None);
+    let plains = fogs
+        .iter()
+        .position(|fog| fog.identifier.as_ref() == "minecraft:fog_plains")
+        .unwrap();
+    assert_eq!(bindings.fog(None, 0), Some(FogProfileIndex(plains)));
+    bindings.compile(&[rule(42, "minecraft:plains")], &profiles, &fogs);
+    assert_eq!(bindings.fog(Some(42), 2), Some(FogProfileIndex(plains)));
+}
