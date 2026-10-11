@@ -7,12 +7,12 @@
 
 use std::{fs, path::PathBuf};
 
-use assets::{AudioAlternative, AudioDefinition, RuntimeAudioCatalog, encode_audio_catalog};
-use bedrock_client::asset_startup::{
+use assets::startup::{
     AUDIO_ASSETS_COMPILE_COMMAND, AssetStartupError, DEFAULT_ASSET_PATH, audio_asset_path,
     audio_assets_missing_notice, audio_assets_rebuild_command, load_audio_assets,
     vanilla_source_manifest_json,
 };
+use assets::{AudioAlternative, AudioDefinition, RuntimeAudioCatalog, encode_audio_catalog};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -29,7 +29,7 @@ fn temporary_directory(label: &str) -> PathBuf {
 }
 
 fn pinned_manifest_sha256() -> [u8; 32] {
-    bedrock_client::asset_startup::canonical_source_manifest_sha256(vanilla_source_manifest_json())
+    assets::startup::canonical_source_manifest_sha256(vanilla_source_manifest_json())
 }
 
 fn alternative(name: &str, weight: u16) -> AudioAlternative {

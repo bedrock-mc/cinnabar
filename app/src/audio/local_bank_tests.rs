@@ -4,8 +4,8 @@ use std::{fs, path::Path, sync::Arc};
 #[test]
 fn local_pinned_bank_has_audible_grass_and_dirt_break_alternatives_when_present() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let world = root.join(crate::asset_startup::DEFAULT_ASSET_PATH);
-    let catalog_path = crate::asset_startup::audio_asset_path(&world);
+    let world = root.join(assets::startup::DEFAULT_ASSET_PATH);
+    let catalog_path = assets::startup::audio_asset_path(&world);
     let bank_path = sound_bank_path(&world);
     if !catalog_path.is_file() || !bank_path.is_file() {
         eprintln!(

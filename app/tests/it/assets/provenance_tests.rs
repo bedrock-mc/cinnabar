@@ -61,7 +61,7 @@ fn stale_source_manifest_identity_fails_startup_closed_with_rebuild_command() {
     assert!(message.contains(COMPILE_COMMAND), "{message}");
     assert!(matches!(
         error,
-        bedrock_client::asset_startup::AssetStartupError::WorldAssetsProvenance { .. }
+        assets::startup::AssetStartupError::WorldAssetsProvenance { .. }
     ));
 
     fs::remove_dir_all(directory).unwrap();
@@ -146,7 +146,7 @@ fn mismatched_atmosphere_carrier_provenance_fails_closed_with_rebuild_command() 
     assert!(message.contains(ATMOSPHERE_COMPILE_COMMAND), "{message}");
     assert!(matches!(
         error,
-        bedrock_client::asset_startup::AssetStartupError::AtmosphereAssetsProvenance { .. }
+        assets::startup::AssetStartupError::AtmosphereAssetsProvenance { .. }
     ));
 
     fs::remove_dir_all(directory).unwrap();

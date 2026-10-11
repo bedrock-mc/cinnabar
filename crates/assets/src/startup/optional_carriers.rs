@@ -1,25 +1,39 @@
 //! Loaders for the optional runtime carriers that sit beside the world carrier.
 
-use super::*;
+use super::{
+    ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, ENTITY_ASSETS_COMPILE_COMMAND,
+    FONT_ASSETS_COMPILE_COMMAND, FONT_SOURCE_JSON, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
+    LoadedAtmosphereAssets, LoadedEntityAssets, LoadedFontAssets, MAX_ATMOSPHERE_BLOB_BYTES,
+    MAX_ENTITY_ASSET_BLOB_BYTES, MAX_FONT_ASSET_BLOB_BYTES, VANILLA_SOURCE_JSON,
+    atmosphere_asset_path, canonical_source_manifest_sha256, entity_asset_path, font_asset_path,
+    font_fallback::diagnostic_font_assets, format_sha256, local_font_asset_path, world_provenance,
+};
+use crate::{RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::Path,
+    sync::Arc,
+};
 
 /// Reads the texture key sidecar beside the world carrier; absence or mismatch
 /// only disables vanilla block retexturing from server packs.
 pub(super) fn load_material_keys(
     world_asset_path: &Path,
     material_count: usize,
-) -> Option<assets::MaterialKeys> {
+) -> Option<crate::MaterialKeys> {
     let path = world_asset_path.with_extension("matkeys.json");
     let file = File::open(&path).ok()?;
     let mut bytes = Vec::new();
-    file.take(assets::MAX_MATERIAL_KEYS_BYTES + 1)
+    file.take(crate::MAX_MATERIAL_KEYS_BYTES + 1)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() as u64 > assets::MAX_MATERIAL_KEYS_BYTES {
+    if bytes.len() as u64 > crate::MAX_MATERIAL_KEYS_BYTES {
         return None;
     }
-    let keys = assets::MaterialKeys::from_json(&bytes, material_count);
+    let keys = crate::MaterialKeys::from_json(&bytes, material_count);
     if keys.is_none() {
-        bevy::log::warn!(
+        tracing::warn!(
             "material key sidecar does not match the world carrier; rebuild with make assets"
         );
     }
@@ -30,21 +44,19 @@ pub(super) fn load_material_keys(
 /// server-pack entities that reference vanilla render controllers, animations or geometry.
 pub(super) fn load_vanilla_entity_refs(
     world_asset_path: &Path,
-) -> Option<assets::VanillaEntityRefs> {
+) -> Option<crate::VanillaEntityRefs> {
     let path = entity_asset_path(world_asset_path).with_extension("vanillarefs.json");
     let file = File::open(&path).ok()?;
     let mut bytes = Vec::new();
-    file.take(assets::MAX_VANILLA_REFS_BYTES + 1)
+    file.take(crate::MAX_VANILLA_REFS_BYTES + 1)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() as u64 > assets::MAX_VANILLA_REFS_BYTES {
+    if bytes.len() as u64 > crate::MAX_VANILLA_REFS_BYTES {
         return None;
     }
-    let refs = assets::VanillaEntityRefs::from_json(&bytes);
+    let refs = crate::VanillaEntityRefs::from_json(&bytes);
     if refs.is_none() {
-        bevy::log::warn!(
-            "vanilla entity refs sidecar is malformed; rebuild with make entity-assets"
-        );
+        tracing::warn!("vanilla entity refs sidecar is malformed; rebuild with make entity-assets");
     }
     refs
 }
@@ -285,7 +297,7 @@ mod review_tests {
             std::env::temp_dir().join(format!("cinnabar-make-path-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let sentinel = directory.join("expanded");
-        let path = PathBuf::from(format!("$(shell touch {})", sentinel.display()));
+        let path = std::path::PathBuf::from(format!("$(shell touch {})", sentinel.display()));
         let mut child = std::process::Command::new("sh")
             .args([
                 "-c",

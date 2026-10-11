@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use assets::RuntimeHudCatalog;
+use crate::RuntimeHudCatalog;
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, HUD_ASSETS_COMPILE_COMMAND, HUD_ASSETS_FILENAME,

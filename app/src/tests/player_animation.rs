@@ -1044,11 +1044,11 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
 #[test]
 fn persona_face_blinks_with_the_pinned_runtime_controller() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let path = root.join(crate::asset_startup::DEFAULT_ASSET_PATH);
+    let path = root.join(assets::startup::DEFAULT_ASSET_PATH);
     for fixture in [
         path.clone(),
-        crate::asset_startup::entity_asset_path(&path),
-        crate::asset_startup::atmosphere_asset_path(&path),
+        assets::startup::entity_asset_path(&path),
+        assets::startup::atmosphere_asset_path(&path),
     ] {
         if !fixture.is_file() {
             eprintln!(
@@ -1058,9 +1058,9 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
             return;
         }
     }
-    let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
+    let loaded = assets::startup::load_runtime_assets(assets::startup::AssetSelection {
         path,
-        source: crate::asset_startup::AssetPathSource::CommandLine,
+        source: assets::startup::AssetPathSource::CommandLine,
     })
     .unwrap();
     let entities = Arc::clone(loaded.entities.runtime());

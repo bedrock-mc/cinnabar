@@ -45,7 +45,7 @@ mod tests {
     #[test]
     #[ignore = "requires the local compiled vanilla world carrier"]
     fn real_carrier_terrain_tiles_resolve_stone_deepslate_and_grass() {
-        let bytes = std::fs::read(crate::asset_startup::DEFAULT_ASSET_PATH).unwrap();
+        let bytes = std::fs::read(assets::startup::DEFAULT_ASSET_PATH).unwrap();
         let assets = RuntimeAssets::decode(&bytes).unwrap();
         let records = assets::read_registry_for_protocol(
             assets::pinned_block_registry_bytes(),

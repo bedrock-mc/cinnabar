@@ -113,6 +113,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+assets = { path = "../crates/assets", features = ["test-support"] }
 client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }
 client-audio = { path = "../crates/client-audio", features = ["test-support"] }
 pack-runtime = { path = "../crates/pack-runtime", features = ["test-support"] }

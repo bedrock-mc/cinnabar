@@ -13,17 +13,17 @@ use std::{
     sync::Arc,
 };
 
-use assets::RuntimeAudioCatalog;
+use crate::RuntimeAudioCatalog;
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, VANILLA_SOURCE_JSON, canonical_source_manifest_sha256,
     format_sha256,
 };
 
-pub const AUDIO_ASSETS_FILENAME: &str = assets::carriers::AUDIO.output;
+pub const AUDIO_ASSETS_FILENAME: &str = crate::carriers::AUDIO.output;
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 const AUDIO_ASSETS_REPORT_FILENAME: &str = "audio-assets.json";
-const MAX_AUDIO_ASSET_BLOB_BYTES: u64 = assets::MAX_AUDIO_CARRIER_BYTES as u64;
+const MAX_AUDIO_ASSET_BLOB_BYTES: u64 = crate::MAX_AUDIO_CARRIER_BYTES as u64;
 
 /// Returns a copy-paste recovery command that writes the sound-definition
 /// carrier where startup looked for it: the bare make target at the default

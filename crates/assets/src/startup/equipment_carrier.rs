@@ -8,19 +8,20 @@ use std::{
     sync::Arc,
 };
 
-use assets::{MAX_EQUIPMENT_CARRIER_BYTES, RuntimeEquipmentCatalog};
+use crate::{MAX_EQUIPMENT_CARRIER_BYTES, RuntimeEquipmentCatalog};
 
 use super::{LoadedEntityAssets, shell_quote_path};
 
-const EQUIPMENT_ASSETS_FILENAME: &str = assets::carriers::EQUIPMENT.output;
+const EQUIPMENT_ASSETS_FILENAME: &str = crate::carriers::EQUIPMENT.output;
 
-pub(crate) fn equipment_asset_path(world: &Path) -> PathBuf {
+/// Selects the equipment carrier beside the world carrier.
+pub fn equipment_asset_path(world: &Path) -> PathBuf {
     world.with_file_name(EQUIPMENT_ASSETS_FILENAME)
 }
 
 /// Loads the equipment carrier beside the world blob when it exists and pins the loaded entity
 /// carrier; otherwise logs the exact rebuild command and returns `None`.
-pub(crate) fn load_optional_equipment_assets(
+pub fn load_optional_equipment_assets(
     world: &Path,
     entities: &LoadedEntityAssets,
 ) -> Option<Arc<RuntimeEquipmentCatalog>> {

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
+use crate::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
 use sha2::{Digest, Sha256};
 
 use super::{AssetStartupError, FONT_ASSETS_COMPILE_COMMAND, LoadedFontAssets};

@@ -1,6 +1,6 @@
 //! Minimal valid startup carriers pinned to the checkout's vanilla manifest.
 
-use assets::{
+use crate::{
     AtmosphereRole, AtmosphereTexture, CompiledAtmosphereAssets, CompiledEntityAssets,
     EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
 };
@@ -11,8 +11,8 @@ fn manifest() -> [u8; 32] {
 }
 
 /// An entity carrier with one source; `seed` varies its identity.
-pub(crate) fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
-    assets::encode_entity_blob(&CompiledEntityAssets {
+pub fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
+    crate::encode_entity_blob(&CompiledEntityAssets {
         source_manifest_sha256: manifest(),
         block_visual_count: 0,
         sources: vec![EntityAssetSource {
@@ -53,7 +53,7 @@ pub(crate) fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
 }
 
 /// An atmosphere carrier with flat sun, moon and cloud textures.
-pub(crate) fn synthetic_atmosphere_blob() -> Box<[u8]> {
+pub fn synthetic_atmosphere_blob() -> Box<[u8]> {
     let textures = [
         (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
         (
@@ -85,7 +85,7 @@ pub(crate) fn synthetic_atmosphere_blob() -> Box<[u8]> {
         }
     })
     .collect();
-    assets::encode_atmosphere_blob(&CompiledAtmosphereAssets {
+    crate::encode_atmosphere_blob(&CompiledAtmosphereAssets {
         source_manifest_sha256: manifest(),
         textures,
         biome_profiles: Box::new([]),

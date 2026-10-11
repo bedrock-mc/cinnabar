@@ -1,5 +1,5 @@
 use super::*;
-use crate::asset_startup::test_carriers::synthetic_entity_blob;
+use crate::startup::test_carriers::synthetic_entity_blob;
 
 struct Directory(PathBuf);
 impl Directory {
@@ -25,8 +25,8 @@ impl Drop for Directory {
     }
 }
 
-fn decoded_entities(seed: u8) -> assets::RuntimeEntityAssets {
-    assets::RuntimeEntityAssets::decode(&synthetic_entity_blob(seed)).unwrap()
+fn decoded_entities(seed: u8) -> crate::RuntimeEntityAssets {
+    crate::RuntimeEntityAssets::decode(&synthetic_entity_blob(seed)).unwrap()
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn required_actor_carrier_absence_and_size_failure_name_rebuild_command() {
     assert!(error.to_string().contains(ACTOR_ASSETS_FILENAME));
     assert!(error.to_string().contains("make actor-assets"));
     let file = std::fs::File::create(actor_asset_path(&world)).unwrap();
-    file.set_len(assets::MAX_ACTOR_CARRIER_BYTES as u64 + 1)
+    file.set_len(crate::MAX_ACTOR_CARRIER_BYTES as u64 + 1)
         .unwrap();
     let error = read_coherent_actor_assets(&world, &entities).unwrap_err();
     assert!(error.to_string().contains("exceeds startup byte bound"));
@@ -49,7 +49,7 @@ fn required_actor_carrier_absence_and_size_failure_name_rebuild_command() {
 fn actor_carrier_compiled_against_another_entity_carrier_fails_closed() {
     let directory = Directory::new();
     let world = directory.0.join("world.mcbea");
-    let actor = assets::encode_actor_catalog(&synthetic_entity_blob(0), &[], &[]).unwrap();
+    let actor = crate::encode_actor_catalog(&synthetic_entity_blob(0), &[], &[]).unwrap();
     std::fs::write(actor_asset_path(&world), actor).unwrap();
     assert!(read_coherent_actor_assets(&world, &decoded_entities(0)).is_ok());
     let error = read_coherent_actor_assets(&world, &decoded_entities(1)).unwrap_err();

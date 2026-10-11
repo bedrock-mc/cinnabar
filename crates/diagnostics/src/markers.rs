@@ -6,7 +6,6 @@ use crate::AcceptanceRuntimeConfig;
 
 pub const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
 pub const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
-pub const ASSETS: &str = "RUST_MCBE_ASSETS";
 pub const AUDIO_WIRE_EVIDENCE: &str = "RUST_MCBE_AUDIO_WIRE_EVIDENCE";
 pub const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
@@ -68,7 +67,10 @@ pub enum MarkerContract {
 pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
     (ANCHOR_PROBE, MarkerContract::EnvironmentVariable),
-    (ASSETS, MarkerContract::EnvironmentVariable),
+    (
+        assets::startup::markers::ASSETS,
+        MarkerContract::EnvironmentVariable,
+    ),
     (AUDIO_WIRE_EVIDENCE, MarkerContract::EnvironmentVariable),
     (FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable),
     (CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable),
