@@ -119,6 +119,9 @@ func totemFixturePackets(mode string, playerID uint64, position mgl32.Vec3) []pa
 	if mode == "main" {
 		packets = append(packets, &packet.InventorySlot{WindowID: window, Slot: 0})
 		window = protocol.WindowIDInventory
+		packets = append(packets, &packet.PlayerHotBar{
+			WindowID: byte(window), SelectedHotBarSlot: 0, SelectHotBarSlot: true,
+		})
 	}
 	if mode == "empty" {
 		stack = protocol.ItemInstance{}

@@ -27,6 +27,17 @@ func TestTotemFixtureKeepsEquipActivationConsumptionInOrder(t *testing.T) {
 			if activation < 2 {
 				t.Fatal("activation preceded equipped item")
 			}
+			if mode == "main" {
+				selection := -1
+				for index, pk := range packets[:activation] {
+					if hotbar, ok := pk.(*packet.PlayerHotBar); ok && hotbar.SelectHotBarSlot && hotbar.SelectedHotBarSlot == 0 {
+						selection = index
+					}
+				}
+				if selection < 0 {
+					t.Fatal("main-hand activation must authoritatively select its equipped slot")
+				}
+			}
 			equipped := packets[activation-1].(*packet.MobEquipment)
 			if equipped.NewItem.Stack.Count != 1 || equipped.NewItem.Stack.NetworkID == 0 {
 				t.Fatal("activation has no negotiated totem")

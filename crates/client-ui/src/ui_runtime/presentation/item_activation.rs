@@ -38,6 +38,7 @@ impl UiPresentationRuntime {
                     origin[1] + viewport[1],
                 )?,
             )
+            .with_viewport_clip(rect(0.0, 0.0, viewport[0], viewport[1])?)
             .with_visual(UiVisual::Mesh(Arc::new(mesh))),
         );
         *next += 1;

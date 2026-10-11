@@ -130,6 +130,7 @@ pub struct UiNode {
     focusable: bool,
     navigation_order: Option<u32>,
     clip_children: bool,
+    viewport_clip: Option<UiRect>,
     visual: UiVisual,
     world_projection: Option<UiWorldProjection>,
 }
@@ -143,6 +144,7 @@ impl UiNode {
             focusable: false,
             navigation_order: None,
             clip_children: false,
+            viewport_clip: None,
             visual: UiVisual::None,
             world_projection: None,
         }
@@ -160,6 +162,12 @@ impl UiNode {
 
     pub fn with_clip_children(mut self, clip_children: bool) -> Self {
         self.clip_children = clip_children;
+        self
+    }
+
+    /// Uses an absolute viewport clip without changing the node's layout coordinates.
+    pub fn with_viewport_clip(mut self, clip: UiRect) -> Self {
+        self.viewport_clip = Some(clip);
         self
     }
 
@@ -512,6 +520,7 @@ impl UiTree {
             .collect::<Vec<_>>();
         while let Some((id, clip)) = pending.pop() {
             let node = &self.nodes[&id];
+            let clip = node.viewport_clip.unwrap_or(clip);
             let origin = node
                 .parent
                 .and_then(|parent| bounds.get(&parent).copied())
@@ -668,7 +677,7 @@ impl UiTree {
                 Some(projection) => projection
                     .viewport_clip()
                     .map_err(|_| UiError::InvalidWorldProjection { node: id })?,
-                None => clip,
+                None => node.viewport_clip.unwrap_or(clip),
             };
             if !is_empty(clip) {
                 emit_visual(

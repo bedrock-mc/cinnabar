@@ -223,4 +223,29 @@ fn camera_activation_keeps_full_viewport_coordinates_below_screen_overlays() {
         )
         .unwrap();
     assert_eq!(&plain.vertices[..6], &inset.vertices[..6]);
+    runtime.item_activation.as_mut().unwrap().elapsed_millis = 1_050;
+    let advanced = presentation
+        .build(
+            &player,
+            &runtime,
+            1_050,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    for input in [&plain, &inset, &advanced] {
+        let clip = input.batches[0].scissor;
+        assert_eq!([clip.x, clip.y, clip.width, clip.height], [0, 0, 1280, 720]);
+    }
+    let small = presentation
+        .build(
+            &player,
+            &runtime,
+            1_050,
+            [320, 200],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let clip = small.batches[0].scissor;
+    assert_eq!([clip.x, clip.y, clip.width, clip.height], [0, 0, 320, 200]);
 }
