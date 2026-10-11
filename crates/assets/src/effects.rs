@@ -293,10 +293,10 @@ pub(crate) const fn effect_icon_path(role: HudTextureRole) -> Option<&'static st
     let mut index = 0;
     while index < EFFECT_DESCRIPTORS.len() {
         let descriptor = &EFFECT_DESCRIPTORS[index];
-        if let Some(icon) = descriptor.icon {
-            if icon as u32 == role as u32 {
-                return descriptor.icon_path;
-            }
+        if let Some(icon) = descriptor.icon
+            && icon as u32 == role as u32
+        {
+            return descriptor.icon_path;
         }
         index += 1;
     }

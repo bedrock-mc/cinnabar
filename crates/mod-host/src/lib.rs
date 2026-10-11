@@ -31,8 +31,9 @@ pub use runtime::cinnabar::extension::gameplay::{
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::player_state::{
-    Effect as PlayerStateEffect, Item as PlayerStateItem, Slot as PlayerStateSlot,
-    Snapshot as PlayerStateSnapshot,
+    ChatMessage as ObservedChatMessage, Effect as PlayerStateEffect, Item as PlayerStateItem,
+    Sidebar as SidebarSnapshot, SidebarRow, Slot as PlayerStateSlot,
+    Snapshot as PlayerStateSnapshot, WorldObservation,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
@@ -158,6 +159,18 @@ impl ModHost {
             .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
         self.queue_settings();
         Ok(())
+    }
+
+    /// Supplies bounded, read-only presentation facts for the next frame callback only.
+    pub fn observe_presentation(
+        &mut self,
+        world: Option<WorldObservation>,
+        fps: Option<f32>,
+        sidebar: Option<SidebarSnapshot>,
+        chat: Vec<ObservedChatMessage>,
+    ) -> Result<()> {
+        self.instance
+            .observe_presentation(world, fps, sidebar, chat)
     }
 
     /// The session and dimension of the last successful gameplay delay-fix request.

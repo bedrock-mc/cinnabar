@@ -221,6 +221,10 @@ pub(super) struct FrameInput<'a> {
     pub previous_cues: &'a [ModCue],
     /// Captured once from the current local session, delivered only to granted components.
     pub player_state: Option<&'a PlayerStateSnapshot>,
+    pub world_observation: Option<&'a mod_host::WorldObservation>,
+    pub fps: Option<f32>,
+    pub sidebar: Option<&'a mod_host::SidebarSnapshot>,
+    pub chat: &'a [mod_host::ObservedChatMessage],
 }
 
 /// Runs each mod once in load order with its own grants and merges what they commit.
@@ -305,6 +309,16 @@ pub(super) fn run_frame(
             .player_state
             .then(|| input.player_state.cloned())
             .flatten();
+        let observed = host.observe_presentation(
+            input.world_observation.cloned(),
+            input.fps,
+            input.sidebar.cloned(),
+            input.chat.to_vec(),
+        );
+        if let Err(error) = observed {
+            failed(index, format!("{error:#}"));
+            continue;
+        }
         if let Err(error) = host.frame_with_movement(
             input.pressed,
             snapshot,

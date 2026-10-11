@@ -8,14 +8,22 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/anvil.rs"]
 mod anvil;
+#[path = "tests/candle_cake.rs"]
+mod candle_cake;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/end_rod.rs"]
+mod end_rod;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
+#[path = "tests/hollow_containers.rs"]
+mod hollow_containers;
 #[path = "tests/isotropic.rs"]
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lightning_rod.rs"]
+mod lightning_rod;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
 

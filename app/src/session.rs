@@ -75,6 +75,7 @@ pub(crate) struct SessionController {
     >,
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
+    destination_identity: Option<String>,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
@@ -101,6 +102,7 @@ impl SessionController {
             client_random_id: None,
             client_id_load: None,
             presence: None,
+            destination_identity: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
@@ -118,7 +120,14 @@ impl SessionController {
     /// Names a direct `--address` session's destination.
     pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
         self.presence = address.map(|address| presence_target(address, false));
+        self.destination_identity =
+            address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
         self
+    }
+
+    /// Stable selected destination, kept independent from invites and transient session ids.
+    pub(crate) fn destination_identity(&self) -> Option<&str> {
+        self.destination_identity.as_deref()
     }
 
     pub(crate) fn presence_target(&self) -> Option<&rich_presence::Target> {
@@ -364,6 +373,7 @@ impl SessionResources<'_> {
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
         controller.presence = None;
+        controller.destination_identity = None;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -433,6 +443,15 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
+    session.controller.destination_identity = Some(format!(
+        "{}:{}",
+        if local_world { "local" } else { "remote" },
+        if local_world {
+            menu.local_world_identity().unwrap_or(&address).to_owned()
+        } else {
+            address.trim().to_lowercase()
+        }
+    ));
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,
@@ -569,6 +588,7 @@ pub(crate) fn login_settings(
         gui_scale_offset: menu.gui_scale_offset(),
         memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
+        filter_profanity: menu.settings_snapshot().0.value("filter_profanity") != 0,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -797,6 +817,34 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_profanity_preference_comes_from_saved_settings_with_a_hidden_menu() {
+        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
+
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == "filter_profanity")
+            .unwrap();
+        for filter_profanity in [false, true] {
+            let layout =
+                launcher::test_support::scratch(&format!("login-profanity-{filter_profanity}"));
+            let mut saved = SettingsOptions::default();
+            saved.set(index, i32::from(filter_profanity));
+            saved
+                .save(&layout.user_config_root.join(SETTINGS_FILE))
+                .unwrap();
+            let menu = MenuRuntime::new_with_layout(
+                false,
+                None,
+                "Direct".to_owned(),
+                layout,
+                crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            );
+            let settings = login_settings(&menu, None);
+            assert_eq!(settings.filter_profanity, filter_profanity);
+        }
+    }
 
     // A hidden-menu direct launch must still report the player's saved GUI scale.
     #[test]

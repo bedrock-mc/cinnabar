@@ -230,12 +230,12 @@ fn tune_unix_stream(stream: &UnixStream) {
         socket_send_buffer_size,
     };
     let send = best_effort_buffer_size(
-        |size| set_socket_send_buffer_size(&stream, size).map_err(io::Error::from),
-        socket_send_buffer_size(&stream).unwrap_or(0),
+        |size| set_socket_send_buffer_size(stream, size).map_err(io::Error::from),
+        socket_send_buffer_size(stream).unwrap_or(0),
     );
     let receive = best_effort_buffer_size(
-        |size| set_socket_recv_buffer_size(&stream, size).map_err(io::Error::from),
-        socket_recv_buffer_size(&stream).unwrap_or(0),
+        |size| set_socket_recv_buffer_size(stream, size).map_err(io::Error::from),
+        socket_recv_buffer_size(stream).unwrap_or(0),
     );
     static LOGGED: std::sync::Once = std::sync::Once::new();
     LOGGED.call_once(|| tracing::debug!(?send, ?receive, "local socket buffer sizes"));

@@ -3,6 +3,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// Bound for one read-only server text field crossing an extension callback.
+pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
+/// Bound for the newest received chat history imported by one callback.
+pub const MAX_OBSERVED_CHAT_MESSAGES: usize = 32;
+/// Maximum received messages returned by one incremental history import.
+pub const MAX_CHAT_READ_MESSAGES: usize = 4;
+/// Bound for camera-projected labels, separate from draggable HUD cards.
+pub const MAX_WORLD_LABELS: usize = 64;
+/// Bound for clickable literal spans in native chat.
+pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
 pub const MAX_HUD_CARDS: usize = 8;
 pub const MAX_HUD_ROWS: usize = 64;
@@ -43,6 +53,15 @@ pub struct Hud {
     /// Suppresses the ordinary status-effect icons while this HUD is published.
     #[serde(default)]
     pub hide_effect_icons: bool,
+    /// Suppresses the ordinary server sidebar while this HUD is published.
+    #[serde(default)]
+    pub hide_scoreboard: bool,
+    /// Bounded world anchors rendered by the host through the actual gameplay camera.
+    #[serde(default)]
+    pub world_labels: Vec<WorldLabel>,
+    /// Client-selected literal spans made clickable in the open native chat history.
+    #[serde(default)]
+    pub chat_actions: Vec<ChatAction>,
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
@@ -55,6 +74,49 @@ pub struct Hud {
     /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
     #[serde(default)]
     pub surface: Option<crate::mod_panel::Surface>,
+}
+
+/// Exact plain-text chat span and the extension event emitted by a primary click.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChatAction {
+    pub text: String,
+    pub action: String,
+}
+
+/// Cosmetic world anchor; text content and persistence belong to the extension.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorldLabel {
+    pub position: [f32; 3],
+    pub text: String,
+    pub icon: Option<String>,
+    pub icon_scale: f32,
+    pub color: [f32; 4],
+    pub scale: f32,
+    pub padding: f32,
+    pub border_width: f32,
+    pub background_opacity: f32,
+    pub shadow: bool,
+    /// Optional camera-centered visibility cone, in degrees.
+    pub near_angle: Option<f32>,
+}
+impl Default for WorldLabel {
+    fn default() -> Self {
+        Self {
+            position: [0.; 3],
+            text: String::new(),
+            icon: None,
+            icon_scale: 1.,
+            color: [1.; 4],
+            scale: 1.,
+            padding: 4.,
+            border_width: 0.,
+            background_opacity: 0.35,
+            shadow: true,
+            near_angle: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -139,6 +201,8 @@ pub struct Cell {
     pub background: [f32; 4],
     pub color: [f32; 4],
     pub shadow: bool,
+    /// Allows bounded Bedrock style codes in text instead of the default plain text contract.
+    pub formatted: bool,
 }
 impl Default for Cell {
     fn default() -> Self {
@@ -149,6 +213,7 @@ impl Default for Cell {
             background: [0.; 4],
             color: white(),
             shadow: false,
+            formatted: false,
         }
     }
 }
@@ -170,6 +235,9 @@ pub struct EditorResult {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
+    /// Allows bounded Bedrock style codes in row labels and values.
+    #[serde(default)]
+    pub formatted: bool,
     pub label: String,
     pub value: String,
     #[serde(default)]
@@ -254,6 +322,17 @@ fn text(value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+/// Extends the cosmetic text contract only when explicitly requested by the author.
+fn styled_text(value: &str, formatted: bool) -> Result<(), String> {
+    if !formatted {
+        return text(value);
+    }
+    if value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
+        return Err("formatted HUD text exceeds single-line bounds".into());
+    }
+    crate::parse_bedrock_text(value, MAX_TEXT_BYTES).map_err(|error| error.to_string())?;
+    Ok(())
+}
 fn color(value: [f32; 4]) -> Result<(), String> {
     if value
         .into_iter()
@@ -284,6 +363,51 @@ impl Hud {
                     return Err("HUD editor surface action is unsupported".into());
                 }
             }
+        }
+        if self.chat_actions.len() > MAX_CHAT_ACTIONS
+            || self.chat_actions.iter().any(|a| {
+                a.text.is_empty()
+                    || a.text.len() > 96
+                    || a.text.chars().any(char::is_control)
+                    || a.action.is_empty()
+                    || a.action.len() > crate::mod_panel::MAX_PANEL_ID_BYTES
+                    || !a
+                        .action
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+            })
+        {
+            return Err("invalid chat actions".into());
+        }
+        if self.world_labels.len() > MAX_WORLD_LABELS
+            || self.world_labels.iter().any(|label| {
+                !label.position.iter().all(|v| v.is_finite())
+                    || label.text.len() > 256
+                    || label.text.chars().any(|c| c.is_control() && c != '\n')
+                    || label
+                        .icon
+                        .as_ref()
+                        .is_some_and(|icon| icon.len() > 32 || icon.chars().any(char::is_control))
+                    || !label.icon_scale.is_finite()
+                    || !(0.1..=4.0).contains(&label.icon_scale)
+                    || !label
+                        .color
+                        .iter()
+                        .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                    || !label.scale.is_finite()
+                    || !(0.1..=4.0).contains(&label.scale)
+                    || !label.padding.is_finite()
+                    || !(0.0..=16.0).contains(&label.padding)
+                    || !label.border_width.is_finite()
+                    || !(0.0..=4.0).contains(&label.border_width)
+                    || !label.background_opacity.is_finite()
+                    || !(0.0..=1.0).contains(&label.background_opacity)
+                    || label
+                        .near_angle
+                        .is_some_and(|v| !v.is_finite() || !(1.0..=90.0).contains(&v))
+            })
+        {
+            return Err("invalid world labels".into());
         }
         if self.cards.len() > MAX_HUD_CARDS
             || self
@@ -343,8 +467,8 @@ impl Hud {
                 return Err("HUD card geometry exceeds its bounds".into());
             }
             for cell in &card.cells {
-                text(&cell.label)?;
-                text(&cell.value)?;
+                styled_text(&cell.label, cell.formatted)?;
+                styled_text(&cell.value, cell.formatted)?;
                 color(cell.color)?;
                 color(cell.background)?;
                 let [x, y, width, height] = cell.rect;
@@ -360,8 +484,8 @@ impl Hud {
                 }
             }
             for row in &card.rows {
-                text(&row.label)?;
-                text(&row.value)?;
+                styled_text(&row.label, row.formatted)?;
+                styled_text(&row.value, row.formatted)?;
                 color(row.color)?;
                 if row
                     .progress
@@ -625,6 +749,7 @@ mod tests {
     #[test]
     fn hud_rejects_ambiguous_ids_formatting_and_invalid_progress() {
         let row = Row {
+            formatted: false,
             label: "Helmet".into(),
             value: "34 / 363".into(),
             item: Some("minecraft:diamond_helmet".into()),
@@ -685,6 +810,16 @@ mod cell_tests {
         assert!(hud.validate().is_err());
         hud.cards[0].cells[0].background = [0.; 4];
         hud.cards[0].cells = vec![Cell::default(); MAX_CARD_ROWS + 1];
+        assert!(hud.validate().is_err());
+    }
+    #[test]
+    fn formatted_cells_are_explicit_bounded_and_accept_native_style_codes() {
+        let mut hud: Hud = serde_json::from_str(r#"{"cards":[{"id":"sidebar","rows":[],"cells":[{"label":"§aServer §lScore","formatted":true}]}]}"#).unwrap();
+        assert!(hud.validate().is_ok());
+        hud.cards[0].cells[0].formatted = false;
+        assert!(hud.validate().is_err());
+        hud.cards[0].cells[0].formatted = true;
+        hud.cards[0].cells[0].label.push('\n');
         assert!(hud.validate().is_err());
     }
 }

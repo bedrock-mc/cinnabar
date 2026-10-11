@@ -22,6 +22,7 @@ mod hud_extras;
 mod icon;
 mod image;
 mod lang;
+mod lightning_rod;
 mod pack;
 mod particle;
 mod starter_skins;
