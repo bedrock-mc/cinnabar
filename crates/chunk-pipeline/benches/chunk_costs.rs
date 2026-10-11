@@ -63,6 +63,7 @@ fn terrain_assets() -> RuntimeAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             }],
             light_properties: vec![LightProperties::OPAQUE_DARK],
             materials: vec![Material {

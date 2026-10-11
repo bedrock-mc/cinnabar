@@ -3,7 +3,7 @@ use crate::shader_source;
 
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::{Draw, DrawPipeline, Gpu};
-use render::{
+use render_model::{
     BLOCK_ENTITY_VERTEX_WORDS, BLOCK_SELECTION_VERTICES_PER_EDGE, BlockEntityVertex,
     BlockSelectionFrame, BlockSelectionTarget, CrackShape,
 };

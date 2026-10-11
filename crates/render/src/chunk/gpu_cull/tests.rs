@@ -1,7 +1,8 @@
 use super::model::{
-    ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullStream, args_region, args_words,
-    reference_args, slot_enabled,
+    ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform,
+    STREAM_COUNT, args_region, args_words, reference_args, region_draws, slot_enabled,
 };
+use super::node::culled_max_draw_count;
 use super::slots::{CullSlots, cull_record, quad_bounds};
 use super::*;
 
@@ -194,6 +195,39 @@ fn args_regions_are_disjoint_and_fit_the_buffer() {
     assert!(regions.windows(2).all(|pair| pair[0].1 == pair[1].0));
     assert_eq!(regions[0].0, 0);
     assert_eq!(u64::from(regions.last().unwrap().1), args_words(capacity));
+}
+
+/// A drifted or wrapped draw ceiling still reads, writes and counts only its own args region.
+#[test]
+fn culled_draw_counts_never_reach_past_their_args_region() {
+    let capacity = 1024;
+    let input = CullViewInput {
+        planes: [[0.0; 4]; 5],
+        clip_from_world: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        camera: CullCamera::new(None),
+        viewport: [0.0, 0.0, 1.0, 1.0],
+        depth_size: [1, 1],
+        hiz_mips: 0,
+        index_counts: [6; STREAM_COUNT],
+    };
+    for phase in CullPhase::ALL {
+        let uniform = CullViewUniform::new(&input, phase, capacity, capacity);
+        for stream in CullStream::ALL {
+            let limit = region_draws(capacity, stream);
+            assert_eq!(limit, stream.draws_per_record() * capacity);
+            assert_eq!(uniform.region_draws[stream as usize], limit);
+            let mut bounds = [0; STREAM_COUNT];
+            bounds[stream as usize] = u32::MAX;
+            assert_eq!(culled_max_draw_count(bounds, capacity, stream), limit);
+            bounds[stream as usize] = 7;
+            assert_eq!(culled_max_draw_count(bounds, capacity, stream), 7);
+        }
+    }
 }
 
 /// Every count-capable backend, DX12 included, consumes compacted counts; the rest use cleared

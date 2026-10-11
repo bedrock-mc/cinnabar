@@ -1,6 +1,6 @@
 //! Registers the menu shell at the shared frame boundaries.
 use crate::{fullscreen, menu, settings_runtime};
-use bevy::prelude::*;
+use bevy::prelude::{App, IntoScheduleConfigs, Plugin, Startup, Update};
 use client_state::{ClientFrameSet, ShellFrameSet};
 
 /// Owns menu input, desktop settings and screen-focus publication.

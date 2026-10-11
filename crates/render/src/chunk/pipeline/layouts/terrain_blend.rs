@@ -39,7 +39,7 @@ mod tests {
         let mut descriptor = RenderPipelineDescriptor {
             fragment: Some(FragmentState {
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],

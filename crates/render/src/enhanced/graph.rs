@@ -21,8 +21,8 @@ pub(super) fn install_graph(world: &mut World) {
     let rig = crate::hand_rig_render::enhanced_post_pass(world);
     let installed = world
         .try_schedule_scope(Core3d, |_, schedule| {
-            use crate::{RuntimeStage, gpu_timing::profiled};
             use bevy::core_pipeline::tonemapping::tonemapping;
+            use {crate::gpu_timing::profiled, render_scene::RuntimeStage};
             schedule.add_systems(
                 (
                     profiled(

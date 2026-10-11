@@ -35,6 +35,21 @@ impl LightSolveOutput {
     pub const fn sub_chunks(&self) -> &BTreeMap<SubChunkKey, Arc<SubChunkLight>> {
         &self.sub_chunks
     }
+
+    /// Calls `visit` with the section-local `[x, y, z]` of every cell of `key` that
+    /// [`LightReadAccess::has_direct_sky_provenance`] reports, without a lookup per cell.
+    pub fn for_each_direct_sky_in(&self, key: SubChunkKey, mut visit: impl FnMut([u8; 3])) {
+        if key.dimension != self.dimension {
+            return;
+        }
+        let side = SUB_CHUNK_SIDE as i64;
+        let origin = [key.x, key.y, key.z].map(|axis| i64::from(axis) * side);
+        let end = origin.map(|axis| axis + side - 1);
+        self.direct_sky.for_each_within(origin, end, |position| {
+            let (_, local) = split_position(self.dimension, position);
+            visit(local);
+        });
+    }
 }
 
 impl LightReadAccess for LightSolveOutput {
@@ -115,6 +130,28 @@ impl<'a> MutableOutput<'a> {
     /// Maps a bounded position to the retained dense buffers.
     pub(super) fn index(&self, position: BlockPos) -> Option<usize> {
         light_dense_index(self.bounds, self.y_len, self.z_len, position)
+    }
+
+    /// The neighbour of the in-bounds cell at `position` and dense `index` one step along
+    /// `NEIGHBOURS[direction]`, with its dense index; `None` when that step leaves the bounds.
+    #[inline]
+    pub(super) fn neighbour(
+        &self,
+        position: BlockPos,
+        index: usize,
+        direction: usize,
+    ) -> Option<(BlockPos, usize)> {
+        let (min, max) = (self.bounds.min, self.bounds.max);
+        let BlockPos { x, y, z } = position;
+        let x_stride = self.y_len * self.z_len;
+        match direction {
+            0 => (x > min.x).then(|| (BlockPos::new(x - 1, y, z), index - x_stride)),
+            1 => (x < max.x).then(|| (BlockPos::new(x + 1, y, z), index + x_stride)),
+            2 => (y > min.y).then(|| (BlockPos::new(x, y - 1, z), index - self.z_len)),
+            3 => (y < max.y).then(|| (BlockPos::new(x, y + 1, z), index + self.z_len)),
+            4 => (z > min.z).then(|| (BlockPos::new(x, y, z - 1), index - 1)),
+            _ => (z < max.z).then(|| (BlockPos::new(x, y, z + 1), index + 1)),
+        }
     }
 
     /// Reads zero outside the current solve region.

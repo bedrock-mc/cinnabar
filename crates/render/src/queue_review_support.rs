@@ -65,7 +65,7 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
             clip_from_view: Mat4::IDENTITY,
             world_from_view: GlobalTransform::IDENTITY,
             clip_from_world: None,
-            target_format: crate::SCENE_COLOR_FORMAT,
+            target_format: render_scene::SCENE_COLOR_FORMAT,
             viewport: UVec4::new(0, 0, 1, 1),
             color_grading: default(),
             invert_culling: false,

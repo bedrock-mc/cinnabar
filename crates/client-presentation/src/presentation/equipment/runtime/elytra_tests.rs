@@ -16,7 +16,7 @@ use client_world::{
 use protocol::{
     ActorEvent, ActorKind, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRigSubmission};
+use render_model::{ActorArtworkPages, ActorRigSubmission};
 use std::sync::Arc;
 
 /// A solid synthetic raster in the wing geometry's native UV dimensions.
@@ -141,6 +141,7 @@ pub(super) fn owner_rig<'a>(
         rest_completed_tick: tick,
         rest_reset_generation: 0,
         completed_tick: tick,
+        pose_evaluated: true,
         reset_generation: 0,
         fallback: EntityRigFallback::Skip,
         scale: 1.0,

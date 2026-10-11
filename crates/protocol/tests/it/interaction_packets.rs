@@ -10,6 +10,31 @@ use protocol::{
     use_actor_packet,
 };
 use sha2::{Digest, Sha256};
+
+/// Dismount carries the vehicle identity and rider origin, including unsigned runtime IDs.
+#[test]
+fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
+    use valentine::bedrock::version::v1_26_51::EnumsInteractPacketPayloadAction;
+    let position = [1.0, -2.0, 3.0];
+    let packet = protocol::stop_riding_packet(u64::MAX, position).unwrap();
+    let McpePacketData::InteractPacket(packet) = packet.data else {
+        panic!("expected Interact");
+    };
+    assert_eq!(packet.action, EnumsInteractPacketPayloadAction::Stopriding);
+    assert_eq!(packet.target_runtime_id.actor_runtime_id, u64::MAX);
+    let actual = packet.position.unwrap();
+    assert_eq!([actual.x, actual.y, actual.z], position);
+    assert_eq!(
+        protocol::stop_riding_packet(0, position).unwrap_err(),
+        ActorUsePacketError::InvalidActorRuntimeId
+    );
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(
+            protocol::stop_riding_packet(1, [0.0, bad, 0.0]).unwrap_err(),
+            ActorUsePacketError::NonFinitePlayerPosition
+        );
+    }
+}
 use valentine::bedrock::version::v1_26_51::{
     ContainerClosePacket, EnumsAnimatePacketPayloadAction, EnumsContainerEnumName,
     EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,

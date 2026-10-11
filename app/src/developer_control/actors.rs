@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use bevy::prelude::*;
-use render::ActorRenderFrame;
+use render_scene::ActorRenderFrame;
 use serde_json::{Value, json};
 
 use {crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera};

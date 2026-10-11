@@ -7,7 +7,7 @@ use assets::{
     RuntimeBlockEntityAssets, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
 use bevy::prelude::Resource;
-use render::{
+use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
 };
@@ -102,7 +102,7 @@ pub struct EquipmentRuntime {
     /// Block visual id to its carried or fallback sheet's index in `placements`.
     block_sheets: BTreeMap<u32, usize>,
     block_models: BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
-    block_alpha: BTreeMap<u32, render::HandItemAlphaMode>,
+    block_alpha: BTreeMap<u32, render_model::HandItemAlphaMode>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
@@ -872,7 +872,7 @@ pub(super) fn layer_presentation(
             texture_layer: location.layer(),
             route: ActorRigRoute::Compiled,
             tint,
-            uv_anim: render::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             light: body.light,
             overlay_rgba8: 0,
         },

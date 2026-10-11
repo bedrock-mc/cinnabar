@@ -91,11 +91,11 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 assert_eq!(
                     colour.format,
                     if hdr {
-                        crate::SCENE_HDR_FORMAT
+                        render_scene::SCENE_HDR_FORMAT
                     } else if blended {
-                        crate::SCENE_COLOR_FORMAT.remove_srgb_suffix()
+                        render_scene::SCENE_COLOR_FORMAT.remove_srgb_suffix()
                     } else {
-                        crate::SCENE_COLOR_FORMAT
+                        render_scene::SCENE_COLOR_FORMAT
                     }
                 );
                 assert_eq!(

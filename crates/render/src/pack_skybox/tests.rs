@@ -1,8 +1,7 @@
 use super::*;
-use crate::{
-    gpu_snapshot::{self, Draw, Gpu},
-    shader_source,
-};
+use crate::gpu_snapshot::{self, Draw, Gpu};
+use crate::shader_source;
+use render_scene::{AtmosphereFrame, SkyKind, SkyboxSettings};
 use wgpu::util::DeviceExt;
 
 /// Uploads a synthetic or explicitly supplied fixture image with the production format.
@@ -298,7 +297,7 @@ fn translucent_faces_blend_over_the_backdrop_without_covering_nearer_geometry() 
         );
         let centre = &pixels[(128 * 256 + 128) * 4..][..4];
         let linear = alpha as f32 / 255.0;
-        let encode = |v| (crate::celestial::rgb_to_gamma([v; 3])[0] * 255.0).round() as u8;
+        let encode = |v| (render_model::celestial::rgb_to_gamma([v; 3])[0] * 255.0).round() as u8;
         let expected = [encode(linear), 0, encode(0.25 * (1.0 - linear)), 255];
         assert!(
             centre.iter().zip(expected).all(|(a, e)| a.abs_diff(e) <= 1),

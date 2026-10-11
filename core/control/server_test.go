@@ -14,7 +14,6 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 const testRequestIOTimeout = 100 * time.Millisecond
@@ -29,10 +28,10 @@ func TestBridgeCompatibilityStatusHelper(t *testing.T) {
 	}
 	store := NewStore()
 	store.SetLifecycle(LifecycleRunning)
-	latest := snapshot(17, proxy.ResourcePackOfferRequired)
+	latest := snapshot(17, offerRequired)
 	latest.PackCount, latest.TotalBytes = 1, 512
-	latest.Acquisition = proxy.ResourcePackAcquisitionIgnored
-	latest.DownstreamOutcome = proxy.ResourcePackDownstreamStrippedIgnored
+	latest.Acquisition = "ignored"
+	latest.DownstreamOutcome = "stripped_ignored"
 	store.Observe(latest)
 	server, err := Start(dir, store)
 	if err != nil {
@@ -45,12 +44,12 @@ func TestBridgeCompatibilityStatusHelper(t *testing.T) {
 func TestStatusV1RoundTripAndSecretSafeWireShape(t *testing.T) {
 	store := NewStore()
 	store.SetLifecycle(LifecycleRunning)
-	latest := snapshot(9, proxy.ResourcePackOfferOptional)
+	latest := snapshot(9, offerOptional)
 	latest.PackCount, latest.TotalBytes = 2, 4096
-	latest.Acquisition = proxy.ResourcePackAcquisitionIgnored
+	latest.Acquisition = "ignored"
 	latest.CacheLoads, latest.CacheHits, latest.CacheMisses = 2, 1, 1
 	latest.CacheStores = 1
-	latest.DownstreamOutcome = proxy.ResourcePackDownstreamStrippedIgnored
+	latest.DownstreamOutcome = "stripped_ignored"
 	store.Observe(latest)
 
 	dir := t.TempDir()
@@ -352,8 +351,8 @@ func assertRPCError(t *testing.T, payload []byte, code int) {
 func TestPackApplicationMethodFlipsStatusAndValidatesParams(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore()
-	handed := snapshot(5, proxy.ResourcePackOfferOptional)
-	handed.DownstreamOutcome = proxy.ResourcePackDownstreamHandedOffOptional
+	handed := snapshot(5, offerOptional)
+	handed.DownstreamOutcome = packHandedOffOptional
 	store.Observe(handed)
 	server, err := Start(dir, store)
 	if err != nil {

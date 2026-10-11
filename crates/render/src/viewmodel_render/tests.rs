@@ -1,4 +1,5 @@
 use super::*;
+use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
 
 fn empty_hand_world() -> World {
     use bevy::ecs::system::RunSystemOnce;
@@ -148,9 +149,9 @@ fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
                     .unwrap()
                     .format,
                 if hdr {
-                    crate::SCENE_HDR_FORMAT
+                    render_scene::SCENE_HDR_FORMAT
                 } else {
-                    crate::SCENE_COLOR_FORMAT
+                    render_scene::SCENE_COLOR_FORMAT
                 }
             );
             let depth = pipeline.depth_stencil.unwrap();
@@ -238,20 +239,7 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
     world.insert_resource(RenderQueue::new(queue));
     world.init_resource::<HandDrawn>();
     let gate = ViewmodelCompletionGate::default();
-    let token = ViewmodelToken {
-        session: 1,
-        actor_session: 2,
-        dimension: 0,
-        runtime: 3,
-        spawn: 4,
-        owner: Entity::from_raw_u32(0).unwrap(),
-        viewport: [640, 480],
-        samples: 1,
-        hdr: false,
-        skin: [5; 32],
-        geometry: [6; 32],
-        revision: 1,
-    };
+    let token = test_token();
     gate.select(Some(token));
     assert!(gate.complete(gate.reserve(token).unwrap()));
     world.insert_resource(gate.clone());
@@ -310,20 +298,7 @@ fn hand_completion_follows_the_frame_without_a_submit_of_its_own() {
     let gate = ViewmodelCompletionGate::default();
     world.insert_resource(gate.clone());
     world.run_system_once(init_gpu).unwrap();
-    let token = ViewmodelToken {
-        session: 1,
-        actor_session: 2,
-        dimension: 0,
-        runtime: 3,
-        spawn: 4,
-        owner: Entity::from_raw_u32(0).unwrap(),
-        viewport: [640, 480],
-        samples: 1,
-        hdr: false,
-        skin: [5; 32],
-        geometry: [6; 32],
-        revision: 1,
-    };
+    let token = test_token();
     gate.select(Some(token));
     world.resource_mut::<HandGpu>().token = Some(token);
     *world.resource::<HandDrawn>().0.lock().unwrap() = Some(token);
@@ -394,4 +369,72 @@ fn both_plugin_orders_submit_nothing_without_a_prepared_view() {
         world.init_resource::<bevy::render::renderer::PendingCommandBuffers>();
         crate::render_test_support::assert_empty_render(world);
     }
+}
+
+/// Identifies the renderer lifecycle fixture without depending on CPU geometry admission.
+fn test_token() -> ViewmodelToken {
+    ViewmodelToken {
+        session: 1,
+        actor_session: 2,
+        dimension: 0,
+        runtime: 3,
+        spawn: 4,
+        owner: Entity::from_raw_u32(0).unwrap(),
+        viewport: [640, 480],
+        samples: 1,
+        hdr: false,
+        skin: [5; 32],
+        geometry: [6; 32],
+        revision: 1,
+    }
+}
+
+#[test]
+fn actual_renderer_startup_revokes_pending_callback_and_equal_token_publish_recovers() {
+    use bevy::{
+        app::SubApp,
+        ecs::schedule::Schedule,
+        render::{ExtractSchedule, Render, RenderApp, RenderStartup},
+    };
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let mut render_app = SubApp::new();
+    render_app
+        .insert_resource(bevy::render::renderer::RenderDevice::from(device))
+        .add_schedule(Schedule::new(RenderStartup))
+        .add_schedule(Render::base_schedule())
+        .add_schedule(Schedule::new(ExtractSchedule));
+    let mut app = App::new();
+    app.insert_resource(Assets::<Shader>::default())
+        .insert_sub_app(RenderApp, render_app);
+    app.add_plugins(crate::viewmodel_render::ViewmodelRenderPlugin);
+    app.finish();
+    let gate = app.world().resource::<ViewmodelCompletionGate>().clone();
+    let token = test_token();
+    let skin = render_model::ViewmodelSkin::new(
+        vec![255; render_model::viewmodel::VIEWMODEL_TEXTURE_BYTES].into(),
+        token.skin,
+    )
+    .unwrap();
+    let geometry = render_model::ViewmodelGeometry {
+        vertices: std::sync::Arc::from([]),
+        identity: token.geometry,
+        allowed_rigs: std::sync::Arc::from([]),
+        cube_origin: false,
+    };
+    let mut scene = ViewmodelScene::default();
+    assert!(scene.publish(token, &skin, &geometry, &gate));
+    let old = gate.reserve(token).unwrap();
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .run_schedule(RenderStartup);
+    assert!(!gate.complete(old));
+    assert!(gate.reserve(token).is_none());
+    assert!(!gate.completed(token));
+    let frame = scene.frame.as_ref().unwrap().clone();
+    assert!(scene.publish(token, &frame.skin, &frame.geometry, &gate));
+    assert!(!gate.complete(old));
+    let fresh = gate.reserve(token).unwrap();
+    assert!(!gate.complete(old));
+    assert!(gate.complete(fresh));
+    assert!(gate.completed(token));
 }

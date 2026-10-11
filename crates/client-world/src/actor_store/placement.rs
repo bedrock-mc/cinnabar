@@ -3,7 +3,7 @@ use protocol::ActorMetadataValue;
 use super::ActorStore;
 
 /// Seat metadata streamed on the rider (protocol `EntityDataKeySeat*`).
-const KEY_SEAT_OFFSET: u32 = 56;
+pub(super) const KEY_SEAT_OFFSET: u32 = 56;
 const KEY_SEAT_LOCK_DEGREES: u32 = 58;
 const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
 const KEY_BED_POSITION: u32 = 28;
@@ -189,7 +189,12 @@ impl ActorStore {
         };
         if let Some(ActorMetadataValue::Vector(seat)) = rider.metadata.get(&KEY_SEAT_OFFSET) {
             return seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
-                position: *seat,
+                // Streamed offsets join native actor origins; the store keeps collision feet.
+                position: [
+                    seat[0],
+                    seat[1] + mount.network_position_offset() - rider.network_position_offset(),
+                    seat[2],
+                ],
                 min_riders: 0,
                 max_riders: u32::MAX,
                 rotate_by: degrees(KEY_SEAT_ROTATION_DEGREES),

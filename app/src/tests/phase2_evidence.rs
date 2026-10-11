@@ -8,7 +8,8 @@ use chunk_pipeline::{
     RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
 };
 use protocol::BlobCacheStats;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 use world::ChunkKey;
 
 use acceptance::phase2_evidence::{
@@ -16,8 +17,8 @@ use acceptance::phase2_evidence::{
     graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
     phase2_publication_timing_line, sha256_identity_from_hex_or_text,
 };
-use render::VisibilityDiagnosticsInput;
 use render_model::VisibilityKeyDigest;
+use render_scene::VisibilityDiagnosticsInput;
 
 use crate::runtime::telemetry::local_subject_column;
 

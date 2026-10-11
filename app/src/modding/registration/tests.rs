@@ -70,6 +70,11 @@ fn unloading_extensions_restores_view_scales_and_preserves_saved_fov() {
 }
 
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
+    fixture_with_capture(enabled, frame, text, false)
+}
+
+/// Builds a panel fixture with optional key capture for rebinding tests.
+fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: bool) -> String {
     let package = include_str!("../../../../crates/mod-api/wit/extension.wit")
         .lines()
         .next()
@@ -78,7 +83,7 @@ fn fixture(enabled: bool, frame: &str, text: &str) -> String {
         .trim_end_matches(';');
     let (name, version) = package.split_once('@').unwrap();
     let panel = format!(
-        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{{"kind":"toggle","id":"enabled","label":"Enabled","value":{enabled}}}]}}"#
+        r#"{{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"capture_key":{capture_key},"controls":[{{"kind":"toggle","id":"enabled","label":"Enabled","value":{enabled}}}]}}"#
     );
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
     template
@@ -453,7 +458,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
-        let mut scene = render::ModRenderScene::default();
+        let mut scene = render_scene::ModRenderScene::default();
         scene.apply(&rendered_output(), 7);
         world.insert_resource(scene);
         world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
@@ -468,7 +473,12 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
-        assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
+        assert_eq!(
+            world
+                .resource::<render_scene::ModRenderScene>()
+                .vertex_count(),
+            0
+        );
         assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());
@@ -730,4 +740,260 @@ fn unloading_extension_clears_scoped_item_use_delay_policy() {
         world.resource::<crate::item_use::ModItemUsePolicy>().scope,
         None
     );
+}
+
+/// Seeds an environment-owned component using the same host construction as registration tests.
+fn environment_host(world: &mut World, directory: &Scratch) {
+    install(
+        world,
+        Update {
+            generation: 1,
+            request_id: "environment".into(),
+            result: Ok(Action::Replace(candidate(directory, true, "Environment"))),
+        },
+    );
+    let mut runtime = world.resource_mut::<ModRuntime>();
+    runtime.registration_host = None;
+    runtime.registration_identity = None;
+    runtime.registration_request = None;
+}
+
+#[test]
+fn registration_replaces_and_disables_only_its_companion() {
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, retired) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    for label in ["First", "Replacement"] {
+        install(
+            &mut world,
+            Update {
+                generation: 1,
+                request_id: label.into(),
+                result: Ok(Action::Replace(candidate(&companion, false, label))),
+            },
+        );
+        messages.try_recv().unwrap();
+        let runtime = world.resource::<ModRuntime>();
+        assert_eq!(runtime.hosts.host_count(), 2);
+        assert_eq!(runtime.registration_host, Some(1));
+        assert_eq!(runtime.hosts.host(0).label(), Some("Environment"));
+        assert_eq!(runtime.hosts.host(1).label(), Some(label));
+        assert!(runtime.hosts.host(0).is_active());
+    }
+    assert_eq!(retired.try_recv().unwrap().label(), Some("First"));
+    world.resource_mut::<ModRuntime>().hud_editor_owner = Some(super::super::hud_editor::Owner {
+        host: 0,
+        session: 1,
+    });
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "disabled".into(),
+            result: Ok(Action::Disabled),
+        },
+    );
+    let runtime = world.resource::<ModRuntime>();
+    assert_eq!(runtime.hosts.host_count(), 1);
+    assert_eq!(runtime.registration_host, None);
+    assert_eq!(runtime.hud_editor_owner.unwrap().host, 0);
+    assert!(runtime.hosts.host.is_active());
+    assert!(!runtime.suspended);
+    assert_eq!(runtime.hosts.host.label(), Some("Environment"));
+    assert_eq!(retired.try_recv().unwrap().label(), Some("Replacement"));
+}
+
+#[test]
+fn revocation_quarantines_only_the_registered_companion_before_disposal() {
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, _) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(candidate(&companion, false, "Companion"))),
+        },
+    );
+    let watcher = world.resource::<Watcher>();
+    watcher.latest.store(2, Ordering::Release);
+    *watcher.desired.lock().unwrap() = Desired {
+        generation: 2,
+        identity: None,
+        request_id: "disabled".into(),
+        status: Some(("disabled", None)),
+    };
+    sync_authority(&mut world);
+    let runtime = world.resource::<ModRuntime>();
+    assert!(runtime.hosts.host(0).is_active());
+    assert!(!runtime.hosts.host(1).is_active());
+    assert!(!runtime.suspended);
+}
+
+#[test]
+fn distinct_toggle_keys_select_independent_panels_and_close_the_previous_panel() {
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, _) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    let registration = registration(&companion, "first");
+    fs::write(
+        &registration.component,
+        fixture(false, "", "Companion").replace("ShiftRight", "ArrowRight"),
+    )
+    .unwrap();
+    let selected = Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap());
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(selected)),
+        },
+    );
+    let mut runtime = world.resource_mut::<ModRuntime>();
+    runtime.hosts.host_mut(0).set_panel_open(true);
+    assert!(runtime.hosts.select_panel(&["ArrowRight".into()]));
+    assert_eq!(runtime.hosts.panel_owner(), 1);
+    assert!(!runtime.hosts.host(0).panel_open());
+    runtime.hosts.host_mut(1).set_panel_open(true);
+    assert!(runtime.hosts.select_panel(&["ShiftRight".into()]));
+    assert_eq!(runtime.hosts.panel_owner(), 0);
+    assert!(!runtime.hosts.host(1).panel_open());
+    assert!(!runtime.hosts.select_panel(&["KeyA".into()]));
+    assert_eq!(runtime.hosts.panel_owner(), 0);
+}
+
+#[test]
+fn panel_key_capture_keeps_other_components_toggle_keys_for_rebinding() {
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, _) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    let registration = registration(&companion, "first");
+    fs::write(
+        &registration.component,
+        fixture_with_capture(false, "", "Companion", true).replace("ShiftRight", "ArrowRight"),
+    )
+    .unwrap();
+    let selected = Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap());
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(selected)),
+        },
+    );
+    let mut runtime = world.resource_mut::<ModRuntime>();
+    assert!(runtime.hosts.select_panel(&["ArrowRight".into()]));
+    assert!(runtime.hosts.host(1).panel().unwrap().capture_key);
+    runtime.hosts.host_mut(1).set_panel_open(true);
+    assert!(!runtime.hosts.select_panel(&["ShiftRight".into()]));
+    assert_eq!(runtime.hosts.panel_owner(), 1);
+    assert!(runtime.hosts.host(1).panel_open());
+    runtime.hosts.host_mut(1).set_panel_open(false);
+    assert!(runtime.hosts.select_panel(&["ShiftRight".into()]));
+    assert_eq!(runtime.hosts.panel_owner(), 0);
+}
+
+/// Publishes the retained render scene through the app's component-merging boundary.
+fn publish_render_scene(
+    scene: ResMut<render_scene::ModRenderScene>,
+    mut runtime: ResMut<ModRuntime>,
+) {
+    super::super::render::publish(Some(scene), &mut runtime);
+}
+
+#[test]
+fn removing_a_companion_republishes_even_when_scene_and_primary_generations_match() {
+    use bevy::ecs::system::RunSystemOnce;
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, _) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(candidate(&companion, false, "Companion"))),
+        },
+    );
+    let generation = world.resource::<ModRuntime>().hosts.host.render().1;
+    let mut scene = render_scene::ModRenderScene::default();
+    // Merged scene generations and source generations have independent counters.
+    scene.apply(&rendered_output(), generation);
+    assert!(scene.vertex_count() > 0);
+    world.insert_resource(scene);
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "disabled".into(),
+            result: Ok(Action::Disabled),
+        },
+    );
+    world.run_system_once(publish_render_scene).unwrap();
+    let scene = world.resource::<render_scene::ModRenderScene>();
+    assert_eq!(scene.vertex_count(), 0);
+    assert_ne!(scene.generation(), generation);
+}
+
+#[test]
+fn replacing_a_registered_companion_refreshes_the_retained_render_scene() {
+    use bevy::ecs::system::RunSystemOnce;
+    let environment = Scratch::new();
+    let companion = Scratch::new();
+    let (mut world, messages, retired) = world();
+    environment_host(&mut world, &environment);
+    messages.try_recv().unwrap();
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "first".into(),
+            result: Ok(Action::Replace(candidate(&companion, false, "First"))),
+        },
+    );
+    let mut scene = render_scene::ModRenderScene::default();
+    scene.apply(&rendered_output(), 1);
+    world.insert_resource(scene);
+    install(
+        &mut world,
+        Update {
+            generation: 1,
+            request_id: "replacement".into(),
+            result: Ok(Action::Replace(candidate(&companion, false, "Replacement"))),
+        },
+    );
+    assert_eq!(retired.try_recv().unwrap().label(), Some("First"));
+    world.run_system_once(publish_render_scene).unwrap();
+    assert_eq!(
+        world
+            .resource::<render_scene::ModRenderScene>()
+            .vertex_count(),
+        0
+    );
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+}
+
+#[test]
+fn status_advertises_independent_registration_for_every_result() {
+    for state in ["loaded", "error", "disabled"] {
+        let status = Status::new("capability-check".into(), state, None);
+        let json = serde_json::to_value(status).unwrap();
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["independent_registration"], true);
+        assert_eq!(json["state"], state);
+        assert_eq!(json["request_id"], "capability-check");
+    }
 }

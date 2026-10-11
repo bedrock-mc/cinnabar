@@ -20,6 +20,9 @@ pub(in crate::stream) struct Lighting {
     pub(in crate::stream) in_flight_batches: HashMap<u64, usize>,
     pub(in crate::stream) last_dispatched_batch: HashMap<SubChunkKey, u64>,
     pub(in crate::stream) waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
+    /// Cells changed since a key's current light was solved, when only block changes since then
+    /// queued its relight; any other reason solves the whole key.
+    pub(in crate::stream) changed_cells: HashMap<SubChunkKey, Vec<BlockPos>>,
 }
 
 impl Lighting {
@@ -42,6 +45,7 @@ impl Lighting {
             priority_wakeups: HashMap::new(),
             in_flight_batches: HashMap::new(),
             last_dispatched_batch: HashMap::new(),
+            changed_cells: HashMap::new(),
             waiters: HashMap::new(),
         }
     }
@@ -67,7 +71,9 @@ impl Lighting {
             in_flight_batches,
             last_dispatched_batch,
             waiters,
+            changed_cells,
         } = self;
+        changed_cells.clear();
         let retired = (
             std::mem::take(&mut revisions.entries),
             std::mem::take(block_generations),
@@ -98,6 +104,7 @@ impl Lighting {
         self.remove_in_flight(key, None);
         self.last_dispatched_batch.remove(&key);
         self.remove_waiters_for(key);
+        self.changed_cells.remove(&key);
     }
 
     /// Drops queued work and wake-up edges after a fatal solve; running jobs drain normally.
@@ -191,14 +198,35 @@ impl WorldStream {
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
     ) {
-        self.mark_light_changed_sources_with_priority(sources, false);
+        self.mark_light_changed_sources_reaching(sources, false, NeighbourReach::ALL, None);
     }
-    pub(in crate::stream) fn mark_light_changed_sources_with_priority(
+    /// Relights changed `sources` and the face neighbours their changed cells `reach`. A
+    /// neighbour reads a source only through the cells on their shared face; a source's relight
+    /// that changes light on a face relights the neighbour across it when it lands. A single
+    /// source with known changed `cells` whose light was current keeps them for its relight.
+    pub(in crate::stream) fn mark_light_changed_sources_reaching(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
         urgent: bool,
+        reach: NeighbourReach,
+        cells: Option<&[BlockPos]>,
     ) {
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
+        let mut seeded = cells
+            .filter(|_| sources.len() == 1)
+            .and_then(|cells| {
+                let key = *sources.first()?;
+                let earlier = self.lighting.changed_cells.get(&key);
+                let current = self.light_is_current(key)
+                    && !self.lighting.jobs.pending.contains_key(&key)
+                    && !self.lighting.jobs.in_flight.contains_key(&key);
+                (earlier.is_some() || current).then(|| {
+                    let mut all = earlier.cloned().unwrap_or_default();
+                    all.extend_from_slice(cells);
+                    (key, all)
+                })
+            })
+            .filter(|(_, cells)| cells.len() <= MAX_SEEDED_LIGHT_CELLS);
         for key in &sources {
             if self.resident.contains(key) {
                 self.lighting.next_block_generation =
@@ -218,6 +246,7 @@ impl WorldStream {
                     continue;
                 }
                 if self.lighting.store.kind(*key) != expected_kind {
+                    seeded = None;
                     let retained = self
                         .lighting
                         .store
@@ -240,12 +269,25 @@ impl WorldStream {
         let dependents = sources
             .iter()
             .copied()
-            .flat_map(SubChunkKey::mesh_dependents)
+            .flat_map(|source| {
+                source.mesh_dependents().filter(move |dependent| {
+                    reach.light_reaches([
+                        i64::from(dependent.x) - i64::from(source.x),
+                        i64::from(dependent.y) - i64::from(source.y),
+                        i64::from(dependent.z) - i64::from(source.z),
+                    ])
+                })
+            })
             .filter(|key| self.resident.contains(key))
             .filter(|key| !self.air_fixed_point_survives_sources(*key, &sources))
             .collect::<BTreeSet<_>>();
         for dependent in dependents {
             self.mark_light_dirty_exact_with_priority(dependent, urgent);
+        }
+        if let Some((key, cells)) = seeded
+            && self.lighting.jobs.pending.contains_key(&key)
+        {
+            self.lighting.changed_cells.insert(key, cells);
         }
     }
     pub(in crate::stream) fn remove_light_key(&mut self, key: SubChunkKey) {
@@ -267,6 +309,8 @@ impl WorldStream {
         key: SubChunkKey,
         urgent: bool,
     ) -> Option<u64> {
+        // Whatever else queues the key, its next solve covers all of it.
+        self.lighting.changed_cells.remove(&key);
         if !self.resident.contains(&key) || !self.lighting.block_generations.contains_key(&key) {
             return None;
         }

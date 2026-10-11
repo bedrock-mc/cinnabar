@@ -1,5 +1,7 @@
 //! CPU witnesses for the exact model-reference order already uploaded to the GPU.
+
 use super::*;
+use render_scene::ChunkRenderInstance;
 
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentModelDrawOrder {

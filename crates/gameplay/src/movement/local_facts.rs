@@ -20,6 +20,8 @@ pub struct LocalMovementFacts {
     pub immobile: bool,
     pub vertical_physics: sim::VerticalPhysics,
     pub ride: Option<super::RideKind>,
+    /// Runtime identity of the retained mount, when its actor is available.
+    pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
     pub server_flying: bool,
@@ -85,6 +87,11 @@ pub fn read(
             air_drag_modifier: player.facts.air_drag_modifier().map(f64::from),
         },
         ride,
+        mount_runtime_id: player
+            .facts
+            .mount_unique_id()
+            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .map(|actor| actor.runtime_id),
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),

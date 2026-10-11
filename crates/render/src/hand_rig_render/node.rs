@@ -15,7 +15,7 @@ type HandRigViewQuery = (
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
     &'static Msaa,
-    Has<crate::EnhancedRendering>,
+    Has<render_scene::EnhancedRendering>,
 );
 
 /// Draws the first-person rig over the scene with its own depth attachment.
@@ -72,7 +72,7 @@ pub(crate) fn hand_rig(
         }),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
-            crate::RuntimeStage::GpuHand,
+            render_scene::RuntimeStage::GpuHand,
         ),
         occlusion_query_set: None,
         multiview_mask: None,

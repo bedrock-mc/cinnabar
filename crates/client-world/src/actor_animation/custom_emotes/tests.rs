@@ -58,6 +58,7 @@ impl Fixture {
             rest_reset_generation: 1,
             completed_tick: 20,
             reset_generation: 1,
+            pose_evaluated: true,
             fallback: assets::EntityRigFallback::Skip,
             scale: 1.0,
             axis_scale: [1.0; 3],

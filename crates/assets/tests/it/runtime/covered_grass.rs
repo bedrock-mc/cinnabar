@@ -71,7 +71,7 @@ fn decode_rejects_resealed_out_of_range_covered_grass_material() {
     let mut blob = encode_blob(&compiled).unwrap();
     let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
     // Six face words, flags, kind/support/role, model, animation, then variant.
-    let variant_offset = visuals_offset + 44 + 40;
+    let variant_offset = visuals_offset + assets::blob::VISUAL_BYTES + 40;
     write_u32(
         &mut blob,
         variant_offset,

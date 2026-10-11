@@ -149,6 +149,7 @@ include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
 include!("integration_tests/frame_speed.rs");
+include!("integration_tests/dismount.rs");
 include!("integration_tests/immobile.rs");
 include!("integration_tests/connected_shapes.rs");
 include!("integration_tests/pre_tick.rs");

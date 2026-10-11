@@ -253,3 +253,7 @@ pub fn pass_name_valid(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+pub mod position_box;
+
+pub mod block_highlights;

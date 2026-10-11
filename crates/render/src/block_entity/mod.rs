@@ -1,65 +1,18 @@
-//! Block-entity rendering: CPU-built model and overlay vertices plus a small wgpu pass.
-//!
-//! Models are authored in code against the carrier's atlas; break-crack overlays and
-//! sign text share the same vertex path. Geometry the pinned pack does not define is
-//! marked provisional in its module and needs native measurement.
-
-mod atlas;
-mod banner;
-mod beam;
-mod bed;
-mod bell;
-mod book;
-mod chest;
-mod conduit;
-mod crack;
-mod crystal_beam;
-mod dragon_death;
-mod frame;
+//! GPU passes for block models and selection overlays.
 mod gpu;
-mod heads;
-mod items;
-mod mesh;
-mod mob;
-mod portal;
-mod pot;
-mod scene;
-mod selection;
-mod shulker;
-mod sign;
-mod skull;
-mod spawner;
-mod statue;
-
-pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
-pub use banner::{BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, pattern_texture};
-pub use beam::BeaconModel;
-pub use bed::{BedModel, bed_color};
-pub use bell::{BellAttachment, BellModel, swing_degrees};
-pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
-pub use conduit::ConduitModel;
-pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
-pub use crystal_beam::CrystalBeamModel;
-pub use dragon_death::{DRAGON_DEATH_BLEND, DragonDeathModel};
-pub use frame::{
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
-    item_frame_item_transform,
-};
+use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 pub use gpu::BlockEntityRenderPlugin;
-pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
-pub use mesh::{
-    BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
-    model_matrix as block_matrix,
+
+/// Straight-alpha additive composition used by the untextured death effect.
+pub const DRAGON_DEATH_BLEND: BlendState = BlendState {
+    color: BlendComponent {
+        src_factor: BlendFactor::SrcAlpha,
+        dst_factor: BlendFactor::One,
+        operation: BlendOperation::Add,
+    },
+    alpha: BlendComponent {
+        src_factor: BlendFactor::SrcAlpha,
+        dst_factor: BlendFactor::One,
+        operation: BlendOperation::Add,
+    },
 };
-pub use mob::SPAWNER_MOBS;
-pub use pot::{DecoratedPotModel, sherd_pattern};
-pub use scene::{
-    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-    BlockEntitySubmission, CrackInstance, SceneClock,
-};
-pub use selection::{BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget};
-pub use shulker::ShulkerModel;
-pub use sign::{SignFace, SignModel, SignMount};
-pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
-pub use spawner::SpawnerModel;
-pub use statue::{Oxidation, StatueModel, StatuePose};

@@ -3,15 +3,18 @@ use std::{collections::HashMap, sync::Arc};
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
-use render::{
-    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
-};
 use render_api::SkinRgba8;
 use render_model::{
     ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,
+};
+use {
+    render_model::{
+        ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderIdentity,
+        ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, actor_bounds_are_visible,
+        actor_rig_submission_is_visible, pack_overlay_rgba8,
+    },
+    render_scene::{ActorRenderFrame, ActorRenderScene},
 };
 
 mod admission;
@@ -133,12 +136,17 @@ pub fn entity_rig_presentation_cached(
         .flatten();
     let rest_mode =
         location.is_some_and(|location| location.pose_mode() == assets::ActorPoseMode::RestPose);
+    // Static artwork waits for a completed rest observation after admission or reset.
+    if rest_mode && rig.rest_completed_tick == 0 {
+        return None;
+    }
     let selected = if rest_mode {
         ActorRigSnapshot {
             previous: rig.rest,
             current: rig.rest,
             completed_tick: rig.rest_completed_tick,
             reset_generation: rig.rest_reset_generation,
+            pose_evaluated: true,
             ..*rig
         }
     } else {
@@ -240,8 +248,8 @@ fn tick_presentation(
         || rig.actor.session_id == 0
         || rig.actor.runtime_id == 0
         || rig.actor.spawn_revision == 0
-        || rig.completed_tick == 0
         || rig.reset_generation == 0
+        || (!rig.pose_evaluated && rig.fallback != assets::EntityRigFallback::GeometryOnly)
         || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
     {
         return None;
@@ -272,8 +280,9 @@ fn tick_presentation(
                         ingress_sequence: 0,
                         source_tick: None,
                         movement_revision: 0,
-                        pose_generation: rig.completed_tick,
-                        layer: render::ACTOR_LAYER_BODY,
+                        // Tick zero is a valid initial pose; identity generations reserve zero.
+                        pose_generation: rig.completed_tick.saturating_add(1),
+                        layer: render_model::ACTOR_LAYER_BODY,
                     },
                     rig: EntityRigId(rig.rig.0),
                     previous_bones,
@@ -285,7 +294,7 @@ fn tick_presentation(
                 texture_layer: u32::MAX,
                 route,
                 tint: 0,
-                uv_anim: render::IDENTITY_UV_ANIM,
+                uv_anim: render_model::IDENTITY_UV_ANIM,
                 light: 0,
                 overlay_rgba8: 0,
             },
@@ -420,7 +429,7 @@ pub fn local_diagnostic_presentation(
                     source_tick: None,
                     movement_revision: pose_generation,
                     pose_generation,
-                    layer: render::ACTOR_LAYER_BODY,
+                    layer: render_model::ACTOR_LAYER_BODY,
                 },
                 rig: EntityRigId(u32::MAX),
                 previous_bones: Arc::from(bones),
@@ -433,7 +442,7 @@ pub fn local_diagnostic_presentation(
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
             tint: 0,
-            uv_anim: render::IDENTITY_UV_ANIM,
+            uv_anim: render_model::IDENTITY_UV_ANIM,
             light: 0,
             overlay_rgba8: 0,
         },
@@ -612,7 +621,7 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
                 |actor| stream.actor_light_at(actor, feet),
             );
         if let Some((block, sky)) = light {
-            submission.light = render::pack_actor_light(block, sky);
+            submission.light = render_model::pack_actor_light(block, sky);
         }
     }
 }

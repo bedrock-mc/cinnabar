@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {
@@ -275,6 +276,9 @@ impl GpuUpdateCandidate {
 
 pub(in crate::chunk) const MAX_GPU_UPDATE_FAIRNESS_ENTRIES: usize = 65_536;
 pub(in crate::chunk) const GPU_UPDATE_OVERDUE_FRAMES: u32 = 2;
+/// An update waiting this long goes before every nearer one, oldest first, so a backlog that
+/// keeps refilling near the camera still serves it; younger overdue updates go nearest first.
+pub(in crate::chunk) const GPU_UPDATE_STARVED_FRAMES: u32 = 60;
 
 #[derive(Resource)]
 pub(in crate::chunk) struct GpuUpdateFairness {
@@ -388,18 +392,21 @@ pub(in crate::chunk) fn plan_gpu_chunk_updates(
         let right_age = fairness.wait_age(right.entity);
         let left_overdue = left_age >= GPU_UPDATE_OVERDUE_FRAMES;
         let right_overdue = right_age >= GPU_UPDATE_OVERDUE_FRAMES;
+        let left_starved = left_age >= GPU_UPDATE_STARVED_FRAMES;
+        let right_starved = right_age >= GPU_UPDATE_STARVED_FRAMES;
         let left_urgent = left.priority.is_urgent() || fairness.is_urgent(left.entity);
         let right_urgent = right.priority.is_urgent() || fairness.is_urgent(right.entity);
         right_urgent
             .cmp(&left_urgent)
-            .then_with(|| right_overdue.cmp(&left_overdue))
+            .then_with(|| right_starved.cmp(&left_starved))
             .then_with(|| {
-                if left_overdue && right_overdue {
+                if left_starved && right_starved {
                     right_age.cmp(&left_age)
                 } else {
                     std::cmp::Ordering::Equal
                 }
             })
+            .then_with(|| right_overdue.cmp(&left_overdue))
             .then_with(|| {
                 ChunkUploadPriority::from_camera(left.key, camera_position)
                     .distance_squared()

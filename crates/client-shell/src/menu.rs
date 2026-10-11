@@ -920,4 +920,4 @@ use client_state::{JoinIntent, SessionStatus};
 mod reconnect_tests;
 
 #[cfg(any(test, feature = "test-support"))]
-mod test_support;
+pub mod test_support;

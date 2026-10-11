@@ -4,7 +4,9 @@ use assets::{
     MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
     MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate,
     NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray,
-    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport, encode_blob,
+    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport,
+    blob::{HEADER_BYTES, VISUAL_BYTES},
+    encode_blob,
 };
 use sha2::{Digest, Sha256};
 
@@ -34,7 +36,6 @@ fn runtime_decodes_world_carrier_tables() {
     assert_eq!(runtime.provenance(), &FIXTURE_PROVENANCE);
 }
 
-const HEADER_BYTES: usize = 296;
 const HASH_BYTES: usize = 32;
 const VERSION_OFFSET: usize = 8;
 const VISUAL_COUNT_OFFSET: usize = 20;
@@ -75,6 +76,7 @@ fn compiled_assets() -> CompiledAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             },
             BlockVisual {
                 faces: [1, 1, 1, 1, 1, 1],
@@ -85,6 +87,7 @@ fn compiled_assets() -> CompiledAssets {
                 model_template: NO_MODEL_TEMPLATE,
                 animation: NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             },
         ]
         .into_boxed_slice(),
@@ -165,6 +168,7 @@ fn synthetic_air_visual() -> BlockVisual {
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     }
 }
 
@@ -502,9 +506,9 @@ fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
     ] {
         let mut blob = full_face_model_blob();
         let visuals = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
-        blob[visuals + 44 + 25] = kind as u8;
-        blob[visuals + 44 + 26] = role as u8;
-        write_u32(&mut blob, visuals + 44 + 32, template);
+        blob[visuals + VISUAL_BYTES + 25] = kind as u8;
+        blob[visuals + VISUAL_BYTES + 26] = role as u8;
+        write_u32(&mut blob, visuals + VISUAL_BYTES + 32, template);
         reseal(&mut blob);
         assert_rejected(&blob, &format!("standalone occlusion on {kind:?}"));
     }
@@ -524,7 +528,7 @@ fn runtime_rejects_full_face_occlusion_on_non_model_visuals() {
         .expect("encode non-occluding zero-quad model")
         .into_vec();
     let visuals = read_u64(&zero_quad, VISUALS_OFFSET_OFFSET) as usize;
-    zero_quad[visuals + 44 + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
+    zero_quad[visuals + VISUAL_BYTES + 24] = BlockFlags::OCCLUDES_FULL_FACE.bits();
     reseal(&mut zero_quad);
     assert_rejected(&zero_quad, "standalone occlusion on zero-quad Model");
 }
@@ -661,21 +665,25 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     let animations = read_u64(&blob, 232) as usize;
     let frames = read_u64(&blob, 240) as usize;
 
-    mutate_byte(visuals + 44 + 25, 99, "unknown visual kind");
-    mutate_byte(visuals + 44 + 26, 99, "unknown contributor role");
-    mutate_byte(visuals + 44 + 26, 0, "liquid with primary contributor role");
+    mutate_byte(visuals + VISUAL_BYTES + 25, 99, "unknown visual kind");
+    mutate_byte(visuals + VISUAL_BYTES + 26, 99, "unknown contributor role");
     mutate_byte(
-        visuals + 44 + 25,
+        visuals + VISUAL_BYTES + 26,
+        0,
+        "liquid with primary contributor role",
+    );
+    mutate_byte(
+        visuals + VISUAL_BYTES + 25,
         VisualKind::Invisible as u8,
         "invisible liquid contributor",
     );
     mutate_byte(
-        visuals + 44 + 24,
+        visuals + VISUAL_BYTES + 24,
         BlockFlags::CUBE_GEOMETRY.bits(),
         "liquid with cube flags",
     );
-    mutate(visuals + 44 + 32, 1, "visual template ID");
-    mutate(visuals + 44 + 36, 1, "visual animation ID");
+    mutate(visuals + VISUAL_BYTES + 32, 1, "visual template ID");
+    mutate(visuals + VISUAL_BYTES + 36, 1, "visual animation ID");
     mutate(templates, 1, "noncanonical template start");
     mutate(
         templates + 8,
@@ -941,7 +949,7 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
     );
 
     let mut tail_referenced = canonical;
-    write_u32(&mut tail_referenced, visuals + 44 + 32, 1);
+    write_u32(&mut tail_referenced, visuals + VISUAL_BYTES + 32, 1);
     reseal(&mut tail_referenced);
     assert_rejected(&tail_referenced, "direct compound continuation reference");
 

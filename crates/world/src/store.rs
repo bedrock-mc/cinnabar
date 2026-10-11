@@ -7,10 +7,10 @@ use std::{
 use hashbrown::HashMap;
 
 use crate::{
-    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockUpdate, Chunk,
-    ChunkKey, CollisionRevisionError, DecodeError, DecodedBiomeColumn, DecodedBlockEntities,
-    DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MutationError,
-    SubChunk, SubChunkKey,
+    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockPos,
+    BlockUpdate, Chunk, ChunkKey, CollisionRevisionError, DecodeError, DecodedBiomeColumn,
+    DecodedBlockEntities, DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK,
+    MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MutationError, NeighbourReach, SubChunk, SubChunkKey,
     collision_revision::{CollisionRevisionAllocator, process_collision_revisions},
 };
 
@@ -51,6 +51,8 @@ pub struct PreparedSubChunkMutation {
     key: SubChunkKey,
     replacement: Option<SubChunk>,
     changed: bool,
+    reach: NeighbourReach,
+    cells: Box<[[u8; 3]]>,
 }
 
 impl PreparedSubChunkMutation {
@@ -67,6 +69,24 @@ impl PreparedSubChunkMutation {
     #[must_use]
     pub const fn changed(&self) -> bool {
         self.changed
+    }
+
+    /// The neighbouring sub-chunks whose meshes the changed cells can affect.
+    #[must_use]
+    pub const fn reach(&self) -> NeighbourReach {
+        self.reach
+    }
+
+    /// The world positions of the cells the mutation set.
+    pub fn changed_positions(&self) -> impl Iterator<Item = BlockPos> + '_ {
+        let origin = [self.key.x, self.key.y, self.key.z].map(|c| c.wrapping_mul(16));
+        self.cells.iter().map(move |&[x, y, z]| {
+            BlockPos::new(
+                origin[0].wrapping_add(i32::from(x)),
+                origin[1].wrapping_add(i32::from(y)),
+                origin[2].wrapping_add(i32::from(z)),
+            )
+        })
     }
 }
 
@@ -426,6 +446,8 @@ impl ChunkStore {
                 key,
                 replacement: previous.cloned(),
                 changed: false,
+                reach: NeighbourReach::of_updates(updates),
+                cells: Box::new([]),
             });
         }
 
@@ -443,6 +465,11 @@ impl ChunkStore {
             key,
             replacement,
             changed,
+            reach: NeighbourReach::of_updates(updates),
+            cells: updates
+                .iter()
+                .map(|update| [update.x, update.y, update.z])
+                .collect(),
         })
     }
 

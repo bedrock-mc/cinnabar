@@ -1,9 +1,9 @@
 //! Own depth-only cascade pass for the vertex-pulled terrain arena.
 
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     prelude::*,
     render::{
-        diagnostic::RecordDiagnostics,
         render_resource::{
             CachedRenderPipelineId, CompareFunction, DepthBiasState, DepthStencilState,
             FragmentState, LoadOp, Operations, PipelineCache, PrimitiveState,
@@ -15,9 +15,9 @@ use bevy::{
     },
 };
 
-use super::{
-    EnhancedRendering,
-    gpu::{CASTER_SLOT_BYTES, EnhancedViews, SHADOW_FORMAT, enhanced_caster_layout},
+use {
+    super::gpu::{CASTER_SLOT_BYTES, EnhancedViews, SHADOW_FORMAT, enhanced_caster_layout},
+    render_scene::EnhancedRendering,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -130,7 +130,7 @@ pub(crate) fn enhanced_shadows(
             }),
             timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                 world,
-                crate::RuntimeStage::GpuShadows,
+                render_scene::RuntimeStage::GpuShadows,
             ),
             occlusion_query_set: None,
             multiview_mask: None,

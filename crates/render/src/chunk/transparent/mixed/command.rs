@@ -1,9 +1,10 @@
 use super::plan::MixedStream;
 use super::*;
 use crate::chunk::transparent::liquid::transparent_frame_draw_for_range;
+use render_scene::TransparentSortMetrics;
 
 pub(in crate::chunk) type DrawMixedTerrainCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    { render_scene::RuntimeStage::GpuTerrainTransparent as usize },
     (
         crate::lighting::SetWorldLightmap,
         crate::enhanced::SetEnhancedViewBindGroup<2>,

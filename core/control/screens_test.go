@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
 )
 
 type stubScreens struct {
@@ -15,11 +13,11 @@ type stubScreens struct {
 
 type recordingScreens struct {
 	stubScreens
-	events []catalog.MessageEvent
+	events []MessageEvent
 }
 
 // ReportMessage records the reports delivered by the control endpoint.
-func (s *recordingScreens) ReportMessage(_ context.Context, event catalog.MessageEvent) error {
+func (s *recordingScreens) ReportMessage(_ context.Context, event MessageEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -35,30 +33,30 @@ func TestMessageEndpointForwardsBulkDeleteAndSubsequentReports(t *testing.T) {
 			t.Fatalf("message event %s was rejected: %+v", params, reply.Error)
 		}
 	}
-	if len(screens.events) != 2 || screens.events[0] != (catalog.MessageEvent{Type: "DeleteAllRead"}) ||
-		screens.events[1] != (catalog.MessageEvent{Type: "Click", InstanceID: "next", ReportID: "report"}) {
+	if len(screens.events) != 2 || screens.events[0] != (MessageEvent{Type: "DeleteAllRead"}) ||
+		screens.events[1] != (MessageEvent{Type: "Click", InstanceID: "next", ReportID: "report"}) {
 		t.Fatalf("forwarded events = %+v", screens.events)
 	}
 }
 
-func (stubScreens) FeaturedServers(context.Context) ([]catalog.FeaturedServer, error) {
-	return []catalog.FeaturedServer{{Name: "Example", Address: "play.example.test:19132"}}, nil
+func (stubScreens) FeaturedServers(context.Context) ([]FeaturedServer, error) {
+	return []FeaturedServer{{Name: "Example", Address: "play.example.test:19132"}}, nil
 }
 
-func (stubScreens) Profile(context.Context) (catalog.Profile, error) {
-	return catalog.Profile{Gamertag: "Steve", XUID: "1"}, nil
+func (stubScreens) Profile(context.Context) (Profile, error) {
+	return Profile{Gamertag: "Steve", XUID: "1"}, nil
 }
 
-func (stubScreens) Home(context.Context) (catalog.Home, error) {
-	return catalog.Home{RealmInvites: 2, Messages: []catalog.Message{}}, nil
+func (stubScreens) Home(context.Context) (Home, error) {
+	return Home{RealmInvites: 2, Messages: []Message{}}, nil
 }
 
-func (stubScreens) ReportMessage(context.Context, catalog.MessageEvent) error { return nil }
+func (stubScreens) ReportMessage(context.Context, MessageEvent) error { return nil }
 
-func (stubScreens) Ping(_ context.Context, addresses []string) []catalog.PingResult {
-	results := make([]catalog.PingResult, len(addresses))
+func (stubScreens) Ping(_ context.Context, addresses []string) []PingResult {
+	results := make([]PingResult, len(addresses))
 	for index, address := range addresses {
-		results[index] = catalog.PingResult{Address: address, Online: true, Players: 3}
+		results[index] = PingResult{Address: address, Online: true, Players: 3}
 	}
 	return results
 }
@@ -113,10 +111,10 @@ type countedScreens struct {
 }
 
 // FeaturedServersWithCounts supplies a real zero without losing its presence on the bridge.
-func (s *countedScreens) FeaturedServersWithCounts(context.Context) ([]catalog.FeaturedServer, error) {
+func (s *countedScreens) FeaturedServersWithCounts(context.Context) ([]FeaturedServer, error) {
 	s.calls++
 	count := int64(0)
-	return []catalog.FeaturedServer{{Name: "Experience", PlayerCount: &count}}, nil
+	return []FeaturedServer{{Name: "Experience", PlayerCount: &count}}, nil
 }
 
 // TestFeaturedCountsAreOptIn keeps background catalog reads from requesting populations.

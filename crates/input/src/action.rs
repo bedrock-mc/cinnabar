@@ -211,6 +211,8 @@ pub struct ActionSnapshot {
     pub input_mode: InputMode,
     pub phases: [ActionPhase; Action::COUNT],
     pub release_reasons: [Option<ReleaseReason>; Action::COUNT],
+    /// An input authority boundary occurred, including when no action was held.
+    pub authority_released: bool,
 }
 
 /// Direction buttons retain their identities even when their resulting vector is zero.

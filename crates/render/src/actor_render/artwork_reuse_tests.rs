@@ -1,4 +1,5 @@
 use super::*;
+use render_model::ActorArtworkPages;
 
 /// Creates a no-op GPU so resource identity checks are deterministic on every CI platform.
 fn gpu() -> (RenderDevice, RenderQueue) {
@@ -11,7 +12,7 @@ fn artwork() -> ActorArtworkPages {
     let mut pages = ActorArtworkPages::default();
     pages.identity = [1; 32];
     pages.entity_identity = [2; 32];
-    pages.pages = Arc::from([crate::ActorTexturePage {
+    pages.pages = Arc::from([render_model::ActorTexturePage {
         width: 16,
         height: 16,
         layers: 1,
@@ -32,7 +33,7 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
     let glint = gpu.glint.as_ref().unwrap().0.id();
     let (extended, _) = original
         .clone()
-        .with_equipment_rasters(&[crate::EquipmentRaster {
+        .with_equipment_rasters(&[render_model::EquipmentRaster {
             width: 8,
             height: 8,
             rgba8: vec![31; 8 * 8 * 4].into(),
@@ -53,7 +54,7 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
 #[test]
 fn route_and_page_order_changes_reuse_immutable_textures() {
     let (device, queue) = gpu();
-    let (mut pages, _) = artwork().with_equipment_rasters(&[crate::EquipmentRaster {
+    let (mut pages, _) = artwork().with_equipment_rasters(&[render_model::EquipmentRaster {
         width: 8,
         height: 8,
         rgba8: vec![31; 8 * 8 * 4].into(),
@@ -95,7 +96,7 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
     assert!(gpu.prepare(&pages, &device, &queue));
     let texture = gpu.pages[0]._texture.id();
     let glint = gpu.glint.as_ref().unwrap().0.id();
-    pages = pages.with_actor_glint(crate::EquipmentRaster {
+    pages = pages.with_actor_glint(render_model::EquipmentRaster {
         width: 1,
         height: 1,
         rgba8: Arc::from([19; 4]),

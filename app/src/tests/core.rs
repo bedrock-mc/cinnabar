@@ -3,7 +3,6 @@ use client_runtime::network::NetworkHandle;
 use {
     super::*,
     client_presentation::actor_clock::ActorFrameClock,
-    diagnostics::AcceptanceRuntimeConfig,
     diagnostics::markers::{acceptance_runtime_metadata_marker, visibility_digest_marker_fields},
 };
 
@@ -224,9 +223,7 @@ fn unavailable_visibility_digest_marker_fields_are_explicitly_invalid() {
 #[test]
 fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
     let marker = acceptance_runtime_metadata_marker(
-        AcceptanceRuntimeConfig {
-            build_profile: "release",
-        },
+        "release",
         &render_model::GraphicsAdapterMetadata {
             backend: "Dx12".to_owned(),
             adapter: "Test Adapter".to_owned(),

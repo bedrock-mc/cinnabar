@@ -3,12 +3,7 @@ pub mod bounded_file;
 pub mod console;
 pub mod markers;
 pub mod metrics;
-
-/// Build identity recorded alongside runtime measurements.
-#[derive(bevy::prelude::Resource, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AcceptanceRuntimeConfig {
-    pub build_profile: &'static str,
-}
+mod rotating_log;
 
 /// Writes one diagnostic marker and flushes it immediately.
 pub fn write_stdout_marker(stdout: &mut impl std::io::Write, marker: &str) {

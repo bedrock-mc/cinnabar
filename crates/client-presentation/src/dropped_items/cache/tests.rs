@@ -290,8 +290,8 @@ fn permanent_block_build_failures_are_attempted_once_until_sync_changes() {
     let costs = std::cell::Cell::new(0);
     let builds = std::cell::Cell::new(0);
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());
-    let first = render::ChunkTextureAssets::with_revision(Arc::clone(&assets), 1).identity();
-    let second = render::ChunkTextureAssets::with_revision(assets, 2).identity();
+    let first = render_scene::ChunkTextureAssets::with_revision(Arc::clone(&assets), 1).identity();
+    let second = render_scene::ChunkTextureAssets::with_revision(assets, 2).identity();
     let generations = [
         (1, first, 0),
         (1, second, 0),

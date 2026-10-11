@@ -31,7 +31,10 @@ pub(super) fn descriptor_for(
     {
         flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
     }
-    if visuals::shelf::is_record(record)
+    if crate::respawn_anchor::is_record(record)
+        || visuals::shelf::is_record(record)
+        || visuals::sea_pickle::is_record(record)
+        || visuals::grindstone::is_record(record)
         || visuals::end_portal_frame::is_record(record)
         || visuals::end_rod::is_record(record)
         || visuals::lightning_rod::is_record(record)
@@ -87,6 +90,8 @@ pub(super) fn descriptor_for(
     Some((
         Descriptor {
             state_variant,
+            flipbook_selector: crate::respawn_anchor::is_record(record)
+                .then_some((state_variant, state_variant)),
             path: path.into(),
             texture_key: key.clone(),
             flags,

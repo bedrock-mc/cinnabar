@@ -1,10 +1,15 @@
 //! Atlas-backed model, portal and overlay passes with separate vertex lists.
 //! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
+use bevy::prelude::IntoScheduleConfigs;
+#[cfg(test)]
+use bevy::prelude::System;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
 use std::mem::size_of;
 
 #[cfg(test)]
-use bevy::prelude::{IntoSystem, System};
+use bevy::prelude::IntoSystem;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{
@@ -12,19 +17,22 @@ use bevy::{
     },
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
-        Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
+        Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctionId, DrawFunctions,
-            InputUniformIndex, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
-            SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
+            BinnedRenderPhaseType, DrawFunctionId, DrawFunctions, InputUniformIndex, PhaseItem,
+            PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
+            TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -33,10 +41,10 @@ use bevy::{
             BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, Extent3d, FilterMode, FragmentState, Origin3d, PipelineCache,
             PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
-            SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
-            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-            TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
+            TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -44,10 +52,8 @@ use bevy::{
     },
 };
 
-use super::{
-    mesh::{BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex},
-    scene::{BlockEntityFrame, BlockEntityScene},
-    selection::{BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame},
+use render_model::{
+    BLOCK_ENTITY_VERTEX_WORDS, BLOCK_SELECTION_VERTICES_PER_EDGE, BlockEntityVertex,
 };
 
 #[path = "gpu/pipeline.rs"]
@@ -76,10 +82,10 @@ impl Plugin for BlockEntityRenderPlugin {
 struct BlockEntityRenderInstalled;
 
 fn install(app: &mut App) {
-    app.init_resource::<BlockEntityFrame>()
-        .init_resource::<BlockSelectionFrame>()
-        .init_resource::<BlockEntityScene>()
-        .init_resource::<super::items::StaticItemPlacements>();
+    app.init_resource::<render_scene::BlockEntityFrameResource>()
+        .init_resource::<render_scene::BlockSelectionFrameResource>()
+        .init_resource::<render_scene::BlockEntitySceneResource>()
+        .init_resource::<render_scene::StaticItemPlacementsResource>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -89,8 +95,12 @@ fn install(app: &mut App) {
     {
         return;
     }
-    app.add_plugins(ExtractResourcePlugin::<BlockEntityFrame>::default());
-    app.add_plugins(ExtractResourcePlugin::<BlockSelectionFrame>::default());
+    app.add_plugins(ExtractResourcePlugin::<
+        render_scene::BlockEntityFrameResource,
+    >::default());
+    app.add_plugins(ExtractResourcePlugin::<
+        render_scene::BlockSelectionFrameResource,
+    >::default());
     crate::lighting::install(app);
     load_internal_asset!(app, SHADER_HANDLE, "block_entity.wesl", |source, path| {
         crate::shader_safety::from_block_entity_wesl(
@@ -125,7 +135,7 @@ fn install(app: &mut App) {
                     queue_crack,
                     queue_additive,
                 )
-                    .distributive_run_if(crate::panorama::world_passes_enabled)
+                    .distributive_run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -240,9 +250,9 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 }
 
 fn prepare_resources(
-    frame: Res<BlockEntityFrame>,
-    selection: Res<BlockSelectionFrame>,
-    atmosphere: Option<Res<crate::AtmosphereFrame>>,
+    frame: Res<render_scene::BlockEntityFrameResource>,
+    selection: Res<render_scene::BlockSelectionFrameResource>,
+    atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<BlockEntityGpu>,
@@ -270,7 +280,7 @@ fn prepare_resources(
     let atlas = frame
         .atlas
         .as_ref()
-        .unwrap_or_else(|| super::selection::fallback_atlas());
+        .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
     if gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size || gpu.texture.is_none()
     {
         let texture = render_device.create_texture(&TextureDescriptor {

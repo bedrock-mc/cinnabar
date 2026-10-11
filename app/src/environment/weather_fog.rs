@@ -5,7 +5,7 @@
 //! mixed-biome f32 addition order remains incomplete until positional temperature
 //! is available. No base-temperature classification is substituted here.
 
-use render::PRECIPITATION_SAMPLE_OFFSETS;
+use render_model::PRECIPITATION_SAMPLE_OFFSETS;
 
 const RAIN_SAMPLE_WEIGHT: f32 = 0.5;
 const FOG_COUNTER_WEIGHT: f32 = 0.2;

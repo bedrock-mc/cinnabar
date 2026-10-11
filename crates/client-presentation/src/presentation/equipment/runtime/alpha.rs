@@ -1,7 +1,7 @@
 //! Held cube alpha modes follow the admitted materials, independently of their pixels.
 
 use super::*;
-use render::HandItemAlphaMode;
+use render_model::HandItemAlphaMode;
 
 pub(super) fn mode_for_material_flags(flags: u32) -> HandItemAlphaMode {
     if flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0 {

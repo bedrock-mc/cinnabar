@@ -67,8 +67,6 @@ const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
-/// Ticks in one Minecraft day.
-const TICKS_PER_DAY: f64 = 24_000.0;
 
 /// One screen's resolved tree per catalog and its last layout per model.
 #[derive(Default)]
@@ -652,7 +650,7 @@ fn world_text_lines(runtime: &UiRuntime, frame: &HudFrame) -> (Option<String>, O
         .world_time
         .filter(|_| alive && rules.show_days_played())
         .map(|time| {
-            let days = (time / TICKS_PER_DAY).floor();
+            let days = (time / f64::from(world::TICKS_PER_DAY)).floor();
             if days < 0.0 {
                 translate("hudScreen.daysPlayed.overflow", "Too many to count!", &[])
             } else {

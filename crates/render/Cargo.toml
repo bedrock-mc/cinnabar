@@ -6,14 +6,15 @@ rust-version.workspace = true
 publish = false
 
 [features]
-tracy = ["bevy/trace", "dep:tracy-client"]
+tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
-enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics"]
+enhanced-diagnostics = ["enhanced", "render-model/enhanced-diagnostics", "render-scene/enhanced-diagnostics"]
 
 [dependencies]
+render-scene = { path = "../render-scene" }
 block-transform = { path = "../block-transform" }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 mod-api = { path = "../mod-api" }
@@ -44,6 +45,8 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [dev-dependencies]
+render-model = { path = "../render-model", features = ["test-support"] }
+render-scene = { path = "../render-scene", features = ["publication-test-support"] }
 test-time = { path = "../test-time" }
 wgpu = { workspace = true, features = ["counters"] }
 pack-compiler = { path = "../pack-compiler" }

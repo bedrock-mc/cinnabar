@@ -24,7 +24,8 @@ use {
 fn fixture_world() -> World {
     let (_pack, _geometry, entities) = super::super::viewmodel_presentation::hand_fixture();
     let scene =
-        render::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[]).unwrap();
+        render_scene::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[])
+            .unwrap();
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
             &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),
@@ -38,7 +39,7 @@ fn fixture_world() -> World {
             icons,
             None,
             None,
-            render::ActorArtworkPages::default(),
+            render_model::ActorArtworkPages::default(),
         );
     let mut client = player_world(entities.clone());
     let stream = client.stream.as_mut().unwrap();
@@ -82,10 +83,10 @@ fn fixture_world() -> World {
     world.insert_resource(NetworkHandle::<PackApplication>::stub().0);
     world.init_resource::<PreparedUiPublication>();
     world.init_resource::<CaveVisibilityCache>();
-    world.init_resource::<render::VisibilityDiagnosticsInput>();
-    world.init_resource::<render::VisibilityDiagnostics>();
-    world.init_resource::<render::ChunkRenderQueue>();
-    world.init_resource::<render::ChunkUploadAcknowledgements>();
+    world.init_resource::<render_scene::VisibilityDiagnosticsInput>();
+    world.init_resource::<render_scene::VisibilityDiagnostics>();
+    world.init_resource::<render_scene::ChunkRenderQueue>();
+    world.init_resource::<render_scene::ChunkUploadAcknowledgements>();
     world.init_resource::<WorldStreamFramePoll>();
     world.init_resource::<LocalPlayerFrameCarrier>();
     world.init_resource::<WorldClock>();
@@ -106,7 +107,7 @@ fn fixture_world() -> World {
 /// Checks the published hand and label state after one visibility update.
 fn assert_published(world: &mut World, hands: bool, names: bool) {
     // An inactive animated rig selects the real CPU-hand capture path.
-    world.resource_mut::<render::HandRigScene>().clear();
+    world.resource_mut::<render_scene::HandRigScene>().clear();
     world.run_system_cached(prepare_ui_runtime).unwrap();
     let pending = world
         .resource::<PreparedUiPublication>()
@@ -140,7 +141,7 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
         .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert_eq!(
-        world.resource::<render::HandRigScene>().is_active(),
+        world.resource::<render_scene::HandRigScene>().is_active(),
         hands,
         "animated hand publication"
     );

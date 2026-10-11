@@ -73,6 +73,7 @@ fn descriptor(
                     0
                 },
             state_variant,
+            flipbook_selector: None,
         },
         key,
     ))
@@ -147,6 +148,7 @@ pub(in crate::compiler) fn descriptors(
                             texture_key: key.clone(),
                             flags: MATERIAL_FLAG_ALPHA_CUTOUT,
                             state_variant,
+                            flipbook_selector: None,
                         },
                         key,
                     )

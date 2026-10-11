@@ -456,6 +456,22 @@ pub(super) fn prepare_mod_input(
         absorbed,
     );
     let was_open = physical.panel_owned;
+    if focused && !absorbed {
+        let toggles: Vec<_> = panel_keys
+            .iter()
+            .filter(|(_, _, repeat)| !repeat)
+            .map(|(key, _, _)| key.clone())
+            .collect();
+        if extension.hosts.select_panel(&toggles) {
+            presentation.cancel_mod_panel_edit();
+            let owner = extension.hosts.panel_owner();
+            let _ = presentation.set_mod_panel_font(extension.panel_fonts[owner].clone());
+            if let Err(error) = presentation.set_mod_panel(extension.hosts.host(owner).panel()) {
+                eprintln!("Cinnabar extension panel rejected: {error}");
+            }
+            presentation.set_mod_panel_open(false);
+        }
+    }
     let owner = extension.hosts.panel_owner();
     let mut open = extension.hosts.host(owner).panel_open() && presentation.mod_panel_open();
     let had_panel = open;
@@ -623,7 +639,12 @@ pub(super) fn prepare_mod_input(
             // A close edge belongs to the panel, not the underlying pause menu.
             keys.reset(KeyCode::Escape);
         }
-        let reserved = extension.hosts.reserved_keys();
+        let mut reserved = extension.hosts.reserved_keys();
+        for index in 0..extension.hosts.host_count() {
+            if let Some(panel) = extension.hosts.host(index).panel() {
+                reserved.push(panel.toggle_key.clone());
+            }
+        }
         let toggle = extension
             .hosts
             .host(owner)

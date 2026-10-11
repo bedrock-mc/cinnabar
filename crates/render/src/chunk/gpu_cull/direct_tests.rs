@@ -1,5 +1,7 @@
 //! Direct-draw occlusion: verdict policy, readback ring, device selection and app wiring.
 
+use render_scene::ChunkRenderInstance;
+
 use super::app_tests::{
     KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin, render_plugin,
 };
@@ -338,7 +340,7 @@ fn a_resized_viewport_voids_old_verdicts() {
         ),
         world_from_view: GlobalTransform::from_translation(Vec3::from_array(EYE)),
         clip_from_world: None,
-        target_format: crate::SCENE_COLOR_FORMAT,
+        target_format: render_scene::SCENE_COLOR_FORMAT,
         viewport,
         color_grading: default(),
         invert_culling: false,

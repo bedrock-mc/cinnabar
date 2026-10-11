@@ -1,5 +1,6 @@
 //! Exercises sky/world composition through the real headless render app.
 
+use bevy::render::render_phase::AddRenderCommand;
 use std::collections::HashMap;
 
 use bevy::{
@@ -17,9 +18,8 @@ use bevy::{
         Render, RenderApp, RenderPlugin, RenderSystems,
         render_asset::RenderAssets,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
         },
         render_resource::*,
         renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue},
@@ -31,7 +31,10 @@ use bevy::{
     window::WindowPlugin,
 };
 
-use crate::{AtmosphereFrame, AtmosphereTextureAssets, ChunkRenderPlugin, SkyKind};
+use {
+    crate::ChunkRenderPlugin,
+    render_scene::{AtmosphereFrame, AtmosphereTextureAssets, SkyKind},
+};
 
 const SIZE: [u32; 2] = [64, 48];
 const WORLD_SHADER: Handle<Shader> = uuid_handle!("c22977be-f4db-4e14-aedb-d31025ce01ca");
@@ -195,9 +198,9 @@ fn queue_world(
                     entry_point: Some("fragment".into()),
                     targets: vec![Some(ColorTargetState {
                         format: if camera.hdr {
-                            crate::SCENE_HDR_FORMAT
+                            render_scene::SCENE_HDR_FORMAT
                         } else {
-                            crate::SCENE_COLOR_FORMAT
+                            render_scene::SCENE_COLOR_FORMAT
                         },
                         blend: None,
                         write_mask: ColorWrites::ALL,

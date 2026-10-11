@@ -480,13 +480,13 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
     let view = world.entity(view);
     assert_eq!(
         view.get::<ViewTarget>().unwrap().main_texture_format(),
-        crate::SCENE_COLOR_FORMAT
+        render_scene::SCENE_COLOR_FORMAT
     );
     assert_eq!(
         world
             .resource::<CameraMainPassTextureFormats>()
             .get(&view.id()),
-        Some(&crate::SCENE_COLOR_FORMAT)
+        Some(&render_scene::SCENE_COLOR_FORMAT)
     );
     assert_eq!(view.get::<Msaa>(), Some(&Msaa::Sample4));
     assert!(
@@ -534,6 +534,6 @@ fn msaa_view_allocates_one_multisampled_colour_target() {
             .get::<ViewTarget>(owner)
             .unwrap()
             .main_texture_format(),
-        crate::SCENE_HDR_FORMAT
+        render_scene::SCENE_HDR_FORMAT
     );
 }

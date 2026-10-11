@@ -16,8 +16,7 @@ pub use conformance::{
     verify_legacy_trace_jsonl, verify_scenario_trace_jsonl, verify_trace_jsonl,
 };
 pub use destroy::{
-    BlockDestroyInfo, DestroyConditions, HeldTool, ToolKind, ToolTier, block_destroy_info,
-    destroy_progress_per_tick,
+    BlockDestroyInfo, DestroyConditions, HeldTool, ToolTier, destroy_progress_per_tick,
 };
 pub use fluid::sample_actor_liquids;
 pub use math::{Vec3, minecraft_cos, minecraft_sin, view_direction};

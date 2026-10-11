@@ -15,7 +15,8 @@ pub(in crate::chunk::gpu) fn log_initial_arena_capacity(
     log_arena_capacity(arena, "initialized");
 }
 
-/// Logs only creation or capacity changes. Reclaimed ranges do not shrink buffers.
+/// Logs only creation or capacity changes, at debug level: joins grow the arena dozens of times.
+/// Reclaimed ranges do not shrink buffers.
 pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'static str) {
     let quad_bytes = arena.quad_buffer.size();
     let geometry_bytes = arena.geometry_stream_buffer.size();
@@ -40,7 +41,7 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         auxiliary_bytes,
         migration_bytes,
     ]);
-    bevy::log::info!(
+    bevy::log::debug!(
         event,
         quad_bytes,
         geometry_bytes,

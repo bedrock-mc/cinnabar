@@ -2,6 +2,7 @@ use super::*;
 use crate::chunk::gpu::upload::validate_local_model_streams;
 use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
 use bevy::render::render_resource::FilterMode;
+use render_scene::ChunkRenderInstance;
 
 #[test]
 fn chunk_sampler_uses_point_texels_and_linear_mip_interpolation() {

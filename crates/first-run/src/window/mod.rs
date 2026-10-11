@@ -20,6 +20,16 @@ const EXIT_QUIT: i32 = 3;
 const EXIT_UNAVAILABLE: i32 = 4;
 /// Where packaging installs the pinned UI font, under the resource root.
 const FONT_DIR: &str = "fonts";
+/// Cinnabar's own panorama behind the setup window, in pack face order (-Z, +X, +Z, -X, up,
+/// down). Menus use the pack's faces once it is prepared.
+const BUILT_IN_FACES: [&[u8]; 6] = [
+    include_bytes!("../../../../assets/panorama/panorama_0.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_1.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_2.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_3.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_4.jpg"),
+    include_bytes!("../../../../assets/panorama/panorama_5.jpg"),
+];
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum ChildOutcome {
@@ -66,7 +76,7 @@ pub fn run_setup_process() -> i32 {
         eprintln!("first-run window unavailable: no usable UI font ({font:?})");
         return EXIT_UNAVAILABLE;
     };
-    let Some(faces) = render_model::panorama::built_in_faces() else {
+    let Some(faces) = built_in_faces() else {
         return EXIT_UNAVAILABLE;
     };
     let Ok(event_loop) = EventLoop::new() else {
@@ -80,6 +90,10 @@ pub fn run_setup_process() -> i32 {
     app.stop_worker();
     app.exit_code()
         .unwrap_or(if failed { EXIT_UNAVAILABLE } else { EXIT_QUIT })
+}
+
+fn built_in_faces() -> Option<render_model::PanoramaFaces> {
+    render_model::panorama::decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()))
 }
 
 fn decode_logo() -> Option<Image> {
@@ -108,6 +122,6 @@ mod tests {
     #[test]
     fn built_in_art_decodes() {
         assert!(decode_logo().is_some());
-        assert!(render_model::panorama::built_in_faces().is_some());
+        assert!(built_in_faces().is_some());
     }
 }

@@ -1,5 +1,10 @@
-//! Draws [`NametagScene`] in the transparent 3D phase: a see-through pass over everything and
-//! a depth-tested pass, as vanilla's `name_tag` and `name_tag_depth_tested` materials do.
+//! Draws [`render_model::NametagScene`] in the transparent 3D phase with a see-through pass
+//! and a depth-tested pass, matching the `name_tag` and `name_tag_depth_tested` materials.
+
+use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::render_phase::AddRenderCommand;
+use bevy::render::render_resource::ShaderType;
+use render_scene::NametagSceneResource;
 use std::{ops::Range, sync::Arc};
 
 use bevy::{
@@ -7,19 +12,21 @@ use bevy::{
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+        system::{
+            SystemParamItem,
+            lifetimeless::{Read, SRes},
+        },
     },
     prelude::{
-        App, BevyError, Commands, Deref, DerefMut, Entity, FromWorld, Handle, IntoScheduleConfigs,
-        Msaa, Query, Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Query, Res, ResMut, Resource,
+        Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, DrawFunctionId, DrawFunctions, PhaseItem, PhaseItemExtraIndex,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewSortedRenderPhases,
+            DrawFunctionId, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -28,9 +35,9 @@ use bevy::{
             ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
             Extent3d, FilterMode, FragmentState, PipelineCache, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            ShaderType, Specializer, SpecializerKey, TexelCopyBufferLayout, TextureAspect,
-            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-            TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
+            Specializer, SpecializerKey, TexelCopyBufferLayout, TextureAspect, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -40,13 +47,8 @@ use bevy::{
 
 use render_model::{
     MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
-    NametagRecord, NametagScene,
+    NametagRecord,
 };
-
-/// Main-world holder of this frame's [`NametagScene`], cloned into the render world.
-#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
-#[extract_app(bevy::render::RenderApp)]
-pub struct NametagSceneResource(pub NametagScene);
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");
 const RECORD_BYTES: usize = std::mem::size_of::<NametagRecord>();
@@ -108,7 +110,7 @@ pub(crate) fn install_nametag_render(app: &mut App) {
                 prepare_nametags.in_set(RenderSystems::PrepareResources),
                 prepare_nametag_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_nametags
-                    .run_if(crate::panorama::world_passes_enabled)
+                    .run_if(render_scene::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -279,7 +281,7 @@ impl FromWorld for NametagPipeline {
                 shader: NAMETAG_SHADER_HANDLE,
                 entry_point: Some("nametag_fragment".into()),
                 targets: vec![Some(ColorTargetState {
-                    format: crate::SCENE_COLOR_FORMAT,
+                    format: render_scene::SCENE_COLOR_FORMAT,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -323,9 +325,9 @@ impl Specializer<RenderPipeline> for NametagPipelineSpecializer {
             .as_mut()
             .unwrap()
             .format = if key.hdr {
-            crate::SCENE_HDR_FORMAT
+            render_scene::SCENE_HDR_FORMAT
         } else {
-            crate::SCENE_COLOR_FORMAT
+            render_scene::SCENE_COLOR_FORMAT
         };
         if key.gamma_blend {
             let fragment = descriptor.fragment.as_mut().unwrap();
@@ -408,7 +410,7 @@ type NametagQueueView = (
     &'static ExtractedView,
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
-    Option<&'static crate::EnhancedRendering>,
+    Option<&'static render_scene::EnhancedRendering>,
 );
 
 fn queue_nametags(
@@ -640,7 +642,7 @@ mod tests {
                         let mut descriptor = RenderPipelineDescriptor {
                             fragment: Some(FragmentState {
                                 targets: vec![Some(ColorTargetState {
-                                    format: crate::SCENE_COLOR_FORMAT,
+                                    format: render_scene::SCENE_COLOR_FORMAT,
                                     blend: Some(BlendState::ALPHA_BLENDING),
                                     write_mask: ColorWrites::ALL,
                                 })],
@@ -670,9 +672,9 @@ mod tests {
                         let fragment = descriptor.fragment.unwrap();
                         let target = fragment.targets[0].as_ref().unwrap();
                         let base = if hdr {
-                            crate::SCENE_HDR_FORMAT
+                            render_scene::SCENE_HDR_FORMAT
                         } else {
-                            crate::SCENE_COLOR_FORMAT
+                            render_scene::SCENE_COLOR_FORMAT
                         };
                         assert_eq!(
                             target.format,
@@ -701,7 +703,7 @@ mod tests {
                     let mut descriptor = RenderPipelineDescriptor {
                         fragment: Some(FragmentState {
                             targets: vec![Some(ColorTargetState {
-                                format: crate::SCENE_COLOR_FORMAT,
+                                format: render_scene::SCENE_COLOR_FORMAT,
                                 blend: Some(BlendState::ALPHA_BLENDING),
                                 write_mask: ColorWrites::ALL,
                             })],

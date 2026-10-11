@@ -1,6 +1,7 @@
 use super::*;
 use assets::{CompiledMolangExpression, EntityAssetKind, EntityGeometryScalar, MolangFunction};
 
+mod first_presentation;
 mod wolf_color_tests;
 
 /// A `minecraft:test` rig whose pre-animation counts ticks and draws a random number, posing both.

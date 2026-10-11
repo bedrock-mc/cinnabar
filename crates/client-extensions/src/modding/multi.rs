@@ -15,6 +15,7 @@ use {
 pub struct ModHosts {
     pub host: ModHost,
     pub companions: Vec<Companion>,
+    panel_selection: usize,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
@@ -133,6 +134,7 @@ impl ModHosts {
         Self {
             host,
             companions,
+            panel_selection: 0,
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
@@ -160,11 +162,53 @@ impl ModHosts {
         }
     }
 
-    /// The first mod in load order that publishes a panel owns the panel and its events.
+    /// The selected panel publisher owns the retained panel and its events.
     pub fn panel_owner(&self) -> usize {
+        if self.panel_selection < self.host_count()
+            && self.host(self.panel_selection).panel().is_some()
+        {
+            return self.panel_selection;
+        }
         (0..self.host_count())
             .find(|&index| self.host(index).panel().is_some())
             .unwrap_or(0)
+    }
+
+    /// Selects the earliest active panel whose toggle key was pressed, closing the old panel.
+    pub fn select_panel(&mut self, pressed: &[String]) -> bool {
+        let current = self.host(self.panel_owner());
+        if current.panel_open() && current.panel().is_some_and(|panel| panel.capture_key) {
+            return false;
+        }
+        let selected = (0..self.host_count()).find(|&index| {
+            let host = self.host(index);
+            host.is_active()
+                && host
+                    .panel()
+                    .is_some_and(|panel| pressed.contains(&panel.toggle_key))
+        });
+        let Some(selected) = selected else {
+            return false;
+        };
+        let previous = self.panel_owner();
+        self.panel_selection = selected;
+        if selected != previous {
+            self.host_mut(previous).set_panel_open(false);
+            return true;
+        }
+        false
+    }
+
+    /// Removes a companion without changing the remaining components' order.
+    pub fn remove_companion(&mut self, index: usize) -> ModHost {
+        assert!(index > 0);
+        let host = self.companions.remove(index - 1).host;
+        if self.panel_selection == index {
+            self.panel_selection = 0;
+        } else if self.panel_selection > index {
+            self.panel_selection -= 1;
+        }
+        host
     }
 
     /// The earliest card publisher owns the retained card surface.
@@ -334,6 +378,7 @@ pub fn run_frame(
             None
         };
         let mut controls = claim_controls(input.controls, &claimed, index == owner);
+        controls.panel_open = input.controls.panel_open && index == owner;
         controls.gameplay = snapshot.is_some() || movement.is_some();
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
         let host = runtime.host_mut(index);

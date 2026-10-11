@@ -266,11 +266,11 @@ fn a_locked_line_uses_the_indirect_intercept_instead_of_the_forward_miss_segment
 
 /// Corners of the outline the production selection system publishes, if any.
 fn published_outline(world: &mut World) -> Option<[[f32; 3]; 2]> {
-    world.init_resource::<render::BlockSelectionFrame>();
+    world.init_resource::<render_scene::BlockSelectionFrameResource>();
     world
         .run_system_cached(crate::block_selection::publish)
         .unwrap();
-    let frame = world.resource::<render::BlockSelectionFrame>();
+    let frame = world.resource::<render_scene::BlockSelectionFrameResource>();
     let mut points = frame
         .outline
         .iter()

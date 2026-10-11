@@ -193,10 +193,12 @@ fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
     assert_eq!(rig.current[0].translation_scale[2], 2.0);
 }
 
-/// Normal single-tick publication keeps exact poses, clocks, motion, and evaluation counts.
+/// After initial presentation, single ticks keep exact poses, clocks, motion, and work.
 #[test]
 fn single_tick_frames_match_explicit_tick_snapshots() {
     let (mut legacy, mut frame) = (scripted_stream(), scripted_stream());
+    legacy.advance_actor_interpolation_frame(0);
+    frame.advance_actor_interpolation_frame(0);
     for ticks in [0, 1].into_iter().cycle().take(80) {
         legacy.advance_actor_interpolation_ticks(ticks);
         frame.advance_actor_interpolation_frame(ticks);

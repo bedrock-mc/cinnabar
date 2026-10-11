@@ -54,6 +54,29 @@ thread_local! {
 }
 
 impl ActorAnimationStore {
+    /// Checks admission before allocating jobs or constructing actor contexts for a frame.
+    pub(crate) fn needs_initial_presentation(
+        &self,
+        actors: &HashMap<u64, ActorSnapshot>,
+        view: Option<&ActorAnimationView>,
+        exempt: Option<u64>,
+        admit: impl Fn(&ActorSnapshot) -> bool,
+    ) -> bool {
+        self.rigs.iter().any(|(lifetime, state)| {
+            actors.get(&lifetime.runtime_id).is_some_and(|actor| {
+                admit(actor)
+                    && initially_admitted(
+                        state,
+                        actor,
+                        view,
+                        exempt,
+                        self.assets.as_deref(),
+                        self.pack.as_ref(),
+                    )
+            })
+        })
+    }
+
     pub(super) fn evaluate_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
@@ -62,11 +85,17 @@ impl ActorAnimationStore {
         step: PoseStep,
         context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
-        let PoseStep {
-            evaluate,
-            reset_motion_history,
-            refresh_view,
-        } = step;
+        let (evaluate, reset_motion_history, refresh_view, initialize_new, refresh_local) =
+            match step {
+                PoseStep::Tick {
+                    evaluate,
+                    reset_motion_history,
+                } => (evaluate, reset_motion_history, false, false, None),
+                PoseStep::Frame {
+                    initialize_new,
+                    refresh_local,
+                } => (true, false, true, initialize_new, refresh_local),
+            };
         if !refresh_view {
             self.completed_tick = self.completed_tick.saturating_add(1);
         }
@@ -90,9 +119,22 @@ impl ActorAnimationStore {
         } = self;
         let completed_tick = *completed_tick;
         let mut ordered: Vec<(ActorLifetimeId, &mut ActorRigState)> = if refresh_view {
-            let local = exempt.and_then(|id| runtime_to_lifetime.get(&id).copied());
+            let local = refresh_local.and_then(|id| runtime_to_lifetime.get(&id).copied());
             rigs.iter_mut()
-                .filter(|(lifetime, _)| Some(**lifetime) == local)
+                .filter(|(lifetime, state)| {
+                    Some(**lifetime) == local
+                        || (initialize_new
+                            && actors.get(&lifetime.runtime_id).is_some_and(|actor| {
+                                initially_admitted(
+                                    state,
+                                    actor,
+                                    view,
+                                    exempt,
+                                    Some(&assets),
+                                    pack.as_ref(),
+                                )
+                            }))
+                })
                 .map(|(lifetime, state)| (*lifetime, state))
                 .collect()
         } else {
@@ -100,6 +142,14 @@ impl ActorAnimationStore {
                 .map(|(lifetime, state)| (*lifetime, state))
                 .collect()
         };
+        // A requested local draw refresh keeps its budget priority over new rigs.
+        if refresh_view
+            && let Some(index) = ordered
+                .iter()
+                .position(|(lifetime, _)| Some(lifetime.runtime_id) == refresh_local)
+        {
+            ordered[..=index].rotate_right(1);
+        }
         // Start where the world budget ran out last tick so no actor starves every tick.
         if !refresh_view && let Some(start) = evaluate.then(|| first_starved.take()).flatten() {
             let first = ordered.partition_point(|(lifetime, _)| *lifetime < start);
@@ -110,38 +160,43 @@ impl ActorAnimationStore {
             let Some(actor) = actors.get(&lifetime.runtime_id) else {
                 continue;
             };
-            // Observe ownership before any evaluation budget branch. A failed
-            // animation cannot starve static publication for this or later actors.
-            if actor.runtime_id == lifetime.runtime_id
-                && actor.spawn_revision == lifetime.spawn_revision
-                && runtime_to_lifetime.get(&lifetime.runtime_id) == Some(&lifetime)
-            {
-                if state.rest_reset_pending {
-                    if let Some(next) = next_rest_reset_generation.checked_add(1) {
-                        state.rest_reset_generation = *next_rest_reset_generation;
-                        *next_rest_reset_generation = next;
-                        state.rest_reset_pending = false;
-                    } else {
-                        state.rest_reset_generation = 0;
+            // Fixed ticks observe ownership before any evaluation budget branch.
+            // Failed animation cannot starve static publication for later actors.
+            if !refresh_view {
+                if actor.runtime_id == lifetime.runtime_id
+                    && actor.spawn_revision == lifetime.spawn_revision
+                    && runtime_to_lifetime.get(&lifetime.runtime_id) == Some(&lifetime)
+                {
+                    if state.rest_reset_pending {
+                        if let Some(next) = next_rest_reset_generation.checked_add(1) {
+                            state.rest_reset_generation = *next_rest_reset_generation;
+                            *next_rest_reset_generation = next;
+                            state.rest_reset_pending = false;
+                        } else {
+                            state.rest_reset_generation = 0;
+                        }
                     }
+                    state.rest_completed_tick =
+                        if state.rest_reset_generation != 0 && !state.rest_reset_pending {
+                            completed_tick
+                        } else {
+                            0
+                        };
+                } else {
+                    state.rest_completed_tick = 0;
                 }
-                state.rest_completed_tick =
-                    if state.rest_reset_generation != 0 && !state.rest_reset_pending {
-                        completed_tick
-                    } else {
-                        0
-                    };
-            } else {
-                state.rest_completed_tick = 0;
             }
             let context = context(actor);
-            if reset_motion_history
+            let initial = !state.initialized;
+            if (reset_motion_history || initial)
                 && skin::sync_skin(state, context.skin_geometry.as_ref(), skin_preparation)
             {
                 stats.invalid_skin_geometries = stats.invalid_skin_geometries.saturating_add(1);
             }
             if !refresh_view {
                 advance_motion(state, actor, &context, reset_motion_history);
+            } else if initial {
+                super::tick::seed_presentation_input(state, actor, &context);
             } else if let Some(ticks) = super::tick::local_use_counter(actor, &context)
                 && let Some(input) = state.history.back_mut()
             {
@@ -150,7 +205,7 @@ impl ActorAnimationStore {
             let view_changed = state
                 .view_context
                 .is_some_and(|old| old != context.is_local_first_person);
-            let step = if !evaluate {
+            let step = if !evaluate || context.appearance_pending {
                 Step::Hold
             } else if state.fallback == EntityRigFallback::GeometryOnly {
                 Step::GeometryOnly
@@ -172,7 +227,7 @@ impl ActorAnimationStore {
                 actor,
                 context,
                 view_changed,
-                refresh_view,
+                refresh_view: refresh_view && !initial,
                 step,
                 outcome: None,
             });
@@ -272,6 +327,26 @@ impl TickJob<'_> {
     const fn evaluates(&self) -> bool {
         matches!(self.step, Step::Evaluate { .. })
     }
+}
+
+/// Selects only unresolved poses that the current animation view can admit.
+fn initially_admitted(
+    state: &ActorRigState,
+    actor: &ActorSnapshot,
+    view: Option<&ActorAnimationView>,
+    exempt: Option<u64>,
+    vanilla: Option<&RuntimeEntityAssets>,
+    pack: Option<&PackCatalog>,
+) -> bool {
+    if state.initialized || state.fallback == EntityRigFallback::GeometryOnly {
+        return false;
+    }
+    let catalog = if state.pack {
+        pack.map(|pack| &*pack.assets)
+    } else {
+        vanilla
+    };
+    catalog.is_some_and(|catalog| !culled(view, exempt, state, actor, catalog))
 }
 
 /// Whether the rig sits outside the animation view on both of its last two positions.
@@ -609,7 +684,8 @@ impl Ledger<'_> {
             job.context.is_local,
         );
         state.scale = evaluated.scale;
-        let restart = state.reset_pending || resumed || view_changed;
+        let initial = !state.initialized;
+        let restart = initial || state.reset_pending || resumed || view_changed;
         if let Some(next) = evaluated.render_frame.as_mut() {
             let previous = state.render_frame.as_mut().filter(|_| !restart);
             super::render_frame::carry_swell_history(previous, next, self.advance_history);
@@ -633,7 +709,7 @@ impl Ledger<'_> {
             state.reset_pending = false;
             state.reset_generation = self.take_reset_generation();
             state.animation_epoch = self.tick;
-        } else if resumed || view_changed {
+        } else if initial || resumed || view_changed {
             state.previous.clone_from(&evaluated.pose);
             state.current = evaluated.pose;
         } else if self.advance_history {

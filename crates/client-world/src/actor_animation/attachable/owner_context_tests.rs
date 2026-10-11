@@ -52,10 +52,9 @@ fn owner_store(
         &HashMap::from([(owner.runtime_id, owner.clone())]),
         None,
         None,
-        PoseStep {
+        PoseStep::Tick {
             evaluate: false,
             reset_motion_history: true,
-            refresh_view: false,
         },
         |_| context.clone(),
     );

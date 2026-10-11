@@ -1,6 +1,5 @@
 //! GPU ownership and dirty uploads; growth preserves old slots with a GPU copy and splits
 //! arenas at the device storage-binding limit.
-use super::{PrimitiveShapesScene, mesh};
 use bevy::{
     prelude::*,
     render::{
@@ -15,6 +14,7 @@ use render_model::{
     primitive_shapes::{PrimitiveActor, PrimitiveInstance, PrimitiveMeshKey, PrimitiveTextRecord},
 };
 use std::sync::Arc;
+use {super::mesh, render_scene::PrimitiveShapesScene};
 
 pub(super) const INSTANCE_BYTES: u64 = std::mem::size_of::<PrimitiveInstance>() as u64;
 pub(super) const ACTOR_BYTES: u64 = std::mem::size_of::<PrimitiveActor>() as u64;

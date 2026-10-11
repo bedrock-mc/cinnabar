@@ -85,7 +85,7 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 
 func TestConnectClearsPendingTransfer(t *testing.T) {
 	f := newFixture(t, testAccount())
-	f.store.ObserveTransfer(proxy.TransferTarget{Host: "next", Port: 1})
+	f.store.ObserveTransfer("next", 1)
 	if err := f.service.Connect(context.Background(), control.TargetRakNet, "a.example:1"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSessionTargetClearsPendingTransferWithoutSelecting(t *testing.T) {
 	if err := f.transfers.Record(proxy.TransferTarget{Host: "b.example", Port: 2}); err != nil {
 		t.Fatal(err)
 	}
-	f.store.ObserveTransfer(proxy.TransferTarget{Host: "b.example", Port: 2})
+	f.store.ObserveTransfer("b.example", 2)
 	target, err := f.service.SessionTarget(context.Background(), control.TargetRealm, "7")
 	if err != nil || target != "realm_id/7" {
 		t.Fatalf("SessionTarget() = %q, %v", target, err)

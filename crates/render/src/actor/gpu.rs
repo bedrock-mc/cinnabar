@@ -1,197 +1,13 @@
-use std::{
-    collections::{BTreeSet, VecDeque},
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use render_scene::ActorDrawFrame;
+use std::{collections::BTreeSet, sync::Mutex};
 
 use bevy::prelude::Resource;
 
-use super::{ActorArtworkPageId, ActorDrawManifestEntry};
+use render_model::ActorArtworkPageId;
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;
-
-pub const MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS: usize = 64;
-pub(crate) const MAX_ACTOR_PRESENTATION_CALLBACKS: usize = 8;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActorDrawFrame {
-    pub artwork_identity: [u8; 32],
-    pub skin_revision: u64,
-    pub geometry_revision: u64,
-    pub frame_generation: u64,
-    pub draw_generation: u64,
-    pub manifest: Arc<[ActorDrawManifestEntry]>,
-}
-
-impl ActorDrawFrame {
-    #[must_use]
-    pub fn is_exact(&self) -> bool {
-        self.frame_generation != 0
-            && self.draw_generation != 0
-            && !self.manifest.is_empty()
-            && self.manifest.len() <= super::MAX_ACTOR_RENDER_INSTANCES
-            && self.manifest.iter().enumerate().all(|(index, entry)| {
-                entry.identity.is_exact()
-                    && entry.completed_tick != 0
-                    && entry.reset_generation != 0
-                    && matches!(
-                        entry.route,
-                        super::ActorRigRoute::Compiled | super::ActorRigRoute::StaticFallback
-                    )
-                    && entry.instance_index as usize == index
-                    && entry.bone_count != 0
-            })
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActorPresentedFrameAck {
-    pub artwork_identity: [u8; 32],
-    pub skin_revision: u64,
-    pub geometry_revision: u64,
-    pub frame_sequence: u64,
-    pub frame_generation: u64,
-    pub draw_generation: u64,
-    pub manifest: Arc<[ActorDrawManifestEntry]>,
-    pub present_returned_at: Instant,
-    pub gpu_completed_at: Instant,
-}
-
-impl ActorPresentedFrameAck {
-    #[must_use]
-    pub fn is_exact(&self) -> bool {
-        self.frame_sequence != 0
-            && ActorDrawFrame {
-                artwork_identity: self.artwork_identity,
-                skin_revision: self.skin_revision,
-                geometry_revision: self.geometry_revision,
-                frame_generation: self.frame_generation,
-                draw_generation: self.draw_generation,
-                manifest: Arc::clone(&self.manifest),
-            }
-            .is_exact()
-            && self.present_returned_at <= self.gpu_completed_at
-    }
-
-    #[must_use]
-    pub fn forms_consecutive_pair_with(&self, next: &Self) -> bool {
-        self.is_exact()
-            && next.is_exact()
-            && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
-            && self.artwork_identity == next.artwork_identity
-            && self.skin_revision == next.skin_revision
-            && self.geometry_revision == next.geometry_revision
-            && self.draw_generation < next.draw_generation
-            && self.gpu_completed_at <= next.gpu_completed_at
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ActorPresentationToken {
-    epoch: u64,
-    frame_sequence: u64,
-    draw: ActorDrawFrame,
-}
-
-#[derive(Default)]
-struct ActorPresentationState {
-    epoch: u64,
-    next_frame_sequence: u64,
-    in_flight_callbacks: usize,
-    acknowledgements: VecDeque<ActorPresentedFrameAck>,
-}
-
-#[derive(Clone, Default, Resource)]
-pub struct ActorPresentationGate {
-    state: Arc<Mutex<ActorPresentationState>>,
-}
-
-impl ActorPresentationGate {
-    pub(crate) fn try_reserve_callback(
-        &self,
-        draw: ActorDrawFrame,
-    ) -> Option<ActorPresentationToken> {
-        if !draw.is_exact() {
-            return None;
-        }
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if state.in_flight_callbacks == MAX_ACTOR_PRESENTATION_CALLBACKS
-            || state.acknowledgements.len() == MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS
-        {
-            return None;
-        }
-        let frame_sequence = state.next_frame_sequence.checked_add(1)?;
-        state.next_frame_sequence = frame_sequence;
-        state.in_flight_callbacks += 1;
-        Some(ActorPresentationToken {
-            epoch: state.epoch,
-            frame_sequence,
-            draw,
-        })
-    }
-
-    pub(crate) fn publish_reserved(
-        &self,
-        token: ActorPresentationToken,
-        present_returned_at: Instant,
-        gpu_completed_at: Instant,
-    ) -> bool {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        state.in_flight_callbacks = state.in_flight_callbacks.saturating_sub(1);
-        if token.epoch != state.epoch
-            || present_returned_at > gpu_completed_at
-            || state.acknowledgements.len() == MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS
-            || state
-                .acknowledgements
-                .iter()
-                .any(|acknowledgement| acknowledgement.frame_sequence == token.frame_sequence)
-        {
-            return false;
-        }
-        let acknowledgement = ActorPresentedFrameAck {
-            artwork_identity: token.draw.artwork_identity,
-            skin_revision: token.draw.skin_revision,
-            geometry_revision: token.draw.geometry_revision,
-            frame_sequence: token.frame_sequence,
-            frame_generation: token.draw.frame_generation,
-            draw_generation: token.draw.draw_generation,
-            manifest: token.draw.manifest,
-            present_returned_at,
-            gpu_completed_at,
-        };
-        let insertion = state
-            .acknowledgements
-            .partition_point(|current| current.frame_sequence < acknowledgement.frame_sequence);
-        state.acknowledgements.insert(insertion, acknowledgement);
-        true
-    }
-
-    #[must_use]
-    pub fn drain(&self) -> Vec<ActorPresentedFrameAck> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        state.acknowledgements.drain(..).collect()
-    }
-
-    pub fn clear(&self) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        state.epoch = state.epoch.saturating_add(1);
-        state.acknowledgements.clear();
-    }
-}
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {
@@ -229,15 +45,15 @@ impl ActorDrawTracker {
         let valid_spans = spans.iter().all(|span| {
             let valid = span.first == next
                 && span.count != 0
-                && usize::from(span.page) < super::MAX_ACTOR_TEXTURE_PAGES;
+                && usize::from(span.page) < render_model::MAX_ACTOR_TEXTURE_PAGES;
             next = span.first.saturating_add(span.count);
             valid
         });
         if draw.frame_generation == 0
             || draw.draw_generation == 0
             || draw.manifest.is_empty()
-            || draw.manifest.len() > super::MAX_ACTOR_RENDER_INSTANCES
-            || spans.len() > super::MAX_ACTOR_RENDER_INSTANCES
+            || draw.manifest.len() > render_model::MAX_ACTOR_RENDER_INSTANCES
+            || spans.len() > render_model::MAX_ACTOR_RENDER_INSTANCES
             || !valid_spans
             || next as usize != draw.manifest.len()
         {
@@ -281,11 +97,16 @@ impl ActorDrawTracker {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use render_model::ActorDrawManifestEntry;
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use super::*;
-    use crate::actor::{ActorRenderIdentity, ActorRigRoute};
     use render_model::EntityRigId;
+    use render_model::{ActorRenderIdentity, ActorRigRoute};
+    use render_scene::ActorPresentationGate;
 
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {
@@ -403,9 +224,9 @@ mod tests {
     /// A segment appended within an epoch writes into the same buffer; a new epoch replaces it.
     #[test]
     fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
-        use crate::actor::ActorRigVertexSegments;
         use bevy::render::renderer::{RenderDevice, RenderQueue};
         use render_model::ActorRigVertex;
+        use render_model::ActorRigVertexSegments;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
         let first = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);

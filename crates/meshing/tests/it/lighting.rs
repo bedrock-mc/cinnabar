@@ -168,6 +168,7 @@ fn runtime_assets_with_model_geometry(
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         },
         BlockVisual {
             faces: [0; 6],
@@ -178,6 +179,7 @@ fn runtime_assets_with_model_geometry(
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         },
         BlockVisual {
             faces: [0; 6],
@@ -188,6 +190,7 @@ fn runtime_assets_with_model_geometry(
             model_template: 0,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         },
         BlockVisual {
             faces: [0; 6],
@@ -198,6 +201,7 @@ fn runtime_assets_with_model_geometry(
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
             variant: 0,
+            destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         },
     ];
     let mut leaf = visuals[SOLID as usize];

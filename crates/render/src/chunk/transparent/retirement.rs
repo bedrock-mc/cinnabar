@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use render_scene::{TransparentSortMetrics, TransparentWitnessRequest};
 
 pub(in crate::chunk) fn record_encoded_transparent_generation(
     metrics: &TransparentSortMetrics,

@@ -3,6 +3,7 @@
 //! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span: each
 //! marker is its own pass, and two per frame cost far less than two per timed node.
 
+use bevy::prelude::IntoSystemSet;
 mod categories;
 pub(crate) use categories::draw_categories;
 mod health;
@@ -20,13 +21,11 @@ mod tests;
 #[cfg(feature = "tracy")]
 mod tracy;
 
-use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
     core_pipeline::{Core3d, Core3dSystems},
     ecs::system::{SystemParamItem, lifetimeless::SRes},
     prelude::{
-        App, Commands, IntoScheduleConfigs, IntoSystemSet, Plugin, Res, ResMut, Resource,
-        SystemSet, World, info,
+        App, Commands, IntoScheduleConfigs, Plugin, Res, ResMut, Resource, SystemSet, World, info,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -36,6 +35,7 @@ use bevy::{
     },
 };
 use readback::{ReadbackRing, SLOTS};
+use render_scene::{RuntimeStage, RuntimeStageProfiler};
 use std::{
     marker::PhantomData,
     sync::{
@@ -80,8 +80,8 @@ impl SectionSpan<'_> {
 
     pub(crate) fn end(&self, _: &mut wgpu::CommandEncoder) {}
 }
-pub use readback::GpuFrameTimes;
-pub(crate) use readback::decode_spans;
+use render_scene::GpuFrameTimes;
+use render_scene::gpu_times::decode_spans;
 
 /// Node-level spans per frame, ahead of the draw pool so draws can never starve them.
 const PASS_SPANS: u32 = 64;

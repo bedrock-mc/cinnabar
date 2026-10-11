@@ -1,14 +1,14 @@
 //! Opaque scene copies keep water sampling separate from active attachments.
-use super::{EnhancedRendering, gpu::EnhancedViews};
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::{
     prelude::*,
     render::{
-        diagnostic::RecordDiagnostics,
         render_resource::{TexelCopyTextureInfo, TextureAspect},
         renderer::RenderContext,
         view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
+use {super::gpu::EnhancedViews, render_scene::EnhancedRendering};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub(crate) struct EnhancedSnapshotLabel;

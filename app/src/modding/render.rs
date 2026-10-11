@@ -2,18 +2,11 @@
 
 use bevy::{prelude::*, render::render_resource::TextureUsages};
 use client_presentation::camera::FlyCamera;
-use render::ModRenderScene;
+use render_scene::ModRenderScene;
 
 /// Republishes only when some mod's generation changed, so steady frames extract nothing.
 pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super::ModRuntime) {
     let Some(mut scene) = scene else { return };
-    if runtime.hosts.host_count() == 1 {
-        let (output, generation) = runtime.hosts.host.render();
-        if scene.generation() != generation {
-            scene.apply(output, generation);
-        }
-        return;
-    }
     let unchanged = runtime.render_sources.iter().copied().eq(runtime
         .hosts
         .render_outputs()

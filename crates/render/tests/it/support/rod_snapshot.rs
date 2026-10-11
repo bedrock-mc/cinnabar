@@ -139,7 +139,7 @@ pub(crate) fn render(
     let mut eye_offset = Vec3::new(1.9, 1.3, 2.5);
     for (axis, mounting_offset) in mounting_offset.into_iter().enumerate() {
         if mounting_offset != 0 {
-            eye_offset[axis] = -(mounting_offset as f32) * eye_offset[axis];
+            eye_offset[axis] *= -(mounting_offset as f32);
         }
     }
     render_at(
@@ -246,7 +246,7 @@ pub(crate) fn render_at(
     let empty = gpu.words(&[0; 64], storage);
     let clock = gpu.words(&[0; 4], uniform);
     let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render::LightmapInputs::default().build()),
+        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
         uniform,
     );
     let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);

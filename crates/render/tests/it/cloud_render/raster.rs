@@ -51,7 +51,7 @@ fn draw(
             1.0,
             1.0,
             1.0,
-            render::CLOUD_ALPHA,
+            render_scene::CLOUD_ALPHA,
             CLOUD_CELL_BLOCKS,
             CLOUD_UNDERSIDE_Y,
             CLOUD_TOP_Y,

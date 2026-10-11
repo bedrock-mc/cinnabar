@@ -1,4 +1,9 @@
 use super::*;
+use render_scene::VisibilityDiagnostics;
+use render_scene::{
+    ChunkRenderInstance, ChunkRenderQueue, ChunkRenderQueueLimits, ChunkUploadAcknowledgements,
+    ChunkUploadPriority, ChunkUploadToken, PresentedFrameGate, TargetRenderExpectation,
+};
 
 #[path = "publication_removal_tests.rs"]
 mod removal_pressure;

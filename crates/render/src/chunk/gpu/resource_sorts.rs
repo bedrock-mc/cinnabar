@@ -1,5 +1,7 @@
 //! Transparent address sets are uploaded into the candidate arena before publication.
+
 use crate::chunk::*;
+use render_scene::{ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets};
 
 pub(super) struct ResourceView {
     pub(super) entity: Entity,

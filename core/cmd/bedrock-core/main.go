@@ -261,7 +261,7 @@ func runWithResourcePackCacheFactory(
 			return fmt.Errorf("start control endpoint: %w", err)
 		}
 		defer func() { _ = controlServer.Close() }()
-		controlServer.SetPacketDelay(packetDelay)
+		controlServer.SetPacketDelay(packetDelayControl{packetDelay})
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
@@ -367,11 +367,11 @@ func runWithResourcePackCacheFactory(
 	if statusStore != nil {
 		if localWorlds != nil {
 			// Opening a local world supersedes any pending transfer or selected upstream.
-			worlds := control.WithOpenHook(localWorlds, func() {
+			worlds := controlWorlds{manager: localWorlds, onOpen: func() {
 				transfers.Clear()
 				selector.Set("")
 				statusStore.ClearTransfer()
-			})
+			}}
 			if account != nil {
 				hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
 				hostingCtx, stopHosting := context.WithCancel(ctx)
@@ -384,7 +384,7 @@ func runWithResourcePackCacheFactory(
 					stopHosting()
 					<-hostingDone
 				}()
-				worlds = control.WithInvites(worlds, hosting.Invite)
+				worlds.invite = hosting.Invite
 			}
 			controlServer.SetWorlds(worlds)
 		}
@@ -403,20 +403,26 @@ func runWithResourcePackCacheFactory(
 			controlServer.SetPresence(presence.Set)
 		}
 		controlServer.SetLogger(logger)
-		controlServer.SetServices(service)
+		controlServer.SetServices(launcherControl{service})
 		sessionTarget = service.SessionTarget
-		controlServer.SetMarketplace(service.Marketplace())
+		controlServer.SetMarketplace(storeControl{service.Marketplace()})
 		if account != nil {
 			go service.PublishSignedIn(ctx)
 			service.Prefetch()
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
-		resourcePackAdmissionUpdate = statusStore.Observe
-		connectProgress = statusStore.ObserveConnectProgress
-		transfers.OnTransfer = statusStore.ObserveTransfer
-		onDisconnect = statusStore.ObserveDisconnect
+		resourcePackAdmissionUpdate = func(snapshot proxy.ResourcePackAdmissionSnapshot) {
+			statusStore.Observe(wirePackAdmission(snapshot))
+		}
+		connectProgress = func(progress proxy.ConnectProgress) {
+			statusStore.ObserveConnectProgress(wireConnectProgress(progress))
+		}
+		transfers.OnTransfer = func(target proxy.TransferTarget) { statusStore.ObserveTransfer(target.Host, target.Port) }
+		onDisconnect = func(info proxy.DisconnectInfo) { statusStore.ObserveDisconnect(info.Reason, info.Message) }
 		if opts.serverTrustFile != "" {
-			prompts := proxy.NewServerTrustPrompts(statusStore.ObserveServerTrust)
+			prompts := proxy.NewServerTrustPrompts(func(prompt proxy.ServerTrustPrompt, pending bool) {
+				statusStore.ObserveServerTrust(control.ServerTrustPrompt(prompt), pending)
+			})
 			statusStore.SetServerTrustAnswer(prompts.Answer)
 			serverTrust = &minecraft.FirstUseTrust{
 				Store:   proxy.ServerTrustFile(opts.serverTrustFile),

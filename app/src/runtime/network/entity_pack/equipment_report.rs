@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use render::{
+use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission,
 };
@@ -55,7 +55,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
-        uv_anim: render::IDENTITY_UV_ANIM,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
     }

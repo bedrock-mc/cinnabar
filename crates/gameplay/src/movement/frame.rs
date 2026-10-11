@@ -44,6 +44,8 @@ pub struct PhysicsFrameInput {
     pub delta: Duration,
     pub now: Duration,
     pub active: bool,
+    /// Cancels retained presses when the semantic router releases input ownership.
+    pub input_authority_released: bool,
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
@@ -77,12 +79,32 @@ pub struct LocomotionState {
     /// Last active device; suspended input keeps reporting it.
     input_mode: protocol::PlayerInputMode,
     previous_blocker: Option<String>,
+    /// A deferred press belongs to one session and one vehicle.
+    pending_dismount: Option<(u64, u64)>,
 }
 
 impl LocomotionState {
+    /// Admits a requested dismount ahead of movement, retaining it only on a full queue.
+    pub fn flush_dismount(
+        &mut self,
+        position: [f32; 3],
+        mut send: impl FnMut(protocol::Packet) -> Result<(), protocol::BatchSendError>,
+    ) {
+        let Some((_, mount)) = self.pending_dismount else {
+            return;
+        };
+        let Ok(packet) = protocol::stop_riding_packet(mount, position) else {
+            self.pending_dismount = None;
+            return;
+        };
+        if send(packet) != Err(protocol::BatchSendError::Full) {
+            self.pending_dismount = None;
+        }
+    }
     /// Clears input latches when local prediction is inactive.
     pub fn reset(&mut self) {
         self.controls.reset();
+        self.pending_dismount = None;
     }
 
     /// Runs each fixed tick and admits its sample before any interaction producers run.
@@ -96,6 +118,7 @@ impl LocomotionState {
         world: &impl sim::CollisionWorld,
     ) -> bool {
         movement_effects.begin_frame();
+        self.observe_dismount(&frame, movement_ticker.session_generation);
         let PhysicsFrameInput {
             now,
             active,
@@ -284,5 +307,27 @@ impl LocomotionState {
             }
         }
         true
+    }
+
+    /// Retains riding input even when transport admission pauses physics, preserving server links.
+    pub fn observe_dismount(&mut self, frame: &PhysicsFrameInput, session: u64) {
+        let mount = frame
+            .facts
+            .ride
+            .and(frame.facts.mount_runtime_id)
+            .filter(|mount| *mount != 0)
+            .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
+            .map(|mount| (session, mount));
+        if self.pending_dismount != mount {
+            self.pending_dismount = None;
+        }
+        let pressed = if frame.facts.ride == Some(super::RideKind::Boat) {
+            frame.jump.pressed
+        } else {
+            frame.sneak.pressed
+        };
+        if pressed {
+            self.pending_dismount = mount;
+        }
     }
 }

@@ -1,3 +1,4 @@
+mod capture;
 mod cli;
 mod commands;
 mod metadata;
@@ -24,7 +25,7 @@ pub enum DevtoolError {
     #[error("workspace package manifest `{0}` has no parent directory")]
     ManifestWithoutParent(PathBuf),
     #[error(
-        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | wt-gc [--apply] [--force <path>]"
+        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | capture | trace-summary --trace <file> | wt-gc [--apply] [--force <path>]"
     )]
     Usage(String),
     #[error("failed to run `{command}`: {source}")]
@@ -42,6 +43,8 @@ pub enum DevtoolError {
 /// Dispatches repository commands without requiring a Git base for utility commands.
 pub fn dispatch(args: Vec<String>) -> Result<(), DevtoolError> {
     match args.first().map(String::as_str) {
+        Some("capture") => capture::run(&args[1..], false),
+        Some("trace-summary") => capture::run(&args[1..], true),
         Some("wt-gc") => worktrees::run(&worktrees::parse(&args[1..])?),
         _ => parse_args(args).and_then(|options| run(&options)),
     }

@@ -8,12 +8,13 @@ use bevy::{
     window::WindowRef,
 };
 use client_ui::ui_runtime::UiRuntime;
-use render::{
-    ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode, ViewmodelScene, ViewmodelSkin,
-    ViewmodelToken,
-};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 use std::sync::Arc;
+use {
+    render_model::{ViewmodelGeometry, ViewmodelSkin},
+    render_scene::{ViewmodelCompletionGate, ViewmodelMode, ViewmodelScene, ViewmodelToken},
+};
 
 /// World and gameplay facts sampled by the host at the viewmodel preparation boundary.
 pub struct ViewmodelWorld<'a> {
@@ -429,7 +430,7 @@ pub struct ViewmodelPublish<'w, 's> {
     scene: Option<ResMut<'w, ViewmodelScene>>,
     gate: Option<Res<'w, ViewmodelCompletionGate>>,
     adapter: Option<ResMut<'w, HandAdapter>>,
-    geometry: Option<Res<'w, ViewmodelGeometry>>,
+    geometry: Option<Res<'w, render_scene::ViewmodelGeometryResource>>,
     local_visibility: Option<Res<'w, crate::local_player::LocalAvatarVisibilityCarrier>>,
     cameras: ViewmodelCameras<'w, 's>,
 }
@@ -864,7 +865,7 @@ impl ViewmodelPublish<'_, '_> {
                     return Err(HandFallback::Skin);
                 };
                 (
-                    (**geometry).clone(),
+                    geometry.0.clone(),
                     adapter.skin(raw).ok_or(HandFallback::Skin)?,
                     rig.actor,
                 )

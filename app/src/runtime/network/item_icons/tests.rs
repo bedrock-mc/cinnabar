@@ -230,6 +230,7 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
                 model_template: assets::NO_MODEL_TEMPLATE,
                 animation: assets::NO_ANIMATION,
                 variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             }],
             materials: vec![
                 Material::unvaried(),

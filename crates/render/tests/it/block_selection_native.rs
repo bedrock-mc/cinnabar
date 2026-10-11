@@ -1,7 +1,9 @@
 use std::{fs, path::Path};
 
 use assets::{NetworkIdMode, RegistryRecord, RuntimeAssets, TOP_SNOW_LAYER_COUNT};
-use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
+use render_model::{
+    BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template,
+};
 
 pub(super) fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
     let data = include_bytes!("../../../assets/data/block-registry-v2193.bin");
@@ -252,7 +254,7 @@ fn bamboo_destroy_surfaces_retain_the_column_stem_uv_selector() {
                     .get(index)
                     .is_some_and(|face| face.is_horizontal())
                 {
-                    selector as f32 * meshing::bamboo::STEM_UV_STRIDE
+                    selector as f32 * assets::bamboo::STEM_UV_STRIDE
                 } else {
                     0.0
                 };

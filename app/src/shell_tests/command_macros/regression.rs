@@ -1,5 +1,6 @@
 //! Macro shortcuts respect physical presses, screen ownership and pointer editing.
 use super::*;
+use client_shell::menu::test_support as menu_fixture;
 
 /// Sends an OS repeat without a new physical release or press.
 fn repeat(app: &mut App, code: KeyCode, text: Option<&str>) {
@@ -117,7 +118,7 @@ fn command_macro_precedes_default_and_remapped_emote_bindings() {
                     .iter()
                     .position(|(name, _)| *name == "key.emote")
                     .unwrap();
-            assert!(menu.remap_control_for_test(row, control));
+            assert!(menu_fixture::remap_control(&mut menu, row, control));
             app.update();
             if alt_first {
                 key(&mut app, KeyCode::AltLeft, ButtonState::Pressed, false);
@@ -152,7 +153,7 @@ fn command_macro_precedes_a_mouse_emote_binding() {
                     .iter()
                     .position(|(name, _)| *name == "key.emote")
                     .unwrap();
-            assert!(menu.remap_control_for_test(row, control));
+            assert!(menu_fixture::remap_control(&mut menu, row, control));
             app.update();
             key(&mut app, KeyCode::AltLeft, ButtonState::Pressed, ordered);
             app.update();

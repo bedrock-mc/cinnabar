@@ -1,9 +1,12 @@
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowOccluded};
-use render::{FrameBudgets, FramePacing, RuntimeStageProfiler};
 use std::time::Duration;
 #[cfg(feature = "tracy")]
 use std::time::Instant;
+use {
+    render::FramePacing,
+    render_scene::{FrameBudgets, RuntimeStageProfiler},
+};
 
 use crate::present_mode::DisplayRefresh;
 
