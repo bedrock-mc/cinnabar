@@ -302,7 +302,9 @@ fn compiler_real_pinned_pack_admits_exact_mineral_cubes() {
         assert_eq!(visual.kind, VisualKind::Cube);
         assert_eq!(
             visual.flags,
-            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::FIRE_TOP_SUPPORT
         );
         assert!(visual.faces.iter().all(|&face| face != DIAGNOSTIC_MATERIAL));
     }
