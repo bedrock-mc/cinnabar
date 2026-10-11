@@ -215,11 +215,13 @@ moves do not change the open behavior or performance acceptance gates.
 ## Item frames
 
 - All six facing states retain their outward direction, placing the frame against its support.
-  Ordinary sprites sit on the panel front and use the floor/ceiling face's upright basis.
+  Ordinary sprites sit just ahead of the backing and use the floor/ceiling face's upright basis.
 - Float item rotations retain degrees, including fractional angles; legacy integral turns
   remain supported. Offline GPU fixtures cover mounting and clockwise turns with original art.
-- Map presentation, special items, three-dimensional block items and complete frame border,
-  material and texture parity remain incomplete. No broad item-frame parity gate closes.
+- Ordinary frames have a birch rim and recessed normal/glow backing, with block-scale UV
+  crops and shading in the mounted world direction. Glow frames retain brightness in darkness.
+- Map/photo presentation, special items, three-dimensional block items and custom texture-alias
+  bindings and complete material/lighting parity remain incomplete. No broad item-frame parity gate closes.
 
 ## Anvil models
 
