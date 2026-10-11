@@ -165,6 +165,16 @@ fn collect_active_labels(catalog: &Catalog, labels: &BTreeSet<ControlRef>, rules
     }
 }
 
+/// Adds `vars` to a resolution scope, replacing earlier values.
+fn with_vars<'a>(
+    scope: json_ui::Context,
+    vars: impl IntoIterator<Item = (&'a String, &'a Value)>,
+) -> json_ui::Context {
+    vars.into_iter().fold(scope, |scope, (name, value)| {
+        scope.with_var(name, value.clone())
+    })
+}
+
 /// Collects label rules in one resolved tree and queues its factory templates with their variables.
 fn visit_active(
     control: &ResolvedControl,
@@ -186,17 +196,19 @@ fn visit_active(
         ));
     }
     if let Some(factory) = &control.factory {
-        let captured = factory
-            .variables
-            .iter()
-            .fold(scope.clone(), |scope, (name, value)| {
-                scope.with_var(name, value.clone())
-            });
-        for template in factory
-            .control_name
-            .iter()
-            .chain(factory.control_ids.values())
-        {
+        // Creations see their captured variables; a `control_name` template also sees the
+        // scope recorded where its factory was declared, as the runtime binder expands it.
+        let captured = with_vars(scope.clone(), &factory.variables);
+        if let Some(template) = &factory.control_name {
+            let enclosing = control
+                .properties
+                .get("factory_scope")
+                .and_then(Value::as_object)
+                .map_or_else(|| scope.clone(), |vars| with_vars(scope.clone(), vars));
+            let named = with_vars(enclosing, &factory.variables);
+            templates.push((template.clone(), named));
+        }
+        for template in factory.control_ids.values() {
             templates.push((template.clone(), captured.clone()));
         }
     }
@@ -366,15 +378,21 @@ fn binding_target(binding: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-/// Every `#property` a binding's source or name expression reads.
+/// Every `#property` a binding's source or name expression reads, delimited as JSON-UI tokens are.
 fn properties_read(binding: &Value) -> Vec<String> {
+    let delimiter = |c: char| {
+        matches!(
+            c,
+            ' ' | '$' | '(' | ')' | '*' | '+' | '-' | '/' | '<' | '=' | '>'
+        )
+    };
     ["source_property_name", "binding_name"]
         .into_iter()
         .filter_map(|key| binding.get(key).and_then(Value::as_str))
         .flat_map(|text| {
             text.match_indices('#').map(move |(start, _)| {
                 let name = text[start + 1..]
-                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .split(delimiter)
                     .next()
                     .unwrap_or_default();
                 format!("#{name}")

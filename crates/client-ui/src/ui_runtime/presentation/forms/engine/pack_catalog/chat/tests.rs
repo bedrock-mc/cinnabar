@@ -203,3 +203,46 @@ fn long_factory_chains_are_scanned_within_the_expansion_limit() {
             .is_some_and(|bindings| bindings.contains(&visible_when("(#text = 'deep')")))
     );
 }
+
+#[test]
+fn control_name_templates_see_their_enclosing_variables() {
+    let builtin = builtin();
+    let mut pack = layered(
+        &builtin,
+        "ui/hud_screen.json",
+        json!({"namespace":"hud",
+            "used@hud.chat_label":{"bindings":[visible_when("(#text = $allowed)")]},
+            "custom_row":{"type":"panel","controls":[{"message@hud.used":{}}]},
+            "root_panel":{"modifications":[{"array_name":"controls","operation":"insert_front",
+                "value":[{"custom_chat":{"type":"stack_panel","$allowed":"ordinary",
+                    "factory":{"name":"chat_item_factory","control_name":"@hud.custom_row"}}}]}]}}),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    let bindings = pack.lookup("hud", "chat_label").unwrap().props["bindings"]
+        .as_array()
+        .unwrap();
+    let source = bindings
+        .iter()
+        .find_map(|binding| binding["source_property_name"].as_str())
+        .expect("copied filter");
+    assert!(!source.contains("$allowed"), "unbound variable in {source}");
+    assert!(
+        source.contains("ordinary"),
+        "lost enclosing value in {source}"
+    );
+}
+
+#[test]
+fn filter_dependencies_keep_full_property_names() {
+    let bindings = json!([
+        {"binding_name":"#chat_text","binding_name_override":"#custom:message"},
+        visible_when("(#text = #custom:message)"),
+    ]);
+    let bag = json!({"#custom:message":"x","#custom":"y"});
+    let rules = Rules::read(Some(&bindings), Some(&bag));
+    assert_eq!(rules.bindings.len(), 2);
+    assert_eq!(
+        rules.bag,
+        serde_json::Map::from_iter([("#custom:message".to_owned(), json!("x"))])
+    );
+}
