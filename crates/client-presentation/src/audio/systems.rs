@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use bevy::prelude::{
     Local, Message, MessageReader, NonSendMut, Query, Res, ResMut, Time, Transform, With,
 };
-use render::{ParticleSimulation, PrecipitationMix};
+use render::ParticleSimulation;
 use sim::PaletteWorld;
 
 use super::{
@@ -537,7 +537,6 @@ pub fn drive_weather_and_particles(
     time: Res<Time>,
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
-    mix: Option<Res<PrecipitationMix>>,
     particles: Option<ResMut<ParticleSimulation>>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
@@ -547,7 +546,6 @@ pub fn drive_weather_and_particles(
     let mut particles = particles;
     let mut inbox = inbox;
     let Some(stream) = world.stream.as_ref() else {
-        engine.set_loop("rain", None);
         seen_bolts.clear();
         pending_bolts.clear();
         return;
@@ -555,15 +553,6 @@ pub fn drive_weather_and_particles(
     if !engine.has_bank() {
         return;
     }
-    let rain = mix.as_deref().map_or(0.0, |mix| mix.rain.clamp(0.0, 1.0));
-    engine.set_loop(
-        "rain",
-        (rain > 0.01).then(|| LoopSpec {
-            name: "ambient.weather.rain".into(),
-            volume: rain,
-        }),
-    );
-
     let bolts = stream.authority().lightning_bolts();
     seen_bolts.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
     for bolt in &bolts {
@@ -659,8 +648,7 @@ pub fn pump_audio(
         camera.single().ok(),
         server_camera
             .as_deref()
-            .and_then(|camera| camera.active_listener())
-            == Some(1),
+            .and_then(|camera| camera.active_listener()),
     );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {
