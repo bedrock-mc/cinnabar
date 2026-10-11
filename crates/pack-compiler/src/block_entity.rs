@@ -53,8 +53,9 @@ const SOURCE_FILES: &[&str] = &[
     assets::block_entity_geometry::POT_BASE_TEXTURE.0,
     assets::block_entity_geometry::POT_SIDE_TEXTURE.0,
     "textures/blocks/end_gateway",
-    "textures/blocks/glow_item_frame",
-    "textures/blocks/itemframe_background",
+    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[0],
+    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[1],
+    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[2],
     assets::block_entity_geometry::LECTERN_TEXTURES[0],
     assets::block_entity_geometry::LECTERN_TEXTURES[3],
     assets::block_entity_geometry::LECTERN_TEXTURES[1],
@@ -435,6 +436,35 @@ mod tests {
         let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
         let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
         assert!(runtime.placement(name).is_some());
+    }
+
+    #[test]
+    fn frame_carriers_preserve_distinct_rim_and_backing_replacement_pixels() {
+        let pack = tempfile::tempdir().unwrap();
+        for (index, name) in assets::block_entity_geometry::ITEM_FRAME_TEXTURES
+            .into_iter()
+            .enumerate()
+        {
+            write_png(
+                &pack.path().join(format!("{name}.png")),
+                32,
+                32,
+                70 + index as u8,
+            );
+        }
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        for (index, name) in assets::block_entity_geometry::ITEM_FRAME_TEXTURES
+            .into_iter()
+            .enumerate()
+        {
+            let placement = runtime
+                .placement(name)
+                .expect("frame material must be carried into the runtime atlas");
+            assert_eq!([placement.width, placement.height], [32, 32]);
+            let offset = ((placement.y * runtime.atlas_size()[0] + placement.x) * 4) as usize;
+            assert_eq!(runtime.atlas_rgba8()[offset], 70 + index as u8);
+        }
     }
 
     #[test]

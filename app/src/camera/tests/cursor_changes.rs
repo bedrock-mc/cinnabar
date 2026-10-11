@@ -61,7 +61,7 @@ fn idle_released_cursor_does_not_repeat_os_notifications() {
 /// Samples synthetic window focus without opening a native window.
 pub(super) fn track_test_focus(
     window: Single<&Window, With<PrimaryWindow>>,
-    mut focus: ResMut<client_presentation::camera::CursorFocus>,
+    mut focus: ResMut<client_state::CursorFocus>,
 ) {
     focus.begin_frame(window.focused);
 }

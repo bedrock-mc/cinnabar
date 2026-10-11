@@ -1,5 +1,4 @@
 use super::{LocalFormAction, engine_focus, engine_input};
-use crate::menu::MenuRuntime;
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
@@ -15,6 +14,7 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
+use client_shell::menu::MenuRuntime;
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -22,8 +22,8 @@ pub(crate) fn drive_server_form_input(
     (player_runtime, window, mut focus, driven): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-        Option<ResMut<client_presentation::camera::CursorFocus>>,
-        Option<Res<crate::camera::DrivenInput>>,
+        Option<ResMut<client_state::CursorFocus>>,
+        Option<Res<client_state::DrivenInput>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,

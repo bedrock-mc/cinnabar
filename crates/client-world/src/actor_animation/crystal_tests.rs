@@ -2,6 +2,10 @@ use super::*;
 
 #[test]
 fn installed_crystal_animates_nested_frames_and_obeys_show_bottom() {
+    if let Some(path) = std::env::var_os("CINNABAR_ENTITY_CARRIER") {
+        assert_crystal_animation(std::path::Path::new(&path));
+        return;
+    }
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let entries = match std::fs::read_dir(&root) {
@@ -32,15 +36,55 @@ fn installed_crystal_animates_nested_frames_and_obeys_show_bottom() {
         1,
         "ambiguous installed entity carrier fixture: {paths:?}"
     );
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(&paths[0]).unwrap()).unwrap());
+    assert_crystal_animation(&paths[0]);
+}
+
+/// Checks first presentation and later motion using the explicitly installed carrier.
+fn assert_crystal_animation(path: &std::path::Path) {
+    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
     let mut actor =
         super::tests::actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(1 << 38))]));
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:ender_crystal".into(),
     };
-    let mut store = ActorAnimationStore::with_assets(assets);
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.insert(1, 0, &actor);
     let mut actors = HashMap::from([(actor.runtime_id, actor)]);
+    for show_bottom in [false, true] {
+        let mut actor = actors[&1].clone();
+        actor
+            .metadata
+            .insert(0, ActorMetadataValue::Flags(u64::from(show_bottom) << 38));
+        let mut initial = ActorAnimationStore::with_assets(Arc::clone(&assets));
+        initial.insert(1, 0, &actor);
+        initial.prepare_frame(&HashMap::from([(1, actor)]), None, None, false, |_| {
+            ActorTickContext {
+                animation_elapsed_ticks: Some(0),
+                ..Default::default()
+            }
+        });
+        let rig = initial.get(1).unwrap();
+        assert_eq!(rig.completed_tick, 0);
+        assert_eq!(rig.previous, rig.current);
+        assert_eq!(rig.render.len(), 1);
+        for name in ["outerglass", "innerglass", "crystal"] {
+            let index = rig
+                .bone_names
+                .iter()
+                .position(|bone| bone.as_ref() == name)
+                .unwrap();
+            assert_ne!(rig.current[index], rig.rest[index], "initial {name} pose");
+        }
+        let base = rig
+            .bone_names
+            .iter()
+            .position(|bone| bone.as_ref() == "base")
+            .unwrap();
+        assert_eq!(
+            rig.render[0].hidden_bones.contains(&(base as u32)),
+            !show_bottom
+        );
+    }
     let mut previous = None;
     for _ in 0..3 {
         store.advance_tick(&actors, None, None, true, false, |_| {

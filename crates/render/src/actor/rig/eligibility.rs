@@ -35,8 +35,7 @@ pub(super) fn validate_input(submission: &ActorRigSubmission) -> Result<(), Reje
         return Err(Rejection::NoDraw);
     }
     let diagnostic = submission.route == ActorRigRoute::Diagnostic;
-    if ((!submission.input.identity.is_exact() || submission.input.completed_tick == 0)
-        && !diagnostic)
+    if (!submission.input.identity.is_exact() && !diagnostic)
         || submission.input.reset_generation == 0
     {
         return Err(Rejection::Identity);

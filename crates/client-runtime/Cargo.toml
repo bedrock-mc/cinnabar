@@ -25,12 +25,10 @@ pack-runtime = { path = "../pack-runtime" }
 protocol = { path = "../protocol" }
 render = { path = "../render" }
 render-api = { path = "../render-api" }
-rich-presence = { path = "../rich-presence" }
 tokio.workspace = true
 
 [dev-dependencies]
 client-session = { path = "../client-session", features = ["test-support"] }
-launcher = { path = "../launcher" }
 
 [lints]
 workspace = true

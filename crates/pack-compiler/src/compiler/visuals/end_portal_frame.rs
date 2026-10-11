@@ -49,6 +49,7 @@ pub(in crate::compiler) fn eye_descriptor(
             texture_key: key.clone().into(),
             flags: MATERIAL_FLAG_ALPHA_CUTOUT,
             state_variant,
+            flipbook_selector: None,
         },
         key.into(),
     ))

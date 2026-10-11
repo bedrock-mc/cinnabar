@@ -462,6 +462,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
  "windows-sys 0.61.2",
  "zip",
 ]
@@ -673,7 +674,6 @@ version = "0.1.12"
 dependencies = [
  "acceptance",
  "anyhow",
- "ash",
  "assets",
  "bevy",
  "block-transform",
@@ -682,9 +682,11 @@ dependencies = [
  "chunk-pipeline",
  "client-audio",
  "client-extensions",
+ "client-interaction",
  "client-presentation",
  "client-runtime",
  "client-session",
+ "client-shell",
  "client-state",
  "client-ui",
  "client-world",
@@ -708,7 +710,6 @@ dependencies = [
  "mod-render",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
- "objc2-metal 0.3.2",
  "pack-compiler",
  "pack-runtime",
  "particles",
@@ -2306,6 +2307,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-interaction"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "bevy",
+ "chunk-pipeline",
+ "client-audio",
+ "client-presentation",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "diagnostics",
+ "gameplay",
+ "inventory 0.1.12",
+ "player-state",
+ "protocol",
+ "semantic-input",
+ "sha2",
+ "sim",
+ "tokio",
+ "ui",
+ "world",
+]
+
+[[package]]
 name = "client-presentation"
 version = "0.1.12"
 dependencies = [
@@ -2351,14 +2377,12 @@ dependencies = [
  "client-ui",
  "client-world",
  "diagnostics",
- "launcher",
  "launcher-host",
  "meshing",
  "pack-runtime",
  "protocol",
  "render",
  "render-api",
- "rich-presence",
  "tokio",
 ]
 
@@ -2381,11 +2405,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-shell"
+version = "0.1.12"
+dependencies = [
+ "ash",
+ "assets",
+ "bevy",
+ "bridge",
+ "chunk-pipeline",
+ "client-session",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "crossbeam-channel",
+ "developer-control",
+ "image",
+ "json-ui",
+ "launcher",
+ "launcher-host",
+ "objc2-metal 0.3.2",
+ "pack-runtime",
+ "player-state",
+ "protocol",
+ "render",
+ "render-api",
+ "render-model",
+ "reqwest",
+ "resource-pack",
+ "rich-presence",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "tokio",
+ "ui",
+ "wgpu",
+ "zip",
+]
+
+[[package]]
 name = "client-state"
 version = "0.1.12"
 dependencies = [
  "bevy",
  "player-state",
+ "rich-presence",
  "semantic-input",
  "ui",
 ]
@@ -3065,11 +3132,14 @@ dependencies = [
  "bevy",
  "chunk-pipeline",
  "client-ui",
+ "libc",
  "meshing",
  "protocol",
  "render-model",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
  "world",
 ]
 

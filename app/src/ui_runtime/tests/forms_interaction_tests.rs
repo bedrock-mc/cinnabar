@@ -12,10 +12,8 @@ use bevy::{
 };
 use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPresentationRuntime};
 use {
-    crate::{
-        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-        ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
-    },
+    crate::ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_ui::test_support::fixture_font,
 };
 
@@ -888,7 +886,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     for key in [KeyCode::Enter, KeyCode::Escape] {
         let (mut app, window) = app(&mut player);
-        let mut focus = client_presentation::camera::CursorFocus::default();
+        let mut focus = client_state::CursorFocus::default();
         focus.begin_frame(false);
         app.insert_resource(focus)
             .init_resource::<client_state::ScreenFocus>()
@@ -896,7 +894,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
             .add_systems(
                 Update,
                 (
-                    crate::menu::screen_focus::publish_screen_focus,
+                    client_shell::menu::screen_focus::publish_screen_focus,
                     crate::camera::update_cursor_capture,
                 )
                     .chain()
@@ -904,9 +902,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
             );
         app.update();
         {
-            let mut focus = app
-                .world_mut()
-                .resource_mut::<client_presentation::camera::CursorFocus>();
+            let mut focus = app.world_mut().resource_mut::<client_state::CursorFocus>();
             focus.begin_frame(true);
             focus.record_activation(true);
         }
@@ -931,7 +927,7 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         );
         flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap();
         app.world_mut()
-            .resource_mut::<client_presentation::camera::CursorFocus>()
+            .resource_mut::<client_state::CursorFocus>()
             .begin_frame(true);
         app.update();
         let cursor = app.world().get::<CursorOptions>(window).unwrap();

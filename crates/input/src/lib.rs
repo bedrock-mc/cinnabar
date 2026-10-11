@@ -58,3 +58,18 @@ pub mod touch {
     pub const LOOK_LEFT: u16 = 30;
     pub const LOOK_RIGHT: u16 = 31;
 }
+
+pub mod cursor_focus;
+
+/// Hotbar digit actions in slot order.
+pub const HOTBAR_DIGIT_ACTIONS: &[Action] = &[
+    Action::Hotbar1,
+    Action::Hotbar2,
+    Action::Hotbar3,
+    Action::Hotbar4,
+    Action::Hotbar5,
+    Action::Hotbar6,
+    Action::Hotbar7,
+    Action::Hotbar8,
+    Action::Hotbar9,
+];

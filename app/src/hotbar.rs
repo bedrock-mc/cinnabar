@@ -5,92 +5,24 @@
 //! highlight follows input without waiting for the server), and the choice is announced upstream
 //! with a `PlayerHotbar` packet.
 
-use crate::runtime::network::resource_packs::PackApplication;
-use bevy::{
-    input::mouse::AccumulatedMouseScroll,
-    prelude::{Res, ResMut},
+use crate::runtime::{
+    network::resource_packs::PackApplication, shutdown::record_fatal_error, world::ClientWorld,
 };
+use bevy::prelude::{Res, ResMut};
 use client_runtime::network::NetworkHandle;
-use protocol::{HOTBAR_SLOT_COUNT, Packet};
-use semantic_input::Action;
+use client_session::PacketSendError;
+use protocol::Packet;
 
-use {
-    crate::runtime::{shutdown::record_fatal_error, world::ClientWorld},
-    client_session::PacketSendError,
-    client_state::SemanticInputSnapshot,
-};
-
-pub(crate) const HOTBAR_DIGIT_ACTIONS: [Action; HOTBAR_SLOT_COUNT as usize] = [
-    Action::Hotbar1,
-    Action::Hotbar2,
-    Action::Hotbar3,
-    Action::Hotbar4,
-    Action::Hotbar5,
-    Action::Hotbar6,
-    Action::Hotbar7,
-    Action::Hotbar8,
-    Action::Hotbar9,
-];
-
-/// Applies number-key, mouse-wheel, and controller hotbar selection to the local prediction and
-/// notifies the server. Runs after semantic input is finalized and before UI publication.
+/// Flushes the queued hotbar selection after input sampling and before block use.
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
 )]
-pub(crate) fn select_hotbar_slot(
+pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    input: Res<SemanticInputSnapshot>,
-    scroll: Res<AccumulatedMouseScroll>,
-    focus: Res<client_state::ScreenFocus>,
     network: Res<NetworkHandle<PackApplication>>,
     mut client_world: ResMut<ClientWorld>,
 ) {
-    // Direct number-key selection. The router only resolves Hotbar1..9 in the Gameplay context,
-    // so digits typed while chat is focused never reach this snapshot.
-    let mut requested: Option<u8> = None;
-    for (index, action) in HOTBAR_DIGIT_ACTIONS.iter().enumerate() {
-        if input.phase(*action).pressed {
-            requested = Some(index as u8);
-        }
-    }
-
-    // Controller actions are router-gated; raw wheel input needs the same screen ownership.
-    let mut cycle: i32 = 0;
-    if input.phase(Action::HotbarNext).pressed {
-        cycle += 1;
-    }
-    if input.phase(Action::HotbarPrevious).pressed {
-        cycle -= 1;
-    }
-    if !focus.absorbs_input {
-        // One slot per frame: scrolling up selects the previous slot.
-        if scroll.delta.y > 0.0 {
-            cycle -= 1;
-        } else if scroll.delta.y < 0.0 {
-            cycle += 1;
-        }
-    }
-
-    if requested.is_none() && cycle != 0 {
-        let current = i32::from(
-            player_runtime
-                .inventory
-                .selected_hotbar_slot(player_runtime.facts.player_game_mode())
-                .unwrap_or(0)
-                .min(HOTBAR_SLOT_COUNT - 1),
-        );
-        let slots = i32::from(HOTBAR_SLOT_COUNT);
-        requested = Some((((current + cycle) % slots + slots) % slots) as u8);
-    }
-
-    if let Some(target) = requested {
-        let game_mode = player_runtime.facts.player_game_mode();
-        player_runtime
-            .inventory
-            .queue_local_hotbar_selection(target, game_mode);
-    }
-
     if network.closed_command_has_pending_control() {
         return;
     }
@@ -146,6 +78,8 @@ fn flush_pending_hotbar_selection(
 
 #[cfg(test)]
 mod tests {
+    use bevy::input::mouse::AccumulatedMouseScroll;
+    use client_state::SemanticInputSnapshot;
     use client_ui::ui_runtime::UiRuntime;
     use std::sync::Arc;
 
@@ -158,6 +92,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
+    use client_interaction::hotbar::queue_hotbar_selection;
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
     fn publish_slot(
@@ -238,7 +173,7 @@ mod tests {
         menu: Option<launcher::menu::MenuScreen>,
     ) -> u8 {
         let runtime = UiRuntime::new(1);
-        let mut menu_runtime = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        let mut menu_runtime = client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
         if let Some(screen) = menu {
             menu_runtime.activate(launcher::menu::MenuAction::Navigate(screen));
         }
@@ -249,7 +184,7 @@ mod tests {
     fn wheel_with_ui(
         player_runtime: &mut client_state::PlayerRuntime,
         runtime: UiRuntime,
-        menu_runtime: crate::menu::MenuRuntime,
+        menu_runtime: client_shell::menu::MenuRuntime,
     ) -> u8 {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
@@ -266,9 +201,14 @@ mod tests {
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
-            .run_system_once(crate::menu::screen_focus::publish_screen_focus)
+            .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
-        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(flush_hotbar_selection)
+            .unwrap();
         *player_runtime = app
             .world_mut()
             .remove_resource::<client_state::PlayerRuntime>()
@@ -304,7 +244,7 @@ mod tests {
             wheel_selection(&mut player_runtime, Some(launcher::menu::MenuScreen::Pause)),
             0
         );
-        let hidden = || crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        let hidden = || client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
         let mut chat = UiRuntime::new(1);
         chat.open_chat(&mut player_runtime);
         assert_eq!(wheel_with_ui(&mut player_runtime, chat, hidden()), 0);
@@ -336,7 +276,11 @@ mod tests {
         player_runtime.inventory.set_local_selected_slot(0);
         app.insert_resource(UiRuntime::new(1))
             .insert_resource(player_runtime.clone())
-            .insert_resource(crate::menu::MenuRuntime::new(false, 2, "Tester".into()))
+            .insert_resource(client_shell::menu::MenuRuntime::new(
+                false,
+                2,
+                "Tester".into(),
+            ))
             .insert_resource(presentation)
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
@@ -347,9 +291,14 @@ mod tests {
             .insert_resource(ClientWorld::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
-            .run_system_once(crate::menu::screen_focus::publish_screen_focus)
+            .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
             .unwrap();
-        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(flush_hotbar_selection)
+            .unwrap();
         *player_runtime = app
             .world_mut()
             .remove_resource::<client_state::PlayerRuntime>()
@@ -380,10 +329,14 @@ mod tests {
         };
         let absorbs = |player_runtime: &client_state::PlayerRuntime,
                        presentation: &UiPresentationRuntime| {
-            crate::screen_policy::absorbs_input(
+            client_shell::screen_policy::absorbs_input(
                 player_runtime,
                 Some(&UiRuntime::new(1)),
-                Some(&crate::menu::MenuRuntime::new(false, 2, "Tester".into())),
+                Some(&client_shell::menu::MenuRuntime::new(
+                    false,
+                    2,
+                    "Tester".into(),
+                )),
                 Some(presentation),
             )
         };

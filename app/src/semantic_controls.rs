@@ -9,7 +9,7 @@ use semantic_input::{
 pub(crate) mod physical;
 pub(crate) use physical::{
     PendingDeviceFrame, SemanticRouteState, collect_raw_input,
-    finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
+    finalize_semantic_input_after_ui_authority, route_semantic_input,
 };
 
 use client_ui::ui_runtime::UiRuntime;
@@ -104,6 +104,11 @@ impl SemanticInputRuntime {
 
     pub fn replace_authority(&mut self, generation: NonZeroU64) {
         self.router.replace_authority(generation);
+    }
+
+    /// Consumes one UI-owned desktop control in the already sampled gameplay frame.
+    pub(crate) fn consume_control(&mut self, control: semantic_input::PhysicalControl) {
+        self.router.consume_control(control);
     }
 
     pub fn release_all(&mut self, reason: ReleaseReason) {

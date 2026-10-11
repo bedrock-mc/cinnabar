@@ -51,7 +51,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
     complete_world_stream_decodes(&mut stream);
 
     let base = assets::RuntimeAtmosphereAssets::decode(
-        &crate::asset_startup::test_carriers::synthetic_atmosphere_blob(),
+        &assets::carriers::startup::test_carriers::synthetic_atmosphere_blob(),
     )
     .unwrap();
     let atmosphere = Arc::new(
@@ -62,7 +62,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
                 fog_identifier: "test:fog".into(),
                 atmosphere_identifier: "test:atmosphere".into(),
                 lighting_identifier: "test:lighting".into(),
-                sky_rgb8: Some([12, 34, 56]),
+                sky_rgb8: Some(0x0c2238),
             }],
             &[assets::FogProfile {
                 identifier: "test:fog".into(),

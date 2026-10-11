@@ -5,7 +5,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use {
-    crate::item_use::ItemUseRuntime,
+    client_interaction::item_use::ItemUseRuntime,
     gameplay::item_use::{AirUse, UseFrame, classify},
 };
 
@@ -113,7 +113,7 @@ fn charge_frame(
         now_millis: tick * 50,
         position: [0.0; 3],
         held: true,
-        selection: crate::block_use::verified_use_selection(player_runtime, ui),
+        selection: client_interaction::block_use::verified_use_selection(player_runtime, ui),
         air_use: classify("minecraft:crossbow", false, 0, None),
         ready: true,
         creative: false,

@@ -8,7 +8,7 @@ use world::SubChunkKey;
 pub(super) struct StreamParticleWorld<'a> {
     stream: &'a WorldStream,
     registry: &'a CollisionRegistry,
-    identities: Option<&'a crate::movement::PhysicsCollisionRegistries>,
+    identities: Option<&'a client_interaction::movement::PhysicsCollisionRegistries>,
 }
 
 impl<'a> StreamParticleWorld<'a> {
@@ -16,7 +16,7 @@ impl<'a> StreamParticleWorld<'a> {
     pub(super) fn new(
         stream: &'a WorldStream,
         registry: &'a CollisionRegistry,
-        identities: Option<&'a crate::movement::PhysicsCollisionRegistries>,
+        identities: Option<&'a client_interaction::movement::PhysicsCollisionRegistries>,
     ) -> Self {
         Self {
             stream,

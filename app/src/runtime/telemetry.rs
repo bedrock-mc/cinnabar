@@ -50,14 +50,12 @@ use diagnostics::metrics::{
     TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
 };
 use {
-    crate::{
-        movement::MovementTicker,
-        runtime::{
-            shutdown::record_fatal_error,
-            visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
-            world::{ClientWorld, WorldStreamFramePoll},
-        },
+    crate::runtime::{
+        shutdown::record_fatal_error,
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::{ClientWorld, WorldStreamFramePoll},
     },
+    client_interaction::movement::MovementTicker,
     client_presentation::{
         camera::THIRD_PERSON_RADIUS_BLOCKS, local_player::LocalPlayerFrameCarrier,
     },

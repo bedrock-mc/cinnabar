@@ -9,7 +9,7 @@ use assets::{
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
     MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS,
     MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
@@ -122,6 +122,8 @@ struct Descriptor {
     texture_key: Box<str>,
     flags: u32,
     state_variant: u32,
+    /// An explicit state selector; missing animations use the source's first frame.
+    flipbook_selector: Option<(u32, u32)>,
 }
 
 type CompiledMaterials = (Box<[Material]>, BTreeMap<Descriptor, u32>);
@@ -618,6 +620,7 @@ fn flowerbed_material_descriptors(
         (
             Descriptor {
                 state_variant: index as u32,
+                flipbook_selector: None,
                 path: path.into(),
                 texture_key: key.clone(),
                 flags,
@@ -637,6 +640,7 @@ fn pale_moss_carpet_side_material_descriptors(
         (
             Descriptor {
                 state_variant: index as u32,
+                flipbook_selector: None,
                 path: path.into(),
                 texture_key: key.clone(),
                 flags: MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -695,7 +699,15 @@ fn compile_runtime_animation_plan(
             .filter(|candidate| candidate.path == source_path)
             .all(|candidate| fallback_descriptors.contains(candidate));
         let path = static_texture_path(root, &source_path, key)?;
-        let decoded = decode_texture(&path, key)?;
+        let mut decoded = decode_texture(&path, key)?;
+        if descriptor.flipbook_selector.is_some()
+            && descriptor_keys
+                .keys()
+                .filter(|candidate| candidate.path == source_path)
+                .all(|candidate| candidate.flipbook_selector.is_some())
+        {
+            crate::image::retain_first_strip_frame(&mut decoded);
+        }
         if decoded.width != decoded.height {
             if fallback_only {
                 continue;
@@ -765,8 +777,8 @@ fn compile_runtime_animation_plan(
         pack,
         &decoded_images,
         AnimationLimits {
-            max_layers_per_page: MAX_TEXTURE_LAYERS as u32,
-            max_pages: 2,
+            max_layers_per_page: MAX_CARRIER_TEXTURE_LAYERS as u32,
+            max_pages: assets::MAX_TEXTURE_PAGES as u32,
         },
         Some(&selected_atlas_tiles),
         &overlay_mask_paths,
@@ -791,7 +803,7 @@ fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
 
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {
     let mut pages = Vec::new();
-    for chunk in plan.layers.chunks(MAX_TEXTURE_LAYERS) {
+    for chunk in plan.layers.chunks(MAX_CARRIER_TEXTURE_LAYERS) {
         let mut mips = Vec::with_capacity(assets::MIP_COUNT as usize);
         for level in 0..assets::MIP_COUNT as usize {
             let size = assets::TILE_SIZE >> level;
@@ -904,24 +916,27 @@ fn compile_materials(
                 source.atlas_tile.as_ref() == key.as_ref() && source.source_path == descriptor.path
             })
             .collect::<Vec<_>>();
-        let animation = match candidates.as_slice() {
-            [] => None,
-            [(index, _)] => Some(*index),
-            _ => Some(
-                candidates
-                    .iter()
-                    .find(|(_, source)| source.atlas_index == 0 && source.atlas_tile_variant == 0)
-                    .map(|(index, _)| *index)
-                    .ok_or_else(|| AssetError::InvalidCompiledAssets {
-                        detail: format!(
-                            "texture {} has multiple flipbook selectors and no canonical selector (0, 0)",
-                            descriptor.path
-                        )
-                        .into(),
-                    })?,
-            ),
-        }
-        .map(|index| u32::try_from(index).expect("bounded flipbook count"));
+        let animation = if let Some((atlas_index, tile_variant)) = descriptor.flipbook_selector {
+            candidates.iter().find(|(_, source)| {
+                source.atlas_index == atlas_index && source.atlas_tile_variant == tile_variant
+            }).map(|(index, _)| *index)
+        } else {
+            match candidates.as_slice() {
+                [] => None,
+                [(index, _)] => Some(*index),
+                _ => Some(
+                    candidates.iter()
+                        .find(|(_, source)| source.atlas_index == 0 && source.atlas_tile_variant == 0)
+                        .map(|(index, _)| *index)
+                        .ok_or_else(|| AssetError::InvalidCompiledAssets {
+                            detail: format!(
+                                "texture {} has multiple flipbook selectors and no canonical selector (0, 0)",
+                                descriptor.path
+                            ).into(),
+                        })?,
+                ),
+            }
+        }.map(|index| u32::try_from(index).expect("bounded flipbook count"));
         let texture = if let Some(animation) = animation {
             let source = &plan.animations[animation as usize];
             plan.frames[source.frame_start as usize]

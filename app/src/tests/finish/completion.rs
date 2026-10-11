@@ -467,7 +467,7 @@ fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
 
 #[test]
 fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
-    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
     menu.show_connecting();
 
     assert!(
@@ -489,7 +489,7 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
 
 #[test]
 fn a_direct_address_session_failure_still_exits_the_process() {
-    let mut menu = crate::menu::MenuRuntime::new(false, 2, "Tester".to_owned());
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Tester".to_owned());
     menu.show_connecting();
 
     assert!(
@@ -502,7 +502,7 @@ fn a_direct_address_session_failure_still_exits_the_process() {
 // The raw chain, however long, never reaches the screen: it reads as vanilla's line.
 #[test]
 fn a_long_session_failure_shows_vanilla_text() {
-    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
 
     assert!(menu.absorb_session_failure(&"boundless detail ".repeat(40)));
 

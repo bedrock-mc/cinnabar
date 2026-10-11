@@ -46,7 +46,7 @@ pub(in crate::camera::focus) fn install(app: &mut App) {
 /// Retains the native window and fails closed if its focus hook cannot be installed.
 fn bind(
     windows: Query<&RawHandleWrapper, With<PrimaryWindow>>,
-    driven: Option<Res<super::super::super::DrivenInput>>,
+    driven: Option<Res<client_state::DrivenInput>>,
     mut binding: NonSendMut<NativeBinding>,
     mut ready: ResMut<NativeCaptureReady>,
 ) {

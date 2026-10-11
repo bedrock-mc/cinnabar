@@ -2,6 +2,32 @@ use super::*;
 
 const PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 
+#[test]
+fn redeclared_skin_bones_use_their_own_hidden_flag() {
+    for hidden in [None, Some(false), Some(true)] {
+        let mut child = serde_json::json!({"name":"hat","cubes":[{
+            "origin":[-4,24,-4],"size":[8,8,8],"uv":[32,0],"inflate":0.5
+        }]});
+        if let Some(hidden) = hidden {
+            child["neverRender"] = hidden.into();
+        }
+        let source = serde_json::json!({
+            "format_version":"1.8.0",
+            "geometry.parent":{"bones":[
+                {"name":"hat","neverRender":true},
+                {"name":"kept-hidden","neverRender":true}
+            ]},
+            "geometry.npc:geometry.parent":{"bones":[child]}
+        });
+        let geometry = parse_skin_geometry(PATCH, &source.to_string())
+            .unwrap()
+            .unwrap();
+        assert_eq!(geometry.bones[0].never_render, hidden);
+        assert_eq!(geometry.bones[0].cubes.len(), 1);
+        assert_eq!(geometry.bones[1].never_render, Some(true));
+    }
+}
+
 fn bounded_inheritance_source(child_bones: serde_json::Value) -> String {
     let cube = serde_json::json!({"origin":[0,0,0],"size":[1,1,1]});
     serde_json::json!({

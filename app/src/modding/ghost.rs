@@ -5,9 +5,8 @@ use bevy::prelude::*;
 use client_ui::ui_runtime::UiRuntime;
 use render::ModRenderScene;
 use {
-    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
-    client_presentation::camera::FlyCamera,
-    client_state::ClientFrameSet,
+    crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera,
+    client_shell::menu::MenuRuntime, client_state::ClientFrameSet,
 };
 
 pub(super) fn configure(app: &mut App) {

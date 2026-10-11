@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bevy::prelude::{Commands, Res, ResMut};
 
 use super::state::StoreState;
-use crate::menu::{MenuRuntime, launcher_account::LauncherAccount};
+use client_shell::menu::{MenuRuntime, launcher_account::LauncherAccount};
 use launcher::store::snapshot::StoreSnapshot;
 use {
     super::worker::StoreWorker,

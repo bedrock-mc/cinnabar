@@ -261,3 +261,20 @@ fn autocomplete_response_requires_exact_request_and_input_revision() {
     );
     assert_eq!(state.suggestions(), [Arc::from("/give")]);
 }
+
+#[test]
+fn command_macro_validation_reports_the_same_text_limits_as_chat() {
+    for text in [
+        String::new(),
+        "x".repeat(ui::MAX_CHAT_INPUT_BYTES),
+        "x".repeat(ui::MAX_CHAT_INPUT_BYTES + 1),
+        "é".repeat(ui::MAX_CHAT_INPUT_BYTES / 2 + 1),
+    ] {
+        let mut queue =
+            ui::ChatSendQueue::new(1, ui::ChatRateLimit::new(1, 1000).unwrap()).unwrap();
+        assert_eq!(
+            ui::validate_chat_message(&text),
+            queue.push(1, &text, 0).map(|_| ())
+        );
+    }
+}

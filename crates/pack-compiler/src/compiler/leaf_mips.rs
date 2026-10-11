@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use assets::{
     Animation, AssetError, MATERIAL_FLAG_NATIVE_LEAF_COLOUR, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
-    MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, Material, NO_ANIMATION, TILE_SIZE,
+    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, Material, NO_ANIMATION, TILE_SIZE,
     TextureArray, TextureMip, TexturePage, TextureRef, build_legacy_terrain_mip_chain,
 };
 
@@ -84,7 +84,7 @@ impl<'a> NativeLayers<'a> {
             return Err(invalid("world leaf texture pages are outside their bound"));
         }
         for page in pages {
-            if page.texture.layers as usize > MAX_TEXTURE_LAYERS
+            if page.texture.layers as usize > MAX_CARRIER_TEXTURE_LAYERS
                 || page.texture.mips.len() != MIP_COUNT as usize
                 || page.texture.mips.iter().enumerate().any(|(level, mip)| {
                     let size = TILE_SIZE >> level;
@@ -126,7 +126,7 @@ impl<'a> NativeLayers<'a> {
         let page_index = self
             .counts
             .iter()
-            .position(|&layers| layers < MAX_TEXTURE_LAYERS)
+            .position(|&layers| layers < MAX_CARRIER_TEXTURE_LAYERS)
             .unwrap_or(self.counts.len());
         if page_index >= MAX_TEXTURE_PAGES {
             return Err(invalid(

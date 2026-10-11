@@ -1,12 +1,12 @@
 //! Inventory pointer routing and wheel handling shared by ordered and frame input.
 use super::dispatch_bound_inventory_hotbar;
-use crate::menu::settings_options::control_bindings::binding_key;
 use bevy::{
     input::mouse::MouseScrollUnit,
     prelude::{ButtonInput, KeyCode, MouseButton, Time},
     time::Real,
     window::Window,
 };
+use client_shell::menu::settings_options::control_bindings::binding_key;
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
 use ui::UiPoint;
 use {
@@ -25,8 +25,8 @@ pub(super) fn apply_screen_presses(
     runtime: &mut UiRuntime,
     window: &Window,
     presentation: Option<&UiPresentationRuntime>,
-    menu: Option<&crate::menu::MenuRuntime>,
-    focus: Option<&mut client_presentation::camera::CursorFocus>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    focus: Option<&mut client_state::CursorFocus>,
     time: &Time<Real>,
 ) {
     let Some(presentation) =
@@ -62,12 +62,12 @@ pub(super) fn apply_inventory_pointer(
     runtime: &mut UiRuntime,
     window: &Window,
     presentation: &UiPresentationRuntime,
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     mouse_buttons: &mut ButtonInput<MouseButton>,
     (raw_primary_release, raw_secondary_release): (bool, bool),
     (presses, shift, control): (Vec<KeyCode>, bool, bool),
     notches: &[(f32, MouseScrollUnit)],
-    mut focus: Option<&mut client_presentation::camera::CursorFocus>,
+    mut focus: Option<&mut client_state::CursorFocus>,
     now_millis: u64,
 ) {
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
@@ -78,7 +78,7 @@ pub(super) fn apply_inventory_pointer(
     let mouse_hotbar: Vec<_> = mouse_buttons
         .get_just_pressed()
         .filter_map(|button| {
-            crate::semantic_controls::physical::mouse_button_code(*button)
+            client_ui::physical_input::mouse_button_code(*button)
                 .map(semantic_input::PhysicalControl::MouseButton)
         })
         .collect();
@@ -133,7 +133,7 @@ pub(super) fn apply_inventory_pointer(
         scroll_container(runtime, frame, gui, notches);
     }
     for key in presses {
-        if crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+        if client_ui::physical_input::keyboard_usage(key).is_some_and(|code| {
             dispatch_bound_inventory_hotbar(
                 menu,
                 semantic_input::PhysicalControl::KeyboardUsage(code),

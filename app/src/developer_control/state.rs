@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use super::{camera::ScriptedCamera, capture::Recording};
 use {
-    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
-    client_presentation::local_player::LocalViewPose,
+    crate::runtime::world::ClientWorld, client_presentation::local_player::LocalViewPose,
+    client_shell::menu::MenuRuntime,
 };
 
 /// Waits without a timeout give up after this long so a controller is never wedged.
@@ -198,7 +198,7 @@ fn actors(world: &World) -> Vec<Value> {
 fn player_motion(world: &World) -> Option<Value> {
     let stream = world.get_resource::<ClientWorld>()?.stream.as_ref()?;
     let player = world.get_resource::<client_state::PlayerRuntime>()?;
-    let physics = world.get_resource::<crate::movement::LocalPhysicsController>()?;
+    let physics = world.get_resource::<client_interaction::movement::LocalPhysicsController>()?;
     let authority = stream.authority();
     let rig = authority.actor_rig(stream.local_player_runtime_id())?;
     let java = rig.java;
@@ -214,7 +214,7 @@ fn player_motion(world: &World) -> Option<Value> {
         "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),
         "jump_delay": state.map(|state| state.jump_delay),
         "knockback_sequence": physics.knockback_sequence(),
-        "physics_authorized": world.get_resource::<crate::movement::MovementTicker>()
+        "physics_authorized": world.get_resource::<client_interaction::movement::MovementTicker>()
             .map(|movement| movement.physics_is_authorized()),
         "jump_eligible": physics.jump_pulse_eligible(),
         "jump_held": jump_held,
@@ -312,7 +312,7 @@ pub(super) fn snapshot(world: &World) -> Value {
                 })).collect::<Vec<_>>(),
             })
         }),
-        "skin": world.get_resource::<crate::player_skin::LocalPlayerSkin>().map(|skin| json!({
+        "skin": world.get_resource::<client_shell::player_skin::LocalPlayerSkin>().map(|skin| json!({
             "width": skin.width, "height": skin.height, "arm_size": skin.skin_model.arm_size(),
             "content_hash": skin.rgba8.content_hash(),
             "cape": skin.cape.as_ref().map(|cape| json!({"width": cape.width, "height": cape.height})),
@@ -323,7 +323,7 @@ pub(super) fn snapshot(world: &World) -> Value {
                 bounds.min().x(), bounds.min().y(), bounds.max().x(), bounds.max().y(),
             ]),
         })),
-        "driven": world.contains_resource::<crate::camera::DrivenInput>(),
+        "driven": world.contains_resource::<client_state::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
         "server_camera": world.get_resource::<client_presentation::camera::ServerCameraView>().map(|camera| json!({
             "active": camera.is_active(),
@@ -339,7 +339,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
         "frame_count": world.get_resource::<bevy::diagnostic::FrameCount>().map(|count| count.0),
-        "placement_frames": world.get_resource::<crate::block_use::BlockUseRuntime>().map(|runtime| json!({
+        "placement_frames": world.get_resource::<client_interaction::block_use::BlockUseRuntime>().map(|runtime| json!({
             "committed": runtime.prediction_frames.committed_frame,
             "staged": runtime.prediction_frames.staged_frame,
             "upload_acknowledged": runtime.prediction_frames.upload_acknowledged_frame,

@@ -11,12 +11,12 @@ use bevy::{
 use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
-    crate::runtime::world::ClientWorld, client_presentation::camera::AutoFly,
-    client_presentation::local_player::LocalViewPose, client_state::PlayerRuntime,
-    client_state::RuntimeSettings, client_state::SemanticInputSnapshot,
+    crate::runtime::world::ClientWorld,
+    client_presentation::{camera::AutoFly, local_player::LocalViewPose},
+    client_state::{PlayerRuntime, RuntimeSettings, SemanticInputSnapshot},
 };
 
-use super::{
+use client_interaction::movement::{
     LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
     MovementTicker, PhysicsCollisionRegistries,
 };
@@ -38,7 +38,7 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     settings: Option<Res<RuntimeSettings>>,
     player: Option<Res<PlayerRuntime>>,
-    item_use: Option<Res<crate::item_use::ItemUseRuntime>>,
+    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
     mut locals: Local<LocomotionLocals>,
 ) {
     if acceptance.deadline_reached(Instant::now()) {
@@ -72,7 +72,7 @@ pub(crate) fn advance_local_physics(
     let yaw = gameplay::movement::wire_yaw(180.0 - bevy_yaw.to_degrees());
     let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
-        &super::GameplayWorldView(stream),
+        &client_interaction::movement::world_view::GameplayWorldView(stream),
         item_use
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),

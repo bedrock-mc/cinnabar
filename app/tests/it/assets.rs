@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+use bedrock_client::asset_bindings::{
+    AtmosphereEvidence, atmosphere_shader_source_sha256, cloud_shader_source_sha256,
+};
+
 use std::{
     ffi::OsString,
     fs,
@@ -20,16 +24,15 @@ use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
 use {
-    assets::pinned_world_provenance,
-    bedrock_client::asset_startup::{
+    assets::carriers::startup::{
         ATMOSPHERE_COMPILE_COMMAND, ATMOSPHERE_FILENAME, AssetPathSource, COMPILE_COMMAND,
         DEFAULT_ASSET_PATH, ENTITY_ASSETS_COMPILE_COMMAND, ENTITY_ASSETS_FILENAME, FETCH_COMMAND,
         FONT_ASSETS_COMPILE_COMMAND, FONT_ASSETS_FILENAME, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-        LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path,
-        atmosphere_shader_source_sha256, cloud_shader_source_sha256, entity_asset_path,
+        LOCAL_FONT_ASSETS_FILENAME, LoadedAssetKind, atmosphere_asset_path, entity_asset_path,
         font_asset_path, load_runtime_assets, local_font_asset_path, select_asset_path,
         select_asset_path_in_context,
     },
+    assets::pinned_world_provenance,
 };
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -406,9 +409,9 @@ fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads()
     fs::write(atmosphere_asset_path(&world_path), &first_blob).unwrap();
     write_sibling_entity(&world_path, 0x51);
     let first = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
-    let first_evidence = first.atmosphere.evidence();
+    let first_evidence = AtmosphereEvidence::evidence(&first.atmosphere);
     let repeated = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
-    let repeated_evidence = repeated.atmosphere.evidence();
+    let repeated_evidence = AtmosphereEvidence::evidence(&repeated.atmosphere);
     assert_eq!(first_evidence, repeated_evidence);
     assert_eq!(
         first_evidence.envelope_sha256,
@@ -418,7 +421,7 @@ fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads()
     let second_blob = synthetic_atmosphere_blob(0x62);
     fs::write(atmosphere_asset_path(&world_path), &second_blob).unwrap();
     let second = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
-    let second_evidence = second.atmosphere.evidence();
+    let second_evidence = AtmosphereEvidence::evidence(&second.atmosphere);
     assert_ne!(
         first_evidence.envelope_sha256,
         second_evidence.envelope_sha256
@@ -428,7 +431,7 @@ fn atmosphere_live_evidence_distinguishes_envelopes_and_is_stable_across_loads()
         second_evidence.shader_source_sha256
     );
 
-    let summary = second.atmosphere.startup_summary();
+    let summary = AtmosphereEvidence::startup_summary(&second.atmosphere);
     let envelope_marker = format!("envelope_sha256={}", second_evidence.envelope_sha256);
     let shader_marker = format!(
         "shader_source_sha256={}",
@@ -455,8 +458,8 @@ fn atmosphere_evidence_summary_contains_only_stable_hashes() {
 
     let loaded = load_runtime_assets(select_asset_path(Some(&world_path), None)).unwrap();
     let selected_path = loaded.atmosphere.selected_path().display().to_string();
-    let evidence = loaded.atmosphere.evidence();
-    let summary = loaded.atmosphere.startup_summary();
+    let evidence = AtmosphereEvidence::evidence(&loaded.atmosphere);
+    let summary = AtmosphereEvidence::startup_summary(&loaded.atmosphere);
 
     assert!(
         !summary.contains(&selected_path),
@@ -500,7 +503,7 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     fs::write(&path, synthetic_blob()).unwrap();
     write_sibling_atmosphere(&path, 0x50);
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
-    let mut collector = MetricsCollector::with_asset_metrics(loaded.metrics);
+    let mut collector = MetricsCollector::with_asset_metrics(loaded.metrics.into());
     collector.record_asset_counters(7, 11);
     let mut diagnostics = DiagnosticQuadTracker::default();
     diagnostics.upsert(
@@ -811,7 +814,7 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     write_sibling_entity(&path, 0x43);
 
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
-    let evidence = loaded.atmosphere.evidence();
+    let evidence = AtmosphereEvidence::evidence(&loaded.atmosphere);
     let (runtime, identity) = loaded.atmosphere.into_parts();
     let decoded = Arc::downgrade(&runtime);
     let mut app = bevy::prelude::App::new();

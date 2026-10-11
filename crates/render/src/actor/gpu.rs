@@ -34,7 +34,6 @@ impl ActorDrawFrame {
             && self.manifest.len() <= super::MAX_ACTOR_RENDER_INSTANCES
             && self.manifest.iter().enumerate().all(|(index, entry)| {
                 entry.identity.is_exact()
-                    && entry.completed_tick != 0
                     && entry.reset_generation != 0
                     && matches!(
                         entry.route,

@@ -78,6 +78,28 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 }
 
 #[test]
+fn evaluated_zero_tick_pose_is_admitted_and_has_an_exact_draw_manifest() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let mut actor = submission(1, 1);
+    actor.input.completed_tick = 0;
+    actor.input.previous_bones = Arc::clone(&actor.input.current_bones);
+    let frame = builder.build(0.0, None, [actor]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.manifest[0].completed_tick, 0);
+    assert!(
+        render::ActorDrawFrame {
+            artwork_identity: [1; 32],
+            skin_revision: 1,
+            geometry_revision: frame.geometry_revision,
+            frame_generation: frame.frame_generation,
+            draw_generation: 1,
+            manifest: Arc::clone(&frame.manifest),
+        }
+        .is_exact()
+    );
+}
+
+#[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     // Bone poses reach the GPU as 48-byte affine matrices, not in this CPU form.
     assert_eq!(size_of::<RenderBoneTransform>(), 48);

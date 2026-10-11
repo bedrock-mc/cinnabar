@@ -1,16 +1,19 @@
 //! Startup carrier loading and required registry verification.
+mod timing;
+use timing::{LoadTimes, join};
+
 use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
 use crate::args;
-use crate::asset_startup::{
-    self, AssetSelection, AssetStartupError, LoadTimes, LoadedAssets, LoadedHudAssets,
-    LoadedIconAssets, LoadedLangAssets, join,
-};
-use crate::movement::PhysicsCollisionRegistries;
 use anyhow::{Context, Result, bail};
+use assets::carriers::startup::{
+    self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
+    LoadedIconAssets, LoadedLangAssets,
+};
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
     RuntimeEquipmentCatalog, RuntimeParticleAssets, RuntimeUiAssets,
 };
+use client_interaction::movement::PhysicsCollisionRegistries;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, sync::Arc, time::Instant};
@@ -51,7 +54,7 @@ pub(super) fn load_startup_carriers(
     let start = Instant::now();
     let times = LoadTimes::default();
     let carriers = load_with(selection, physics_registry, &times);
-    eprintln!("{}", times.summary(start.elapsed()));
+    diagnostics::log_stderr!("{}", times.summary(start.elapsed()));
     carriers
 }
 
@@ -122,7 +125,8 @@ fn load_core(
     selection: AssetSelection,
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
-    let assets = asset_startup::load_runtime_assets_timed(selection, times)?;
+    let mut assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
         let equipment = scope.spawn(|| {
@@ -147,11 +151,11 @@ fn load_core(
 fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     let loaded = match times.time("audio", || asset_startup::load_audio_assets(world)) {
         Ok(Some(loaded)) => {
-            eprintln!("{}", loaded.startup_summary());
+            diagnostics::log_stderr!("{}", loaded.startup_summary());
             Some(loaded)
         }
         Ok(None) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "{}",
                 asset_startup::audio_assets_missing_notice(&asset_startup::audio_asset_path(world))
             );
@@ -177,17 +181,17 @@ fn load_audio(world: &Path, times: &LoadTimes) -> Result<AudioCarriers> {
     }) {
         Ok(Some(mut bank)) => {
             times.time("sound prewarm queue", || bank.prewarm_common());
-            eprintln!("loaded sound bank ({} sound files)", bank.file_count());
+            diagnostics::log_stderr!("loaded sound bank ({} sound files)", bank.file_count());
             Some(bank)
         }
         Ok(None) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "optional sound bank was not found; run `make audio-bank-assets` (or `make assets`) to enable playback"
             );
             None
         }
         Err(error) => {
-            eprintln!("sound bank unusable, audio stays silent: {error}");
+            diagnostics::log_stderr!("sound bank unusable, audio stays silent: {error}");
             None
         }
     };
@@ -252,7 +256,7 @@ pub(super) fn read_verified_physics_registry(
 #[cfg(test)]
 mod carrier_tests {
     use super::*;
-    use crate::asset_startup::{
+    use assets::carriers::startup::{
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
         test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob},
     };

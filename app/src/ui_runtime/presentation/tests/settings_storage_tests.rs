@@ -54,7 +54,7 @@ fn settings_storage() {
         return;
     }
     let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
-    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, "Steve".to_owned());
     menu.activate(MenuAction::SettingsSection(
         launcher::menu::settings_storage::SECTION_INDEX,
     ));

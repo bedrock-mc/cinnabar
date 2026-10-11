@@ -13,11 +13,8 @@ use {
     client_audio::audio::AudioEngine,
 };
 use {
-    crate::{
-        movement::{LocalPhysicsController, PhysicsCollisionRegistries},
-        particles::ParticleInbox,
-        runtime::world::ClientWorld,
-    },
+    crate::{particles::ParticleInbox, runtime::world::ClientWorld},
+    client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     client_presentation::local_player::LocalViewPose,
 };
 

@@ -43,14 +43,12 @@ pub(crate) fn actor_frame_world(
         client_presentation::local_player::LocalAvatarVisibilityCarrier::default(),
     );
     world.insert_resource(client_presentation::camera::CameraSettingsAuthority::default());
-    world.insert_resource(crate::movement::LocalPhysicsController::default());
+    world.insert_resource(client_interaction::movement::LocalPhysicsController::default());
     world.insert_resource(render::ActorRuntimeWitness::default());
     world.insert_resource(artwork);
     world.insert_resource(hand);
     world.insert_resource(render::HandRigScene::default());
-    world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
-        "bench",
-    ));
+    world.insert_resource(client_shell::player_skin::LocalPlayerSkin::generated_default("bench"));
     world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.insert_resource(ActorFramePartialTick::default());
     world.init_resource::<client_presentation::actor_publication::PreparedActorPublication>();

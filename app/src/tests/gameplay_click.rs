@@ -14,7 +14,6 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
     crate::{
         app::configure_client_frame_schedule,
-        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         runtime::world::ClientWorld,
         semantic_controls::{
             collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -26,12 +25,13 @@ use {
             drive_world_inventory_keys, gameplay_touch::drive_gameplay_touch_targets,
         },
     },
-    client_state::RuntimeSettings,
-    client_state::{ClientFrameSet, SemanticInputSnapshot},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };
 
-fn gameplay_app(menu_visible: bool) -> App {
+/// Builds the production input chain with a focused gameplay window.
+pub(crate) fn gameplay_app(menu_visible: bool) -> App {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
@@ -52,13 +52,14 @@ fn gameplay_app(menu_visible: bool) -> App {
             (
                 drive_sign_editor,
                 drive_server_form_input,
+                crate::ui_runtime::emotes::drive_emote_input,
                 drive_chat_ui_actions,
                 drain_inventory_authority,
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
                 // Connection and store drivers own no input and are left out.
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
                 drive_world_inventory_keys,
             )
@@ -70,11 +71,13 @@ fn gameplay_app(menu_visible: bool) -> App {
             finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
         );
     let mut runtime = UiRuntime::new(1);
+    let local_runtime_id = 42;
     runtime
-        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .publish_local_runtime_id(&mut player_runtime, 1, local_runtime_id)
         .unwrap();
     app.init_resource::<Time<Real>>()
         .init_resource::<Time>()
+        .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
         .init_resource::<ButtonInput<bevy::input::keyboard::KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
@@ -86,7 +89,18 @@ fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<crate::semantic_controls::SemanticRouteState>()
         .init_resource::<crate::semantic_controls::SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
-        .init_resource::<ClientWorld>()
+        .insert_resource(ClientWorld {
+            stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: local_runtime_id,
+                local_player_unique_id: 1,
+                player_position: [0.0, 70.0, 0.0],
+                world_spawn_position: [0, 70, 0],
+                air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                block_network_ids_are_hashes: false,
+            })),
+            ..ClientWorld::default()
+        })
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()

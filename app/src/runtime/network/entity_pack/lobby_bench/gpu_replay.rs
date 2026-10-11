@@ -86,8 +86,8 @@ fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRunti
     use client_ui::ui_runtime::presentation::UiPresentationRuntime;
     let world_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join(crate::asset_startup::DEFAULT_ASSET_PATH);
-    let hud = crate::asset_startup::require_hud_assets(&world_path)
+        .join(assets::carriers::startup::DEFAULT_ASSET_PATH);
+    let hud = assets::carriers::startup::require_hud_assets(&world_path)
         .unwrap()
         .into_runtime();
     let mut presentation = UiPresentationRuntime::with_hud(pack_harness::font(), hud).unwrap();
@@ -142,7 +142,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     let mut presentation = ui_presentation();
     let runtime = client_ui::ui_runtime::UiRuntime::new(1);
     presentation.set_menu_view(Some(
-        crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
+        client_shell::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
     ));
     for millis in 0..3 {
         publish_ui(

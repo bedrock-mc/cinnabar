@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+rich-presence = { path = "../rich-presence" }
 bevy.workspace = true
 player-state = { path = "../player-state" }
 semantic-input = { path = "../input" }

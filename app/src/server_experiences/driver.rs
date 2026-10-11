@@ -18,7 +18,7 @@ use server_experience::{
 
 use client_extensions::server_experiences::consent::{can_disable, chrome};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use {crate::menu::MenuRuntime, client_state::ClientFrameSet};
+use {client_shell::menu::MenuRuntime, client_state::ClientFrameSet};
 
 #[derive(Resource)]
 pub(super) struct ExperienceService {
@@ -74,8 +74,8 @@ fn drive(
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut buttons: MessageReader<bevy::input::mouse::MouseButtonInput>,
     mut keyboard: MessageReader<bevy::input::keyboard::KeyboardInput>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();

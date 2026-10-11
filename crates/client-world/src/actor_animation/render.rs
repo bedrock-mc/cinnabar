@@ -89,7 +89,8 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
 
 /// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
 /// bind to its bones by name as vanilla animates every controller's model. Layers sharing a
-/// geometry share one sampled pose.
+/// geometry share one sampled pose. Reports incomplete sampling while retaining rest fallback
+/// for callers that already have a completed presentation.
 pub(super) fn pose_layers(
     evaluator: &Evaluator<'_>,
     variables: &MolangVariables,
@@ -98,7 +99,8 @@ pub(super) fn pose_layers(
     layers: &mut [RenderTextureLayer],
     mut locals: Option<&mut BTreeMap<u32, Vec<pose::LocalDelta>>>,
     budget: &mut EvalBudget<'_>,
-) {
+) -> Result<(), EvalError> {
+    let mut failure = None;
     for index in 0..layers.len() {
         let Some(geometry) = layers[index].geometry else {
             continue;
@@ -112,6 +114,10 @@ pub(super) fn pose_layers(
         {
             Some(earlier) => Some(Arc::clone(&earlier.pose)),
             None => sample_layer_local(evaluator, variables, skeletons, clips, geometry, budget)
+                .map_err(|error| {
+                    failure.get_or_insert(error);
+                    error
+                })
                 .ok()
                 .and_then(|local| {
                     let pose = compose_pose(&skeleton.bones, &local).map(Arc::from);
@@ -124,8 +130,11 @@ pub(super) fn pose_layers(
         };
         if let Some(pose) = pose {
             layers[index].pose = pose;
+        } else {
+            failure.get_or_insert(EvalError::Invalid);
         }
     }
+    failure.map_or(Ok(()), Err)
 }
 
 /// Samples a selected geometry without mutating the rig variables.

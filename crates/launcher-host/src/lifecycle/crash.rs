@@ -36,6 +36,7 @@ pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
         // Queued log lines precede the panic message.
         flush_logs();
         previous(info);
+        flush_logs();
     }));
 }
 

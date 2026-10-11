@@ -439,7 +439,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
 #[test]
 fn consent_answer_retains_capture_return_through_its_owned_frame() {
     use bevy::window::{CursorGrabMode, CursorOptions};
-    use client_presentation::camera::CursorFocus;
+    use client_state::CursorFocus;
     for key in [KeyCode::Escape, KeyCode::F8, KeyCode::F6] {
         let mut app = join_app(State::Offered(offer()));
         app.init_resource::<CursorFocus>()
@@ -449,7 +449,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
             .add_systems(
                 Update,
                 (
-                    crate::menu::screen_focus::publish_screen_focus,
+                    client_shell::menu::screen_focus::publish_screen_focus,
                     crate::camera::update_cursor_capture,
                 )
                     .chain()

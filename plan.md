@@ -1,3 +1,17 @@
+## Player interaction ownership
+
+`client-interaction` owns the movement and interaction resource wrappers, item-use
+presentation and selection queries, placement observations, camera input adapters,
+and hotbar input. Its plugins register camera input, hotbar sampling and retained
+block picks against the shared `client-state` frame contract. Callers import the
+owning crate directly.
+
+The extraction remains incomplete: world and transport systems for movement,
+use/place/mine/melee/pick, block selection, world-dependent camera publication and
+cursor focus remain in `app`. They still combine world, transport, menu and
+extension state at the app boundary. Existing tests remain with their owning code;
+compilation, test execution and the behavior/performance acceptance gates remain unverified.
+
 ## Client runtime ownership
 
 `client-runtime` owns the Bevy transport handle and frame flush, bounded ingress,
@@ -7,7 +21,7 @@ preparation. `app` installs `ClientRuntimePlugin`; its frame adapters keep their
 existing order through `client-state`.
 
 The extraction remains incomplete: network bootstrap and world publication still
-borrow app-owned movement and presentation resources; join, transfer and teardown
+borrow interaction and presentation resources; join, transfer and teardown
 still borrow the menu; pack reload publication still applies presentation and audio
 state. These adapters remain in `app` until their shared contracts exist. The runtime
 crate has no presentation, audio or other sibling-plugin dependency. Compilation and
@@ -23,6 +37,23 @@ execution of this move remain unverified, and no parity gate is closed by it.
   gameplay. Interaction and camera input consume these observations directly.
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
+
+## Menu shell ownership
+
+`client-shell` owns the menu runtime, launcher account and local-world drivers,
+player appearance selection, GUI scale, fullscreen, settings persistence and the
+Discord driver. `ClientShellPlugin` registers input and settings systems and
+publishes screen focus through `client-state`. It has no dependencies on sibling
+app plugin crates. Desktop focus transitions live in `semantic-input`; the
+resource wrapper, consent state, session observations and ordering sets live in
+`client-state`.
+
+The app still adapts session/network state, audio settings and renderer capabilities
+into the shell. Render-distance packet sending stays with the app's network
+adapter. Optional language carrier loading belongs to `assets::carriers::startup`, and physical
+memory discovery belongs to `launcher-host`. Existing menu and integration tests
+remain enabled in their owning crates. Compilation, execution and live behavior
+remain unverified for these moves; they do not close a parity gate.
 
 ## Extension crate ownership
 
@@ -47,6 +78,17 @@ material selection, carrier roundtrips and malformed states. Offline Metal frame
 cover every state beside supporting terrain; broader world-join and performance
 gates remain open.
 
+## Respawn anchor artwork
+
+Respawn anchors compile six cube faces for charge states zero through four. Terrain
+arrays and animated top materials retain the selected charge, while the shared
+carried-face sheet preserves pack overrides for inventory and held rendering.
+Original-art regressions cover carrier roundtrips, short arrays, scalar overrides,
+transparent faces, partial animations and malformed states. Headless captures with
+checked world and icon carriers verify the held cube and all five charge textures
+through placement and charging input. Server-pack compilation, broader block and
+animation parity, and performance acceptance remain incomplete.
+
 ## End rod terrain geometry
 
 End rods compile a separate shaft and mounting plate for all six integer-facing states.
@@ -55,6 +97,18 @@ alpha testing and no full-face occlusion. The owning regression covers active re
 identities, carrier roundtrips, bounds, UVs and unsupported selectors. Offline GPU
 acceptance uses original fixture art and production terrain meshing and shaders;
 broader residual-family, world-join and performance gates remain open.
+
+## Grindstone terrain geometry
+
+Grindstones compile separate supports, pivots and wheel for floor, ceiling and
+wall mounts in all four directions, including the legacy multiple selector's
+floor pose. Each part retains its pack-resolved material and sprite rectangle.
+Original-art regressions cover every registered state, carrier roundtrips,
+malformed selectors and replacement sprites. Matched headless frames cover all
+16 registered states, and real input places a new grindstone through a local
+server. Acceptance uses externally compiled carriers with production terrain
+consumers; runtime server-pack compilation and reported server-version placement
+remain unverified. No broader parity gate closes.
 
 ## RakNet transport compatibility
 
@@ -72,10 +126,14 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   `bridge`; shared skin data lives in `render-api`.
 - `launcher-host` owns authentication and core processes, account and artwork workers,
   server-list storage, storage scans, persistent login IDs, video persistence and process lifecycle services.
-  `app` supplies the Bevy resources and systems that drive those services.
+  `client-shell` supplies the menu resources and drivers; `app` adapts session and network state.
 - `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
-- Startup carrier selection remains in `app/src/asset_startup`.
+- `assets::carriers::startup` owns carrier path selection, bounded loading, validation, fallbacks,
+  decoded sidecars and startup measurements. It remains Bevy-free. `app` binds the returned
+  data to renderer, pack and Bevy state, records load timings and exits from `main` on failure.
+  Carrier regressions follow their owner; app composition regressions remain in `app`.
+  This ownership move has not been compiled or executed and closes no parity gate.
 
 ## Runtime pack ownership
 
@@ -92,8 +150,9 @@ moves do not change the open behavior or performance acceptance gates.
 
 ## Login identity
 
-- New core-owned logins derive SelfSignedId from the full stored ClientRandomId and the
-  existing install device ID. Unchanged inputs produce the same identifier across joins.
+- New core-owned logins pass the full stored ClientRandomId and existing install device
+  ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
+  identifier across joins.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
 
@@ -180,11 +239,13 @@ moves do not change the open behavior or performance acceptance gates.
 ## Item frames
 
 - All six facing states retain their outward direction, placing the frame against its support.
-  Ordinary sprites sit on the panel front and use the floor/ceiling face's upright basis.
+  Ordinary sprites sit just ahead of the backing and use the floor/ceiling face's upright basis.
 - Float item rotations retain degrees, including fractional angles; legacy integral turns
   remain supported. Offline GPU fixtures cover mounting and clockwise turns with original art.
-- Map presentation, special items, three-dimensional block items and complete frame border,
-  material and texture parity remain incomplete. No broad item-frame parity gate closes.
+- Ordinary frames have a birch rim and recessed normal/glow backing, with block-scale UV
+  crops and shading in the mounted world direction. Glow frames retain brightness in darkness.
+- Map/photo presentation, special items, three-dimensional block items and custom texture-alias
+  bindings and complete material/lighting parity remain incomplete. No broad item-frame parity gate closes.
 
 ## Anvil models
 
@@ -221,6 +282,9 @@ moves do not change the open behavior or performance acceptance gates.
   performance gates remain open.
 - Dressing Room persists classic/slim and static custom-geometry skins, independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+  Standard fallback clothing uses quarter-texel expansion and the hat uses half-texel expansion;
+  base and outer faces share the skin atlas orientation. Redeclared skin parts default to visible
+  when they omit a hidden flag. Full second-layer preview parity remains incomplete.
 - Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
   preserving texels and private source files. This custom import extension leaves native cape
   gallery parity incomplete.
@@ -2250,6 +2314,23 @@ nonuniform scale shear and the separate legacy/custom item paths. Changes are un
 no complete first-person parity gate is closed. See
 [attachable rules](docs/reference/held-attachables.md).
 
+2026-10-11 initial actor presentation: newly bound animated rigs evaluate their
+initial pose and metadata-controlled visibility before a zero-tick frame draws.
+Evaluation uses current equipment, riding, skin and view context within the
+existing actor and world budgets. Repeated frames preserve authored state;
+simulation clocks continue on the next tick. Synthetic regressions cover custom
+packs, lifetime replacement, local view replay and budget exhaustion. Initial
+publication requires a complete animated pose, render-controller selection and
+selected geometry poses, using a nonzero pose identity at simulation tick zero.
+The Java animation option seeds current posture and riding flags without advancing motion.
+Pending first skins initialize once their prepared appearance is available,
+including when simulation ticks passed during preparation.
+Explicit rest artwork still requires a completed observation after admission or reset.
+Retries refresh current query inputs while retaining simulation history; local
+view refreshes keep priority over new rigs. Unchanged off-screen rigs allocate
+nothing between ticks. This does not close the broader actor animation or
+placement-latency parity gates.
+
 2026-10-04 end crystals and respawn anchors: crystal artwork now bakes native
 alpha-test coverage instead of dropping the whole rig over fractional texels;
 the pack supplies nested frame rotation, bobbing and base visibility. Native
@@ -2617,8 +2698,13 @@ diagnostics: rejected terrain routes are counted per reason and reported by key 
 of the former eight-line budget, and routes the overlay refused because its texture array was full
 are counted separately (`OverlayGaps::saturated_textures`) so a full array is no longer
 indistinguishable from unusable pack data. Which reason dominates a real session is still unproven
-without a capture: the pack layer bound is `MAX_OVERLAY_LAYERS`, an index-space limit, while a
-served stack may ship thousands of distinct textures. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
+without a capture. Overlay admission is bounded by the active device's array-layer limit and
+`assets::MAX_TEXTURE_LAYERS`, including the diagnostic layer and flipbook frames. Excess routes
+retain diagnostic visuals while supported textures remain in the replacement atlas. Carrier and
+GPU references share the layer mask. Offline carriers retain their separate
+`assets::MAX_CARRIER_TEXTURE_LAYERS` page budget, including leaf and lily-pad copies.
+Cube, model and liquid sampling preserve the layer mask alongside
+source dimensions and UV grids. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
 labeled incomplete: neutral material profile only (custom materials fall back; a controller's
@@ -7402,6 +7488,33 @@ engine versions remain separate from geometry schema versions. Full native skin-
 import parity, animated imports, persona and Marketplace trust remain incomplete.
 No visual parity or hardware performance gate closes with this extension.
 
+## Keyboard & Mouse command macros
+
+- Keyboard & Mouse settings hold ten command macro slots below every other
+  keybind, each with a "Command Macro N" label, an Unassigned binding button and
+  a command box. The section header matches the shipped wording. A press on a
+  binding button captures one desktop key or mouse button; Alt supplies the
+  modifier when the macro runs, so macro rows are keyboard and mouse only and
+  never join the gamepad layout.
+- Commands persist in settings alongside the bindings, bounded to one outbound
+  chat packet, including the command slash, and free of control characters.
+  Oversized drafts remain editable with an inline error and do not replace the
+  saved command. A slot with a binding but no command stays silent, and an empty
+  command box returns that slot to untouched.
+  A keyboard layout reset clears macro rows while retaining their commands.
+- Alt plus a bound key while playing queues the command as Enter would, consuming
+  that control even if the queue refuses the send, without resetting other held
+  controls or pointer motion. Mouse buttons use the same macro dispatch. A leading
+  slash is added for commands typed without one; macros do nothing while a menu,
+  chat box, inventory, sign editor or emote wheel owns input. Keyboard macros
+  fire once per physical press; consumed controls stay suppressed until release.
+  Clicking or tapping a native command box places its caret at the selected
+  character.
+- Incomplete parity: Bedrock's exact per-slot key names, default bindings and
+  command-box editing affordances are unverified, as is macro behaviour over the
+  JSON-UI settings fallback. Macros run client-side, so a server rejecting the
+  command is indistinguishable from the client's own feedback. No native parity
+  gate closes from these changes.
 
 ### Shipped font grid and coverage (incomplete text parity)
 

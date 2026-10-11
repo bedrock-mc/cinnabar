@@ -1,13 +1,12 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
 mod icons;
-pub(crate) mod memory;
 mod picker;
 mod worker;
 
-use crate::{menu::MenuRuntime, runtime::network::PackReload};
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::Arc};
+use {crate::runtime::network::PackReload, client_shell::menu::MenuRuntime};
 
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
 pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {

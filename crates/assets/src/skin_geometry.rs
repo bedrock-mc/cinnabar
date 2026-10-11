@@ -464,9 +464,8 @@ fn overlay_bone(
     if child.rotation.is_some() {
         base.rotation = child.rotation;
     }
-    if child.never_render.is_some() {
-        base.never_render = child.never_render;
-    }
+    // A redeclared bone defaults to visible, independently of the inherited part's flag.
+    base.never_render = child.never_render;
     Ok(cube_count)
 }
 

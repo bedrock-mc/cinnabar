@@ -3,7 +3,7 @@
 use client_world::CommittedControlEvent;
 use protocol::{Packet, RespawnEvent};
 
-use crate::movement::MovementTicker;
+use client_interaction::movement::MovementTicker;
 use client_session::PacketSendError;
 
 #[derive(Debug, Default)]

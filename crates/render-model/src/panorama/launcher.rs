@@ -7,6 +7,7 @@ use image::{ImageFormat, ImageReader, Limits};
 use std::{
     f32::consts::{PI, TAU},
     io::Cursor,
+    path::PathBuf,
 };
 
 // These tuning values follow the title-screen cube convention and need native measurement.
@@ -20,16 +21,7 @@ const PITCH_SWAY_DEGREES: f32 = 5.0;
 /// Sway phase (radians) per degree turned.
 const SWAY_RATE: f32 = 0.001;
 
-/// Cinnabar's own panorama, in vanilla face order (-Z, +X, +Z, -X, up, down).
-const BUILT_IN_FACES: [&[u8]; 6] = [
-    include_bytes!("../../../../assets/panorama/panorama_0.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_1.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_2.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_3.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_4.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_5.jpg"),
-];
-/// Directory of `panorama_0..5.{png,jpg}` replacing the built-in faces.
+/// Directory of `panorama_0..5.{png,jpg}` replacing the pack's faces.
 const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 
 /// The title-screen camera `seconds` after the panorama first showed.
@@ -46,36 +38,43 @@ pub fn launcher_view(seconds: f32, aspect: f32, tint: [f32; 4]) -> PanoramaView 
     }
 }
 
-/// Cinnabar's own faces, decoded.
-pub fn built_in_faces() -> Option<PanoramaFaces> {
-    decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()))
+/// The user's override faces, else the pack's; `None` shows no panorama.
+pub fn launcher_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
+    override_or_pack_faces(
+        std::env::var_os(OVERRIDE_DIR_ENV).map(PathBuf::from),
+        assets,
+    )
 }
 
-/// The user's override faces, else the built-in ones, else the pack's.
-pub fn launcher_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
-    let overridden = std::env::var_os(OVERRIDE_DIR_ENV).and_then(|dir| {
-        let dir = std::path::PathBuf::from(dir);
+fn override_or_pack_faces(
+    override_dir: Option<PathBuf>,
+    assets: &RuntimeUiAssets,
+) -> Option<PanoramaFaces> {
+    let overridden = override_dir.and_then(|dir| {
         let faces = decode_faces(|face| {
             ["png", "jpg"]
                 .iter()
                 .find_map(|ext| std::fs::read(dir.join(format!("panorama_{face}.{ext}"))).ok())
         });
         if faces.is_none() {
-            tracing::warn!(dir = %dir.display(), "panorama override unreadable; using the built-in faces");
+            tracing::warn!(dir = %dir.display(), "panorama override unreadable; using the pack's faces");
         }
         faces
     });
-    overridden.or_else(built_in_faces).or_else(|| {
-        decode_faces(|face| {
-            assets
-                .ui_file(&format!("textures/ui/panorama_{face}.png"))
-                .map(<[u8]>::to_vec)
+    // The title screen shows the alternate set when a pack carries one.
+    overridden.or_else(|| {
+        ["panorama_alternate_", "panorama_"].iter().find_map(|set| {
+            decode_faces(|face| {
+                assets
+                    .ui_file(&format!("textures/ui/{set}{face}.png"))
+                    .map(<[u8]>::to_vec)
+            })
         })
     })
 }
 
-/// The six faces at their native, equal size; any missing or odd face drops them all.
-fn decode_faces(mut read: impl FnMut(usize) -> Option<Vec<u8>>) -> Option<PanoramaFaces> {
+/// Decodes PNG or JPEG faces `0..6` at one native size; any missing or odd face drops them all.
+pub fn decode_faces(mut read: impl FnMut(usize) -> Option<Vec<u8>>) -> Option<PanoramaFaces> {
     let mut side = None;
     let mut faces = Vec::with_capacity(6);
     for face in 0..6 {
@@ -121,13 +120,87 @@ fn decode_image(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    fn png(side: u32, rgba: [u8; 4]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(side, side, image::Rgba(rgba))
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn write_faces(dir: &Path, side: u32, red: u8) {
+        write_face_set(dir, "panorama_", side, red);
+    }
+
+    fn write_face_set(dir: &Path, set: &str, side: u32, red: u8) {
+        std::fs::create_dir_all(dir).unwrap();
+        for face in 0..6u8 {
+            let path = dir.join(format!("{set}{face}.png"));
+            std::fs::write(path, png(side, [red, face, 0, 255])).unwrap();
+        }
+    }
+
+    /// A UI carrier compiled from a pack holding only `textures/ui/white.png`, plus faces of
+    /// `face_side` when given.
+    fn ui_assets(face_side: Option<u32>) -> RuntimeUiAssets {
+        ui_assets_with(face_side, false)
+    }
+
+    /// Like `ui_assets`, optionally adding an alternate face set of the same side, red 90.
+    fn ui_assets_with(face_side: Option<u32>, alternate: bool) -> RuntimeUiAssets {
+        let pack = tempfile::tempdir().unwrap();
+        let ui = pack.path().join("textures/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::create_dir_all(pack.path().join("ui")).unwrap();
+        std::fs::write(ui.join("white.png"), png(1, [255; 4])).unwrap();
+        if let Some(side) = face_side {
+            write_faces(&ui, side, 200);
+            if alternate {
+                write_face_set(&ui, "panorama_alternate_", side, 90);
+            }
+        }
+        let compiled = pack_compiler::compile_ui_assets(pack.path(), br#"{"schema":1}"#).unwrap();
+        RuntimeUiAssets::decode(&compiled.bytes).unwrap()
+    }
+
+    #[test]
+    fn no_override_and_no_pack_faces_show_no_panorama() {
+        assert!(override_or_pack_faces(None, &ui_assets(None)).is_none());
+    }
+
+    #[test]
+    fn pack_faces_feed_the_panorama_without_an_override() {
+        let faces = override_or_pack_faces(None, &ui_assets(Some(4))).unwrap();
+        assert_eq!(faces.side(), 4);
+        let face_bytes = 4 * 4 * 4;
+        for (face, pixels) in faces.layer_major().chunks_exact(face_bytes).enumerate() {
+            assert_eq!(&pixels[..4], &[200, face as u8, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn the_alternate_set_is_preferred_when_the_pack_has_one() {
+        let faces = override_or_pack_faces(None, &ui_assets_with(Some(4), true)).unwrap();
+        assert_eq!(faces.layer_major()[0], 90);
+    }
+
+    #[test]
+    fn override_faces_replace_the_pack_and_an_unreadable_override_falls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        write_faces(dir.path(), 2, 7);
+        let assets = ui_assets(Some(4));
+        let faces = override_or_pack_faces(Some(dir.path().to_path_buf()), &assets).unwrap();
+        assert_eq!((faces.side(), faces.layer_major()[0]), (2, 7));
+        let missing = dir.path().join("missing");
+        let faces = override_or_pack_faces(Some(missing), &assets).unwrap();
+        assert_eq!(faces.side(), 4);
+    }
 
     #[test]
     fn pngs_decode_to_rgba_with_their_size() {
-        let mut bytes = Vec::new();
-        image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 40]))
-            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
-            .unwrap();
+        let bytes = png(2, [10, 20, 30, 40]);
         let (width, height, pixels) = decode_image(&bytes).unwrap();
         assert_eq!((width, height), (2, 2));
         assert_eq!(&pixels[..4], &[10, 20, 30, 40]);

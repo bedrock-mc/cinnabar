@@ -85,7 +85,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         player_position: [4.5, 2.620_01, 8.5],
         input_mode: protocol::PlayerInputMode::Mouse,
         local_runtime_id: 42,
-        selection: crate::block_use::verified_use_selection(
+        selection: client_interaction::block_use::verified_use_selection(
             world.resource::<client_state::PlayerRuntime>(),
             world.resource::<UiRuntime>(),
         ),

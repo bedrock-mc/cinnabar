@@ -13,10 +13,6 @@ const MAX_DELAY: Duration = Duration::from_secs(8);
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 const STABLE_RUN: Duration = Duration::from_secs(60);
 const MAX_LOG_BYTES: u64 = 1 << 20;
-#[cfg(unix)]
-const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
-#[cfg(unix)]
-const CLIENT_LOG_CHECK: Duration = Duration::from_secs(30);
 
 /// Exponential restart delay that resets once a core stays up for a stable interval.
 #[derive(Debug, Default)]
@@ -42,41 +38,20 @@ impl RestartBackoff {
 
 /// Opens the core's append-only stderr log, rotating one previous generation past the size bound.
 pub fn open_core_log(layout: &InstallLayout) -> Option<File> {
-    open_log(&layout.log_dir(), "core.log", MAX_LOG_BYTES)
+    let mut log = open_log(&layout.log_dir(), "core.log", MAX_LOG_BYTES)?;
+    use std::io::Write;
+    let _ = writeln!(
+        log,
+        "CORE_SESSION_START timestamp_ms={}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    Some(log)
 }
 
-/// Sends stderr to `logs/client.log` when no terminal is attached, as in a Finder launch. Each launch,
-/// and each overflow of the size bound, moves the current file to `client.log.1`.
-#[cfg(unix)]
-pub fn capture_client_stderr(layout: &InstallLayout) {
-    use std::io::IsTerminal;
-    if std::io::stderr().is_terminal() {
-        return;
-    }
-    let dir = layout.log_dir();
-    let redirect = move |rotate_past| {
-        open_log(&dir, "client.log", rotate_past)
-            .is_some_and(|log| rustix::stdio::dup2_stderr(&log).is_ok())
-    };
-    if !redirect(0) {
-        return;
-    }
-    let path = layout.log_dir().join("client.log");
-    let _ = std::thread::Builder::new()
-        .name("client-log-rotate".to_owned())
-        .spawn(move || {
-            loop {
-                std::thread::sleep(CLIENT_LOG_CHECK);
-                if fs::metadata(&path).is_ok_and(|meta| meta.len() > MAX_CLIENT_LOG_BYTES) {
-                    redirect(MAX_CLIENT_LOG_BYTES);
-                }
-            }
-        });
-}
-
-#[cfg(not(unix))]
-pub fn capture_client_stderr(_layout: &InstallLayout) {}
-
+/// Opens the bounded append log, preserving one previous generation.
 fn open_log(dir: &Path, name: &str, rotate_past: u64) -> Option<File> {
     // Tests never append to or rotate a real install's logs, such as a worktree's shared `.local`.
     #[cfg(any(test, feature = "test-support"))]

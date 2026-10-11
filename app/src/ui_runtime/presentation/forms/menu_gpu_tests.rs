@@ -75,7 +75,7 @@ fn app() -> App {
     );
     let mut scene = app.world_mut().resource_mut::<render::PanoramaScene>();
     scene.set_game_visible(false);
-    scene.set_faces(panorama::built_in_faces().map(Arc::new));
+    scene.set_faces(synthetic_faces().map(Arc::new));
     scene.show(Some(panorama::launcher_view(
         0.0,
         SIZE[0] as f32 / SIZE[1] as f32,
@@ -84,6 +84,23 @@ fn app() -> App {
     app.finish();
     app.cleanup();
     app
+}
+
+/// Six distinct solid faces, so the panorama pass draws without a pack.
+fn synthetic_faces() -> Option<panorama::PanoramaFaces> {
+    const SIDE: u32 = 16;
+    let colours: [[u8; 4]; 6] = [
+        [170, 60, 60, 255],
+        [60, 170, 60, 255],
+        [60, 60, 170, 255],
+        [170, 170, 60, 255],
+        [60, 170, 170, 255],
+        [170, 60, 170, 255],
+    ];
+    panorama::PanoramaFaces::new(
+        SIDE,
+        colours.map(|rgba| rgba.repeat((SIDE * SIDE) as usize)),
+    )
 }
 
 /// A texture readback's RGBA8 rows without the padding that pads each one to wgpu's copy row
@@ -149,7 +166,7 @@ fn menu_frames_on_native_gpu() {
         .world()
         .resource::<render::UiRenderStatsResource>()
         .clone();
-    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin = client_shell::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../.local")
@@ -372,12 +389,12 @@ fn profile_frames_on_native_gpu() {
     let Some(mut presentation) = pack_harness::startup_presentation() else {
         return;
     };
-    let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
+    let mut view = client_shell::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
     view.screen = MenuScreen::Profile;
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::pack_harness::menu_runtime();
     runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
-    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin = client_shell::player_skin::LocalPlayerSkin::generated_default("Test");
     presentation.sync_player_preview(Some(&skin.rgba8), Default::default(), true, false, 0.0);
     view.profile_icon = presentation.player_preview_icon();
     let mut app = app();

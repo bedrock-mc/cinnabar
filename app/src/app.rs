@@ -10,6 +10,7 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
+use assets::carriers::startup::{LoadedAssetKind, select_asset_path_from_environment};
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
@@ -36,8 +37,7 @@ use std::fs;
 use std::{ffi::OsStr, io::Write, path::Path, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
-    crate::acceptance::model_witness::drive_model_witness,
-    crate::acceptance::world_ready::emit_world_ready,
+    crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
     acceptance::transparent_witness::poll_transparent_witness_request,
 };
 mod logging;
@@ -57,8 +57,7 @@ use launcher::install_layout::InstallLayout;
 use {
     crate::{
         args,
-        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
-        block_use::{BlockUseRuntime, produce_block_use},
+        block_use::produce_block_use,
         camera::FlyCameraPlugin,
         environment::{
             self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
@@ -66,12 +65,8 @@ use {
             update_seasonal_foliage,
         },
         local_player::{publish_local_player_frame, resolve_camera_pose},
-        melee::{MeleeRuntime, SwingTracker, produce_melee},
-        menu::{MenuRuntime, drive_menu_input, drive_menu_services},
-        movement::{
-            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-            PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
-        },
+        melee::produce_melee,
+        movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
         runtime::{
             network::{
@@ -100,7 +95,8 @@ use {
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
-        survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
+        shell_adapters::drive_menu_services,
+        survival_mining::produce_survival_mining,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
@@ -113,6 +109,10 @@ use {
             },
         },
     },
+    client_interaction::movement::{
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        PhysicsAuthorityGate,
+    },
     client_runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         pack_admission::ResourcePackAdmissionState,
@@ -122,6 +122,7 @@ use {
             arm_shutdown_watchdog,
         },
     },
+    client_shell::menu::MenuRuntime,
 };
 
 mod render_setup;
@@ -176,11 +177,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     configure_actor_render_systems(app);
     crate::audio::configure(app);
-    app.init_resource::<BlockUseRuntime>()
-        .init_resource::<crate::item_use::ItemUseRuntime>()
-        .init_resource::<SurvivalMiningRuntime>()
-        .init_resource::<MeleeRuntime>()
-        .init_resource::<SwingTracker>()
+    app.add_plugins(client_interaction::ClientInteractionPlugin)
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
@@ -226,8 +223,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish, crate::block_use::retain_block_use_pick)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
+                .before(client_state::ClientInteractionSet::RetainPick)
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
         )
@@ -250,7 +248,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            crate::hotbar::select_hotbar_slot
+            crate::hotbar::flush_hotbar_selection
+                .in_set(client_state::ClientInteractionSet::HotbarSend)
                 .after(ClientFrameSet::SemanticFinalize)
                 .before(ClientFrameSet::ActorPreparation),
         )
@@ -259,7 +258,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)
-                .after(crate::hotbar::select_hotbar_slot)
+                .after(crate::hotbar::flush_hotbar_selection)
                 .after(reconcile_world_stream_before_physics)
                 .before(ClientFrameSet::Physics),
         )
@@ -432,38 +431,41 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         equipment: equipment_catalog,
     } = carriers.core.context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
-        eprintln!("{notice}");
+        diagnostics::log_stderr!("{notice}");
     } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
-        eprintln!(
+        diagnostics::log_stderr!(
             "loaded compiled block assets from {} (sha256 {})",
             loaded_assets.selected_path.display(),
             loaded_assets.metrics.blob_sha256
         );
     }
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded required atmosphere assets from {}",
         loaded_assets.atmosphere.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.atmosphere.startup_summary());
-    eprintln!(
+    diagnostics::log_stderr!(
+        "{}",
+        crate::asset_bindings::AtmosphereEvidence::startup_summary(&loaded_assets.atmosphere)
+    );
+    diagnostics::log_stderr!(
         "loaded required entity assets from {}",
         loaded_assets.entities.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.entities.startup_summary());
-    eprintln!("{}", loaded_assets.fonts.startup_summary());
+    diagnostics::log_stderr!("{}", loaded_assets.entities.startup_summary());
+    diagnostics::log_stderr!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
-    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
+    let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    eprintln!("{}", hud_assets.startup_summary());
+    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    eprintln!("{}", icon_assets.startup_summary());
+    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -477,15 +479,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    eprintln!("{}", lang_assets.startup_summary());
+    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
             .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
-    let active_lang = crate::asset_startup::load_active_language(
-        &loaded_assets.selected_path,
+    let language = assets::carriers::startup::active_language(
         args.language.as_deref().or(saved_settings.language()),
+    );
+    pack_runtime::pack_language::set_active_language(&language);
+    let active_lang = assets::carriers::startup::load_optional_language(
+        &loaded_assets.selected_path,
+        &language,
+        assets::carriers::startup::vanilla_source_manifest_json(),
     );
     let startup::AudioCarriers {
         catalog: audio_catalog,
@@ -532,7 +539,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        eprintln!("OreUI originals disabled ({reason})");
+        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);
     ui_presentation
@@ -551,7 +558,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
-    let asset_metrics = loaded_assets.metrics;
+    let asset_metrics = loaded_assets.metrics.into();
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
         &entity_runtime,
         &equipment_geometries,
@@ -568,7 +575,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    eprintln!(
+    diagnostics::log_stderr!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
@@ -613,7 +620,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
-    let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let local_player_skin =
+        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
     let menu = MenuRuntime::new_with_layout(
         !connection_requested,
@@ -626,6 +634,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.selected_path.clone(),
         args.language.as_deref(),
     );
+    crate::runtime::network::await_overlay_texture_device();
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
             session_generation: 1,
@@ -649,8 +658,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         NetworkHandle::<PackApplication>::disconnected()
     };
-    let movement_ticker =
-        crate::movement::MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
+    let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
+        network.physics_epoch_publisher(),
+    );
     let diagnostics_enabled = args.acceptance_seconds.is_some() || args.metrics_out.is_some();
     let stage_profile_enabled =
         std::env::var_os(diagnostics::markers::STAGE_PROFILE).as_deref() == Some(OsStr::new("1"));
@@ -711,13 +721,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
-    app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
-    app.init_resource::<crate::menu::LauncherCoreSlot>();
+    app.init_resource::<client_shell::menu::LauncherCoreSlot>();
     app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -781,7 +790,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     })
     .insert_resource(local_player_skin)
     .insert_resource(menu.with_vsync_override(vsync_override))
-    .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(client_audio::session_audio::SessionAudioCatalog(
         audio_catalog,
     ))
@@ -921,14 +929,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::developer_control::configure(&mut app);
     app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
-    crate::discord_presence::configure(&mut app);
+    app.init_resource::<client_state::PresenceObservation>()
+        .add_systems(
+            Last,
+            crate::shell_adapters::publish_presence_observation
+                .before(client_state::ShellFrameSet::Presence),
+        );
     configure_acceptance_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     executor::configure_frame_schedule_executors(&mut app);
     let exit = app.run();
-    crate::discord_presence::shutdown(&mut app);
+    client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()

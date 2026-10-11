@@ -139,7 +139,7 @@ pub(crate) fn render(
     let mut eye_offset = Vec3::new(1.9, 1.3, 2.5);
     for (axis, mounting_offset) in mounting_offset.into_iter().enumerate() {
         if mounting_offset != 0 {
-            eye_offset[axis] = -(mounting_offset as f32) * eye_offset[axis];
+            eye_offset[axis] *= -(mounting_offset as f32);
         }
     }
     render_at(

@@ -19,6 +19,12 @@ pub const LECTERN_TEXTURES: [&str; 4] = [
     "textures/blocks/lectern_top",
     "textures/blocks/lectern_front",
 ];
+/// Wooden rim, ordinary backing and luminous backing of placed item frames.
+pub const ITEM_FRAME_TEXTURES: [&str; 3] = [
+    "textures/blocks/planks_birch",
+    "textures/blocks/itemframe_background",
+    "textures/blocks/glow_item_frame",
+];
 
 pub const SHULKER_BASE: ModelBox = ([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0], [0.0, 28.0]);
 pub const SHULKER_LID: ModelBox = ([-8.0, 4.0, -8.0], [16.0, 12.0, 16.0], [0.0, 0.0]);

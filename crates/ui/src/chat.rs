@@ -332,6 +332,17 @@ pub enum ChatSendError {
     QueueFull,
 }
 
+/// Checks the text constraints shared by chat sends and stored commands.
+pub fn validate_chat_message(message: &str) -> Result<(), ChatSendError> {
+    if message.is_empty() {
+        return Err(ChatSendError::EmptyMessage);
+    }
+    if message.len() > MAX_CHAT_INPUT_BYTES {
+        return Err(ChatSendError::MessageTooLong);
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct ChatSendQueue {
     capacity: usize,
@@ -382,12 +393,7 @@ impl ChatSendQueue {
         message: &str,
         now_millis: u64,
     ) -> Result<ChatSendRequest, ChatSendError> {
-        if message.is_empty() {
-            return Err(ChatSendError::EmptyMessage);
-        }
-        if message.len() > MAX_CHAT_INPUT_BYTES {
-            return Err(ChatSendError::MessageTooLong);
-        }
+        validate_chat_message(message)?;
         match self.session {
             None => {
                 self.begin_session(session);

@@ -3,6 +3,7 @@ use client_runtime::network::NetworkHandle;
 mod chat;
 mod chat_coordinates;
 pub(crate) mod chat_modifiers;
+pub(super) mod command_macros;
 mod inventory;
 pub(crate) use chat::drive_chat_ui_actions;
 
@@ -27,7 +28,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
-use crate::menu::settings_options::control_bindings::{
+use client_shell::menu::settings_options::control_bindings::{
     binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
     hotbar_control_slots,
 };
@@ -47,7 +48,7 @@ use client_ui::ui_runtime::interaction::{
 
 /// Dispatches inventory hotbar shortcuts bound to one physical press.
 pub(crate) fn dispatch_bound_inventory_hotbar(
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     control: semantic_input::PhysicalControl,
     player: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
@@ -143,7 +144,7 @@ pub(crate) fn drive_inventory_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut release_cursor: Local<MessageCursor<MouseButtonInput>>,
@@ -151,8 +152,8 @@ pub(crate) fn drive_inventory_ui_actions(
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -219,7 +220,7 @@ pub(crate) fn drive_inventory_ui_actions(
 fn route_press(
     button: MouseButton,
     router: &mut PointerRouter,
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     player_runtime: &mut client_state::PlayerRuntime,
     runtime: &mut UiRuntime,
     mut presentation: Option<&mut UiPresentationRuntime>,
@@ -264,7 +265,7 @@ fn route_press(
     allow(dead_code, reason = "only player mods declare keys")
 )]
 pub(crate) fn inventory_consumes_key(
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     key: KeyCode,
     view: bool,
 ) -> bool {
@@ -273,7 +274,7 @@ pub(crate) fn inventory_consumes_key(
     }
     !view
         && (binding_key(menu, "key.drop", key)
-            || crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+            || client_ui::physical_input::keyboard_usage(key).is_some_and(|code| {
                 hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
                     .next()
                     .is_some()
@@ -296,7 +297,7 @@ pub(crate) fn drive_world_inventory_keys(
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     presentation: Option<Res<UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
@@ -308,7 +309,7 @@ pub(crate) fn drive_world_inventory_keys(
         || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
     let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
     if !window.focused
-        || crate::screen_policy::absorbs_input(
+        || client_shell::screen_policy::absorbs_input(
             &player_runtime,
             Some(&runtime),
             menu.as_deref(),
@@ -341,22 +342,23 @@ pub(crate) fn drive_chat_keyboard_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: Option<ResMut<UiPresentationRuntime>>,
-    mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
+    mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     (emote_input, driven): (
         Option<Res<super::emotes::EmoteInputConsumed>>,
-        Option<Res<crate::camera::DrivenInput>>,
+        Option<Res<client_state::DrivenInput>>,
     ),
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    (window_events, mut window_cursor): (
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    (window_events, mut window_cursor, mut semantic): (
         Option<Res<Messages<WindowEvent>>>,
         Local<MessageCursor<WindowEvent>>,
+        Option<ResMut<crate::semantic_controls::SemanticInputRuntime>>,
     ),
 ) {
     // Only the window event stream keeps keyboard and pointer events in arrival order.
@@ -433,7 +435,8 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.visible = true;
         return;
     }
-    if runtime.server_forms().owns_input()
+    if runtime.sign_editor().is_open()
+        || runtime.server_forms().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
@@ -456,6 +459,25 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.grab_mode = CursorGrabMode::None;
         cursor.visible = true;
         return;
+    }
+    let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();
+    chat_modifiers::capture_before_events(&mut modifiers, &keys, &keyboard_events);
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // Without pointer arrival events, use the physical modifier state for mouse presses.
+    if pointer_presses.is_empty() {
+        let buttons: Vec<_> = mouse_buttons.get_just_pressed().copied().collect();
+        for button in buttons {
+            if command_macros::dispatch_mouse(
+                menu.as_deref(),
+                &mut runtime,
+                chat_modifiers::alt_held(&keys),
+                button,
+                now_millis,
+                semantic.as_deref_mut(),
+            ) {
+                mouse_buttons.clear_just_pressed(button);
+            }
+        }
     }
     // An already-open inventory owns this frame's pointer edge. Keyboard
     // transitions below may close it or open a new UI, so both sides of the
@@ -508,15 +530,25 @@ pub(crate) fn drive_chat_keyboard_input(
             consumed_gameplay = true;
         }
     }
-    chat_modifiers::capture(&mut modifiers, &keys);
     let routes_presses = !pointer_presses.is_empty();
     let mut router = PointerRouter::new(pointer_presses, runtime.inventory_open());
     // Presses a screen consumed, and presses whose edge later owners still need.
     let (mut consumed, mut kept) = (Vec::new(), Vec::new());
-    for (arrival, input) in keyboard_messages.read().enumerate() {
+    for (arrival, input) in keyboard_events.iter().enumerate() {
         // Presses that arrived before this key meet the screen the earlier inputs left.
         router.observe(runtime.inventory_open());
         while let Some(button) = router.next_before_key(arrival) {
+            if command_macros::dispatch_mouse(
+                menu.as_deref(),
+                &mut runtime,
+                chat_modifiers::alt_held(&modifiers),
+                button,
+                now_millis,
+                semantic.as_deref_mut(),
+            ) {
+                mouse_buttons.clear_just_pressed(button);
+                continue;
+            }
             let (route, toggled_inventory) = route_press(
                 button,
                 &mut router,
@@ -645,6 +677,21 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         if !runtime.chat_focused() {
+            if input.repeat {
+                continue;
+            }
+            if command_macros::dispatch(
+                menu.as_deref(),
+                &mut runtime,
+                chat_modifiers::alt_held(&modifiers),
+                client_ui::physical_input::keyboard_usage(input.key_code)
+                    .map(semantic_input::PhysicalControl::KeyboardUsage),
+                now_millis,
+                semantic.as_deref_mut(),
+            ) {
+                keys.clear_just_pressed(input.key_code);
+                continue;
+            }
             match input.key_code {
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory(&mut player_runtime);
@@ -770,6 +817,17 @@ pub(crate) fn drive_chat_keyboard_input(
         // The frame's last key changed the screen for every press after it.
         router.observe(runtime.inventory_open());
         while let Some(button) = router.next_rest() {
+            if command_macros::dispatch_mouse(
+                menu.as_deref(),
+                &mut runtime,
+                chat_modifiers::alt_held(&modifiers),
+                button,
+                now_millis,
+                semantic.as_deref_mut(),
+            ) {
+                mouse_buttons.clear_just_pressed(button);
+                continue;
+            }
             let (route, toggled_inventory) = route_press(
                 button,
                 &mut router,

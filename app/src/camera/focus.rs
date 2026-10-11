@@ -13,9 +13,9 @@ use bevy::{
     },
     window::{CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
-use client_presentation::camera::CursorFocus;
+use client_state::CursorFocus;
 
-use {super::DrivenInput, client_presentation::camera::AutoFly};
+use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
 #[cfg(any(windows, test))]
 mod native;
@@ -75,7 +75,7 @@ fn track_focus(
         return;
     }
     if !available {
-        client_presentation::camera::release_cursor(&mut cursor);
+        client_ui::physical_input::release_cursor(&mut cursor);
         keys.reset_all();
         buttons.reset_all();
         motion.delta = Vec2::ZERO;
@@ -91,7 +91,7 @@ pub(crate) fn mouse_input_active(
 ) -> bool {
     driven
         || (client_presentation::camera::input_is_active(window, cursor)
-            && focus.is_none_or(CursorFocus::capture_allowed))
+            && focus.is_none_or(|focus| focus.capture_allowed()))
 }
 
 /// Samples UI cursor authority immediately before presentation updates capture.
@@ -105,7 +105,7 @@ pub(crate) fn update_cursor_capture(
     screen_focus: Res<client_state::ScreenFocus>,
     consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
-    focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    focus: Option<ResMut<client_state::CursorFocus>>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
     let mut policy = client_presentation::observations::CursorPolicy {
@@ -147,7 +147,7 @@ fn enforce_cursor_ownership(
     let allowed = allowed && native.0;
     if driven.is_some() || !allowed {
         for mut cursor in &mut cursors {
-            client_presentation::camera::release_cursor(&mut cursor);
+            client_ui::physical_input::release_cursor(&mut cursor);
         }
     }
 }

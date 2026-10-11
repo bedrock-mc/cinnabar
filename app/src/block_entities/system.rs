@@ -26,7 +26,8 @@ use super::{
 };
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::{movement::PhysicsCollisionRegistries, runtime::world::ClientWorld},
+    crate::runtime::world::ClientWorld,
+    client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::{actor_publication::ActorFramePartialTick, local_player::LocalViewPose},
 };
 
@@ -56,7 +57,7 @@ pub(crate) fn load_block_entity_carrier(
     ) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
@@ -65,7 +66,7 @@ pub(crate) fn load_block_entity_carrier(
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
         Ok(assets) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "loaded block-entity carrier from {} ({} textures, atlas {:?})",
                 path.display(),
                 assets.placements().len(),
@@ -74,7 +75,7 @@ pub(crate) fn load_block_entity_carrier(
             Some(Arc::new(assets))
         }
         Err(error) => {
-            eprintln!(
+            diagnostics::log_stderr!(
                 "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );

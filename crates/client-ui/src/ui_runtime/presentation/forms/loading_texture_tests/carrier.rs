@@ -242,8 +242,8 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
     let width = title.max().x() - title.min().x();
     let height = title.max().y() - title.min().y();
     let logo = pixels.get_pixel(
-        (title.min().x() + width * 0.05) as u32,
-        (title.min().y() + height * 0.3) as u32,
+        (title.min().x() + width * 0.1) as u32,
+        (title.min().y() + height * 0.4) as u32,
     );
     assert!(
         logo[0] > 100 && logo[0] > logo[1] && logo[0] > logo[2],

@@ -543,11 +543,14 @@ fn relative_posix(path: &Path, pack_root: &Path) -> Option<String> {
 
 const SPLASHES: &str = "splashes.json";
 
-/// The six panorama faces and their overlay tint.
+/// Both sets of six panorama faces and their overlay tint.
 fn is_panorama_file(logical: &str) -> bool {
     logical
         .strip_prefix("textures/ui/panorama_")
-        .is_some_and(|face| matches!(face, "0" | "1" | "2" | "3" | "4" | "5" | "overlay"))
+        .is_some_and(|face| {
+            let face = face.strip_prefix("alternate_").unwrap_or(face);
+            matches!(face, "0" | "1" | "2" | "3" | "4" | "5" | "overlay")
+        })
 }
 
 fn strip_extension(relative: &str) -> &str {
@@ -743,13 +746,16 @@ mod tests {
         let pack = synthetic_pack();
         let face = png(1024, 1024, [40, 80, 120, 255]);
         write(pack.path(), "textures/ui/panorama_0.png", &face);
+        write(pack.path(), "textures/ui/panorama_alternate_0.png", &face);
         let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
         let assets = decode_ui_carrier(&compiled.bytes).unwrap();
-        assert!(assets.texture("textures/ui/panorama_0").is_none());
-        assert_eq!(
-            assets.ui_file("textures/ui/panorama_0.png").unwrap(),
-            face.as_slice()
-        );
+        for name in ["panorama_0", "panorama_alternate_0"] {
+            assert!(assets.texture(&format!("textures/ui/{name}")).is_none());
+            assert_eq!(
+                assets.ui_file(&format!("textures/ui/{name}.png")).unwrap(),
+                face.as_slice()
+            );
+        }
     }
 
     #[test]

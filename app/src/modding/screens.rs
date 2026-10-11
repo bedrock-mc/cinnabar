@@ -108,7 +108,7 @@ pub(super) fn drive(
     player_runtime: &player_state::PlayerState,
     ui: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     cursor: Option<[f32; 2]>,
     focused: bool,
     input: &mut ScreenInput,
@@ -193,7 +193,7 @@ fn drive_owner(
     player_runtime: &player_state::PlayerState,
     ui: &UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    menu: Option<&crate::menu::MenuRuntime>,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     cursor: Option<[f32; 2]>,
     focused: bool,
     input: &mut ScreenInput,
@@ -308,7 +308,7 @@ fn pointer_events(
 /// What the key events of one frame read besides the input.
 struct KeyFrame<'a> {
     keys: &'a [KeyDecl],
-    menu: Option<&'a crate::menu::MenuRuntime>,
+    menu: Option<&'a client_shell::menu::MenuRuntime>,
     cursor: Option<[f32; 2]>,
     /// The primary button went down this frame.
     pressed: bool,

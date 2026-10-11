@@ -404,17 +404,46 @@ fn overlay_cache_reuses_the_previous_session_compile() {
     let fingerprint = super::stack_fingerprint(&stack);
     let view = resource_pack::LayeredPackView::tracked(stack);
     for _ in 0..2 {
-        super::cached_block_overlay(&fingerprint, &view, &blocks, false, || {
-            compiles += 1;
-            None
-        });
+        super::cached_block_overlay(
+            &fingerprint,
+            &view,
+            &blocks,
+            false,
+            super::overlay_texture_layer_limit(),
+            || {
+                compiles += 1;
+                None
+            },
+        );
     }
     assert_eq!(compiles, 1);
-    super::cached_block_overlay(&fingerprint, &view, &blocks, true, || {
-        compiles += 1;
-        None
-    });
+    super::cached_block_overlay(
+        &fingerprint,
+        &view,
+        &blocks,
+        true,
+        super::overlay_texture_layer_limit(),
+        || {
+            compiles += 1;
+            None
+        },
+    );
     assert_eq!(compiles, 2);
+    super::cached_block_overlay(
+        &fingerprint,
+        &view,
+        &blocks,
+        true,
+        super::overlay_texture_layer_limit() + 1,
+        || {
+            compiles += 1;
+            None
+        },
+    );
+    assert_eq!(
+        compiles, 3,
+        "a different device capacity cannot reuse the old overlay"
+    );
 }
 
 #[test]

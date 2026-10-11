@@ -8,8 +8,8 @@ use client_ui::ui_runtime::UiRuntime;
 #[derive(SystemParam)]
 pub(crate) struct ViewmodelPublish<'w, 's> {
     inner: client_presentation::presentation::viewmodel::ViewmodelPublish<'w, 's>,
-    menu: Option<Res<'w, crate::menu::MenuRuntime>>,
-    movement: Option<Res<'w, crate::movement::MovementTicker>>,
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
 }
 
 impl<'w, 's> std::ops::Deref for ViewmodelPublish<'w, 's> {
@@ -29,7 +29,7 @@ impl std::ops::DerefMut for ViewmodelPublish<'_, '_> {
 /// Borrows the current authority and artwork without retaining another mutable owner.
 fn observation<'a>(
     world: &'a ClientWorld,
-    movement: Option<&crate::movement::MovementTicker>,
+    movement: Option<&client_interaction::movement::MovementTicker>,
     renders_game: bool,
 ) -> ViewmodelWorld<'a> {
     ViewmodelWorld {
@@ -61,7 +61,7 @@ impl ViewmodelPublish<'_, '_> {
         viewport: [u32; 2],
     ) -> bool {
         let renders_game =
-            crate::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
+            client_shell::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
         self.inner.observe(
             player,
             ui,
@@ -86,7 +86,7 @@ impl ViewmodelPublish<'_, '_> {
         completed: bool,
     ) -> (u8, [i128; 32]) {
         let renders_game =
-            crate::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
+            client_shell::screen_policy::renders_game(player, Some(ui), self.menu.as_deref(), None);
         self.inner.diagnostic_snapshot(
             player,
             ui,

@@ -59,11 +59,11 @@ fn production(app: &mut App) -> (bevy::ecs::schedule::Schedule, World) {
         .remove(Update)
         .unwrap();
     let mut world = fixture();
-    let mut movement = crate::movement::MovementTicker::default();
+    let mut movement = client_interaction::movement::MovementTicker::default();
     *movement = gameplay::test_support::survival_mining::ticker_with_ticks(1);
     world.insert_resource(movement);
-    world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
-    world.init_resource::<crate::melee::SwingTracker>();
+    world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<client_interaction::melee::SwingTracker>();
     world.init_resource::<render::ActorRenderFrame>();
     world.init_resource::<render::ActorRuntimeWitness>();
     (schedule, world)

@@ -75,11 +75,12 @@ pub fn standard_biped_vertices() -> Vec<ActorVertex> {
 #[must_use]
 pub fn standard_biped_overlay_vertices() -> Vec<ActorVertex> {
     const P: f32 = 1.0 / 16.0;
-    const OUTER: f32 = 0.5 * P;
+    const HAT: f32 = 0.5 * P;
+    const OUTER: f32 = 0.25 * P;
     let cuboids = [
         Cuboid {
-            min: [-4.0 * P - OUTER, 24.0 * P - OUTER, -4.0 * P - OUTER],
-            max: [4.0 * P + OUTER, 32.0 * P + OUTER, 4.0 * P + OUTER],
+            min: [-4.0 * P - HAT, 24.0 * P - HAT, -4.0 * P - HAT],
+            max: [4.0 * P + HAT, 32.0 * P + HAT, 4.0 * P + HAT],
             uv_origin: [32.0, 0.0],
             dimensions: [8.0, 8.0, 8.0],
         },
@@ -128,7 +129,7 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
     let [dx, dy, dz] = cuboid.dimensions;
     let faces = [
         (
-            [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]],
+            [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
             [u, v + dz, dz, dy],
         ),
         (
@@ -136,7 +137,7 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
             [u + dz, v + dz, dx, dy],
         ),
         (
-            [[x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1]],
+            [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
             [u + dz + dx, v + dz, dz, dy],
         ),
         (
@@ -152,12 +153,18 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
             [u + dz + dx, v, dx, dz],
         ),
     ];
-    for (positions, [face_u, face_v, face_width, face_height]) in faces {
+    for (face, (positions, [face_u, face_v, face_width, face_height])) in
+        faces.into_iter().enumerate()
+    {
         let u0 = face_u / 64.0;
         let v0 = face_v / 64.0;
         let u1 = (face_u + face_width) / 64.0;
         let v1 = (face_v + face_height) / 64.0;
-        let uvs = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+        let uvs = if face == 5 {
+            [[u0, v0], [u1, v0], [u1, v1], [u0, v1]]
+        } else {
+            [[u0, v1], [u1, v1], [u1, v0], [u0, v0]]
+        };
         for index in [0, 1, 2, 0, 2, 3] {
             vertices.push(ActorVertex {
                 position: positions[index],
@@ -171,6 +178,91 @@ fn append_cuboid(vertices: &mut Vec<ActorVertex>, cuboid: Cuboid, part: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clothing_is_a_quarter_texel_outside_the_body_and_hat_is_half_a_texel() {
+        let base = standard_biped_vertices();
+        let overlay = standard_biped_overlay_vertices();
+        for part in 0..6 {
+            let bounds = |vertices: &[ActorVertex], axis: usize| {
+                vertices.iter().filter(|vertex| vertex.part == part).fold(
+                    [f32::INFINITY, f32::NEG_INFINITY],
+                    |[min, max], vertex| {
+                        [
+                            min.min(vertex.position[axis]),
+                            max.max(vertex.position[axis]),
+                        ]
+                    },
+                )
+            };
+            let inflate = if part == 0 { 0.5 } else { 0.25 } / 16.0;
+            for axis in 0..3 {
+                let [min, max] = bounds(&base, axis);
+                assert_eq!(
+                    bounds(&overlay, axis),
+                    [min - inflate, max + inflate],
+                    "part {part}, axis {axis}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn base_and_overlay_side_texels_follow_the_player_right_and_left_sides() {
+        for vertices in [standard_biped_vertices(), standard_biped_overlay_vertices()] {
+            for part in 0..6 {
+                let vertices: Vec<_> = vertices
+                    .iter()
+                    .filter(|vertex| vertex.part == part)
+                    .collect();
+                let min_x = vertices
+                    .iter()
+                    .map(|vertex| vertex.position[0])
+                    .fold(f32::INFINITY, f32::min);
+                let max_x = vertices
+                    .iter()
+                    .map(|vertex| vertex.position[0])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let min_u = vertices
+                    .iter()
+                    .map(|vertex| vertex.uv[0])
+                    .fold(f32::INFINITY, f32::min);
+                // The first strip in each skin box wraps the player's right side (-X in the preview).
+                let right_strip: Vec<_> = vertices
+                    .iter()
+                    .filter(|vertex| vertex.uv[0] == min_u)
+                    .collect();
+                assert!(
+                    right_strip.iter().all(|vertex| vertex.position[0] == min_x),
+                    "right side of part {part}"
+                );
+                assert!(right_strip.iter().all(|vertex| vertex.position[0] != max_x));
+            }
+        }
+    }
+
+    #[test]
+    fn head_bottom_texture_starts_at_the_back_edge() {
+        for (vertices, uv) in [
+            (standard_biped_vertices(), [16.0, 0.0]),
+            (standard_biped_overlay_vertices(), [48.0, 0.0]),
+        ] {
+            let bottom = &vertices[30..36];
+            let min_x = bottom
+                .iter()
+                .map(|vertex| vertex.position[0])
+                .fold(f32::INFINITY, f32::min);
+            let min_z = bottom
+                .iter()
+                .map(|vertex| vertex.position[2])
+                .fold(f32::INFINITY, f32::min);
+            let corner = bottom
+                .iter()
+                .find(|vertex| vertex.position[0] == min_x && vertex.position[2] == min_z)
+                .unwrap();
+            assert_eq!(corner.uv, uv.map(|value| value / 64.0));
+        }
+    }
 
     #[test]
     fn standard_biped_is_six_cuboids_with_a_complete_base_layer_uv_mesh() {

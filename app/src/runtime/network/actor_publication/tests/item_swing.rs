@@ -81,18 +81,19 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
     let authored_ticks = 19;
     let mut world = custom_emotes::fixture();
     select_authored_swing(&mut world, authored_ticks);
-    world.init_resource::<crate::movement::MovementTicker>();
-    world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
-    world.init_resource::<crate::melee::SwingTracker>();
+    world.init_resource::<client_interaction::movement::MovementTicker>();
+    world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<client_interaction::melee::SwingTracker>();
     assert!(!world.contains_resource::<client_state::SemanticInputSnapshot>());
 
     for frame in 0..4_u64 {
-        *world.resource_mut::<crate::movement::MovementTicker>() = {
-            let mut ticker = crate::movement::MovementTicker::default();
+        *world.resource_mut::<client_interaction::movement::MovementTicker>() = {
+            let mut ticker = client_interaction::movement::MovementTicker::default();
             *ticker = gameplay::test_support::survival_mining::ticker_with_ticks(frame + 1);
             ticker
         };
-        let mut effects = world.resource_mut::<crate::movement::LocalMovementEffectTimeline>();
+        let mut effects =
+            world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
         effects.begin_frame();
         MovementEffectSource::commit_successful_tick(&mut **effects);
         world
@@ -109,12 +110,12 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
             "the selected stack must resolve its session component facts"
         );
         if frame == 0 {
-            let ticker = world.resource::<crate::movement::MovementTicker>();
+            let ticker = world.resource::<client_interaction::movement::MovementTicker>();
             let (authority, tick) = (
                 ticker.interaction_authority_identity(),
                 ticker.completed_tick(),
             );
-            let mut tracker = world.resource_mut::<crate::melee::SwingTracker>();
+            let mut tracker = world.resource_mut::<client_interaction::melee::SwingTracker>();
             tracker.sync_ticks_for_item(authority, tick, &Default::default(), Some(authored_ticks));
             assert!(tracker.try_swing(tick, authored_ticks as i32));
         }
