@@ -1,3 +1,5 @@
+mod baseline;
+mod cargo_failures;
 mod cli;
 mod commands;
 mod metadata;
