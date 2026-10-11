@@ -397,7 +397,7 @@ impl UiRuntime {
         self.inventory_open
     }
 
-    pub const fn inventory_ledger<'a>(
+    pub fn inventory_ledger<'a>(
         &self,
         player_runtime: &'a player_state::PlayerState,
     ) -> &'a PlayerInventoryLedger {
