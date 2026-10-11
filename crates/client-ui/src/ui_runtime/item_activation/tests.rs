@@ -4,6 +4,92 @@ use protocol::{
 };
 
 #[test]
+fn totem_pending_world_commit_keeps_the_pre_consumption_snapshot() {
+    let (mut runtime, mut player, _) = queued_player();
+    runtime.retain_totem_snapshot(&mut player, 1, 4);
+    assert!(
+        runtime.item_activation.is_none(),
+        "publication still owns admission"
+    );
+    runtime.drain_pending_inventory(&mut player);
+    runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
+    assert_eq!(runtime.item_activation.as_ref().unwrap().metadata, 7);
+}
+
+#[test]
+fn totem_pending_snapshot_is_retired_with_its_session() {
+    let (mut runtime, mut player, _) = queued_player();
+    runtime.retain_totem_snapshot(&mut player, 1, 4);
+    runtime.begin_session(2);
+    assert!(runtime.pending_totem_snapshots.is_empty());
+    runtime.retain_totem_snapshot(&mut player, 1, 5);
+    assert!(runtime.pending_totem_snapshots.is_empty());
+}
+
+#[test]
+fn totem_equipment_only_main_hand_keeps_the_activation_prefix() {
+    equipment_only_prefix(protocol::ActorHandedness::Right);
+}
+
+#[test]
+fn totem_equipment_only_offhand_keeps_the_activation_prefix() {
+    equipment_only_prefix(protocol::ActorHandedness::Left);
+}
+
+/// Sends equipment and consumption around an activation without inventory-cell packets.
+fn equipment_only_prefix(hand: protocol::ActorHandedness) {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let registry = protocol::vanilla_item_registry();
+    let id = registry
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == TOTEM_IDENTIFIER)
+        .unwrap()
+        .network_id;
+    player
+        .inventory
+        .enqueue_item_registry_event(1, 1, ItemRegistryEvent { entries: registry })
+        .unwrap();
+    let equipment = protocol::EquipmentEvent {
+        actor_runtime_id: 42,
+        stack: NetworkItemStack {
+            network_id: id,
+            count: 1,
+            metadata: 13,
+            ..NetworkItemStack::empty()
+        },
+        inventory_slot: 0,
+        selected_slot: 0,
+        window_id: if hand == protocol::ActorHandedness::Left {
+            119
+        } else {
+            0
+        },
+        handedness: Some(hand),
+    };
+    runtime.retain_local_selected_equipment(&mut player, 2, equipment.clone());
+    runtime.retain_totem_snapshot(&mut player, 1, 3);
+    runtime.retain_local_selected_equipment(
+        &mut player,
+        4,
+        protocol::EquipmentEvent {
+            stack: NetworkItemStack::empty(),
+            ..equipment
+        },
+    );
+    runtime.drain_pending_inventory(&mut player);
+    runtime.activate_totem(&mut player, 1, 3, 100).unwrap();
+    assert_eq!(
+        runtime.item_activation.as_ref().unwrap().metadata,
+        13,
+        "{hand:?}"
+    );
+}
+
+#[test]
 fn totem_motion_offsets_preserve_rounded_random_endpoints() {
     assert_eq!(sampled_offset(0), -1);
     assert_eq!(sampled_offset(u32::MAX), 1);

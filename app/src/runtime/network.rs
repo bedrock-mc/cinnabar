@@ -875,6 +875,16 @@ pub(crate) fn receive_network_events(
             }
             sequenced
         };
+        if matches!(&sequenced.event, WorldEvent::Actor(protocol::ActorEvent::Status(status))
+            if status.runtime_id == stream.authority().local_player_runtime_id()
+                && status.kind == protocol::ActorStatusKind::TotemActivate)
+        {
+            ui_runtime.retain_totem_snapshot(
+                &mut player_runtime,
+                sequenced.session_generation,
+                sequenced.sequence,
+            );
+        }
         #[cfg(feature = "acceptance")]
         let observed_at = Instant::now();
         #[cfg(feature = "acceptance")]

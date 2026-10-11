@@ -178,6 +178,7 @@ pub struct UiRuntime {
     block_cracks: crate::block_cracks::BlockCracks,
     gameplay_hud: GameplayHudState,
     item_activation: Option<item_activation::ItemActivation>,
+    pending_totem_snapshots: VecDeque<(u64, Option<u32>)>,
     activation_clock: item_activation::ActivationClock,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
@@ -278,6 +279,7 @@ impl UiRuntime {
             block_cracks: crate::block_cracks::BlockCracks::default(),
             gameplay_hud: GameplayHudState::default(),
             item_activation: None,
+            pending_totem_snapshots: VecDeque::new(),
             activation_clock: item_activation::ActivationClock::default(),
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
@@ -662,6 +664,7 @@ impl UiRuntime {
         self.sign_editor = sign_editor::SignEditor::default();
         self.gameplay_hud.clear();
         self.item_activation = None;
+        self.pending_totem_snapshots.clear();
         self.activation_clock = item_activation::ActivationClock::default();
         self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
