@@ -1,6 +1,6 @@
 //! Versioned contracts for the queries admitted by the entity compiler.
 
-use super::{MolangSymbol, MolangSymbolKind};
+use super::{MAX_MOLANG_QUERY_ARGUMENTS, MolangSymbol, MolangSymbolKind};
 
 /// Version of the query contract inventory and runtime bindings.
 pub const MOLANG_QUERY_MANIFEST_VERSION: u32 = 1;
@@ -49,7 +49,7 @@ pub struct MolangQueryDescriptor {
 }
 
 macro_rules! query_manifest {
-    ($($variant:ident => ($name:literal, $handler:expr, $min:literal, $max:literal, $output:ident, $support:ident)),* $(,)?) => {
+    ($($variant:ident => ($name:literal, $handler:expr, $min:literal, $max:expr, $output:ident, $support:ident)),* $(,)?) => {
         /// Typed query identity, bound once when a program or carrier is admitted.
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub enum MolangQuery { $($variant),* }
@@ -89,7 +89,7 @@ query_manifest! {
     AllAnimationsFinished => ("query.all_animations_finished", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     AnimTime => ("query.anim_time", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     AnyAnimationFinished => ("query.any_animation_finished", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
-    ApproxEq => ("query.approx_eq", MolangQueryHandler::Evaluator, 2, 16, Number, Implemented),
+    ApproxEq => ("query.approx_eq", MolangQueryHandler::Evaluator, 2, MAX_MOLANG_QUERY_ARGUMENTS, Number, Implemented),
     ArmorColorSlot => ("query.armor_color_slot", MolangQueryHandler::Evaluator, 0, 2, Number, Implemented),
     ArmorTextureSlot => ("query.armor_texture_slot", MolangQueryHandler::Evaluator, 0, 1, Number, Provisional),
     BaseSwingDuration => ("query.base_swing_duration", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
@@ -108,7 +108,7 @@ query_manifest! {
     DeltaTime => ("query.delta_time", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     DistanceFromCamera => ("query.distance_from_camera", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     EquipmentCount => ("query.equipment_count", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
-    EquippedItemAnyTag => ("query.equipped_item_any_tag", MolangQueryHandler::Evaluator, 2, 16, Number, Provisional),
+    EquippedItemAnyTag => ("query.equipped_item_any_tag", MolangQueryHandler::Evaluator, 2, MAX_MOLANG_QUERY_ARGUMENTS, Number, Provisional),
     EyeTargetXRotation => ("query.eye_target_x_rotation", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
     EyeTargetYRotation => ("query.eye_target_y_rotation", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
     FacingTargetToRangeAttack => ("query.facing_target_to_range_attack", MolangQueryHandler::Flag(88), 0, 0, Number, Implemented),
@@ -168,7 +168,7 @@ query_manifest! {
     IsInterested => ("query.is_interested", MolangQueryHandler::Flag(26), 0, 0, Number, Implemented),
     IsInvisible => ("query.is_invisible", MolangQueryHandler::Flag(5), 0, 0, Number, Implemented),
     IsItemEquipped => ("query.is_item_equipped", MolangQueryHandler::Evaluator, 0, 1, Number, Implemented),
-    IsItemNameAny => ("query.is_item_name_any", MolangQueryHandler::Evaluator, 2, 16, Number, Implemented),
+    IsItemNameAny => ("query.is_item_name_any", MolangQueryHandler::Evaluator, 2, MAX_MOLANG_QUERY_ARGUMENTS, Number, Implemented),
     IsJumpGoalJumping => ("query.is_jump_goal_jumping", MolangQueryHandler::Flag(103), 0, 0, Number, Implemented),
     IsJumping => ("query.is_jumping", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
     IsLayingEgg => ("query.is_laying_egg", MolangQueryHandler::Flag(60), 0, 0, Number, Implemented),
@@ -184,7 +184,7 @@ query_manifest! {
     IsPregnant => ("query.is_pregnant", MolangQueryHandler::Flag(59), 0, 0, Number, Implemented),
     IsResting => ("query.is_resting", MolangQueryHandler::Flag(23), 0, 0, Number, Implemented),
     IsRiding => ("query.is_riding", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
-    IsRidingAnyEntityOfType => ("query.is_riding_any_entity_of_type", MolangQueryHandler::Evaluator, 1, 16, Number, Implemented),
+    IsRidingAnyEntityOfType => ("query.is_riding_any_entity_of_type", MolangQueryHandler::Evaluator, 1, MAX_MOLANG_QUERY_ARGUMENTS, Number, Implemented),
     IsRoaring => ("query.is_roaring", MolangQueryHandler::Flag(84), 0, 0, Number, Implemented),
     IsSaddled => ("query.is_saddled", MolangQueryHandler::Flag(8), 0, 0, Number, Implemented),
     IsScared => ("query.is_scared", MolangQueryHandler::Flag(68), 0, 0, Number, Implemented),
