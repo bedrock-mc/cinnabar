@@ -16,6 +16,14 @@ const MAX_CACHED_DEFINITIONS: usize = MAX_AGGREGATE_STATES;
 #[derive(Debug, Clone)]
 pub struct SharedStates(Arc<[CustomHashedState]>);
 
+impl SharedStates {
+    /// Shares an empty result without retaining unsupported definition sources.
+    fn empty() -> Self {
+        static EMPTY: OnceLock<SharedStates> = OnceLock::new();
+        EMPTY.get_or_init(|| Self(Arc::default())).clone()
+    }
+}
+
 impl Deref for SharedStates {
     type Target = [CustomHashedState];
     /// Borrows canonical records without rehashing or copying their state values.
@@ -102,6 +110,9 @@ fn state_bytes(name: &str, visual: &CustomBlockVisuals, count: usize) -> Option<
 
 /// Resolves a source identity; weak handles prevent address reuse and force writes to detach.
 pub(super) fn resolve(block: &CustomBlock) -> SharedStates {
+    if block.visual.state_identity_incomplete {
+        return SharedStates::empty();
+    }
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let key = (
         Arc::as_ptr(&block.visual).addr(),
@@ -117,11 +128,13 @@ pub(super) fn resolve(block: &CustomBlock) -> SharedStates {
         entry.touched = touched;
         return entry.states.clone();
     }
-    let count = super::axis_combinations(&block.visual.state_axes).unwrap_or(0) as usize;
-    let Some(bytes) = state_bytes(&block.name, &block.visual, count)
+    let Some(count) = super::axis_combinations(&block.visual.state_axes) else {
+        return SharedStates::empty();
+    };
+    let Some(bytes) = state_bytes(&block.name, &block.visual, count as usize)
         .filter(|bytes| *bytes <= MAX_AGGREGATE_STATE_BYTES)
     else {
-        return SharedStates(Arc::default());
+        return SharedStates::empty();
     };
     let states = SharedStates(block.compile_states());
     while cache.entries.len() >= MAX_CACHED_DEFINITIONS
