@@ -107,6 +107,33 @@ mod unix {
                 .unwrap()
         }
     }
+    /// Runs Git in `path`, dating commits and reflog entries `days_ago` when given.
+    fn git_at(path: &Path, args: &[&str], days_ago: Option<u64>) {
+        let mut command = Command::new("git");
+        command.current_dir(path).args([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+        ]);
+        if let Some(days) = days_ago {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            command.env(
+                "GIT_COMMITTER_DATE",
+                format!("{} +0000", now - days * 86400),
+            );
+        }
+        let output = command.args(args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     /// A fake `gh pr list` reporting one merged PR whose head is `head`.
     fn merged_pr(head: &str) -> String {
         format!("#!/bin/sh\nprintf '[{{\"state\":\"MERGED\",\"headRefOid\":\"{head}\"}}]'\n")
@@ -405,6 +432,78 @@ mod unix {
             assert!(path.exists(), "removed after `git {change}`");
             assert_eq!(fs::read_to_string(&counter).unwrap(), "3");
         }
+    }
+
+    #[test]
+    fn failed_pr_lookup_keeps_a_stale_pushed_worktree() {
+        let repo = Repo::new();
+        let path = repo.worktree("stale");
+        git_at(
+            &path,
+            &["commit", "--allow-empty", "--quiet", "-m", "old"],
+            Some(30),
+        );
+        git_at(
+            &path,
+            &["push", "--quiet", "-u", "origin", "stale"],
+            Some(30),
+        );
+        repo.script("gh", "#!/bin/sh\necho 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4\n");
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            path.exists(),
+            "removed without knowing whether a PR is open"
+        );
+        repo.script("gh", "#!/bin/sh\nprintf '[]'\n");
+        assert!(repo.gc(&["--apply"]).status.success());
+        assert!(!path.exists(), "kept a stale worktree with no PR");
+    }
+
+    #[test]
+    fn push_age_comes_from_the_branch_push_not_an_aged_upstream() {
+        let repo = Repo::new();
+        git_at(
+            &repo.root,
+            &["commit", "--allow-empty", "--quiet", "-m", "old dev"],
+            Some(30),
+        );
+        git_at(&repo.root, &["push", "--quiet", "origin", "HEAD"], Some(30));
+        let output = Command::new("git")
+            .current_dir(&repo.root)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .unwrap();
+        let default = String::from_utf8(output.stdout).unwrap();
+        let path = repo.root.parent().unwrap().join("topic");
+        repo.git(&[
+            "worktree",
+            "add",
+            "--quiet",
+            "--track",
+            "-b",
+            "topic",
+            path.to_str().unwrap(),
+            &format!("origin/{}", default.trim()),
+        ]);
+        git_at(
+            &path,
+            &["commit", "--allow-empty", "--quiet", "-m", "topic"],
+            None,
+        );
+        git_at(&path, &["push", "--quiet", "origin", "topic"], None);
+        repo.script("gh", "#!/bin/sh\nprintf '[]'\n");
+        let output = repo.gc(&["--apply"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(path.exists(), "a fresh push inherited its upstream's age");
     }
 
     #[test]

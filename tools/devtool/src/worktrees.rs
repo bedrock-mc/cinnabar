@@ -40,6 +40,7 @@ struct State {
     dirty: bool,
     unpushed: bool,
     pr: Option<String>,
+    pr_unknown: bool, // The PR lookup failed, so an open PR cannot be ruled out.
     /// A merged or closed PR's head contains HEAD; a reused branch with newer commits is not retired.
     retired: bool,
     pushed_age: Option<u64>,
@@ -114,7 +115,11 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
             "{} branch={} PR={} availability={} changes={} unpushed={} processes={:?} age_days={} pushed_days={} action={}",
             wt.path.display(),
             state.branch.as_deref().unwrap_or("detached"),
-            state.pr.as_deref().unwrap_or("unknown"),
+            if state.pr_unknown {
+                "unknown"
+            } else {
+                state.pr.as_deref().unwrap_or("none")
+            },
             if wt.unavailable || !wt.path.is_dir() {
                 "unavailable"
             } else {
@@ -192,13 +197,14 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
     Ok(())
 }
 
-/// Allows force to override changes, unpublished commits, and open PRs, never process or
-/// protection checks.
+/// Allows force to override changes, unpublished commits, and open or unknown PRs, never process
+/// or protection checks.
 fn eligible(state: &State, force: bool) -> bool {
     state.processes == Processes::Idle
         && (force
             || (!state.dirty
                 && !state.unpushed
+                && !state.pr_unknown
                 && state.pr.as_deref() != Some("OPEN")
                 && (state.retired || state.pushed_age.is_some_and(|age| age > 7 * 86400))))
 }
@@ -263,6 +269,7 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
             dirty: true,
             unpushed: true,
             pr: None,
+            pr_unknown: true,
             retired: false,
             pushed_age: None,
             age: None,
@@ -275,7 +282,9 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     )?
     .is_empty();
     let (branch, head) = checkout(&wt.path)?;
-    let request = pull_request(&wt.path, branch.as_deref());
+    let lookup = pull_request(&wt.path, branch.as_deref());
+    let pr_unknown = lookup.is_none();
+    let request = lookup.flatten();
     let pr_head = request
         .as_ref()
         .and_then(|pr| pr.head.as_deref())
@@ -309,29 +318,27 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
         .ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|time| now.saturating_sub(time.as_secs()));
-    // A remote commit date does not establish when it was pushed. Require a local push reflog.
+    // A remote commit date does not establish when it was pushed. Require a local push reflog
+    // of this branch's own remote ref, not its upstream, that recorded HEAD.
     let pushed_age = branch.as_ref().and_then(|branch| {
-        let remote = git(
-            &wt.path,
-            &[
-                "rev-parse",
-                "--symbolic-full-name",
-                &format!("{branch}@{{upstream}}"),
-            ],
-        )
-        .ok()?;
-        let entries = git(
-            &wt.path,
-            &[
-                "reflog",
-                "show",
-                "--date=unix",
-                "--format=%gD%x09%gs",
-                remote.trim(),
-            ],
-        )
-        .ok()?;
-        last_push_age(&entries, now)
+        git(&wt.path, &["remote"])
+            .ok()?
+            .lines()
+            .filter_map(|remote| {
+                let entries = git(
+                    &wt.path,
+                    &[
+                        "reflog",
+                        "show",
+                        "--date=unix",
+                        "--format=%gD%x09%H%x09%gs",
+                        &format!("refs/remotes/{remote}/{branch}"),
+                    ],
+                )
+                .ok()?;
+                last_push_age(&entries, &head, now)
+            })
+            .min()
     });
     Ok(State {
         branch,
@@ -339,6 +346,7 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
         dirty,
         unpushed,
         pr,
+        pr_unknown,
         retired,
         pushed_age,
         age,
@@ -346,9 +354,12 @@ fn inspect(wt: &Worktree) -> Result<State, DevtoolError> {
     })
 }
 
-/// Keeps open PRs protected and reads the published head even after a squash deletes its branch.
-fn pull_request(path: &Path, branch: Option<&str>) -> Option<PullRequest> {
-    let branch = branch?;
+/// Returns the open or newest PR for `branch`, or `None` when the lookup itself fails; reads the
+/// published head even after a squash deletes its branch.
+fn pull_request(path: &Path, branch: Option<&str>) -> Option<Option<PullRequest>> {
+    let Some(branch) = branch else {
+        return Some(None);
+    };
     let output = Command::new("gh")
         .current_dir(path)
         .args([
@@ -373,13 +384,15 @@ fn pull_request(path: &Path, branch: Option<&str>) -> Option<PullRequest> {
         .iter()
         .position(|pr| pr.state == "OPEN")
         .unwrap_or(0);
-    requests.into_iter().nth(chosen)
+    Some(requests.into_iter().nth(chosen))
 }
 
-/// Uses the reflog event time, since the pushed commit itself may be years old.
-fn last_push_age(entries: &str, now: u64) -> Option<u64> {
-    let (selector, event) = entries.lines().next()?.split_once('\t')?;
-    if !event.contains("update by push") {
+/// Uses the reflog event time, since the pushed commit itself may be years old; the latest entry
+/// must be a push of `head`.
+fn last_push_age(entries: &str, head: &str, now: u64) -> Option<u64> {
+    let mut fields = entries.lines().next()?.splitn(3, '\t');
+    let (selector, pushed, event) = (fields.next()?, fields.next()?, fields.next()?);
+    if pushed != head || !event.contains("update by push") {
         return None;
     }
     let timestamp = selector
@@ -468,15 +481,22 @@ mod tests {
     use super::*;
     #[test]
     fn push_age_uses_the_push_event_and_does_not_infer_age_from_a_fetch() {
+        let head = "a".repeat(40);
+        let entry =
+            |oid: &str, event: &str| format!("refs/remotes/origin/topic@{{100}}\t{oid}\t{event}\n");
         assert_eq!(
-            last_push_age("refs/remotes/origin/topic@{100}\tupdate by push\n", 150),
+            last_push_age(&entry(&head, "update by push"), &head, 150),
             Some(50)
         );
         assert_eq!(
-            last_push_age("refs/remotes/origin/topic@{100}\tfetch origin\n", 150),
+            last_push_age(&entry(&head, "fetch origin"), &head, 150),
             None
         );
-        assert_eq!(last_push_age("", 150), None);
+        assert_eq!(
+            last_push_age(&entry(&"b".repeat(40), "update by push"), &head, 150),
+            None
+        );
+        assert_eq!(last_push_age("", &head, 150), None);
     }
 
     #[test]
@@ -487,6 +507,7 @@ mod tests {
             dirty: false,
             unpushed: false,
             pr: Some("MERGED".into()),
+            pr_unknown: false,
             retired: true,
             pushed_age: None,
             age: None,
@@ -509,6 +530,9 @@ mod tests {
         assert!(!eligible(&state, false));
         state.pushed_age = Some(8 * 86400);
         assert!(eligible(&state, false));
+        state.pr_unknown = true;
+        assert!(!eligible(&state, false));
+        assert!(eligible(&state, true));
     }
 
     #[test]
@@ -519,6 +543,7 @@ mod tests {
             dirty: false,
             unpushed: false,
             pr: Some("OPEN".into()),
+            pr_unknown: false,
             retired: false,
             pushed_age: Some(30 * 86400),
             age: Some(30 * 86400),
@@ -554,7 +579,10 @@ mod tests {
             "-m",
             "fixture",
         ]);
+        #[cfg(unix)]
         let other = temp.path().join("space and\nnewline");
+        #[cfg(not(unix))]
+        let other = temp.path().join("space and more");
         run(&[
             "worktree",
             "add",
@@ -566,7 +594,10 @@ mod tests {
         let trees =
             parse_worktrees(&git(&root, &["worktree", "list", "--porcelain", "-z"]).unwrap());
         assert_eq!(trees.len(), 2);
-        assert_eq!(trees[1].path, fs::canonicalize(other).unwrap());
+        assert_eq!(
+            fs::canonicalize(&trees[1].path).unwrap(),
+            fs::canonicalize(other).unwrap()
+        );
         assert!(trees[1].protected);
         assert!(
             !git(
