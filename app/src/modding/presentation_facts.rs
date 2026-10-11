@@ -46,17 +46,16 @@ pub(super) fn chat_snapshot(
 ) -> Vec<mod_host::ObservedChatMessage> {
     let mut messages: Vec<_> = ui
         .chat()
-        .messages()
-        .iter()
+        .observed_rows()
         .rev()
         .take(ui::mod_hud::MAX_OBSERVED_CHAT_MESSAGES)
-        .map(|m| {
+        .map(|(sequence, m)| {
             let mut end = m.message.len().min(ui::mod_hud::MAX_OBSERVED_TEXT_BYTES);
             while !m.message.is_char_boundary(end) {
                 end -= 1;
             }
             mod_host::ObservedChatMessage {
-                sequence: m.fifo_sequence,
+                sequence,
                 text: m.message[..end].to_owned(),
             }
         })

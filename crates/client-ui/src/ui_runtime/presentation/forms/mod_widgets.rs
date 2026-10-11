@@ -35,7 +35,7 @@ pub(super) struct ModWidgets {
 impl UiPresentationRuntime {
     /// Replaces card values while retaining the template when its geometry is unchanged.
     pub fn set_mod_hud(&mut self, content: Option<&Hud>) -> Result<(), String> {
-        if self.mod_chat_actions() != content.map_or(&[], |hud| hud.chat_actions.as_slice()) {
+        if self.mod_chat_actions() != content.map_or(&[][..], |hud| hud.chat_actions.as_slice()) {
             let chat = &mut self.form_presentation.chat;
             chat.link_generation = None;
             chat.link_hits.clear();

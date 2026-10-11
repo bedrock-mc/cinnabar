@@ -345,13 +345,16 @@ fn drive_mod(
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
-    watcher: Option<Res<registration::Watcher>>,
-    render_scene: Option<ResMut<::render::ModRenderScene>>,
     mut outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
-    cameras: Query<(&GlobalTransform, &Projection), With<crate::camera::FlyCamera>>,
-    mut frame_rate: Local<presentation_facts::FrameRate>,
+    observation: (
+        Option<Res<registration::Watcher>>,
+        Option<ResMut<::render::ModRenderScene>>,
+        Query<(&GlobalTransform, &Projection), With<crate::camera::FlyCamera>>,
+        Local<presentation_facts::FrameRate>,
+    ),
 ) {
+    let (watcher, render_scene, cameras, mut frame_rate) = observation;
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = crate::screen_policy::absorbs_input(
         &player_runtime,
