@@ -34,7 +34,7 @@ fn fixture() -> (CollisionRegistry, ChunkStore) {
 #[test]
 fn bamboo_visible_column_is_pickable_and_its_old_sampled_position_is_empty() {
     let (registry, store) = fixture();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     for y in [8.5, 9.5] {
         let origin = Vec3::new(1.8125, y, 2.0);
         let hit = world
@@ -72,7 +72,7 @@ fn bamboo_visible_column_is_pickable_and_its_old_sampled_position_is_empty() {
 #[test]
 fn bamboo_collision_and_camera_use_the_same_displaced_stalk() {
     let (registry, store) = fixture();
-    let world = PaletteWorld::new(&store, &registry, 0);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let visible = Aabb::new(Vec3::new(1.76, 8.1, 0.49), Vec3::new(1.86, 8.9, 0.60));
     let collision = world.collision_boxes(visible).unwrap();
     assert_eq!(collision.value.len(), 1);

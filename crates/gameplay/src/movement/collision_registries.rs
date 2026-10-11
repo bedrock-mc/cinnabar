@@ -1,37 +1,21 @@
 //! Runtime-ID collision registries for both Bedrock palette identity modes.
 //!
-//! Extracted verbatim from the movement `physics` module to respect the
-//! per-file architecture line policy; behavior, types, and public paths are
-//! unchanged (`crate::movement::PhysicsCollisionRegistries` re-exports this).
+//! Compiled shape and material facts are indexed without deriving state geometry.
 
 use std::path::{Path, PathBuf};
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use assets::RegistryRecord;
+use assets::block_shapes::COLLISION_COORDINATE_SCALE;
 use sim::{
     Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, RegistryError, Vec3,
 };
 use thiserror::Error;
 
-mod connected;
-mod doors;
-mod flow;
-mod scaffolding;
 mod selection;
 mod session_palette;
-mod stairs;
 mod tags;
-use tags::native_block_tags;
 
-const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
-const FULL_CUBE: assets::CollisionBox = assets::CollisionBox {
-    min_x: 0,
-    min_y: 0,
-    min_z: 0,
-    max_x: 100_000_000,
-    max_y: 100_000_000,
-    max_z: 100_000_000,
-};
 /// Registry records whose names the carrier deliberately withholds.
 const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 
@@ -41,6 +25,7 @@ struct InteractionBlock {
     identifier: Arc<str>,
     full_cube: bool,
     build_intention: bool,
+    shape_flags: assets::block_shapes::ShapeFlags,
     tags: Arc<[Arc<str>]>,
     connections: Option<(
         assets::ModelFamily,
@@ -187,24 +172,33 @@ impl PhysicsCollisionRegistries {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
                 .expect("strict PREG decoder covers every supplied BREG record");
-            let boxes = connected::shapes(record)
-                .or_else(|| stairs::shapes(record))
-                .or_else(|| scaffolding::shapes(record))
-                .unwrap_or_else(|| {
-                    fact.boxes
-                        .iter()
-                        .copied()
-                        .map(collision_box_to_aabb)
-                        .collect::<Vec<_>>()
-                });
-            let full_cube = record.model_family == assets::ModelFamily::Cube
-                && fact.boxes.len() == 1
-                && fact.boxes[0] == FULL_CUBE;
+            let shapes =
+                fact.shapes
+                    .as_ref()
+                    .ok_or_else(|| assets::AssetError::InvalidPhysicsRegistry {
+                        detail: "missing compiled block shapes; run make assets".into(),
+                    })?;
+            let boxes = fact
+                .boxes
+                .iter()
+                .copied()
+                .map(collision_box_to_aabb)
+                .collect::<Vec<_>>();
+            let full_cube = shapes
+                .flags
+                .contains(assets::block_shapes::ShapeFlags::FULL_CUBE);
             let binding = InteractionBlock {
                 identifier: Arc::from(record.name.as_ref()),
                 full_cube,
-                build_intention: tags::has_build_intention(record),
-                tags: native_block_tags(record),
+                build_intention: shapes
+                    .flags
+                    .contains(assets::block_shapes::ShapeFlags::BUILD_INTENTION),
+                shape_flags: shapes.flags,
+                tags: shapes
+                    .tags
+                    .iter()
+                    .map(|tag| Arc::from(tag.as_ref()))
+                    .collect(),
                 connections: Some((
                     record.model_family,
                     record.contributor_role,
@@ -244,25 +238,60 @@ impl PhysicsCollisionRegistries {
             };
             register(&mut sequential, record.sequential_id, boxes.clone())?;
             register(&mut hashed, record.network_hash, boxes)?;
-            flow::register(&mut sequential, record.sequential_id, record);
-            flow::register(&mut hashed, record.network_hash, record);
-            if let Some(shape) = selection::shape(record) {
-                sequential.set_pick_shapes(record.sequential_id, [shape]);
-                hashed.set_pick_shapes(record.network_hash, [shape]);
+            for (registry, id) in [
+                (&mut sequential, record.sequential_id),
+                (&mut hashed, record.network_hash),
+            ] {
+                registry.set_compiled_selection(id, shapes);
+                if let Some(flow) = shapes.flow {
+                    registry.set_flow_facts(
+                        id,
+                        sim::FlowBlockFacts {
+                            blocks_motion: flow.blocks_motion,
+                            is_solid: flow.is_solid,
+                            blocked_faces: flow.blocked_faces,
+                            allowed_faces: flow.allowed_faces,
+                            liquid_depth: flow.liquid_depth,
+                        },
+                    );
+                }
+                if let Some(door) = shapes.door {
+                    registry.set_door_state(
+                        id,
+                        sim::DoorState {
+                            family: door.family,
+                            facing: [
+                                sim::DoorFacing::South,
+                                sim::DoorFacing::West,
+                                sim::DoorFacing::North,
+                                sim::DoorFacing::East,
+                            ][usize::from(door.facing)],
+                            upper: door.upper,
+                            open: door.open,
+                            hinge_right: door.hinge_right,
+                        },
+                    );
+                }
+                if shapes
+                    .flags
+                    .contains(assets::block_shapes::ShapeFlags::BAMBOO_OFFSET)
+                {
+                    registry.set_bamboo_column_offset(id);
+                }
+                if shapes
+                    .flags
+                    .contains(assets::block_shapes::ShapeFlags::DRIPSTONE_OFFSET)
+                {
+                    registry.set_dripstone_column_offset(id);
+                }
+                if shapes.flags.contains(assets::block_shapes::ShapeFlags::AIR) {
+                    registry.set_air_runtime_id(id);
+                }
             }
-            if let Some(door) = doors::state(record) {
-                sequential.set_door_state(record.sequential_id, door.clone());
-                hashed.set_door_state(record.network_hash, door);
-            }
-            if assets::bamboo::BambooState::from_record(record).is_some() {
-                sequential.set_bamboo_column_offset(record.sequential_id);
-                hashed.set_bamboo_column_offset(record.network_hash);
-            }
-            if record.name.as_ref() == "minecraft:air" {
-                sequential.set_air_runtime_id(record.sequential_id);
-                hashed.set_air_runtime_id(record.network_hash);
-            }
-            if record.name.as_ref() == "minecraft:stone" {
+            if shapes
+                .flags
+                .contains(assets::block_shapes::ShapeFlags::CUSTOM_SURFACE)
+            {
                 custom_block_physics.get_or_insert(CustomBlockPhysics {
                     friction: f64::from(fact.friction_q1e8) * COLLISION_COORDINATE_SCALE,
                     horizontal_speed: f64::from(fact.horizontal_speed_q1e8)
@@ -359,6 +388,7 @@ impl PhysicsCollisionRegistries {
                         identifier: Arc::clone(&block.name),
                         full_cube: effective.collides && effective.collision_boxes.is_none(),
                         build_intention: false,
+                        shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
                         connections: None,
                     },
@@ -428,6 +458,7 @@ impl PhysicsCollisionRegistries {
                             identifier: Arc::clone(&block.name),
                             full_cube: effective.collides && effective.collision_boxes.is_none(),
                             build_intention: false,
+                            shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
                             connections: None,
                         },
@@ -552,7 +583,7 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
     let defaults = block
         .collision_boxes
         .is_none()
-        .then(|| collision_box_to_aabb(FULL_CUBE));
+        .then(|| Aabb::new(Vec3::ZERO, Vec3::ONE));
     defaults
         .into_iter()
         .chain(
@@ -574,7 +605,7 @@ fn apply_selection(
     selection: protocol::CustomSelection,
 ) {
     let shapes = match selection {
-        protocol::CustomSelection::Default => return,
+        protocol::CustomSelection::Default => vec![Aabb::new(Vec3::ZERO, Vec3::ONE)],
         protocol::CustomSelection::Disabled => Vec::new(),
         protocol::CustomSelection::Box(shape) => vec![box_to_aabb(shape)],
     };

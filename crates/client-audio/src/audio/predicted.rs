@@ -134,6 +134,7 @@ pub fn drive_block_cues(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let mut requests: Vec<(&'static str, Option<String>, [i32; 3])> = Vec::new();
     for cue in cues.read() {

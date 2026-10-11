@@ -250,6 +250,7 @@ pub fn update_screen_overlays(
                 stream.collision_store(),
                 collisions.registry(stream.network_id_mode()),
                 stream.current_dimension(),
+                Default::default(),
             );
             probe_head_medium(&world, view.eye_translation())
         }
@@ -389,6 +390,7 @@ pub fn apply_camera_presentation(
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
+            Default::default(),
         );
         pose = server.collision_safe_pose(&context, pose, &world);
     }

@@ -395,7 +395,7 @@ fn scoped_tails_bound_retained_nbt_and_continue_after_budget_rejections() {
     assert!(decoded.get(BlockEntityKey::new(0, 8, 0, 0)).is_none());
     assert!(decoded.get(last).is_some());
     let mut store = ChunkStore::new();
-    store.commit_chunk_block_entities(chunk, decoded);
+    store.commit_chunk_block_entities(chunk, decoded).unwrap();
     let retained: usize = store
         .chunk(chunk)
         .unwrap()

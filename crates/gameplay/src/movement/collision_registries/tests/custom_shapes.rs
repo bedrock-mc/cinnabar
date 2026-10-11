@@ -2,12 +2,14 @@ use sim::{Aabb, Vec3};
 
 use super::{BREG_V2193, active_content_registry_protocol, bind, synthetic_preg};
 
+/// Encodes a named NBT tag header for the custom-block fixture.
 fn named(tag: u8, name: &str) -> Vec<u8> {
     let mut bytes = vec![tag, u8::try_from(name.len()).unwrap()];
     bytes.extend(name.as_bytes());
     bytes
 }
 
+/// Creates a custom block with collision primitives and omitted selection data.
 fn definitions(shapes: &[[f32; 6]]) -> protocol::CustomBlocks {
     let mut bytes = named(10, "");
     bytes.extend(named(10, "components"));
@@ -65,7 +67,10 @@ fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces()
             "independent boxes must not become a filled union"
         );
         assert!(collision.iter().all(|shape| !shape.intersects(gap)));
-        assert_eq!(registry.selection_shapes(id).unwrap(), expected);
+        assert_eq!(
+            registry.selection_shapes(id).unwrap(),
+            [Aabb::new(Vec3::ZERO, Vec3::ONE)]
+        );
     }
 }
 
@@ -147,7 +152,12 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
             (&registries.hashed, hashes[index].hash),
         ] {
             assert_eq!(registry.collision_shapes(id).unwrap(), expected);
-            assert_eq!(registry.selection_shapes(id).unwrap(), expected);
+            let selection = match index {
+                0 => vec![Aabb::new(Vec3::ZERO, Vec3::ONE)],
+                1 => expected.clone(),
+                _ => Vec::new(),
+            };
+            assert_eq!(registry.selection_shapes(id).unwrap(), selection);
         }
     }
 }
@@ -192,7 +202,10 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
             (&registries.sequential, range.start + index as u32),
             (&registries.hashed, hashes[index].hash),
         ] {
-            assert_eq!(registry.selection_shapes(id), registry.collision_shapes(id));
+            assert_eq!(
+                registry.selection_shapes(id).unwrap(),
+                [Aabb::new(Vec3::ZERO, Vec3::ONE)]
+            );
             for position in [[-1, 8, -1], [i32::MIN, 0, i32::MAX], [16, 100, -32]] {
                 let offset = component.offset(position);
                 let expected = Vec3::new(
@@ -226,7 +239,7 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
                     air,
                 )
                 .unwrap();
-            let world = sim::PaletteWorld::new(&store, registry, 0);
+            let world = sim::PaletteWorld::new(&store, registry, 0, Default::default());
             let offset = registry.block_shape_offset(id, [1, 8, 0]).unwrap();
             let shape = registry.collision_shapes(id).unwrap()[0].translated(offset);
             use sim::CollisionWorld;
@@ -240,16 +253,48 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
                     .value,
                 [shape]
             );
+            let selection = Aabb::new(Vec3::ZERO, Vec3::ONE).translated(offset);
             let origin = Vec3::new((shape.min.x + shape.max.x) * 0.5, 8.5, 2.0);
             let hit = world
                 .block_interaction_ray_current(origin, Vec3::new(0.0, 0.0, -1.0), 4.0)
                 .unwrap()
                 .unwrap();
             assert_eq!((hit.block_pos, hit.runtime_id), ([1, 8, 0], id));
+            assert!((hit.distance - (origin.z - selection.max.z)).abs() < 1e-12);
             let (camera, _) = world
                 .camera_segment_entry(origin, Vec3::new(0.0, 0.0, -3.0))
                 .unwrap();
             assert!((camera.unwrap() - (origin.z - shape.max.z) / 3.0).abs() < 1e-12);
         }
+    }
+}
+
+#[test]
+fn omitted_selection_remains_pickable_without_collision() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(version, BREG_V2193, &records),
+        version,
+    )
+    .unwrap();
+    let mut custom = definitions(&[]);
+    let block = &mut std::sync::Arc::make_mut(&mut custom.blocks)[0];
+    block.collides = false;
+    let hash = block.hashed_states()[0].hash;
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    registries
+        .begin_session_hashed_custom_blocks(&custom)
+        .unwrap();
+    for (registry, id) in [
+        (&registries.sequential, range.start),
+        (&registries.hashed, hash),
+    ] {
+        assert!(registry.collision_shapes(id).unwrap().is_empty());
+        assert_eq!(
+            registry.selection_shapes(id).unwrap(),
+            [Aabb::new(Vec3::ZERO, Vec3::ONE)]
+        );
     }
 }

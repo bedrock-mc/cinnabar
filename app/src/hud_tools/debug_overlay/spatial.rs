@@ -100,6 +100,17 @@ impl DebugContext<'_, '_> {
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
+            crate::interaction_authority::pick_context(
+                stream,
+                collisions,
+                self.player
+                    .as_ref()
+                    .and_then(|player| player.facts.player_game_mode()),
+                self.player
+                    .as_ref()
+                    .and_then(|player| player.selected_stack())
+                    .map(|item| item.block_runtime_id),
+            ),
         );
         let vector = |value: Vec3| {
             sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))

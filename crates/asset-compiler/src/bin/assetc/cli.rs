@@ -16,6 +16,15 @@ pub(super) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Compile final movement, selection and interaction facts for every block state.
+    BlockPhysics {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        seed: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Compile the fixed vanilla sun, moon-phase, and cloud textures.
     Atmosphere {
         /// Root of the pinned vanilla resource pack.

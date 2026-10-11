@@ -3,6 +3,8 @@ use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use thiserror::Error;
 
 use crate::{BlockIds, ChunkKey, SubChunk, SubChunkKey};
+mod shape_actor;
+pub use shape_actor::ShapeActor;
 
 /// Maximum encoded size retained for one block entity.
 pub const MAX_BLOCK_ENTITY_NBT_BYTES: usize = 1024 * 1024;
@@ -62,6 +64,7 @@ impl BlockEntityKey {
 /// Exact validated NetworkLittleEndian NBT retained for one block entity.
 #[derive(Debug, Clone)]
 pub struct BlockEntityNbt {
+    shape_actor: ShapeActor,
     bytes: Arc<[u8]>,
     pub(crate) parsed: Arc<std::sync::OnceLock<Option<Arc<crate::NbtCompound>>>>,
     id: Option<Arc<str>>,
@@ -118,6 +121,7 @@ impl BlockEntityNbt {
             let consumed = reader.position();
             return Ok((
                 Self {
+                    shape_actor: ShapeActor::None,
                     bytes: Arc::from(&input[..consumed]),
                     parsed: Arc::default(),
                     id: None,
@@ -224,18 +228,19 @@ impl BlockEntityNbt {
             }
         };
         let consumed = reader.position();
-        Ok((
-            Self {
-                bytes: Arc::from(&input[..consumed]),
-                parsed: Arc::default(),
-                id,
-                embedded_position,
-                note_candidate,
-                powered_candidate,
-            },
-            consumed,
-            semantic_error,
-        ))
+        let mut nbt = Self {
+            shape_actor: ShapeActor::None,
+            bytes: Arc::from(&input[..consumed]),
+            parsed: Arc::default(),
+            id,
+            embedded_position,
+            note_candidate,
+            powered_candidate,
+        };
+        if semantic_error.is_none() {
+            nbt.shape_actor = ShapeActor::from_nbt(&nbt);
+        }
+        Ok((nbt, consumed, semantic_error))
     }
 
     #[must_use]
@@ -261,6 +266,11 @@ impl BlockEntityNbt {
     #[must_use]
     pub const fn powered_candidate(&self) -> RootByteCandidate {
         self.powered_candidate
+    }
+
+    /// Returns actor geometry inputs cached when this immutable NBT snapshot was decoded.
+    pub const fn shape_actor(&self) -> &ShapeActor {
+        &self.shape_actor
     }
 }
 
@@ -455,6 +465,8 @@ fn decode_scoped_entities(
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BlockEntityError {
+    #[error(transparent)]
+    CollisionRevision(#[from] crate::CollisionRevisionError),
     #[error(transparent)]
     Nbt(#[from] BlockEntityNbtError),
     #[error("block-entity tail exceeds {max} sparse records")]

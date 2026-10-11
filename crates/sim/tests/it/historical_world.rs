@@ -34,7 +34,7 @@ fn replay_uses_each_historical_world_after_the_live_chunk_is_evicted() {
                     ..MovementInput::default()
                 },
                 &simulator,
-                &PaletteWorld::new(&store, &registry, 0),
+                &PaletteWorld::new(&store, &registry, 0, Default::default()),
             )
             .unwrap();
         if tick == 1 {
@@ -49,7 +49,7 @@ fn replay_uses_each_historical_world_after_the_live_chunk_is_evicted() {
             &mut state,
             anchor.unwrap(),
             &simulator,
-            &PaletteWorld::new(&store, &registry, 0),
+            &PaletteWorld::new(&store, &registry, 0, Default::default()),
         )
         .unwrap();
     assert_eq!(result.replayed_ticks, 3);
@@ -71,7 +71,7 @@ fn snapshot_keeps_collision_identity_and_geometry_after_live_replacement() {
         .update_block(key, BlockUpdate::new(8, 8, 8, 0, 1), 0)
         .unwrap();
     let query = Aabb::new(Vec3::new(8.0, 8.0, 8.0), Vec3::new(9.0, 9.0, 9.0));
-    let original = PaletteWorld::new(&store, &registry, 0);
+    let original = PaletteWorld::new(&store, &registry, 0, Default::default());
     let expected = original.collision_boxes_with_provenance(query).unwrap();
     let expected_material = original.primary_is_air([8, 8, 8]).unwrap().unwrap();
     assert!(!expected_material.value);
@@ -80,7 +80,7 @@ fn snapshot_keeps_collision_identity_and_geometry_after_live_replacement() {
         .update_block(key, BlockUpdate::new(8, 8, 8, 0, 0), 0)
         .unwrap();
     assert_ne!(
-        PaletteWorld::new(&store, &registry, 0)
+        PaletteWorld::new(&store, &registry, 0, Default::default())
             .collision_boxes_with_provenance(query)
             .unwrap(),
         expected
@@ -89,7 +89,7 @@ fn snapshot_keeps_collision_identity_and_geometry_after_live_replacement() {
         snapshot.collision_boxes_with_provenance(query).unwrap(),
         expected
     );
-    let live_material = PaletteWorld::new(&store, &registry, 0)
+    let live_material = PaletteWorld::new(&store, &registry, 0, Default::default())
         .primary_is_air([8, 8, 8])
         .unwrap()
         .unwrap();

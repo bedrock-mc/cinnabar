@@ -364,7 +364,7 @@ pub(crate) fn prepare_ui_runtime(
                 camera,
                 &transform,
                 [logical_width, logical_height],
-                picked_nametag_actor(stream, &transform, collisions.as_deref()),
+                picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
                 actor_partial.0,
                 show_names,
             )
@@ -448,6 +448,7 @@ fn station_triggered(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     let runtime_id = world.primary_runtime_id(position).ok()?;
     assets::pinned_block_presentation_states()
@@ -460,6 +461,7 @@ fn picked_nametag_actor(
     stream: &chunk_pipeline::WorldStream,
     camera_transform: &GlobalTransform,
     collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    player: &client_state::PlayerRuntime,
 ) -> Option<u64> {
     let eye = camera_transform.translation();
     let direction = *camera_transform.forward();
@@ -478,6 +480,12 @@ fn picked_nametag_actor(
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
+            crate::interaction_authority::pick_context(
+                stream,
+                collisions,
+                player.facts.player_game_mode(),
+                player.selected_stack().map(|item| item.block_runtime_id),
+            ),
         );
         let vector =
             |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));

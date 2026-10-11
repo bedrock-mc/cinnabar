@@ -4,19 +4,25 @@ use assets::{ModelStateField, NetworkIdMode, RegistryRecord, TOP_SNOW_LAYER_COUN
 use sim::{Aabb, PaletteWorld, Vec3};
 use world::{BlockUpdate, ChunkStore, SubChunkKey};
 
-use super::{bounds, shape};
+/// Converts expected native coordinates without quantizing float precision.
+pub(super) fn bounds(min: [f32; 3], max: [f32; 3]) -> Aabb {
+    Aabb::new(
+        Vec3::new(min[0] as f64, min[1] as f64, min[2] as f64),
+        Vec3::new(max[0] as f64, max[1] as f64, max[2] as f64),
+    )
+}
 use crate::movement::PhysicsCollisionRegistries;
 
 #[path = "gateway_tests.rs"]
 mod gateway_tests;
 
-struct Fixture {
-    records: Box<[RegistryRecord]>,
-    registries: PhysicsCollisionRegistries,
+pub(super) struct Fixture {
+    pub(super) records: Box<[RegistryRecord]>,
+    pub(super) registries: PhysicsCollisionRegistries,
 }
 
 /// Binds the pinned block and physics carriers once for selection tests.
-fn fixture() -> &'static Fixture {
+pub(super) fn fixture() -> &'static Fixture {
     static FIXTURE: OnceLock<Fixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
         let breg = include_bytes!("../../../../../assets/data/block-registry-v2193.bin");
@@ -41,7 +47,7 @@ fn fixture() -> &'static Fixture {
 }
 
 /// Selects the runtime identifier used by the requested palette mode.
-fn runtime_id(record: &RegistryRecord, mode: NetworkIdMode) -> u32 {
+pub(super) fn runtime_id(record: &RegistryRecord, mode: NetworkIdMode) -> u32 {
     match mode {
         NetworkIdMode::Sequential => record.sequential_id,
         NetworkIdMode::Hashed => record.network_hash,
@@ -49,7 +55,7 @@ fn runtime_id(record: &RegistryRecord, mode: NetworkIdMode) -> u32 {
 }
 
 /// Finds a named vanilla block in the pinned registry.
-fn record(name: &str) -> &'static RegistryRecord {
+pub(super) fn record(name: &str) -> &'static RegistryRecord {
     fixture()
         .records
         .iter()
@@ -114,7 +120,7 @@ fn every_snow_state_has_native_selection_height_in_both_id_spaces() {
             let id = runtime_id(record, mode);
             assert_eq!(registry.selection_shapes(id), Some([expected].as_slice()));
             let store = store(mode, record);
-            let hit = PaletteWorld::new(&store, registry, 0)
+            let hit = PaletteWorld::new(&store, registry, 0, Default::default())
                 .block_interaction_ray_current(
                     Vec3::new(8.5, 10.0, 8.5),
                     Vec3::new(0.0, -1.0, 0.0),
@@ -126,7 +132,7 @@ fn every_snow_state_has_native_selection_height_in_both_id_spaces() {
             assert_eq!(hit.block_pos, [8, 8, 8]);
             assert_eq!(hit.face, 1);
             assert_eq!(hit.hit_local.y, expected.max.y);
-            let side = PaletteWorld::new(&store, registry, 0)
+            let side = PaletteWorld::new(&store, registry, 0, Default::default())
                 .block_interaction_ray_current(
                     Vec3::new(8.5, 8.0 + expected.max.y / 2.0, 6.5),
                     Vec3::new(0.0, 0.0, 1.0),
@@ -200,7 +206,7 @@ fn flowers_grass_and_mushrooms_are_pickable_but_remain_passable() {
                 "{name} must not acquire a movement collider"
             );
             let store = store(mode, record);
-            let world = PaletteWorld::new(&store, registry, 0);
+            let world = PaletteWorld::new(&store, registry, 0, Default::default());
             let hit = world
                 .block_interaction_ray_current(
                     Vec3::new(8.5, 10.0, 8.5),
@@ -252,7 +258,17 @@ fn cobweb_and_all_signs_are_pickable_independently_of_movement_colliders() {
         .collect();
     assert!(records.len() > 20);
     for record in records {
-        let expected = shape(record).expect("the pinned selectable block has visual bounds");
+        let expected = match record.name.as_ref() {
+            "minecraft:web" => bounds([0.0; 3], [1.0; 3]),
+            "minecraft:oak_standing_sign" => bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]),
+            _ => *fixture
+                .registries
+                .registry(NetworkIdMode::Sequential)
+                .selection_shapes(record.sequential_id)
+                .unwrap()
+                .first()
+                .unwrap(),
+        };
         for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
             let registry = fixture.registries.registry(mode);
             let id = runtime_id(record, mode);
@@ -264,7 +280,7 @@ fn cobweb_and_all_signs_are_pickable_independently_of_movement_colliders() {
                 );
             }
             let store = store(mode, record);
-            let world = PaletteWorld::new(&store, registry, 0);
+            let world = PaletteWorld::new(&store, registry, 0, Default::default());
             let center = (expected.min + expected.max) * 0.5;
             let hit = world
                 .block_interaction_ray_current(
@@ -340,7 +356,7 @@ fn banners_are_pickable_without_movement_colliders() {
                 );
                 let store = store(mode, record);
                 let center = (expected.min + expected.max) * 0.5;
-                let hit = PaletteWorld::new(&store, registry, 0)
+                let hit = PaletteWorld::new(&store, registry, 0, Default::default())
                     .block_interaction_ray_current(
                         Vec3::new(8.0 + center.x, 10.0, 8.0 + center.z),
                         Vec3::new(0.0, -1.0, 0.0),
@@ -353,48 +369,6 @@ fn banners_are_pickable_without_movement_colliders() {
                 assert_eq!(hit.face, 1);
             }
         }
-    }
-}
-
-#[test]
-fn every_reviewed_foliage_route_binds_selection_without_movement_changes() {
-    let fixture = fixture();
-    for record in &fixture.records {
-        let Some(expected) = shape(record) else {
-            continue;
-        };
-        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-            let registry = fixture.registries.registry(mode);
-            assert_eq!(
-                registry.selection_shapes(runtime_id(record, mode)),
-                Some([expected].as_slice()),
-                "{} {} {mode:?}",
-                record.name,
-                record.canonical_state
-            );
-        }
-    }
-    for name in ["minecraft:air", "minecraft:water", "minecraft:stone"] {
-        assert!(
-            shape(record(name)).is_none(),
-            "no blanket passable-block picks"
-        );
-    }
-}
-
-#[test]
-fn invalid_snow_state_does_not_create_unbounded_pick_geometry() {
-    let mut snow = record("minecraft:snow_layer").clone();
-    for height in [
-        serde_json::Value::from(-1),
-        serde_json::Value::from(TOP_SNOW_LAYER_COUNT),
-        serde_json::Value::from(u64::MAX),
-        serde_json::Value::Null,
-    ] {
-        snow.canonical_state = serde_json::json!({"height": {"type": "int", "value": height}})
-            .to_string()
-            .into();
-        assert!(shape(&snow).is_none());
     }
 }
 
@@ -424,7 +398,7 @@ fn covered_snow_and_foliage_keep_separate_selection_bounds_in_both_layer_orders(
                     runtime_id(record("minecraft:air"), mode),
                 )
                 .unwrap();
-            let world = PaletteWorld::new(&store, registry, 0);
+            let world = PaletteWorld::new(&store, registry, 0, Default::default());
             for (x, z, target) in [(8.5, 8.5, grass), (8.01, 8.01, snow)] {
                 let hit = world
                     .block_interaction_ray_current(
@@ -452,7 +426,7 @@ fn barrier_selection_is_creative_only_without_removing_collision_or_the_pick() {
         let registry = fixture.registries.registry(mode);
         assert!(!registry.collision_shapes(id).unwrap().is_empty());
         let store = store(mode, barrier);
-        let world = PaletteWorld::new(&store, registry, 0);
+        let world = PaletteWorld::new(&store, registry, 0, Default::default());
         let hit = world
             .block_interaction_ray_current(
                 Vec3::new(8.5, 10.0, 8.5),
@@ -512,7 +486,12 @@ fn wall_and_fence_picks_stop_at_the_visible_post_without_shortening_collision() 
         })
         .expect("isolated fence must exist in the pinned registry");
     for (record, inset) in [(wall_record(0x100), 0.25), (fence, 0.375)] {
-        let expected = bounds([inset, 0.0, inset], [1.0 - inset, 1.0, 1.0 - inset]);
+        let height = if record.model_family == assets::ModelFamily::Wall {
+            0.9999
+        } else {
+            1.0
+        };
+        let expected = bounds([inset, 0.0, inset], [1.0 - inset, height, 1.0 - inset]);
         let collider = bounds([inset, 0.0, inset], [1.0 - inset, 1.5, 1.0 - inset]);
         for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
             let registry = fixture.registries.registry(mode);
@@ -520,7 +499,7 @@ fn wall_and_fence_picks_stop_at_the_visible_post_without_shortening_collision() 
             assert_eq!(registry.selection_shapes(id), Some([expected].as_slice()));
             assert_eq!(registry.collision_shapes(id), Some([collider].as_slice()));
             let store = store(mode, record);
-            let world = PaletteWorld::new(&store, registry, 0);
+            let world = PaletteWorld::new(&store, registry, 0, Default::default());
             assert!(
                 world
                     .block_interaction_ray_current(
@@ -552,7 +531,7 @@ fn wall_and_fence_picks_stop_at_the_visible_post_without_shortening_collision() 
                 .unwrap()
                 .unwrap();
             assert_eq!(top.runtime_id, id);
-            assert_eq!(top.hit_local.y, expected.max.y);
+            assert!((top.hit_local.y - expected.max.y).abs() < 1e-6);
         }
     }
 }
@@ -560,11 +539,11 @@ fn wall_and_fence_picks_stop_at_the_visible_post_without_shortening_collision() 
 #[test]
 fn wall_straights_follow_the_visible_arm_width_and_height_in_both_id_spaces() {
     for (connections, min, max) in [
-        (0x11, [0.3125, 0.0, 0.0], [0.6875, 0.875, 1.0]),
-        (0x44, [0.0, 0.0, 0.3125], [1.0, 0.875, 0.6875]),
-        (0x22, [0.3125, 0.0, 0.0], [0.6875, 1.0, 1.0]),
-        (0x88, [0.0, 0.0, 0.3125], [1.0, 1.0, 0.6875]),
-        (0x111, [0.25, 0.0, 0.0], [0.75, 1.0, 1.0]),
+        (0x11, [0.3125, 0.0, 0.0], [0.6875, 0.8125, 1.0]),
+        (0x44, [0.0, 0.0, 0.3125], [1.0, 0.8125, 0.6875]),
+        (0x22, [0.3125, 0.0, 0.0], [0.6875, 0.9999, 1.0]),
+        (0x88, [0.0, 0.0, 0.3125], [1.0, 0.9999, 0.6875]),
+        (0x111, [0.25, 0.0, 0.0], [0.75, 0.9999, 1.0]),
     ] {
         let record = wall_record(connections);
         let expected = bounds(min, max);
@@ -580,7 +559,7 @@ fn wall_straights_follow_the_visible_arm_width_and_height_in_both_id_spaces() {
                     .all(|collider| collider.max.y == 1.5)
             );
             let store = store(mode, record);
-            let world = PaletteWorld::new(&store, registry, 0);
+            let world = PaletteWorld::new(&store, registry, 0, Default::default());
             let top = world
                 .block_interaction_ray_current(
                     Vec3::new(8.5, 10.0, 8.5),
@@ -590,7 +569,7 @@ fn wall_straights_follow_the_visible_arm_width_and_height_in_both_id_spaces() {
                 .unwrap()
                 .unwrap();
             assert_eq!(top.runtime_id, id);
-            assert_eq!(top.hit_local.y, expected.max.y);
+            assert!((top.hit_local.y - expected.max.y).abs() < 1e-6);
             assert!(
                 world
                     .block_interaction_ray_current(

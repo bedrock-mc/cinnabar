@@ -50,10 +50,8 @@ pub(crate) fn publish(
     );
 }
 
-/// Resolves reviewed visual bounds from the same shapes that admitted the pick.
-/// Vanilla stairs deliberately outline a full
-/// unit box: unioning its slab/step/inner collision pieces preserves that native
-/// wire outline. Model highlighting below uses the separate actual surface.
+/// Resolves the compiled outline and its runtime context for the admitted pick.
+/// Model highlighting uses its separate surface geometry.
 fn target(
     player_runtime: &client_state::PlayerRuntime,
     context: &SelectionContext,
@@ -84,6 +82,14 @@ fn target(
         stream.collision_store(),
         registry,
         stream.current_dimension(),
+        crate::interaction_authority::pick_context(
+            stream,
+            &context.collisions,
+            player_runtime.facts.player_game_mode(),
+            player_runtime
+                .selected_stack()
+                .map(|item| item.block_runtime_id),
+        ),
     );
     let vector = |value: Vec3| sim::Vec3::new(value.x as f64, value.y as f64, value.z as f64);
     let direct = world
@@ -114,23 +120,7 @@ fn target(
     ) {
         return None;
     }
-    let shapes = registry.selection_shapes(hit.runtime_id)?;
-    let first = shapes.first()?;
-    let mut min = first.min;
-    let mut max = first.max;
-    for shape in &shapes[1..] {
-        min = sim::Vec3::new(
-            min.x.min(shape.min.x),
-            min.y.min(shape.min.y),
-            min.z.min(shape.min.z),
-        );
-        max = sim::Vec3::new(
-            max.x.max(shape.max.x),
-            max.y.max(shape.max.y),
-            max.z.max(shape.max.z),
-        );
-    }
-    let offset = registry.block_shape_offset(hit.runtime_id, hit.block_pos)?;
+    let outline = world.block_outline(hit.block_pos, hit.runtime_id).ok()??;
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
     let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);
@@ -142,7 +132,7 @@ fn target(
         .unwrap_or(CrackShape::Cube);
     Some(BlockSelectionTarget {
         block: hit.block_pos,
-        bounds: [point(min + offset), point(max + offset)],
+        bounds: [point(outline.min), point(outline.max)],
         shape,
     })
 }

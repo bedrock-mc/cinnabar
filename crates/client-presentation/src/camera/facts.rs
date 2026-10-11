@@ -136,6 +136,7 @@ pub fn collect_portal_contact(
                 stream.collision_store(),
                 collisions.registry(stream.network_id_mode()),
                 stream.current_dimension(),
+                Default::default(),
             );
             portal::touches_portal(portal_body(physics, view), |block| {
                 world.primary_runtime_id(block).is_ok_and(|runtime_id| {

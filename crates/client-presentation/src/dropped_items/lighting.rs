@@ -22,6 +22,7 @@ pub(super) fn block_entity_light_position(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
+        Default::default(),
     );
     falling_light_position(center, falling_type, |cell| {
         let id = world.primary_runtime_id(cell).ok()?;

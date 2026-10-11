@@ -30,6 +30,7 @@ impl<'a> StreamParticleWorld<'a> {
             self.stream.collision_store(),
             self.registry,
             self.stream.current_dimension(),
+            Default::default(),
         )
     }
 

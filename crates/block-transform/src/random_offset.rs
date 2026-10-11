@@ -88,6 +88,24 @@ pub const BAMBOO: RandomOffsetComponent = RandomOffsetComponent {
     ],
 };
 
+/// Pointed dripstone uses a narrower sixteen-step displacement in the X/Z plane.
+pub const POINTED_DRIPSTONE: RandomOffsetComponent = RandomOffsetComponent {
+    axes: [
+        RandomOffsetAxis {
+            range: [-0.125, 0.125],
+            steps: 16,
+        },
+        RandomOffsetAxis {
+            range: [0.0; 2],
+            steps: 0,
+        },
+        RandomOffsetAxis {
+            range: [-0.125, 0.125],
+            steps: 16,
+        },
+    ],
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

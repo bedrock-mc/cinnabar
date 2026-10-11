@@ -1,10 +1,11 @@
 //! Borrowed visibility queries share interaction geometry without allocating hit provenance.
 
 use super::{
-    Candidate, TraversalState, candidate_precedes, checked_offset, ray_box, strictly_precedes,
-    validate_ray,
+    Candidate, TraversalState, candidate_precedes, checked_offset, ray_box, ray_union_box,
+    strictly_precedes, validate_ray,
 };
 use crate::{Aabb, PaletteWorld, Vec3, WorldQueryError};
+use std::borrow::Cow;
 use world::SubChunkKey;
 
 mod aim;
@@ -84,7 +85,7 @@ impl PaletteWorld<'_> {
         best: &mut Option<Candidate>,
         bounds: &mut Aabb,
     ) -> Result<(), WorldQueryError> {
-        let halo = self.registry.collision_halo;
+        let halo = self.registry.selection_ray_halo();
         for x in halo[0].0..=halo[0].1 {
             for y in halo[1].0..=halo[1].1 {
                 for z in halo[2].0..=halo[2].1 {
@@ -136,16 +137,23 @@ impl PaletteWorld<'_> {
             .registry
             .physics(runtime_id)
             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
+        if !self.may_pick(physics) {
+            return Ok(());
+        }
         let door = if physics.pick_shapes.is_none() {
             self.resolved_door_shape(block, physics)?
         } else {
             None
         };
-        let shapes = physics.pick_shapes.as_deref().unwrap_or_else(|| {
-            door.as_slice()
-                .first()
-                .map_or(&*physics.shapes, |_| door.as_slice())
-        });
+        let shapes = if physics.pick_shapes.is_some() {
+            self.selection_shapes_at(block, physics)?
+        } else {
+            Cow::Borrowed(
+                door.as_slice()
+                    .first()
+                    .map_or(&*physics.shapes, |_| door.as_slice()),
+            )
+        };
         let offset = Vec3::new(
             f64::from(block[0]),
             f64::from(block[1]),
@@ -159,8 +167,14 @@ impl PaletteWorld<'_> {
                 continue;
             }
             let shape = shape.translated(physics.shape_offset(block));
-            let Some((distance, face, point)) = ray_box(origin, direction, max_distance, shape)
-            else {
+            let Some((distance, face, point)) = ray_union_box(
+                origin,
+                direction,
+                max_distance,
+                shape,
+                &shapes,
+                physics.shape_offset(block),
+            ) else {
                 continue;
             };
             let candidate = Candidate {

@@ -638,8 +638,14 @@ impl WorldStream {
                 self.mark_dirty_exact(dirty, now);
             }
         }
-        self.authority
-            .commit_chunk_block_entities(key, block_entities);
+        if self
+            .authority
+            .commit_chunk_block_entities(key, block_entities)
+            .is_err()
+        {
+            self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+            return;
+        }
         self.refresh_block_entity_visuals_for_chunk(key);
         self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
         if has_authoritative_upper_air {

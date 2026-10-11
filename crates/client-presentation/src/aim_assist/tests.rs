@@ -409,7 +409,7 @@ fn world_fixture() -> (
 #[test]
 fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
     let (world, store, registry) = world_fixture();
-    let blocks = sim::PaletteWorld::new(&store, &registry, 0);
+    let blocks = sim::PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,
@@ -473,7 +473,7 @@ fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
 #[test]
 fn interaction_direction_uses_odd_tick_eye_for_retained_target_and_action_rotation() {
     let (world, store, registry) = world_fixture();
-    let blocks = sim::PaletteWorld::new(&store, &registry, 0);
+    let blocks = sim::PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,
@@ -533,7 +533,7 @@ fn interaction_direction_uses_odd_tick_eye_for_retained_target_and_action_rotati
 #[test]
 fn registry_and_priority_packets_preserve_search_cycle_and_even_tick_uses_latest_weight() {
     let (world, store, registry) = world_fixture();
-    let blocks = sim::PaletteWorld::new(&store, &registry, 0);
+    let blocks = sim::PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,
@@ -601,7 +601,7 @@ fn registry_and_priority_packets_preserve_search_cycle_and_even_tick_uses_latest
 #[test]
 fn removed_actor_winner_clears_even_phase_result_before_next_candidate_capture() {
     let (mut world, store, registry) = world_fixture();
-    let blocks = sim::PaletteWorld::new(&store, &registry, 0);
+    let blocks = sim::PaletteWorld::new(&store, &registry, 0, Default::default());
     let mut state = ServerAimAssist::default();
     state.apply(
         1,

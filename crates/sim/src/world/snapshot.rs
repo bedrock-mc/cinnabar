@@ -31,7 +31,12 @@ impl CollisionSnapshot {
 
     /// Borrows the ordinary palette adapter so replay uses the live query implementation.
     fn world(&self) -> PaletteWorld<'_> {
-        PaletteWorld::new(&self.0.store, &self.0.registry, self.0.dimension)
+        PaletteWorld::new(
+            &self.0.store,
+            &self.0.registry,
+            self.0.dimension,
+            Default::default(),
+        )
     }
 }
 
