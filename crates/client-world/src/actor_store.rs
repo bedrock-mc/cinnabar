@@ -405,6 +405,13 @@ impl ActorSnapshot {
         feet
     }
 
+    /// Restores the native actor-state origin from stored collision feet.
+    pub fn native_position(&self) -> [f32; 3] {
+        let mut position = self.position;
+        position[1] += self.network_position_offset();
+        position
+    }
+
     /// Offset from stored collision feet to the native actor-state position.
     pub(crate) fn network_position_offset(&self) -> f32 {
         match &self.kind {
