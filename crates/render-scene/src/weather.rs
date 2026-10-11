@@ -1,6 +1,14 @@
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{Deref, DerefMut, Resource},
+    render::extract_resource::ExtractResource,
+};
 use render_model::{OcclusionGrid, PrecipitationLayerRecord};
 use std::sync::Arc;
+
+/// Current rain and snow intensities shared by weather presentation systems.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Deref, DerefMut)]
+pub struct PrecipitationMixResource(pub render_model::PrecipitationMix);
+
 /// Decoded weather sheet and End sky, when the optional carrier is present.
 #[derive(Resource, ExtractResource, Clone, Default)]
 #[extract_app(bevy::render::RenderApp)]

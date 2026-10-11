@@ -84,7 +84,8 @@ use render_model::{
 use {
     crate::{
         ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef,
-        PackedQuad, PackedQuadLighting, atmosphere_render::AtmosphereGpu,
+        PackedQuad, PackedQuadLighting,
+        atmosphere_render::{AtmosphereGpu, install_atmosphere},
     },
     render_scene::{
         AtmosphereFrame, MAX_VISIBILITY_DIAGNOSTIC_KEYS, RuntimeStage, RuntimeStageProfiler,

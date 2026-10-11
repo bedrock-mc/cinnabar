@@ -1,5 +1,7 @@
 //! Optional camera exposure, using scene depth without object motion vectors.
 
+use render_scene::CameraMotionBlur;
+
 #[cfg(test)]
 mod extraction_tests;
 pub(crate) mod graph;

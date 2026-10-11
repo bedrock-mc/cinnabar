@@ -1,12 +1,9 @@
 use super::*;
+use crate::{ChunkAnimationClock, ScreenFireTexture};
 use assets::{
     Animation, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
     ContributorRole, LightProperties, Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray,
-    TextureMip, TexturePage, VisualKind, VisualSupport, encode_blob,
-};
-use {
-    crate::{ChunkAnimationClock, ScreenFireTexture},
-    render_model::TextureRef,
+    TextureMip, TexturePage, TextureRef, VisualKind, VisualSupport, encode_blob,
 };
 
 fn pack() -> RuntimeAssets {

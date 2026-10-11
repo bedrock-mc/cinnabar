@@ -36,8 +36,8 @@ use {
         weather_render::install_weather_render,
     },
     render_scene::{
-        AtmosphereFrame, AtmosphereTextureAssets, PrecipitationScene, RainSplashQueue,
-        WeatherTextureAssets,
+        AtmosphereFrame, AtmosphereTextureAssets, PrecipitationMixResource, PrecipitationScene,
+        RainSplashQueue, WeatherTextureAssets,
     },
 };
 
@@ -70,7 +70,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<PrecipitationScene>();
     app.init_resource::<WeatherTextureAssets>();
     app.init_resource::<RainSplashQueue>();
-    app.init_resource::<render_model::PrecipitationMix>();
+    app.init_resource::<PrecipitationMixResource>();
     app.init_resource::<render_scene::LightningScene>();
     app.init_resource::<render_scene::MediaScreenScene>();
     crate::pipeline_warmup::register::<AtmospherePipeline>(app);

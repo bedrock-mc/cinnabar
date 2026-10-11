@@ -135,7 +135,9 @@ pub use visibility_diagnostics::{
     ExtractedViewGenerations, MAX_VISIBILITY_DIAGNOSTIC_KEYS, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
-pub use weather::{PrecipitationScene, RainSplashQueue, WeatherTextureAssets};
+pub use weather::{
+    PrecipitationMixResource, PrecipitationScene, RainSplashQueue, WeatherTextureAssets,
+};
 
 pub use formats::{SCENE_COLOR_FORMAT, SCENE_HDR_FORMAT};
 pub use motion_blur::CameraMotionBlur;

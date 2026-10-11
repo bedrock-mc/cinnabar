@@ -14,8 +14,9 @@ use {
         average_precipitation, pick_rain_splashes, precipitation_forward_offset,
     },
     render_scene::{
-        AtmosphereFrame, LightningScene, PrecipitationScene, RainSplashQueue, SkyKind,
-        lightning_bolt_segments, lightning_flash_level, push_bolt_records,
+        AtmosphereFrame, LightningScene, PrecipitationMixResource, PrecipitationScene,
+        RainSplashQueue, SkyKind, lightning_bolt_segments, lightning_flash_level,
+        push_bolt_records,
     },
 };
 
@@ -241,7 +242,7 @@ pub(crate) fn update_precipitation_scene(
     time: Res<Time<Real>>,
     mut scene: ResMut<PrecipitationScene>,
     mut splashes: ResMut<RainSplashQueue>,
-    mut mix: ResMut<PrecipitationMix>,
+    mut mix: ResMut<PrecipitationMixResource>,
     mut cadence: Local<PrecipitationCadence>,
 ) {
     let level = frame.rain_level();
@@ -253,7 +254,7 @@ pub(crate) fn update_precipitation_scene(
         level > 0.0 && frame.sky_kind() == SkyKind::Overworld,
     ) else {
         scene.layers.clear();
-        *mix = PrecipitationMix::default();
+        mix.0 = PrecipitationMix::default();
         *cadence = PrecipitationCadence::default();
         return;
     };
@@ -277,7 +278,7 @@ pub(crate) fn update_precipitation_scene(
                 .map(|(temperature, downfall)| (temperature, downfall, position[1] as i32))
         });
         let averaged = average_precipitation(&samples);
-        *mix = PrecipitationMix {
+        mix.0 = PrecipitationMix {
             rain: averaged.rain * level,
             snow: averaged.snow * level,
         };

@@ -26,6 +26,8 @@ mod validation;
 
 #[cfg(feature = "enhanced")]
 use render_model::enhanced_rendering_enabled;
+#[cfg(feature = "enhanced")]
+use render_scene::EnhancedRendering;
 
 #[cfg(all(test, feature = "enhanced"))]
 use bevy::prelude::{Has, World};

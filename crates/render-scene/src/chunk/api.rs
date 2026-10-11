@@ -1,5 +1,6 @@
 use crate::chunk::*;
 use crate::{ModelWitnessFrameAck, ModelWitnessManifestRecord, ModelWitnessRequest};
+use std::collections::hash_map::Entry;
 pub const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
@@ -199,7 +200,7 @@ impl Default for ChunkGpuRemovalQueue {
 }
 
 impl ChunkGpuRemovalQueue {
-    #[cfg(any(test, feature = "publication-test-support"))]
+    /// Returns the removals still waiting for the renderer to retire their allocations.
     pub fn pending_len(&self) -> usize {
         self.inner
             .lock()
@@ -863,7 +864,8 @@ impl ChunkUploadAcknowledgements {
         true
     }
 
-    #[cfg(test)]
+    /// Records a completed upload directly for publication fixtures.
+    #[cfg(any(test, feature = "publication-test-support"))]
     pub fn record(&self, acknowledgement: ChunkUploadAcknowledgement) -> bool {
         let mut state = self
             .inner

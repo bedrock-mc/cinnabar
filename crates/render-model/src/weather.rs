@@ -435,7 +435,7 @@ pub const PRECIPITATION_SAMPLE_OFFSETS: [[i32; 3]; 27] = {
 };
 
 /// Share of the surrounding biomes that rain and snow, each in `0..=1`.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PrecipitationMix {
     pub rain: f32,
     pub snow: f32,

@@ -7,7 +7,7 @@ publish = false
 
 [features]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
-publication-test-support = ["render-scene/publication-test-support"]
+publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.

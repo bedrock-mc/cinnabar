@@ -4,7 +4,7 @@ use {
         MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90,
         MATERIAL_UV_ROTATE_180, MATERIAL_UV_ROTATE_270,
     },
-    render_model::TextureRef,
+    assets::{Material, TextureRef},
 };
 
 /// Immutable assets selected for the single global chunk texture array.

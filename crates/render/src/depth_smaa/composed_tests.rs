@@ -5,11 +5,8 @@ use render_model::{
     UiRenderBatch, UiRenderInput, UiRenderTextureArray, UiRenderVertex, UiScissor, UiTexturePage,
 };
 use {
-    crate::{
-        motion_blur::{CameraMotionBlur, CameraMotionBlurPlugin},
-        ui_render::UiRenderPlugin,
-    },
-    render_scene::{UiRenderSceneResource, UiRenderStatsResource},
+    crate::{motion_blur::CameraMotionBlurPlugin, ui_render::UiRenderPlugin},
+    render_scene::{CameraMotionBlur, UiRenderSceneResource, UiRenderStatsResource},
 };
 
 /// Publishes an opaque blue HUD rectangle over the red and green world fixture.

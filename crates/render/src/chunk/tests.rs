@@ -1,3 +1,5 @@
+use super::gpu::arena::plan_chunk_range_update;
+use render_model::VisibilityKeyDigest;
 use render_scene::TargetRenderExpectation;
 use std::sync::{Arc, OnceLock};
 
