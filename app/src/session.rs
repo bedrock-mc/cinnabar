@@ -500,6 +500,7 @@ pub(crate) fn login_settings(
         gui_scale_offset: menu.gui_scale_offset(),
         memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
+        filter_profanity: menu.settings_snapshot().0.value("filter_profanity") != 0,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -730,6 +731,34 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_profanity_preference_comes_from_saved_settings_with_a_hidden_menu() {
+        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
+
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == "filter_profanity")
+            .unwrap();
+        for filter_profanity in [false, true] {
+            let layout =
+                launcher::test_support::scratch(&format!("login-profanity-{filter_profanity}"));
+            let mut saved = SettingsOptions::default();
+            saved.set(index, i32::from(filter_profanity));
+            saved
+                .save(&layout.user_config_root.join(SETTINGS_FILE))
+                .unwrap();
+            let menu = MenuRuntime::new_with_layout(
+                false,
+                None,
+                "Direct".to_owned(),
+                layout,
+                crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            );
+            let settings = login_settings(&menu, None);
+            assert_eq!(settings.filter_profanity, filter_profanity);
+        }
+    }
 
     // A hidden-menu direct launch must still report the player's saved GUI scale.
     #[test]

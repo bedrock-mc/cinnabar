@@ -113,6 +113,7 @@ struct VisualCompiler {
     dragon_egg_templates: BTreeMap<[u32; 6], u32>,
     anvil_templates: BTreeMap<super::anvil::TemplateKey, u32>,
     end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
+    end_rod_templates: BTreeMap<(u32, usize), u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,
     slab_templates: BTreeMap<[u32; 7], u32>,
     stair_templates: BTreeMap<[u32; 7], u32>,
@@ -136,6 +137,7 @@ struct VisualCompiler {
     flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
+    candle_cake_templates: BTreeMap<[u32; 4], u32>,
 }
 
 impl VisualCompiler {
@@ -233,6 +235,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::end_rod::compile_rule(
+            record,
+            inputs,
+            &mut self.end_rod_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::flower_pot::compile_rule(
             record,
             inputs,
@@ -265,6 +276,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.shelf_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::candle_cake::compile_rule(
+            record,
+            inputs,
+            &mut self.candle_cake_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

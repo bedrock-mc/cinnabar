@@ -1,5 +1,9 @@
 # Phases 2-5 Completion Ledger
 
+End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
+mapping and an original-art GPU fixture. This bounded geometry correction leaves the
+exhaustive residual-family, world-join and hardware performance gates open.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |

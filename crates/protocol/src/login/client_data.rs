@@ -44,6 +44,8 @@ pub struct LoginSettings {
     pub memory_tier: u32,
     /// The graphics option: 0 simple, 1 fancy.
     pub graphics_mode: u8,
+    /// Whether the player has enabled profanity filtering.
+    pub filter_profanity: bool,
     /// Trusted local archive directory, never sent in the upstream login claims.
     pub resource_pack_cache_dir: Option<std::path::PathBuf>,
 }
@@ -56,6 +58,7 @@ impl Default for LoginSettings {
             gui_scale_offset: 0,
             memory_tier: SUPER_HIGH_MEMORY_TIER,
             graphics_mode: 1,
+            filter_profanity: false,
             resource_pack_cache_dir: None,
         }
     }
@@ -114,6 +117,7 @@ pub(crate) fn login_client_data(
         "ClientIsEditorCapable": false,
         "CompatibleWithClientSideChunkGen": false,
         "CurrentInputMode": input_mode_value(settings.input_mode),
+        "FilterProfanity": settings.filter_profanity,
         "GameVersion": GAME_VERSION,
         "GraphicsMode": settings.graphics_mode,
         "GuiScale": settings.gui_scale_offset,
@@ -384,6 +388,34 @@ mod tests {
         let claims = login_client_data("Steve", ClientRandomId::new(1).unwrap(), None, &settings);
         assert_eq!(claims["MemoryTier"], 2);
         assert_eq!(claims["GraphicsMode"], 0);
+    }
+
+    #[test]
+    fn login_profanity_preference_remains_explicit_in_session_claims() {
+        for filter_profanity in [false, true] {
+            let settings = LoginSettings {
+                filter_profanity,
+                ..Default::default()
+            };
+            let request = crate::session_wire::ConnectRequest {
+                protocol: crate::PROTOCOL_VERSION,
+                target: None,
+                client_cache: false,
+                client_data: login_client_data(
+                    "Steve",
+                    ClientRandomId::new(1).unwrap(),
+                    None,
+                    &settings,
+                ),
+            };
+            let encoded = crate::session_wire::encode_connect(&request).unwrap();
+            let received = crate::session_wire::decode_connect(&encoded).unwrap();
+            assert_eq!(
+                received.client_data["FilterProfanity"].as_bool(),
+                Some(filter_profanity),
+                "the selected preference must be present, including false"
+            );
+        }
     }
 
     /// The claims carry the version, offline name and the player's own settings, and leave the

@@ -238,6 +238,28 @@ impl Gpu {
         )
     }
 
+    /// Renders separate shader modules into one ordinary sRGB colour and depth target.
+    pub fn render_sources_srgb(
+        &self,
+        sources: &[&str],
+        draws: &[Draw<'_>],
+        pipelines: &[DrawPipeline<'_>],
+    ) -> Vec<u8> {
+        assert_eq!(draws.len(), sources.len());
+        assert_eq!(draws.len(), pipelines.len());
+        self.render_to_format(
+            "",
+            "",
+            draws,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            RasterConfiguration {
+                state: RasterState::default(),
+                pipelines,
+                sources,
+            },
+        )
+    }
+
     /// Exercises the same hardware transfer as Bevy's ordinary sRGB target.
     pub fn render_srgb(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
         self.render_srgb_with_state(source, vertex, draws, RasterState::default())
