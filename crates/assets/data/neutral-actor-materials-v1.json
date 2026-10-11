@@ -7,7 +7,7 @@
   ],
   "public_material_version": "1.26.33.01",
   "public_material_sha256": "6b481fb5ba8ffff97c6222c37e379e34a03e04ebad42566c5d85e207af010272",
-  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and arbitrary fractional-alpha material parity remain unverified. Content-pinned sheep and wolf sources use color-mask materials; llama sources use three-sampler materials. Sheep dye and wolf collar palette callbacks, arbitrary custom-material composition and independent server-pack sampler overrides remain incomplete. Installed material/shader evidence is near-version, not an exact target-binary witness.",
+  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and arbitrary fractional-alpha material parity remain unverified. Content-pinned sheep and wolf sources use color-mask materials; llama sources use three-sampler materials. Sheep dye callbacks, arbitrary custom-material composition and independent server-pack sampler overrides remain incomplete. Installed material/shader evidence is near-version, not an exact target-binary witness.",
   "native_reference": {
     "runtime_version": "1.26.51",
     "material_sha256": "f5c38e892b88d991212b637d686d1a37eb4ffdde0d0494b02f6918e14928e966",
