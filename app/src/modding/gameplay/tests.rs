@@ -566,6 +566,7 @@ fn nearest_mob_selection_matches_full_order_for_a_large_scrambled_population() {
             .unwrap();
     }
     let mut expected: Vec<_> = stream.authority().remote_actors().collect();
+    assert_eq!(expected.len(), count);
     expected.sort_by(|a, b| {
         Vec3::from_array(a.position)
             .length_squared()
