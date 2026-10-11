@@ -269,3 +269,6 @@ pub use movement_transport::{BatchSendError, InteractionPacketGuard, PhysicsSend
 
 mod fast_transfer_action;
 pub use fast_transfer_action::FastTransferAction;
+
+#[cfg(test)]
+mod test_allocations;
