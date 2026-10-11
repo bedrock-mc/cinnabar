@@ -22,11 +22,10 @@ use serde_json::{Value, json};
 
 use {
     crate::runtime::telemetry::bedrock_camera_rotation,
-    crate::semantic_controls::physical::KEYBOARD_USAGES,
-    crate::semantic_controls::physical::mouse_button_code,
     client_presentation::camera::FlyCameraUpdateSet, client_presentation::camera::PITCH_LIMIT,
     client_presentation::local_player::LocalPlayerFrameSet,
     client_presentation::local_player::LocalViewPose, client_state::DrivenInput,
+    client_ui::physical_input::KEYBOARD_USAGES, client_ui::physical_input::mouse_button_code,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
