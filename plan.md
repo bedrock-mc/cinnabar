@@ -5341,8 +5341,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   recovery previews the destination pose before probing overlap, preserving a
   fitting low-space feet anchor. Controller tests
   cover crawl travel, eye height, start/stop input edges and correction replay.
-  Rendered trapdoor and pearl acceptance remains incomplete until checked on
-  the integrated candidate; broader crawl and correction parity gates stay open.
+  Headless fixture captures confirm trapdoor closure, crawl travel, exit, and
+  actual pearl relocation; broader crawl and correction parity gates stay open.
   Liquid prediction now derives current vectors from palette liquid depths and native
   material/face facts, including lower-neighbor gradients and falling-water pull. It
   uses native cell order, float normalization and water/lava impulses before jump and
