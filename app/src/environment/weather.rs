@@ -1,6 +1,5 @@
 //! Client-side weather presentation: eased levels, lightning flash and the precipitation scene.
 
-use assets::BiomeRule;
 use bevy::{
     prelude::{Local, Query, Res, ResMut, Resource, Time, Transform, With},
     time::Real,
@@ -179,7 +178,6 @@ impl WeatherDisplay {
 
 struct StreamColumns<'a> {
     stream: &'a WorldStream,
-    rules: &'a [BiomeRule],
 }
 
 impl ColumnSampler for StreamColumns<'_> {
@@ -188,14 +186,12 @@ impl ColumnSampler for StreamColumns<'_> {
         let biome =
             self.stream
                 .camera_biome_id([x as f32 + 0.5, top as f32 + 0.5, z as f32 + 0.5])?;
-        let rule = &self.rules[self
-            .rules
-            .binary_search_by_key(&biome, |rule| rule.id)
-            .ok()?];
+        let registry = self.stream.authority().resolved_biome_tints();
+        let rule = registry.biome(biome)?;
         Some(ColumnSample {
             surface_y: top.saturating_add(1),
-            temperature: rule.temperature(),
-            downfall: rule.downfall(),
+            temperature: rule.temperature,
+            downfall: rule.downfall,
         })
     }
 }
@@ -225,14 +221,10 @@ impl Default for PrecipitationCadence {
 }
 
 /// Biome (temperature, downfall) at a block position, when its chunk and biome are known.
-fn biome_climate(
-    stream: &WorldStream,
-    rules: &[BiomeRule],
-    position: [f32; 3],
-) -> Option<(f32, f32)> {
+fn biome_climate(stream: &WorldStream, position: [f32; 3]) -> Option<(f32, f32)> {
     let id = stream.camera_biome_id(position)?;
-    let rule = &rules[rules.binary_search_by_key(&id, |rule| rule.id).ok()?];
-    Some((rule.temperature(), rule.downfall()))
+    let rule = stream.authority().resolved_biome_tints().biome(id)?;
+    Some((rule.temperature, rule.downfall))
 }
 
 /// Ticks the vanilla precipitation layers, refreshes the occlusion grid and queues rain splashes.
@@ -264,7 +256,6 @@ pub(crate) fn update_precipitation_scene(
     let ticks = elapsed * PRECIPITATION_TICKS_PER_SECOND;
     let tick = ticks as u64;
     let origin = camera.translation.to_array();
-    let rules = &client_world.runtime_assets.biome_assets().rules;
     let pending = cadence
         .last_tick
         .map_or(1, |last| tick.saturating_sub(last).min(MAX_CATCH_UP_TICKS));
@@ -277,7 +268,7 @@ pub(crate) fn update_precipitation_scene(
                 feet[1] + offset[1] as f32,
                 feet[2] + offset[2] as f32,
             ];
-            biome_climate(stream, rules, position)
+            biome_climate(stream, position)
                 .map(|(temperature, downfall)| (temperature, downfall, position[1] as i32))
         });
         let averaged = average_precipitation(&samples);
@@ -291,7 +282,7 @@ pub(crate) fn update_precipitation_scene(
             cadence.sim.tick(weights, seconds as f32);
         }
         let PrecipitationCadence { grid, cursor, .. } = &mut *cadence;
-        let mut columns = StreamColumns { stream, rules };
+        let mut columns = StreamColumns { stream };
         let refresh = OCCLUSION_REFRESH_PER_TICK * pending as usize;
         grid.update(
             OcclusionGrid::origin_for(origin),

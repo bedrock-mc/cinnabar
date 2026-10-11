@@ -389,3 +389,91 @@ fn supplied_skybox_pack_fixture_survives_archive_admission_and_reload() {
         assert_eq!(face.rgba8.len(), (face.width * face.height * 4) as usize);
     }
 }
+
+#[test]
+fn custom_biome_profiles_apply_authored_routes_and_preserve_defaults() {
+    let base = BiomeVisualProfile {
+        biome_identifier: "minecraft:plains".into(),
+        fog_identifier: "test:base_fog".into(),
+        atmosphere_identifier: "test:base_atmosphere".into(),
+        lighting_identifier: "test:base_light".into(),
+        sky_rgb8: None,
+    };
+    let mut profiles = BTreeMap::from([(base.biome_identifier.clone(), base.clone())]);
+    overlay_biome_profile(
+        &serde_json::json!({"minecraft:client_biome": {
+            "description": {"identifier": "custom:wet"}, "components": {
+                "minecraft:fog_appearance": {"fog_identifier":"custom:fog"},
+                "minecraft:sky_color": {"sky_color":"#123456"}
+            }
+        }}),
+        &mut profiles,
+        &BTreeMap::from([(
+            "custom:fog".into(),
+            assets::FogProfile {
+                identifier: "custom:fog".into(),
+                distances: Box::new([]),
+            },
+        )]),
+    );
+    let profile = profiles.get("custom:wet").unwrap();
+    assert_eq!(profile.fog_identifier.as_ref(), "custom:fog");
+    assert_eq!(profile.sky_rgb8, Some(0x123456));
+    assert_eq!(profile.atmosphere_identifier, base.atmosphere_identifier);
+    assert_eq!(profile.lighting_identifier, base.lighting_identifier);
+    assert_eq!(profiles.get("minecraft:plains"), Some(&base));
+}
+
+#[test]
+fn unresolved_custom_fog_routes_keep_valid_atmosphere_overrides() {
+    let fog_json = serde_json::json!({"minecraft:fog_settings": {
+        "description": {"identifier":"test:base_fog"}, "distance": {
+            "air": {"fog_start":0, "fog_end":96, "fog_color":"#112233", "render_distance_type":"fixed"}
+        }
+    }});
+    let plains = BiomeVisualProfile {
+        biome_identifier: "minecraft:plains".into(),
+        fog_identifier: "test:base_fog".into(),
+        atmosphere_identifier: "test:atmosphere".into(),
+        lighting_identifier: "test:lighting".into(),
+        sky_rgb8: None,
+    };
+    let carrier = atmosphere_base();
+    let runtime = carrier
+        .runtime()
+        .unwrap()
+        .with_resource_pack_overrides(&[], &[plains], &[fog_profile(&fog_json).unwrap()])
+        .unwrap();
+    let base = render::AtmosphereTextureAssets::new(Arc::new(runtime), [2; 32]);
+    let sun = skybox_png(2, 2, [12, 34, 56, 255]);
+    let mut fog_override = fog_json.clone();
+    fog_override["minecraft:fog_settings"]["distance"]["air"]["fog_end"] = 48.into();
+    let valid_fog = serde_json::to_vec(&fog_override).unwrap();
+    let valid_biome = br##"{"minecraft:client_biome":{"description":{"identifier":"custom:valid"},"components":{"minecraft:fog_appearance":{"fog_identifier":"test:base_fog"},"minecraft:sky_color":{"sky_color":"#123456"}}}}"##;
+    for rejected_fog in [
+        br#"{}"#.as_slice(),
+        br##"{"minecraft:fog_settings":{"description":{"identifier":"custom:missing"},"distance":{"air":{"fog_start":9,"fog_end":4,"fog_color":"#112233","render_distance_type":"fixed"}}}}"##,
+    ] {
+        let invalid_biome = br#"{"minecraft:client_biome":{"description":{"identifier":"custom:unresolved"},"components":{"minecraft:fog_appearance":{"fog_identifier":"custom:missing"}}}}"#;
+        let prepared = prepare_atmosphere(
+            &view(&[
+                ("textures/environment/sun.png", &sun),
+                ("fogs/valid.json", &valid_fog),
+                ("fogs/rejected.json", rejected_fog),
+                ("biomes/valid.json", valid_biome),
+                ("biomes/unresolved.json", invalid_biome),
+                ("biomes/plains.json", br#"{"minecraft:client_biome":{"description":{"identifier":"minecraft:plains"},"components":{"minecraft:fog_appearance":{"fog_identifier":"custom:missing"}}}}"#),
+            ]),
+            &base,
+        );
+        let runtime = prepared.runtime().unwrap();
+        let sun = runtime.textures().iter().find(|texture| texture.role == assets::AtmosphereRole::Sun).unwrap();
+        assert_eq!(&sun.rgba8[..4], &[12, 34, 56, 255]);
+        assert!(runtime.biome_profiles().iter().all(|profile| profile.biome_identifier.as_ref() != "custom:unresolved"));
+        let valid = runtime.biome_profiles().iter().find(|profile| profile.biome_identifier.as_ref() == "custom:valid").unwrap();
+        assert_eq!(valid.sky_rgb8, Some(0x123456));
+        let plains = runtime.biome_profiles().iter().find(|profile| profile.biome_identifier.as_ref() == "minecraft:plains").unwrap();
+        assert_eq!(plains.fog_identifier.as_ref(), "test:base_fog");
+        assert_eq!(runtime.fog_profiles()[0].distances[0].end(), 48.0);
+    }
+}
