@@ -7,14 +7,15 @@ pub(crate) const CHUNK_SAMPLER_COUNT: u32 = 2;
 pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
     (assets::MAX_TEXTURE_PAGES + NATIVE_LEAF_TEXTURE_BINDINGS.len()) as u32;
 
-const TEXTURE_WIDTH_SHIFT: u32 = 11;
-const TEXTURE_HEIGHT_SHIFT: u32 = 21;
-const TEXTURE_DIMENSION_MASK: u32 = 1023;
-const TEXTURE_GRID_MARKER: u32 = 1 << 9;
-const TEXTURE_GRID_SHIFT: u32 = 4;
-const TEXTURE_SIZE_EXPONENT_MASK: u32 = 15;
+// Admitted source sizes are powers of two up to MAX_TILE_SIZE. Four bits store
+// log2(size) + 1; zero means the physical page size. Grid occupies five more bits.
+const TEXTURE_SIZE_BITS: u32 = 4;
+const TEXTURE_WIDTH_SHIFT: u32 = assets::TEXTURE_LAYER_MASK.count_ones();
+const TEXTURE_HEIGHT_SHIFT: u32 = TEXTURE_WIDTH_SHIFT + TEXTURE_SIZE_BITS;
+const TEXTURE_GRID_SHIFT: u32 = TEXTURE_HEIGHT_SHIFT + TEXTURE_SIZE_BITS;
+const TEXTURE_SIZE_EXPONENT_MASK: u32 = (1 << TEXTURE_SIZE_BITS) - 1;
 
-/// Encodes admitted image dimensions in GPU-only reference bits, preserving page and layer.
+/// Encodes admitted power-of-two dimensions above the shared page and layer fields.
 pub(crate) fn gpu_texture_ref(
     reference: assets::TextureRef,
     dimensions: [u32; 2],
@@ -23,25 +24,25 @@ pub(crate) fn gpu_texture_ref(
     if dimensions == [page_size; 2] {
         reference.raw()
     } else {
+        debug_assert!(
+            dimensions
+                .iter()
+                .all(|size| size.is_power_of_two() && *size <= assets::MAX_TILE_SIZE)
+        );
         reference.raw()
-            | (dimensions[0] << TEXTURE_WIDTH_SHIFT)
-            | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
+            | ((dimensions[0].ilog2() + 1) << TEXTURE_WIDTH_SHIFT)
+            | ((dimensions[1].ilog2() + 1) << TEXTURE_HEIGHT_SHIFT)
     }
 }
 
-/// Encodes the terrain entry's UV grid together with its source pixel dimensions.
+/// Adds the terrain entry's UV-grid exponent without changing dimensions, page or layer.
 pub(crate) fn gpu_grid_texture_ref(
     reference: assets::TextureRef,
     dimensions: [u32; 2],
     page_size: u32,
     grid: u8,
 ) -> u32 {
-    if grid == 0 {
-        return gpu_texture_ref(reference, dimensions, page_size);
-    }
-    let width =
-        TEXTURE_GRID_MARKER | (u32::from(grid) << TEXTURE_GRID_SHIFT) | dimensions[0].ilog2();
-    reference.raw() | (width << TEXTURE_WIDTH_SHIFT) | (dimensions[1] << TEXTURE_HEIGHT_SHIFT)
+    gpu_texture_ref(reference, dimensions, page_size) | (u32::from(grid) << TEXTURE_GRID_SHIFT)
 }
 
 /// Resolves the generated biome tint module's table binding, shared by every chunk shader.
@@ -77,13 +78,12 @@ pub(crate) fn source(source: &str) -> String {
     source
         .replace("ACTOR_LIGHT_WORLD_FLAG", &format!("{}u", render_api::ACTOR_LIGHT_WORLD))
         .replace("ACTOR_LIGHT_DIRECTIONAL_FLAG", &format!("{}u", render_api::ACTOR_LIGHT_DIRECTIONAL))
-        .replace("GPU_TEXTURE_GRID_MARKER", &format!("{TEXTURE_GRID_MARKER}u"))
+        .replace("TEXTURE_LAYER_MASK", &format!("{}u", assets::TEXTURE_LAYER_MASK))
         .replace("GPU_TEXTURE_GRID_SHIFT", &format!("{TEXTURE_GRID_SHIFT}u"))
         .replace("GPU_TEXTURE_SIZE_EXPONENT_MASK", &format!("{TEXTURE_SIZE_EXPONENT_MASK}u"))
         .replace("TERRAIN_QUAD_SHIFT_MASK", &format!("{}u", assets::TERRAIN_QUAD_SHIFT_MASK))
         .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
-        .replace("GPU_TEXTURE_DIMENSION_MASK", &format!("{TEXTURE_DIMENSION_MASK}u"))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
         .replace("ACTOR_MATERIAL_GLINT", &format!("{}u", assets::EntityRenderMaterial::Glint as u32))
         .replace("ACTOR_MATERIAL_DEFAULT", &format!("{}u", assets::EntityRenderMaterial::Default as u32))

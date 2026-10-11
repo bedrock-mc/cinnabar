@@ -13,13 +13,13 @@ use std::{
     sync::Arc,
 };
 
-use assets::RuntimeLangCatalog;
+use crate::RuntimeLangCatalog;
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, canonical_source_manifest_sha256, format_sha256,
 };
 
-pub const LANG_ASSETS_FILENAME: &str = assets::carriers::LANG.output;
+pub const LANG_ASSETS_FILENAME: &str = crate::carriers::LANG.output;
 pub const LANG_ASSETS_COMPILE_COMMAND: &str = "make lang-assets";
 const LANG_ASSETS_REPORT_FILENAME: &str = "lang-assets.json";
 const MAX_LANG_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
@@ -70,23 +70,9 @@ impl LoadedLangAssets {
     }
 }
 
-/// Selects the UI language for server packs too, and loads its optional table.
-pub fn load_active_language(
-    world_asset_path: &Path,
-    requested: Option<&str>,
-) -> Option<Arc<RuntimeLangCatalog>> {
-    let code = active_language(requested);
-    pack_runtime::pack_language::set_active_language(&code);
-    load_optional_language(
-        world_asset_path,
-        &code,
-        super::vanilla_source_manifest_json(),
-    )
-}
-
 /// The UI language: `requested`, else the environment locale, else `en_US`.
 #[must_use]
-pub(crate) fn active_language(requested: Option<&str>) -> String {
+pub fn active_language(requested: Option<&str>) -> String {
     let from_env = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())
@@ -107,13 +93,13 @@ fn locale_code(locale: &str) -> Option<String> {
         language.to_ascii_lowercase(),
         country.to_ascii_uppercase()
     );
-    assets::is_language_code(&code).then_some(code)
+    crate::is_language_code(&code).then_some(code)
 }
 
 /// The optional carrier of `code` from `make language-assets`, layered over
 /// en_US; `None` (logged) when absent or invalid, so en_US text stands.
 #[must_use]
-fn load_optional_language(
+pub fn load_optional_language(
     world_asset_path: &Path,
     code: &str,
     vanilla_source_json: &str,
@@ -235,11 +221,11 @@ pub fn require_lang_assets(
     // The carrier must also have been compiled from the exact pinned
     // `texts/en_US.lang` bytes: a tampered language file beside the
     // canonical manifest fails closed here.
-    if runtime.lang_source_sha256() != assets::VANILLA_EN_US_LANG_SHA256 {
+    if runtime.lang_source_sha256() != crate::VANILLA_EN_US_LANG_SHA256 {
         return Err(AssetStartupError::LangAssetsSourceProvenance {
             rebuild_command: lang_assets_rebuild_command(&path),
             carrier: format_sha256(runtime.lang_source_sha256()),
-            pinned: format_sha256(assets::VANILLA_EN_US_LANG_SHA256),
+            pinned: format_sha256(crate::VANILLA_EN_US_LANG_SHA256),
             path,
         });
     }

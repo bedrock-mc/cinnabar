@@ -20,3 +20,8 @@ mod public_completion_carriers;
 mod runtime;
 mod seasonal_foliage;
 mod server_lang;
+mod startup_actor_assets;
+mod startup_audio_assets;
+mod startup_hud_assets;
+mod startup_icon_assets;
+mod startup_lang_assets;

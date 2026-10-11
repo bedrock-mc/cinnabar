@@ -2,19 +2,23 @@
 
 use std::path::Path;
 
-use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
+use crate::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 
-use crate::asset_startup::{
+use crate::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, load_runtime_assets, select_asset_path,
 };
 use {
     super::verify_world_carrier,
-    assets::{active_content_registry_protocol, pinned_block_registry_bytes},
+    crate::{active_content_registry_protocol, pinned_block_registry_bytes},
 };
 
 #[test]
 fn installed_lifeboat_carriers_reject_stale_diagnostic_geometry() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
     let active_path = root.join(DEFAULT_ASSET_PATH);
     // This legacy filename and runtime ID identify the owner's captured failure fixture.
     let stale_path = active_path.with_file_name("vanilla-v2168.mcbea");
@@ -23,7 +27,7 @@ fn installed_lifeboat_carriers_reject_stale_diagnostic_geometry() {
         return;
     }
     let observed_id = 15844;
-    let records = assets::read_registry_for_protocol(
+    let records = crate::read_registry_for_protocol(
         pinned_block_registry_bytes(),
         active_content_registry_protocol(),
     )
@@ -41,7 +45,7 @@ fn installed_lifeboat_carriers_reject_stale_diagnostic_geometry() {
     assert_eq!(block.support(), VisualSupport::Exact);
     assert_ne!(
         block.face(BlockFace::Up).material_id(),
-        assets::DIAGNOSTIC_MATERIAL
+        crate::DIAGNOSTIC_MATERIAL
     );
 
     let error = load_runtime_assets(select_asset_path(Some(&stale_path), None))
@@ -49,7 +53,7 @@ fn installed_lifeboat_carriers_reject_stale_diagnostic_geometry() {
     match &error {
         AssetStartupError::Decode { source, .. } => assert!(matches!(
             source.as_ref(),
-            assets::AssetError::InvalidCompiledAssets { detail } if detail.contains("magic")
+            crate::AssetError::InvalidCompiledAssets { detail } if detail.contains("magic")
         )),
         AssetStartupError::WorldAssetsProvenance { .. } => {}
         _ => panic!("unexpected startup rejection: {error}"),

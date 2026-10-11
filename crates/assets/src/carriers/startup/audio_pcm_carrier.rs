@@ -1,6 +1,6 @@
 //! Optional finite PCM sibling, linked to the ACTUAL startup catalog identity.
 use super::{AssetStartupError, LoadedAudioAssets};
-use assets::RuntimeAudioPcm;
+use crate::RuntimeAudioPcm;
 use std::{
     fs::File,
     io::{self, Read},
@@ -8,11 +8,12 @@ use std::{
     sync::Arc,
 };
 
-pub(crate) fn load_audio_pcm_assets(
+/// Loads optional PCM only when it matches the sound catalog selected at startup.
+pub fn load_audio_pcm_assets(
     world_path: &Path,
     catalog: Option<&LoadedAudioAssets>,
 ) -> Result<Option<Arc<RuntimeAudioPcm>>, AssetStartupError> {
-    let path = world_path.with_file_name(assets::carriers::AUDIO_PCM.output);
+    let path = world_path.with_file_name(crate::carriers::AUDIO_PCM.output);
     let fail = |detail: String| AssetStartupError::AudioPcm {
         path: path.clone(),
         detail,
@@ -34,7 +35,7 @@ pub(crate) fn load_audio_pcm_assets(
         ));
     };
     let metadata = file.metadata().map_err(|error| fail(error.to_string()))?;
-    let limit = assets::MAX_AUDIO_PCM_CARRIER_BYTES;
+    let limit = crate::MAX_AUDIO_PCM_CARRIER_BYTES;
     if !metadata.is_file() || metadata.len() > limit as u64 {
         return Err(fail("carrier byte bound or file type".into()));
     }
@@ -49,7 +50,7 @@ pub(crate) fn load_audio_pcm_assets(
     if bytes.len() > limit || bytes.len() as u64 != metadata.len() {
         return Err(fail("carrier changed or exceeds bound".into()));
     }
-    let expected = assets::reviewed_audio_pcm_identity();
+    let expected = crate::reviewed_audio_pcm_identity();
     let runtime = RuntimeAudioPcm::decode(&bytes, catalog.runtime(), catalog.identity(), &expected)
         .map_err(|error| fail(error.to_string()))?;
     eprintln!(
@@ -85,8 +86,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("audio-pcm-catalog-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let world = root.join("world.mcbea");
-        let expected = assets::reviewed_audio_pcm_identity();
-        let definition = assets::AudioDefinition {
+        let expected = crate::reviewed_audio_pcm_identity();
+        let definition = crate::AudioDefinition {
             identifier: expected.identifier().into(),
             category: None,
             subtitle: None,
@@ -95,7 +96,7 @@ mod tests {
             volume: None,
             pitch: None,
             use_legacy_max_distance: None,
-            alternatives: vec![assets::AudioAlternative {
+            alternatives: vec![crate::AudioAlternative {
                 object_form: true,
                 name: expected.source_path().strip_suffix(".fsb").unwrap().into(),
                 weight: 1,
@@ -107,7 +108,7 @@ mod tests {
             }]
             .into_boxed_slice(),
         };
-        let bytes = assets::encode_audio_catalog(
+        let bytes = crate::encode_audio_catalog(
             expected.source_manifest_sha256(),
             expected.sound_definitions_sha256(),
             &[definition],
@@ -123,7 +124,7 @@ mod tests {
         let pcm = root.join("vanilla-v1.mcbepcm");
         fs::write(&pcm, b"MCBEPCM1 synthetic invalid").unwrap();
         assert!(load_audio_pcm_assets(&world, Some(&catalog)).is_err());
-        fs::write(&pcm, vec![0; assets::MAX_AUDIO_PCM_CARRIER_BYTES + 1]).unwrap();
+        fs::write(&pcm, vec![0; crate::MAX_AUDIO_PCM_CARRIER_BYTES + 1]).unwrap();
         assert!(load_audio_pcm_assets(&world, Some(&catalog)).is_err());
         fs::remove_file(pcm).unwrap();
         fs::remove_file(catalog_path).unwrap();

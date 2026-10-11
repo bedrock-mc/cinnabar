@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
-use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
-use bedrock_client::asset_startup::{
+use assets::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, HUD_ASSETS_COMPILE_COMMAND, hud_asset_path,
     hud_assets_missing_notice, hud_assets_rebuild_command, load_hud_assets, require_hud_assets,
 };
+use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use bedrock_client::asset_startup::{
+use assets::carriers::startup::{
     DEFAULT_ASSET_PATH, icon_asset_path, icon_assets_rebuild_command, require_icon_assets,
 };
 
@@ -15,8 +15,7 @@ fn custom_world_icon_recovery_uses_the_exact_world_input() {
             .as_nanos(),
     ));
     let icon = icon_asset_path(&world);
-    let failure = require_icon_assets(&world, include_str!("../../../assets/vanilla-source.json"))
-        .unwrap_err();
+    let failure = require_icon_assets(&world, assets::VANILLA_SOURCE_MANIFEST).unwrap_err();
     let message = failure.to_string();
     assert!(message.contains("ASSET_BLOB="));
     assert!(message.contains("selected world.mcbea"));

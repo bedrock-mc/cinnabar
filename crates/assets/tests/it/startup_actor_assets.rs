@@ -1,4 +1,4 @@
-use bedrock_client::asset_startup::{ACTOR_ASSETS_FILENAME, actor_asset_path};
+use assets::carriers::startup::{ACTOR_ASSETS_FILENAME, actor_asset_path};
 use std::path::Path;
 
 #[test]

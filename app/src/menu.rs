@@ -122,6 +122,8 @@ pub(crate) struct MenuRuntime {
     address: ui::ChatEditor,
     port: ui::ChatEditor,
     skin_name: ui::ChatEditor,
+    /// Command macro command boxes; edits write through to persisted settings.
+    macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
     gui_scale_preference: Option<u8>,
     gui_scale_offset: i8,
@@ -764,6 +766,7 @@ impl MenuRuntime {
             | MenuAction::SettingsConfirmResetBindings(_)
             | MenuAction::SettingsKey(_)
             | MenuAction::SettingsResetKey(_)
+            | MenuAction::SettingsMacroCommand(_)
             | MenuAction::SettingsResetChat
             | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {

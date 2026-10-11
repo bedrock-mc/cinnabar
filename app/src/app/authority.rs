@@ -31,7 +31,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.add_systems(
         bevy::prelude::Startup,
-        crate::settings_runtime::initialize_render_distance,
+        (
+            crate::settings_runtime::initialize_render_distance,
+            crate::runtime::network::initialize_overlay_texture_limit,
+        ),
     );
     app.add_plugins(client_presentation::ClientPresentationPlugin)
         .add_message::<client_audio::audio_ingress::SequencedAudioEvent>()

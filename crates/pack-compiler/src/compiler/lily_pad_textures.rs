@@ -1,7 +1,10 @@
 //! Fixed lily-pad atlas tint, isolated
 //! from any untinted material which happens to share the same source image.
 
-use assets::{MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_LILY_PAD, TILE_SIZE, TextureMip};
+use assets::{
+    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    TILE_SIZE, TextureMip,
+};
 use {super::*, assets::BlockFace};
 
 pub(super) struct Installed {
@@ -135,7 +138,7 @@ fn append_layer(
 ) -> Result<TextureRef, AssetError> {
     let index = pages
         .iter()
-        .position(|page| page.texture.layers < MAX_TEXTURE_LAYERS as u32)
+        .position(|page| page.texture.layers < MAX_CARRIER_TEXTURE_LAYERS as u32)
         .unwrap_or(pages.len());
     if index >= MAX_TEXTURE_PAGES {
         return Err(invalid("lily-pad textures exceed the page/layer budget"));
@@ -170,3 +173,7 @@ fn invalid(detail: &str) -> AssetError {
         detail: detail.into(),
     }
 }
+
+#[cfg(test)]
+#[path = "lily_pad_textures_tests.rs"]
+mod tests;

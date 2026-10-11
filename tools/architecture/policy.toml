@@ -60,7 +60,9 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 name = "assets"
 path = "crates/assets"
 allowed_dependencies = ["block-transform"]
-forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
+forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
+test_support_features = ["test-support"]
 
 [[crates]]
 name = "asset-compiler"
@@ -561,8 +563,8 @@ consumer = "scripts/acceptance/Resources.ps1"
 [[markers]]
 literal = "RUST_MCBE_ASSETS"
 kind = "environment_variable"
-producer = "crates/diagnostics/src/markers.rs"
-consumer = "app/src/asset_startup.rs"
+producer = "crates/assets/src/carriers/startup/markers.rs"
+consumer = "crates/assets/src/carriers/startup.rs"
 
 [[markers]]
 literal = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE"

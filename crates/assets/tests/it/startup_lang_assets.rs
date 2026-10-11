@@ -3,12 +3,12 @@
 
 use std::{fs, path::PathBuf, sync::Arc};
 
-use assets::{LangEntry, VANILLA_EN_US_LANG_SHA256, encode_lang_catalog};
-use bedrock_client::asset_startup::{
+use assets::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, LANG_ASSETS_COMPILE_COMMAND,
     canonical_source_manifest_sha256, lang_asset_path, lang_assets_rebuild_command,
     require_lang_assets, vanilla_source_manifest_json,
 };
+use assets::{LangEntry, VANILLA_EN_US_LANG_SHA256, encode_lang_catalog};
 
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()

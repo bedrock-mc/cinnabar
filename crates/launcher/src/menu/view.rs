@@ -504,6 +504,8 @@ pub struct MenuView {
     pub name: String,
     pub address: String,
     pub port: String,
+    /// Command box drafts, including invalid edits that have not been saved.
+    pub macro_commands: Option<[String; super::settings_options::COMMAND_MACRO_COUNT]>,
     pub message: Option<String>,
     /// Localized server-authored reason projected by the gameplay UI.
     pub death_reason: String,
@@ -749,6 +751,7 @@ impl MenuView {
             name: String::new(),
             address: String::new(),
             port: String::new(),
+            macro_commands: None,
             message: None,
             death_reason: String::new(),
             death_loading: false,

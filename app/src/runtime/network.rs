@@ -66,7 +66,10 @@ pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 use pack_runtime::{BootstrapGenerationDisposition, classify_bootstrap_generation};
 pub(crate) use resource_packs::reuse::CompiledStacks;
 pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
-pub(crate) use resource_packs::{compiled_stacks, set_base_material_keys};
+pub(crate) use resource_packs::{
+    ResourcePackAdmissionState, await_overlay_texture_device, compiled_stacks,
+    initialize_overlay_texture_limit, set_base_material_keys,
+};
 use {
     client_session::{NetworkFailureOrigin, SessionTransferTarget, session_failure_display},
     session::NetworkControlEvent,

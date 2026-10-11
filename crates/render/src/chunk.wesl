@@ -1,4 +1,4 @@
-import render::material::{MaterialGpu, materials, positional_material, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
@@ -433,7 +433,7 @@ fn sample_texture_ref(
     uv_dy: vec2<f32>,
 ) -> vec4<f32> {
     let page = texture_ref >> 31u;
-    let layer = i32(texture_ref & 0x7ffu);
+    let layer = texture_layer(texture_ref);
     @if(ENHANCED)
     if (page == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
@@ -464,7 +464,7 @@ fn sample_material_texture_ref(
 ) -> vec4<f32> {
     @if(!ENHANCED)
     if (material_uses_native_leaf_colour(material_flags)) {
-        let layer = i32(texture_ref & 0x7ffu);
+        let layer = texture_layer(texture_ref);
         if ((texture_ref >> 31u) == 0u) {
             let scale = texture_gradient_scale(texture_ref, textureDimensions(native_leaf_textures_page_0, 0));
             return textureSampleGrad(native_leaf_textures_page_0, native_leaf_sampler, texture_cube_uv(texture_ref, uv), layer, uv_dx * scale, uv_dy * scale);
@@ -566,7 +566,7 @@ dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
 flags: u32) -> CutoutSample {
-    let layer = i32(texture_ref & 0x7ffu);
+    let layer = texture_layer(texture_ref);
     let coordinate = texture_cube_uv(texture_ref, uv);
     @if(ENHANCED)
     if ((texture_ref >> 31u) == 0u) {

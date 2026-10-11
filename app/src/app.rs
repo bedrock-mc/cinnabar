@@ -10,6 +10,7 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
+use assets::carriers::startup::{LoadedAssetKind, select_asset_path_from_environment};
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
@@ -56,7 +57,6 @@ use launcher::install_layout::InstallLayout;
 use {
     crate::{
         args,
-        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
         block_use::produce_block_use,
         camera::FlyCameraPlugin,
         environment::{
@@ -442,7 +442,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         "loaded required atmosphere assets from {}",
         loaded_assets.atmosphere.selected_path().display()
     );
-    eprintln!("{}", loaded_assets.atmosphere.startup_summary());
+    eprintln!(
+        "{}",
+        crate::asset_bindings::AtmosphereEvidence::startup_summary(&loaded_assets.atmosphere)
+    );
     eprintln!(
         "loaded required entity assets from {}",
         loaded_assets.entities.selected_path().display()
@@ -452,7 +455,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
-    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
+    let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = carriers
         .hud
@@ -481,9 +484,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .server_file()
             .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
-    let active_lang = crate::asset_startup::load_active_language(
-        &loaded_assets.selected_path,
+    let language = assets::carriers::startup::active_language(
         args.language.as_deref().or(saved_settings.language()),
+    );
+    pack_runtime::pack_language::set_active_language(&language);
+    let active_lang = assets::carriers::startup::load_optional_language(
+        &loaded_assets.selected_path,
+        &language,
+        assets::carriers::startup::vanilla_source_manifest_json(),
     );
     let startup::AudioCarriers {
         catalog: audio_catalog,
@@ -549,7 +557,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
     let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
-    let asset_metrics = loaded_assets.metrics;
+    let asset_metrics = loaded_assets.metrics.into();
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
         &entity_runtime,
         &equipment_geometries,
@@ -624,6 +632,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_assets.selected_path.clone(),
         args.language.as_deref(),
     );
+    crate::runtime::network::await_overlay_texture_device();
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
             session_generation: 1,

@@ -13,16 +13,16 @@ use std::{
     sync::Arc,
 };
 
-use assets::RuntimeIconCatalog;
+use crate::RuntimeIconCatalog;
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, canonical_source_manifest_sha256, format_sha256,
 };
 
-pub const ICON_ASSETS_FILENAME: &str = assets::carriers::ICON.output;
+pub const ICON_ASSETS_FILENAME: &str = crate::carriers::ICON.output;
 pub const ICON_ASSETS_COMPILE_COMMAND: &str = "make icon-assets";
 const ICON_ASSETS_REPORT_FILENAME: &str = "icon-assets.json";
-const MAX_ICON_ASSET_BLOB_BYTES: u64 = assets::MAX_ICON_CARRIER_BYTES as u64;
+const MAX_ICON_ASSET_BLOB_BYTES: u64 = crate::MAX_ICON_CARRIER_BYTES as u64;
 
 /// Returns a copy-paste recovery command that writes the icon carrier where
 /// startup looked for it: the bare make target at the default location, or

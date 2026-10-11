@@ -9,7 +9,7 @@ use assets::{
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
     MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS,
     MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
@@ -765,8 +765,8 @@ fn compile_runtime_animation_plan(
         pack,
         &decoded_images,
         AnimationLimits {
-            max_layers_per_page: MAX_TEXTURE_LAYERS as u32,
-            max_pages: 2,
+            max_layers_per_page: MAX_CARRIER_TEXTURE_LAYERS as u32,
+            max_pages: assets::MAX_TEXTURE_PAGES as u32,
         },
         Some(&selected_atlas_tiles),
         &overlay_mask_paths,
@@ -791,7 +791,7 @@ fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
 
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {
     let mut pages = Vec::new();
-    for chunk in plan.layers.chunks(MAX_TEXTURE_LAYERS) {
+    for chunk in plan.layers.chunks(MAX_CARRIER_TEXTURE_LAYERS) {
         let mut mips = Vec::with_capacity(assets::MIP_COUNT as usize);
         for level in 0..assets::MIP_COUNT as usize {
             let size = assets::TILE_SIZE >> level;

@@ -1,5 +1,5 @@
 pub mod args;
-pub mod asset_startup;
+pub mod asset_bindings;
 mod audio;
 mod audio_observations;
 mod block_entities;

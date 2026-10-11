@@ -41,7 +41,7 @@ impl client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Drains inventory ingress before movement and UI observations at the existing phase.
 pub(crate) fn drain_inventory_authority(

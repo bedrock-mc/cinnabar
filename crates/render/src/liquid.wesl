@@ -4,7 +4,7 @@ import render::chunk_bindings::{
     geometry_streams, atmosphere, transparent_refs, TransparentDrawRef,
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
 };
-import render::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
 import render::biome_tint::blended_biome_tint;
 import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
@@ -264,7 +264,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
 }
 
 fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
-    let layer = i32(texture_ref & 0x7ffu);
+    let layer = texture_layer(texture_ref);
     @if(ENHANCED)
     if ((texture_ref >> 31u) == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));

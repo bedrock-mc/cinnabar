@@ -9,16 +9,16 @@
 
 use std::path::Path;
 
-use assets::{
+use crate::{
     RuntimeAssets, RuntimeAtmosphereAssets, canonical_source_manifest_sha256,
     registry_header_protocol,
 };
 
 use super::{ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, COMPILE_COMMAND, format_sha256};
 
-use assets::pinned_world_provenance;
-use assets::{active_content_registry_protocol, pinned_block_registry_bytes};
-const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
+use crate::pinned_world_provenance;
+use crate::{active_content_registry_protocol, pinned_block_registry_bytes};
+const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;
 
 /// Fails closed unless the decoded world carrier was compiled from exactly
 /// the checkout-pinned manifest and registry inputs.
@@ -112,7 +112,7 @@ mod offline_tests;
 mod tests {
     use {
         super::verify_pinned_registries_bind,
-        assets::{active_content_registry_protocol, pinned_world_provenance},
+        crate::{active_content_registry_protocol, pinned_world_provenance},
     };
 
     #[test]
@@ -135,7 +135,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                crate::asset_startup::AssetStartupError::PinnedRegistryProtocolMismatch {
+                crate::carriers::startup::AssetStartupError::PinnedRegistryProtocolMismatch {
                     expected: 1001,
                     actual: 2193
                 }

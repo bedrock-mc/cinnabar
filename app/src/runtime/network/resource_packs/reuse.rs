@@ -22,6 +22,8 @@ const KEPT_STACKS: usize = 2;
 pub(in crate::runtime::network) struct CompileEnvironment {
     /// Language and glyph subscribers read the selected UI language's files.
     language: String,
+    /// Device capacity affects which block texture routes can be retained.
+    max_layers: u32,
     /// Material keys, terrain aliases, item routes and actor artwork: each is installed once at
     /// startup and never changes afterwards.
     carrier_tables: [bool; 4],
@@ -36,6 +38,7 @@ impl CompileEnvironment {
         use crate::runtime::network::{entity_texture_reload, item_icons};
         Self {
             language: pack_runtime::pack_language::active_language_code(),
+            max_layers: super::overlay_texture_layer_limit(),
             carrier_tables: [
                 super::BASE_MATERIAL_KEYS.get().is_some(),
                 pack_runtime::pack_textures::base_terrain_catalog_installed(),
@@ -52,6 +55,7 @@ impl PartialEq for CompileEnvironment {
     /// Refs compare by allocation: a kept environment holds its refs, so the address is unique.
     fn eq(&self, other: &Self) -> bool {
         self.language == other.language
+            && self.max_layers == other.max_layers
             && self.carrier_tables == other.carrier_tables
             && match (&self.vanilla_refs, &other.vanilla_refs) {
                 (Some(ours), Some(theirs)) => Arc::ptr_eq(ours, theirs),

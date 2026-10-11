@@ -41,7 +41,7 @@ const COMPILED: &str = "../.local/assets/compiled";
 /// Resolves the pinned world carrier name from the startup path rather than duplicating it.
 fn world_carrier(compiled: &Path) -> PathBuf {
     compiled.join(
-        Path::new(crate::asset_startup::DEFAULT_ASSET_PATH)
+        Path::new(assets::carriers::startup::DEFAULT_ASSET_PATH)
             .file_name()
             .unwrap(),
     )
@@ -262,23 +262,25 @@ fn build_world(
     let compiled = PathBuf::from(
         std::env::var_os("CINNABAR_RENDER_CARRIERS").unwrap_or_else(|| COMPILED.into()),
     );
-    let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-        path: world_carrier(&compiled),
-        source: crate::asset_startup::AssetPathSource::CommandLine,
-    })
-    .unwrap();
+    let mut loaded =
+        assets::carriers::startup::load_runtime_assets(assets::carriers::startup::AssetSelection {
+            path: world_carrier(&compiled),
+            source: assets::carriers::startup::AssetPathSource::CommandLine,
+        })
+        .unwrap();
     let entity_runtime = Arc::clone(loaded.entities.runtime());
-    let artwork = crate::asset_startup::actor_artwork(
-        &crate::asset_startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
+    crate::asset_bindings::install_world_sidecars(&mut loaded);
+    let artwork = crate::asset_bindings::actor_artwork(
+        &assets::carriers::startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
             .unwrap(),
         &entity_runtime,
     );
-    let icons = crate::asset_startup::require_icon_assets(
+    let icons = assets::carriers::startup::require_icon_assets(
         &loaded.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
+        assets::carriers::startup::vanilla_source_manifest_json(),
     )
     .unwrap();
-    let equipment_catalog = crate::asset_startup::load_optional_equipment_assets(
+    let equipment_catalog = assets::carriers::startup::load_optional_equipment_assets(
         &loaded.selected_path,
         &loaded.entities,
     );
