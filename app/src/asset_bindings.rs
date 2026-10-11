@@ -51,14 +51,14 @@ fn default_player_skin(
         .map(|texture| std::sync::Arc::clone(&texture.rgba8))
 }
 
-/// Publishes decoded world sidecars to the pack consumers that own their runtime state.
-pub(crate) fn install_world_sidecars(assets: &LoadedAssets) {
-    if let Some(keys) = &assets.material_keys {
+/// Transfers decoded world sidecars to the pack consumers that own their runtime state.
+pub(crate) fn install_world_sidecars(assets: &mut LoadedAssets) {
+    if let Some(keys) = assets.material_keys.take() {
         pack_runtime::pack_textures::set_base_terrain_catalog(keys.aliases());
-        crate::runtime::network::set_base_material_keys(keys.clone());
+        crate::runtime::network::set_base_material_keys(keys);
     }
-    if let Some(refs) = &assets.vanilla_entity_refs {
-        pack_runtime::entity_pack::set_vanilla_refs(refs.clone());
+    if let Some(refs) = assets.vanilla_entity_refs.take() {
+        pack_runtime::entity_pack::set_vanilla_refs(refs);
     }
 }
 

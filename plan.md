@@ -75,7 +75,11 @@ platforms. These limits and the unresolved server-routing behavior remain open g
   `app` supplies the Bevy resources and systems that drive those services.
 - `first-run` owns the standalone setup window and asset preparation flow. Shared OreUI styles
   live in `ui`, and panorama preparation lives in `render-model`. Both new crates are Bevy-free.
-- Startup carrier selection remains in `app/src/asset_startup`.
+- `assets::startup` owns carrier path selection, bounded loading, validation, fallbacks,
+  decoded sidecars and startup measurements. It remains Bevy-free. `app` binds the returned
+  data to renderer, pack and Bevy state, records load timings and exits from `main` on failure.
+  Carrier regressions follow their owner; app composition regressions remain in `app`.
+  This ownership move has not been compiled or executed and closes no parity gate.
 
 ## Runtime pack ownership
 

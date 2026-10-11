@@ -1,5 +1,11 @@
 # Phases 2-5 Completion Ledger
 
+Startup carrier selection, bounded decoding, validation and fallbacks now belong to
+`assets::startup`. App adapters retain renderer and pack publication, Bevy resources,
+load timing and fatal startup handling. Carrier regressions move with their owner;
+app composition coverage remains in `app`. This move adds no compilation, execution
+or live evidence, and all behavior and performance gates retain their status.
+
 End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the
 exhaustive residual-family, world-join and hardware performance gates open.

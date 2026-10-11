@@ -125,8 +125,8 @@ fn load_core(
     selection: AssetSelection,
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
-    let assets = asset_startup::load_runtime_assets_observed(selection, times)?;
-    crate::asset_bindings::install_world_sidecars(&assets);
+    let mut assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
         let equipment = scope.spawn(|| {

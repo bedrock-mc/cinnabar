@@ -134,12 +134,12 @@ fn install_join_carriers() {
                 .file_name()
                 .unwrap(),
         );
-        let loaded = assets::startup::load_runtime_assets(assets::startup::AssetSelection {
+        let mut loaded = assets::startup::load_runtime_assets(assets::startup::AssetSelection {
             path,
             source: assets::startup::AssetPathSource::CommandLine,
         })
         .unwrap();
-        crate::asset_bindings::install_world_sidecars(&loaded);
+        crate::asset_bindings::install_world_sidecars(&mut loaded);
         let artwork = crate::asset_bindings::actor_artwork(
             &assets::startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
                 .unwrap(),

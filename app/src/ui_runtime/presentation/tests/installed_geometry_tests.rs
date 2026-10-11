@@ -32,9 +32,7 @@ fn installed_carriers_admit_geometry_and_keep_diagnostic_world_fallback() {
 
 #[test]
 fn installed_shield_bound_root_stays_at_each_hand_not_above_head() {
-    use assets::startup::{
-        DEFAULT_ASSET_PATH, ENTITY_ASSETS_FILENAME, equipment_carrier::equipment_asset_path,
-    };
+    use assets::startup::{DEFAULT_ASSET_PATH, ENTITY_ASSETS_FILENAME, equipment_asset_path};
     use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
     let world_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

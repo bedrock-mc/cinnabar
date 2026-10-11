@@ -262,13 +262,13 @@ fn build_world(
     let compiled = PathBuf::from(
         std::env::var_os("CINNABAR_RENDER_CARRIERS").unwrap_or_else(|| COMPILED.into()),
     );
-    let loaded = assets::startup::load_runtime_assets(assets::startup::AssetSelection {
+    let mut loaded = assets::startup::load_runtime_assets(assets::startup::AssetSelection {
         path: world_carrier(&compiled),
         source: assets::startup::AssetPathSource::CommandLine,
     })
     .unwrap();
     let entity_runtime = Arc::clone(loaded.entities.runtime());
-    crate::asset_bindings::install_world_sidecars(&loaded);
+    crate::asset_bindings::install_world_sidecars(&mut loaded);
     let artwork = crate::asset_bindings::actor_artwork(
         &assets::startup::require_actor_assets(&loaded.selected_path, &loaded.entities).unwrap(),
         &entity_runtime,
