@@ -447,11 +447,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         now_millis: u64,
     ) {
-        if player_runtime
-            .inventory
-            .ledger_mut()
-            .poll_timeout(now_millis)
-        {
+        if player_runtime.inventory.poll_inventory_timeout(now_millis) {
             self.inventory_open = player_runtime
                 .inventory
                 .ledger()
