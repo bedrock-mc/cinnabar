@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+bridge = { path = "../bridge" }
 block-transform = { path = "../block-transform" }
 crossbeam-channel = "0.5"
 assets = { path = "../assets" }

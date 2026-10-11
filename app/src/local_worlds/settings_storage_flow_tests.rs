@@ -15,8 +15,8 @@ use {
 
 #[test]
 fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
-    use protocol::world_control::{Backend, Difficulty, GameMode, Generator, World};
-    let layout = crate::install_layout::scratch("storage-world-flow");
+    use bridge::{Backend, Difficulty, GameMode, Generator, World};
+    let layout = launcher::test_support::scratch("storage-world-flow");
     std::fs::create_dir_all(layout.local_worlds_dir().join("world-id")).unwrap();
     let player_skin = crate::player_skin::LocalPlayerSkin::generated_default("Steve");
     let mut menu =

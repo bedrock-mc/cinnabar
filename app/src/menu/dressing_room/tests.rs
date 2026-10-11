@@ -1,4 +1,5 @@
 use launcher::dressing_room::SkinModel;
+use std::fs;
 use {
     super::*,
     launcher::menu::{MenuAction, MenuField, MenuScreen},
@@ -33,8 +34,8 @@ fn dressing_room_keeps_pause_history_and_selected_skin_login_state() {
     let source = menu.layout.user_data_root.join("import.png");
     fs::create_dir_all(&menu.layout.user_data_root).unwrap();
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba([5, 150, 220, 255]),
     )
     .save(&source)
@@ -72,8 +73,8 @@ fn skin_editor_traps_input_and_saves_the_same_bounded_draft() {
     let source = menu.layout.user_data_root.join("rename.png");
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba([50, 190, 240, 255]),
     )
     .save(&source)
@@ -141,7 +142,7 @@ fn cape_section_selection_and_editor_target_preserve_active_skin() {
     let body = local.rgba8.clone();
     let source = menu.layout.user_data_root.join("cape.png");
     fs::create_dir_all(source.parent().unwrap()).unwrap();
-    let size = protocol::CAPE_DIMENSIONS[0];
+    let size = render_api::CAPE_DIMENSIONS[0];
     image::RgbaImage::from_pixel(size.0, size.1, image::Rgba([50, 90, 240, 255]))
         .save(&source)
         .unwrap();
@@ -188,7 +189,7 @@ fn cape_section_selection_and_editor_target_preserve_active_skin() {
 
 #[test]
 fn cached_roster_and_skin_commands_publish_while_cape_refresh_is_blocked() {
-    let layout = crate::install_layout::scratch("dressing-room-refresh");
+    let layout = launcher::test_support::scratch("dressing-room-refresh");
     let local = crate::player_skin::LocalPlayerSkin::generated_default("refresh fixture");
     let (entered, started) = crossbeam_channel::bounded(1);
     let (release, continue_refresh) = crossbeam_channel::bounded(1);
@@ -208,8 +209,8 @@ fn cached_roster_and_skin_commands_publish_while_cape_refresh_is_blocked() {
     let source = layout.user_data_root.join("during-refresh.png");
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     image::RgbaImage::from_pixel(
-        protocol::CLASSIC_SKIN_SIDE as u32,
-        protocol::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32,
         image::Rgba([210, 90, 50, 255]),
     )
     .save(&source)
@@ -316,7 +317,7 @@ fn dressing_room_focus_excludes_selected_section_and_model_tabs() {
     let mut menu = MenuRuntime::new(false, 2, "focus tabs".to_owned());
     let view = launcher::dressing_room::DressingRoomView {
         skins: vec![launcher::dressing_room::DressingRoomSkin {
-            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             id: "fixture".to_owned(),
             name: "Custom".to_owned(),
             path: "private.png".to_owned(),
@@ -469,7 +470,7 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
             imported: true,
             model: SkinModel::Custom,
             skin: menu.player_skin.standard_skin(),
-            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
         }]
         .into(),
         ..Default::default()

@@ -16,7 +16,7 @@ use assets::RuntimeUiAssets;
 use json_ui::{NineSlice, TextureMeta, TextureSource};
 
 use super::server_pack::ServerAtlas;
-use crate::remote_images::{RemoteImages, is_remote};
+use launcher_host::remote_images::{RemoteImages, is_remote};
 use ui::IconRef;
 
 /// Texture sources a form engine owns across frames.

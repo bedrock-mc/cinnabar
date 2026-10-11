@@ -5,7 +5,7 @@
 
 mod client;
 use launcher::local_worlds::form;
-mod launch;
+
 use launcher::local_worlds::model;
 use launcher::local_worlds::progress;
 use launcher::local_worlds::prompt;
@@ -19,7 +19,6 @@ use bevy::{
     window::WindowFocused,
 };
 
-pub(crate) use launch::core_args;
 use model::{Effect, Input, Screen, WorldsMenu};
 
 use client::WorldsClient;
@@ -128,7 +127,7 @@ impl LocalWorlds {
     fn dispatch(&self, effects: Vec<Effect>) {
         for effect in effects {
             if let Effect::OpenUrl(url) = effect {
-                crate::desktop::open_url(url);
+                launcher_host::desktop::open_url(url);
             } else if let Some(client) = &self.client {
                 client.send(effect);
             }

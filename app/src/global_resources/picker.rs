@@ -11,10 +11,10 @@ const UNAVAILABLE_HINT: &str = "Drop a pack onto the window to import it.";
 /// Returns a selected filename, cancellation, or a visible picker error.
 pub(super) fn pick() -> Result<Option<PathBuf>, String> {
     #[cfg(windows)]
-    return crate::desktop::windows::pick_file(TITLE, &windows_filter())
+    return launcher_host::desktop::windows::pick_file(TITLE, &windows_filter())
         .map_err(|code| format!("File picker failed (error {code:#x}). {UNAVAILABLE_HINT}"));
     #[cfg(target_os = "linux")]
-    match crate::desktop::dbus::pick_file(TITLE, FILTER_NAME, &patterns()) {
+    match launcher_host::desktop::dbus::pick_file(TITLE, FILTER_NAME, &patterns()) {
         Ok(choice) => return Ok(choice),
         Err(error) => {
             bevy::log::debug!("portal file chooser unavailable ({error}); trying dialog tools")

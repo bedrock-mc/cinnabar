@@ -2,8 +2,9 @@
 
 use protocol::{
     ActorEvent, ActorSpawnEvent, MovePlayerEvent, MovePlayerMode, PlayerListEntry,
-    PlayerListUpdateEvent, PlayerSkin, StandardSkin,
+    PlayerListUpdateEvent, PlayerSkin,
 };
+use render_api::StandardSkin;
 
 use {super::*, client_presentation::actor_publication::publish_actor_render_frame};
 

@@ -140,21 +140,21 @@ pub(crate) fn delete_cape(
     edits::commit_deletion(layout, view, next, &path, remove_image)
 }
 
-pub(super) fn decode(bytes: &[u8]) -> Result<protocol::CapeImage, String> {
+pub(super) fn decode(bytes: &[u8]) -> Result<render_api::CapeImage, String> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
     let mut limits = image::Limits::default();
-    limits.max_image_width = protocol::CAPE_DIMENSIONS.iter().map(|size| size.0).max();
-    limits.max_image_height = protocol::CAPE_DIMENSIONS.iter().map(|size| size.1).max();
+    limits.max_image_width = render_api::CAPE_DIMENSIONS.iter().map(|size| size.0).max();
+    limits.max_image_height = render_api::CAPE_DIMENSIONS.iter().map(|size| size.1).max();
     reader.limits(limits);
     let rgba = reader
         .decode()
         .map_err(|error| format!("The cape PNG could not be read: {error}"))?
         .to_rgba8();
-    let padded_dimensions = protocol::CAPE_DIMENSIONS
+    let padded_dimensions = render_api::CAPE_DIMENSIONS
         .iter()
         .copied()
         .find(|(width, _)| {
-            let scale = width / protocol::CAPE_DIMENSIONS[0].0;
+            let scale = width / render_api::CAPE_DIMENSIONS[0].0;
             rgba.dimensions()
                 == (
                     CROPPED_CAPE_DIMENSIONS.0 * scale,
@@ -169,7 +169,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<protocol::CapeImage, String> {
     } else {
         rgba
     };
-    let cape = protocol::CapeImage {
+    let cape = render_api::CapeImage {
         width: rgba.width(),
         height: rgba.height(),
         rgba8: rgba.into_raw().into(),

@@ -35,7 +35,7 @@ pub mod menu_artwork;
 pub mod menu_scroll;
 mod mod_panel_font;
 mod runtime_assets;
-pub use menu_artwork::BUILT_IN_TITLE;
+
 pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;

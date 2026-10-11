@@ -1,6 +1,6 @@
 //! What the menu knows about a destination that Discord's card shows: art and player limits.
 
-use protocol::launcher_control::ConnectTarget;
+use bridge::ConnectTarget;
 
 use super::{MenuRuntime, target_for};
 

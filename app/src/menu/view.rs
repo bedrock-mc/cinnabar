@@ -16,7 +16,7 @@ impl MenuRuntime {
                 | AuthState::AwaitingCode { .. }
                 | AuthState::AwaitingXboxSignup { .. }
         ) || (auth_state == AuthState::Authenticated
-            && (!self.catalog_started || self.catalog_process.is_some()));
+            && (!self.catalog_started || self.catalog.is_running()));
         let auth_state = if self.presentation_accounts {
             AuthState::Authenticated
         } else {

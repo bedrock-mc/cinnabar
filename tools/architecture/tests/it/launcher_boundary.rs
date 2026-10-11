@@ -74,7 +74,17 @@ fn new_crates_accept_the_domain_and_presentation_dependency_direction() {
     set_dependencies(
         root,
         "launcher",
-        "[dependencies]\nui={path='../ui'}\nprotocol={path='../protocol'}",
+        "[dependencies]\nui={path='../ui'}\nbridge={path='../bridge'}",
+    );
+    set_dependencies(
+        root,
+        "launcher-host",
+        "[dependencies]\nlauncher={path='../launcher'}\nbridge={path='../bridge'}",
+    );
+    set_dependencies(
+        root,
+        "first-run",
+        "[dependencies]\nlauncher={path='../launcher'}\nlauncher-host={path='../launcher-host'}\nrender-model={path='../render-model'}\nui={path='../ui'}",
     );
     set_dependencies(
         root,

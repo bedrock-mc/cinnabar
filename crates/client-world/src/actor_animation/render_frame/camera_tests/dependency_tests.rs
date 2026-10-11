@@ -40,11 +40,11 @@ fn render_only_swing_updates_persona_visibility_without_reposing_it() {
         layer.first_visibility = 1;
         layer.visibility_count = 0;
     }
-    let source = Arc::new(protocol::SkinGeometrySource {
+    let source = Arc::new(render_api::SkinGeometrySource {
         resource_patch: r#"{"geometry":{"default":"geometry.body","animated_face":"geometry.face"}}"#.into(),
         geometry_data: r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.body","texture_width":16,"texture_height":16},"bones":[{"name":"root","pivot":[0,0,0]}]},{"description":{"identifier":"geometry.face","texture_width":16,"texture_height":16},"bones":[{"name":"root","pivot":[0,0,0]}]}]}"#.into(),
-        animations: vec![protocol::SkinAnimation {
-            kind: protocol::SkinAnimationKind::Face,
+        animations: vec![render_api::SkinAnimation {
+            kind: render_api::SkinAnimationKind::Face,
             width: 16,
             height: 32,
             rgba8: vec![255; 16 * 32 * 4].into(),

@@ -184,12 +184,16 @@ material/shader linkage remain open.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
+| Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |
 | Deterministic tests | Launcher regression covers default-on, old saves, both saved values, subsystem projection and Video reset. Offline JSON-UI regression reaches and renders both toggle states. |
 | Review commit | Skybox option tracked in [#632](https://github.com/bedrock-mc/cinnabar/pull/632); full phase review remains open. |
 | Live/native witness | Both offline Video control states were inspected; full settings and current-server acceptance remain open. |
 | Performance/resource witness | Full settings performance witness remains open. |
 | Final status | Open — the skybox option is implemented; the complete settings gate is not closed. |
+
+The standalone setup window belongs to `first-run`. Its preparation tests move with it;
+menu integration tests stay in `app`. Account, process and persistence tests belong to
+`launcher-host`. These ownership changes do not close the settings parity gate.
 
 ## Xbox presence follow-up
 

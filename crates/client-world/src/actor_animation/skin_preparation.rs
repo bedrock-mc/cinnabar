@@ -15,7 +15,7 @@ impl ActorAnimationStore {
     /// Admits only a retained source pointer; all content work belongs to the worker.
     pub(crate) fn request_skin_preparation(
         &mut self,
-        source: &Arc<protocol::SkinGeometrySource>,
+        source: &Arc<render_api::SkinGeometrySource>,
     ) -> bool {
         self.request_replacing_skin_preparation(source, None)
     }
@@ -23,8 +23,8 @@ impl ActorAnimationStore {
     /// The worker compares replacement bytes against the still-ready result, never against a main-thread hash.
     pub(crate) fn request_replacing_skin_preparation(
         &mut self,
-        source: &Arc<protocol::SkinGeometrySource>,
-        previous: Option<&Arc<protocol::SkinGeometrySource>>,
+        source: &Arc<render_api::SkinGeometrySource>,
+        previous: Option<&Arc<render_api::SkinGeometrySource>>,
     ) -> bool {
         self.skin_preparation.request_replacing(source, previous)
     }
@@ -33,7 +33,7 @@ impl ActorAnimationStore {
     pub(crate) fn sync_skin_model(
         &mut self,
         runtime_id: u64,
-        source: Option<&Arc<protocol::SkinGeometrySource>>,
+        source: Option<&Arc<render_api::SkinGeometrySource>>,
     ) {
         let Some(state) = self
             .runtime_to_lifetime

@@ -341,11 +341,11 @@ fn the_settings_panes_take_the_wheel() {
 fn snapshot_local_worlds() {
     let player_runtime = player_state::PlayerState::new(1);
 
-    use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
-    use protocol::world_control::{
+    use bridge::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
         World, WorldState, WorldStatus,
     };
+    use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
     std::fs::create_dir_all(&dir).unwrap();
     let mut base = fixture_view(&dir);

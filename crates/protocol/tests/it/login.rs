@@ -293,7 +293,7 @@ fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), S
     #[cfg(windows)]
     let endpoint = socket_dir.join("session.addr");
     #[cfg(unix)]
-    let endpoint = protocol::bridge_endpoint_path(socket_dir);
+    let endpoint = bridge::session_endpoint_path(socket_dir);
 
     tokio::task::block_in_place(|| {
         let mut outcome = None;

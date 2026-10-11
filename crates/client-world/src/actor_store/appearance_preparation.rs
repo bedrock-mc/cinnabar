@@ -120,7 +120,7 @@ impl ActorStore {
 }
 
 /// Standard and animated skin bytes keep the source allocation alive until publication.
-fn geometry_source(profile: &PlayerProfile) -> Option<&Arc<protocol::SkinGeometrySource>> {
+fn geometry_source(profile: &PlayerProfile) -> Option<&Arc<render_api::SkinGeometrySource>> {
     match &profile.skin {
         PlayerSkin::Standard(skin) => skin.geometry.as_ref(),
         PlayerSkin::Unavailable(_) => None,
@@ -147,14 +147,14 @@ fn same_profile_allocation(a: &PlayerProfile, b: &PlayerProfile) -> bool {
     match (a_skin, b_skin) {
         (PlayerSkin::Unavailable(a), PlayerSkin::Unavailable(b)) => a == b,
         (PlayerSkin::Standard(a), PlayerSkin::Standard(b)) => {
-            let protocol::StandardSkin {
+            let render_api::StandardSkin {
                 width: a_width,
                 height: a_height,
                 rgba8: a_pixels,
                 cape: a_cape,
                 geometry: a_geometry,
             } = a;
-            let protocol::StandardSkin {
+            let render_api::StandardSkin {
                 width: b_width,
                 height: b_height,
                 rgba8: b_pixels,
@@ -171,12 +171,12 @@ fn same_profile_allocation(a: &PlayerProfile, b: &PlayerProfile) -> bool {
                 }
                 && match (a_cape, b_cape) {
                     (Some(a), Some(b)) => {
-                        let protocol::CapeImage {
+                        let render_api::CapeImage {
                             width: a_width,
                             height: a_height,
                             rgba8: a_pixels,
                         } = a;
-                        let protocol::CapeImage {
+                        let render_api::CapeImage {
                             width: b_width,
                             height: b_height,
                             rgba8: b_pixels,

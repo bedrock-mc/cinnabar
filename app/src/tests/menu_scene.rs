@@ -6,8 +6,9 @@ use bevy::prelude::*;
 use client_ui::ui_runtime::{UiRuntime, presentation::forms::ServerUiPack};
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    StandardSkin, WorldBootstrap, WorldEvent,
+    WorldBootstrap, WorldEvent,
 };
+use render_api::StandardSkin;
 use {
     crate::{
         menu::MenuRuntime,

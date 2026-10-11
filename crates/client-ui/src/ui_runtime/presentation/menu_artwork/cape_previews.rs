@@ -1,6 +1,6 @@
 //! Cape attachments and card previews share the bounded artwork worker.
 
-use protocol::CapeImage;
+use render_api::CapeImage;
 
 #[derive(Clone)]
 pub(in super::super) struct CapeArtwork {

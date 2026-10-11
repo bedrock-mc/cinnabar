@@ -93,12 +93,12 @@ fn fixture_with_skin(with_skin: bool) -> World {
                         unique_id: 1,
                         username: "fixture".into(),
                         verified: true,
-                        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+                        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
                             width: 64,
                             height: 64,
                             rgba8: vec![255; 64 * 64 * 4].into(),
                             cape: None,
-                            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+                            geometry: Some(Arc::new(render_api::SkinGeometrySource {
                                 resource_patch:
                                     r#"{"geometry":{"default":"geometry.test_player"}}"#.into(),
                                 geometry_data: std::str::from_utf8(geometry).unwrap().into(),

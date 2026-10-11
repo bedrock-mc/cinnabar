@@ -15,14 +15,14 @@ pub(crate) mod catalog;
 /// never echoes the local player onto the player list.
 #[derive(Debug, Clone, Resource)]
 pub(crate) struct LocalPlayerSkin {
-    pub rgba8: protocol::SkinRgba8,
+    pub rgba8: render_api::SkinRgba8,
     pub width: u32,
     pub height: u32,
     pub skin_model: launcher::dressing_room::SkinModel,
     pub local_uuid: [u8; 16],
-    pub geometry: Option<Arc<protocol::SkinGeometrySource>>,
+    pub geometry: Option<Arc<render_api::SkinGeometrySource>>,
     pub engine_version: Arc<str>,
-    pub cape: Option<protocol::CapeImage>,
+    pub cape: Option<render_api::CapeImage>,
 }
 
 impl LocalPlayerSkin {
@@ -40,7 +40,7 @@ impl LocalPlayerSkin {
                 );
                 (
                     render_model::default_actor_skin_rgba8(),
-                    protocol::CLASSIC_SKIN_SIDE,
+                    render_api::CLASSIC_SKIN_SIDE,
                     false,
                 )
             }
@@ -73,13 +73,13 @@ impl LocalPlayerSkin {
     pub fn generated_default(display_name: &str) -> Self {
         Self::from_rgba8(
             render_model::default_actor_skin_rgba8(),
-            protocol::CLASSIC_SKIN_SIDE,
+            render_api::CLASSIC_SKIN_SIDE,
             display_name,
         )
     }
 
     /// Keeps classic upload dimensions independent of the renderer's larger shared array.
-    fn from_rgba8(packed: protocol::SkinRgba8, side: usize, display_name: &str) -> Self {
+    fn from_rgba8(packed: render_api::SkinRgba8, side: usize, display_name: &str) -> Self {
         let mut rgba8 = Vec::with_capacity(side * side * 4);
         for y in 0..side {
             for x in 0..side {
@@ -97,7 +97,7 @@ impl LocalPlayerSkin {
             skin_model: launcher::dressing_room::SkinModel::Classic,
             local_uuid: stable_local_uuid(display_name),
             geometry: None,
-            engine_version: protocol::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+            engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             cape: None,
         }
     }
@@ -108,8 +108,8 @@ impl LocalPlayerSkin {
         protocol::PlayerSkin::Standard(self.standard_skin())
     }
 
-    pub(crate) fn standard_skin(&self) -> protocol::StandardSkin {
-        protocol::StandardSkin {
+    pub(crate) fn standard_skin(&self) -> render_api::StandardSkin {
+        render_api::StandardSkin {
             geometry: self.geometry.clone(),
             cape: self.cape.clone(),
             width: self.width,
@@ -124,7 +124,7 @@ impl LocalPlayerSkin {
 
     pub(crate) fn set_selection(
         &mut self,
-        skin: &protocol::StandardSkin,
+        skin: &render_api::StandardSkin,
         model: launcher::dressing_room::SkinModel,
     ) {
         self.rgba8 = skin.rgba8.clone();
@@ -137,7 +137,7 @@ impl LocalPlayerSkin {
 
     /// Overrides only the rendered cape for developer recordings; login identity stays intact.
     #[cfg(feature = "developer-control")]
-    pub(crate) fn set_test_cape(&mut self, cape: Option<protocol::CapeImage>) {
+    pub(crate) fn set_test_cape(&mut self, cape: Option<render_api::CapeImage>) {
         self.cape = cape;
     }
 
@@ -178,7 +178,7 @@ impl LocalPlayerSkin {
 }
 
 /// Packs supported source pixels, retaining a legal classic size for the login upload.
-fn load_normalized_skin(path: &Path) -> Result<(protocol::SkinRgba8, usize), String> {
+fn load_normalized_skin(path: &Path) -> Result<(render_api::SkinRgba8, usize), String> {
     let image = image::open(path).map_err(|error| error.to_string())?;
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
@@ -191,7 +191,7 @@ fn load_normalized_skin(path: &Path) -> Result<(protocol::SkinRgba8, usize), Str
         .map(|pixels| {
             (
                 pixels,
-                (width as usize).min(protocol::MAX_CLASSIC_SKIN_SIDE),
+                (width as usize).min(render_api::MAX_CLASSIC_SKIN_SIDE),
             )
         })
         .ok_or_else(|| format!("unsupported skin dimensions {width}x{height} or byte length"))
@@ -216,7 +216,7 @@ mod tests {
     /// An HD classic upload keeps every texel without acquiring the GPU array dimensions.
     #[test]
     fn packed_resolution_does_not_change_classic_login_dimensions() {
-        let side = protocol::MAX_CLASSIC_SKIN_SIDE;
+        let side = render_api::MAX_CLASSIC_SKIN_SIDE;
         let original: Arc<[u8]> = (0..side * side * 4).map(|value| value as u8).collect();
         let packed = render_model::normalize_actor_skin(&render_model::ActorSkinPixels {
             width: side as u32,

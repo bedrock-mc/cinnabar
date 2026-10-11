@@ -40,7 +40,7 @@ struct Outcome {
 impl Outcome {
     fn new(
         view: &DressingRoomView,
-        before: Option<protocol::StandardSkin>,
+        before: Option<render_api::StandardSkin>,
         previous_model: Option<(SkinModel, Arc<str>)>,
         uuid: [u8; 16],
         completed_command: bool,

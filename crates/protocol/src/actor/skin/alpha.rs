@@ -1,7 +1,7 @@
 //! Bedrock's non-persona skin alpha validation, before texture packing or resampling.
 use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 
-use super::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE};
+use render_api::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE};
 
 /// Binarizes supported skin regions and protects classic body sides from excessive transparency.
 pub(super) fn normalize(skin: &mut SerializedSkinRef) {
