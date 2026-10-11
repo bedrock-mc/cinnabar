@@ -367,7 +367,7 @@ fn assemble(
         !include_items,
     )?;
     validate_reference_coverage(&symbols, &animation)?;
-    let molang = molang_compiler.finish()?;
+    let mut molang = molang_compiler.finish()?;
     let equipment_bindings =
         attachable::compile_bindings(source_payloads, &symbols, &sources, !include_items)?;
     let items = if include_items {
@@ -390,11 +390,11 @@ fn assemble(
         animation_clips: animation.clips,
         animation_channels: animation.channels,
         animation_keyframes: animation.keyframes,
-        molang_symbols: molang.symbols,
-        molang_expressions: molang.expressions,
-        molang_ops: molang.ops,
-        molang_collections: molang.collections,
-        molang_collection_items: molang.collection_items,
+        molang_expressions: std::mem::take(&mut molang.expressions),
+        molang_ops: std::mem::take(&mut molang.ops),
+        molang_collections: std::mem::take(&mut molang.collections),
+        molang_collection_items: std::mem::take(&mut molang.collection_items),
+        molang_symbols: molang.into_symbols(),
         controllers: animation.controllers,
         controller_states: animation.controller_states,
         controller_animations: animation.controller_animations,

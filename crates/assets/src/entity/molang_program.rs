@@ -38,6 +38,11 @@ impl MolangProgram {
         &self.symbols
     }
 
+    /// Transfers the symbol table after the remaining arenas have been moved into a carrier.
+    pub fn into_symbols(self) -> Box<[MolangSymbol]> {
+        self.symbols
+    }
+
     /// Reads the handler already bound to this symbol slot.
     pub fn query_binding(&self, symbol: u32) -> Option<MolangQuery> {
         self.query_bindings.get(symbol as usize).copied().flatten()

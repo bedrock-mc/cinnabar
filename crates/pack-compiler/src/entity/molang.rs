@@ -365,7 +365,7 @@ pub fn compile_molang_expression(source: &str) -> Result<MolangProgram, AssetErr
 #[cfg(test)]
 mod query_inventory_tests {
     use super::*;
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, path::Path};
 
     /// Collects query names from independently downloaded pack documents.
     fn pack_queries(root: &Path, names: &mut BTreeSet<String>) {
@@ -429,7 +429,7 @@ mod query_inventory_tests {
                 .unwrap_or_else(|| panic!("query has no supported or unresolved contract: {name}"));
             let program = compile_molang_expression(&name).unwrap();
             let symbol = program
-                .symbols
+                .symbols()
                 .iter()
                 .position(|symbol| symbol.identifier.as_ref() == name)
                 .unwrap();
