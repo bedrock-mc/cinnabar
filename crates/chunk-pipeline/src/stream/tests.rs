@@ -950,6 +950,7 @@ fn acknowledge_request_sent(
     );
 }
 
+mod actor_light;
 mod audio_events;
 #[path = "tests/camera_events.rs"]
 mod camera_events;

@@ -6867,8 +6867,12 @@ Item registries retain numeric aliases and populated definitions accompanying em
 Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
 rejected UI publications preserve the previous catalog and retry pending artwork.
 
+Ordinary bodies and first-person hands sample collision-box top and bottom light;
+equipment inherits body illumination. Samples beyond the admitted dimension height
+use its default light pair without clamping to an edge cell.
+
 Incomplete: merging multiple different populated component definitions, unrestricted
-pack-size parity, ordinary actor endpoint lighting, exact native frame comparisons
+pack-size parity, special actor volume lighting, exact native frame comparisons
 and release hardware budgets remain open. Two terrain texture keys absent from the
 served Galaxite stack still report diagnostic textures; this compatibility work does not close those parity gates.
 

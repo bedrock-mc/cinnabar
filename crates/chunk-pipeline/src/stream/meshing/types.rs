@@ -50,10 +50,9 @@ impl MeshLightHalo {
     /// Vanilla reads an absent chunk at the dimension's default brightness
     /// (block 0, sky 15); Nether and End store no sky light, so only the Overworld is sky-lit.
     fn absent_light(&self) -> [u8; 2] {
-        match self.center {
-            Some(center) if center.dimension == 0 => [0, 15],
-            _ => [0, 0],
-        }
+        self.center.map_or([0, 0], |center| {
+            super::super::light_queries::dimension_default_light(center.dimension)
+        })
     }
 
     #[cfg(test)]
