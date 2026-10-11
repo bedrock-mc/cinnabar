@@ -116,9 +116,7 @@ fn present(app: &mut App) {
 }
 
 fn consent_owned(app: &App) -> bool {
-    app.world()
-        .resource::<super::super::input::ConsentInput>()
-        .0
+    app.world().resource::<client_state::ConsentInput>().0
 }
 
 #[test]
@@ -401,11 +399,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
     app.update();
-    assert!(
-        !app.world()
-            .resource::<super::super::input::ConsentInput>()
-            .0
-    );
+    assert!(!app.world().resource::<client_state::ConsentInput>().0);
     assert!(
         app.world()
             .resource::<ButtonInput<KeyCode>>()
@@ -439,7 +433,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
 #[test]
 fn consent_answer_retains_capture_return_through_its_owned_frame() {
     use bevy::window::{CursorGrabMode, CursorOptions};
-    use client_presentation::camera::CursorFocus;
+    use client_state::CursorFocus;
     for key in [KeyCode::Escape, KeyCode::F8, KeyCode::F6] {
         let mut app = join_app(State::Offered(offer()));
         app.init_resource::<CursorFocus>()
@@ -449,7 +443,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
             .add_systems(
                 Update,
                 (
-                    crate::menu::screen_focus::publish_screen_focus,
+                    client_shell::menu::screen_focus::publish_screen_focus,
                     crate::camera::update_cursor_capture,
                 )
                     .chain()

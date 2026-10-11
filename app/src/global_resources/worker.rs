@@ -60,7 +60,7 @@ fn run(
             return;
         }
     };
-    library.set_device_memory(super::memory::physical_bytes());
+    library.set_device_memory(launcher_host::memory::physical_bytes());
     super::icons::refresh(&library, &mut snapshot, &icon_root);
     match library.preview() {
         Ok(stack) => {

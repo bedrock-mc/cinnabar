@@ -40,7 +40,7 @@ fn hand_first_person(
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
-    Res<'w, crate::menu::MenuRuntime>,
+    Res<'w, client_shell::menu::MenuRuntime>,
     Res<'w, client_presentation::actor_publication::ActorFrameState>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,

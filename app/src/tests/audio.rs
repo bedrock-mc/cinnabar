@@ -18,7 +18,6 @@ use {
             ClientBlobCacheOwner, configure_acceptance_finish_system,
             configure_client_frame_schedule, configure_client_production_frame_systems,
         },
-        menu::MenuRuntime,
         runtime::{
             network::{NetworkHandle, ResourcePackAdmissionState},
             world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
@@ -27,6 +26,7 @@ use {
         session_audio::drain_sequenced_audio_into_session,
     },
     client_audio::session_audio::{SessionAudio, SessionAudioCatalog},
+    client_shell::menu::MenuRuntime,
     launcher::menu::MenuAction,
 };
 

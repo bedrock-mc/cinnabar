@@ -185,7 +185,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 
 /// Menu options and optional sky settings consumed by atmosphere updates.
 type AtmospherePreferences<'w> = (
-    Option<Res<'w, crate::menu::MenuRuntime>>,
+    Option<Res<'w, client_shell::menu::MenuRuntime>>,
     Option<ResMut<'w, render::CloudVisibility>>,
     Option<ResMut<'w, render::SkyboxSettings>>,
 );

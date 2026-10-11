@@ -18,13 +18,14 @@ use ui::{UiAction, UiPoint};
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::menu::MenuRuntime,
-    crate::menu::settings_options::control_bindings::{
-        binding_gamepad, binding_key, binding_mouse, gamepad_button,
-    },
     crate::runtime::world::ClientWorld,
-    client_state::PlayerRuntime,
-    client_state::SemanticInputSnapshot,
+    client_shell::menu::{
+        MenuRuntime,
+        settings_options::control_bindings::{
+            binding_gamepad, binding_key, binding_mouse, gamepad_button,
+        },
+    },
+    client_state::{PlayerRuntime, SemanticInputSnapshot},
 };
 
 use controls::{should_stop_emote, slot_key, wheel_key};
@@ -51,15 +52,15 @@ pub(crate) struct EmoteInput<'w, 's> {
     keyboard: MessageReader<'w, 's, KeyboardInput>,
     pads: Query<'w, 's, &'static Gamepad>,
     menu: Option<ResMut<'w, MenuRuntime>>,
-    consent: Option<Res<'w, crate::server_experiences::input::ConsentInput>>,
+    consent: Option<Res<'w, client_state::ConsentInput>>,
     world: Option<Res<'w, ClientWorld>>,
     player: Res<'w, PlayerRuntime>,
     runtime: ResMut<'w, UiRuntime>,
     presentation: Option<ResMut<'w, UiPresentationRuntime>>,
     observed: Local<'s, ObservedEmotes>,
     consumed: ResMut<'w, EmoteInputConsumed>,
-    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    focus: Option<ResMut<'w, client_state::CursorFocus>>,
+    driven: Option<Res<'w, client_state::DrivenInput>>,
     network: Option<Res<'w, crate::runtime::network::NetworkHandle>>,
 }
 

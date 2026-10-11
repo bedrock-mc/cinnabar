@@ -230,7 +230,7 @@ fn server_chat_screen_keeps_the_java_layout_and_input_policy() {
     });
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
-    let menu = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+    let menu = client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
     assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
     let input = presentation
         .build(

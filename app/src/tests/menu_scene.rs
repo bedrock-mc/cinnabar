@@ -10,11 +10,9 @@ use protocol::{
 };
 use render_api::StandardSkin;
 use {
-    crate::{
-        menu::MenuRuntime,
-        runtime::{network::prepare_actor_render_frame, world::ClientWorld},
-    },
+    crate::runtime::{network::prepare_actor_render_frame, world::ClientWorld},
     client_presentation::actor_publication::HandRigBuilder,
+    client_shell::menu::MenuRuntime,
     client_ui::test_support::mini_engine_presentation,
     launcher::menu::{MenuAction, MenuScreen},
 };

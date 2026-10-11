@@ -2,7 +2,7 @@
 use bevy::prelude::{Res, ResMut};
 use client_ui::ui_runtime::UiRuntime;
 use client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene;
-use {crate::menu::MenuRuntime, client_state::PlayerRuntime};
+use {client_shell::menu::MenuRuntime, client_state::PlayerRuntime};
 
 /// Applies damage-driven scene retirement at its existing authority phase.
 pub(crate) fn close_scenes_on_player_hurt(

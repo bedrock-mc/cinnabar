@@ -41,64 +41,6 @@ mod logging;
 mod startup;
 use startup::bind_direct_session_directory;
 
-use crate::{
-    args,
-    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
-    block_use::{BlockUseRuntime, produce_block_use},
-    camera::FlyCameraPlugin,
-    environment::{
-        self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-        update_atmosphere_frame, update_lightning, update_precipitation_scene,
-        update_seasonal_foliage,
-    },
-    local_player::{publish_local_player_frame, resolve_camera_pose},
-    melee::{MeleeRuntime, SwingTracker, produce_melee},
-    menu::{MenuRuntime, drive_menu_input, drive_menu_services},
-    movement::{
-        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
-    },
-    present_mode::{PresentModeRuntime, apply_present_mode},
-    runtime::{
-        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
-        network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
-            prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
-            spawn_network,
-        },
-        publication::{PublicationController, begin_publication_frame},
-        shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
-        telemetry::{
-            publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
-            update_visibility_diagnostics,
-        },
-        visibility::{
-            AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
-            refresh_cave_visibility, remove_chunk_visibility,
-        },
-        world::{
-            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
-            WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
-            reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
-        },
-    },
-    semantic_controls::{
-        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
-        synchronize_semantic_input_authority,
-    },
-    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
-    survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
-    ui_runtime::{
-        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-        drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
-        flush_server_form_network,
-        gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{
-            drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
-        },
-    },
-};
 use client_presentation::{
     actor_publication::publish_actor_render_frame,
     camera::FlyCameraUpdateSet,
@@ -109,6 +51,70 @@ use diagnostics::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
+use {
+    crate::{
+        args,
+        asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
+        block_use::{BlockUseRuntime, produce_block_use},
+        camera::FlyCameraPlugin,
+        environment::{
+            self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
+            update_atmosphere_frame, update_lightning, update_precipitation_scene,
+            update_seasonal_foliage,
+        },
+        local_player::{publish_local_player_frame, resolve_camera_pose},
+        melee::{MeleeRuntime, SwingTracker, produce_melee},
+        movement::{
+            LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+            PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
+        },
+        present_mode::{PresentModeRuntime, apply_present_mode},
+        runtime::{
+            endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
+            network::{
+                NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+                prepare_actor_render_frame, publish_entity_shadows, receive_network_events,
+                spawn_network,
+            },
+            publication::{PublicationController, begin_publication_frame},
+            shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
+            telemetry::{
+                publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
+                update_visibility_diagnostics,
+            },
+            visibility::{
+                AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
+                refresh_cave_visibility, remove_chunk_visibility,
+            },
+            world::{
+                ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
+                WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
+                reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
+            },
+        },
+        semantic_controls::{
+            collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+            synchronize_semantic_input_authority,
+        },
+        session::{
+            SessionController, drive_session, follow_server_transfer, recover_session_failure,
+        },
+        shell_adapters::drive_menu_services,
+        survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
+        ui_runtime::{
+            drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+            drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
+            flush_server_form_network,
+            gameplay_touch::drive_gameplay_touch_targets,
+            presentation::{
+                drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime,
+                publish_ui_runtime,
+            },
+        },
+    },
+    client_shell::menu::MenuRuntime,
+};
 
 mod render_setup;
 use render_setup::render_plugin;
@@ -494,7 +500,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .server_file()
             .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
     );
-    let active_lang = crate::asset_startup::load_active_language(
+    let active_lang = pack_runtime::language_carrier::load_active_language(
         &loaded_assets.selected_path,
         args.language.as_deref().or(saved_settings.language()),
     );
@@ -624,7 +630,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
-    let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let local_player_skin =
+        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
     let menu = MenuRuntime::new_with_layout(
         !connection_requested,
@@ -721,13 +728,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
-    app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
     });
     // Account feeds also serve Profile in direct-address and external-socket runs.
-    app.init_resource::<crate::menu::LauncherCoreSlot>();
+    app.init_resource::<client_shell::menu::LauncherCoreSlot>();
     app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -795,7 +801,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     })
     .insert_resource(local_player_skin)
     .insert_resource(menu.with_vsync_override(vsync_override))
-    .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(client_audio::session_audio::SessionAudioCatalog(
         audio_catalog,
     ))
@@ -934,14 +939,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
-    crate::discord_presence::configure(&mut app);
+    app.init_resource::<client_state::PresenceObservation>()
+        .add_systems(
+            Last,
+            crate::shell_adapters::publish_presence_observation
+                .before(client_state::ShellFrameSet::Presence),
+        );
     configure_acceptance_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     executor::configure_frame_schedule_executors(&mut app);
     let exit = app.run();
-    crate::discord_presence::shutdown(&mut app);
+    client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }

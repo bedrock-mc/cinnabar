@@ -16,7 +16,6 @@ use launcher_host::{
 use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
-        menu::{LauncherCoreSlot, MenuRuntime},
         movement::{LocalPhysicsController, MovementTicker},
         runtime::{
             network::{CompiledStacks, NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
@@ -27,6 +26,7 @@ use {
     client_presentation::local_player::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
     },
+    client_shell::menu::{LauncherCoreSlot, MenuRuntime},
     client_state::PlayerRuntime,
 };
 
@@ -44,22 +44,7 @@ type BlobCache = crate::app::ClientBlobCacheOwner;
 type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
 pub(crate) type JoinStage = client_session::connection::JoinStage<SessionDirectoryGuard>;
 
-/// A join the menu asks the controller to make.
-#[derive(Debug)]
-pub(crate) struct JoinIntent {
-    pub(crate) address: String,
-    pub(crate) auth_cache: Option<PathBuf>,
-    /// Joins the launcher core's opened local world instead of `address`.
-    pub(crate) local_world: bool,
-}
-
-/// What the menu gates and renders of the session; only the controller writes it.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct SessionStatus {
-    pub(crate) connecting: bool,
-    /// A session runtime directory is bound.
-    pub(crate) owns_directory: bool,
-}
+use client_state::{JoinIntent, SessionStatus};
 
 #[derive(Debug, Resource)]
 pub(crate) struct SessionController {
@@ -291,40 +276,9 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
     (!trimmed.is_empty()).then(|| format_transfer_address(trimmed, port))
 }
 
-/// Where a join to `address` plays and the address a Discord invite joins. Servers (by endpoint
-/// with a port), experiences and friends' worlds are joinable; a friend's world still needs the
-/// joiner to see it through Xbox. Realms carry no invite, a local world's comes from its host
-/// (see `MenuRuntime::hosted_world_address`), and no identifier is ever shown on the card.
-fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
-    use bridge::ConnectTarget;
-    use rich_presence::{Destination, Target};
-    if local_world {
-        return Target {
-            destination: Destination::LocalWorld(address.to_owned()),
-            join: None,
-            badge: None,
-            max_players: None,
-        };
-    }
-    let address = address.trim();
-    let (destination, join) = match launcher_host::launcher_core::target_for(address) {
-        ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
-        ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
-        ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
-        ConnectTarget::Realm(_) => (Destination::Realm, None),
-    };
-    Target {
-        destination,
-        join,
-        badge: None,
-        max_players: None,
-    }
-}
-
-/// Whether a received invite names a destination Cinnabar itself makes joinable.
-pub(crate) fn invite_joinable(address: &str) -> bool {
-    presence_target(address, false).join.as_deref() == Some(address)
-}
+#[cfg(test)]
+use client_shell::presence_target::invite_joinable;
+use client_shell::presence_target::presence_target;
 
 #[derive(SystemParam)]
 pub(crate) struct SessionResources<'w> {
@@ -567,7 +521,7 @@ pub(crate) fn login_settings(
                 gameplay::mining::protocol_input_mode(snapshot.input_mode)
             }),
         gui_scale_offset: menu.gui_scale_offset(),
-        memory_tier: protocol::login_memory_tier(crate::global_resources::memory::physical_bytes()),
+        memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
         graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
@@ -813,7 +767,7 @@ mod tests {
             None,
             "Direct".to_owned(),
             layout,
-            crate::player_skin::LocalPlayerSkin::generated_default("Direct"),
+            client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
         );
         let settings = login_settings(&menu, None);
         assert_eq!(settings.gui_scale_offset, -1);

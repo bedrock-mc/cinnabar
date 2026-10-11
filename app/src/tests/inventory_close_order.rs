@@ -24,9 +24,9 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
     crate::{
         app::configure_client_frame_schedule,
-        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
     },
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_state::ClientFrameSet,
     client_ui::test_support::fixture_font,
 };
@@ -421,7 +421,7 @@ fn inventory_binding_press_followed_by_a_key_is_not_a_click() {
                 .0
                 .named_key_control("key.inventory"),
             Some(semantic_input::PhysicalControl::MouseButton(
-                crate::semantic_controls::physical::mouse_button_code(MouseButton::Right).unwrap()
+                client_ui::physical_input::mouse_button_code(MouseButton::Right).unwrap()
             )),
             "the inventory is bound to the right button"
         );

@@ -24,7 +24,6 @@ use ui::UiPoint;
 use {
     crate::{
         app::{configure_client_frame_schedule, configure_client_production_frame_systems},
-        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         runtime::network::receive_network_events,
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
@@ -36,8 +35,8 @@ use {
             flush_inventory_network,
         },
     },
-    client_state::RuntimeSettings,
-    client_state::{ClientFrameSet, SemanticInputSnapshot},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };
 use {
@@ -279,7 +278,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
             )
                 .chain()
@@ -513,7 +512,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
                     drive_chat_keyboard_input,
                     drive_menu_input,
                     drive_inventory_ui_actions,
-                    crate::menu::screen_focus::publish_screen_focus,
+                    client_shell::menu::screen_focus::publish_screen_focus,
                     synchronize_semantic_input_authority,
                 )
                     .chain()

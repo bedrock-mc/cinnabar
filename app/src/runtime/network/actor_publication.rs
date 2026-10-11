@@ -40,11 +40,11 @@ pub(crate) struct ActorObservations<'w> {
     player: Res<'w, PlayerRuntime>,
     physics: Res<'w, LocalPhysicsController>,
     view: Res<'w, client_presentation::local_player::LocalViewPose>,
-    skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    skin: Res<'w, client_shell::player_skin::LocalPlayerSkin>,
     settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
-    menu: Option<Res<'w, crate::menu::MenuRuntime>>,
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
@@ -143,7 +143,7 @@ pub(crate) fn advance_actor_frame(
             let _ui = profiler
                 .as_deref()
                 .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
-            crate::screen_policy::renders_game(
+            client_shell::screen_policy::renders_game(
                 &player,
                 ui.as_deref(),
                 menu.as_deref(),

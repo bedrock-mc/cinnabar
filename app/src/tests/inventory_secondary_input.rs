@@ -24,7 +24,6 @@ use ui::UiPoint;
 use {
     crate::{
         app::configure_client_frame_schedule,
-        menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         semantic_controls::{
             PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
             collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -32,8 +31,8 @@ use {
         },
         ui_runtime::{drive_chat_keyboard_input, drive_inventory_ui_actions},
     },
-    client_state::RuntimeSettings,
-    client_state::{ClientFrameSet, SemanticInputSnapshot},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
     client_ui::test_support::fixture_font,
 };
 use {
@@ -657,7 +656,7 @@ fn semantic_app(
                 drive_chat_keyboard_input,
                 drive_menu_input,
                 drive_inventory_ui_actions,
-                crate::menu::screen_focus::publish_screen_focus,
+                client_shell::menu::screen_focus::publish_screen_focus,
                 synchronize_semantic_input_authority,
             )
                 .chain()
@@ -989,7 +988,7 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
             Some(2),
             "Tester".into(),
             layout,
-            crate::player_skin::LocalPlayerSkin::generated_default("Tester"),
+            client_shell::player_skin::LocalPlayerSkin::generated_default("Tester"),
         ));
         app.world_mut()
             .resource_mut::<MenuRuntime>()
@@ -1000,7 +999,7 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
         assert_eq!(
             menu.view().settings_options.named_key_control("key.drop"),
             Some(semantic_input::PhysicalControl::KeyboardUsage(
-                crate::semantic_controls::keyboard_usage(KeyCode::KeyR).unwrap()
+                client_ui::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
             ))
         );
         menu.set_visible(false);

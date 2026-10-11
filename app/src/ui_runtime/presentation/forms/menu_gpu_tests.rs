@@ -149,7 +149,7 @@ fn menu_frames_on_native_gpu() {
         .world()
         .resource::<render::UiRenderStatsResource>()
         .clone();
-    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin = client_shell::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../.local")
@@ -372,12 +372,12 @@ fn profile_frames_on_native_gpu() {
     let Some(mut presentation) = pack_harness::startup_presentation() else {
         return;
     };
-    let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
+    let mut view = client_shell::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
     view.screen = MenuScreen::Profile;
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = client_ui::test_support::pack_harness::menu_runtime();
     runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
-    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin = client_shell::player_skin::LocalPlayerSkin::generated_default("Test");
     presentation.sync_player_preview(Some(&skin.rgba8), Default::default(), true, false, 0.0);
     view.profile_icon = presentation.player_preview_icon();
     let mut app = app();

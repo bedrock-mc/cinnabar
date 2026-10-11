@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use super::{camera::ScriptedCamera, capture::Recording};
 use {
-    crate::{menu::MenuRuntime, runtime::world::ClientWorld},
-    client_presentation::local_player::LocalViewPose,
+    crate::runtime::world::ClientWorld, client_presentation::local_player::LocalViewPose,
+    client_shell::menu::MenuRuntime,
 };
 
 /// Waits without a timeout give up after this long so a controller is never wedged.
@@ -312,7 +312,7 @@ pub(super) fn snapshot(world: &World) -> Value {
                 })).collect::<Vec<_>>(),
             })
         }),
-        "skin": world.get_resource::<crate::player_skin::LocalPlayerSkin>().map(|skin| json!({
+        "skin": world.get_resource::<client_shell::player_skin::LocalPlayerSkin>().map(|skin| json!({
             "width": skin.width, "height": skin.height, "arm_size": skin.skin_model.arm_size(),
             "content_hash": skin.rgba8.content_hash(),
             "cape": skin.cape.as_ref().map(|cape| json!({"width": cape.width, "height": cape.height})),
@@ -323,7 +323,7 @@ pub(super) fn snapshot(world: &World) -> Value {
                 bounds.min().x(), bounds.min().y(), bounds.max().x(), bounds.max().y(),
             ]),
         })),
-        "driven": world.contains_resource::<crate::camera::DrivenInput>(),
+        "driven": world.contains_resource::<client_state::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
         "server_camera": world.get_resource::<client_presentation::camera::ServerCameraView>().map(|camera| json!({
             "active": camera.is_active(),

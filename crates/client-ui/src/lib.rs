@@ -13,3 +13,5 @@ pub mod test_support;
 
 #[cfg(test)]
 mod allocation_count;
+
+pub mod physical_input;

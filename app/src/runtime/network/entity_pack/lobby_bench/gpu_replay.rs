@@ -142,7 +142,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     let mut presentation = ui_presentation();
     let runtime = client_ui::ui_runtime::UiRuntime::new(1);
     presentation.set_menu_view(Some(
-        crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
+        client_shell::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
     ));
     for millis in 0..3 {
         publish_ui(

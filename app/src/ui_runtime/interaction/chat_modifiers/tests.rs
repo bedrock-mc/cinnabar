@@ -28,7 +28,7 @@ impl Harness {
             .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                 1,
             )))
-            .insert_resource(crate::menu::MenuClipboard::with_access(
+            .insert_resource(client_shell::menu::MenuClipboard::with_access(
                 move |_| {
                     count.fetch_add(1, Ordering::Relaxed);
                     Some(text.lock().unwrap().clone())
@@ -193,12 +193,12 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
         h.press(KeyCode::ControlLeft, None);
         if menu_owns {
             h.app
-                .insert_resource(crate::menu::MenuRuntime::new_with_layout(
+                .insert_resource(client_shell::menu::MenuRuntime::new_with_layout(
                     true,
                     Some(2),
                     "Fixture".into(),
                     launcher::test_support::scratch("chat-modifier-ownership"),
-                    crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
+                    client_shell::player_skin::LocalPlayerSkin::generated_default("Fixture"),
                 ));
         } else {
             // An open chat correctly makes incoming forms busy. Close it through
@@ -239,7 +239,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
         h.release(KeyCode::ControlLeft);
         h.app
             .world_mut()
-            .remove_resource::<crate::menu::MenuRuntime>();
+            .remove_resource::<client_shell::menu::MenuRuntime>();
         h.app.insert_resource(UiRuntime::new(1));
         h.press(KeyCode::KeyT, Some("t"));
         h.press(KeyCode::KeyV, Some("v"));

@@ -1,0 +1,405 @@
+#[cfg(not(feature = "acceptance"))]
+use crate::acceptance::AcceptanceRun;
+#[cfg(feature = "acceptance")]
+use ::acceptance::AcceptanceRun;
+use bevy::{
+    app::{App, AppExit, Update},
+    prelude::{IntoScheduleConfigs, Quat, ResMut, Resource, Transform, Vec3},
+};
+use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
+use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
+
+use client_ui::ui_runtime::UiRuntime;
+use diagnostics::metrics::MetricsCollector;
+use {
+    crate::app::{ClientBlobCacheOwner, configure_client_frame_schedule},
+    crate::movement::{LocalPhysicsController, MovementTicker},
+    crate::runtime::network::{
+        NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
+        drain_network_controls,
+    },
+    crate::runtime::shutdown::record_fatal_error,
+    crate::runtime::telemetry::send_player_auth_inputs,
+    crate::runtime::visibility::AppMetrics,
+    crate::runtime::world::ClientWorld,
+    crate::session::{SessionController, drive_session, recover_session_failure},
+    client_presentation::local_player::{
+        InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample,
+    },
+    client_state::ClientFrameSet,
+    client_state::SemanticInputSnapshot,
+    gameplay::movement::{MovementSource, PhysicsMovementSample, ProcessedMovementState},
+};
+use {
+    client_shell::menu::MenuRuntime,
+    launcher::menu::{MenuAction, MenuScreen},
+};
+
+#[derive(Resource)]
+struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);
+
+fn receive_terminal_for_test(
+    mut network: ResMut<NetworkHandle>,
+    mut client_world: ResMut<ClientWorld>,
+) {
+    for event in drain_network_controls(network.control_events_mut(), 16) {
+        let NetworkControlEvent::Failed {
+            message,
+            server_disconnect,
+            ..
+        } = event
+        else {
+            continue;
+        };
+        record_fatal_error(
+            &mut client_world.fatal_error,
+            crate::runtime::network::session_failure_display(&message, server_disconnect.as_ref()),
+        );
+    }
+}
+
+fn close_after_receive(mut delayed: ResMut<DelayedTerminal>) {
+    let Some(sender) = delayed.0.take() else {
+        return;
+    };
+    for _ in 0..16 {
+        sender
+            .try_send(NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats: BlobCacheStats::default(),
+            })
+            .unwrap();
+    }
+    sender
+        .try_send(NetworkControlEvent::Failed {
+            message: "network read failed: closed".to_owned(),
+            decode_error_count: 0,
+            server_disconnect: Some(ServerDisconnectEvent {
+                reason: "Kicked".to_owned(),
+                message: Some("Cinnabar launcher return check".to_owned()),
+                filtered_message: None,
+            }),
+            origin: NetworkFailureOrigin::Receive,
+        })
+        .unwrap();
+}
+
+fn fixture_world_identity() -> WorldCollisionIdentity {
+    WorldCollisionIdentity::new(
+        CollisionRegistryIdentity {
+            protocol: 1001,
+            id_space: CollisionIdSpace::Sequential,
+            preg_sha256: [7; 32],
+        },
+        [],
+    )
+    .unwrap()
+}
+
+fn pending_sample(world_identity: WorldCollisionIdentity) -> PhysicsMovementSample {
+    PhysicsMovementSample {
+        tick: 11,
+        position: [1.0, 64.0, 2.0],
+        movement: [0.0; 3],
+        velocity: [0.0; 3],
+        move_vector: [0.0; 2],
+        raw_move_vector: [0.0; 2],
+        analogue_move_vector: [0.0; 2],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        camera_orientation: [0.0, 0.0, 1.0],
+        jumping: false,
+        sneaking: false,
+        input: Default::default(),
+        sprinting: false,
+        input_mode: PlayerInputMode::Mouse,
+        grounded_before_tick: true,
+        grounded_after_tick: true,
+        horizontal_collision: false,
+        vertical_collision: false,
+        jump_repeated: false,
+        processed: ProcessedMovementState::default(),
+        world_identity,
+    }
+}
+
+#[test]
+fn pause_disconnect_retires_pending_movement_before_network_send() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    menu.request_connect("fixture.invalid".to_owned());
+    menu.take_join_intent();
+    menu.show_world();
+    menu.open_pause();
+    menu.activate(MenuAction::PauseDisconnect);
+
+    let mut movement = MovementTicker::default();
+    movement.reset(1, 10, [0.0; 3]);
+    movement.set_source(MovementSource::Physics);
+    let world_identity = fixture_world_identity();
+    movement
+        .enqueue_completed_physics(pending_sample(world_identity.clone()))
+        .unwrap();
+    assert_eq!(movement.pending_count(), 1);
+
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([1.0, 64.0, 2.0], 10, true);
+    assert!(physics.is_active());
+
+    let mut local_frame = LocalPlayerFrameCarrier::default();
+    local_frame
+        .publish(LocalPlayerFrameSample {
+            session_generation: 1,
+            actor_session_id: 1,
+            fifo_sequence: 4,
+            physics_tick: 10,
+            perspective: semantic_input::PerspectiveMode::FirstPerson,
+            world_collision_identity: world_identity,
+            pose: Transform::default(),
+            eye: Vec3::new(1.0, 64.0, 2.0),
+            feet: Vec3::new(1.0, 64.0 - protocol::PLAYER_NETWORK_OFFSET, 2.0),
+            rotation: Quat::IDENTITY,
+        })
+        .unwrap();
+    let mut interaction = InteractionOriginSnapshot::default();
+    interaction.publish_from_local_player_frame(&local_frame);
+
+    let mut runtime = UiRuntime::new(1);
+    let input = b"item.stone.name=Session stone\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    assert_eq!(
+        runtime.localized_item_name("minecraft:stone"),
+        "Session stone"
+    );
+
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.add_message::<AppExit>()
+        .insert_resource(menu)
+        .insert_resource(SessionController::default())
+        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(ClientBlobCacheOwner::default())
+        .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(runtime)
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(ClientWorld::default())
+        .insert_resource(movement)
+        .insert_resource(physics)
+        .insert_resource(AcceptanceRun::new(None, None, false, false))
+        .insert_resource(SemanticInputSnapshot::default())
+        .insert_resource(local_frame)
+        .insert_resource(interaction)
+        .insert_resource(AppMetrics(MetricsCollector::new()))
+        .add_systems(Update, drive_session.in_set(ClientFrameSet::UiAuthority))
+        .add_systems(
+            Update,
+            send_player_auth_inputs.in_set(ClientFrameSet::NetworkSend),
+        )
+        .add_systems(
+            Update,
+            recover_session_failure.after(ClientFrameSet::NetworkSend),
+        );
+
+    app.update();
+
+    let menu = app.world().resource::<MenuRuntime>();
+    assert_eq!(menu.view().screen, MenuScreen::Servers);
+    assert!(menu.view().message.is_none());
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntime>()
+            .localized_item_name("minecraft:stone"),
+        "Stone"
+    );
+    let movement = app.world().resource::<MovementTicker>();
+    assert!(!movement.physics_is_authorized());
+    assert_eq!(movement.pending_count(), 0);
+    assert_eq!(movement.sent_physics_packet_count(), 0);
+    assert!(!app.world().resource::<LocalPhysicsController>().is_active());
+    assert!(
+        app.world()
+            .resource::<LocalPlayerFrameCarrier>()
+            .snapshot()
+            .is_none()
+    );
+    assert!(
+        app.world()
+            .resource::<InteractionOriginSnapshot>()
+            .outbound_ray()
+            .is_none()
+    );
+}
+
+#[test]
+fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_launcher() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.show_world();
+
+    let mut movement = MovementTicker::default();
+    movement.reset(1, 10, [0.0; 3]);
+    movement.set_source(MovementSource::Physics);
+    let world_identity = fixture_world_identity();
+    movement
+        .enqueue_completed_physics(pending_sample(world_identity.clone()))
+        .unwrap();
+
+    let mut local_frame = LocalPlayerFrameCarrier::default();
+    local_frame
+        .publish(LocalPlayerFrameSample {
+            session_generation: 1,
+            actor_session_id: 1,
+            fifo_sequence: 4,
+            physics_tick: 10,
+            perspective: semantic_input::PerspectiveMode::FirstPerson,
+            world_collision_identity: world_identity,
+            pose: Transform::default(),
+            eye: Vec3::new(1.0, 64.0, 2.0),
+            feet: Vec3::new(1.0, 64.0 - protocol::PLAYER_NETWORK_OFFSET, 2.0),
+            rotation: Quat::IDENTITY,
+        })
+        .unwrap();
+
+    let (network, terminal_sender) = NetworkHandle::stub_with_control_sender();
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    app.add_message::<AppExit>()
+        .insert_resource(menu)
+        .insert_resource(SessionController::default())
+        .insert_resource(network)
+        .insert_resource(DelayedTerminal(Some(terminal_sender)))
+        .insert_resource(ClientBlobCacheOwner::default())
+        .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(UiRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(ClientWorld::default())
+        .insert_resource(movement)
+        .insert_resource(LocalPhysicsController::default())
+        .insert_resource(AcceptanceRun::new(None, None, false, false))
+        .insert_resource(SemanticInputSnapshot::default())
+        .insert_resource(local_frame)
+        .insert_resource(InteractionOriginSnapshot::default())
+        .insert_resource(AppMetrics(MetricsCollector::new()))
+        .add_systems(
+            Update,
+            receive_terminal_for_test.before(ClientFrameSet::NetworkSend),
+        )
+        .add_systems(
+            Update,
+            close_after_receive
+                .after(receive_terminal_for_test)
+                .before(ClientFrameSet::NetworkSend),
+        )
+        .add_systems(
+            Update,
+            send_player_auth_inputs.in_set(ClientFrameSet::NetworkSend),
+        )
+        .add_systems(
+            Update,
+            recover_session_failure.after(ClientFrameSet::NetworkSend),
+        );
+
+    app.update();
+    assert!(
+        app.world().resource::<ClientWorld>().fatal_error.is_none(),
+        "a queued terminal control must outrank the synthetic closed-send error"
+    );
+    assert!(
+        !app.world().resource::<MenuRuntime>().is_visible(),
+        "recovery waits for the exact queued terminal control"
+    );
+    assert_eq!(
+        app.world().resource::<MovementTicker>().pending_count(),
+        1,
+        "the unsent physics snapshot remains available while control classification is pending"
+    );
+
+    app.update();
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+
+    app.update();
+    let menu = app.world().resource::<MenuRuntime>();
+    assert!(menu.is_visible());
+    assert_eq!(menu.view().screen, MenuScreen::Play);
+    assert_eq!(
+        menu.view().disconnect_message.as_deref(),
+        Some("server disconnected: Cinnabar launcher return check (network read failed: closed)")
+    );
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
+fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, SessionController) {
+    let mut controller = SessionController::default();
+    controller.set_connecting(true);
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.suppress_catalog_for_test();
+    menu.show_connecting();
+    menu.observe_session(controller.status());
+    menu.set_join_stage_for_test(stage);
+    (menu, controller)
+}
+
+fn drive_once((menu, controller): (MenuRuntime, SessionController), network: NetworkHandle) -> App {
+    let mut app = App::new();
+    app.add_message::<AppExit>()
+        .insert_resource(menu)
+        .insert_resource(controller)
+        .insert_resource(network)
+        .insert_resource(ClientBlobCacheOwner::default())
+        .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(UiRuntime::new(1))
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(ClientWorld::default())
+        .insert_resource(MovementTicker::default())
+        .insert_resource(LocalPhysicsController::default())
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(InteractionOriginSnapshot::default())
+        .add_systems(Update, drive_session);
+    app.update();
+    app
+}
+
+// Cancelling a download retires the session, closing its link to the core, and returns to Play.
+#[test]
+fn cancelling_a_pack_download_retires_the_session() {
+    let (mut menu, controller) = connecting_menu(launcher::menu::view::JoinStage::Packs {
+        done: 0,
+        total: 1,
+        received_bytes: 1,
+        total_bytes: 4,
+    });
+    menu.activate(MenuAction::AddBack);
+    let mut network = NetworkHandle::disconnected();
+    let (session_events, receiver) = tokio::sync::mpsc::channel(1);
+    *network.control_events_mut() = receiver;
+    let app = drive_once((menu, controller), network);
+    let menu = app.world().resource::<MenuRuntime>();
+    assert!(!menu.is_connecting());
+    assert!(menu.is_visible());
+    assert_eq!(menu.view().screen, MenuScreen::Play);
+    assert!(session_events.is_closed());
+}
+
+// Vanilla's Realm lookup offers no cancel, so back leaves the join running.
+#[test]
+fn back_during_the_realm_lookup_keeps_joining() {
+    let (mut menu, controller) = connecting_menu(launcher::menu::view::JoinStage::Realm);
+    menu.activate(MenuAction::AddBack);
+    let mut network = NetworkHandle::disconnected();
+    let (session_events, receiver) = tokio::sync::mpsc::channel(1);
+    *network.control_events_mut() = receiver;
+    let app = drive_once((menu, controller), network);
+    assert!(app.world().resource::<MenuRuntime>().is_connecting());
+    assert!(!session_events.is_closed());
+}

@@ -1135,7 +1135,7 @@ fn selected_custom_local_model_shares_preparation_in_first_and_third_person() {
         cape: None,
         geometry: Some(geometry.clone()),
     };
-    let mut local = crate::player_skin::LocalPlayerSkin::generated_default("fixture");
+    let mut local = client_shell::player_skin::LocalPlayerSkin::generated_default("fixture");
     local.set_selection(&skin, launcher::dressing_room::SkinModel::Custom);
     assert_eq!(
         local.to_client_skin().geometry.unwrap().geometry_data,

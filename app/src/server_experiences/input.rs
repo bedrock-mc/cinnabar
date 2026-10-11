@@ -8,8 +8,7 @@ use bevy::{
     prelude::*,
 };
 
-#[derive(Resource, Default)]
-pub(crate) struct ConsentInput(pub(crate) bool);
+use client_state::ConsentInput;
 
 /// Removes queued physical events after consent reads them and before ordinary UI runs.
 pub(crate) fn consume(world: &mut World) {

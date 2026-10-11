@@ -15,7 +15,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use {
-    crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_ui::test_support::fixture_font,
     launcher::menu::{MenuAction, MenuField, MenuScreen},
 };
@@ -569,11 +569,11 @@ fn chat_typing_consumes_movement_keys_and_mouse_input() {
 fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
     let player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    use crate::server_experiences::input::{ConsentInput, consume};
     use bevy::input::{
         gamepad::{Gamepad, GamepadButton},
         touch::{TouchInput, TouchPhase, touch_screen_input_system},
     };
+    use {crate::server_experiences::input::consume, client_state::ConsentInput};
     let (mut app, window) = menu_input_app(MenuClipboard::default());
     app.insert_resource(ConsentInput(true))
         .add_message::<TouchInput>()
@@ -659,7 +659,7 @@ fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 1));
     app.insert_resource(menu);
-    let mut focus = client_presentation::camera::CursorFocus::default();
+    let mut focus = client_state::CursorFocus::default();
     focus.focus_changed(false);
     focus.focus_changed(true);
     app.insert_resource(focus);
@@ -670,7 +670,7 @@ fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
     );
     assert!(app.world().resource::<MenuRuntime>().is_visible());
     app.world_mut()
-        .resource_mut::<client_presentation::camera::CursorFocus>()
+        .resource_mut::<client_state::CursorFocus>()
         .begin_frame(true);
     app.update();
     assert!(app.world().resource::<MenuRuntime>().is_visible());
@@ -688,7 +688,7 @@ fn disabled_focus_pause_still_leaves_overlay_input_released() {
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 0));
     app.insert_resource(menu);
-    let mut focus = client_presentation::camera::CursorFocus::default();
+    let mut focus = client_state::CursorFocus::default();
     focus.focus_changed(false);
     app.insert_resource(focus);
     app.update();

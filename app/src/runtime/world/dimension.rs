@@ -14,7 +14,7 @@ pub(crate) fn advance_dimension_transfer(
     network: bevy::prelude::Res<NetworkHandle>,
     clock: bevy::prelude::Res<crate::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
-    mut menu: Option<bevy::prelude::ResMut<crate::menu::MenuRuntime>>,
+    mut menu: Option<bevy::prelude::ResMut<client_shell::menu::MenuRuntime>>,
 ) {
     let session = client_world
         .stream

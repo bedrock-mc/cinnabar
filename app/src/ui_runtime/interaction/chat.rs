@@ -9,7 +9,7 @@ pub(crate) fn drive_chat_ui_actions(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut menu: Option<ResMut<crate::menu::MenuRuntime>>,
+    mut menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     wheel: Option<Res<AccumulatedMouseScroll>>,
     touches: Res<Touches>,
@@ -17,8 +17,8 @@ pub(crate) fn drive_chat_ui_actions(
     coordinates: super::chat_coordinates::ChatCoordinateContext,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         return;

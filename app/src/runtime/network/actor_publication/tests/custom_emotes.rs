@@ -149,9 +149,9 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.insert_resource(equipment);
     world.insert_resource(HandRigBuilder::from_runtime_assets(&entities).unwrap());
     world.init_resource::<render::HandRigScene>();
-    world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
-        "emote fixture",
-    ));
+    world.insert_resource(
+        client_shell::player_skin::LocalPlayerSkin::generated_default("emote fixture"),
+    );
     world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.init_resource::<ActorFramePartialTick>();
     world.insert_resource(UiRuntime::new(1));

@@ -6,8 +6,9 @@ pub(crate) mod font;
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::{environment::VisualTimeOverride, menu::MenuRuntime},
+    crate::environment::VisualTimeOverride,
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_shell::menu::MenuRuntime,
     client_state::ClientFrameSet,
     client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     mod_host::{ModGrants, ModHost},
@@ -336,8 +337,8 @@ fn drive_mod(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,
-    focus: Option<Res<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    focus: Option<Res<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
     windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     ui: Res<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
@@ -351,7 +352,7 @@ fn drive_mod(
     mut screen_input: screens::ScreenInput,
 ) {
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
-    let absorbed = crate::screen_policy::absorbs_input(
+    let absorbed = client_shell::screen_policy::absorbs_input(
         &player_runtime,
         Some(&ui),
         menu.as_deref(),

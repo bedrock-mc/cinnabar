@@ -21,15 +21,12 @@ use semantic_input::PhysicalControl;
 use serde_json::{Value, json};
 
 use {
-    crate::{
-        camera::DrivenInput,
-        runtime::telemetry::bedrock_camera_rotation,
-        semantic_controls::physical::{KEYBOARD_USAGES, mouse_button_code},
-    },
-    client_presentation::{
-        camera::{FlyCameraUpdateSet, PITCH_LIMIT},
-        local_player::{LocalPlayerFrameSet, LocalViewPose},
-    },
+    crate::runtime::telemetry::bedrock_camera_rotation,
+    crate::semantic_controls::physical::KEYBOARD_USAGES,
+    crate::semantic_controls::physical::mouse_button_code,
+    client_presentation::camera::FlyCameraUpdateSet, client_presentation::camera::PITCH_LIMIT,
+    client_presentation::local_player::LocalPlayerFrameSet,
+    client_presentation::local_player::LocalViewPose, client_state::DrivenInput,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +76,7 @@ pub(super) fn configure(app: &mut App) {
 
 pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, String> {
     let plan = InputPlan::from_command(command)?;
-    let menu = world.get_resource::<crate::menu::MenuRuntime>();
+    let menu = world.get_resource::<client_shell::menu::MenuRuntime>();
     let resolve = |controls: &[Control]| -> Result<Vec<Physical>, String> {
         controls
             .iter()
@@ -132,13 +129,13 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
             .retain(|event| matches!(event, InputEvent::Button(_, ButtonState::Released)));
         driver.text.clear();
         world.remove_resource::<DrivenInput>();
-        if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+        if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>() {
             menu.set_transient_toggles(false);
         }
         return Ok(json!({ "driven": false }));
     }
     world.init_resource::<DrivenInput>();
-    if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+    if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>() {
         menu.set_transient_toggles(true);
     }
     Ok(json!({ "driven": true, "held": held }))
@@ -166,7 +163,10 @@ impl Driver {
     }
 }
 
-fn resolve(menu: Option<&crate::menu::MenuRuntime>, control: &Control) -> Result<Physical, String> {
+fn resolve(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    control: &Control,
+) -> Result<Physical, String> {
     match control {
         Control::Key(name) => KEYBOARD_USAGES
             .iter()
@@ -181,7 +181,8 @@ fn resolve(menu: Option<&crate::menu::MenuRuntime>, control: &Control) -> Result
             ControlButton::Forward => MouseButton::Forward,
         })),
         Control::Binding(name) => {
-            match crate::menu::settings_options::control_bindings::named_control(menu, name) {
+            match client_shell::menu::settings_options::control_bindings::named_control(menu, name)
+            {
                 Some(PhysicalControl::KeyboardUsage(usage)) => KEYBOARD_USAGES
                     .iter()
                     .find(|(_, candidate)| *candidate == usage)
@@ -236,10 +237,10 @@ fn inject(
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
-        client_presentation::camera::release_cursor(&mut cursor);
+        client_ui::physical_input::release_cursor(&mut cursor);
     } else if std::mem::take(&mut *was_driven) {
         window.bypass_change_detection().focused = driver.real_focus.unwrap_or(false);
-        client_presentation::camera::release_cursor(&mut cursor);
+        client_ui::physical_input::release_cursor(&mut cursor);
     }
     *was_driven = driving;
     let expired: Vec<_> = driver
@@ -369,7 +370,7 @@ mod tests {
     };
 
     use super::{Driver, Physical, apply, inject};
-    use crate::camera::DrivenInput;
+    use client_state::DrivenInput;
 
     #[test]
     fn driven_input_releases_cursor_once_without_native_windowing() {

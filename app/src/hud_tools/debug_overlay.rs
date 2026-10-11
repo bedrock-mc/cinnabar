@@ -162,8 +162,8 @@ struct DebugContext<'w, 's> {
     ui_stats: Option<Res<'w, UiRenderStatsResource>>,
     camera_settings: Option<Res<'w, CameraSettingsAuthority>>,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
-    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+    focus: Option<Res<'w, client_state::CursorFocus>>,
+    driven: Option<Res<'w, client_state::DrivenInput>>,
     window: Query<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
 }
 

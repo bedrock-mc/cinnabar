@@ -7,10 +7,12 @@ use client_presentation::{
     local_player::LocalViewPose,
 };
 
-use crate::{
-    environment::{WeatherTickFrame, WorldClock},
-    menu::MenuRuntime,
-    runtime::world::ClientWorld,
+use {
+    crate::{
+        environment::{WeatherTickFrame, WorldClock},
+        runtime::world::ClientWorld,
+    },
+    client_shell::menu::MenuRuntime,
 };
 
 /// Samples rain on the same completed weather ticks that update the atmosphere.

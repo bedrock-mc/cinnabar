@@ -24,7 +24,7 @@ enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/e
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control"]
+developer-control = ["dep:developer-control", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
 frame-trace = ["bevy/trace_chrome", "bevy/debug"]
 # Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
@@ -34,6 +34,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+client-shell = { path = "../crates/client-shell" }
 client-state = { path = "../crates/client-state" }
 client-audio = { path = "../crates/client-audio" }
 pack-runtime = { path = "../crates/pack-runtime" }
@@ -97,10 +98,6 @@ world = { path = "../crates/world" }
 libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
-objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-ash = "0.38"
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6.2"
@@ -111,6 +108,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+client-shell = { path = "../crates/client-shell", features = ["test-support"] }
 client-audio = { path = "../crates/client-audio", features = ["test-support"] }
 pack-runtime = { path = "../crates/pack-runtime", features = ["test-support"] }
 launcher-host = { path = "../crates/launcher-host", features = ["test-support"] }

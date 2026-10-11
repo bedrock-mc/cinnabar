@@ -7,7 +7,7 @@ use ui::{DpiScale, UiPoint};
 use client_ui::test_support::{engine_presentation, fixture_font, fixture_hud};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::{menu::MenuRuntime, ui_runtime::presentation::apply_gui_scale_setting},
+    client_shell::{menu::MenuRuntime, settings_runtime::gui_scale::apply_gui_scale_setting},
     launcher::menu::{MenuAction, MenuScreen},
 };
 

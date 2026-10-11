@@ -1,0 +1,10 @@
+//! Host adapters for shared launcher settings.
+
+mod actions;
+mod chat;
+pub mod control_bindings;
+mod language;
+mod reset;
+mod runtime;
+#[cfg(test)]
+mod tests;

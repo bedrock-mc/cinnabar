@@ -16,7 +16,7 @@ use server_experience::{
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
-    crate::{menu::MenuRuntime, runtime::network::NetworkHandle},
+    crate::runtime::network::NetworkHandle, client_shell::menu::MenuRuntime,
     client_state::ClientFrameSet,
 };
 
@@ -36,7 +36,7 @@ pub(crate) fn configure(app: &mut App) {
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
-    app.init_resource::<super::input::ConsentInput>();
+    app.init_resource::<client_state::ConsentInput>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -67,13 +67,13 @@ fn drive(
     windows: Query<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut ownership: ResMut<super::input::ConsentInput>,
+    mut ownership: ResMut<client_state::ConsentInput>,
     time: Res<Time<Real>>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut buttons: MessageReader<bevy::input::mouse::MouseButtonInput>,
     mut keyboard: MessageReader<bevy::input::keyboard::KeyboardInput>,
-    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
+    mut focus: Option<ResMut<client_state::CursorFocus>>,
+    driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();
